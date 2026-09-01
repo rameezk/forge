@@ -49,6 +49,7 @@ Rules:
   commit.
 - Dirty or unexpected state (unresolved merge, unrelated staged changes): stop
   and report. Don't silently reset, stash, or amend.
+- If currently on a feature branch, ensure the branch name matches the context. It may still be on a previous, already merged feature branch. If so, inform the user or agent. 
 
 ## Avoid
 
