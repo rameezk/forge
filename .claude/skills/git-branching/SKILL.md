@@ -35,6 +35,11 @@ Rules:
 3. Create and switch: `git switch -c <type>/<name>`.
 4. Always create the new branch off the default branch
 
+## Rules
+
+- ALWAYS create new branches from the default branch only.
+- ALWAYS ensure the default branch is up to date with remote before creating the new branch.
+
 ## Guardrails
 
 - Dirty working tree when asked to branch: stop and report. Don't silently
