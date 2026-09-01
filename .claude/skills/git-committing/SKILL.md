@@ -37,7 +37,7 @@ Rules:
    explicit paths over `git add -A` / `git add .`.
 3. Group logically: one coherent change per commit. Split unrelated work into
    separate commits.
-4. Commit: `git commit -m "<subject>"` (add `-m` body lines as needed).
+4. Commit: `git commit -m "<subject>"` (add `-m` body lines as needed). Honour the git config to check if commits should be signed. If so, sign the commits.
 5. If the work is related to previous work in the branch, rebase if needed to the commits are presented in a logical and clear order.
 6. Report the resulting commit (`git log -1 --oneline`).
 
