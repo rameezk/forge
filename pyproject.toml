@@ -1,0 +1,19 @@
+[project]
+name = "forge"
+version = "0.1.0"
+description = "A Software Factory"
+readme = "README.md"
+authors = [
+    { name = "Rameez Khan", email = "rameez@rameezkhan.dev" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "claude-agent-sdk>=0.2.149",
+]
+
+[project.scripts]
+forge = "forge:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
