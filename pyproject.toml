@@ -18,6 +18,9 @@ forge = "forge:main"
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
+[tool.pytest.ini_options]
+python_functions = ["test_*", "*_then_*"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
