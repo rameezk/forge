@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,9 +13,12 @@ from claude_agent_sdk import (
 from forge.forge_agent import (
     FORGE_MAX_BUDGET_USD,
     FORGE_MODEL,
+    FORGE_REVIEWER_AGENT_NAMES,
+    FORGE_SKILLS,
     ForgeError,
     ForgeResult,
     _classify_output,
+    _load_agent_definition,
     _load_prompt,
     run_forge,
 )
@@ -127,6 +131,39 @@ async def given_a_mocked_query_when_options_built_then_carries_the_untrusted_con
         "pull request URL" in system_prompt
         or "pull request url" in system_prompt.lower()
     )
+
+
+async def given_a_mocked_query_when_options_built_then_enables_the_pipeline_skills():
+    with patch("forge.forge_agent.query") as query:
+        query.side_effect = _stream(_result(result=_PR_URL))
+        await run_forge("implement x")
+
+    skills = query.call_args.kwargs["options"].skills
+    assert set(FORGE_SKILLS) <= set(skills)
+    assert not any(skill.endswith(":blueprint") for skill in skills)
+
+
+async def given_a_mocked_query_when_options_built_then_provides_reviewer_agents():
+    with patch("forge.forge_agent.query") as query:
+        query.side_effect = _stream(_result(result=_PR_URL))
+        await run_forge("implement x")
+
+    agents = query.call_args.kwargs["options"].agents
+    for name in FORGE_REVIEWER_AGENT_NAMES:
+        agent = agents[name]
+        assert agent.prompt.strip()
+        assert agent.description.strip()
+
+
+async def given_a_mocked_query_when_options_built_then_bundles_the_plugin_on_disk():
+    with patch("forge.forge_agent.query") as query:
+        query.side_effect = _stream(_result(result=_PR_URL))
+        await run_forge("implement x")
+
+    plugins = query.call_args.kwargs["options"].plugins
+    assert len(plugins) == 1
+    assert plugins[0]["type"] == "local"
+    assert Path(plugins[0]["path"]).joinpath(".claude-plugin", "plugin.json").is_file()
 
 
 async def given_a_valid_pr_url_result_when_run_then_returns_success():
@@ -253,3 +290,74 @@ async def given_the_packaged_prompt_file_is_empty_when_loading_then_raises_forge
         _load_prompt()
 
     assert "forge_agent_prompt.md" in str(excinfo.value)
+
+
+async def given_the_packaged_code_reviewer_markdown_when_parsed_then_produces_a_usable_agent_definition():
+    agent = _load_agent_definition("code-reviewer")
+
+    assert agent.description.strip()
+    assert "---" not in agent.prompt
+    assert agent.prompt.startswith("You are a code reviewer.")
+    assert agent.model == "sonnet"
+
+
+async def given_a_missing_agent_markdown_file_when_loading_then_raises_forge_error():
+    missing_resource = MagicMock()
+    missing_resource.joinpath.return_value.read_text.side_effect = FileNotFoundError()
+    with (
+        patch(
+            "forge.forge_agent.importlib.resources.files", return_value=missing_resource
+        ),
+        pytest.raises(ForgeError) as excinfo,
+    ):
+        _load_agent_definition("code-reviewer")
+
+    assert "code-reviewer.md" in str(excinfo.value)
+
+
+async def given_an_empty_agent_markdown_file_when_loading_then_raises_forge_error():
+    empty_resource = MagicMock()
+    empty_resource.joinpath.return_value.read_text.return_value = "   "
+    with (
+        patch(
+            "forge.forge_agent.importlib.resources.files", return_value=empty_resource
+        ),
+        pytest.raises(ForgeError) as excinfo,
+    ):
+        _load_agent_definition("security-reviewer")
+
+    assert "security-reviewer.md" in str(excinfo.value)
+
+
+async def given_agent_markdown_without_frontmatter_when_loading_then_raises_forge_error():
+    malformed_resource = MagicMock()
+    malformed_resource.joinpath.return_value.read_text.return_value = (
+        "just a prompt body with no frontmatter"
+    )
+    with (
+        patch(
+            "forge.forge_agent.importlib.resources.files",
+            return_value=malformed_resource,
+        ),
+        pytest.raises(ForgeError) as excinfo,
+    ):
+        _load_agent_definition("code-reviewer")
+
+    assert "code-reviewer.md" in str(excinfo.value)
+
+
+async def given_agent_markdown_with_unterminated_frontmatter_when_loading_then_raises_forge_error():
+    malformed_resource = MagicMock()
+    malformed_resource.joinpath.return_value.read_text.return_value = (
+        "---\nname: code-reviewer\nno closing marker"
+    )
+    with (
+        patch(
+            "forge.forge_agent.importlib.resources.files",
+            return_value=malformed_resource,
+        ),
+        pytest.raises(ForgeError) as excinfo,
+    ):
+        _load_agent_definition("code-reviewer")
+
+    assert "code-reviewer.md" in str(excinfo.value)
