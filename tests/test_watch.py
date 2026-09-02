@@ -255,6 +255,91 @@ def given_a_title_only_plan_when_splitting_then_body_is_empty_then_footer_only()
     assert _plan_body(body, _issue(number=7)) == "\n\n---\n\nPlanned from #7."
 
 
+async def given_a_planning_failure_when_watching_then_comments_and_publishes_nothing():
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=8)]),
+        patch(
+            "forge.watch.run_blueprint",
+            AsyncMock(side_effect=BlueprintError("no discernible intent")),
+        ),
+        patch("forge.watch.comment_on_issue") as comment,
+        patch("forge.watch.create_issue") as create,
+        patch("forge.watch.close_issue") as close,
+    ):
+        report = await watch()
+
+    comment.assert_called_once()
+    assert comment.call_args.args[0] == 8
+    assert "no discernible intent" in comment.call_args.args[1]
+    create.assert_not_called()
+    close.assert_not_called()
+    assert not report.results[0].ok
+    assert report.results[0].error is not None
+    assert "no discernible intent" in report.results[0].error
+
+
+async def given_a_reason_with_markdown_when_commenting_then_it_is_fenced_off():
+    hostile = "@team see ```leak``` https://evil.example"
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=8)]),
+        patch(
+            "forge.watch.run_blueprint",
+            AsyncMock(side_effect=BlueprintError(hostile)),
+        ),
+        patch("forge.watch.comment_on_issue") as comment,
+        patch("forge.watch.create_issue"),
+        patch("forge.watch.close_issue"),
+    ):
+        await watch()
+
+    body = comment.call_args.args[1]
+    assert hostile in body
+    fence_open = body.index("`" * 4)
+    fence_close = body.rindex("`" * 4)
+    assert fence_open < body.index(hostile) < fence_close
+
+
+async def given_a_reason_longer_than_the_cap_when_commenting_then_it_is_truncated():
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=8)]),
+        patch(
+            "forge.watch.run_blueprint",
+            AsyncMock(side_effect=BlueprintError("x" * 10_000)),
+        ),
+        patch("forge.watch.comment_on_issue") as comment,
+        patch("forge.watch.create_issue"),
+        patch("forge.watch.close_issue"),
+    ):
+        await watch()
+
+    body = comment.call_args.args[1]
+    assert body.count("x") < 10_000
+
+
+async def given_the_failure_comment_itself_fails_when_watching_then_batch_survives():
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=9)]),
+        patch(
+            "forge.watch.run_blueprint",
+            AsyncMock(side_effect=BlueprintError("no intent")),
+        ),
+        patch(
+            "forge.watch.comment_on_issue",
+            side_effect=GitHubCliError("comment failed"),
+        ),
+        patch("forge.watch.create_issue") as create,
+        patch("forge.watch.close_issue") as close,
+    ):
+        report = await watch()
+
+    create.assert_not_called()
+    close.assert_not_called()
+    assert not report.results[0].ok
+    assert report.results[0].error is not None
+    assert "no intent" in report.results[0].error
+    assert "comment failed" in report.results[0].error
+
+
 async def given_a_fetch_failure_when_watching_then_the_error_propagates():
     with (
         patch("forge.watch.fetch_triage_issues", side_effect=GitHubCliError("down")),

@@ -19,6 +19,13 @@ from forge.blueprint import (
 
 pytestmark = pytest.mark.asyncio
 
+_VALID_PLAN = (
+    "# Add CSV export\n\n"
+    "## Summary\n\nExport rows as CSV.\n\n"
+    "## Implementation steps\n\n1. write it\n\n"
+    "## Testing\n\n- unit tests"
+)
+
 
 def _assistant(*texts: str) -> AssistantMessage:
     return AssistantMessage(
@@ -56,15 +63,14 @@ def _raising(error: Exception):
 
 
 async def given_a_plan_message_when_run_then_returns_plan_markdown():
-    plan = "# Plan\n\n- do the thing"
-    stream = _stream(_assistant(plan), _result(result=None))
+    stream = _stream(_assistant(_VALID_PLAN), _result(result=None))
     with patch("forge.blueprint.query", stream):
-        assert await run_blueprint("add a widget") == plan
+        assert await run_blueprint("add a widget") == _VALID_PLAN
 
 
 async def given_run_when_options_built_then_enables_blueprint_skill():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     assert query.call_args.kwargs["options"].skills == ["blueprint"]
@@ -72,7 +78,7 @@ async def given_run_when_options_built_then_enables_blueprint_skill():
 
 async def given_run_when_options_built_then_uses_plan_permission_mode():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     assert query.call_args.kwargs["options"].permission_mode == "plan"
@@ -80,7 +86,7 @@ async def given_run_when_options_built_then_uses_plan_permission_mode():
 
 async def given_run_when_options_built_then_disallows_the_persist_tools():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     disallowed = query.call_args.kwargs["options"].disallowed_tools
@@ -91,7 +97,7 @@ async def given_run_when_options_built_then_disallows_the_persist_tools():
 
 async def given_run_when_options_built_then_does_not_disallow_investigation_tools():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     disallowed = query.call_args.kwargs["options"].disallowed_tools
@@ -101,7 +107,7 @@ async def given_run_when_options_built_then_does_not_disallow_investigation_tool
 
 async def given_run_when_options_built_then_carries_non_interactive_system_prompt():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     system_prompt = query.call_args.kwargs["options"].system_prompt
@@ -110,7 +116,7 @@ async def given_run_when_options_built_then_carries_non_interactive_system_promp
 
 async def given_run_when_options_built_then_treats_request_as_untrusted_input():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     system_prompt = query.call_args.kwargs["options"].system_prompt
@@ -121,7 +127,8 @@ async def given_a_full_plan_final_message_when_run_then_returns_it_verbatim():
     plan = (
         "# Fix the thing\n\n"
         "## Summary\n\nsummary body\n\n"
-        "## Implementation steps\n\n1. do it"
+        "## Implementation steps\n\n1. do it\n\n"
+        "## Testing\n\n- a test"
     )
     stream = _stream(_assistant("scratch reasoning"), _result(result=plan))
     with patch("forge.blueprint.query", stream):
@@ -130,7 +137,7 @@ async def given_a_full_plan_final_message_when_run_then_returns_it_verbatim():
 
 async def given_run_when_options_built_then_uses_opus_model():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     model = query.call_args.kwargs["options"].model
@@ -140,7 +147,7 @@ async def given_run_when_options_built_then_uses_opus_model():
 
 async def given_run_when_options_built_then_uses_high_effort():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     assert query.call_args.kwargs["options"].effort == "high"
@@ -148,7 +155,7 @@ async def given_run_when_options_built_then_uses_high_effort():
 
 async def given_a_request_when_run_then_passes_it_through_as_prompt():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("fix the parser bug")
 
     assert query.call_args.kwargs["prompt"] == "fix the parser bug"
@@ -156,31 +163,33 @@ async def given_a_request_when_run_then_passes_it_through_as_prompt():
 
 async def given_a_cwd_when_run_then_runs_against_that_working_directory():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x", cwd="/repo/x")
 
     assert query.call_args.kwargs["options"].cwd == "/repo/x"
 
 
 async def given_multiple_assistant_messages_when_run_then_concatenates_text_in_order():
+    first = "# Add CSV export\n\n## Summary\n\nExport rows as CSV.\n\n"
+    second = "## Implementation steps\n\n1. write it\n\n## Testing\n\n- unit tests"
     stream = _stream(
-        _assistant("first "),
-        _assistant("second"),
+        _assistant(first),
+        _assistant(second),
         _result(result=None),
     )
     with patch("forge.blueprint.query", stream):
-        assert await run_blueprint("x") == "first second"
+        assert await run_blueprint("x") == first + second
 
 
 async def given_empty_result_with_accumulated_text_when_run_then_returns_that_text():
-    stream = _stream(_assistant("the real plan"), _result(result=""))
+    stream = _stream(_assistant(_VALID_PLAN), _result(result=""))
     with patch("forge.blueprint.query", stream):
-        assert await run_blueprint("x") == "the real plan"
+        assert await run_blueprint("x") == _VALID_PLAN
 
 
 async def given_run_when_options_built_then_blanks_api_key_and_keeps_other_env():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     env = query.call_args.kwargs["options"].env
@@ -190,7 +199,7 @@ async def given_run_when_options_built_then_blanks_api_key_and_keeps_other_env()
 
 async def given_run_when_options_built_then_blanks_every_non_subscription_auth_var():
     with patch("forge.blueprint.query") as query:
-        query.side_effect = _stream(_assistant("plan"), _result())
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
     env = query.call_args.kwargs["options"].env
@@ -253,10 +262,142 @@ async def given_mixed_content_blocks_when_run_then_ignores_non_text_blocks():
     message = AssistantMessage(
         content=[
             ToolUseBlock(id="t1", name="Read", input={}),
-            TextBlock(text="the plan"),
+            TextBlock(text=_VALID_PLAN),
         ],
         model=BLUEPRINT_MODEL,
     )
     stream = _stream(message, _result(result=None))
     with patch("forge.blueprint.query", stream):
-        assert await run_blueprint("x") == "the plan"
+        assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_a_valid_plan_result_when_run_then_returns_it_unchanged():
+    stream = _stream(_assistant("scratch"), _result(result=_VALID_PLAN))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_the_error_sentinel_when_run_then_raises_with_the_reason():
+    stream = _stream(
+        _result(result="BLUEPRINT_ERROR: request has no discernible intent")
+    )
+    with (
+        patch("forge.blueprint.query", stream),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        await run_blueprint("x")
+
+    assert "request has no discernible intent" in str(excinfo.value)
+
+
+async def given_a_prose_refusal_without_the_sentinel_when_run_then_raises_naming_gaps():
+    stream = _stream(_result(result="I'm sorry, I can't plan this."))
+    with (
+        patch("forge.blueprint.query", stream),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        await run_blueprint("x")
+
+    assert "## Summary" in str(excinfo.value)
+
+
+async def given_a_fenced_plan_when_run_then_unwraps_and_returns_the_inner_plan():
+    stream = _stream(_result(result=f"```markdown\n{_VALID_PLAN}\n```"))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_run_when_options_built_then_advertises_the_failure_channel():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
+        await run_blueprint("x")
+
+    system_prompt = query.call_args.kwargs["options"].system_prompt
+    assert "BLUEPRINT_ERROR:" in system_prompt
+    assert "code fence" in system_prompt
+
+
+async def given_the_sentinel_with_an_empty_reason_when_run_then_raises_non_blank():
+    stream = _stream(_result(result="BLUEPRINT_ERROR:"))
+    with (
+        patch("forge.blueprint.query", stream),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        await run_blueprint("x")
+
+    assert str(excinfo.value).strip()
+
+
+async def given_the_sentinel_mid_body_when_run_then_treated_as_a_valid_plan():
+    plan = (
+        "# Add CSV export\n\n"
+        "## Summary\n\nBLUEPRINT_ERROR: echoed from an issue body\n\n"
+        "## Implementation steps\n\n1. write it\n\n"
+        "## Testing\n\n- unit tests"
+    )
+    stream = _stream(_result(result=plan))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == plan
+
+
+async def given_leading_blank_lines_before_the_sentinel_when_run_then_raises():
+    stream = _stream(_result(result="\n\nBLUEPRINT_ERROR: cannot plan"))
+    with (
+        patch("forge.blueprint.query", stream),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        await run_blueprint("x")
+
+    assert "cannot plan" in str(excinfo.value)
+
+
+async def given_a_plan_missing_only_testing_when_run_then_raises_naming_testing():
+    plan = (
+        "# Add CSV export\n\n"
+        "## Summary\n\nExport rows as CSV.\n\n"
+        "## Implementation steps\n\n1. write it"
+    )
+    stream = _stream(_result(result=plan))
+    with (
+        patch("forge.blueprint.query", stream),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        await run_blueprint("x")
+
+    assert "## Testing" in str(excinfo.value)
+
+
+async def given_a_plan_missing_the_h1_title_when_run_then_names_it_readably():
+    plan = (
+        "## Summary\n\nExport rows as CSV.\n\n"
+        "## Implementation steps\n\n1. write it\n\n"
+        "## Testing\n\n- unit tests"
+    )
+    stream = _stream(_result(result=plan))
+    with (
+        patch("forge.blueprint.query", stream),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        await run_blueprint("x")
+
+    message = str(excinfo.value)
+    assert "H1 title" in message
+    assert "# ," not in message
+
+
+async def given_a_plan_without_optional_sections_when_run_then_passes_validation():
+    stream = _stream(_result(result=_VALID_PLAN))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_heading_whitespace_and_case_variation_when_run_then_still_validates():
+    plan = (
+        "# Add CSV export\r\n\r\n"
+        "## summary  \r\n\r\nExport rows as CSV.\r\n\r\n"
+        "## IMPLEMENTATION STEPS\r\n\r\n1. write it\r\n\r\n"
+        "## Testing  \r\n\r\n- unit tests"
+    )
+    stream = _stream(_result(result=plan))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == plan
