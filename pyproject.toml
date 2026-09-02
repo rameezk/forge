@@ -18,6 +18,12 @@ forge = "forge:main"
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
+[tool.ruff.lint]
+extend-select = ["ANN"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN"]
+
 [tool.pytest.ini_options]
 python_functions = ["test_*", "*_then_*"]
 
