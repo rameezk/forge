@@ -1,4 +1,6 @@
-from unittest.mock import patch
+from functools import lru_cache
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from claude_agent_sdk import (
@@ -12,13 +14,36 @@ from claude_agent_sdk import (
 
 from forge.blueprint import (
     BLUEPRINT_MODEL,
+    BLUEPRINT_PLANNING_PROMPT,
     MAX_PLAN_ATTEMPTS,
     NON_SUBSCRIPTION_AUTH_ENV_VARS,
     BlueprintError,
+    _load_planning_prompt,
     run_blueprint,
 )
 
 pytestmark = pytest.mark.asyncio
+
+_SKILL_MD_PATH = (
+    Path(__file__).resolve().parents[1]
+    / ".claude"
+    / "skills"
+    / "blueprint"
+    / "SKILL.md"
+)
+
+
+@lru_cache(maxsize=1)
+def _skill_md_lines() -> tuple[str, ...]:
+    return tuple(_SKILL_MD_PATH.read_text(encoding="utf-8").split("\n"))
+
+
+def _skill_line(anchor: str) -> str:
+    for line in _skill_md_lines():
+        if anchor in line:
+            return line
+    raise AssertionError(f"no SKILL.md line contains {anchor!r}")
+
 
 _VALID_PLAN = (
     "# Add CSV export\n\n"
@@ -558,3 +583,93 @@ async def given_heading_whitespace_and_case_variation_when_run_then_still_valida
     stream = _stream(_result(result=plan))
     with patch("forge.blueprint.query", stream):
         assert await run_blueprint("x") == plan
+
+
+async def given_the_packaged_prompt_file_when_module_imports_then_matches_its_contents():
+    from forge import blueprint
+
+    resource_text = (
+        (Path(blueprint.__file__).parent / "blueprint_prompt.md")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+
+    assert BLUEPRINT_PLANNING_PROMPT
+    assert BLUEPRINT_PLANNING_PROMPT == resource_text
+
+
+async def given_the_loaded_prompt_when_inspected_then_contains_the_skill_template_headings():
+    for text in (
+        "## Context",
+        "## Approach",
+        "## Open questions",
+        "### Test cases",
+        "### Edge cases",
+        "## Risks & rollout",
+        "Given / When / Then",
+    ):
+        assert text in BLUEPRINT_PLANNING_PROMPT
+
+
+async def given_the_loaded_prompt_when_inspected_then_contains_edge_case_and_guardrail_text():
+    for text in ("off-by-one", "idempotency", "Plan only", "Padding the plan"):
+        assert text in BLUEPRINT_PLANNING_PROMPT
+
+
+async def given_skill_md_when_compared_to_loaded_prompt_then_copied_sections_match_verbatim():
+    for anchor in (
+        "Turn a raw requirement or bug report",
+        "Produce a single markdown plan following this template",
+        "Cover the happy path first",
+        "Be deliberately adversarial. Work through",
+        "Plan only. Do NOT write production code",
+        "Padding the plan with obvious or duplicate",
+    ):
+        assert _skill_line(anchor) in BLUEPRINT_PLANNING_PROMPT
+
+
+async def given_skill_md_interactive_sections_when_checked_then_absent_from_prompt():
+    for anchor in (
+        "Ask the user about the ones",
+        "present it for review",
+        "just do it (or use",
+    ):
+        line = _skill_line(anchor)
+        assert line not in BLUEPRINT_PLANNING_PROMPT
+    assert "[[tdd]]" not in BLUEPRINT_PLANNING_PROMPT
+
+
+async def given_the_packaged_prompt_file_is_missing_when_loading_then_raises_blueprint_error():
+    missing_resource = MagicMock()
+    missing_resource.joinpath.return_value.read_text.side_effect = FileNotFoundError()
+    with (
+        patch(
+            "forge.blueprint.importlib.resources.files", return_value=missing_resource
+        ),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        _load_planning_prompt()
+
+    assert "blueprint_prompt.md" in str(excinfo.value)
+
+
+async def given_the_packaged_prompt_file_is_empty_when_loading_then_raises_blueprint_error():
+    empty_resource = MagicMock()
+    empty_resource.joinpath.return_value.read_text.return_value = "   "
+    with (
+        patch("forge.blueprint.importlib.resources.files", return_value=empty_resource),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        _load_planning_prompt()
+
+    assert "blueprint_prompt.md" in str(excinfo.value)
+
+
+async def given_a_cwd_when_options_built_then_prompt_still_resolves_as_package_data():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
+        await run_blueprint("x", cwd="/some/other/repo")
+
+    options = query.call_args.kwargs["options"]
+    assert options.system_prompt == BLUEPRINT_PLANNING_PROMPT
+    assert options.cwd == "/some/other/repo"
