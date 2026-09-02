@@ -7,7 +7,9 @@ import pytest
 from forge.github import (
     GitHubCliError,
     TriageIssue,
+    close_issue,
     comment_on_issue,
+    create_issue,
     fetch_triage_issues,
     relabel_issue,
 )
@@ -192,3 +194,99 @@ def given_gh_exits_nonzero_when_relabelling_then_raises_githubclierror_with_stde
         relabel_issue(7, add="forge:ready", remove="forge:triage")
 
     assert "missing label" in str(excinfo.value)
+
+
+def given_title_and_body_when_creating_then_sends_body_on_stdin_without_a_shell():
+    with patch(
+        "forge.github.subprocess.run", return_value=_completed("https://x/42")
+    ) as run:
+        url = create_issue("Add CSV export", "## Summary\nbody")
+
+    argv = run.call_args.args[0]
+    assert argv == [
+        "gh",
+        "issue",
+        "create",
+        "--title",
+        "Add CSV export",
+        "--body-file",
+        "-",
+    ]
+    assert run.call_args.kwargs.get("input") == "## Summary\nbody"
+    assert run.call_args.kwargs.get("shell", False) is False
+    assert url == "https://x/42"
+
+
+def given_a_label_when_creating_then_appends_the_label_flag():
+    with patch(
+        "forge.github.subprocess.run", return_value=_completed("https://x/42\n")
+    ) as run:
+        url = create_issue("T", "b", label="forge:ready")
+
+    argv = run.call_args.args[0]
+    assert argv[argv.index("--label") + 1] == "forge:ready"
+    assert url == "https://x/42"
+
+
+def given_no_label_when_creating_then_omits_the_label_flag():
+    with patch("forge.github.subprocess.run", return_value=_completed("u")) as run:
+        create_issue("T", "b")
+
+    assert "--label" not in run.call_args.args[0]
+
+
+def given_hostile_label_when_creating_then_raises_before_invoking_gh():
+    with patch("forge.github.subprocess.run") as run, pytest.raises(GitHubCliError):
+        create_issue("T", "b", label="--repo=attacker/other")
+
+    run.assert_not_called()
+
+
+def given_gh_not_installed_when_creating_then_raises_githubclierror_mentioning_gh():
+    with (
+        patch("forge.github.subprocess.run", side_effect=FileNotFoundError()),
+        pytest.raises(GitHubCliError) as excinfo,
+    ):
+        create_issue("T", "b")
+
+    assert "gh" in str(excinfo.value)
+
+
+def given_gh_exits_nonzero_when_creating_then_raises_githubclierror_with_stderr():
+    error = CalledProcessError(returncode=1, cmd=["gh"], stderr="could not add label")
+    with (
+        patch("forge.github.subprocess.run", side_effect=error),
+        pytest.raises(GitHubCliError) as excinfo,
+    ):
+        create_issue("T", "b", label="forge:ready")
+
+    assert "could not add label" in str(excinfo.value)
+
+
+def given_a_number_when_closing_then_invokes_gh_issue_close_without_a_shell():
+    with patch("forge.github.subprocess.run", return_value=_completed("")) as run:
+        close_issue(7)
+
+    assert run.call_args.args[0] == ["gh", "issue", "close", "7"]
+    assert run.call_args.kwargs.get("shell", False) is False
+
+
+def given_gh_not_installed_when_closing_then_raises_githubclierror_mentioning_gh():
+    with (
+        patch("forge.github.subprocess.run", side_effect=FileNotFoundError()),
+        pytest.raises(GitHubCliError) as excinfo,
+    ):
+        close_issue(7)
+
+    assert "gh" in str(excinfo.value)
+
+
+def given_gh_exits_nonzero_when_closing_then_raises_githubclierror_with_stderr():
+    error = CalledProcessError(returncode=1, cmd=["gh"], stderr="no such issue")
+    with (
+        patch("forge.github.subprocess.run", side_effect=error),
+        pytest.raises(GitHubCliError) as excinfo,
+    ):
+        close_issue(7)
+
+    assert "no such issue" in str(excinfo.value)
