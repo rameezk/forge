@@ -23,6 +23,9 @@ BLUEPRINT_DISALLOWED_TOOLS = (
 
 BLUEPRINT_ERROR_MARKER = "BLUEPRINT_ERROR:"
 
+PLAN_START_MARKER = "<<<BLUEPRINT_PLAN>>>"
+PLAN_END_MARKER = "<<</BLUEPRINT_PLAN>>>"
+
 H1_HEADING_MARKER = "# "
 
 REQUIRED_PLAN_HEADINGS = (
@@ -95,19 +98,49 @@ def _unwrap_fence(text: str) -> str:
     return "\n".join(lines[1:-1])
 
 
-def _classify_plan(text: str) -> str:
-    stripped = text.strip()
-    if not stripped:
-        raise _PlanFormatError("blueprint run produced no plan output")
+def _extract_plan_block(text: str) -> str | None:
+    start_index = text.find(PLAN_START_MARKER)
+    if start_index == -1:
+        return None
 
-    first_non_empty = next((line for line in stripped.split("\n") if line.strip()), "")
+    after_start = start_index + len(PLAN_START_MARKER)
+    end_index = text.rfind(PLAN_END_MARKER)
+    if end_index == -1 or end_index < after_start:
+        return text[after_start:].strip()
+
+    return text[after_start:end_index].strip()
+
+
+def _raise_if_error_sentinel(text: str) -> None:
+    first_non_empty = next((line for line in text.split("\n") if line.strip()), "")
     if first_non_empty.strip().startswith(BLUEPRINT_ERROR_MARKER):
         reason = first_non_empty.strip()[len(BLUEPRINT_ERROR_MARKER) :].strip()
         raise BlueprintError(
             reason or "blueprint agent reported it cannot plan this request"
         )
 
-    unwrapped = _unwrap_fence(stripped)
+
+def _classify_plan(text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        raise _PlanFormatError("blueprint run produced no plan output")
+
+    _raise_if_error_sentinel(stripped)
+
+    block = _extract_plan_block(stripped)
+    working = stripped
+    if block is not None:
+        _raise_if_error_sentinel(block)
+        working = block
+
+    if not working:
+        if block is not None:
+            raise _PlanFormatError(
+                "blueprint run produced an empty plan between the markers"
+            )
+        raise _PlanFormatError("blueprint run produced no plan output")
+
+    unwrapped = _unwrap_fence(working)
     normalized = [line.strip().lower() for line in unwrapped.split("\n")]
     missing = tuple(
         heading
@@ -163,8 +196,11 @@ def _correction_prompt(missing: tuple[str, ...]) -> str:
     return (
         f"That response was not a usable plan: it is missing {named}. Send a "
         "corrected version. Your entire final message MUST be the finished "
-        "plan as raw markdown, beginning with a single `# ` title line: no "
-        "code fence, no preamble, no summary, nothing before or after."
+        "plan as raw markdown: no code fence, no preamble, no summary, "
+        f"nothing before or after. It MUST begin with the exact line "
+        f"{PLAN_START_MARKER}, immediately followed by a single `# ` title "
+        f"line and the rest of the plan, and MUST end with the exact line "
+        f"{PLAN_END_MARKER}."
     )
 
 

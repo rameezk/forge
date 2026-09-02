@@ -665,6 +665,155 @@ async def given_the_packaged_prompt_file_is_empty_when_loading_then_raises_bluep
     assert "blueprint_prompt.md" in str(excinfo.value)
 
 
+async def given_a_leading_preamble_wrapped_in_markers_when_run_then_strips_it():
+    result = f"Sure, here's the plan:\n\n<<<BLUEPRINT_PLAN>>>\n{_VALID_PLAN}\n<<</BLUEPRINT_PLAN>>>"
+    stream = _stream(_result(result=result))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_a_trailing_postamble_wrapped_in_markers_when_run_then_strips_it():
+    result = f"<<<BLUEPRINT_PLAN>>>\n{_VALID_PLAN}\n<<</BLUEPRINT_PLAN>>>\n\nLet me know if you want changes."
+    stream = _stream(_result(result=result))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_a_fenced_plan_wrapped_in_markers_when_run_then_unwraps_and_strips():
+    result = (
+        f"<<<BLUEPRINT_PLAN>>>\n```markdown\n{_VALID_PLAN}\n```\n<<</BLUEPRINT_PLAN>>>"
+    )
+    stream = _stream(_result(result=result))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_run_when_options_built_then_advertises_the_plan_markers():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
+        await run_blueprint("x")
+
+    system_prompt = query.call_args.kwargs["options"].system_prompt
+    assert "<<<BLUEPRINT_PLAN>>>" in system_prompt
+    assert "<<</BLUEPRINT_PLAN>>>" in system_prompt
+
+
+async def given_a_format_failure_when_corrected_then_prompt_names_the_markers():
+    missing_testing = (
+        "# Add CSV export\n\n"
+        "## Summary\n\nExport rows as CSV.\n\n"
+        "## Implementation steps\n\n1. write it"
+    )
+    first = _turn(_result(result=missing_testing, session_id="s1"))
+    second = _turn(_result(result=_VALID_PLAN))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        await run_blueprint("x")
+
+    correction_prompt = query.call_args_list[1].kwargs["prompt"]
+    assert "<<<BLUEPRINT_PLAN>>>" in correction_prompt
+    assert "<<</BLUEPRINT_PLAN>>>" in correction_prompt
+    assert "raw markdown" in correction_prompt
+    assert "## Testing" in correction_prompt
+
+
+async def given_a_marker_wrapped_plan_missing_testing_then_a_valid_correction_when_run_then_returns_it():
+    missing_testing = (
+        "# Add CSV export\n\n"
+        "## Summary\n\nExport rows as CSV.\n\n"
+        "## Implementation steps\n\n1. write it"
+    )
+    first_result = f"<<<BLUEPRINT_PLAN>>>\n{missing_testing}\n<<</BLUEPRINT_PLAN>>>"
+    first = _turn(_result(result=first_result, session_id="s1"))
+    second = _turn(_result(result=_VALID_PLAN))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        result = await run_blueprint("x")
+
+    assert result == _VALID_PLAN
+    assert query.call_count == 2
+
+
+async def given_start_marker_without_end_when_run_then_takes_everything_after_start():
+    result = f"<<<BLUEPRINT_PLAN>>>\n{_VALID_PLAN}"
+    stream = _stream(_result(result=result))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_end_marker_without_start_when_run_then_falls_back_to_legacy_validation():
+    result = f"{_VALID_PLAN}\n<<</BLUEPRINT_PLAN>>>"
+    stream = _stream(_result(result=result))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == result
+
+
+async def given_the_error_sentinel_with_no_markers_when_run_then_raises_with_the_reason():
+    stream = _stream(_result(result="BLUEPRINT_ERROR: no discernible intent"))
+    with (
+        patch("forge.blueprint.query") as query,
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        query.side_effect = stream
+        await run_blueprint("x")
+
+    assert "no discernible intent" in str(excinfo.value)
+    assert query.call_count == 1
+
+
+async def given_an_error_wrapped_in_markers_when_run_then_raises_with_the_reason():
+    result = "<<<BLUEPRINT_PLAN>>>\nBLUEPRINT_ERROR: cannot plan\n<<</BLUEPRINT_PLAN>>>"
+    stream = _stream(_result(result=result))
+    with (
+        patch("forge.blueprint.query", stream),
+        pytest.raises(BlueprintError) as excinfo,
+    ):
+        await run_blueprint("x")
+
+    assert "cannot plan" in str(excinfo.value)
+
+
+async def given_empty_content_between_markers_on_both_attempts_when_run_then_raises_exhaustion():
+    first = _turn(
+        _result(result="<<<BLUEPRINT_PLAN>>>\n\n<<</BLUEPRINT_PLAN>>>", session_id="s1")
+    )
+    second = _turn(
+        _result(result="<<<BLUEPRINT_PLAN>>>\n\n<<</BLUEPRINT_PLAN>>>", session_id="s2")
+    )
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        with pytest.raises(BlueprintError):
+            await run_blueprint("x")
+
+    assert query.call_count == 2
+
+
+async def given_echoed_markers_inside_the_body_when_run_then_uses_first_start_and_last_end():
+    quoted = "See: <<<BLUEPRINT_PLAN>>> ... <<</BLUEPRINT_PLAN>>>"
+    body_with_echo = _VALID_PLAN + f"\n\n{quoted}\n"
+    result = f"<<<BLUEPRINT_PLAN>>>\n{body_with_echo}\n<<</BLUEPRINT_PLAN>>>"
+    stream = _stream(_result(result=result))
+    with patch("forge.blueprint.query", stream):
+        returned = await run_blueprint("x")
+
+    assert quoted in returned
+    assert "## Summary" in returned
+    assert "## Testing" in returned
+
+
+async def given_crlf_and_whitespace_around_markers_when_run_then_still_validates():
+    plan = (
+        "# Add CSV export\r\n\r\n"
+        "## summary  \r\n\r\nExport rows as CSV.\r\n\r\n"
+        "## IMPLEMENTATION STEPS\r\n\r\n1. write it\r\n\r\n"
+        "## Testing  \r\n\r\n- unit tests"
+    )
+    result = f"<<<BLUEPRINT_PLAN>>>  \r\n{plan}\r\n<<</BLUEPRINT_PLAN>>>  \r\n"
+    stream = _stream(_result(result=result))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("x") == plan
+
+
 async def given_a_cwd_when_options_built_then_prompt_still_resolves_as_package_data():
     with patch("forge.blueprint.query") as query:
         query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
