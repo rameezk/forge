@@ -64,6 +64,25 @@ async def given_one_issue_when_processing_then_body_drops_h1_and_adds_reference(
     assert body.endswith("Planned from #7.")
 
 
+async def given_a_full_plan_when_processing_then_body_is_the_plan_not_a_summary():
+    plan = (
+        "# Add CSV export\n\n"
+        "## Summary\n\nExport rows as CSV.\n\n"
+        "## Implementation steps\n\n1. write it"
+    )
+    with (
+        patch("forge.watch.run_blueprint", AsyncMock(return_value=plan)),
+        patch("forge.watch.create_issue") as create,
+        patch("forge.watch.close_issue"),
+    ):
+        await process_issue(_issue(number=19), cwd=None)
+
+    body = create.call_args.args[1]
+    assert "## Implementation steps" in body
+    assert body.endswith("Planned from #19.")
+    assert "The plan is written to" not in body
+
+
 async def given_one_issue_when_processing_then_creates_before_closing_original():
     recorder = MagicMock()
     with (

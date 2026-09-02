@@ -78,6 +78,56 @@ async def given_run_when_options_built_then_uses_plan_permission_mode():
     assert query.call_args.kwargs["options"].permission_mode == "plan"
 
 
+async def given_run_when_options_built_then_disallows_the_persist_tools():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant("plan"), _result())
+        await run_blueprint("x")
+
+    disallowed = query.call_args.kwargs["options"].disallowed_tools
+    assert {"Write", "Edit", "MultiEdit", "NotebookEdit", "ExitPlanMode"} <= set(
+        disallowed
+    )
+
+
+async def given_run_when_options_built_then_does_not_disallow_investigation_tools():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant("plan"), _result())
+        await run_blueprint("x")
+
+    disallowed = query.call_args.kwargs["options"].disallowed_tools
+    for tool in ("Read", "Grep", "Glob", "Bash"):
+        assert tool not in disallowed
+
+
+async def given_run_when_options_built_then_carries_non_interactive_system_prompt():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant("plan"), _result())
+        await run_blueprint("x")
+
+    system_prompt = query.call_args.kwargs["options"].system_prompt
+    assert "non-interactive" in system_prompt
+
+
+async def given_run_when_options_built_then_treats_request_as_untrusted_input():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant("plan"), _result())
+        await run_blueprint("x")
+
+    system_prompt = query.call_args.kwargs["options"].system_prompt
+    assert "untrusted" in system_prompt
+
+
+async def given_a_full_plan_final_message_when_run_then_returns_it_verbatim():
+    plan = (
+        "# Fix the thing\n\n"
+        "## Summary\n\nsummary body\n\n"
+        "## Implementation steps\n\n1. do it"
+    )
+    stream = _stream(_assistant("scratch reasoning"), _result(result=plan))
+    with patch("forge.blueprint.query", stream):
+        assert await run_blueprint("fix the thing") == plan
+
+
 async def given_run_when_options_built_then_uses_opus_model():
     with patch("forge.blueprint.query") as query:
         query.side_effect = _stream(_assistant("plan"), _result())
