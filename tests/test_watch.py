@@ -6,15 +6,20 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 
 from forge.blueprint import BlueprintError
+from forge.forge_agent import ForgeError, ForgeResult
 from forge.github import GitHubCliError, TriageIssue
 from forge.watch import (
+    FORGE_IN_PROGRESS_COMMENT,
     IN_PROGRESS_COMMENT,
     WatchReport,
     WatchResult,
     _issue_to_request,
     _plan_body,
     _split_plan,
+    forge_main,
+    forge_watch,
     main,
+    process_forge_issue,
     process_issue,
     watch,
 )
@@ -603,5 +608,369 @@ def given_a_report_with_a_failure_when_running_main_then_exits_nonzero():
         pytest.raises(SystemExit) as excinfo,
     ):
         main()
+
+    assert excinfo.value.code != 0
+
+
+def given_the_forge_in_progress_comment_constant_when_inspected_then_is_brief_with_one_leading_emoji():
+    lines = FORGE_IN_PROGRESS_COMMENT.splitlines()
+
+    assert len(lines) == 1
+    first_char, rest = FORGE_IN_PROGRESS_COMMENT[0], FORGE_IN_PROGRESS_COMMENT[1:]
+    assert _is_emoji(first_char)
+    assert not any(_is_emoji(char) for char in rest)
+    assert rest.startswith(" ")
+    assert FORGE_IN_PROGRESS_COMMENT.endswith(".")
+
+
+async def given_one_ready_issue_when_processing_then_comments_before_forging():
+    recorder = MagicMock()
+    recorder.relabel = MagicMock()
+    recorder.forge = AsyncMock(
+        return_value=ForgeResult(pr_url="https://x/pull/1", cost_usd=1.0)
+    )
+    with (
+        patch("forge.watch.comment_on_issue", recorder.comment),
+        patch("forge.watch.relabel_issue", recorder.relabel),
+        patch("forge.watch.run_forge", recorder.forge),
+    ):
+        await process_forge_issue(_issue(number=7), cwd=None)
+
+    recorder.comment.assert_any_call(7, FORGE_IN_PROGRESS_COMMENT)
+    call_kinds = [c[0] for c in recorder.mock_calls]
+    assert call_kinds.index("comment") < call_kinds.index("forge")
+
+
+async def given_one_ready_issue_when_processing_then_claims_it_before_forging():
+    recorder = MagicMock()
+    recorder.forge = AsyncMock(
+        return_value=ForgeResult(pr_url="https://x/pull/1", cost_usd=1.0)
+    )
+    with (
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.relabel_issue", recorder.relabel),
+        patch("forge.watch.run_forge", recorder.forge),
+    ):
+        await process_forge_issue(_issue(number=7), cwd=None)
+
+    recorder.relabel.assert_any_call(7, add="forge:building", remove="forge:ready")
+    call_kinds = [c[0] for c in recorder.mock_calls]
+    assert call_kinds.index("relabel") < call_kinds.index("forge")
+
+
+async def given_forging_succeeds_when_processing_then_comments_pr_link_and_marks_done():
+    with (
+        patch("forge.watch.comment_on_issue") as comment,
+        patch("forge.watch.relabel_issue") as relabel,
+        patch(
+            "forge.watch.run_forge",
+            AsyncMock(
+                return_value=ForgeResult(pr_url="https://x/pull/9", cost_usd=2.0)
+            ),
+        ),
+    ):
+        await process_forge_issue(_issue(number=7), cwd=None)
+
+    success_comment = comment.call_args.args[1]
+    assert "https://x/pull/9" in success_comment
+    relabel.assert_any_call(7, add="forge:done", remove="forge:building")
+
+
+async def given_forging_fails_when_processing_then_comments_fenced_reason_and_marks_failed():
+    with (
+        patch("forge.watch.comment_on_issue") as comment,
+        patch("forge.watch.relabel_issue") as relabel,
+        patch("forge.watch.run_forge", AsyncMock(side_effect=ForgeError("boom"))),
+        pytest.raises(ForgeError),
+    ):
+        await process_forge_issue(_issue(number=7), cwd=None)
+
+    failure_comment = comment.call_args.args[1]
+    assert "boom" in failure_comment
+    relabel.assert_any_call(7, add="forge:failed", remove="forge:building")
+
+
+async def given_three_ready_issues_when_forge_watching_then_processes_only_the_first():
+    issues = [_issue(number=1), _issue(number=2), _issue(number=3)]
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=issues),
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.relabel_issue"),
+        patch(
+            "forge.watch.run_forge",
+            AsyncMock(
+                return_value=ForgeResult(pr_url="https://x/pull/1", cost_usd=1.0)
+            ),
+        ) as forge,
+    ):
+        report = await forge_watch()
+
+    forge.assert_awaited_once()
+    assert len(report.results) == 1
+    assert report.results[0].issue.number == 1
+
+
+async def given_no_ready_issues_when_forge_watching_then_is_a_clean_no_op(caplog):
+    caplog.set_level(logging.INFO)
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[]),
+        patch("forge.watch.comment_on_issue") as comment,
+        patch("forge.watch.run_forge", AsyncMock()) as forge,
+    ):
+        report = await forge_watch()
+
+    comment.assert_not_called()
+    forge.assert_not_awaited()
+    assert report.results == []
+    assert report.ok
+    messages = [record.message for record in caplog.records]
+    assert any(
+        "no" in message.lower() and "ready" in message.lower() for message in messages
+    )
+
+
+async def given_forging_returns_a_cost_when_forge_watching_then_logs_pickup_and_cost(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=7)]),
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.relabel_issue"),
+        patch(
+            "forge.watch.run_forge",
+            AsyncMock(
+                return_value=ForgeResult(pr_url="https://x/pull/1", cost_usd=2.5)
+            ),
+        ),
+    ):
+        await forge_watch()
+
+    messages = "\n".join(record.message for record in caplog.records)
+    assert "picked up" in messages.lower()
+    assert "#7" in messages
+    assert "2.5" in messages
+
+
+async def given_the_in_progress_comment_fails_when_processing_then_logs_warning_and_still_forges(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    with (
+        patch(
+            "forge.watch.comment_on_issue",
+            side_effect=[GitHubCliError("comment failed"), None],
+        ),
+        patch("forge.watch.relabel_issue"),
+        patch(
+            "forge.watch.run_forge",
+            AsyncMock(
+                return_value=ForgeResult(pr_url="https://x/pull/1", cost_usd=1.0)
+            ),
+        ) as forge,
+    ):
+        await process_forge_issue(_issue(number=7), cwd=None)
+
+    forge.assert_awaited_once()
+    warnings = [
+        record for record in caplog.records if record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+
+
+async def given_the_claim_relabel_fails_when_processing_then_forging_is_never_invoked():
+    with (
+        patch("forge.watch.comment_on_issue"),
+        patch(
+            "forge.watch.relabel_issue",
+            side_effect=GitHubCliError("no such label"),
+        ),
+        patch("forge.watch.run_forge", AsyncMock()) as forge,
+        pytest.raises(GitHubCliError),
+    ):
+        await process_forge_issue(_issue(number=7), cwd=None)
+
+    forge.assert_not_awaited()
+
+
+async def given_the_failure_comment_itself_fails_when_processing_then_error_mentions_both():
+    with (
+        patch(
+            "forge.watch.comment_on_issue",
+            side_effect=[None, GitHubCliError("comment failed")],
+        ),
+        patch("forge.watch.relabel_issue") as relabel,
+        patch("forge.watch.run_forge", AsyncMock(side_effect=ForgeError("no intent"))),
+        pytest.raises(ForgeError) as excinfo,
+    ):
+        await process_forge_issue(_issue(number=9), cwd=None)
+
+    assert "no intent" in str(excinfo.value)
+    assert "comment failed" in str(excinfo.value)
+    relabel.assert_any_call(9, add="forge:failed", remove="forge:building")
+
+
+async def given_the_success_comment_fails_when_processing_then_still_marks_done_with_a_warning(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    with (
+        patch(
+            "forge.watch.comment_on_issue",
+            side_effect=[None, GitHubCliError("comment failed")],
+        ),
+        patch("forge.watch.relabel_issue") as relabel,
+        patch(
+            "forge.watch.run_forge",
+            AsyncMock(
+                return_value=ForgeResult(
+                    pr_url="https://github.com/o/r/pull/1", cost_usd=1.0
+                )
+            ),
+        ),
+    ):
+        await process_forge_issue(_issue(number=9), cwd=None)
+
+    relabel.assert_any_call(9, add="forge:done", remove="forge:building")
+    warnings = [
+        record for record in caplog.records if record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+
+
+async def given_the_claim_relabel_fails_when_forge_watching_then_recorded_as_failed():
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=7)]),
+        patch("forge.watch.comment_on_issue"),
+        patch(
+            "forge.watch.relabel_issue",
+            side_effect=GitHubCliError("no such label"),
+        ),
+        patch("forge.watch.run_forge", AsyncMock()) as forge,
+    ):
+        report = await forge_watch()
+
+    forge.assert_not_awaited()
+    assert not report.results[0].ok
+    assert report.results[0].error is not None
+    assert "no such label" in report.results[0].error
+
+
+async def given_fetching_ready_issues_fails_when_forge_watching_then_the_error_propagates():
+    with (
+        patch("forge.watch.fetch_triage_issues", side_effect=GitHubCliError("down")),
+        pytest.raises(GitHubCliError),
+    ):
+        await forge_watch()
+
+
+async def given_a_hostile_issue_title_when_forge_watching_then_the_log_line_stays_single_line(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    hostile_title = (
+        "real title\n2099-01-01 00:00:00 ERROR forge complete: 0 ok, 999 failed"
+    )
+    with (
+        patch(
+            "forge.watch.fetch_triage_issues",
+            return_value=[_issue(number=7, title=hostile_title)],
+        ),
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.relabel_issue"),
+        patch(
+            "forge.watch.run_forge",
+            AsyncMock(
+                return_value=ForgeResult(pr_url="https://x/pull/1", cost_usd=1.0)
+            ),
+        ),
+    ):
+        await forge_watch()
+
+    assert not any("\n" in record.message for record in caplog.records)
+
+
+async def given_a_hostile_forge_error_reason_when_forge_watching_then_the_log_line_stays_single_line(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    hostile_reason = "boom\n2099-01-01 00:00:00 ERROR forged entry"
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=7)]),
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.relabel_issue"),
+        patch(
+            "forge.watch.run_forge", AsyncMock(side_effect=ForgeError(hostile_reason))
+        ),
+    ):
+        await forge_watch()
+
+    assert not any("\n" in record.message for record in caplog.records)
+
+
+async def given_a_reason_with_markdown_when_forge_commenting_then_it_is_fenced_off():
+    hostile = "@team see ```leak``` https://evil.example"
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=8)]),
+        patch("forge.watch.comment_on_issue") as comment,
+        patch("forge.watch.relabel_issue"),
+        patch("forge.watch.run_forge", AsyncMock(side_effect=ForgeError(hostile))),
+    ):
+        await forge_watch()
+
+    failure_comment = comment.call_args.args[1]
+    assert hostile in failure_comment
+    fence_open = failure_comment.index("`" * 4)
+    fence_close = failure_comment.rindex("`" * 4)
+    assert fence_open < failure_comment.index(hostile) < fence_close
+
+
+def given_running_forge_main_then_forces_the_stderr_info_logging_config():
+    report = WatchReport(results=[])
+    with (
+        patch("forge.watch.forge_watch", MagicMock()),
+        patch("forge.watch.asyncio.run", return_value=report),
+        patch("forge.watch.logging.basicConfig") as basic_config,
+    ):
+        forge_main()
+
+    assert basic_config.call_args.kwargs.get("force") is True
+    assert basic_config.call_args.kwargs.get("level") == logging.INFO
+    assert basic_config.call_args.kwargs.get("stream") is sys.stderr
+
+
+def given_an_all_ok_report_when_running_forge_main_then_does_not_exit_nonzero():
+    report = WatchReport(results=[WatchResult(issue=_issue(number=1), ok=True)])
+    with (
+        patch("forge.watch.forge_watch", MagicMock()),
+        patch("forge.watch.asyncio.run", return_value=report),
+    ):
+        forge_main()
+
+
+def given_an_all_ok_report_when_running_forge_main_then_writes_nothing_to_stdout(
+    capsys,
+):
+    report = WatchReport(results=[WatchResult(issue=_issue(number=1), ok=True)])
+    with (
+        patch("forge.watch.forge_watch", MagicMock()),
+        patch("forge.watch.asyncio.run", return_value=report),
+    ):
+        forge_main()
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+
+def given_a_report_with_a_failure_when_running_forge_main_then_exits_nonzero():
+    report = WatchReport(
+        results=[WatchResult(issue=_issue(number=1), ok=False, error="boom")]
+    )
+    with (
+        patch("forge.watch.forge_watch", MagicMock()),
+        patch("forge.watch.asyncio.run", return_value=report),
+        pytest.raises(SystemExit) as excinfo,
+    ):
+        forge_main()
 
     assert excinfo.value.code != 0

@@ -5,6 +5,11 @@ from unittest.mock import patch
 import pytest
 
 from forge.github import (
+    BUILDING_LABEL,
+    DONE_LABEL,
+    FAILED_LABEL,
+    READY_LABEL,
+    TRIAGE_LABEL,
     GitHubCliError,
     TriageIssue,
     close_issue,
@@ -19,6 +24,14 @@ def _completed(stdout: str):
     from subprocess import CompletedProcess
 
     return CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+
+
+def given_the_forge_labels_when_inspected_then_form_the_expected_lifecycle():
+    assert TRIAGE_LABEL == "forge:triage"
+    assert READY_LABEL == "forge:ready"
+    assert BUILDING_LABEL == "forge:building"
+    assert DONE_LABEL == "forge:done"
+    assert FAILED_LABEL == "forge:failed"
 
 
 def given_two_labelled_issues_when_fetching_then_returns_mapped_triage_issues():

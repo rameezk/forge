@@ -5,7 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from forge.blueprint import BlueprintError, run_blueprint
+from forge.forge_agent import ForgeError, run_forge
 from forge.github import (
+    BUILDING_LABEL,
+    DONE_LABEL,
+    FAILED_LABEL,
     READY_LABEL,
     TRIAGE_LABEL,
     GitHubCliError,
@@ -14,6 +18,7 @@ from forge.github import (
     comment_on_issue,
     create_issue,
     fetch_triage_issues,
+    relabel_issue,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,6 +68,7 @@ def _plan_body(body: str, issue: TriageIssue) -> str:
 
 FAILURE_REASON_LIMIT = 2000
 IN_PROGRESS_COMMENT = "🔨 Forge is running a blueprint on this issue."
+FORGE_IN_PROGRESS_COMMENT = "🔨 Forge is forging an implementation for this issue."
 
 
 def _fence(content: str) -> str:
@@ -78,12 +84,16 @@ def _fence(content: str) -> str:
     return f"{fence}\n{content}\n{fence}"
 
 
-def _failure_comment(reason: str) -> str:
+def _failure_comment(reason: str, context: str) -> str:
     trimmed = reason.strip()[:FAILURE_REASON_LIMIT]
     return (
-        "Forge could not plan this issue. The reason below is untrusted output "
+        f"Forge could not {context}. The reason below is untrusted output "
         "and is shown verbatim inside a code block:\n\n" + _fence(trimmed)
     )
+
+
+def _forge_success_comment(pr_url: str) -> str:
+    return f"🔨 Forge opened a pull request for this issue: `{pr_url}`"
 
 
 async def process_issue(issue: TriageIssue, cwd: str | Path | None) -> None:
@@ -101,7 +111,9 @@ async def process_issue(issue: TriageIssue, cwd: str | Path | None) -> None:
         plan = await run_blueprint(_issue_to_request(issue), cwd=cwd)
     except BlueprintError as error:
         try:
-            comment_on_issue(issue.number, _failure_comment(str(error)))
+            comment_on_issue(
+                issue.number, _failure_comment(str(error), "plan this issue")
+            )
         except GitHubCliError as comment_error:
             raise BlueprintError(
                 f"{error} (posting the failure comment also failed: {comment_error})"
@@ -111,6 +123,85 @@ async def process_issue(issue: TriageIssue, cwd: str | Path | None) -> None:
     url = create_issue(title, _plan_body(body, issue), label=READY_LABEL)
     close_issue(issue.number)
     logger.info("published plan %s for #%d and closed it", url, issue.number)
+
+
+async def process_forge_issue(issue: TriageIssue, cwd: str | Path | None) -> None:
+    try:
+        comment_on_issue(issue.number, FORGE_IN_PROGRESS_COMMENT)
+        logger.info("commented that forging has started on #%d", issue.number)
+    except GitHubCliError as error:
+        logger.warning(
+            "could not comment on #%d that forging has started: %s",
+            issue.number,
+            error,
+        )
+
+    relabel_issue(issue.number, add=BUILDING_LABEL, remove=READY_LABEL)
+
+    try:
+        result = await run_forge(_issue_to_request(issue), cwd=cwd)
+    except ForgeError as error:
+        comment_error: GitHubCliError | None = None
+        try:
+            comment_on_issue(
+                issue.number,
+                _failure_comment(str(error), "deliver a pull request for this issue"),
+            )
+        except GitHubCliError as caught:
+            comment_error = caught
+        relabel_issue(issue.number, add=FAILED_LABEL, remove=BUILDING_LABEL)
+        if comment_error is not None:
+            raise ForgeError(
+                f"{error} (posting the failure comment also failed: {comment_error})"
+            ) from comment_error
+        raise
+
+    try:
+        comment_on_issue(issue.number, _forge_success_comment(result.pr_url))
+    except GitHubCliError as error:
+        logger.warning(
+            "could not comment the pull request link on #%d: %s", issue.number, error
+        )
+    relabel_issue(issue.number, add=DONE_LABEL, remove=BUILDING_LABEL)
+    logger.info(
+        "forge opened %s for #%d (cost=%s)",
+        _sanitize_for_log(result.pr_url),
+        issue.number,
+        result.cost_usd,
+    )
+
+
+async def forge_watch(cwd: str | Path | None = None) -> WatchReport:
+    logger.info("starting forge watch (label=%s)", READY_LABEL)
+    try:
+        issues = fetch_triage_issues(READY_LABEL)
+    except GitHubCliError as error:
+        logger.error("could not fetch ready issues: %s", error)
+        logger.debug("gh detail for fetch: %s", getattr(error, "detail", None))
+        raise
+
+    if not issues:
+        logger.info("no forge:ready issues found, nothing to do")
+        return WatchReport()
+
+    issue = issues[0]
+    logger.info(
+        "picked up forge issue #%d: %s", issue.number, _sanitize_for_log(issue.title)
+    )
+    try:
+        await process_forge_issue(issue, cwd)
+    except (ForgeError, GitHubCliError) as error:
+        logger.error(
+            "issue #%d failed: %s", issue.number, _sanitize_for_log(str(error))
+        )
+        logger.debug(
+            "gh detail for #%d: %s", issue.number, getattr(error, "detail", None)
+        )
+        return WatchReport(
+            results=[WatchResult(issue=issue, ok=False, error=str(error))]
+        )
+
+    return WatchReport(results=[WatchResult(issue=issue, ok=True)])
 
 
 async def watch(
@@ -163,6 +254,21 @@ def main() -> None:
     failed_count = len(report.failures)
     ok_count = len(report.results) - failed_count
     logger.info("watch complete: %d ok, %d failed", ok_count, failed_count)
+    if not report.ok:
+        sys.exit(1)
+
+
+def forge_main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        stream=sys.stderr,
+        force=True,
+    )
+    report = asyncio.run(forge_watch())
+    failed_count = len(report.failures)
+    ok_count = len(report.results) - failed_count
+    logger.info("forge complete: %d ok, %d failed", ok_count, failed_count)
     if not report.ok:
         sys.exit(1)
 

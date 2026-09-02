@@ -14,6 +14,7 @@ dependencies = [
 [project.scripts]
 forge = "forge:main"
 forge-watch = "forge.watch:main"
+forge-build = "forge.watch:forge_main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
