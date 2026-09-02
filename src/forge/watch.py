@@ -9,9 +9,9 @@ from forge.github import (
     TRIAGE_LABEL,
     GitHubCliError,
     TriageIssue,
-    comment_on_issue,
+    close_issue,
+    create_issue,
     fetch_triage_issues,
-    relabel_issue,
 )
 
 
@@ -39,10 +39,25 @@ def _issue_to_request(issue: TriageIssue) -> str:
     return f"{issue.title}\n\n{issue.body}"
 
 
+def _split_plan(plan: str, fallback_title: str) -> tuple[str, str]:
+    lines = plan.split("\n")
+    for index, line in enumerate(lines):
+        if line.strip().startswith("# "):
+            title = line.strip()[2:].strip()
+            body = "\n".join(lines[:index] + lines[index + 1 :]).strip()
+            return title, body
+    return fallback_title, plan
+
+
+def _plan_body(body: str, issue: TriageIssue) -> str:
+    return f"{body}\n\n---\n\nPlanned from #{issue.number}."
+
+
 async def process_issue(issue: TriageIssue, cwd: str | Path | None) -> None:
     plan = await run_blueprint(_issue_to_request(issue), cwd=cwd)
-    comment_on_issue(issue.number, plan)
-    relabel_issue(issue.number, add=READY_LABEL, remove=TRIAGE_LABEL)
+    title, body = _split_plan(plan, issue.title)
+    create_issue(title, _plan_body(body, issue), label=READY_LABEL)
+    close_issue(issue.number)
 
 
 async def watch(

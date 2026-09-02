@@ -89,6 +89,48 @@ def comment_on_issue(number: int, body: str) -> None:
         raise GitHubCliError(f"gh issue comment failed: {error.stderr}") from error
 
 
+def create_issue(title: str, body: str, *, label: str | None = None) -> str:
+    if label is not None:
+        _reject_flag_like_label(label)
+
+    argv = ["gh", "issue", "create", "--title", title, "--body-file", "-"]
+    if label is not None:
+        argv += ["--label", label]
+
+    try:
+        result = subprocess.run(
+            argv,
+            input=body,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as error:
+        raise GitHubCliError(
+            "gh CLI was not found on PATH; install GitHub CLI to create issues"
+        ) from error
+    except subprocess.CalledProcessError as error:
+        raise GitHubCliError(f"gh issue create failed: {error.stderr}") from error
+
+    return result.stdout.strip()
+
+
+def close_issue(number: int) -> None:
+    try:
+        subprocess.run(
+            ["gh", "issue", "close", str(number)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as error:
+        raise GitHubCliError(
+            "gh CLI was not found on PATH; install GitHub CLI to close issues"
+        ) from error
+    except subprocess.CalledProcessError as error:
+        raise GitHubCliError(f"gh issue close failed: {error.stderr}") from error
+
+
 def relabel_issue(
     number: int, *, add: str | None = None, remove: str | None = None
 ) -> None:
