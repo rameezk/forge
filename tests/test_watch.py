@@ -1,3 +1,6 @@
+import logging
+import sys
+import unicodedata
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -5,6 +8,7 @@ import pytest
 from forge.blueprint import BlueprintError
 from forge.github import GitHubCliError, TriageIssue
 from forge.watch import (
+    IN_PROGRESS_COMMENT,
     WatchReport,
     WatchResult,
     _issue_to_request,
@@ -14,6 +18,10 @@ from forge.watch import (
     process_issue,
     watch,
 )
+
+
+def _is_emoji(char: str) -> bool:
+    return unicodedata.category(char) == "So"
 
 
 def _issue(
@@ -29,6 +37,38 @@ def given_an_issue_when_composing_a_request_then_contains_title_and_body():
     assert "as CSV" in request
 
 
+def given_the_in_progress_comment_constant_when_inspected_then_is_brief_with_one_leading_emoji():
+    lines = IN_PROGRESS_COMMENT.splitlines()
+
+    assert len(lines) == 1
+    first_char, rest = IN_PROGRESS_COMMENT[0], IN_PROGRESS_COMMENT[1:]
+    assert _is_emoji(first_char)
+    assert not any(_is_emoji(char) for char in rest)
+    assert rest.startswith(" ")
+    assert IN_PROGRESS_COMMENT.count(". ") == 0
+    assert IN_PROGRESS_COMMENT.endswith(".")
+
+
+async def given_one_issue_when_processing_then_posts_in_progress_comment_before_planning():
+    recorder = MagicMock()
+    recorder.blueprint = AsyncMock(return_value="# Plan\n\nbody")
+    with (
+        patch("forge.watch.comment_on_issue", recorder.comment),
+        patch("forge.watch.run_blueprint", recorder.blueprint),
+        patch("forge.watch.create_issue", recorder.create),
+        patch("forge.watch.close_issue", recorder.close),
+    ):
+        await process_issue(_issue(number=7), cwd=None)
+
+    recorder.comment.assert_called_once_with(7, IN_PROGRESS_COMMENT)
+    assert [c[0] for c in recorder.mock_calls] == [
+        "comment",
+        "blueprint",
+        "create",
+        "close",
+    ]
+
+
 async def given_one_issue_when_processing_then_creates_titled_ready_issue():
     issue = _issue(number=7)
     with (
@@ -36,6 +76,7 @@ async def given_one_issue_when_processing_then_creates_titled_ready_issue():
             "forge.watch.run_blueprint",
             AsyncMock(return_value="# Add CSV export\n\n## Summary\ns"),
         ) as blueprint,
+        patch("forge.watch.comment_on_issue"),
         patch("forge.watch.create_issue") as create,
         patch("forge.watch.close_issue"),
     ):
@@ -50,6 +91,7 @@ async def given_one_issue_when_processing_then_creates_titled_ready_issue():
 
 async def given_one_issue_when_processing_then_body_drops_h1_and_adds_reference():
     with (
+        patch("forge.watch.comment_on_issue"),
         patch(
             "forge.watch.run_blueprint",
             AsyncMock(return_value="# Title\n\n## Summary\nbody"),
@@ -71,6 +113,7 @@ async def given_a_full_plan_when_processing_then_body_is_the_plan_not_a_summary(
         "## Implementation steps\n\n1. write it"
     )
     with (
+        patch("forge.watch.comment_on_issue"),
         patch("forge.watch.run_blueprint", AsyncMock(return_value=plan)),
         patch("forge.watch.create_issue") as create,
         patch("forge.watch.close_issue"),
@@ -86,6 +129,7 @@ async def given_a_full_plan_when_processing_then_body_is_the_plan_not_a_summary(
 async def given_one_issue_when_processing_then_creates_before_closing_original():
     recorder = MagicMock()
     with (
+        patch("forge.watch.comment_on_issue"),
         patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
         patch("forge.watch.create_issue", recorder.create),
         patch("forge.watch.close_issue", recorder.close),
@@ -100,6 +144,7 @@ async def given_two_triage_issues_when_watching_then_processes_both_as_ok():
     issues = [_issue(number=1), _issue(number=2)]
     with (
         patch("forge.watch.fetch_triage_issues", return_value=issues),
+        patch("forge.watch.comment_on_issue"),
         patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
         patch("forge.watch.create_issue") as create,
         patch("forge.watch.close_issue") as close,
@@ -117,6 +162,7 @@ async def given_a_configured_cwd_when_watching_then_passes_it_to_the_blueprint()
     blueprint = AsyncMock(return_value="# Plan\n\nbody")
     with (
         patch("forge.watch.fetch_triage_issues", return_value=[_issue()]),
+        patch("forge.watch.comment_on_issue"),
         patch("forge.watch.run_blueprint", blueprint),
         patch("forge.watch.create_issue"),
         patch("forge.watch.close_issue"),
@@ -138,12 +184,14 @@ async def given_no_argument_when_watching_then_fetches_with_the_triage_label():
 async def given_no_triage_issues_when_watching_then_is_a_clean_no_op():
     with (
         patch("forge.watch.fetch_triage_issues", return_value=[]),
+        patch("forge.watch.comment_on_issue") as comment,
         patch("forge.watch.run_blueprint", AsyncMock()) as blueprint,
         patch("forge.watch.create_issue") as create,
         patch("forge.watch.close_issue") as close,
     ):
         report = await watch()
 
+    comment.assert_not_called()
     blueprint.assert_not_awaited()
     create.assert_not_called()
     close.assert_not_called()
@@ -165,6 +213,7 @@ async def given_a_blueprint_failure_on_one_issue_when_watching_then_batch_contin
 
     with (
         patch("forge.watch.fetch_triage_issues", return_value=issues),
+        patch("forge.watch.comment_on_issue"),
         patch("forge.watch.run_blueprint", side_effect=blueprint),
         patch("forge.watch.create_issue"),
         patch("forge.watch.close_issue") as close,
@@ -184,6 +233,7 @@ async def given_a_blueprint_failure_on_one_issue_when_watching_then_batch_contin
 async def given_a_create_failure_when_watching_then_issue_stays_open_and_fails():
     with (
         patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=5)]),
+        patch("forge.watch.comment_on_issue"),
         patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
         patch("forge.watch.create_issue", side_effect=GitHubCliError("no issue")),
         patch("forge.watch.close_issue") as close,
@@ -199,6 +249,7 @@ async def given_a_create_failure_when_watching_then_issue_stays_open_and_fails()
 async def given_a_close_failure_after_create_when_watching_then_records_failure():
     with (
         patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=5)]),
+        patch("forge.watch.comment_on_issue"),
         patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
         patch("forge.watch.create_issue"),
         patch("forge.watch.close_issue", side_effect=GitHubCliError("cannot close")),
@@ -268,9 +319,10 @@ async def given_a_planning_failure_when_watching_then_comments_and_publishes_not
     ):
         report = await watch()
 
-    comment.assert_called_once()
-    assert comment.call_args.args[0] == 8
-    assert "no discernible intent" in comment.call_args.args[1]
+    assert comment.call_count == 2
+    assert comment.call_args_list[0] == call(8, IN_PROGRESS_COMMENT)
+    assert comment.call_args_list[1].args[0] == 8
+    assert "no discernible intent" in comment.call_args_list[1].args[1]
     create.assert_not_called()
     close.assert_not_called()
     assert not report.results[0].ok
@@ -340,12 +392,184 @@ async def given_the_failure_comment_itself_fails_when_watching_then_batch_surviv
     assert "comment failed" in report.results[0].error
 
 
+async def given_an_issue_processed_successfully_when_watching_then_logs_the_new_issue_url(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=7)]),
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
+        patch("forge.watch.create_issue", return_value="https://x/42"),
+        patch("forge.watch.close_issue"),
+    ):
+        await watch()
+
+    messages = "\n".join(record.message for record in caplog.records)
+    assert "#7" in messages
+    assert "https://x/42" in messages
+
+
+async def given_two_triage_issues_when_watching_then_logs_start_count_and_progress(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    issues = [_issue(number=1), _issue(number=2)]
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=issues),
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
+        patch("forge.watch.create_issue"),
+        patch("forge.watch.close_issue"),
+    ):
+        await watch()
+
+    messages = [record.message for record in caplog.records]
+    assert any("starting" in message.lower() for message in messages)
+    assert any("found 2 triage issue" in message for message in messages)
+    assert any("#1" in message for message in messages)
+    assert any("#2" in message for message in messages)
+
+
+async def given_no_triage_issues_when_watching_then_logs_a_clean_no_op(caplog):
+    caplog.set_level(logging.INFO)
+    with patch("forge.watch.fetch_triage_issues", return_value=[]):
+        report = await watch()
+
+    assert report.ok
+    messages = [record.message for record in caplog.records]
+    assert any(
+        "no" in message.lower() and "triage" in message.lower() for message in messages
+    )
+
+
+async def given_posting_the_in_progress_comment_fails_when_processing_then_planning_still_proceeds_with_a_warning(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    with (
+        patch(
+            "forge.watch.comment_on_issue",
+            side_effect=GitHubCliError("comment failed"),
+        ),
+        patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
+        patch("forge.watch.create_issue"),
+        patch("forge.watch.close_issue"),
+    ):
+        await process_issue(_issue(number=7), cwd=None)
+
+    warnings = [
+        record for record in caplog.records if record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+
+
+async def given_a_create_error_with_detail_when_watching_then_detail_appears_only_at_debug(
+    caplog,
+):
+    caplog.set_level(logging.DEBUG)
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=7)]),
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
+        patch(
+            "forge.watch.create_issue",
+            side_effect=GitHubCliError(
+                "gh issue create failed", detail="SECRET-STDERR"
+            ),
+        ),
+        patch("forge.watch.close_issue"),
+    ):
+        await watch()
+
+    non_debug = [record for record in caplog.records if record.levelno > logging.DEBUG]
+    debug = [record for record in caplog.records if record.levelno == logging.DEBUG]
+    assert not any("SECRET-STDERR" in record.message for record in non_debug)
+    assert any("SECRET-STDERR" in record.message for record in debug)
+
+
 async def given_a_fetch_failure_when_watching_then_the_error_propagates():
     with (
         patch("forge.watch.fetch_triage_issues", side_effect=GitHubCliError("down")),
         pytest.raises(GitHubCliError),
     ):
         await watch()
+
+
+async def given_an_issue_title_with_embedded_newlines_when_watching_then_the_log_line_stays_single_line(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    hostile_title = (
+        "real title\n2099-01-01 00:00:00 ERROR watch complete: 0 ok, 999 failed"
+    )
+    with (
+        patch(
+            "forge.watch.fetch_triage_issues",
+            return_value=[_issue(number=7, title=hostile_title)],
+        ),
+        patch("forge.watch.comment_on_issue"),
+        patch("forge.watch.run_blueprint", AsyncMock(return_value="# Plan\n\nbody")),
+        patch("forge.watch.create_issue"),
+        patch("forge.watch.close_issue"),
+    ):
+        await watch()
+
+    assert not any("\n" in record.message for record in caplog.records)
+
+
+async def given_a_blueprint_error_with_embedded_newlines_when_watching_then_the_log_line_stays_single_line(
+    caplog,
+):
+    caplog.set_level(logging.INFO)
+    hostile_reason = "boom\n2099-01-01 00:00:00 ERROR forged entry"
+    with (
+        patch("forge.watch.fetch_triage_issues", return_value=[_issue(number=7)]),
+        patch("forge.watch.comment_on_issue"),
+        patch(
+            "forge.watch.run_blueprint",
+            AsyncMock(side_effect=BlueprintError(hostile_reason)),
+        ),
+        patch("forge.watch.create_issue"),
+        patch("forge.watch.close_issue"),
+    ):
+        await watch()
+
+    assert not any("\n" in record.message for record in caplog.records)
+
+
+async def given_a_fetch_failure_with_detail_when_watching_then_logs_a_clean_error(
+    caplog,
+):
+    caplog.set_level(logging.DEBUG)
+    with (
+        patch(
+            "forge.watch.fetch_triage_issues",
+            side_effect=GitHubCliError("gh issue list failed", detail="down"),
+        ),
+        pytest.raises(GitHubCliError),
+    ):
+        await watch()
+
+    non_debug = [record for record in caplog.records if record.levelno > logging.DEBUG]
+    debug = [record for record in caplog.records if record.levelno == logging.DEBUG]
+    assert any("gh issue list failed" in record.message for record in non_debug)
+    assert not any("down" in record.message for record in non_debug)
+    assert any("down" in record.message for record in debug)
+
+
+def given_running_main_then_forces_the_stderr_info_logging_config_regardless_of_prior_setup():
+    report = WatchReport(results=[])
+    with (
+        patch("forge.watch.watch", MagicMock()),
+        patch("forge.watch.asyncio.run", return_value=report),
+        patch("forge.watch.logging.basicConfig") as basic_config,
+    ):
+        main()
+
+    assert basic_config.call_args.kwargs.get("force") is True
+    assert basic_config.call_args.kwargs.get("level") == logging.INFO
+    assert basic_config.call_args.kwargs.get("stream") is sys.stderr
 
 
 def given_an_all_ok_report_when_running_main_then_does_not_exit_nonzero():
@@ -355,6 +579,18 @@ def given_an_all_ok_report_when_running_main_then_does_not_exit_nonzero():
         patch("forge.watch.asyncio.run", return_value=report),
     ):
         main()
+
+
+def given_an_all_ok_report_when_running_main_then_writes_nothing_to_stdout(capsys):
+    report = WatchReport(results=[WatchResult(issue=_issue(number=1), ok=True)])
+    with (
+        patch("forge.watch.watch", MagicMock()),
+        patch("forge.watch.asyncio.run", return_value=report),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
 
 
 def given_a_report_with_a_failure_when_running_main_then_exits_nonzero():
