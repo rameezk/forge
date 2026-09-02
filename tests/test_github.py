@@ -4,7 +4,13 @@ from unittest.mock import patch
 
 import pytest
 
-from forge.github import GitHubCliError, TriageIssue, fetch_triage_issues
+from forge.github import (
+    GitHubCliError,
+    TriageIssue,
+    comment_on_issue,
+    fetch_triage_issues,
+    relabel_issue,
+)
 
 
 def _completed(stdout: str):
@@ -120,3 +126,69 @@ def given_malformed_stdout_when_fetching_then_raises_githubclierror():
         pytest.raises(GitHubCliError),
     ):
         fetch_triage_issues()
+
+
+def given_a_body_when_commenting_then_sends_it_on_stdin_via_body_file():
+    with patch("forge.github.subprocess.run", return_value=_completed("")) as run:
+        comment_on_issue(7, "# Plan")
+
+    argv = run.call_args.args[0]
+    assert argv == ["gh", "issue", "comment", "7", "--body-file", "-"]
+    assert run.call_args.kwargs.get("input") == "# Plan"
+    assert run.call_args.kwargs.get("shell", False) is False
+
+
+def given_gh_exits_nonzero_when_commenting_then_raises_githubclierror_with_stderr():
+    error = CalledProcessError(returncode=1, cmd=["gh"], stderr="no such issue")
+    with (
+        patch("forge.github.subprocess.run", side_effect=error),
+        pytest.raises(GitHubCliError) as excinfo,
+    ):
+        comment_on_issue(7, "# Plan")
+
+    assert "no such issue" in str(excinfo.value)
+
+
+def given_add_and_remove_when_relabelling_then_builds_both_flags_for_the_issue():
+    with patch("forge.github.subprocess.run", return_value=_completed("")) as run:
+        relabel_issue(7, add="forge:ready", remove="forge:triage")
+
+    argv = run.call_args.args[0]
+    assert argv[:4] == ["gh", "issue", "edit", "7"]
+    assert argv[argv.index("--add-label") + 1] == "forge:ready"
+    assert argv[argv.index("--remove-label") + 1] == "forge:triage"
+    assert run.call_args.kwargs.get("shell", False) is False
+
+
+def given_only_add_when_relabelling_then_omits_the_remove_flag():
+    with patch("forge.github.subprocess.run", return_value=_completed("")) as run:
+        relabel_issue(7, add="forge:ready")
+
+    argv = run.call_args.args[0]
+    assert "--add-label" in argv
+    assert "--remove-label" not in argv
+
+
+def given_hostile_add_label_when_relabelling_then_raises_before_invoking_gh():
+    with patch("forge.github.subprocess.run") as run, pytest.raises(GitHubCliError):
+        relabel_issue(7, add="--repo=attacker/other")
+
+    run.assert_not_called()
+
+
+def given_hostile_remove_label_when_relabelling_then_raises_before_invoking_gh():
+    with patch("forge.github.subprocess.run") as run, pytest.raises(GitHubCliError):
+        relabel_issue(7, remove="--repo=attacker/other")
+
+    run.assert_not_called()
+
+
+def given_gh_exits_nonzero_when_relabelling_then_raises_githubclierror_with_stderr():
+    error = CalledProcessError(returncode=1, cmd=["gh"], stderr="missing label")
+    with (
+        patch("forge.github.subprocess.run", side_effect=error),
+        pytest.raises(GitHubCliError) as excinfo,
+    ):
+        relabel_issue(7, add="forge:ready", remove="forge:triage")
+
+    assert "missing label" in str(excinfo.value)

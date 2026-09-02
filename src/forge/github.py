@@ -3,10 +3,19 @@ import subprocess
 from dataclasses import dataclass
 
 TRIAGE_LABEL = "forge:triage"
+READY_LABEL = "forge:ready"
 
 
 class GitHubCliError(Exception):
     pass
+
+
+def _reject_flag_like_label(label: str) -> None:
+    if label.startswith("-"):
+        raise GitHubCliError(
+            f"invalid label {label!r}: labels must not start with '-' "
+            "to avoid being parsed as a gh flag"
+        )
 
 
 @dataclass(frozen=True)
@@ -18,11 +27,7 @@ class TriageIssue:
 
 
 def fetch_triage_issues(label: str = TRIAGE_LABEL) -> list[TriageIssue]:
-    if label.startswith("-"):
-        raise GitHubCliError(
-            f"invalid label {label!r}: labels must not start with '-' "
-            "to avoid being parsed as a gh flag"
-        )
+    _reject_flag_like_label(label)
 
     try:
         result = subprocess.run(
@@ -65,3 +70,44 @@ def fetch_triage_issues(label: str = TRIAGE_LABEL) -> list[TriageIssue]:
         raise GitHubCliError(
             f"unexpected gh issue list output shape: {error}"
         ) from error
+
+
+def comment_on_issue(number: int, body: str) -> None:
+    try:
+        subprocess.run(
+            ["gh", "issue", "comment", str(number), "--body-file", "-"],
+            input=body,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as error:
+        raise GitHubCliError(
+            "gh CLI was not found on PATH; install GitHub CLI to comment on issues"
+        ) from error
+    except subprocess.CalledProcessError as error:
+        raise GitHubCliError(f"gh issue comment failed: {error.stderr}") from error
+
+
+def relabel_issue(
+    number: int, *, add: str | None = None, remove: str | None = None
+) -> None:
+    if add is not None:
+        _reject_flag_like_label(add)
+    if remove is not None:
+        _reject_flag_like_label(remove)
+
+    argv = ["gh", "issue", "edit", str(number)]
+    if add is not None:
+        argv += ["--add-label", add]
+    if remove is not None:
+        argv += ["--remove-label", remove]
+
+    try:
+        subprocess.run(argv, capture_output=True, text=True, check=True)
+    except FileNotFoundError as error:
+        raise GitHubCliError(
+            "gh CLI was not found on PATH; install GitHub CLI to relabel issues"
+        ) from error
+    except subprocess.CalledProcessError as error:
+        raise GitHubCliError(f"gh issue edit failed: {error.stderr}") from error
