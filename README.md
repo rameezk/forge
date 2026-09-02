@@ -6,7 +6,8 @@ implementation plans.
 ## Triage watcher
 
 `forge-watch` does one pass over the open GitHub issues labelled `forge:triage`
-in the current repository: for each issue it runs the `blueprint` skill over the
+in the current repository: for each issue it runs a headless planning agent -
+driven by the `blueprint` skill's copied methodology and template - over the
 ticket, opens a new issue whose title is the plan's own heading and whose body
 is the plan (with a `Planned from #<number>` reference back to the triage ticket)
 labelled `forge:ready`, then closes the original `forge:triage` issue. Closing is
