@@ -10,6 +10,7 @@ from forge.github import (
     GitHubCliError,
     TriageIssue,
     close_issue,
+    comment_on_issue,
     create_issue,
     fetch_triage_issues,
 )
@@ -53,8 +54,41 @@ def _plan_body(body: str, issue: TriageIssue) -> str:
     return f"{body}\n\n---\n\nPlanned from #{issue.number}."
 
 
+FAILURE_REASON_LIMIT = 2000
+
+
+def _fence(content: str) -> str:
+    longest_run = 0
+    current_run = 0
+    for char in content:
+        if char == "`":
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+    fence = "`" * max(3, longest_run + 1)
+    return f"{fence}\n{content}\n{fence}"
+
+
+def _failure_comment(reason: str) -> str:
+    trimmed = reason.strip()[:FAILURE_REASON_LIMIT]
+    return (
+        "Forge could not plan this issue. The reason below is untrusted output "
+        "and is shown verbatim inside a code block:\n\n" + _fence(trimmed)
+    )
+
+
 async def process_issue(issue: TriageIssue, cwd: str | Path | None) -> None:
-    plan = await run_blueprint(_issue_to_request(issue), cwd=cwd)
+    try:
+        plan = await run_blueprint(_issue_to_request(issue), cwd=cwd)
+    except BlueprintError as error:
+        try:
+            comment_on_issue(issue.number, _failure_comment(str(error)))
+        except GitHubCliError as comment_error:
+            raise BlueprintError(
+                f"{error} (posting the failure comment also failed: {comment_error})"
+            ) from comment_error
+        raise
     title, body = _split_plan(plan, issue.title)
     create_issue(title, _plan_body(body, issue), label=READY_LABEL)
     close_issue(issue.number)
