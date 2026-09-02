@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 forge = "forge:main"
+forge-watch = "forge.watch:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
@@ -26,6 +27,7 @@ extend-select = ["ANN"]
 
 [tool.pytest.ini_options]
 python_functions = ["test_*", "*_then_*"]
+asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [
