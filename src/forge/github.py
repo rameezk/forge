@@ -7,7 +7,9 @@ READY_LABEL = "forge:ready"
 
 
 class GitHubCliError(Exception):
-    pass
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 def _reject_flag_like_label(label: str) -> None:
@@ -49,7 +51,7 @@ def fetch_triage_issues(label: str = TRIAGE_LABEL) -> list[TriageIssue]:
             "gh CLI was not found on PATH; install GitHub CLI to fetch triage issues"
         ) from error
     except subprocess.CalledProcessError as error:
-        raise GitHubCliError(f"gh issue list failed: {error.stderr}") from error
+        raise GitHubCliError("gh issue list failed", detail=error.stderr) from error
 
     try:
         entries = json.loads(result.stdout)
@@ -86,7 +88,7 @@ def comment_on_issue(number: int, body: str) -> None:
             "gh CLI was not found on PATH; install GitHub CLI to comment on issues"
         ) from error
     except subprocess.CalledProcessError as error:
-        raise GitHubCliError(f"gh issue comment failed: {error.stderr}") from error
+        raise GitHubCliError("gh issue comment failed", detail=error.stderr) from error
 
 
 def create_issue(title: str, body: str, *, label: str | None = None) -> str:
@@ -110,7 +112,7 @@ def create_issue(title: str, body: str, *, label: str | None = None) -> str:
             "gh CLI was not found on PATH; install GitHub CLI to create issues"
         ) from error
     except subprocess.CalledProcessError as error:
-        raise GitHubCliError(f"gh issue create failed: {error.stderr}") from error
+        raise GitHubCliError("gh issue create failed", detail=error.stderr) from error
 
     return result.stdout.strip()
 
@@ -128,7 +130,7 @@ def close_issue(number: int) -> None:
             "gh CLI was not found on PATH; install GitHub CLI to close issues"
         ) from error
     except subprocess.CalledProcessError as error:
-        raise GitHubCliError(f"gh issue close failed: {error.stderr}") from error
+        raise GitHubCliError("gh issue close failed", detail=error.stderr) from error
 
 
 def relabel_issue(
@@ -152,4 +154,4 @@ def relabel_issue(
             "gh CLI was not found on PATH; install GitHub CLI to relabel issues"
         ) from error
     except subprocess.CalledProcessError as error:
-        raise GitHubCliError(f"gh issue edit failed: {error.stderr}") from error
+        raise GitHubCliError("gh issue edit failed", detail=error.stderr) from error

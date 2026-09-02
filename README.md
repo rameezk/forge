@@ -6,12 +6,13 @@ implementation plans.
 ## Triage watcher
 
 `forge-watch` does one pass over the open GitHub issues labelled `forge:triage`
-in the current repository: for each issue it runs a headless planning agent -
-driven by the `blueprint` skill's copied methodology and template - over the
-ticket, opens a new issue whose title is the plan's own heading and whose body
-is the plan (with a `Planned from #<number>` reference back to the triage ticket)
-labelled `forge:ready`, then closes the original `forge:triage` issue. Closing is
-the last step, so any earlier failure leaves the triage issue open for the next
+in the current repository: for each issue it comments that a blueprint is
+running, then runs a headless planning agent - driven by the `blueprint`
+skill's copied methodology and template - over the ticket, opens a new issue
+whose title is the plan's own heading and whose body is the plan (with a
+`Planned from #<number>` reference back to the triage ticket) labelled
+`forge:ready`, then closes the original `forge:triage` issue. Closing is the
+last step, so any earlier failure leaves the triage issue open for the next
 pass to retry.
 
 Cadence is delegated to an external scheduler - point cron or launchd at the
@@ -41,7 +42,9 @@ or equivalently:
 python -m forge.watch
 ```
 
-The command prints one line per issue and exits non-zero if any issue failed.
+The command logs its progress to stderr (start, issue count, per-issue
+progress, and a final summary) and exits non-zero if any issue failed. Raw
+`gh` CLI error output is only logged at `DEBUG`; stdout stays empty.
 
 ## Security notes
 

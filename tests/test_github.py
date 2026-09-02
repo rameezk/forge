@@ -119,7 +119,8 @@ def given_gh_exits_nonzero_when_fetching_then_raises_githubclierror_with_stderr(
     ):
         fetch_triage_issues()
 
-    assert "not authenticated" in str(excinfo.value)
+    assert "not authenticated" not in str(excinfo.value)
+    assert excinfo.value.detail == "not authenticated"
 
 
 def given_malformed_stdout_when_fetching_then_raises_githubclierror():
@@ -148,7 +149,8 @@ def given_gh_exits_nonzero_when_commenting_then_raises_githubclierror_with_stder
     ):
         comment_on_issue(7, "# Plan")
 
-    assert "no such issue" in str(excinfo.value)
+    assert "no such issue" not in str(excinfo.value)
+    assert excinfo.value.detail == "no such issue"
 
 
 def given_add_and_remove_when_relabelling_then_builds_both_flags_for_the_issue():
@@ -193,7 +195,8 @@ def given_gh_exits_nonzero_when_relabelling_then_raises_githubclierror_with_stde
     ):
         relabel_issue(7, add="forge:ready", remove="forge:triage")
 
-    assert "missing label" in str(excinfo.value)
+    assert "missing label" not in str(excinfo.value)
+    assert excinfo.value.detail == "missing label"
 
 
 def given_title_and_body_when_creating_then_sends_body_on_stdin_without_a_shell():
@@ -260,7 +263,8 @@ def given_gh_exits_nonzero_when_creating_then_raises_githubclierror_with_stderr(
     ):
         create_issue("T", "b", label="forge:ready")
 
-    assert "could not add label" in str(excinfo.value)
+    assert "could not add label" not in str(excinfo.value)
+    assert excinfo.value.detail == "could not add label"
 
 
 def given_a_number_when_closing_then_invokes_gh_issue_close_without_a_shell():
@@ -289,4 +293,5 @@ def given_gh_exits_nonzero_when_closing_then_raises_githubclierror_with_stderr()
     ):
         close_issue(7)
 
-    assert "no such issue" in str(excinfo.value)
+    assert "no such issue" not in str(excinfo.value)
+    assert excinfo.value.detail == "no such issue"

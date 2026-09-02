@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,8 @@ from forge.github import (
     create_issue,
     fetch_triage_issues,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,10 @@ def _issue_to_request(issue: TriageIssue) -> str:
     return f"{issue.title}\n\n{issue.body}"
 
 
+def _sanitize_for_log(text: str) -> str:
+    return text.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
+
+
 def _split_plan(plan: str, fallback_title: str) -> tuple[str, str]:
     lines = plan.split("\n")
     for index, line in enumerate(lines):
@@ -55,6 +62,7 @@ def _plan_body(body: str, issue: TriageIssue) -> str:
 
 
 FAILURE_REASON_LIMIT = 2000
+IN_PROGRESS_COMMENT = "🔨 Forge is running a blueprint on this issue."
 
 
 def _fence(content: str) -> str:
@@ -80,6 +88,16 @@ def _failure_comment(reason: str) -> str:
 
 async def process_issue(issue: TriageIssue, cwd: str | Path | None) -> None:
     try:
+        comment_on_issue(issue.number, IN_PROGRESS_COMMENT)
+        logger.info("commented that a blueprint is running on #%d", issue.number)
+    except GitHubCliError as error:
+        logger.warning(
+            "could not comment on #%d that a blueprint is running: %s",
+            issue.number,
+            error,
+        )
+
+    try:
         plan = await run_blueprint(_issue_to_request(issue), cwd=cwd)
     except BlueprintError as error:
         try:
@@ -90,34 +108,61 @@ async def process_issue(issue: TriageIssue, cwd: str | Path | None) -> None:
             ) from comment_error
         raise
     title, body = _split_plan(plan, issue.title)
-    create_issue(title, _plan_body(body, issue), label=READY_LABEL)
+    url = create_issue(title, _plan_body(body, issue), label=READY_LABEL)
     close_issue(issue.number)
+    logger.info("published plan %s for #%d and closed it", url, issue.number)
 
 
 async def watch(
     cwd: str | Path | None = None, label: str = TRIAGE_LABEL
 ) -> WatchReport:
-    issues = fetch_triage_issues(label)
+    logger.info("starting triage watch (label=%s)", label)
+    try:
+        issues = fetch_triage_issues(label)
+    except GitHubCliError as error:
+        logger.error("could not fetch triage issues: %s", error)
+        logger.debug("gh detail for fetch: %s", getattr(error, "detail", None))
+        raise
+
+    if not issues:
+        logger.info("no triage issues found, nothing to do")
+        return WatchReport()
+
+    logger.info("found %d triage issue(s)", len(issues))
 
     results: list[WatchResult] = []
     for issue in issues:
+        logger.info(
+            "planning issue #%d: %s", issue.number, _sanitize_for_log(issue.title)
+        )
         try:
             await process_issue(issue, cwd)
             results.append(WatchResult(issue=issue, ok=True))
         except (BlueprintError, GitHubCliError) as error:
+            logger.error(
+                "issue #%d failed: %s", issue.number, _sanitize_for_log(str(error))
+            )
+            logger.debug(
+                "gh detail for #%d: %s",
+                issue.number,
+                getattr(error, "detail", None),
+            )
             results.append(WatchResult(issue=issue, ok=False, error=str(error)))
 
     return WatchReport(results=results)
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        stream=sys.stderr,
+        force=True,
+    )
     report = asyncio.run(watch())
-    for result in report.results:
-        status = "ok" if result.ok else "failed"
-        line = f"#{result.issue.number} {status}"
-        if result.error:
-            line += f": {result.error}"
-        print(line)
+    failed_count = len(report.failures)
+    ok_count = len(report.results) - failed_count
+    logger.info("watch complete: %d ok, %d failed", ok_count, failed_count)
     if not report.ok:
         sys.exit(1)
 
