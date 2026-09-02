@@ -12,6 +12,7 @@ from claude_agent_sdk import (
 
 from forge.blueprint import (
     BLUEPRINT_MODEL,
+    MAX_PLAN_ATTEMPTS,
     NON_SUBSCRIPTION_AUTH_ENV_VARS,
     BlueprintError,
     run_blueprint,
@@ -34,14 +35,16 @@ def _assistant(*texts: str) -> AssistantMessage:
     )
 
 
-def _result(result: str | None = "ok", is_error: bool = False) -> ResultMessage:
+def _result(
+    result: str | None = "ok", is_error: bool = False, session_id: str = "s"
+) -> ResultMessage:
     return ResultMessage(
         subtype="success",
         duration_ms=1,
         duration_api_ms=1,
         is_error=is_error,
         num_turns=1,
-        session_id="s",
+        session_id=session_id,
         result=result,
     )
 
@@ -52,6 +55,10 @@ def _stream(*messages):
             yield message
 
     return _gen
+
+
+def _turn(*messages):
+    return _stream(*messages)()
 
 
 def _raising(error: Exception):
@@ -68,12 +75,20 @@ async def given_a_plan_message_when_run_then_returns_plan_markdown():
         assert await run_blueprint("add a widget") == _VALID_PLAN
 
 
-async def given_run_when_options_built_then_enables_blueprint_skill():
+async def given_run_when_options_built_then_loads_no_skill_and_carries_the_contract():
     with patch("forge.blueprint.query") as query:
         query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
         await run_blueprint("x")
 
-    assert query.call_args.kwargs["options"].skills == ["blueprint"]
+    options = query.call_args.kwargs["options"]
+    system_prompt = options.system_prompt
+    assert options.skills == []
+    assert "raw markdown" in system_prompt
+    for heading in ("## Summary", "## Implementation steps", "## Testing"):
+        assert heading in system_prompt
+    assert "single `# ` title line" in system_prompt
+    assert "present it for review" not in system_prompt
+    assert "Ask the user" not in system_prompt
 
 
 async def given_run_when_options_built_then_uses_plan_permission_mode():
@@ -389,6 +404,148 @@ async def given_a_plan_without_optional_sections_when_run_then_passes_validation
     stream = _stream(_result(result=_VALID_PLAN))
     with patch("forge.blueprint.query", stream):
         assert await run_blueprint("x") == _VALID_PLAN
+
+
+async def given_a_format_failure_then_a_valid_correction_when_run_then_returns_it():
+    first = _turn(_result(result="prose with no headings", session_id="s1"))
+    second = _turn(_result(result=_VALID_PLAN))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        result = await run_blueprint("x")
+
+    assert result == _VALID_PLAN
+    assert query.call_count == 2
+    assert query.call_args_list[1].kwargs["options"].resume == "s1"
+
+
+async def given_a_format_failure_missing_the_h1_when_corrected_then_prompt_names_it():
+    missing_h1 = (
+        "## Summary\n\nExport rows as CSV.\n\n"
+        "## Implementation steps\n\n1. write it\n\n"
+        "## Testing\n\n- unit tests"
+    )
+    first = _turn(_result(result=missing_h1, session_id="s1"))
+    second = _turn(_result(result=_VALID_PLAN))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        await run_blueprint("x")
+
+    correction_prompt = query.call_args_list[1].kwargs["prompt"]
+    assert "single `# ` title line" in correction_prompt
+    assert "H1 title" not in correction_prompt
+
+
+async def given_a_format_failure_missing_testing_when_corrected_then_prompt_names_it():
+    missing_testing = (
+        "# Add CSV export\n\n"
+        "## Summary\n\nExport rows as CSV.\n\n"
+        "## Implementation steps\n\n1. write it"
+    )
+    first = _turn(_result(result=missing_testing, session_id="s1"))
+    second = _turn(_result(result=_VALID_PLAN))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        await run_blueprint("x")
+
+    correction_prompt = query.call_args_list[1].kwargs["prompt"]
+    assert "## Testing" in correction_prompt
+    assert "raw markdown" in correction_prompt
+
+
+async def given_a_valid_first_attempt_when_run_then_makes_a_single_query_call():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant(_VALID_PLAN), _result(result=None))
+        result = await run_blueprint("x")
+
+    assert result == _VALID_PLAN
+    assert query.call_count == 1
+
+
+async def given_a_sentinel_refusal_when_run_then_terminal_with_a_single_query_call():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(
+            _result(result="BLUEPRINT_ERROR: request has no discernible intent")
+        )
+        with pytest.raises(BlueprintError) as excinfo:
+            await run_blueprint("x")
+
+    assert "request has no discernible intent" in str(excinfo.value)
+    assert query.call_count == 1
+
+
+async def given_both_attempts_invalid_when_run_then_raises_exhaustion_with_two_calls():
+    first = _turn(_result(result="prose one", session_id="s1"))
+    second = _turn(_result(result="prose two", session_id="s2"))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        with pytest.raises(BlueprintError) as excinfo:
+            await run_blueprint("x")
+
+    assert query.call_count == 2
+    assert "## Summary" in str(excinfo.value)
+
+
+async def given_empty_output_then_a_valid_correction_when_run_then_returns_it():
+    first = _turn(_result(result="", session_id="s1"))
+    second = _turn(_result(result=_VALID_PLAN))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        result = await run_blueprint("x")
+
+    assert result == _VALID_PLAN
+    assert query.call_count == 2
+
+
+async def given_an_invalid_first_turn_without_a_session_id_when_run_then_terminal():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_assistant("prose with no headings"))
+        with pytest.raises(BlueprintError) as excinfo:
+            await run_blueprint("x")
+
+    assert query.call_count == 1
+    assert "no session id to resume" in str(excinfo.value)
+
+
+async def given_both_attempts_invalid_when_run_then_message_names_cap_exhausted():
+    first = _turn(_result(result="prose one", session_id="s1"))
+    second = _turn(_result(result="prose two", session_id="s2"))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        with pytest.raises(BlueprintError) as excinfo:
+            await run_blueprint("x")
+
+    assert f"exhausted {MAX_PLAN_ATTEMPTS} attempt" in str(excinfo.value)
+
+
+async def given_a_process_error_on_the_correction_turn_when_run_then_wraps_cleanly():
+    first = _turn(_result(result="prose with no headings", session_id="s1"))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, ProcessError("boom")]
+        with pytest.raises(BlueprintError):
+            await run_blueprint("x")
+
+    assert query.call_count == 2
+
+
+async def given_a_sentinel_on_the_correction_turn_when_run_then_terminal():
+    first = _turn(_result(result="prose with no headings", session_id="s1"))
+    second = _turn(_result(result="BLUEPRINT_ERROR: cannot plan"))
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = [first, second]
+        with pytest.raises(BlueprintError) as excinfo:
+            await run_blueprint("x")
+
+    assert "cannot plan" in str(excinfo.value)
+    assert query.call_count == 2
+
+
+async def given_a_fenced_valid_plan_on_first_attempt_when_run_then_single_query_call():
+    with patch("forge.blueprint.query") as query:
+        query.side_effect = _stream(_result(result=f"```markdown\n{_VALID_PLAN}\n```"))
+        result = await run_blueprint("x")
+
+    assert result == _VALID_PLAN
+    assert query.call_count == 1
 
 
 async def given_heading_whitespace_and_case_variation_when_run_then_still_validates():
