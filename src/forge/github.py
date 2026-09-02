@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 TRIAGE_LABEL = "forge:triage"
 READY_LABEL = "forge:ready"
+BUILDING_LABEL = "forge:building"
+DONE_LABEL = "forge:done"
+FAILED_LABEL = "forge:failed"
 
 
 class GitHubCliError(Exception):
