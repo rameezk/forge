@@ -19,14 +19,14 @@ lands to a consistent standard.
 
 - The user or agent hands over an implementation plan and asks to "forge",
   "implement", or "build" it
-- An [[implementation-plan]] exists (under `implementation-plans/` or wherever
+- An [[blueprint]] exists (under `implementation-plans/` or wherever
   the user points) and the next step is to turn it into working code
 - Any change large enough that it was planned first and now needs a controlled
   path from plan to reviewed implementation
 
 ## When NOT to use
 
-- There is no plan yet - produce one first with [[implementation-plan]]
+- There is no plan yet - produce one first with [[blueprint]]
 - The change is trivial and unambiguous - use [[tdd]] directly
 - The user asked only for a plan, only to review, or only to commit - use the
   narrower skill for that
