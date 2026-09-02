@@ -22,7 +22,9 @@ problems are caught at the source rather than in review.
 
 This project uses:
 
-- **ruff** for linting and formatting (`ruff check`, `ruff format`)
+- **ruff** for linting and formatting (`ruff check`, `ruff format`). Type
+  annotations are lint-enforced via the `ANN` rules, so missing parameter or
+  return types are a lint failure in application code (relaxed under `tests/`).
 - **ty** for type checking (`ty check`)
 - **pytest** for tests (see [[tdd]])
 
