@@ -1,0 +1,9 @@
+{
+  "name": "forge-pipeline",
+  "version": "0.1.0",
+  "description": "Skills and reviewer agents that drive the forge build pipeline: tdd, code-quality, git-branching, git-committing, git-pr, and the code-reviewer/security-reviewer sub-agents.",
+  "author": {
+    "name": "Rameez Khan",
+    "email": "rameez@rameezkhan.dev"
+  }
+}

@@ -50,11 +50,20 @@ progress, and a final summary) and exits non-zero if any issue failed. Raw
 
 `forge-build` does one pass over the open GitHub issues labelled `forge:ready`
 in the current repository, picks the single oldest one, and hands it to a
-headless implementation agent - driven by the `forge` and `git-pr` skills'
-copied methodology - that implements the plan, runs the project's build/lint/
-tests, commits, pushes a feature branch, and opens a pull request with
-`gh pr create`. Unlike the triage watcher, it processes at most one issue per
-run and never retries automatically.
+headless implementation agent that drives the `forge` skill itself - the same
+skill orchestrating `tdd`, `code-quality`, independent `code-reviewer` and
+`security-reviewer` sub-agent review, `git-committing`, and `git-pr` - to
+implement the plan, run the project's build/lint/tests, commit, push a
+feature branch, and open a pull request with `gh pr create`. Unlike the
+triage watcher, it processes at most one issue per run and never retries
+automatically.
+
+Because `forge-build` runs from within the checkout the issue should be
+implemented against, that target repository will not generally have forge's
+own `.claude/skills` and `.claude/agents`. To keep the pipeline self-contained
+regardless of `cwd`, those skills and the two reviewer sub-agents are bundled
+into the `forge` package as a local plugin (`src/forge/plugin/`) and loaded
+via the Claude Agent SDK's `plugins` option on every run.
 
 Each run is capped at 4 USD (`max_budget_usd`); a run that exceeds it fails
 cleanly rather than running away.
