@@ -1,5 +1,5 @@
 ---
-name: implementation-plan
+name: blueprint
 description: Turn a user requirement or bug report into a detailed implementation plan with listed test cases and edge cases. Use when the user or agent asks to plan a feature, scope a change, or work out how to fix a bug before writing code. Produces a reviewable plan, not an implementation.
 model: opus
 ---
