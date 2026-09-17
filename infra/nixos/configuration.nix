@@ -1,9 +1,12 @@
 {
   lib,
+  modulesPath,
   forgeConfig,
   ...
 }:
 {
+  imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
+
   networking.hostName = forgeConfig.hostname;
   networking.useDHCP = lib.mkDefault true;
 
