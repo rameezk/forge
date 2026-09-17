@@ -7,17 +7,17 @@ run "plan_reflects_config" {
   command = plan
 
   assert {
-    condition     = hcloud_server.this.server_type == "cx22"
+    condition     = hcloud_server.this.server_type == local.config.serverType
     error_message = "hcloud_server does not carry the configured serverType"
   }
 
   assert {
-    condition     = hcloud_server.this.location == "nbg1"
+    condition     = hcloud_server.this.location == local.config.location
     error_message = "hcloud_server does not carry the configured location"
   }
 
   assert {
-    condition     = hcloud_ssh_key.operator["0"].public_key == "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExamplePlaceholderKeyReplaceWithYourOwn operator@example"
+    condition     = hcloud_ssh_key.operator["0"].public_key == local.config.sshPublicKeys[0]
     error_message = "hcloud_ssh_key does not carry the configured SSH public key"
   }
 

@@ -50,7 +50,6 @@
               pkgs.opentofu
               pkgs.disko
               nixos-anywhere.packages.${system}.default
-              pkgs.jq
             ];
           };
         }

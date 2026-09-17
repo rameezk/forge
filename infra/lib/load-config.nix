@@ -7,7 +7,6 @@ let
     locale = "en_US.UTF-8";
     sshPort = 22;
     adminUser = "forge";
-    baseImage = "debian-12";
     arch = "x86_64-linux";
     diskDevice = "/dev/sda";
   };
