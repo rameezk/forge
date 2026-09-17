@@ -26,3 +26,15 @@ run "plan_reflects_config" {
     error_message = "hcloud_server does not reference the configured SSH key"
   }
 }
+
+run "rejects_config_file_path_traversal" {
+  command = plan
+
+  variables {
+    config_file = "../../etc/passwd"
+  }
+
+  expect_failures = [
+    var.config_file,
+  ]
+}
