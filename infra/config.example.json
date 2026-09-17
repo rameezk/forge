@@ -3,7 +3,7 @@
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExamplePlaceholderKeyReplaceWithYourOwn operator@example"
   ],
   "hostname": "forge",
-  "serverType": "cx22",
+  "serverType": "cx23",
   "location": "nbg1",
 
   "nixosRelease": "26.05",
