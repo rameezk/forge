@@ -19,3 +19,9 @@ The agent runtime that executes a workload's task (for example Claude Code). For
 
 **Managed repository**:
 A repository forge is configured to run workloads against, carrying its own skills that orchestrate the work.
+
+**Operator**:
+A person who stands up and runs their own forge deployment - the reuser of forge, distinct from its author.
+
+**Operator repository**:
+A per-operator repository, scaffolded from forge's flake template, that commits the operator's own `config.json` and consumes forge as a flake input to stand up their box. Keeps forge itself generic and secret-free.
