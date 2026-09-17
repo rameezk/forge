@@ -1,0 +1,12 @@
+.env
+.direnv/
+
+/infra/config.json
+
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.tfstate.lock.info
+
+result
+result-*
