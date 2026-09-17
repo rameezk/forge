@@ -2,7 +2,7 @@
 
 > A declarative software factory.
 
-OpenTofu provisions the Hetzner Cloud server (plain HCL); Nix installs and owns the OS (disko for disk layout, nixos-anywhere to install NixOS from the flake). See [ADR-0001](docs/adr/0001-declarative-vps-substrate.md) and [ADR-0002](docs/adr/0002-configuration-surface-and-source.md).
+OpenTofu provisions the Hetzner Cloud server (plain HCL); Nix installs and owns the OS (disko for disk layout, nixos-anywhere to install NixOS from the flake).
 
 ## Layout
 
