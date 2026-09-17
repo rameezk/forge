@@ -1,6 +1,4 @@
 {
-  description = "Forge: declarative VPS substrate (OpenTofu provisions, Nix configures)";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 

@@ -18,32 +18,26 @@ tests/repo-generic.sh         Asserts the repo stays generic and secrets stay ou
 
 ## Configuration
 
-A single per-host `config.json` is read natively by both OpenTofu and Nix. It carries three tiers:
-
-- **Configurable, no default:** `sshPublicKeys`, `hostname`, `serverType`, `location`.
-- **Defaulted, overridable:** `nixosRelease`, `timezone`, `locale`, `sshPort`, `adminUser`, `baseImage`, `arch`, `diskDevice`.
-- **Internal wiring:** the disko and nixos-anywhere plumbing, kept in the Nix and HCL sources rather than exposed in config.
+A single per-host `config.json` is read natively by both OpenTofu and Nix. It carries three tiers: values you must set, values that default but can be overridden, and internal wiring kept in the Nix and HCL sources rather than exposed in config. See `infra/config.example.json` for the full set.
 
 `config.json`, the `.env` holding the Hetzner API token, and OpenTofu state are all kept out of version control. `config.example.json` and `.env.example` ship as placeholders.
 
 ## Setup
 
 ```sh
-cp infra/config.example.json infra/config.json   # fill in your own values
-cp .env.example .env                              # fill in your Hetzner Cloud API token
-direnv allow                                      # loads the dev shell and .env
+cp infra/config.example.json infra/config.json
+cp .env.example .env
+direnv allow
 ```
 
-## Checks (no cloud required)
+## Checks
 
 The definition is proven without touching any cloud:
 
 ```sh
-nix flake check                                   # NixOS configuration reflects config.json
-( cd infra/opentofu && tofu init && tofu test )   # OpenTofu plan reflects config.json
-bash tests/repo-generic.sh                         # repo stays generic, secrets gitignored
+nix flake check
+( cd infra/opentofu && tofu init && tofu test )
+bash tests/repo-generic.sh
 ```
 
 `nix flake check` evaluates and instantiates the host configuration; building the full NixOS system closure (`nixosConfigurations.<host>.config.system.build.toplevel`) requires a Linux builder, so on a non-Linux host it is exercised by evaluation and instantiation rather than a full build.
-
-Standing up a real server, SSHing in, and tearing it down is the manual, cost-incurring step, handled separately.
