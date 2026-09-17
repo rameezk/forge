@@ -79,12 +79,20 @@
           keysMatch = lib.asserts.assertMsg (
             actualKeys == cfg.sshPublicKeys
           ) "NixOS authorized keys for '${cfg.adminUser}' do not match the configured sshPublicKeys";
+          rootLoginDisabled = lib.asserts.assertMsg (
+            nixos.config.services.openssh.settings.PermitRootLogin == "no"
+          ) "root SSH login must be disabled (PermitRootLogin = no)";
+          rootHasNoKeys = lib.asserts.assertMsg (
+            nixos.config.users.users.root.openssh.authorizedKeys.keys == [ ]
+          ) "root must have no authorized SSH keys";
           instantiates = builtins.seq nixos.config.system.build.toplevel.drvPath true;
         in
         {
           nixos-reflects-config =
             assert hostNameMatches;
             assert keysMatch;
+            assert rootLoginDisabled;
+            assert rootHasNoKeys;
             assert instantiates;
             pkgs.runCommand "nixos-reflects-config" { } ''
               echo "hostname and authorized keys match config" > $out

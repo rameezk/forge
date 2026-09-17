@@ -16,8 +16,6 @@
     openssh.authorizedKeys.keys = forgeConfig.sshPublicKeys;
   };
 
-  users.users.root.openssh.authorizedKeys.keys = forgeConfig.sshPublicKeys;
-
   security.sudo.wheelNeedsPassword = false;
 
   services.openssh = {
@@ -25,7 +23,7 @@
     ports = [ forgeConfig.sshPort ];
     settings = {
       PasswordAuthentication = false;
-      PermitRootLogin = "prohibit-password";
+      PermitRootLogin = "no";
     };
   };
 
