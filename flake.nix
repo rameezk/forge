@@ -94,7 +94,7 @@
             assert rootHasNoKeys;
             assert instantiates;
             pkgs.runCommand "nixos-reflects-config" { } ''
-              echo "hostname and authorized keys match config" > $out
+              echo "hostname and authorized keys match config; root login disabled" > $out
             '';
         }
       );
