@@ -1,22 +1,9 @@
-# Operator repository
+# Forge Operator
 
 This repository was scaffolded from [forge](https://github.com/rameezk/forge)'s
 flake template. It holds your real host definition, your committed `config.json`,
 and the divergence guard that proves Nix and OpenTofu agree before you spend a
 cent. Forge itself stays generic; this repository carries your values.
-
-## Layout
-
-- `config.json` - your one committed config (public keys and non-secret infra
-  parameters). Both tools read this file; nothing falls back to the example.
-- `config.example.json` - the shipped placeholder, kept for reference and for the
-  placeholder check.
-- `flake.nix` - builds the real host via `forge.lib.mkHost` and exposes the
-  `reflect-config` check.
-- `infra/opentofu/` - a thin root that calls forge's OpenTofu module with the
-  same `config.json`.
-- `tests/divergence-guard.sh` - runs the whole no-cloud seam.
-- `.env` - your Hetzner token (gitignored; copy from `.env.example`).
 
 ## First run
 
@@ -51,7 +38,7 @@ cent. Forge itself stays generic; this repository carries your values.
 ## Pinning forge
 
 `flake.nix` consumes forge as `github:rameezk/forge`. Pin it to a specific ref
-for reproducible standups:
+for reproducible builds:
 
 ```bash
 nix flake lock --override-input forge github:rameezk/forge/<commit>

@@ -1,5 +1,5 @@
 variable "config" {
-  description = "Host configuration object, matching the operator's committed config.json. Forge reads no config file of its own; the caller supplies this so both tools consume the same config."
+  description = "Host configuration."
   type = object({
     sshPublicKeys = list(string)
     hostname      = string

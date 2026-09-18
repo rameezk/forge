@@ -1,5 +1,5 @@
 {
-  description = "A forge operator repository: the real host, committed config, and the divergence guard.";
+  description = "Forge Operator";
 
   inputs = {
     forge.url = "github:rameezk/forge";
