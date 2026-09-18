@@ -23,10 +23,19 @@ flake template.
    $EDITOR .env
    ```
 
-3. Run the divergence guard (no cloud access required):
+3. Track your files in git. The flake evaluates only git-tracked files, so
+   `config.json` is invisible until it is staged:
 
    ```bash
-   bash tests/divergence-guard.sh
+   git init
+   git add -A
+   ```
+
+4. Run the divergence guard (no cloud access required). It runs inside the dev
+   shell, which provides `tofu` and `jq`:
+
+   ```bash
+   nix develop -c bash tests/divergence-guard.sh
    ```
 
    It builds the host, plans the OpenTofu root, and asserts that the built
