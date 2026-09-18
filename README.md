@@ -33,12 +33,10 @@ and secret-free.
 
 Forge proves its library on example data alone, with no cloud access:
 
-```bash
-nix flake check                       # the example host builds from config.example.json
-cd infra/opentofu && tofu test        # the module plans from config.example.json
-bash tests/repo-generic.sh            # forge stays generic and declares no concrete host
-bash tests/template-scaffold.sh       # the template scaffolds and its divergence guard holds
-```
+- `nix flake check` builds the example host from `config.example.json`.
+- `cd infra/opentofu && tofu test` plans the module from `config.example.json`.
+- `bash tests/repo-generic.sh` checks that forge stays generic and declares no concrete host.
+- `bash tests/template-scaffold.sh` scaffolds the template and runs its divergence guard.
 
 See `docs/adr/0003-forge-library-operator-repo-split.md` for why forge is a
 library and the operator's config lives in a separate repository.

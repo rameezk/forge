@@ -5,7 +5,7 @@ forge="$(git rev-parse --show-toplevel)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-override="--override-input forge path:$forge"
+override=(--override-input forge "path:$forge")
 real_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIRealOperatorKeyForTemplateTest operator@test"
 fail=0
 
@@ -22,7 +22,7 @@ echo "==> case: a filled config scaffolds a working operator repository whose tw
 scaffold
 jq --arg k "$real_key" '.sshPublicKeys = [$k] | .hostname = "mybox"' "$work/config.example.json" >"$work/config.json"
 git -C "$work" add -A
-if FORGE_NIX_FLAGS="$override" bash "$work/tests/divergence-guard.sh" >"$work/guard.log" 2>&1; then
+if FORGE_NIX_FLAGS="${override[*]}" bash "$work/tests/divergence-guard.sh" >"$work/guard.log" 2>&1; then
 	echo "ok: divergence guard passed (built keys == planned keys == config.json)"
 else
 	echo "FAIL: divergence guard failed on a filled config"
@@ -33,7 +33,7 @@ fi
 echo "==> case: a missing config.json fails loudly, with no example fallback"
 scaffold
 git -C "$work" add -A
-if (cd "$work" && nix flake check $override) >"$work/missing.log" 2>&1; then
+if (cd "$work" && nix flake check "${override[@]}") >"$work/missing.log" 2>&1; then
 	echo "FAIL: the build succeeded with no config.json"
 	fail=1
 elif grep -qi "config.json" "$work/missing.log"; then
@@ -48,7 +48,7 @@ echo "==> case: a config left as the placeholder fails loudly"
 scaffold
 cp "$work/config.example.json" "$work/config.json"
 git -C "$work" add -A
-if (cd "$work" && nix flake check $override) >"$work/placeholder.log" 2>&1; then
+if (cd "$work" && nix flake check "${override[@]}") >"$work/placeholder.log" 2>&1; then
 	echo "FAIL: the build succeeded with the placeholder config"
 	fail=1
 elif grep -qi "placeholder" "$work/placeholder.log"; then
