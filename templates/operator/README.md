@@ -1,9 +1,7 @@
 # Forge Operator
 
 This repository was scaffolded from [forge](https://github.com/rameezk/forge)'s
-flake template. It holds your real host definition, your committed `config.json`,
-and the divergence guard that proves Nix and OpenTofu agree before you spend a
-cent. Forge itself stays generic; this repository carries your values.
+flake template.
 
 ## First run
 
