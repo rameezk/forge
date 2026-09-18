@@ -27,16 +27,28 @@
       ];
       forAllSystems = f: lib.genAttrs devSystems (system: f system);
 
-      configFile =
-        if builtins.pathExists ./infra/config.json then
-          ./infra/config.json
-        else
-          ./infra/config.example.json;
-      cfg = import ./infra/lib/load-config.nix configFile;
+      loadConfig = import ./infra/lib/load-config.nix;
 
-      hostName = cfg.hostname;
+      mkHost =
+        { configFile }:
+        let
+          cfg = loadConfig configFile;
+        in
+        lib.nixosSystem {
+          system = cfg.arch;
+          modules = [
+            disko.nixosModules.disko
+            ./infra/nixos/configuration.nix
+            ./infra/nixos/disko.nix
+            { _module.args.forgeConfig = cfg; }
+          ];
+        };
     in
     {
+      lib = {
+        inherit mkHost loadConfig;
+      };
+
       devShells = forAllSystems (
         system:
         let
@@ -47,35 +59,28 @@
             packages = [
               pkgs.opentofu
               pkgs.disko
+              pkgs.jq
               nixos-anywhere.packages.${system}.default
             ];
           };
         }
       );
 
-      nixosConfigurations.${hostName} = lib.nixosSystem {
-        system = cfg.arch;
-        modules = [
-          disko.nixosModules.disko
-          ./infra/nixos/configuration.nix
-          ./infra/nixos/disko.nix
-          { _module.args.forgeConfig = cfg; }
-        ];
-      };
-
       checks = forAllSystems (
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          nixos = self.nixosConfigurations.${hostName};
+          exampleConfigFile = ./infra/config.example.json;
+          exampleCfg = loadConfig exampleConfigFile;
+          nixos = mkHost { configFile = exampleConfigFile; };
           actualHostName = nixos.config.networking.hostName;
-          actualKeys = nixos.config.users.users.${cfg.adminUser}.openssh.authorizedKeys.keys;
+          actualKeys = nixos.config.users.users.${exampleCfg.adminUser}.openssh.authorizedKeys.keys;
           hostNameMatches = lib.asserts.assertMsg (
-            actualHostName == cfg.hostname
-          ) "NixOS hostName '${actualHostName}' does not match configured hostname '${cfg.hostname}'";
+            actualHostName == exampleCfg.hostname
+          ) "NixOS hostName '${actualHostName}' does not match example hostname '${exampleCfg.hostname}'";
           keysMatch = lib.asserts.assertMsg (
-            actualKeys == cfg.sshPublicKeys
-          ) "NixOS authorized keys for '${cfg.adminUser}' do not match the configured sshPublicKeys";
+            actualKeys == exampleCfg.sshPublicKeys
+          ) "NixOS authorized keys for '${exampleCfg.adminUser}' do not match the example sshPublicKeys";
           rootLoginDisabled = lib.asserts.assertMsg (
             nixos.config.services.openssh.settings.PermitRootLogin == "no"
           ) "root SSH login must be disabled (PermitRootLogin = no)";
@@ -85,14 +90,14 @@
           instantiates = builtins.seq nixos.config.system.build.toplevel.drvPath true;
         in
         {
-          nixos-reflects-config =
+          example-reflects-config =
             assert hostNameMatches;
             assert keysMatch;
             assert rootLoginDisabled;
             assert rootHasNoKeys;
             assert instantiates;
-            pkgs.runCommand "nixos-reflects-config" { } ''
-              echo "hostname and authorized keys match config; root login disabled" > $out
+            pkgs.runCommand "example-reflects-config" { } ''
+              echo "example host reflects config.example.json; root login disabled" > $out
             '';
         }
       );
