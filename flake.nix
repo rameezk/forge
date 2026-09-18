@@ -59,6 +59,7 @@
             packages = [
               pkgs.opentofu
               pkgs.disko
+              pkgs.jq
               nixos-anywhere.packages.${system}.default
             ];
           };

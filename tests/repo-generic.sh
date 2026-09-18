@@ -54,21 +54,16 @@ else
 	fail=1
 fi
 
-host_eval_err="$(mktemp)"
-if host_names="$(nix eval --json .#nixosConfigurations --apply "builtins.attrNames" 2>"$host_eval_err")"; then
-	if [ "$host_names" = "[]" ]; then
-		echo "ok: forge declares no concrete host"
-	else
-		echo "FAIL: forge declares a concrete host; it must stay generic and declare none"
-		fail=1
-	fi
-elif grep -q "does not provide attribute" "$host_eval_err"; then
+flake_outputs="$(nix flake show --json 2>/dev/null || true)"
+host_count="$(printf '%s' "$flake_outputs" | jq ".nixosConfigurations // {} | length" 2>/dev/null || true)"
+if [ -z "$flake_outputs" ] || [ -z "$host_count" ]; then
+	echo "FAIL: could not evaluate the flake outputs to check for declared hosts"
+	fail=1
+elif [ "$host_count" = "0" ]; then
 	echo "ok: forge declares no concrete host"
 else
-	echo "FAIL: nixosConfigurations is present but does not evaluate:"
-	cat "$host_eval_err"
+	echo "FAIL: forge declares a concrete host; it must stay generic and declare none"
 	fail=1
 fi
-rm -f "$host_eval_err"
 
 exit $fail
