@@ -1,11 +1,9 @@
 locals {
-  config = jsondecode(file("${path.module}/../${var.config_file}"))
-
-  ssh_public_keys = local.config.sshPublicKeys
-  hostname        = local.config.hostname
-  server_type     = local.config.serverType
-  location        = local.config.location
-  base_image      = try(local.config.baseImage, "debian-12")
+  ssh_public_keys = var.config.sshPublicKeys
+  hostname        = var.config.hostname
+  server_type     = var.config.serverType
+  location        = var.config.location
+  base_image      = var.config.baseImage
 }
 
 provider "hcloud" {

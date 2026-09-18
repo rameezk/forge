@@ -1,12 +1,12 @@
-variable "config_file" {
-  type        = string
-  default     = "config.json"
-  description = "Name of the per-host config file, resolved relative to the infra directory."
-
-  validation {
-    condition     = can(regex("^[^/]+$", var.config_file))
-    error_message = "config_file must be a bare filename with no path separators."
-  }
+variable "config" {
+  description = "Host configuration."
+  type = object({
+    sshPublicKeys = list(string)
+    hostname      = string
+    serverType    = string
+    location      = string
+    baseImage     = optional(string, "debian-12")
+  })
 }
 
 variable "hcloud_token" {
