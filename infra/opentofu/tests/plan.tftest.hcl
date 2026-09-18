@@ -17,6 +17,11 @@ run "plan_reflects_config" {
   }
 
   assert {
+    condition     = hcloud_server.this.name == local.config.hostname
+    error_message = "hcloud_server does not carry the configured hostname"
+  }
+
+  assert {
     condition     = hcloud_ssh_key.operator["0"].public_key == local.config.sshPublicKeys[0]
     error_message = "hcloud_ssh_key does not carry the configured SSH public key"
   }
