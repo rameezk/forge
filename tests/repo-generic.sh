@@ -54,11 +54,21 @@ else
 	fail=1
 fi
 
-if nix eval .#nixosConfigurations --apply "builtins.attrNames" >/dev/null 2>&1; then
-	echo "FAIL: forge declares a concrete host; it must stay generic and declare none"
-	fail=1
-else
+host_eval_err="$(mktemp)"
+if host_names="$(nix eval --json .#nixosConfigurations --apply "builtins.attrNames" 2>"$host_eval_err")"; then
+	if [ "$host_names" = "[]" ]; then
+		echo "ok: forge declares no concrete host"
+	else
+		echo "FAIL: forge declares a concrete host; it must stay generic and declare none"
+		fail=1
+	fi
+elif grep -q "does not provide attribute" "$host_eval_err"; then
 	echo "ok: forge declares no concrete host"
+else
+	echo "FAIL: nixosConfigurations is present but does not evaluate:"
+	cat "$host_eval_err"
+	fail=1
 fi
+rm -f "$host_eval_err"
 
 exit $fail
