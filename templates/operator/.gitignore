@@ -1,0 +1,10 @@
+.env
+.direnv/
+
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.tfstate.lock.info
+
+result
+result-*

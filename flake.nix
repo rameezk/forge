@@ -49,6 +49,14 @@
         inherit mkHost loadConfig;
       };
 
+      templates = {
+        default = self.templates.operator;
+        operator = {
+          path = ./templates/operator;
+          description = "Scaffold a forge operator repository: real host, committed config, and the divergence guard.";
+        };
+      };
+
       devShells = forAllSystems (
         system:
         let
