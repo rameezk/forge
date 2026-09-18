@@ -47,4 +47,18 @@ else
 	fail=1
 fi
 
+if nix eval --json .#lib --apply "l: builtins.attrNames l" 2>/dev/null | grep -q '"mkHost"'; then
+	echo "ok: forge exposes the lib.mkHost host builder"
+else
+	echo "FAIL: forge does not expose the lib.mkHost host builder"
+	fail=1
+fi
+
+if nix eval .#nixosConfigurations --apply "builtins.attrNames" >/dev/null 2>&1; then
+	echo "FAIL: forge declares a concrete host; it must stay generic and declare none"
+	fail=1
+else
+	echo "ok: forge declares no concrete host"
+fi
+
 exit $fail
