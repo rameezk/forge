@@ -57,7 +57,7 @@ fi
 flake_outputs="$(nix flake show --json 2>/dev/null || true)"
 host_count="$(printf '%s' "$flake_outputs" | jq ".nixosConfigurations // {} | length" 2>/dev/null || true)"
 if [ -z "$flake_outputs" ] || [ -z "$host_count" ]; then
-	echo "FAIL: could not evaluate the flake outputs to check for declared hosts"
+	echo "FAIL: the flake outputs did not evaluate; run 'nix flake show' to see the error"
 	fail=1
 elif [ "$host_count" = "0" ]; then
 	echo "ok: forge declares no concrete host"
