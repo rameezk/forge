@@ -69,8 +69,9 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          exampleCfg = loadConfig ./infra/config.example.json;
-          nixos = mkHost { configFile = ./infra/config.example.json; };
+          exampleConfigFile = ./infra/config.example.json;
+          exampleCfg = loadConfig exampleConfigFile;
+          nixos = mkHost { configFile = exampleConfigFile; };
           actualHostName = nixos.config.networking.hostName;
           actualKeys = nixos.config.users.users.${exampleCfg.adminUser}.openssh.authorizedKeys.keys;
           hostNameMatches = lib.asserts.assertMsg (
