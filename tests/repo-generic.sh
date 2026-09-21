@@ -54,6 +54,24 @@ else
 	fail=1
 fi
 
+if nix eval --json .#lib --apply "l: builtins.attrNames l" 2>/dev/null | grep -q '"operatorToolchain"'; then
+	echo "ok: forge exposes the operator standup toolchain as a library output"
+else
+	echo "FAIL: forge does not expose lib.operatorToolchain"
+	fail=1
+fi
+
+system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
+toolchain_names="$(nix eval --json ".#lib.operatorToolchain" --apply "f: map (p: p.pname or p.name) (f \"$system\")" 2>/dev/null || true)"
+for tool in opentofu jq just nixos-anywhere; do
+	if printf '%s' "$toolchain_names" | grep -q "\"$tool"; then
+		echo "ok: the operator toolchain carries $tool"
+	else
+		echo "FAIL: the operator toolchain is missing $tool"
+		fail=1
+	fi
+done
+
 flake_outputs="$(nix flake show --json 2>/dev/null || true)"
 host_count="$(printf '%s' "$flake_outputs" | jq ".nixosConfigurations // {} | length" 2>/dev/null || true)"
 if [ -z "$flake_outputs" ] || [ -z "$host_count" ]; then

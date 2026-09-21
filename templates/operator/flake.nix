@@ -75,10 +75,7 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [
-              pkgs.opentofu
-              pkgs.jq
-            ];
+            packages = forge.lib.operatorToolchain system;
           };
         }
       );

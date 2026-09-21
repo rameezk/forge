@@ -30,6 +30,63 @@ else
 	fail=1
 fi
 
+echo "==> case: a scaffolded repository carries the self-loading environment and the standup wrapper"
+scaffold
+if [ -f "$work/.envrc" ]; then
+	echo "ok: scaffolded repository carries the .envrc self-loading environment file"
+else
+	echo "FAIL: scaffolded repository is missing the .envrc self-loading environment file"
+	fail=1
+fi
+if [ -f "$work/justfile" ]; then
+	echo "ok: scaffolded repository carries the standup/teardown command wrapper"
+else
+	echo "FAIL: scaffolded repository is missing the justfile command wrapper"
+	fail=1
+fi
+
+echo "==> case: the self-loading environment survives a repository with no token yet"
+if grep -q "use flake" "$work/.envrc" && grep -q "dotenv_if_exists .env" "$work/.envrc"; then
+	echo "ok: the .envrc activates the dev shell and loads the token tolerantly, unset when absent"
+else
+	echo "FAIL: the .envrc must use flake and load the token with dotenv_if_exists (tolerant of absence)"
+	fail=1
+fi
+if [ ! -e "$work/.env" ]; then
+	echo "ok: a freshly scaffolded repository ships no token file for the env to tolerate"
+else
+	echo "FAIL: a freshly scaffolded repository unexpectedly ships a .env token file"
+	fail=1
+fi
+
+echo "==> case: the standup and teardown commands resolve without executing, against forge's toolchain"
+scaffold
+jq --arg k "$real_key" '.sshPublicKeys = [$k] | .hostname = "mybox"' "$work/config.example.json" >"$work/config.json"
+git -C "$work" add -A
+for cmd in standup teardown; do
+	if (cd "$work" && nix develop "${override[@]}" -c just -n "$cmd") >"$work/$cmd.log" 2>&1; then
+		echo "ok: '$cmd' resolves cleanly against the forge-sourced toolchain, without executing"
+	else
+		echo "FAIL: '$cmd' did not resolve against the toolchain"
+		tail -20 "$work/$cmd.log"
+		fail=1
+	fi
+done
+
+echo "==> case: the template consumes forge's toolchain rather than pinning any tool itself"
+if grep -q "forge.lib.operatorToolchain" "$work/flake.nix"; then
+	echo "ok: the operator dev shell consumes forge.lib.operatorToolchain"
+else
+	echo "FAIL: the operator dev shell does not consume forge.lib.operatorToolchain"
+	fail=1
+fi
+if grep -qE "pkgs\.(opentofu|jq|just)" "$work/flake.nix"; then
+	echo "FAIL: the operator flake pins a standup tool independently instead of sourcing it from forge"
+	fail=1
+else
+	echo "ok: the operator flake pins no standup tool independently"
+fi
+
 echo "==> case: a missing config.json fails loudly, with no example fallback"
 scaffold
 git -C "$work" add -A
