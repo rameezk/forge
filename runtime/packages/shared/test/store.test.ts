@@ -63,3 +63,48 @@ test('given a fresh store, when an unknown run is read, then it returns undefine
 
   assert.equal(store.getRun('nope'), undefined);
 });
+
+test('given a run recorded at start, when it is finalized, then result fields are written and identity and transcript are left intact', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(
+    sampleRun({
+      id: 'run-final',
+      status: 'running',
+      endTime: null,
+      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      transcriptRef: 'run-final.jsonl',
+      sessionId: null,
+      error: null,
+    }),
+  );
+
+  store.finalizeRun('run-final', {
+    endTime: '2026-09-21T10:03:20.000Z',
+    status: 'success',
+    costUncertain: true,
+    costUsd: 0.42,
+    inputTokens: 1000,
+    outputTokens: 200,
+    sessionId: 'sess-final',
+    error: null,
+  });
+
+  assert.deepEqual(store.getRun('run-final'), {
+    id: 'run-final',
+    worker: 'refiner',
+    harness: 'pi',
+    model: 'anthropic/claude-opus-4',
+    startTime: '2026-09-21T10:00:00.000Z',
+    endTime: '2026-09-21T10:03:20.000Z',
+    status: 'success',
+    costUncertain: true,
+    costUsd: 0.42,
+    inputTokens: 1000,
+    outputTokens: 200,
+    transcriptRef: 'run-final.jsonl',
+    sessionId: 'sess-final',
+    error: null,
+  });
+});

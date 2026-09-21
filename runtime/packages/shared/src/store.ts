@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { RunRecord, RunStatus } from './run.ts';
+import type { RunRecord, RunResult, RunStatus } from './run.ts';
 
 type RunRow = {
   id: string;
@@ -98,6 +98,33 @@ export class Store {
         )`,
       )
       .run(row);
+  }
+
+  finalizeRun(id: string, result: RunResult): void {
+    this.#db
+      .prepare(
+        `UPDATE runs SET
+          end_time = $end_time,
+          status = $status,
+          cost_uncertain = $cost_uncertain,
+          cost_usd = $cost_usd,
+          input_tokens = $input_tokens,
+          output_tokens = $output_tokens,
+          session_id = $session_id,
+          error = $error
+        WHERE id = $id`,
+      )
+      .run({
+        id,
+        end_time: result.endTime,
+        status: result.status,
+        cost_uncertain: result.costUncertain ? 1 : 0,
+        cost_usd: result.costUsd,
+        input_tokens: result.inputTokens,
+        output_tokens: result.outputTokens,
+        session_id: result.sessionId,
+        error: result.error,
+      });
   }
 
   getRun(id: string): RunRecord | undefined {

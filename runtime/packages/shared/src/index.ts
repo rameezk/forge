@@ -1,4 +1,4 @@
-export type { RunRecord, RunStatus } from './run.ts';
+export type { RunRecord, RunResult, RunStatus } from './run.ts';
 export type {
   HarnessEvent,
   MessageEvent,

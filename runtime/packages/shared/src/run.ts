@@ -16,3 +16,14 @@ export interface RunRecord {
   sessionId: string | null;
   error: string | null;
 }
+
+export interface RunResult {
+  endTime: string;
+  status: RunStatus;
+  costUncertain: boolean;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  sessionId: string | null;
+  error: string | null;
+}
