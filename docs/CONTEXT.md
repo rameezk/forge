@@ -15,7 +15,7 @@ A single isolated agent run: one execution of a worker - its harness invoked wit
 _Avoid_: job, task (reserve "task" for the work a workload performs).
 
 **Worker**:
-A named, reusable configuration that binds a harness to a model and a prompt (for example a `refiner` or a `builder`); one execution of a worker is a workload. Forge declares workers in typed config, each referencing a harness by name, and several workers may share one harness.
+A named, reusable configuration that binds a harness to a model, a prompt, and an optional reasoning effort (for example a `refiner` or a `builder`); one execution of a worker is a workload. Forge declares workers in typed config, each referencing a harness by name, and several workers may share one harness.
 
 **Harness**:
 The agent runtime that executes a workload's task (for example Claude Code). Forge is harness agnostic: harnesses are pluggable behind a common contract.
