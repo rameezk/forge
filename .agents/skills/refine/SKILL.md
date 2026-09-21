@@ -42,9 +42,15 @@ Don't stall the round waiting on it. An in-flight lookup is just another unresol
 
 Refining is where decisions get made, so it is also where they get recorded - inline, the moment they settle, not deferred to some later step. When a choice settles that a future reader would otherwise have to reverse-engineer, or a term needs pinning down, hand off to [[decision-context]] right then: an ADR if the decision clears its bar (hard to reverse, surprising without context, a genuine trade-off), a `docs/CONTEXT.md` entry if a term just got sharpened. Don't batch these up to the end, and don't leave them for [[to-spec]] to maybe catch - the spec references the record, it doesn't create it.
 
+## No question left unanswered
+
+Refine is the one place questions get answered, so no question may leave it open. An answer the user has not explicitly agreed to is not an answer: the recommended pick is a proposal until they sign off, and a gap you quietly filled to keep moving is an assumption, not a decision. Every branch either settles on the user's word or stays on the frontier - it never gets written down as though it were resolved.
+
+This holds past the end of the session too. When a later step surfaces a question that was never actually decided - a seam that cannot be placed, a slice that cannot be sized, a fork that only shows up mid-build - that question belongs back here, not in the spec or the ticket.
+
 ## Completion
 
-The calls belong to the user: surface each one and wait for it. You're finished when the frontier runs dry - every branch of the tree walked, nothing quietly assumed.
+The calls belong to the user: surface each one and wait for it. You're finished when the frontier runs dry - every branch of the tree walked, nothing quietly assumed and nothing left open behind a pick the user never confirmed.
 
 Refining is not building. When the frontier runs dry, stop. Summarize the agreed plan and hand it back - do not start implementing, and do not ask "shall I build it now?" as a way to keep going. Reaching shared understanding is the end of this skill, not a checkpoint on the way to writing code. Implementation happens only when the user comes back and explicitly asks for it in a separate step.
 
