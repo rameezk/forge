@@ -1,0 +1,16 @@
+{
+  "name": "@forge/runtime",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "node --test packages/*/test/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.0"
+  }
+}
