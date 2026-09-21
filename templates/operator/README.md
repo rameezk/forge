@@ -7,9 +7,8 @@ flake template.
 
 This repository self-loads its environment: entering the directory with
 [direnv](https://direnv.net) active auto-activates the dev shell (putting the
-whole standup toolchain - `tofu`, `nixos-anywhere`, `jq`, and `just` - on your
-path) and loads `HCLOUD_TOKEN` from `.env`, tolerating `.env` being absent. Run
-`direnv allow` once to opt in.
+whole standup toolchain on your path) and loads your token from `.env`,
+tolerating `.env` being absent. Run `direnv allow` once to opt in.
 
 Every command below is written in that in-environment form. If you do not use
 direnv, run each one through `nix develop -c <command>` instead and export
