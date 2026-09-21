@@ -21,7 +21,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   ...overrides,
 });
 
-test('a fresh store round-trips a run record with every field', () => {
+test('given a fresh store, when a run record with every field is inserted, then it round-trips', () => {
   const store = Store.open(':memory:');
   const run = sampleRun();
 
@@ -30,7 +30,7 @@ test('a fresh store round-trips a run record with every field', () => {
   assert.deepEqual(store.getRun('run-01'), run);
 });
 
-test('a run written at start round-trips with a null end time and no error', () => {
+test('given a run written at start, when it is inserted, then it round-trips with a null end time and no error', () => {
   const store = Store.open(':memory:');
   const run = sampleRun({
     id: 'run-running',
@@ -49,7 +49,7 @@ test('a run written at start round-trips with a null end time and no error', () 
   assert.deepEqual(store.getRun('run-running'), run);
 });
 
-test('the cost-uncertain flag round-trips as a boolean, not an integer', () => {
+test('given a run with the cost-uncertain flag set, when it is inserted, then the flag round-trips as a boolean, not an integer', () => {
   const store = Store.open(':memory:');
   const run = sampleRun({ id: 'run-uncertain', costUncertain: true });
 
@@ -58,7 +58,7 @@ test('the cost-uncertain flag round-trips as a boolean, not an integer', () => {
   assert.equal(store.getRun('run-uncertain')?.costUncertain, true);
 });
 
-test('reading an unknown run returns undefined', () => {
+test('given a fresh store, when an unknown run is read, then it returns undefined', () => {
   const store = Store.open(':memory:');
 
   assert.equal(store.getRun('nope'), undefined);
