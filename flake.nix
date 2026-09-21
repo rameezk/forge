@@ -40,6 +40,7 @@
             disko.nixosModules.disko
             ./infra/nixos/configuration.nix
             ./infra/nixos/disko.nix
+            ./infra/nixos/runtime.nix
             { _module.args.forgeConfig = cfg; }
           ];
         };
@@ -68,6 +69,16 @@
         };
       };
 
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          forge-shared = pkgs.callPackage ./infra/nix/shared.nix { };
+        }
+      );
+
       devShells = forAllSystems (
         system:
         let
@@ -75,7 +86,7 @@
         in
         {
           default = pkgs.mkShell {
-            packages = operatorToolchain system;
+            packages = operatorToolchain system ++ [ pkgs.nodejs ];
           };
         }
       );
@@ -102,6 +113,21 @@
             nixos.config.users.users.root.openssh.authorizedKeys.keys == [ ]
           ) "root must have no authorized SSH keys";
           instantiates = builtins.seq nixos.config.system.build.toplevel.drvPath true;
+
+          runtimeModuleComposed = lib.asserts.assertMsg (
+            nixos.config.forge.runtime.stateDir == "/var/lib/forge"
+            && nixos.config.forge.runtime.user == "forge-runtime"
+          ) "the forge.runtime module must be composed into every host with its state dir and service user";
+          runtimeUserDefined = lib.asserts.assertMsg (
+            (nixos.config.users.users ? forge-runtime) && nixos.config.users.users.forge-runtime.isSystemUser
+          ) "a dedicated forge-runtime system user must be defined";
+          stateDirProvisioned = lib.asserts.assertMsg (lib.any
+            (rule: lib.hasInfix "/var/lib/forge" rule && lib.hasInfix "forge-runtime" rule)
+            nixos.config.systemd.tmpfiles.rules
+          ) "/var/lib/forge must be provisioned as a forge-runtime-owned state directory";
+          runtimeInert = lib.asserts.assertMsg (
+            !(lib.any (name: lib.hasInfix "forge" name) (lib.attrNames nixos.config.systemd.services))
+          ) "forge.runtime must stay inert: no systemd service until later slices declare workers";
         in
         {
           example-reflects-config =
@@ -113,6 +139,17 @@
             pkgs.runCommand "example-reflects-config" { } ''
               echo "example host reflects config.example.json; root login disabled" > $out
             '';
+
+          runtime-foundation =
+            assert runtimeModuleComposed;
+            assert runtimeUserDefined;
+            assert stateDirProvisioned;
+            assert runtimeInert;
+            pkgs.runCommand "runtime-foundation" { } ''
+              echo "forge.runtime composed and inert; forge-runtime user and /var/lib/forge state dir provisioned" > $out
+            '';
+
+          forge-shared = self.packages.${system}.forge-shared;
         }
       );
     };

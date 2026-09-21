@@ -1,0 +1,11 @@
+{
+  "name": "@forge/shared",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test test/**/*.test.ts"
+  }
+}
