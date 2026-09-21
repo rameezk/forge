@@ -193,6 +193,9 @@
                 && runnerUnit.serviceConfig.ProtectHome == true
                 && runnerUnit.serviceConfig.PrivateTmp == true
                 && runnerUnit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+                && runnerUnit.serviceConfig.RestrictSUIDSGID == true
+                && runnerUnit.serviceConfig.ProtectKernelTunables == true
+                && runnerUnit.serviceConfig.ProtectControlGroups == true
               )
               "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, and writable only under the state directory";
           runnerKeyOutOfStore = lib.asserts.assertMsg (

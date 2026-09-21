@@ -22,7 +22,7 @@ export const resolveWorker = (
   name: string,
 ): Worker => {
   const worker = config.workers[name];
-  if (worker === undefined || !Object.hasOwn(config.workers, name)) {
+  if (!Object.hasOwn(config.workers, name) || worker === undefined) {
     throw new Error(`unknown worker '${name}'`);
   }
   if (
