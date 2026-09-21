@@ -28,7 +28,7 @@ buildNpmPackage {
   '';
 
   meta = {
-    description = "Shared, typed foundation for the forge runtime: run-record schema, SQLite store, and harness event-stream types.";
+    description = "Shared, typed foundation for the forge runtime.";
     platforms = nodejs.meta.platforms;
   };
 }
