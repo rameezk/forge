@@ -1,16 +1,16 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { HarnessEvent } from '@forge/shared';
-import type { Harness, HarnessInvocation, Worker } from './harness.ts';
+import type { Harness, HarnessInvocation } from './harness.ts';
 
-export const piArgs = (worker: Worker): string[] => [
+export const piArgs = (invocation: HarnessInvocation): string[] => [
   '--model',
-  worker.model,
-  ...(worker.reasoningEffort === undefined
+  invocation.model,
+  ...(invocation.reasoningEffort === undefined
     ? []
-    : ['--reasoning-effort', worker.reasoningEffort]),
+    : ['--reasoning-effort', invocation.reasoningEffort]),
   '--prompt',
-  worker.prompt,
+  invocation.prompt,
 ];
 
 export const parsePiEvent = (line: string): HarnessEvent | null => {
@@ -19,10 +19,7 @@ export const parsePiEvent = (line: string): HarnessEvent | null => {
     return null;
   }
   const parsed = JSON.parse(trimmed) as { type?: unknown };
-  if (parsed.type === 'message') {
-    return parsed as unknown as HarnessEvent;
-  }
-  if (parsed.type === 'result') {
+  if (parsed.type === 'message' || parsed.type === 'result') {
     return parsed as unknown as HarnessEvent;
   }
   throw new Error(`unexpected pi event type '${String(parsed.type)}'`);
@@ -44,18 +41,7 @@ export class PiHarness implements Harness {
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
     this.#baseArgs = options.baseArgs ?? [];
-    this.#invocationArgs =
-      options.invocationArgs ??
-      ((invocation) =>
-        piArgs({
-          name: '',
-          harness: 'pi',
-          model: invocation.model,
-          prompt: invocation.prompt,
-          ...(invocation.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: invocation.reasoningEffort }),
-        }));
+    this.#invocationArgs = options.invocationArgs ?? piArgs;
     this.#env = options.env ?? process.env;
   }
 

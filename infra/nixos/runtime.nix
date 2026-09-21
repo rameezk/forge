@@ -149,6 +149,15 @@ in
             "FORGE_STATE_DIR=${cfg.stateDir}"
           ];
           ExecStart = "${cfg.package}/bin/forge-run %i";
+
+          NoNewPrivileges = true;
+          ProtectSystem = "strict";
+          ProtectHome = true;
+          PrivateTmp = true;
+          ReadWritePaths = [ cfg.stateDir ];
+          RestrictSUIDSGID = true;
+          ProtectKernelTunables = true;
+          ProtectControlGroups = true;
         };
       };
     })

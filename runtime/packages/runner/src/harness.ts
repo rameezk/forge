@@ -18,10 +18,13 @@ export interface Worker {
   reasoningEffort?: string;
 }
 
+export const withEffort = (
+  effort: string | undefined,
+): { reasoningEffort?: string } =>
+  effort === undefined ? {} : { reasoningEffort: effort };
+
 export const invocationFor = (worker: Worker): HarnessInvocation => ({
   model: worker.model,
   prompt: worker.prompt,
-  ...(worker.reasoningEffort === undefined
-    ? {}
-    : { reasoningEffort: worker.reasoningEffort }),
+  ...withEffort(worker.reasoningEffort),
 });

@@ -185,6 +185,16 @@
             && lib.hasInfix "%i" runnerUnit.serviceConfig.ExecStart
             && runnerUnit.serviceConfig.User == "forge-runtime"
           ) "the runner unit must be a per-worker oneshot invoking forge-run as the forge-runtime user";
+          runnerSandboxed =
+            lib.asserts.assertMsg
+              (
+                runnerUnit.serviceConfig.NoNewPrivileges == true
+                && runnerUnit.serviceConfig.ProtectSystem == "strict"
+                && runnerUnit.serviceConfig.ProtectHome == true
+                && runnerUnit.serviceConfig.PrivateTmp == true
+                && runnerUnit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+              )
+              "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, and writable only under the state directory";
           runnerKeyOutOfStore = lib.asserts.assertMsg (
             runnerUnit.serviceConfig.EnvironmentFile == "/var/lib/forge/openrouter.env"
             && !(lib.hasPrefix builtins.storeDir runnerUnit.serviceConfig.EnvironmentFile)
@@ -230,6 +240,7 @@
           runtime-runner =
             assert runnerUnitDeclared;
             assert runnerInvokesWorker;
+            assert runnerSandboxed;
             assert runnerKeyOutOfStore;
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;

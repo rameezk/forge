@@ -15,10 +15,7 @@ const harnessFor = (
   env: NodeJS.ProcessEnv,
 ): Harness => {
   const harness = config.harnesses[worker.harness];
-  if (harness === undefined) {
-    throw new Error(`undeclared harness '${worker.harness}'`);
-  }
-  if (worker.harness !== 'pi') {
+  if (harness === undefined || worker.harness !== 'pi') {
     throw new Error(`unsupported harness '${worker.harness}'`);
   }
   return new PiHarness({

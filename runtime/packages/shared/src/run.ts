@@ -17,13 +17,16 @@ export interface RunRecord {
   error: string | null;
 }
 
-export interface RunResult {
+export interface RunResult
+  extends Pick<
+    RunRecord,
+    | 'status'
+    | 'costUncertain'
+    | 'costUsd'
+    | 'inputTokens'
+    | 'outputTokens'
+    | 'sessionId'
+    | 'error'
+  > {
   endTime: string;
-  status: RunStatus;
-  costUncertain: boolean;
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  sessionId: string | null;
-  error: string | null;
 }

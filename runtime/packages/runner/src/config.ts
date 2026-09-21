@@ -1,4 +1,4 @@
-import type { Worker } from './harness.ts';
+import { withEffort, type Worker } from './harness.ts';
 
 export interface HarnessConfig {
   command: string;
@@ -22,10 +22,13 @@ export const resolveWorker = (
   name: string,
 ): Worker => {
   const worker = config.workers[name];
-  if (worker === undefined) {
+  if (worker === undefined || !Object.hasOwn(config.workers, name)) {
     throw new Error(`unknown worker '${name}'`);
   }
-  if (config.harnesses[worker.harness] === undefined) {
+  if (
+    !Object.hasOwn(config.harnesses, worker.harness) ||
+    config.harnesses[worker.harness] === undefined
+  ) {
     throw new Error(
       `worker '${name}' references undeclared harness '${worker.harness}'`,
     );
@@ -35,8 +38,6 @@ export const resolveWorker = (
     harness: worker.harness,
     model: worker.model,
     prompt: worker.prompt,
-    ...(worker.reasoningEffort === undefined
-      ? {}
-      : { reasoningEffort: worker.reasoningEffort }),
+    ...withEffort(worker.reasoningEffort),
   };
 };

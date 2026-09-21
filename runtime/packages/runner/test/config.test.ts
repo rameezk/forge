@@ -41,6 +41,11 @@ test('given a config, when an unknown worker is resolved, then it throws naming 
   assert.throws(() => resolveWorker(config, 'ghost'), /ghost/);
 });
 
+test('given a config, when a prototype key is resolved as a worker, then it throws rather than matching Object.prototype', () => {
+  assert.throws(() => resolveWorker(config, '__proto__'), /unknown worker/);
+  assert.throws(() => resolveWorker(config, 'constructor'), /unknown worker/);
+});
+
 test('given a worker referencing an undeclared harness, when it is resolved, then it throws naming the harness', () => {
   const broken: RuntimeConfig = {
     harnesses: {},
