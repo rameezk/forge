@@ -25,3 +25,6 @@ A person who stands up and runs their own forge deployment - the reuser of forge
 
 **Operator repository**:
 A per-operator repository, scaffolded from forge's flake template, that commits the operator's own `config.json` and consumes forge as a flake input to stand up their box. Keeps forge itself generic and secret-free.
+
+**Operator standup toolchain**:
+The single set of tools an operator uses to stand a box up and tear it down: provision (OpenTofu), install (nixos-anywhere), the query tool (`jq`), and the command runner (`just`). Forge exports it as one library output (`lib.operatorToolchain`), consumed by both forge's own dev shell and every scaffolded operator repository, so no operator repository can drift to a different toolchain version than forge itself uses. This sharpens the library / operator-repository split (ADR-0003): the split made forge a library exposing the host builder and config loader; exporting the whole standup toolchain from one output widens that same library surface rather than making a new decision.

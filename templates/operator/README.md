@@ -3,6 +3,17 @@
 This repository was scaffolded from [forge](https://github.com/rameezk/forge)'s
 flake template.
 
+## In-environment commands
+
+This repository self-loads its environment: entering the directory with
+[direnv](https://direnv.net) active auto-activates the dev shell (putting the
+whole standup toolchain on your path) and loads your token from `.env`,
+tolerating `.env` being absent. Run `direnv allow` once to opt in.
+
+Every command below is written in that in-environment form. If you do not use
+direnv, run each one through `nix develop -c <command>` instead and export
+`HCLOUD_TOKEN` yourself; nothing here depends on the auto-activation.
+
 ## First run
 
 1. Fill in your config:
@@ -29,18 +40,46 @@ flake template.
    ```bash
    git init
    git add -A
+   direnv allow
    ```
 
-4. Run the divergence guard (no cloud access required). It runs inside the dev
-   shell, which provides `tofu` and `jq`:
+4. Run the divergence guard (no cloud access required):
 
    ```bash
-   nix develop -c bash tests/divergence-guard.sh
+   bash tests/divergence-guard.sh
    ```
 
    It builds the host, plans the OpenTofu root, and asserts that the built
    host's authorized keys, the planned SSH key, and `config.json` are all
    byte-identical.
+
+## Standup and teardown
+
+Standup and teardown are two separate commands - never fused - with manual
+verification between them, so you keep the live-infrastructure judgment at both
+moments that spend real money. Each pauses for confirmation before it creates or
+destroys anything.
+
+1. Stand the box up. This provisions the server, reads the provisioned address
+   back itself, and installs onto it - building on the target, so it works even
+   from a machine that cannot build the target's system locally:
+
+   ```bash
+   just standup
+   ```
+
+2. Verify it by hand - confirm the box is reachable over SSH with your
+   configured key:
+
+   ```bash
+   ssh forge@<address>
+   ```
+
+3. Tear the box down when you are done:
+
+   ```bash
+   just teardown
+   ```
 
 ## Pinning forge
 

@@ -43,10 +43,21 @@
             { _module.args.forgeConfig = cfg; }
           ];
         };
+      operatorToolchain =
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        [
+          pkgs.opentofu
+          pkgs.jq
+          pkgs.just
+          nixos-anywhere.packages.${system}.default
+        ];
     in
     {
       lib = {
-        inherit mkHost loadConfig;
+        inherit mkHost loadConfig operatorToolchain;
       };
 
       templates = {
@@ -64,12 +75,7 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [
-              pkgs.opentofu
-              pkgs.disko
-              pkgs.jq
-              nixos-anywhere.packages.${system}.default
-            ];
+            packages = operatorToolchain system;
           };
         }
       );
