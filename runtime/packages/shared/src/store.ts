@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { RunRecord, RunStatus } from './run.ts';
 
-interface RunRow {
+type RunRow = {
   id: string;
   worker: string;
   harness: string;
@@ -16,7 +16,7 @@ interface RunRow {
   transcript_ref: string | null;
   session_id: string | null;
   error: string | null;
-}
+};
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS runs (
@@ -97,7 +97,7 @@ export class Store {
           $transcript_ref, $session_id, $error
         )`,
       )
-      .run(row as unknown as Record<string, string | number | null>);
+      .run(row);
   }
 
   getRun(id: string): RunRecord | undefined {
