@@ -34,7 +34,10 @@
       };
 
       mkHost =
-        { configFile }:
+        {
+          configFile,
+          modules ? [ ],
+        }:
         let
           cfg = loadConfig configFile;
         in
@@ -47,7 +50,8 @@
             ./infra/nixos/runtime.nix
             { nixpkgs.overlays = [ runnerOverlay ]; }
             { _module.args.forgeConfig = cfg; }
-          ];
+          ]
+          ++ modules;
         };
       operatorToolchain =
         system:
@@ -145,15 +149,9 @@
             !(lib.any (name: lib.hasInfix "forge" name) (lib.attrNames nixos.config.systemd.services))
           ) "forge.runtime must stay inert when no workers are declared: no runner unit appears";
 
-          workerHost = lib.nixosSystem {
-            system = exampleCfg.arch;
+          workerHost = mkHost {
+            configFile = exampleConfigFile;
             modules = [
-              disko.nixosModules.disko
-              ./infra/nixos/configuration.nix
-              ./infra/nixos/disko.nix
-              ./infra/nixos/runtime.nix
-              { nixpkgs.overlays = [ runnerOverlay ]; }
-              { _module.args.forgeConfig = exampleCfg; }
               {
                 forge.runtime.harnesses.pi = {
                   command = "/run/current-system/sw/bin/pi";

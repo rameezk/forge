@@ -116,4 +116,19 @@ else
 	fail=1
 fi
 
+echo "==> case: the scaffolded flake shows how to declare a worker through the mkHost modules seam"
+scaffold
+modules_block="$(awk '/# *modules = \[/ { f = 1 } f { print } f && /# *\]; *$/ { exit }' "$work/flake.nix")"
+in_modules_block() { printf '%s' "$modules_block" | grep -q "$1"; }
+if
+	in_modules_block 'forge.runtime.harnesses.pi' &&
+		in_modules_block 'forge.runtime.workers' &&
+		in_modules_block 'environment.systemPackages = \[ pkgs.pi-coding-agent \]'
+then
+	echo "ok: one commented mkHost modules list declares a harness and worker and installs the pi harness binary"
+else
+	echo "FAIL: the scaffolded flake does not show a harness, worker, and pi harness install together in a mkHost modules list"
+	fail=1
+fi
+
 exit $fail
