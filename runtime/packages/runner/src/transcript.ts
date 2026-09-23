@@ -1,6 +1,7 @@
 import { closeSync, openSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@forge/shared';
+import { transcriptLine } from '@forge/shared';
 
 export interface TranscriptWriter {
   readonly ref: string;
@@ -23,7 +24,7 @@ export class FileTranscript implements TranscriptWriter {
   }
 
   append(event: HarnessEvent): void {
-    writeSync(this.#fd, `${JSON.stringify(event)}\n`);
+    writeSync(this.#fd, transcriptLine(event));
   }
 
   close(): void {

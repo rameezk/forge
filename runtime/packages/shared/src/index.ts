@@ -6,3 +6,4 @@ export type {
   TokenUsage,
 } from './events.ts';
 export { Store } from './store.ts';
+export { parseTranscript, transcriptLine } from './transcript.ts';

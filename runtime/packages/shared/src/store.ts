@@ -134,6 +134,13 @@ export class Store {
     return row === undefined ? undefined : fromRow(row);
   }
 
+  listRuns(): RunRecord[] {
+    const rows = this.#db
+      .prepare('SELECT * FROM runs ORDER BY start_time DESC')
+      .all() as RunRow[];
+    return rows.map(fromRow);
+  }
+
   close(): void {
     this.#db.close();
   }

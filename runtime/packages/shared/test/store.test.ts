@@ -64,6 +64,24 @@ test('given a fresh store, when an unknown run is read, then it returns undefine
   assert.equal(store.getRun('nope'), undefined);
 });
 
+test('given a fresh store, when runs are listed, then an empty list is returned', () => {
+  const store = Store.open(':memory:');
+
+  assert.deepEqual(store.listRuns(), []);
+});
+
+test('given several runs, when they are listed, then they come back newest-first by start time', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(sampleRun({ id: 'mid', startTime: '2026-09-21T10:00:00.000Z' }));
+  store.insertRun(sampleRun({ id: 'newest', startTime: '2026-09-21T11:00:00.000Z' }));
+  store.insertRun(sampleRun({ id: 'oldest', startTime: '2026-09-21T09:00:00.000Z' }));
+
+  assert.deepEqual(
+    store.listRuns().map((run) => run.id),
+    ['newest', 'mid', 'oldest'],
+  );
+});
+
 test('given a run recorded at start, when it is finalized, then result fields are written and identity and transcript are left intact', () => {
   const store = Store.open(':memory:');
   store.insertRun(

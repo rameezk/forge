@@ -9,7 +9,7 @@ buildNpmPackage {
 
   src = ../../runtime;
 
-  npmDepsHash = "sha256-skBWI035YYigBNjzDSx9KNz7cSrvXcEZMVRMut8/V80=";
+  npmDepsHash = "sha256-Op0vP3OxTrc7OF+pdrW/yJ9dcO45XmFbZXbHrIgUEfw=";
 
   dontNpmBuild = true;
 
@@ -29,11 +29,13 @@ buildNpmPackage {
     cp -r package.json package-lock.json packages node_modules "$out/lib/forge-runtime/"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-run" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts"
+    makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontend" \
+      --add-flags "$out/lib/forge-runtime/packages/frontend/src/main.ts"
     runHook postInstall
   '';
 
   meta = {
-    description = "Forge workload runner: runs one worker headlessly and records the run.";
+    description = "Forge runtime: runs one worker headlessly (forge-run) and serves the read-only workload dashboard (forge-frontend).";
     mainProgram = "forge-run";
     platforms = nodejs.meta.platforms;
   };

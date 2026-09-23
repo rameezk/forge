@@ -1,0 +1,16 @@
+{
+  "name": "@forge/frontend",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@forge/shared": "0.0.0",
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.13.8"
+  },
+  "scripts": {
+    "test": "node --test test/**/*.test.ts"
+  }
+}
