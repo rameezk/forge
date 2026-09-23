@@ -116,4 +116,19 @@ else
 	fail=1
 fi
 
+echo "==> case: the scaffolded flake shows how to declare a worker through the mkHost modules seam"
+scaffold
+if grep -q "modules" "$work/flake.nix" && grep -q "forge.runtime.harnesses" "$work/flake.nix" && grep -q "forge.runtime.workers" "$work/flake.nix"; then
+	echo "ok: the scaffolded flake carries a commented harness and worker declaration passed through mkHost modules"
+else
+	echo "FAIL: the scaffolded flake does not show declaring a harness and worker through the mkHost modules seam"
+	fail=1
+fi
+if grep -q "pi-coding-agent" "$work/flake.nix" && grep -q "environment.systemPackages" "$work/flake.nix"; then
+	echo "ok: the scaffolded flake shows installing the pi harness binary from nixpkgs"
+else
+	echo "FAIL: the scaffolded flake does not show installing the pi harness binary via systemPackages"
+	fail=1
+fi
+
 exit $fail
