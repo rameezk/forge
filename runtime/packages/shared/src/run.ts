@@ -16,3 +16,17 @@ export interface RunRecord {
   sessionId: string | null;
   error: string | null;
 }
+
+export interface RunResult
+  extends Pick<
+    RunRecord,
+    | 'status'
+    | 'costUncertain'
+    | 'costUsd'
+    | 'inputTokens'
+    | 'outputTokens'
+    | 'sessionId'
+    | 'error'
+  > {
+  endTime: string;
+}

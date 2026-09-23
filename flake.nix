@@ -29,6 +29,10 @@
 
       loadConfig = import ./infra/lib/load-config.nix;
 
+      runnerOverlay = final: _prev: {
+        forge-runner = final.callPackage ./infra/nix/runner.nix { };
+      };
+
       mkHost =
         { configFile }:
         let
@@ -41,6 +45,7 @@
             ./infra/nixos/configuration.nix
             ./infra/nixos/disko.nix
             ./infra/nixos/runtime.nix
+            { nixpkgs.overlays = [ runnerOverlay ]; }
             { _module.args.forgeConfig = cfg; }
           ];
         };
@@ -76,8 +81,19 @@
         in
         {
           forge-shared = pkgs.callPackage ./infra/nix/shared.nix { };
+          forge-runner = pkgs.callPackage ./infra/nix/runner.nix { };
         }
       );
+
+      apps = forAllSystems (system: {
+        run = {
+          type = "app";
+          program = "${self.packages.${system}.forge-runner}/bin/forge-run";
+          meta = {
+            description = "Run one declared worker headlessly and record the run: forge#run -- <worker>.";
+          };
+        };
+      });
 
       devShells = forAllSystems (
         system:
@@ -127,7 +143,82 @@
           ) "/var/lib/forge must be provisioned as a forge-runtime-owned state directory";
           runtimeInert = lib.asserts.assertMsg (
             !(lib.any (name: lib.hasInfix "forge" name) (lib.attrNames nixos.config.systemd.services))
-          ) "forge.runtime must stay inert: no systemd service until later slices declare workers";
+          ) "forge.runtime must stay inert when no workers are declared: no runner unit appears";
+
+          workerHost = lib.nixosSystem {
+            system = exampleCfg.arch;
+            modules = [
+              disko.nixosModules.disko
+              ./infra/nixos/configuration.nix
+              ./infra/nixos/disko.nix
+              ./infra/nixos/runtime.nix
+              { nixpkgs.overlays = [ runnerOverlay ]; }
+              { _module.args.forgeConfig = exampleCfg; }
+              {
+                forge.runtime.harnesses.pi = {
+                  command = "/run/current-system/sw/bin/pi";
+                  args = [ "run" ];
+                };
+                forge.runtime.workers.refiner = {
+                  harness = "pi";
+                  model = "anthropic/claude-opus-4";
+                  prompt = "refine the spec";
+                  reasoningEffort = "high";
+                };
+                forge.runtime.workers.builder = {
+                  harness = "pi";
+                  model = "anthropic/claude-sonnet-4";
+                  prompt = "build the thing";
+                };
+              }
+            ];
+          };
+          runnerUnit = workerHost.config.systemd.services."forge-runner@";
+          runnerSettings = workerHost.config.forge.runtime.settings;
+
+          runnerUnitDeclared = lib.asserts.assertMsg (
+            workerHost.config.systemd.services ? "forge-runner@"
+          ) "declaring a worker must define the forge-runner@ oneshot template";
+          runnerInvokesWorker = lib.asserts.assertMsg (
+            runnerUnit.serviceConfig.Type == "oneshot"
+            && lib.hasInfix "forge-run" runnerUnit.serviceConfig.ExecStart
+            && lib.hasInfix "%i" runnerUnit.serviceConfig.ExecStart
+            && runnerUnit.serviceConfig.User == "forge-runtime"
+          ) "the runner unit must be a per-worker oneshot invoking forge-run as the forge-runtime user";
+          runnerSandboxed =
+            lib.asserts.assertMsg
+              (
+                runnerUnit.serviceConfig.NoNewPrivileges == true
+                && runnerUnit.serviceConfig.ProtectSystem == "strict"
+                && runnerUnit.serviceConfig.ProtectHome == true
+                && runnerUnit.serviceConfig.PrivateTmp == true
+                && runnerUnit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+                && runnerUnit.serviceConfig.RestrictSUIDSGID == true
+                && runnerUnit.serviceConfig.ProtectKernelTunables == true
+                && runnerUnit.serviceConfig.ProtectControlGroups == true
+              )
+              "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, and writable only under the state directory";
+          runnerKeyOutOfStore = lib.asserts.assertMsg (
+            runnerUnit.serviceConfig.EnvironmentFile == "/var/lib/forge/openrouter.env"
+            && !(lib.hasPrefix builtins.storeDir runnerUnit.serviceConfig.EnvironmentFile)
+          ) "the OpenRouter key must reach the runner via an EnvironmentFile outside the Nix store";
+          runnerEnvWired = lib.asserts.assertMsg (
+            lib.any (e: lib.hasInfix "FORGE_RUNTIME_CONFIG=" e) runnerUnit.serviceConfig.Environment
+            && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") runnerUnit.serviceConfig.Environment
+          ) "the runner unit must point at the generated config and the state directory";
+          runnerConfigReflectsWorker = lib.asserts.assertMsg (
+            runnerSettings.workers.refiner.harness == "pi"
+            && runnerSettings.workers.refiner.model == "anthropic/claude-opus-4"
+            && runnerSettings.workers.refiner.reasoningEffort == "high"
+            && runnerSettings.harnesses.pi.command == "/run/current-system/sw/bin/pi"
+          ) "the generated runtime config must reflect the declared harness and worker";
+          runnerDefaultEffortOmitted =
+            lib.asserts.assertMsg (!(runnerSettings.workers.builder ? reasoningEffort))
+              "a worker with no reasoning effort must omit it from the config so the harness runs at the provider default";
+          transcriptsProvisioned = lib.asserts.assertMsg (lib.any
+            (rule: lib.hasInfix "/var/lib/forge/transcripts" rule && lib.hasInfix "forge-runtime" rule)
+            nixos.config.systemd.tmpfiles.rules
+          ) "/var/lib/forge/transcripts must be provisioned for per-run transcripts";
         in
         {
           example-reflects-config =
@@ -149,7 +240,21 @@
               echo "forge.runtime composed and inert; forge-runtime user and /var/lib/forge state dir provisioned" > $out
             '';
 
+          runtime-runner =
+            assert runnerUnitDeclared;
+            assert runnerInvokesWorker;
+            assert runnerSandboxed;
+            assert runnerKeyOutOfStore;
+            assert runnerEnvWired;
+            assert runnerConfigReflectsWorker;
+            assert runnerDefaultEffortOmitted;
+            assert transcriptsProvisioned;
+            pkgs.runCommand "runtime-runner" { } ''
+              echo "declaring a worker wires a forge-runner@ oneshot invoking forge-run with an out-of-store OpenRouter key" > $out
+            '';
+
           forge-shared = self.packages.${system}.forge-shared;
+          forge-runner = self.packages.${system}.forge-runner;
         }
       );
     };
