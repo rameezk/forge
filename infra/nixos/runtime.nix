@@ -81,6 +81,12 @@ in
       description = "Runner package providing the forge-run entry point.";
     };
 
+    dashboardPort = lib.mkOption {
+      type = lib.types.port;
+      default = 7787;
+      description = "Localhost TCP port the read-only dashboard binds to; reached over an SSH tunnel, never exposed publicly.";
+    };
+
     openRouterKeyFile = lib.mkOption {
       type = lib.types.str;
       default = "${cfg.stateDir}/openrouter.env";
@@ -158,6 +164,41 @@ in
           RestrictSUIDSGID = true;
           ProtectKernelTunables = true;
           ProtectControlGroups = true;
+        };
+      };
+
+      systemd.services.forge-frontend = {
+        description = "Forge read-only workload dashboard (localhost only)";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" ];
+        serviceConfig = {
+          Type = "exec";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          Environment = [
+            "FORGE_STATE_DIR=${cfg.stateDir}"
+            "FORGE_FRONTEND_HOST=127.0.0.1"
+            "FORGE_FRONTEND_PORT=${toString cfg.dashboardPort}"
+          ];
+          ExecStart = "${cfg.package}/bin/forge-frontend";
+          Restart = "on-failure";
+
+          NoNewPrivileges = true;
+          ProtectSystem = "strict";
+          ProtectHome = true;
+          PrivateTmp = true;
+          ReadWritePaths = [ cfg.stateDir ];
+          RestrictSUIDSGID = true;
+          ProtectKernelTunables = true;
+          ProtectControlGroups = true;
+          RestrictAddressFamilies = [
+            "AF_INET"
+            "AF_INET6"
+            "AF_UNIX"
+          ];
+          IPAddressAllow = "localhost";
+          IPAddressDeny = "any";
         };
       };
     })

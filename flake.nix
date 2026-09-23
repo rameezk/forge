@@ -219,6 +219,38 @@
             (rule: lib.hasInfix "/var/lib/forge/transcripts" rule && lib.hasInfix "forge-runtime" rule)
             nixos.config.systemd.tmpfiles.rules
           ) "/var/lib/forge/transcripts must be provisioned for per-run transcripts";
+
+          frontendUnit = workerHost.config.systemd.services.forge-frontend;
+          dashboardPort = workerHost.config.forge.runtime.dashboardPort;
+
+          frontendDeclared = lib.asserts.assertMsg (
+            (workerHost.config.systemd.services ? forge-frontend)
+            && frontendUnit.wantedBy == [ "multi-user.target" ]
+          ) "declaring a worker must define an always-on forge-frontend dashboard service";
+          frontendRunsAsUser = lib.asserts.assertMsg (
+            frontendUnit.serviceConfig.Type == "exec"
+            && frontendUnit.serviceConfig.User == "forge-runtime"
+            && frontendUnit.serviceConfig.Group == "forge-runtime"
+            && lib.hasInfix "forge-frontend" frontendUnit.serviceConfig.ExecStart
+          ) "the dashboard must run forge-frontend as the forge-runtime user";
+          frontendLocalhostOnly = lib.asserts.assertMsg (
+            lib.any (e: e == "FORGE_FRONTEND_HOST=127.0.0.1") frontendUnit.serviceConfig.Environment
+            && frontendUnit.serviceConfig.IPAddressAllow == "localhost"
+            && frontendUnit.serviceConfig.IPAddressDeny == "any"
+          ) "the dashboard must bind localhost and refuse non-loopback addresses";
+          frontendNoPublicPort = lib.asserts.assertMsg (
+            !(lib.elem dashboardPort workerHost.config.networking.firewall.allowedTCPPorts)
+          ) "the dashboard port must never be opened in the firewall: it is reached only over an SSH tunnel";
+          frontendSandboxed = lib.asserts.assertMsg (
+            frontendUnit.serviceConfig.NoNewPrivileges == true
+            && frontendUnit.serviceConfig.ProtectSystem == "strict"
+            && frontendUnit.serviceConfig.ProtectHome == true
+            && frontendUnit.serviceConfig.PrivateTmp == true
+            && frontendUnit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+            && frontendUnit.serviceConfig.RestrictSUIDSGID == true
+            && frontendUnit.serviceConfig.ProtectKernelTunables == true
+            && frontendUnit.serviceConfig.ProtectControlGroups == true
+          ) "the dashboard unit must be sandboxed like the runner";
         in
         {
           example-reflects-config =
@@ -251,6 +283,16 @@
             assert transcriptsProvisioned;
             pkgs.runCommand "runtime-runner" { } ''
               echo "declaring a worker wires a forge-runner@ oneshot invoking forge-run with an out-of-store OpenRouter key" > $out
+            '';
+
+          runtime-dashboard =
+            assert frontendDeclared;
+            assert frontendRunsAsUser;
+            assert frontendLocalhostOnly;
+            assert frontendNoPublicPort;
+            assert frontendSandboxed;
+            pkgs.runCommand "runtime-dashboard" { } ''
+              echo "declaring a worker wires an always-on forge-frontend dashboard bound to localhost, opening no public port" > $out
             '';
 
           forge-shared = self.packages.${system}.forge-shared;
