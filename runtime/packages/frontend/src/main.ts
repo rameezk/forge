@@ -2,21 +2,11 @@ import { join } from 'node:path';
 import { serve } from '@hono/node-server';
 import { Store } from '@forge/shared';
 import { createApp } from './app.ts';
+import { resolveServeConfig } from './config.ts';
 import { FileTranscriptSource } from './transcript.ts';
 
-const LOOPBACK = '127.0.0.1';
-const DEFAULT_PORT = 7787;
-
 export const main = (env: NodeJS.ProcessEnv): void => {
-  const stateDir = env.FORGE_STATE_DIR;
-  if (stateDir === undefined) {
-    throw new Error('FORGE_STATE_DIR is not set');
-  }
-  const hostname = env.FORGE_FRONTEND_HOST ?? LOOPBACK;
-  const port =
-    env.FORGE_FRONTEND_PORT === undefined
-      ? DEFAULT_PORT
-      : Number(env.FORGE_FRONTEND_PORT);
+  const { stateDir, hostname, port } = resolveServeConfig(env);
 
   const store = Store.open(join(stateDir, 'forge.db'));
   const transcripts = new FileTranscriptSource(join(stateDir, 'transcripts'));
