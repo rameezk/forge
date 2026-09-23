@@ -250,6 +250,12 @@
             && frontendUnit.serviceConfig.RestrictSUIDSGID == true
             && frontendUnit.serviceConfig.ProtectKernelTunables == true
             && frontendUnit.serviceConfig.ProtectControlGroups == true
+            &&
+              frontendUnit.serviceConfig.RestrictAddressFamilies == [
+                "AF_INET"
+                "AF_INET6"
+                "AF_UNIX"
+              ]
           ) "the dashboard unit must be sandboxed like the runner";
         in
         {
