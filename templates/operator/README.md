@@ -92,14 +92,20 @@ OpenRouter key file `/var/lib/forge/openrouter.env`. Only deploy keeps it.
    ssh forge@<address>
    ```
 
+   Here and below, `forge` is the default `adminUser` and SSH runs on the
+   default port 22. If you changed `adminUser` or `sshPort` in `config.json`,
+   use `ssh -p <sshPort> <adminUser>@<address>` instead.
+
 3. Place the OpenRouter key. The key is never in the Nix store or this
    repository, so you place it by hand after **every** standup. This prompts for
-   the key without echoing it and streams it to `/var/lib/forge/openrouter.env`
-   with mode `0600`, keeping it out of your shell history and every command line:
+   the key without echoing it and streams it to a freshly created
+   `/var/lib/forge/openrouter.env` with mode `0600`, keeping it out of your shell
+   history and every command line. It is safe to rerun to rotate the key:
 
    ```bash
-   read -rs key && printf 'OPENROUTER_API_KEY=%s\n' "$key" |
-     ssh forge@<address> 'sudo sh -c "umask 077 && cat > /var/lib/forge/openrouter.env"'
+   printf 'OpenRouter key: ' && read -rs key && echo
+   printf 'OPENROUTER_API_KEY=%s\n' "$key" |
+     ssh forge@<address> 'sudo sh -c "umask 077 && rm -f /var/lib/forge/openrouter.env && set -C && cat > /var/lib/forge/openrouter.env"'
    unset key
    ```
 
