@@ -53,29 +53,67 @@ direnv, run each one through `nix develop -c <command>` instead and export
    host's authorized keys, the planned SSH key, and `config.json` are all
    byte-identical.
 
-## Standup and teardown
+## Standup, deploy, and teardown
 
-Standup and teardown are two separate commands - never fused - with manual
-verification between them, so you keep the live-infrastructure judgment at both
-moments that spend real money. Each pauses for confirmation before it creates or
-destroys anything.
+A box has a three-command lifecycle. Standup and teardown spend or save real
+money, so each is its own command - never fused - and pauses for confirmation
+before it creates or destroys anything. Deploy changes only the box's NixOS
+configuration, so it runs without a prompt.
+
+| Command         | What it does                                   | Box state                 |
+| --------------- | ---------------------------------------------- | ------------------------- |
+| `just standup`  | Creates a fresh box and installs forge onto it | Lost - the disk is wiped  |
+| `just deploy`   | Applies a changed config to the stood-up box   | Kept                      |
+| `just teardown` | Destroys the box                               | Lost - the server is gone |
+
+Box state is the run store and transcripts under `/var/lib/forge`, and the
+OpenRouter key file `/var/lib/forge/openrouter.env`. Only deploy keeps it.
 
 1. Stand the box up. This provisions the server, reads the provisioned address
-   back itself, and installs onto it - building on the target, so it works even
-   from a machine that cannot build the target's system locally:
+   back itself, and installs onto a freshly formatted disk - building on the
+   target, so it works even from a machine that cannot build the target's system
+   locally:
 
    ```bash
    just standup
    ```
 
+   Standup only ever creates a fresh box. If your admin user can already log in
+   to the box, standup refuses straight away and points you to `just deploy`, or
+   to teardown then standup for a fresh box. If an install fails part-way, just
+   run standup again.
+
 2. Verify it by hand - confirm the box is reachable over SSH with your
-   configured key:
+   configured key. Standup clears the box's old host key from your
+   `known_hosts`, so this works even when the address was used by an earlier
+   box:
 
    ```bash
    ssh forge@<address>
    ```
 
-3. Tear the box down when you are done:
+3. Place the OpenRouter key. The key is never in the Nix store or this
+   repository, so you place it by hand after **every** standup: write
+   `OPENROUTER_API_KEY=<your key>` to `/var/lib/forge/openrouter.env` on the box,
+   with mode `0600`.
+
+4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
+   reads the box address from OpenTofu, then runs `nixos-rebuild switch` on the
+   box as your admin user, building on the box. It keeps the box's state, and it
+   changes only NixOS: it never runs `tofu apply`, so infrastructure changes
+   such as `serverType` or `location` still need teardown then standup. The flake
+   sees only git-tracked files, so stage a change before deploying it:
+
+   ```bash
+   git add -A
+   just deploy
+   ```
+
+   A deploy that breaks SSH has no automatic rollback; recover it from the
+   Hetzner console.
+
+5. Tear the box down when you are done. This loses the box's state and clears
+   its host key from your `known_hosts`:
 
    ```bash
    just teardown

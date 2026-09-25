@@ -63,7 +63,7 @@ fi
 
 system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
 toolchain_names="$(nix eval --json ".#lib.operatorToolchain" --apply "f: map (p: p.pname or p.name) (f \"$system\")" 2>/dev/null || true)"
-for tool in opentofu jq just nixos-anywhere; do
+for tool in opentofu jq just nixos-anywhere nixos-rebuild; do
 	if printf '%s' "$toolchain_names" | grep -q "\"$tool"; then
 		echo "ok: the operator toolchain carries $tool"
 	else

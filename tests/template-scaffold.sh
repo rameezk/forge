@@ -39,7 +39,7 @@ else
 	fail=1
 fi
 if [ -f "$work/justfile" ]; then
-	echo "ok: scaffolded repository carries the standup/teardown command wrapper"
+	echo "ok: scaffolded repository carries the standup/deploy/teardown command wrapper"
 else
 	echo "FAIL: scaffolded repository is missing the justfile command wrapper"
 	fail=1
@@ -59,11 +59,11 @@ else
 	fail=1
 fi
 
-echo "==> case: the standup and teardown commands resolve without executing, against forge's toolchain"
+echo "==> case: the standup, deploy, and teardown commands resolve without executing, against forge's toolchain"
 scaffold
 jq --arg k "$real_key" '.sshPublicKeys = [$k] | .hostname = "mybox"' "$work/config.example.json" >"$work/config.json"
 git -C "$work" add -A
-for cmd in standup teardown; do
+for cmd in standup deploy teardown; do
 	if (cd "$work" && nix develop "${override[@]}" -c just -n "$cmd") >"$work/$cmd.log" 2>&1; then
 		echo "ok: '$cmd' resolves cleanly against the forge-sourced toolchain, without executing"
 	else
@@ -73,6 +73,30 @@ for cmd in standup teardown; do
 	fi
 done
 
+system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
+forge_rebuild="$(nix eval --raw "path:$forge#lib.operatorToolchain" --apply "f: (builtins.head (builtins.filter (p: (p.pname or \"\") == \"nixos-rebuild-ng\") (f \"$system\"))).outPath" 2>/dev/null || true)"
+shell_rebuild="$(cd "$work" && nix develop "${override[@]}" -c bash -c 'command -v nixos-rebuild' 2>/dev/null || true)"
+if [ -n "$forge_rebuild" ] && [ "$shell_rebuild" = "$forge_rebuild/bin/nixos-rebuild" ]; then
+	echo "ok: nixos-rebuild on the operator shell path is forge's toolchain copy"
+else
+	echo "FAIL: nixos-rebuild on the operator shell path is not forge's toolchain copy"
+	echo "  forge toolchain: ${forge_rebuild:-<missing>}"
+	echo "  operator shell:  ${shell_rebuild:-<missing>}"
+	fail=1
+fi
+
+echo "==> case: deploy with no OpenTofu state fails clearly, before reaching for a box"
+if (cd "$work" && nix develop "${override[@]}" -c just deploy) >"$work/deploy-nostate.log" 2>&1; then
+	echo "FAIL: deploy succeeded with no OpenTofu state"
+	fail=1
+elif grep -qi "no box to deploy to" "$work/deploy-nostate.log" && ! grep -q "nixos-rebuild" "$work/deploy-nostate.log"; then
+	echo "ok: deploy with no state exits non-zero, saying there is no box to deploy to"
+else
+	echo "FAIL: deploy failed with no state, but not with a clear no-box message"
+	tail -10 "$work/deploy-nostate.log"
+	fail=1
+fi
+
 echo "==> case: the template consumes forge's toolchain rather than pinning any tool itself"
 if grep -q "forge.lib.operatorToolchain" "$work/flake.nix"; then
 	echo "ok: the operator dev shell consumes forge.lib.operatorToolchain"
@@ -80,7 +104,7 @@ else
 	echo "FAIL: the operator dev shell does not consume forge.lib.operatorToolchain"
 	fail=1
 fi
-if grep -qE "pkgs\.(opentofu|jq|just)" "$work/flake.nix"; then
+if grep -qE "pkgs\.(opentofu|jq|just|nixos-rebuild)" "$work/flake.nix"; then
 	echo "FAIL: the operator flake pins a standup tool independently instead of sourcing it from forge"
 	fail=1
 else

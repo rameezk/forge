@@ -3,13 +3,51 @@ opentofu_dir := "infra/opentofu"
 standup:
     #!/usr/bin/env bash
     set -euo pipefail
-    tofu -chdir={{opentofu_dir}} init -input=false
-    tofu -chdir={{opentofu_dir}} apply
-    ip="$(tofu -chdir={{opentofu_dir}} output -raw server_ipv4)"
-    hostname="$(jq -r '.hostname' config.json)"
+    host="$(nix eval --json .#lib.reflect)"
+    hostname="$(jq -r '.hostname' <<<"$host")"
+    admin_user="$(jq -r '.adminUser' <<<"$host")"
+    ssh_port="$(jq -r '.sshPort' <<<"$host")"
+    tofu -chdir={{ opentofu_dir }} init -input=false
+    tofu -chdir={{ opentofu_dir }} apply
+    ip="$(tofu -chdir={{ opentofu_dir }} output -json | jq -r '.server_ipv4.value // empty')"
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+        -p "$ssh_port" "${admin_user}@${ip}" true </dev/null 2>/dev/null; then
+        echo "error: ${hostname} at ${ip} is already installed, and standup would reformat its disk." >&2
+        echo "  To apply a config change and keep the box's state, run 'just deploy'." >&2
+        echo "  For a fresh box, run 'just teardown' then 'just standup'." >&2
+        exit 1
+    fi
     nixos-anywhere --flake ".#${hostname}" --target-host "root@${ip}" --build-on remote
+    {{ quote(just_executable()) }} _forget-host-key "$ip" "$ssh_port"
+
+deploy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ip="$(tofu -chdir={{ opentofu_dir }} output -json | jq -r '.server_ipv4.value // empty')"
+    if [ -z "$ip" ]; then
+        echo "error: no box to deploy to - OpenTofu has no server address. Run 'just standup' to create one." >&2
+        exit 1
+    fi
+    host="$(nix eval --json .#lib.reflect)"
+    hostname="$(jq -r '.hostname' <<<"$host")"
+    target="$(jq -r '.adminUser' <<<"$host")@${ip}"
+    NIX_SSHOPTS="-p $(jq -r '.sshPort' <<<"$host")" nixos-rebuild switch --flake ".#${hostname}" --target-host "$target" --build-host "$target" --sudo
 
 teardown:
     #!/usr/bin/env bash
     set -euo pipefail
-    tofu -chdir={{opentofu_dir}} destroy
+    ssh_port="$(nix eval --json .#lib.reflect | jq -r '.sshPort')"
+    ip="$(tofu -chdir={{ opentofu_dir }} output -json | jq -r '.server_ipv4.value // empty')"
+    tofu -chdir={{ opentofu_dir }} destroy
+    if [ -n "$ip" ]; then
+        {{ quote(just_executable()) }} _forget-host-key "$ip" "$ssh_port"
+    fi
+
+_forget-host-key ip ssh_port:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    known_hosts="$HOME/.ssh/known_hosts"
+    if [ -f "$known_hosts" ]; then
+        ssh-keygen -R {{ quote(ip) }} -f "$known_hosts"
+        ssh-keygen -R {{ quote("[" + ip + "]:" + ssh_port) }} -f "$known_hosts"
+    fi
