@@ -99,14 +99,14 @@ OpenRouter key file `/var/lib/forge/openrouter.env`. Only deploy keeps it.
 3. Place the OpenRouter key. The key is never in the Nix store or this
    repository, so you place it by hand after **every** standup. This prompts for
    the key without echoing it and streams it to a freshly created
-   `/var/lib/forge/openrouter.env` with mode `0600`, keeping it out of your shell
-   history and every command line. It is safe to rerun to rotate the key:
+   `/var/lib/forge/openrouter.env`, owned by the `forge-runtime` user with mode
+   `0600`, keeping it out of your shell history and every command line. An empty
+   entry changes nothing, and it is safe to rerun to rotate the key:
 
    ```bash
-   printf 'OpenRouter key: ' && read -rs key && echo
-   printf 'OPENROUTER_API_KEY=%s\n' "$key" |
-     ssh forge@<address> 'sudo sh -c "umask 077 && rm -f /var/lib/forge/openrouter.env && set -C && cat > /var/lib/forge/openrouter.env"'
-   unset key
+   printf 'OpenRouter key: ' && read -rs key && echo && [ -n "$key" ] &&
+     printf 'OPENROUTER_API_KEY=%s\n' "$key" |
+     ssh forge@<address> 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/openrouter.env && cat > /var/lib/forge/openrouter.env"'; unset key
    ```
 
 4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
