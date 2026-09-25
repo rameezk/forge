@@ -55,10 +55,9 @@ direnv, run each one through `nix develop -c <command>` instead and export
 
 ## Standup, deploy, and teardown
 
-A box has a three-command lifecycle. Standup and teardown spend or save real
-money, so each is its own command - never fused - and pauses for confirmation
-before it creates or destroys anything. Deploy changes only the box's NixOS
-configuration, so it runs without a prompt.
+A box has three commands. Standup and teardown each ask for confirmation before
+they create or destroy anything. Deploy changes only the box's NixOS
+configuration and runs without a prompt.
 
 | Command         | What it does                                   | Box state                 |
 | --------------- | ---------------------------------------------- | ------------------------- |
@@ -69,10 +68,7 @@ configuration, so it runs without a prompt.
 Box state is the run store and transcripts under `/var/lib/forge`, and the
 OpenRouter key file `/var/lib/forge/openrouter.env`. Only deploy keeps it.
 
-1. Stand the box up. This provisions the server, reads the provisioned address
-   back itself, and installs onto a freshly formatted disk - building on the
-   target, so it works even from a machine that cannot build the target's system
-   locally:
+1. Stand the box up:
 
    ```bash
    just standup
