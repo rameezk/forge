@@ -74,6 +74,8 @@
       lib.reflect = {
         hostname = actualHostName;
         authorizedKeys = actualKeys;
+        adminUser = cfg.adminUser;
+        sshPort = builtins.head host.config.services.openssh.ports;
       };
 
       checks = forAllSystems (
