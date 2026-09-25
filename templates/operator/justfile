@@ -49,8 +49,8 @@ teardown:
     if ssh_port="$(nix eval --json .#lib.reflect | jq -r '.sshPort')"; then
         {{ quote(just_executable()) }} _forget-host-key "$ip" "$ssh_port"
     else
-        {{ quote(just_executable()) }} _forget-host-key "$ip" 22
         echo "warning: the host config did not evaluate, so its SSH port is unknown; clear any '[${ip}]:<port>' entry from ~/.ssh/known_hosts by hand." >&2
+        {{ quote(just_executable()) }} _forget-host-key "$ip" 22
     fi
 
 _address:
