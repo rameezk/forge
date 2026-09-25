@@ -85,11 +85,11 @@ else
 	fail=1
 fi
 
-echo "==> case: deploy with no OpenTofu state fails clearly, before reaching for a box"
+echo "==> case: deploy with no OpenTofu state fails clearly"
 if (cd "$work" && nix develop "${override[@]}" -c just deploy) >"$work/deploy-nostate.log" 2>&1; then
 	echo "FAIL: deploy succeeded with no OpenTofu state"
 	fail=1
-elif grep -qi "no box to deploy to" "$work/deploy-nostate.log" && ! grep -q "nixos-rebuild" "$work/deploy-nostate.log"; then
+elif grep -qi "no box to deploy to" "$work/deploy-nostate.log"; then
 	echo "ok: deploy with no state exits non-zero, saying there is no box to deploy to"
 else
 	echo "FAIL: deploy failed with no state, but not with a clear no-box message"

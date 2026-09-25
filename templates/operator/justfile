@@ -9,8 +9,13 @@ standup:
     ssh_port="$(jq -r '.sshPort' <<<"$host")"
     tofu -chdir={{ opentofu_dir }} init -input=false
     tofu -chdir={{ opentofu_dir }} apply
-    ip="$(tofu -chdir={{ opentofu_dir }} output -json | jq -r '.server_ipv4.value // empty')"
+    ip="$({{ quote(just_executable()) }} _address)"
+    if [ -z "$ip" ]; then
+        echo "error: OpenTofu applied but reports no server address to install onto." >&2
+        exit 1
+    fi
     if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+        -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes \
         -p "$ssh_port" "${admin_user}@${ip}" true </dev/null 2>/dev/null; then
         echo "error: ${hostname} at ${ip} is already installed, and standup would reformat its disk." >&2
         echo "  To apply a config change and keep the box's state, run 'just deploy'." >&2
@@ -23,7 +28,7 @@ standup:
 deploy:
     #!/usr/bin/env bash
     set -euo pipefail
-    ip="$(tofu -chdir={{ opentofu_dir }} output -json | jq -r '.server_ipv4.value // empty')"
+    ip="$({{ quote(just_executable()) }} _address)"
     if [ -z "$ip" ]; then
         echo "error: no box to deploy to - OpenTofu has no server address. Run 'just standup' to create one." >&2
         exit 1
@@ -36,18 +41,39 @@ deploy:
 teardown:
     #!/usr/bin/env bash
     set -euo pipefail
-    ssh_port="$(nix eval --json .#lib.reflect | jq -r '.sshPort')"
-    ip="$(tofu -chdir={{ opentofu_dir }} output -json | jq -r '.server_ipv4.value // empty')"
+    ip="$({{ quote(just_executable()) }} _address)"
     tofu -chdir={{ opentofu_dir }} destroy
-    if [ -n "$ip" ]; then
+    if [ -z "$ip" ]; then
+        exit 0
+    fi
+    if ssh_port="$(nix eval --json .#lib.reflect | jq -r '.sshPort')"; then
         {{ quote(just_executable()) }} _forget-host-key "$ip" "$ssh_port"
+    else
+        {{ quote(just_executable()) }} _forget-host-key "$ip" 22
+        echo "warning: the host config did not evaluate, so its SSH port is unknown; clear any '[${ip}]:<port>' entry from ~/.ssh/known_hosts by hand." >&2
     fi
 
+_address:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tofu -chdir={{ opentofu_dir }} output -json | jq -r '.server_ipv4.value // empty'
+
+[positional-arguments]
 _forget-host-key ip ssh_port:
     #!/usr/bin/env bash
     set -euo pipefail
+    ip="$1"
+    ssh_port="$2"
     known_hosts="$HOME/.ssh/known_hosts"
-    if [ -f "$known_hosts" ]; then
-        ssh-keygen -R {{ quote(ip) }} -f "$known_hosts"
-        ssh-keygen -R {{ quote("[" + ip + "]:" + ssh_port) }} -f "$known_hosts"
+    if [ ! -f "$known_hosts" ]; then
+        exit 0
     fi
+    entries=("$ip")
+    if [ "$ssh_port" != 22 ]; then
+        entries+=("[${ip}]:${ssh_port}")
+    fi
+    for entry in "${entries[@]}"; do
+        if ssh-keygen -F "$entry" -f "$known_hosts" >/dev/null; then
+            ssh-keygen -R "$entry" -f "$known_hosts"
+        fi
+    done
