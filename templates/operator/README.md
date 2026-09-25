@@ -93,9 +93,15 @@ OpenRouter key file `/var/lib/forge/openrouter.env`. Only deploy keeps it.
    ```
 
 3. Place the OpenRouter key. The key is never in the Nix store or this
-   repository, so you place it by hand after **every** standup: write
-   `OPENROUTER_API_KEY=<your key>` to `/var/lib/forge/openrouter.env` on the box,
-   with mode `0600`.
+   repository, so you place it by hand after **every** standup. This prompts for
+   the key without echoing it and streams it to `/var/lib/forge/openrouter.env`
+   with mode `0600`, keeping it out of your shell history and every command line:
+
+   ```bash
+   read -rs key && printf 'OPENROUTER_API_KEY=%s\n' "$key" |
+     ssh forge@<address> 'sudo sh -c "umask 077 && cat > /var/lib/forge/openrouter.env"'
+   unset key
+   ```
 
 4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
    reads the box address from OpenTofu, then runs `nixos-rebuild switch` on the
