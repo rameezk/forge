@@ -20,6 +20,10 @@ A named, reusable configuration that binds a harness to a model, a prompt, and a
 **Harness**:
 The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract - though the runner currently implements only the `pi` harness. Each harness's own CLI and event format belongs to its adapter in the runner, not to operator config (ADR-0008).
 
+**Subagent**:
+A child harness run that a workload's agent spawns mid-run to perform a delegated task and report back; it is part of the spawning workload, never a workload of its own (ADR-0009).
+_Avoid_: child workload, sub-workload
+
 **Managed repository**:
 A repository forge is configured to run workloads against, carrying its own skills that orchestrate the work.
 
