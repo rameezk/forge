@@ -528,7 +528,7 @@ test('given four running children and a fifth call queued behind them, when the 
   assert.equal(child.starts().length, 4);
 });
 
-test('given a child that exits 0 with its stream cut off before a final agent_end, or ending on an agent_end that will retry, when the tool executes, then pi sees a tool error saying the stream ended early, and the details still carry the usage and response ids the child produced', async () => {
+test('given a child that exits 0 with its stream cut off before a final agent_end, ending on an agent_end that will retry, or cut off in a run it continued after a final agent_end, when the tool executes, then pi sees a tool error saying the stream ended early, and the details still carry the usage and response ids the child produced', async () => {
   const lines = readFileSync(CHILD_OUTPUT, 'utf8').trimEnd().split('\n');
   const end = lines.findIndex((line) => line.includes('"type":"agent_end"'));
   const outputs = [
@@ -537,6 +537,7 @@ test('given a child that exits 0 with its stream cut off before a final agent_en
       ...lines.slice(0, end),
       (lines[end] as string).replace('"willRetry":false', '"willRetry":true'),
     ],
+    [...lines, '{"type":"agent_start"}', '{"type":"turn_start"}'],
   ];
 
   for (const output of outputs) {

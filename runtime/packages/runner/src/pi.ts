@@ -162,6 +162,9 @@ class PiStream {
         return this.#generation(event.message, undefined);
       case 'tool_execution_update':
         return this.#subagentEvent(event);
+      case 'agent_start':
+        this.#ended = false;
+        return null;
       case 'agent_end':
         this.#ended = event.willRetry === false;
         return null;

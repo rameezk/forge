@@ -301,7 +301,9 @@ const runChild = async (
         responses.push(responseOf(event.message));
         last = event.message;
       }
-      if (event.type === 'agent_end') {
+      if (event.type === 'agent_start') {
+        ended = false;
+      } else if (event.type === 'agent_end') {
         ended = event.willRetry === false;
       }
     }

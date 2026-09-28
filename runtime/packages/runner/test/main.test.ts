@@ -524,10 +524,13 @@ test('given pi failing pre-flight with its reason on stderr and exit 1, when the
   assert.match(journal, /No API key found for openrouter\./);
 });
 
-test('given pi output that is cut off before a final agent_end, or that ends on an agent_end that will retry, when the worker runs, then the run is error', async () => {
+test('given pi output that is cut off before a final agent_end, that ends on an agent_end that will retry, or that is cut off in a run pi continued after a final agent_end, when the worker runs, then the run is error', async () => {
   for (const output of [
     cutBefore('success.jsonl', 'agent_end'),
     cutBefore('retry.jsonl', 'auto_retry_start'),
+    outputFile(
+      `${readFileSync(fixture('success.jsonl'), 'utf8').trimEnd()}\n{"type":"agent_start"}\n{"type":"turn_start"}\n`,
+    ),
   ]) {
     const { code, run } = await runWorker({ output });
     assert.equal(run.status, 'error');
