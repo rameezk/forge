@@ -144,7 +144,7 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const events: HarnessEvent[] = [
     { type: 'message', role: 'assistant', text: 'parent delegates', usage: { inputTokens: 100, outputTokens: 10 }, costUsd: 0 },
-    { type: 'message', role: 'assistant', text: 'child reports', usage: { inputTokens: 900, outputTokens: 90 }, costUsd: 0, subagent: 'call-alpha' },
+    { type: 'message', role: 'assistant', text: 'child reports', usage: { inputTokens: 700, outputTokens: 40 }, costUsd: 0, subagent: 'call-alpha' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ];
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
