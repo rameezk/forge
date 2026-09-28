@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Forge"><style>.m{fill:#2E3440}.s{fill:#F26B1D}.c{stroke:#F26B1D}@media (prefers-color-scheme:dark){.m{fill:#D8DEE9}}</style>
+<g class="c" fill="none" stroke-width="4" stroke-linecap="round">
+<path d="M74 34 V14"/><path d="M78 34.5 L86 21"/><path d="M70 34.5 L62 21"/><path d="M81 37.5 L92 31"/><path d="M67 37.5 L56 31"/>
+</g>
+<circle class="s" cx="95" cy="19" r="2.5"/><circle class="s" cx="52" cy="18" r="2"/><circle class="s" cx="84" cy="9" r="2"/>
+<path class="m" d="M104 42 H38 C26 42 16 45 8 50 C18 55 28 58 38 58 H104 Z"/>
+<path class="m" d="M48 58 H94 L86 76 H56 Z"/>
+<path class="m" d="M40 76 H102 L108 90 H34 Z"/>
+<g class="c" fill="none" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+<path d="M52 90 V102 H30"/><path d="M71 90 V114"/><path d="M90 90 V102 H104"/>
+</g>
+<circle class="s" cx="26" cy="102" r="5"/><circle class="s" cx="71" cy="118" r="5"/><circle class="s" cx="108" cy="102" r="5"/>
+</svg>
