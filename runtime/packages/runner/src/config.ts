@@ -33,6 +33,11 @@ export const resolveWorker = (
       `worker '${name}' references undeclared harness '${worker.harness}'`,
     );
   }
+  if (/^[-@]/.test(worker.prompt)) {
+    throw new Error(
+      `worker '${name}' prompt must not start with '-' or '@': the harness would parse it as an option or a file`,
+    );
+  }
   return {
     name,
     harness: worker.harness,

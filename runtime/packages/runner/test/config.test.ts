@@ -53,3 +53,13 @@ test('given a worker referencing an undeclared harness, when it is resolved, the
   };
   assert.throws(() => resolveWorker(broken, 'orphan'), /pi/);
 });
+
+test('given a worker whose prompt starts with a dash or an at sign, when it is resolved, then it throws naming the worker, since pi would parse the prompt as an option or a file', () => {
+  for (const prompt of ['- fix the flaky test', '@notes.md summarise']) {
+    const risky: RuntimeConfig = {
+      harnesses: { pi: { command: 'pi' } },
+      workers: { risky: { harness: 'pi', model: 'm', prompt } },
+    };
+    assert.throws(() => resolveWorker(risky, 'risky'), /risky.*prompt/);
+  }
+});
