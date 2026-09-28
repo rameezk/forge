@@ -36,8 +36,8 @@ const STYLES = `
   .subagent > summary::before { content: '\\25B6'; display: inline-block; width: 1em; font-size: 0.7rem; text-align: center; opacity: 0.65; transition: transform 0.15s; }
   .subagent[open] > summary::before { transform: rotate(90deg); }
   .subagent-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; }
-  .subagent code { font-size: 0.85rem; }
-  .subagent-count { margin-left: auto; font-size: 0.8rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
+  .subagent code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+  .subagent-count { margin-left: auto; white-space: nowrap; font-size: 0.8rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
   .subagent-body { padding: 0.75rem 1rem 0; border-top: 1px solid var(--line); }
   .message-report { border-color: color-mix(in srgb, currentColor 35%, transparent); }
 `;
@@ -162,7 +162,7 @@ const renderSubagent = ({
   return html`<details class="subagent">
     <summary>
       <span class="subagent-label">Subagent</span>
-      <code>${scope}</code>
+      <code title="${scope}">${scope}</code>
       <span class="subagent-count">${events.length} ${events.length === 1 ? 'message' : 'messages'}</span>
     </summary>
     <div class="subagent-body">
