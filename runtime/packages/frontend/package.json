@@ -11,6 +11,6 @@
     "hono": "^4.13.8"
   },
   "scripts": {
-    "test": "node --test test/**/*.test.ts"
+    "test": "node --test 'test/**/*.test.ts'"
   }
 }

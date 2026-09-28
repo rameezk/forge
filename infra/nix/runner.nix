@@ -19,7 +19,7 @@ buildNpmPackage {
   checkPhase = ''
     runHook preCheck
     npm run typecheck
-    node --test packages/*/test/**/*.test.ts
+    node --test 'packages/*/test/**/*.test.ts'
     runHook postCheck
   '';
 
