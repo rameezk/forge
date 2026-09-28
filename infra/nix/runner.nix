@@ -3,13 +3,16 @@
   makeWrapper,
   nodejs,
 }:
+let
+  subagentExtension = "lib/forge-runtime/packages/pi-subagent/src";
+in
 buildNpmPackage {
   pname = "forge-runner";
   version = "0.0.0";
 
   src = ../../runtime;
 
-  npmDepsHash = "sha256-Op0vP3OxTrc7OF+pdrW/yJ9dcO45XmFbZXbHrIgUEfw=";
+  npmDepsHash = "sha256-C/K3uIUm8tlhUiX+qBhniM30heMyJwNyMNbLX3GRtqY=";
 
   dontNpmBuild = true;
 
@@ -28,11 +31,14 @@ buildNpmPackage {
     mkdir -p "$out/lib/forge-runtime"
     cp -r package.json package-lock.json packages node_modules "$out/lib/forge-runtime/"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-run" \
-      --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts"
+      --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts" \
+      --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontend" \
       --add-flags "$out/lib/forge-runtime/packages/frontend/src/main.ts"
     runHook postInstall
   '';
+
+  passthru = { inherit subagentExtension; };
 
   meta = {
     description = "Forge runtime: runs one worker headlessly (forge-run) and serves the read-only workload dashboard (forge-frontend).";

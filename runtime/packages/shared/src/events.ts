@@ -9,6 +9,7 @@ export interface MessageEvent {
   text: string;
   usage: TokenUsage;
   costUsd: number;
+  subagent?: string;
 }
 
 export interface ResultEvent {

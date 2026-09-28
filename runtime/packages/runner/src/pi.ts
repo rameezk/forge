@@ -1,13 +1,16 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { HarnessEvent, MessageEvent } from '@forge/shared';
+import {
+  SUBAGENT_INVOCATION_ENV,
+  SUBAGENT_TOOL,
+  type SubagentInvocation,
+  type SubagentUpdate,
+} from '@forge/pi-subagent';
 import type { Harness, HarnessInvocation, HarnessRun } from './harness.ts';
 import type { Billing } from './openrouter.ts';
 
-export const piArgs = (
-  invocation: HarnessInvocation,
-  extraArgs: string[] = [],
-): string[] => [
+const contractArgs = (invocation: HarnessInvocation): string[] => [
   '--mode',
   'json',
   '--no-session',
@@ -19,9 +22,33 @@ export const piArgs = (
   ...(invocation.reasoningEffort === undefined
     ? []
     : ['--thinking', invocation.reasoningEffort]),
+];
+
+export const piArgs = (
+  invocation: HarnessInvocation,
+  extension: string,
+  extraArgs: string[] = [],
+): string[] => [
+  ...contractArgs(invocation),
+  '-e',
+  extension,
   ...extraArgs,
   invocation.prompt,
 ];
+
+const SUBAGENT_SYSTEM_PROMPT = [
+  'You are a sub-agent. Another agent delegated the task below to you, and nobody will answer questions while you work on it.',
+  'Your final message is returned verbatim to the agent that delegated the task, so make it a complete, self-contained report of what you did and found.',
+  'You cannot spawn sub-agents.',
+].join(' ');
+
+export const subagentInvocation = (
+  command: string,
+  invocation: HarnessInvocation,
+): SubagentInvocation => ({
+  argv: [command, ...contractArgs(invocation)],
+  systemPrompt: SUBAGENT_SYSTEM_PROMPT,
+});
 
 interface PiUsage {
   input: number;
@@ -49,6 +76,9 @@ interface PiLine {
   id?: string;
   message?: PiMessage;
   willRetry?: boolean;
+  toolName?: string;
+  toolCallId?: string;
+  partialResult?: { details?: Partial<SubagentUpdate> };
 }
 
 const FAILED_STOP_REASONS = new Set(['error', 'aborted']);
@@ -62,7 +92,10 @@ const textOf = (message: PiMessage): string =>
     )
     .join('');
 
-const assistantMessage = (message: PiMessage): MessageEvent => ({
+const assistantMessage = (
+  message: PiMessage,
+  subagent: string | undefined,
+): MessageEvent => ({
   type: 'message',
   role: 'assistant',
   text: textOf(message),
@@ -72,6 +105,7 @@ const assistantMessage = (message: PiMessage): MessageEvent => ({
     outputTokens: message.usage.output,
   },
   costUsd: 0,
+  ...(subagent === undefined ? {} : { subagent }),
 });
 
 const tokensOf = ({ usage }: PiMessage): number =>
@@ -125,18 +159,35 @@ class PiStream {
           return null;
         }
         this.#lastAssistant = event.message;
-        if (event.message.responseId !== undefined) {
-          this.#generationIds.push(event.message.responseId);
-        } else if (tokensOf(event.message) > 0) {
-          this.#unnamedGeneration = true;
-        }
-        return assistantMessage(event.message);
+        return this.#generation(event.message, undefined);
+      case 'tool_execution_update':
+        return this.#subagentEvent(event);
       case 'agent_end':
         this.#ended = event.willRetry === false;
         return null;
       default:
         return null;
     }
+  }
+
+  #generation(message: PiMessage, subagent: string | undefined): MessageEvent {
+    if (message.responseId !== undefined) {
+      this.#generationIds.push(message.responseId);
+    } else if (tokensOf(message) > 0) {
+      this.#unnamedGeneration = true;
+    }
+    return assistantMessage(message, subagent);
+  }
+
+  #subagentEvent(event: PiLine): MessageEvent | null {
+    if (event.toolName !== SUBAGENT_TOOL || event.toolCallId === undefined) {
+      return null;
+    }
+    const child = event.partialResult?.details?.event as PiLine | undefined;
+    if (child?.type !== 'message_end' || child.message?.role !== 'assistant') {
+      return null;
+    }
+    return this.#generation(child.message, event.toolCallId);
   }
 
   result(exitFailure: Error | null): HarnessEvent {
@@ -163,6 +214,7 @@ class PiStream {
 
 export interface PiHarnessOptions {
   command: string;
+  extension: string;
   billing: Billing;
   extraArgs?: string[];
   env?: NodeJS.ProcessEnv;
@@ -170,12 +222,14 @@ export interface PiHarnessOptions {
 
 export class PiHarness implements Harness {
   readonly #command: string;
+  readonly #extension: string;
   readonly #billing: Billing;
   readonly #extraArgs: string[];
   readonly #env: NodeJS.ProcessEnv;
 
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
+    this.#extension = options.extension;
     this.#billing = options.billing;
     this.#extraArgs = options.extraArgs ?? [];
     this.#env = options.env ?? process.env;
@@ -196,9 +250,15 @@ export class PiHarness implements Harness {
     invocation: HarnessInvocation,
     stream: PiStream,
   ): AsyncIterable<HarnessEvent> {
-    const child = spawn(this.#command, piArgs(invocation, this.#extraArgs), {
+    const args = piArgs(invocation, this.#extension, this.#extraArgs);
+    const child = spawn(this.#command, args, {
       cwd: invocation.workDir,
-      env: this.#env,
+      env: {
+        ...this.#env,
+        [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
+          subagentInvocation(this.#command, invocation),
+        ),
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

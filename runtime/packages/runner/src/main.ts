@@ -19,8 +19,13 @@ const harnessFor = (
   if (harness === undefined || worker.harness !== 'pi') {
     throw new Error(`unsupported harness '${worker.harness}'`);
   }
+  const extension = env.FORGE_PI_SUBAGENT_EXTENSION;
+  if (extension === undefined) {
+    throw new Error('FORGE_PI_SUBAGENT_EXTENSION is not set');
+  }
   return new PiHarness({
     command: harness.command,
+    extension,
     billing: new OpenRouterBilling({
       baseUrl: env.OPENROUTER_BASE_URL ?? OPENROUTER_API,
       apiKey: env.OPENROUTER_API_KEY ?? '',
