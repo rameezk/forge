@@ -26,11 +26,11 @@ const STYLES = `
   .meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; margin: 0 0 1.5rem; }
   .meta dt { opacity: 0.6; }
   .meta dd { margin: 0; font-variant-numeric: tabular-nums; }
-  .message { border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 1rem; margin: 0 0 0.75rem; }
+  .message, .subagent { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 0.75rem; }
+  .message { padding: 0.75rem 1rem; }
   .message > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin-bottom: 0.4rem; }
   .message pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
   .message-result { opacity: 0.75; font-style: italic; }
-  .subagent { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 0.75rem; }
   .subagent > summary { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; cursor: pointer; list-style: none; }
   .subagent > summary::-webkit-details-marker { display: none; }
   .subagent > summary::before { content: '\\25B6'; display: inline-block; width: 1em; font-size: 0.7rem; text-align: center; opacity: 0.65; transition: transform 0.15s; }
@@ -70,40 +70,40 @@ export const renderList = (
           <p class="empty">No workloads have run yet.</p>`
       : html`<h1>Workloads</h1>
           <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Worker</th>
-                <th>Model</th>
-                <th>Started</th>
-                <th>Duration</th>
-                <th>Status</th>
-                <th class="cost">Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${runs.map(
-                (run) => html`<tr class="run ${run.costUncertain ? 'cost-uncertain' : ''}">
-                  <td><a href="/runs/${run.id}">${run.worker}</a></td>
-                  <td>${run.model}</td>
-                  <td>${run.startTime}</td>
-                  <td>${formatDuration(run.startTime, run.endTime)}</td>
-                  <td><span class="status status-${run.status}">${run.status}</span></td>
-                  <td class="cost">
-                    ${formatCost(run.costUsd)}${run.costUncertain
-                      ? html`<span class="badge" title="OpenRouter's billed cost could not be confirmed for every generation">uncertain</span>`
-                      : ''}
-                  </td>
-                </tr>`,
-              )}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colspan="5">Total</td>
-                <td class="cost">${formatCost(totalCost(runs))}</td>
-              </tr>
-            </tfoot>
-          </table>
+            <table>
+              <thead>
+                <tr>
+                  <th>Worker</th>
+                  <th>Model</th>
+                  <th>Started</th>
+                  <th>Duration</th>
+                  <th>Status</th>
+                  <th class="cost">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${runs.map(
+                  (run) => html`<tr class="run ${run.costUncertain ? 'cost-uncertain' : ''}">
+                    <td><a href="/runs/${run.id}">${run.worker}</a></td>
+                    <td>${run.model}</td>
+                    <td>${run.startTime}</td>
+                    <td>${formatDuration(run.startTime, run.endTime)}</td>
+                    <td><span class="status status-${run.status}">${run.status}</span></td>
+                    <td class="cost">
+                      ${formatCost(run.costUsd)}${run.costUncertain
+                        ? html`<span class="badge" title="OpenRouter's billed cost could not be confirmed for every generation">uncertain</span>`
+                        : ''}
+                    </td>
+                  </tr>`,
+                )}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="5">Total</td>
+                  <td class="cost">${formatCost(totalCost(runs))}</td>
+                </tr>
+              </tfoot>
+            </table>
           </div>`;
   return layout('Workloads', body);
 };
