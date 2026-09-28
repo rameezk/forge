@@ -1,6 +1,8 @@
 # Forge
 
 > A declarative software factory.
+>
+> <sub>Named after the Marvel mutant [Forge](https://en.wikipedia.org/wiki/Forge_(Marvel_Comics)), whose power is an intuitive genius for inventing machines.</sub>
 
 Forge runs agent workloads on a machine you define declaratively.
 
