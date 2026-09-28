@@ -33,7 +33,7 @@ if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
 type GenerationStats = (
   id: string,
   attempt: number,
-) => { status: number; body?: unknown; delayMs?: number } | 'hang';
+) => { status: number; body?: unknown; delayMs?: number } | 'hang' | 'reset';
 
 const billedAt =
   (costs: Record<string, number>): GenerationStats =>
@@ -85,6 +85,10 @@ const fakeOpenRouter = async (
       attempts.set(id, (attempts.get(id) ?? 0) + 1);
     }
     if (reply === 'hang') {
+      return;
+    }
+    if (reply === 'reset') {
+      request.socket.destroy();
       return;
     }
     const { status, body, delayMs = 0 } = reply;
@@ -445,11 +449,12 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
   assert.doesNotMatch(journal, new RegExp(OPENROUTER_KEY));
 });
 
-test('given an OpenRouter that answers a generation lookup with not found while its stats lag, or with a rate limit or server error, at first and then its billed cost, when the worker runs, then the run cost includes that generation and is not flagged uncertain', async () => {
+test('given an OpenRouter that answers a generation lookup with not found while its stats lag, a rate limit, a server error, or a dropped connection at first and then its billed cost, when the worker runs, then the run cost includes that generation and is not flagged uncertain', async () => {
   const transients: ReturnType<GenerationStats>[] = [
     { status: 404, body: { error: { code: 404 } } },
     { status: 429, body: { error: { code: 429 } } },
     { status: 503, body: { error: { code: 503 } } },
+    'reset',
   ];
 
   const outcomes = await Promise.all(
@@ -496,7 +501,7 @@ test('given a long run with many generations, one of them reported twice, when t
     output: withGenerations('success.jsonl', [...ids, 'gen-long-0']),
     generations: (id, attempt) => {
       const reply = billedAt({ ...BILLED_BY_ID, ...costs })(id, attempt);
-      return reply === 'hang' ? reply : { ...reply, delayMs: 20 };
+      return typeof reply === 'string' ? reply : { ...reply, delayMs: 20 };
     },
   });
 

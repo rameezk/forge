@@ -9,12 +9,15 @@ const NOT_FOUND = 404;
 
 const TOO_MANY_REQUESTS = 429;
 
-const isTransient = (status: number): boolean =>
-  status === NOT_FOUND || status === TOO_MANY_REQUESTS || status >= 500;
-
 const LOOKUP_TIMEOUT_MS = 5000;
 
 const CONCURRENT_LOOKUPS = 4;
+
+const isTransientStatus = (status: number): boolean =>
+  status === NOT_FOUND || status === TOO_MANY_REQUESTS || status >= 500;
+
+const isNetworkFailure = (error: unknown): boolean =>
+  error instanceof TypeError && error.cause !== undefined;
 
 type Lookup = number | { transient: boolean; reason: string };
 
@@ -88,7 +91,7 @@ export class OpenRouterBilling implements Billing {
       });
       if (!response.ok) {
         return {
-          transient: isTransient(response.status),
+          transient: isTransientStatus(response.status),
           reason: `HTTP ${response.status}`,
         };
       }
@@ -99,7 +102,7 @@ export class OpenRouterBilling implements Billing {
         : { transient: false, reason: 'response has no numeric total_cost' };
     } catch (error) {
       return {
-        transient: false,
+        transient: isNetworkFailure(error),
         reason: error instanceof Error ? error.name : 'lookup failed',
       };
     }
