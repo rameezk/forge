@@ -16,7 +16,7 @@ let
       args = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
-        description = "Fixed arguments passed before the per-worker invocation arguments.";
+        description = "Operator extra arguments for the harness, passed after the invocation the runner builds and before the prompt. The runner owns the harness's own CLI contract.";
       };
     };
   };

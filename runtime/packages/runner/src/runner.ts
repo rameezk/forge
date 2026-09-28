@@ -7,6 +7,7 @@ export interface RunWorkloadOptions {
   harness: Harness;
   worker: Worker;
   openTranscript: (runId: string) => TranscriptWriter;
+  openWorkDir: (runId: string) => string;
   now: () => string;
   newId: () => string;
 }
@@ -14,7 +15,8 @@ export interface RunWorkloadOptions {
 export const runWorkload = async (
   options: RunWorkloadOptions,
 ): Promise<string> => {
-  const { store, harness, worker, openTranscript, now, newId } = options;
+  const { store, harness, worker, openTranscript, openWorkDir, now, newId } =
+    options;
   const id = newId();
   const transcript = openTranscript(id);
 
@@ -43,7 +45,8 @@ export const runWorkload = async (
   let error: string | null = 'harness stream ended without a result';
 
   try {
-    for await (const event of harness.run(invocationFor(worker))) {
+    const invocation = invocationFor(worker, openWorkDir(id));
+    for await (const event of harness.run(invocation)) {
       await transcript.append(event);
       if (event.type === 'message') {
         inputTokens += event.usage.inputTokens;

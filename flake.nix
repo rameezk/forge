@@ -154,10 +154,7 @@
             configFile = exampleConfigFile;
             modules = [
               {
-                forge.runtime.harnesses.pi = {
-                  command = "/run/current-system/sw/bin/pi";
-                  args = [ "run" ];
-                };
+                forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
                 forge.runtime.workers.refiner = {
                   harness = "pi";
                   model = "anthropic/claude-opus-4";
@@ -302,6 +299,7 @@
 
           forge-shared = self.packages.${system}.forge-shared;
           forge-runner = self.packages.${system}.forge-runner;
+          pi-cli-contract = pkgs.callPackage ./infra/nix/pi-cli-contract.nix { };
         }
       );
     };

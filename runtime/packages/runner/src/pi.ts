@@ -1,74 +1,202 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import type { HarnessEvent } from '@forge/shared';
+import type { HarnessEvent, MessageEvent } from '@forge/shared';
 import type { Harness, HarnessInvocation } from './harness.ts';
 
-export const piArgs = (invocation: HarnessInvocation): string[] => [
+export const piArgs = (
+  invocation: HarnessInvocation,
+  extraArgs: string[] = [],
+): string[] => [
+  '--mode',
+  'json',
+  '--no-session',
+  '--offline',
+  '--provider',
+  'openrouter',
   '--model',
   invocation.model,
   ...(invocation.reasoningEffort === undefined
     ? []
-    : ['--reasoning-effort', invocation.reasoningEffort]),
-  '--prompt',
+    : ['--thinking', invocation.reasoningEffort]),
+  ...extraArgs,
   invocation.prompt,
 ];
 
-export const parsePiEvent = (line: string): HarnessEvent | null => {
-  const trimmed = line.trim();
-  if (trimmed.length === 0) {
-    return null;
+interface PiUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+interface PiContent {
+  type: string;
+  text?: string;
+}
+
+interface PiMessage {
+  role: string;
+  content: PiContent[];
+  usage: PiUsage;
+  stopReason: string;
+  errorMessage?: string;
+}
+
+interface PiLine {
+  type?: string;
+  id?: string;
+  message?: PiMessage;
+  willRetry?: boolean;
+}
+
+const FAILED_STOP_REASONS = new Set(['error', 'aborted']);
+
+const STDERR_TAIL_CHARS = 4000;
+
+const textOf = (message: PiMessage): string =>
+  message.content
+    .flatMap((part) =>
+      part.type === 'text' && part.text !== undefined ? [part.text] : [],
+    )
+    .join('');
+
+const assistantMessage = (message: PiMessage): MessageEvent => ({
+  type: 'message',
+  role: 'assistant',
+  text: textOf(message),
+  usage: {
+    inputTokens:
+      message.usage.input + message.usage.cacheRead + message.usage.cacheWrite,
+    outputTokens: message.usage.output,
+  },
+  costUsd: 0,
+});
+
+class PiStream {
+  #sessionId: string | null = null;
+  #ended = false;
+  #lastAssistant: PiMessage | null = null;
+
+  translate(line: string): HarnessEvent | null {
+    if (line.trim().length === 0) {
+      return null;
+    }
+    const event = JSON.parse(line) as PiLine;
+    switch (event.type) {
+      case 'session':
+        this.#sessionId = event.id ?? null;
+        return null;
+      case 'message_end':
+        if (event.message?.role !== 'assistant') {
+          return null;
+        }
+        this.#lastAssistant = event.message;
+        return assistantMessage(event.message);
+      case 'agent_end':
+        this.#ended = event.willRetry === false;
+        return null;
+      default:
+        return null;
+    }
   }
-  const parsed = JSON.parse(trimmed) as { type?: unknown };
-  if (parsed.type === 'message' || parsed.type === 'result') {
-    return parsed as unknown as HarnessEvent;
+
+  result(): HarnessEvent {
+    const error = this.#error();
+    return {
+      type: 'result',
+      status: error === null ? 'success' : 'error',
+      sessionId: this.#sessionId,
+      error,
+    };
   }
-  throw new Error(`unexpected pi event type '${String(parsed.type)}'`);
-};
+
+  #error(): string | null {
+    if (!this.#ended) {
+      return 'pi stream ended without a final agent_end';
+    }
+    const last = this.#lastAssistant;
+    if (last === null || !FAILED_STOP_REASONS.has(last.stopReason)) {
+      return null;
+    }
+    return last.errorMessage ?? `pi stopped with reason '${last.stopReason}'`;
+  }
+}
 
 export interface PiHarnessOptions {
   command: string;
-  baseArgs?: string[];
-  invocationArgs?: (invocation: HarnessInvocation) => string[];
+  extraArgs?: string[];
   env?: NodeJS.ProcessEnv;
 }
 
 export class PiHarness implements Harness {
   readonly #command: string;
-  readonly #baseArgs: string[];
-  readonly #invocationArgs: (invocation: HarnessInvocation) => string[];
+  readonly #extraArgs: string[];
   readonly #env: NodeJS.ProcessEnv;
 
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
-    this.#baseArgs = options.baseArgs ?? [];
-    this.#invocationArgs = options.invocationArgs ?? piArgs;
+    this.#extraArgs = options.extraArgs ?? [];
     this.#env = options.env ?? process.env;
   }
 
   async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
-    const child = spawn(
-      this.#command,
-      [...this.#baseArgs, ...this.#invocationArgs(invocation)],
-      { env: this.#env, stdio: ['ignore', 'pipe', 'inherit'] },
-    );
-
-    const exit = new Promise<void>((resolve, reject) => {
-      child.on('error', reject);
-      child.on('close', (code) =>
-        code === 0
-          ? resolve()
-          : reject(new Error(`pi exited with code ${String(code)}`)),
-      );
+    const child = spawn(this.#command, piArgs(invocation, this.#extraArgs), {
+      cwd: invocation.workDir,
+      env: this.#env,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
-    for await (const line of lines) {
-      const event = parsePiEvent(line);
-      if (event !== null) {
-        yield event;
+    let stderrTail = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      process.stderr.write(chunk);
+      stderrTail = (stderrTail + chunk.toString()).slice(-STDERR_TAIL_CHARS);
+    });
+
+    const exit = new Promise<Error | null>((resolve) => {
+      child.on('error', resolve);
+      child.on('close', (code, signal) => {
+        if (code === 0) {
+          resolve(null);
+          return;
+        }
+        const how =
+          code === null ? `on signal ${String(signal)}` : `with code ${code}`;
+        const reason = stderrTail.trim();
+        resolve(
+          new Error(
+            reason.length === 0
+              ? `pi exited ${how}`
+              : `pi exited ${how}: ${reason}`,
+          ),
+        );
+      });
+    });
+
+    const stream = new PiStream();
+    let drained = false;
+    try {
+      const lines = createInterface({
+        input: child.stdout,
+        crlfDelay: Infinity,
+      });
+      for await (const line of lines) {
+        const event = stream.translate(line);
+        if (event !== null) {
+          yield event;
+        }
+      }
+      drained = true;
+    } finally {
+      if (!drained) {
+        child.kill('SIGKILL');
+        await exit;
       }
     }
 
-    await exit;
+    const failure = await exit;
+    if (failure !== null) {
+      throw failure;
+    }
+    yield stream.result();
   }
 }

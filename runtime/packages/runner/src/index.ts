@@ -11,4 +11,4 @@ export { resolveWorker } from './config.ts';
 export type { RunWorkloadOptions } from './runner.ts';
 export { runWorkload } from './runner.ts';
 export type { PiHarnessOptions } from './pi.ts';
-export { PiHarness, parsePiEvent, piArgs } from './pi.ts';
+export { PiHarness, piArgs } from './pi.ts';

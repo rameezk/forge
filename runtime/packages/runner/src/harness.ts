@@ -3,6 +3,7 @@ import type { HarnessEvent } from '@forge/shared';
 export interface HarnessInvocation {
   model: string;
   prompt: string;
+  workDir: string;
   reasoningEffort?: string;
 }
 
@@ -23,8 +24,12 @@ export const withEffort = (
 ): { reasoningEffort?: string } =>
   effort === undefined ? {} : { reasoningEffort: effort };
 
-export const invocationFor = (worker: Worker): HarnessInvocation => ({
+export const invocationFor = (
+  worker: Worker,
+  workDir: string,
+): HarnessInvocation => ({
   model: worker.model,
   prompt: worker.prompt,
+  workDir,
   ...withEffort(worker.reasoningEffort),
 });
