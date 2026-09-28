@@ -405,7 +405,7 @@ test('given pi writing output that is not json and staying alive, when the worke
   assert.equal(isAlive(pi.pid), false);
 });
 
-test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a rejected key, a server error, an unusable body, a not found that never clears, or no answer at all, when the worker runs, then the run stays success with the cost it could look up, cost flagged uncertain, and the journal names the generation and why without the key', async () => {
+test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a rejected key, a server error, an unusable body, a not found that never clears, a connection that keeps dropping, or no answer at all, when the worker runs, then the run stays success with the cost it could look up, cost flagged uncertain, and the journal names the generation and why without the key', async () => {
   const failures: [ReturnType<GenerationStats>, RegExp][] = [
     [{ status: 401, body: { error: { code: 401 } } }, /HTTP 401/],
     [{ status: 500, body: { error: { code: 500 } } }, /HTTP 500/],
@@ -413,6 +413,7 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
     [{ status: 200, body: 'not json' }, /SyntaxError/],
     [{ status: 404, body: { error: { code: 404 } } }, /HTTP 404/],
     ['hang', /timeout|abort/i],
+    ['reset', /TypeError UND_ERR_SOCKET/],
   ];
 
   const { result: outcomes, journal } = await journaled(() =>

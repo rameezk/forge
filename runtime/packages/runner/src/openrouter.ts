@@ -19,6 +19,14 @@ const isTransientStatus = (status: number): boolean =>
 const isNetworkFailure = (error: unknown): boolean =>
   error instanceof TypeError && error.cause !== undefined;
 
+const failureOf = (error: unknown): string => {
+  if (!(error instanceof Error)) {
+    return 'lookup failed';
+  }
+  const code = (error.cause as { code?: unknown } | undefined)?.code;
+  return typeof code === 'string' ? `${error.name} ${code}` : error.name;
+};
+
 type Lookup = number | { transient: boolean; reason: string };
 
 export interface Billing {
@@ -103,7 +111,7 @@ export class OpenRouterBilling implements Billing {
     } catch (error) {
       return {
         transient: isNetworkFailure(error),
-        reason: error instanceof Error ? error.name : 'lookup failed',
+        reason: failureOf(error),
       };
     }
   }
