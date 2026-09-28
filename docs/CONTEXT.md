@@ -20,6 +20,14 @@ A named, reusable configuration that binds a harness to a model, a prompt, and a
 **Harness**:
 The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract - though the runner currently implements only the `pi` harness. Each harness's own CLI and event format belongs to its adapter in the runner, not to operator config (ADR-0008).
 
+**Billed cost**:
+What OpenRouter charged for a workload's generations, and the only cost forge records; a harness's own price estimate is never recorded or shown (ADR-0013).
+_Avoid_: estimate, catalog cost
+
+**Cost status**:
+How settled a workload's billed cost is: `pending` until every generation is billed, `billed` once they all are, `unconfirmed` once forge gave up on any of them.
+_Avoid_: cost uncertain
+
 **Subagent**:
 A child harness run that a workload's agent spawns mid-run to perform a delegated task and report back; it is part of the spawning workload, never a workload of its own (ADR-0009).
 _Avoid_: child workload, sub-workload
