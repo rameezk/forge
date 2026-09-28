@@ -9,6 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { piArgs } from '../../src/pi.ts';
 
 type Respond = (call: number, res: ServerResponse) => void;
 
@@ -150,19 +151,12 @@ const runPi = async (
   );
   const child = spawn(
     pi,
-    [
-      '--mode',
-      'json',
-      '--no-session',
-      '--offline',
-      '--provider',
-      'openrouter',
-      '--model',
-      'z-ai/glm-5',
-      '--thinking',
-      'high',
-      'Run echo forge, then say what it printed.',
-    ],
+    piArgs({
+      model: 'z-ai/glm-5',
+      prompt: 'Run echo forge, then say what it printed.',
+      workDir: work,
+      reasoningEffort: 'high',
+    }),
     {
       cwd: work,
       env: {
