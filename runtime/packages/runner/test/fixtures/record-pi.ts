@@ -199,44 +199,66 @@ const delegating =
     );
   };
 
-const scenarios: Record<string, Respond> = {
-  success: (call, res) =>
-    sse(
-      res,
+const SUBAGENTS_PROMPT =
+  'Delegate two tasks to sub-agents in parallel: have one run echo alpha, and the other say beta.';
+
+interface Scenario {
+  respond: Respond;
+  prompt?: string;
+}
+
+const scenarios: Record<string, Scenario> = {
+  success: {
+    respond: (call, res) =>
+      sse(
+        res,
+        call === 1
+          ? toolCallReply(
+              'gen-success-1',
+              'Let me look.',
+              [bash('echo forge')],
+              usage(1200, 1000, 40),
+            )
+          : textReply(
+              'gen-success-2',
+              'The command printed forge. All done.',
+              usage(1300, 1200, 25),
+            ),
+      ),
+  },
+  'provider-error': { respond: (_call, res) => providerRejection(res) },
+  retry: {
+    respond: (call, res) =>
       call === 1
-        ? toolCallReply(
-            'gen-success-1',
-            'Let me look.',
-            [bash('echo forge')],
-            usage(1200, 1000, 40),
+        ? sse(
+            res,
+            [
+              chunk('gen-retry-1', { role: 'assistant', content: 'Starting' }),
+              usageChunk('gen-retry-1', usage(900, 0, 3)),
+              { error: { code: 502, message: 'Provider returned error' } },
+            ],
+            false,
           )
-        : textReply(
-            'gen-success-2',
-            'The command printed forge. All done.',
-            usage(1300, 1200, 25),
+        : sse(
+            res,
+            textReply(
+              'gen-retry-2',
+              'Recovered and finished.',
+              usage(900, 0, 8),
+            ),
           ),
+  },
+  subagents: {
+    respond: delegating(alphaChild, 'Both sub-agents reported back.'),
+    prompt: SUBAGENTS_PROMPT,
+  },
+  'subagent-failure': {
+    respond: delegating(
+      failingAlphaChild,
+      'The alpha sub-agent failed; beta reported back.',
     ),
-  'provider-error': (_call, res) => providerRejection(res),
-  retry: (call, res) =>
-    call === 1
-      ? sse(
-          res,
-          [
-            chunk('gen-retry-1', { role: 'assistant', content: 'Starting' }),
-            usageChunk('gen-retry-1', usage(900, 0, 3)),
-            { error: { code: 502, message: 'Provider returned error' } },
-          ],
-          false,
-        )
-      : sse(
-          res,
-          textReply('gen-retry-2', 'Recovered and finished.', usage(900, 0, 8)),
-        ),
-  subagents: delegating(alphaChild, 'Both sub-agents reported back.'),
-  'subagent-failure': delegating(
-    failingAlphaChild,
-    'The alpha sub-agent failed; beta reported back.',
-  ),
+    prompt: SUBAGENTS_PROMPT,
+  },
 };
 
 const childScenarios: Record<string, Respond> = {
@@ -276,9 +298,6 @@ const INVOCATION: HarnessInvocation = {
   workDir: '.',
   reasoningEffort: 'high',
 };
-
-const SUBAGENTS_PROMPT =
-  'Delegate two tasks to sub-agents in parallel: have one run echo alpha, and the other say beta.';
 
 const runPi = async (
   pi: string,
@@ -345,10 +364,9 @@ const record = async (
   }
 
   mkdirSync(outDir, { recursive: true });
-  for (const [name, respond] of Object.entries(scenarios)) {
-    const prompt = name.startsWith('subagent')
-      ? SUBAGENTS_PROMPT
-      : INVOCATION.prompt;
+  for (const [name, { respond, prompt = INVOCATION.prompt }] of Object.entries(
+    scenarios,
+  )) {
     await recordRun(
       pi,
       respond,
