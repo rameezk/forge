@@ -151,17 +151,27 @@ const argumentSummary = (args: unknown): string => {
 const prettyArguments = (args: unknown): string =>
   typeof args === 'string' ? args : (JSON.stringify(args, null, 2) ?? '');
 
-type ToolResults = Map<string, ToolResultEvent>;
+type ToolResults = Map<ToolCallEvent, ToolResultEvent>;
 
 const toolKey = ({ id, subagent }: ToolCallEvent | ToolResultEvent): string =>
   JSON.stringify([subagent ?? null, id]);
 
-const toolResults = (events: HarnessEvent[]): ToolResults =>
-  new Map(
-    events.flatMap((event) =>
-      event.type === 'tool_result' ? [[toolKey(event), event] as const] : [],
-    ),
-  );
+const toolResults = (events: HarnessEvent[]): ToolResults => {
+  const unanswered = new Map<string, ToolCallEvent[]>();
+  const results: ToolResults = new Map();
+  for (const event of events) {
+    if (event.type === 'tool_call') {
+      const key = toolKey(event);
+      unanswered.set(key, [...(unanswered.get(key) ?? []), event]);
+    } else if (event.type === 'tool_result') {
+      const call = unanswered.get(toolKey(event))?.shift();
+      if (call !== undefined) {
+        results.set(call, event);
+      }
+    }
+  }
+  return results;
+};
 
 const renderToolCall = (
   call: ToolCallEvent,
@@ -194,7 +204,7 @@ const renderEvent = (
     case 'message':
       return renderText(event.role, event.text);
     case 'tool_call':
-      return renderToolCall(event, results.get(toolKey(event)));
+      return renderToolCall(event, results.get(event));
     case 'tool_result':
       return '';
     case 'result':

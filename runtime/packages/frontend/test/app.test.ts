@@ -294,3 +294,20 @@ test('given a transcript written before tool events were recorded, when its run 
   assert.match(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
   assert.match(body, /Run success/);
 });
+
+test('given a provider that reuses a tool call id across turns, when the run page is viewed, then each card shows the result that followed it', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_0', name: 'bash', arguments: { command: 'echo first' } },
+    { type: 'tool_result', id: 'call_0', isError: true, text: 'first output' },
+    { type: 'tool_call', id: 'call_0', name: 'bash', arguments: { command: 'echo second' } },
+    { type: 'tool_result', id: 'call_0', isError: false, text: 'second output' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [first, second] = toolCards(body) as [string, string];
+  assert.match(first, /echo first[\s\S]*first output/);
+  assert.match(first, /class="tool tool-error"/);
+  assert.doesNotMatch(first, /second output/);
+  assert.match(second, /echo second[\s\S]*second output/);
+  assert.doesNotMatch(second, /first output|tool-error/);
+});
