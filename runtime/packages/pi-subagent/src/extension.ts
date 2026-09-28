@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { realpath, stat } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   childArgs,
@@ -28,15 +30,33 @@ export interface SubagentTool {
   };
   execute(
     toolCallId: string,
-    params: { task: string },
+    params: { task: string; cwd?: string },
     signal: AbortSignal | undefined,
     onUpdate: ((partial: ToolResult<SubagentUpdate>) => void) | undefined,
     ctx: { cwd: string },
   ): Promise<ToolResult<SubagentDetails>>;
 }
 
+export interface ToolResultEvent {
+  type: 'tool_result';
+  toolName: string;
+  toolCallId: string;
+  input: Record<string, unknown>;
+  content: { type: string; text?: string }[];
+  details: unknown;
+  isError: boolean;
+}
+
+export type ToolResultHandler = (
+  event: ToolResultEvent,
+) =>
+  | { isError?: boolean }
+  | undefined
+  | Promise<{ isError?: boolean } | undefined>;
+
 export interface ExtensionApi {
   registerTool(tool: SubagentTool): void;
+  on(event: 'tool_result', handler: ToolResultHandler): void;
 }
 
 interface ChildMessage {
@@ -44,6 +64,8 @@ interface ChildMessage {
   content?: { type: string; text?: string }[];
   usage?: SubagentUsage;
   responseId?: string;
+  stopReason?: string;
+  errorMessage?: string;
 }
 
 interface ChildEvent {
@@ -52,7 +74,7 @@ interface ChildEvent {
 }
 
 const DESCRIPTION = [
-  'Delegate a task to a sub-agent: a fresh agent with its own isolated context, the same model and tools, working in the same directory.',
+  'Delegate a task to a sub-agent: a fresh agent with its own isolated context and the same model and tools, working in your working directory or a directory inside it.',
   'It cannot see this conversation, so give it a complete, self-contained task.',
   "The sub-agent's final message is returned as this tool's result.",
   'To run sub-agents in parallel, issue several subagent calls in one message.',
@@ -106,9 +128,168 @@ const responseOf = (message: ChildMessage): SubagentResponse => {
   };
 };
 
+const STDERR_TAIL_CHARS = 4000;
+
+const FAILED_STOP_REASONS = new Set(['error', 'aborted']);
+
+const streamFailure = (last: ChildMessage | null): string | null => {
+  if (last === null || !FAILED_STOP_REASONS.has(last.stopReason ?? '')) {
+    return null;
+  }
+  return (
+    last.errorMessage ?? `sub-agent stopped with reason '${last.stopReason}'`
+  );
+};
+
+const failed = (
+  responses: SubagentResponse[],
+  error: string,
+): ToolResult<SubagentDetails> => ({
+  content: [{ type: 'text', text: `Sub-agent failed: ${error}` }],
+  details: { responses, error },
+});
+
+const isFailure = (details: unknown): boolean =>
+  typeof (details as Partial<SubagentDetails> | undefined)?.error === 'string';
+
+const ABORTED = 'sub-agent was aborted';
+
+const MAX_CONCURRENT_CHILDREN = 4;
+
+const concurrencyLimit = (limit: number) => {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  const acquire = (): Promise<void> => {
+    if (active < limit) {
+      active += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => waiting.push(resolve));
+  };
+  const release = (): void => {
+    const next = waiting.shift();
+    if (next === undefined) {
+      active -= 1;
+    } else {
+      next();
+    }
+  };
+  return async <T>(work: () => Promise<T>): Promise<T> => {
+    await acquire();
+    try {
+      return await work();
+    } finally {
+      release();
+    }
+  };
+};
+
+const isWithin = (root: string, path: string): boolean => {
+  const rel = relative(root, path);
+  return (
+    rel === '' ||
+    (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+  );
+};
+
+const confinedWorkDir = async (
+  runDir: string,
+  requested: string,
+): Promise<string | { rejected: string }> => {
+  const named = `working directory ${JSON.stringify(requested)}`;
+  let target: string;
+  try {
+    target = await realpath(resolve(runDir, requested));
+  } catch {
+    return { rejected: `${named} does not exist` };
+  }
+  if (!isWithin(await realpath(runDir), target)) {
+    return {
+      rejected: `${named} is outside this run's working directory`,
+    };
+  }
+  if (!(await stat(target)).isDirectory()) {
+    return { rejected: `${named} is not a directory` };
+  }
+  return target;
+};
+
+const exitFailure = (
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  stderrTail: string,
+): string => {
+  const how =
+    code === null ? `on signal ${String(signal)}` : `with code ${code}`;
+  const reason = stderrTail.trim();
+  return reason.length === 0
+    ? `sub-agent pi exited ${how}`
+    : `sub-agent pi exited ${how}: ${reason}`;
+};
+
+const runChild = async (
+  command: string,
+  args: string[],
+  cwd: string,
+  signal: AbortSignal | undefined,
+  onUpdate: ((partial: ToolResult<SubagentUpdate>) => void) | undefined,
+): Promise<ToolResult<SubagentDetails>> => {
+  const child = spawn(command, args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stderrTail = '';
+  child.stderr.on('data', (chunk: Buffer) => {
+    process.stderr.write(chunk);
+    stderrTail = (stderrTail + chunk.toString()).slice(-STDERR_TAIL_CHARS);
+  });
+  const exited = new Promise<string | null>((resolve) => {
+    child.on('error', (error) => resolve(error.message));
+    child.on('close', (code, exitSignal) =>
+      resolve(code === 0 ? null : exitFailure(code, exitSignal, stderrTail)),
+    );
+  });
+  const kill = (): void => {
+    child.kill('SIGKILL');
+  };
+  signal?.addEventListener('abort', kill, { once: true });
+
+  const responses: SubagentResponse[] = [];
+  let last: ChildMessage | null = null;
+  try {
+    for await (const line of createInterface({
+      input: child.stdout,
+      crlfDelay: Infinity,
+    })) {
+      const event = parseJson<ChildEvent>(line);
+      if (event === null) {
+        continue;
+      }
+      onUpdate?.({ content: [], details: { event } });
+      if (event.type === 'message_end' && event.message?.role === 'assistant') {
+        responses.push(responseOf(event.message));
+        last = event.message;
+      }
+    }
+    const exit = await exited;
+    const failure =
+      signal?.aborted === true ? ABORTED : (exit ?? streamFailure(last));
+    if (failure !== null) {
+      return failed(responses, failure);
+    }
+    return {
+      content: [{ type: 'text', text: last === null ? '' : textOf(last) }],
+      details: { responses },
+    };
+  } finally {
+    signal?.removeEventListener('abort', kill);
+  }
+};
+
 export default function subagentExtension(pi: ExtensionApi): void {
   const invocation = readInvocation(process.env);
   const [command] = invocation.argv as [string, ...string[]];
+  const inSlot = concurrencyLimit(MAX_CONCURRENT_CHILDREN);
 
   pi.registerTool({
     name: SUBAGENT_TOOL,
@@ -122,48 +303,38 @@ export default function subagentExtension(pi: ExtensionApi): void {
           description:
             'The complete, self-contained task for the sub-agent to perform.',
         },
+        cwd: {
+          type: 'string',
+          description:
+            'The directory the sub-agent works in, relative to your working directory and inside it. Defaults to your working directory.',
+        },
       },
       required: ['task'],
       additionalProperties: false,
     },
-    async execute(_toolCallId, { task }, _signal, onUpdate, ctx) {
-      const child = spawn(command, childArgs(invocation, task), {
-        cwd: ctx.cwd,
-        stdio: ['ignore', 'pipe', 'inherit'],
-      });
-      const exited = new Promise<Error | null>((resolve) => {
-        child.on('error', resolve);
-        child.on('close', () => resolve(null));
-      });
-
-      const responses: SubagentResponse[] = [];
-      let report = '';
-      for await (const line of createInterface({
-        input: child.stdout,
-        crlfDelay: Infinity,
-      })) {
-        const event = parseJson<ChildEvent>(line);
-        if (event === null) {
-          continue;
-        }
-        onUpdate?.({ content: [], details: { event } });
-        if (
-          event.type === 'message_end' &&
-          event.message?.role === 'assistant'
-        ) {
-          responses.push(responseOf(event.message));
-          report = textOf(event.message);
-        }
+    async execute(_toolCallId, { task, cwd }, signal, onUpdate, ctx) {
+      const workDir =
+        cwd === undefined ? ctx.cwd : await confinedWorkDir(ctx.cwd, cwd);
+      if (typeof workDir !== 'string') {
+        return failed([], workDir.rejected);
       }
-      const failure = await exited;
-      if (failure !== null) {
-        throw failure;
-      }
-
-      return {
-        content: [{ type: 'text', text: report }],
-        details: { responses },
-      };
+      return inSlot(() =>
+        signal?.aborted === true
+          ? Promise.resolve(failed([], ABORTED))
+          : runChild(
+              command,
+              childArgs(invocation, task),
+              workDir,
+              signal,
+              onUpdate,
+            ),
+      );
     },
   });
+
+  pi.on('tool_result', (event) =>
+    event.toolName === SUBAGENT_TOOL && isFailure(event.details)
+      ? { isError: true }
+      : undefined,
+  );
 }

@@ -141,55 +141,34 @@ const alphaChild: Respond = (_call, res, request) =>
         ),
   );
 
+const providerRejection = (res: ServerResponse): void => {
+  res.writeHead(400, { 'content-type': 'application/json' });
+  res.end(
+    JSON.stringify({
+      error: { code: 400, message: 'z-ai/glm-5 is not a valid model ID' },
+    }),
+  );
+};
+
+const failingAlphaChild: Respond = (call, res, request) => {
+  if (sentToolResults(request)) {
+    providerRejection(res);
+    return;
+  }
+  alphaChild(call, res, request);
+};
+
 const betaChild: Respond = (_call, res) =>
   sse(
     res,
     textReply('gen-child-beta-1', 'Beta report: beta.', usage(500, 0, 6)),
   );
 
-const scenarios: Record<string, Respond> = {
-  success: (call, res) =>
-    sse(
-      res,
-      call === 1
-        ? toolCallReply(
-            'gen-success-1',
-            'Let me look.',
-            [bash('echo forge')],
-            usage(1200, 1000, 40),
-          )
-        : textReply(
-            'gen-success-2',
-            'The command printed forge. All done.',
-            usage(1300, 1200, 25),
-          ),
-    ),
-  'provider-error': (_call, res) => {
-    res.writeHead(400, { 'content-type': 'application/json' });
-    res.end(
-      JSON.stringify({
-        error: { code: 400, message: 'z-ai/glm-5 is not a valid model ID' },
-      }),
-    );
-  },
-  retry: (call, res) =>
-    call === 1
-      ? sse(
-          res,
-          [
-            chunk('gen-retry-1', { role: 'assistant', content: 'Starting' }),
-            usageChunk('gen-retry-1', usage(900, 0, 3)),
-            { error: { code: 502, message: 'Provider returned error' } },
-          ],
-          false,
-        )
-      : sse(
-          res,
-          textReply('gen-retry-2', 'Recovered and finished.', usage(900, 0, 8)),
-        ),
-  subagents: (call, res, request) => {
+const delegating =
+  (alpha: Respond, finalText: string): Respond =>
+  (call, res, request) => {
     if (mentions(request, 'You are a sub-agent')) {
-      (mentions(request, SUBAGENT_TASKS.alpha) ? alphaChild : betaChild)(
+      (mentions(request, SUBAGENT_TASKS.alpha) ? alpha : betaChild)(
         call,
         res,
         request,
@@ -199,11 +178,7 @@ const scenarios: Record<string, Respond> = {
     sse(
       res,
       sentToolResults(request)
-        ? textReply(
-            'gen-subagents-2',
-            'Both sub-agents reported back.',
-            usage(1500, 1200, 10),
-          )
+        ? textReply('gen-subagents-2', finalText, usage(1500, 1200, 10))
         : toolCallReply(
             'gen-subagents-1',
             'Delegating both.',
@@ -222,7 +197,51 @@ const scenarios: Record<string, Respond> = {
             usage(1400, 1000, 30),
           ),
     );
-  },
+  };
+
+const scenarios: Record<string, Respond> = {
+  success: (call, res) =>
+    sse(
+      res,
+      call === 1
+        ? toolCallReply(
+            'gen-success-1',
+            'Let me look.',
+            [bash('echo forge')],
+            usage(1200, 1000, 40),
+          )
+        : textReply(
+            'gen-success-2',
+            'The command printed forge. All done.',
+            usage(1300, 1200, 25),
+          ),
+    ),
+  'provider-error': (_call, res) => providerRejection(res),
+  retry: (call, res) =>
+    call === 1
+      ? sse(
+          res,
+          [
+            chunk('gen-retry-1', { role: 'assistant', content: 'Starting' }),
+            usageChunk('gen-retry-1', usage(900, 0, 3)),
+            { error: { code: 502, message: 'Provider returned error' } },
+          ],
+          false,
+        )
+      : sse(
+          res,
+          textReply('gen-retry-2', 'Recovered and finished.', usage(900, 0, 8)),
+        ),
+  subagents: delegating(alphaChild, 'Both sub-agents reported back.'),
+  'subagent-failure': delegating(
+    failingAlphaChild,
+    'The alpha sub-agent failed; beta reported back.',
+  ),
+};
+
+const childScenarios: Record<string, Respond> = {
+  child: alphaChild,
+  'child-provider-error': failingAlphaChild,
 };
 
 const serve = async (
@@ -316,16 +335,20 @@ const record = async (
   childOutDir: string,
 ): Promise<void> => {
   mkdirSync(childOutDir, { recursive: true });
-  await recordRun(
-    pi,
-    alphaChild,
-    childArgs(subagentInvocation(pi, INVOCATION), SUBAGENT_TASKS.alpha),
-    join(childOutDir, 'child.jsonl'),
-  );
+  for (const [name, respond] of Object.entries(childScenarios)) {
+    await recordRun(
+      pi,
+      respond,
+      childArgs(subagentInvocation(pi, INVOCATION), SUBAGENT_TASKS.alpha),
+      join(childOutDir, `${name}.jsonl`),
+    );
+  }
 
   mkdirSync(outDir, { recursive: true });
   for (const [name, respond] of Object.entries(scenarios)) {
-    const prompt = name === 'subagents' ? SUBAGENTS_PROMPT : INVOCATION.prompt;
+    const prompt = name.startsWith('subagent')
+      ? SUBAGENTS_PROMPT
+      : INVOCATION.prompt;
     await recordRun(
       pi,
       respond,

@@ -353,6 +353,49 @@ test('given a recorded run with two parallel subagent calls, when the transcript
   }
 });
 
+test('given a recording where one subagent call returns an error and the parent finishes normally, when the run completes, then the run succeeds and its tokens and billed cost still count the failed child', async () => {
+  const { code, run, lookups } = await runWorker({
+    output: fixture('subagent-failure.jsonl'),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.equal(run.error, null);
+  assert.equal(run.inputTokens, 1400 + 1500 + 600 + 500);
+  assert.equal(run.outputTokens, 30 + 10 + 20 + 6);
+  assert.equal(run.costUsd, 0.5 + 0.25 + 0.125 + 0.03125);
+  assert.equal(run.costUncertain, false);
+  assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
+    'gen-child-alpha-1',
+    'gen-child-beta-1',
+    'gen-subagents-1',
+    'gen-subagents-2',
+  ]);
+});
+
+test('given a recording with two parallel subagent calls where one child generation lookup fails, when the run completes, then the run is recorded with the cost it could look up, flagged cost-uncertain', async () => {
+  const billed = billedAt(BILLED_BY_ID);
+  const {
+    result: { code, run },
+    journal,
+  } = await journaled(() =>
+    runWorker({
+      output: fixture('subagents.jsonl'),
+      generations: (id, attempt) =>
+        id === 'gen-child-beta-1' ? { status: 401 } : billed(id, attempt),
+    }),
+  );
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.equal(run.costUsd, 0.5 + 0.25 + 0.125 + 0.0625);
+  assert.equal(run.costUncertain, true);
+  assert.match(
+    journal,
+    /could not cost OpenRouter generation "gen-child-beta-1"/,
+  );
+});
+
 test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, offline, openrouter contract with the plain model, a thinking level only when declared, the subagent extension, the extras, and the prompt last', async () => {
   const output = fixture('success.jsonl');
   const contract = [
