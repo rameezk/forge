@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import {
   SUBAGENT_INVOCATION_ENV,
@@ -137,7 +136,10 @@ export default function subagentExtension(pi: ExtensionApi): void {
         ],
         { cwd: ctx.cwd, stdio: ['ignore', 'pipe', 'inherit'] },
       );
-      const closed = once(child, 'close');
+      const exited = new Promise<Error | null>((resolve) => {
+        child.on('error', resolve);
+        child.on('close', () => resolve(null));
+      });
 
       const responses: SubagentResponse[] = [];
       let report = '';
@@ -158,7 +160,10 @@ export default function subagentExtension(pi: ExtensionApi): void {
           report = textOf(event.message);
         }
       }
-      await closed;
+      const failure = await exited;
+      if (failure !== null) {
+        throw failure;
+      }
 
       return {
         content: [{ type: 'text', text: report }],

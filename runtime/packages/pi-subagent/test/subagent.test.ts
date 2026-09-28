@@ -166,3 +166,13 @@ test('given no usable child invocation in the environment, when pi loads the ext
     );
   }
 });
+
+test('given a child invocation whose pi binary cannot be started, when the tool executes, then the call fails as a tool error naming the failure instead of taking pi down', async () => {
+  const missing = join(mkdtempSync(join(tmpdir(), 'forge-subagent-')), 'no-pi');
+  const tool = loadTool(childInvocation(missing));
+
+  await assert.rejects(
+    execute(tool, mkdtempSync(join(tmpdir(), 'forge-run-'))),
+    /ENOENT/,
+  );
+});
