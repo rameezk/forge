@@ -1,4 +1,4 @@
-# Forge
+# <img src="docs/assets/logo.svg" alt="" height="44" align="top"> Forge
 
 > A declarative software factory.
 >
