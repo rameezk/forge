@@ -20,6 +20,14 @@ A named, reusable configuration that binds a harness to a model, a prompt, and a
 **Harness**:
 The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract - though the runner currently implements only the `pi` harness. Each harness's own CLI and event format belongs to its adapter in the runner, not to operator config (ADR-0008).
 
+**Workload toolset**:
+The set of command-line tools a workload's harness and its subagents can invoke on the box. Forge ships a base set, and operators may extend or replace it.
+_Avoid_: base image, tool path
+
+**Run directory**:
+The per-workload working directory a harness runs in, kept after the run as an artifact until it ages out.
+_Avoid_: workdir, sandbox
+
 **Billed cost**:
 What OpenRouter charged for a workload's generations, and the only cost forge records; a harness's own price estimate is never recorded or shown (ADR-0013).
 _Avoid_: estimate, catalog cost
