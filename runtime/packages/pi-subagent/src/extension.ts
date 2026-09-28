@@ -71,6 +71,7 @@ interface ChildMessage {
 interface ChildEvent {
   type?: string;
   message?: ChildMessage;
+  willRetry?: boolean;
 }
 
 const DESCRIPTION = [
@@ -132,7 +133,13 @@ const STDERR_TAIL_CHARS = 4000;
 
 const FAILED_STOP_REASONS = new Set(['error', 'aborted']);
 
-const streamFailure = (last: ChildMessage | null): string | null => {
+const streamFailure = (
+  ended: boolean,
+  last: ChildMessage | null,
+): string | null => {
+  if (!ended) {
+    return 'sub-agent pi stream ended without a final agent_end';
+  }
   if (last === null || !FAILED_STOP_REASONS.has(last.stopReason ?? '')) {
     return null;
   }
@@ -156,15 +163,31 @@ const ABORTED = 'sub-agent was aborted';
 
 const MAX_CONCURRENT_CHILDREN = 4;
 
+const STOP_GRACE_MS = 3000;
+
 const concurrencyLimit = (limit: number) => {
   let active = 0;
   const waiting: (() => void)[] = [];
-  const acquire = (): Promise<void> => {
+  const acquire = (signal: AbortSignal | undefined): Promise<boolean> => {
+    if (signal?.aborted === true) {
+      return Promise.resolve(false);
+    }
     if (active < limit) {
       active += 1;
-      return Promise.resolve();
+      return Promise.resolve(true);
     }
-    return new Promise((resolve) => waiting.push(resolve));
+    return new Promise((resolve) => {
+      const leave = (): void => {
+        waiting.splice(waiting.indexOf(grant), 1);
+        resolve(false);
+      };
+      const grant = (): void => {
+        signal?.removeEventListener('abort', leave);
+        resolve(true);
+      };
+      waiting.push(grant);
+      signal?.addEventListener('abort', leave, { once: true });
+    });
   };
   const release = (): void => {
     const next = waiting.shift();
@@ -174,10 +197,15 @@ const concurrencyLimit = (limit: number) => {
       next();
     }
   };
-  return async <T>(work: () => Promise<T>): Promise<T> => {
-    await acquire();
+  return async <T>(
+    signal: AbortSignal | undefined,
+    work: () => Promise<T>,
+  ): Promise<T | null> => {
+    if (!(await acquire(signal))) {
+      return null;
+    }
     try {
-      return await work();
+      return signal?.aborted === true ? null : await work();
     } finally {
       release();
     }
@@ -249,13 +277,16 @@ const runChild = async (
       resolve(code === 0 ? null : exitFailure(code, exitSignal, stderrTail)),
     );
   });
-  const kill = (): void => {
-    child.kill('SIGKILL');
+  let forceKill: NodeJS.Timeout | undefined;
+  const stop = (): void => {
+    child.kill('SIGTERM');
+    forceKill = setTimeout(() => child.kill('SIGKILL'), STOP_GRACE_MS);
   };
-  signal?.addEventListener('abort', kill, { once: true });
+  signal?.addEventListener('abort', stop, { once: true });
 
   const responses: SubagentResponse[] = [];
   let last: ChildMessage | null = null;
+  let ended = false;
   try {
     for await (const line of createInterface({
       input: child.stdout,
@@ -270,10 +301,13 @@ const runChild = async (
         responses.push(responseOf(event.message));
         last = event.message;
       }
+      if (event.type === 'agent_end') {
+        ended = event.willRetry === false;
+      }
     }
     const exit = await exited;
     const failure =
-      signal?.aborted === true ? ABORTED : (exit ?? streamFailure(last));
+      signal?.aborted === true ? ABORTED : (exit ?? streamFailure(ended, last));
     if (failure !== null) {
       return failed(responses, failure);
     }
@@ -282,7 +316,8 @@ const runChild = async (
       details: { responses },
     };
   } finally {
-    signal?.removeEventListener('abort', kill);
+    signal?.removeEventListener('abort', stop);
+    clearTimeout(forceKill);
   }
 };
 
@@ -318,17 +353,16 @@ export default function subagentExtension(pi: ExtensionApi): void {
       if (typeof workDir !== 'string') {
         return failed([], workDir.rejected);
       }
-      return inSlot(() =>
-        signal?.aborted === true
-          ? Promise.resolve(failed([], ABORTED))
-          : runChild(
-              command,
-              childArgs(invocation, task),
-              workDir,
-              signal,
-              onUpdate,
-            ),
+      const result = await inSlot(signal, () =>
+        runChild(
+          command,
+          childArgs(invocation, task),
+          workDir,
+          signal,
+          onUpdate,
+        ),
       );
+      return result ?? failed([], ABORTED);
     },
   });
 

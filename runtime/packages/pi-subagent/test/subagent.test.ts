@@ -33,14 +33,29 @@ interface ChildStart {
   pid: number;
 }
 
-type ChildLog = { started: ChildStart } | { ended: number };
+type ChildLog =
+  | { started: ChildStart }
+  | { ended: number }
+  | { tool: number }
+  | { ignoredTerm: number };
 
 interface FakeChild {
   output?: string;
   exit?: number;
   stderr?: string;
   lingerMs?: number;
+  onTerm?: 'clean-up' | 'ignore';
 }
+
+const TERM_HANDLERS = {
+  'clean-up': `const tool = spawn('sleep', ['60'], { detached: true, stdio: 'ignore' });
+log({ tool: tool.pid });
+process.on('SIGTERM', () => {
+  process.kill(-tool.pid, 'SIGKILL');
+  process.exit(143);
+});`,
+  ignore: `process.on('SIGTERM', () => log({ ignoredTerm: process.pid }));`,
+};
 
 const fakeChildPi = (
   child: FakeChild = {},
@@ -51,9 +66,11 @@ const fakeChildPi = (
   writeFileSync(
     path,
     `#!${process.execPath}
+import { spawn } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 const log = (entry) => appendFileSync(${JSON.stringify(log)}, JSON.stringify(entry) + '\\n');
 log({ started: { argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid } });
+${child.onTerm === undefined ? '' : TERM_HANDLERS[child.onTerm]}
 process.stdout.write(readFileSync(${JSON.stringify(child.output ?? CHILD_OUTPUT)}, 'utf8'));
 process.stderr.write(${JSON.stringify(child.stderr ?? '')});
 setTimeout(() => {
@@ -320,21 +337,23 @@ const isAlive = (pid: number): boolean => {
   }
 };
 
-test('given a call that is aborted while its child is still running, when the tool executes, then pi sees a tool error saying it was aborted, the details still carry the usage and response ids the child produced, and the child process is killed', async () => {
-  const child = fakeChildPi({ lingerMs: 60_000 });
+const abortOnceDone = (
+  abort: AbortController,
+): ((update: SubagentUpdate) => void) => {
+  return ({ event }) => {
+    if ((event as { type?: string }).type === 'agent_end') {
+      abort.abort();
+    }
+  };
+};
+
+test('given a call that is aborted while its child is still running a tool, when the tool executes, then pi sees a tool error saying it was aborted, the details still carry the usage and response ids the child produced, and the child is asked to stop so it takes its running tools down with it', async () => {
+  const child = fakeChildPi({ lingerMs: 60_000, onTerm: 'clean-up' });
   const abort = new AbortController();
 
   const result = await loadExtension(childInvocation(child.path)).call(
     { task: TASK },
-    {
-      cwd: runDir(),
-      signal: abort.signal,
-      onUpdate: ({ event }) => {
-        if ((event as { type?: string }).type === 'agent_end') {
-          abort.abort();
-        }
-      },
-    },
+    { cwd: runDir(), signal: abort.signal, onUpdate: abortOnceDone(abort) },
   );
 
   assert.equal(result.isError, true);
@@ -345,6 +364,26 @@ test('given a call that is aborted while its child is still running, when the to
     ),
     ['gen-child-alpha-1', 'gen-child-alpha-2'],
   );
+  const [start] = child.starts() as [ChildStart];
+  assert.equal(isAlive(start.pid), false);
+  const tools = child
+    .log()
+    .flatMap((entry) => ('tool' in entry ? [entry.tool] : []));
+  assert.equal(tools.length, 1);
+  assert.equal(isAlive(tools[0] as number), false);
+});
+
+test('given an aborted child that ignores the request to stop, when the tool executes, then it is killed anyway', async () => {
+  const child = fakeChildPi({ lingerMs: 60_000, onTerm: 'ignore' });
+  const abort = new AbortController();
+
+  const result = await loadExtension(childInvocation(child.path)).call(
+    { task: TASK },
+    { cwd: runDir(), signal: abort.signal, onUpdate: abortOnceDone(abort) },
+  );
+
+  assert.equal(result.isError, true);
+  assert.ok(child.log().some((entry) => 'ignoredTerm' in entry));
   const [start] = child.starts() as [ChildStart];
   assert.equal(isAlive(start.pid), false);
 });
@@ -438,9 +477,88 @@ test('given six calls issued at once, when they execute, then no more than four 
   let running = 0;
   let peak = 0;
   for (const entry of child.log()) {
-    running += 'started' in entry ? 1 : -1;
+    running += 'started' in entry ? 1 : 'ended' in entry ? -1 : 0;
     peak = Math.max(peak, running);
   }
   assert.equal(peak, 4);
   assert.equal(child.starts().length, 6);
+});
+
+test('given four running children and a fifth call queued behind them, when the queued call is aborted, then it returns an aborted tool error at once without starting a child', async () => {
+  const child = fakeChildPi({ lingerMs: 60_000 });
+  const extension = loadExtension(childInvocation(child.path));
+  const cwd = runDir();
+  const running = new AbortController();
+  let resolveAllRunning = (): void => undefined;
+  const allRunning = new Promise<void>((resolve) => {
+    resolveAllRunning = resolve;
+  });
+  let done = 0;
+  const onUpdate = ({ event }: SubagentUpdate): void => {
+    if ((event as { type?: string }).type === 'agent_end' && ++done === 4) {
+      resolveAllRunning();
+    }
+  };
+  const runningCalls = Promise.all(
+    Array.from({ length: 4 }, (_, index) =>
+      extension.call(
+        { task: TASK },
+        { cwd, signal: running.signal, toolCallId: `call_${index}`, onUpdate },
+      ),
+    ),
+  );
+  await allRunning;
+  const queued = new AbortController();
+
+  const pending = extension.call(
+    { task: TASK },
+    { cwd, signal: queued.signal, toolCallId: 'call_queued' },
+  );
+  queued.abort();
+  const result = await Promise.race([
+    pending,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000)),
+  ]);
+  running.abort();
+  await runningCalls;
+
+  assert.ok(result !== null, 'the aborted queued call is still waiting');
+  assert.equal(result.isError, true);
+  assert.match(result.content[0]?.text ?? '', /aborted/);
+  assert.equal(child.starts().length, 4);
+});
+
+test('given a child that exits 0 with its stream cut off before a final agent_end, or ending on an agent_end that will retry, when the tool executes, then pi sees a tool error saying the stream ended early, and the details still carry the usage and response ids the child produced', async () => {
+  const lines = readFileSync(CHILD_OUTPUT, 'utf8').trimEnd().split('\n');
+  const end = lines.findIndex((line) => line.includes('"type":"agent_end"'));
+  const outputs = [
+    lines.slice(0, end),
+    [
+      ...lines.slice(0, end),
+      (lines[end] as string).replace('"willRetry":false', '"willRetry":true'),
+    ],
+  ];
+
+  for (const output of outputs) {
+    const path = join(
+      mkdtempSync(join(tmpdir(), 'forge-output-')),
+      'out.jsonl',
+    );
+    writeFileSync(path, `${output.join('\n')}\n`);
+    const child = fakeChildPi({ output: path });
+
+    const result = await loadExtension(childInvocation(child.path)).call(
+      { task: TASK },
+      { cwd: runDir() },
+    );
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]?.text ?? '', /without a final agent_end/);
+    assert.deepEqual(
+      (result.details as SubagentDetails).responses.map(
+        (response) => response.responseId,
+      ),
+      ['gen-child-alpha-1', 'gen-child-alpha-2'],
+    );
+  }
 });
