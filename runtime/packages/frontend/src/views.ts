@@ -10,6 +10,7 @@ const STYLES = `
   main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
   h1 { font-size: 1.4rem; margin: 0 0 1.5rem; }
   a { color: inherit; }
+  .table-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--line); }
   th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; }
@@ -68,6 +69,7 @@ export const renderList = (
       ? html`<h1>Workloads</h1>
           <p class="empty">No workloads have run yet.</p>`
       : html`<h1>Workloads</h1>
+          <div class="table-scroll">
           <table>
             <thead>
               <tr>
@@ -101,7 +103,8 @@ export const renderList = (
                 <td class="cost">${formatCost(totalCost(runs))}</td>
               </tr>
             </tfoot>
-          </table>`;
+          </table>
+          </div>`;
   return layout('Workloads', body);
 };
 
