@@ -2,6 +2,7 @@ import type { RunStatus, Store } from '@forge/shared';
 import {
   invocationFor,
   type Harness,
+  type HarnessRun,
   type RunCost,
   type Worker,
 } from './harness.ts';
@@ -16,6 +17,19 @@ export interface RunWorkloadOptions {
   now: () => string;
   newId: () => string;
 }
+
+const UNSETTLED: RunCost = { costUsd: 0, uncertain: true };
+
+const settle = async (run: HarnessRun | null): Promise<RunCost> => {
+  if (run === null) {
+    return UNSETTLED;
+  }
+  try {
+    return await run.cost();
+  } catch {
+    return UNSETTLED;
+  }
+};
 
 export const runWorkload = async (
   options: RunWorkloadOptions,
@@ -44,15 +58,15 @@ export const runWorkload = async (
 
   let inputTokens = 0;
   let outputTokens = 0;
-  let cost: RunCost = { costUsd: 0, uncertain: true };
+  let run: HarnessRun | null = null;
   let status: RunStatus = 'error';
   let sessionId: string | null = null;
   let error: string | null = 'harness stream ended without a result';
 
   try {
     const invocation = invocationFor(worker, openWorkDir(id));
-    const run = harness.run(invocation);
-    for await (const event of run.events) {
+    const started = harness.run(invocation);
+    for await (const event of started.events) {
       await transcript.append(event);
       if (event.type === 'message') {
         inputTokens += event.usage.inputTokens;
@@ -63,7 +77,7 @@ export const runWorkload = async (
         error = event.error;
       }
     }
-    cost = await run.cost();
+    run = started;
   } catch (cause) {
     status = 'error';
     error = cause instanceof Error ? cause.message : String(cause);
@@ -71,6 +85,7 @@ export const runWorkload = async (
     await transcript.close();
   }
 
+  const cost = await settle(run);
   store.finalizeRun(id, {
     endTime: now(),
     status,

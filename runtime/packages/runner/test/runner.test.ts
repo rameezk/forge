@@ -217,3 +217,16 @@ test('given a harness that could not settle its run cost, when the run completes
   assert.equal(run?.costUsd, 0.01);
   assert.equal(run?.costUncertain, true);
 });
+
+test('given a harness that completes but fails to settle its run cost, when the run completes, then the run keeps its status and error and records zero cost flagged uncertain', async () => {
+  const { run } = await runWith(
+    [message(), result({ status: 'success', sessionId: 'sess-1' })],
+    { hooks: { cost: new Error('billing unavailable') } },
+  );
+
+  assert.equal(run?.status, 'success');
+  assert.equal(run?.error, null);
+  assert.equal(run?.sessionId, 'sess-1');
+  assert.equal(run?.costUsd, 0);
+  assert.equal(run?.costUncertain, true);
+});

@@ -51,7 +51,7 @@ export const fakeHarness = (
   events: HarnessEvent[],
   hooks: {
     beforeEach?: (index: number) => Promise<void> | void;
-    cost?: RunCost;
+    cost?: RunCost | Error;
   } = {},
 ): FakeHarness => {
   const invocations: HarnessInvocation[] = [];
@@ -68,7 +68,12 @@ export const fakeHarness = (
             yield event;
           }
         })(),
-        cost: async () => hooks.cost ?? SETTLED_COST,
+        cost: async () => {
+          if (hooks.cost instanceof Error) {
+            throw hooks.cost;
+          }
+          return hooks.cost ?? SETTLED_COST;
+        },
       };
     },
   };

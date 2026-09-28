@@ -59,9 +59,9 @@ export class OpenRouterBilling implements Billing {
   }
 
   async #lookup(id: string): Promise<Lookup> {
-    const url = new URL(`${this.#baseUrl}/generation`);
-    url.searchParams.set('id', id);
     try {
+      const url = new URL(`${this.#baseUrl}/generation`);
+      url.searchParams.set('id', id);
       const response = await fetch(url, {
         headers: { authorization: `Bearer ${this.#apiKey}` },
         signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),

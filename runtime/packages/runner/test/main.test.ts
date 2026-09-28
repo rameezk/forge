@@ -96,6 +96,7 @@ const fakeOpenRouter = async (
 interface Scenario {
   output: string;
   generations?: GenerationStats;
+  openRouterBaseUrl?: string;
   worker?: Partial<WorkerConfig>;
   harnessArgs?: string[];
   stderr?: string;
@@ -146,7 +147,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     scenario.generations ?? billedAt(BILLED_BY_ID),
   );
   const code = await main(['refiner'], {
-    OPENROUTER_BASE_URL: openRouter.baseUrl,
+    OPENROUTER_BASE_URL: scenario.openRouterBaseUrl ?? openRouter.baseUrl,
     OPENROUTER_API_KEY: OPENROUTER_KEY,
     FORGE_RUNTIME_CONFIG: configPath,
     FORGE_STATE_DIR: stateDir,
@@ -402,4 +403,17 @@ test('given an OpenRouter whose stats for a generation lag, returning not found 
     lookups.filter((lookup) => lookup.id === 'gen-success-2').length,
     3,
   );
+});
+
+test('given a successful recorded run and an OpenRouter base URL that is not a valid URL, when the worker runs, then the run stays success and exits zero with cost flagged uncertain', async () => {
+  const { code, run } = await runWorker({
+    output: fixture('success.jsonl'),
+    openRouterBaseUrl: 'openrouter.ai/api/v1',
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.equal(run.error, null);
+  assert.equal(run.costUsd, 0);
+  assert.equal(run.costUncertain, true);
 });
