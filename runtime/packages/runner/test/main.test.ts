@@ -33,7 +33,7 @@ if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
 type GenerationStats = (
   id: string,
   attempt: number,
-) => { status: number; body?: unknown } | 'hang';
+) => { status: number; body?: unknown; delayMs?: number } | 'hang';
 
 const billedAt =
   (costs: Record<string, number>): GenerationStats =>
@@ -56,6 +56,7 @@ const OPENROUTER_KEY = 'sk-or-test';
 interface Lookup {
   id: string | null;
   authorization: string | undefined;
+  inFlight: number;
 }
 
 const fakeOpenRouter = async (
@@ -63,10 +64,19 @@ const fakeOpenRouter = async (
 ): Promise<{ baseUrl: string; lookups: Lookup[]; close: () => void }> => {
   const lookups: Lookup[] = [];
   const attempts = new Map<string, number>();
+  let inFlight = 0;
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://fake');
     const id = url.searchParams.get('id');
-    lookups.push({ id, authorization: request.headers.authorization });
+    inFlight += 1;
+    response.on('close', () => {
+      inFlight -= 1;
+    });
+    lookups.push({
+      id,
+      authorization: request.headers.authorization,
+      inFlight,
+    });
     const reply =
       url.pathname === '/api/v1/generation' && id !== null
         ? generations(id, (attempts.get(id) ?? 0) + 1)
@@ -77,9 +87,13 @@ const fakeOpenRouter = async (
     if (reply === 'hang') {
       return;
     }
-    const { status, body } = reply;
-    response.writeHead(status, { 'content-type': 'application/json' });
-    response.end(typeof body === 'string' ? body : JSON.stringify(body ?? ''));
+    const { status, body, delayMs = 0 } = reply;
+    setTimeout(() => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(
+        typeof body === 'string' ? body : JSON.stringify(body ?? ''),
+      );
+    }, delayMs);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
@@ -187,6 +201,24 @@ const outputFile = (contents: string): string => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-output-')), 'pi.jsonl');
   writeFileSync(path, contents);
   return path;
+};
+
+const withGenerations = (name: string, ids: string[]): string => {
+  const lines = readFileSync(fixture(name), 'utf8').split('\n');
+  const end = lines.findIndex((line) => line.includes('"type":"agent_end"'));
+  const assistant = lines.findLast(
+    (line, index) =>
+      index < end &&
+      line.includes('"type":"message_end"') &&
+      line.includes('"responseId"'),
+  );
+  assert.ok(end > 0 && assistant !== undefined);
+  const generations = ids.map((id) =>
+    assistant.replace(/"responseId":"[^"]*"/, `"responseId":"${id}"`),
+  );
+  return outputFile(
+    [...lines.slice(0, end), ...generations, ...lines.slice(end)].join('\n'),
+  );
 };
 
 const cutBefore = (name: string, eventType: string): string => {
@@ -387,22 +419,34 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
   }
 });
 
-test('given an OpenRouter whose stats for a generation lag, returning not found at first and then its billed cost, when the worker runs, then the run cost includes that generation and is not flagged uncertain', async () => {
-  const { run, lookups } = await runWorker({
-    output: fixture('success.jsonl'),
-    generations: (id, attempt) =>
-      id === 'gen-success-2' && attempt < 3
-        ? billedAt({})(id, attempt)
-        : billedAt(BILLED_BY_ID)(id, attempt),
-  });
+test('given an OpenRouter that answers a generation lookup with not found while its stats lag, or with a rate limit or server error, at first and then its billed cost, when the worker runs, then the run cost includes that generation and is not flagged uncertain', async () => {
+  const transients: ReturnType<GenerationStats>[] = [
+    { status: 404, body: { error: { code: 404 } } },
+    { status: 429, body: { error: { code: 429 } } },
+    { status: 503, body: { error: { code: 503 } } },
+  ];
 
-  assert.equal(run.status, 'success');
-  assert.equal(run.costUsd, 0.0125 + 0.0375);
-  assert.equal(run.costUncertain, false);
-  assert.equal(
-    lookups.filter((lookup) => lookup.id === 'gen-success-2').length,
-    3,
+  const outcomes = await Promise.all(
+    transients.map((transient) =>
+      runWorker({
+        output: fixture('success.jsonl'),
+        generations: (id, attempt) =>
+          id === 'gen-success-2' && attempt < 3
+            ? transient
+            : billedAt(BILLED_BY_ID)(id, attempt),
+      }),
+    ),
   );
+
+  for (const { run, lookups } of outcomes) {
+    assert.equal(run.status, 'success');
+    assert.equal(run.costUsd, 0.0125 + 0.0375);
+    assert.equal(run.costUncertain, false);
+    assert.equal(
+      lookups.filter((lookup) => lookup.id === 'gen-success-2').length,
+      3,
+    );
+  }
 });
 
 test('given a successful recorded run and an OpenRouter base URL that is not a valid URL, when the worker runs, then the run stays success and exits zero with cost flagged uncertain', async () => {
@@ -416,4 +460,23 @@ test('given a successful recorded run and an OpenRouter base URL that is not a v
   assert.equal(run.error, null);
   assert.equal(run.costUsd, 0);
   assert.equal(run.costUncertain, true);
+});
+
+test('given a long run with many generations, one of them reported twice, when the worker runs, then each generation is billed once and at most four lookups are in flight at a time', async () => {
+  const ids = Array.from({ length: 12 }, (_, index) => `gen-long-${index}`);
+  const costs = Object.fromEntries(ids.map((id) => [id, 0.5]));
+
+  const { run, lookups } = await runWorker({
+    output: withGenerations('success.jsonl', [...ids, 'gen-long-0']),
+    generations: (id, attempt) => {
+      const reply = billedAt({ ...BILLED_BY_ID, ...costs })(id, attempt);
+      return reply === 'hang' ? reply : { ...reply, delayMs: 20 };
+    },
+  });
+
+  assert.equal(run.status, 'success');
+  assert.equal(run.costUncertain, false);
+  assert.equal(run.costUsd, 0.0125 + 0.0375 + 12 * 0.5);
+  assert.equal(lookups.length, 14);
+  assert.ok(Math.max(...lookups.map((lookup) => lookup.inFlight)) <= 4);
 });
