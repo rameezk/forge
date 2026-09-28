@@ -12,9 +12,12 @@ const capped = (text: string): string =>
     ? text
     : `${text.slice(0, TOOL_PAYLOAD_CAP_CHARS)}\n[truncated ${text.length - TOOL_PAYLOAD_CAP_CHARS} characters]`;
 
-export const transcriptPolicy = (
-  secrets: string[],
-): ((event: HarnessEvent) => HarnessEvent) => {
+export interface TranscriptPolicy {
+  record(event: HarnessEvent): HarnessEvent;
+  redact(text: string): string;
+}
+
+export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
   const hidden = secrets.filter((secret) => secret.length > 0);
   const redact = (text: string): string =>
     hidden.reduce(
@@ -38,7 +41,7 @@ export const transcriptPolicy = (
     }
     return value;
   };
-  return (event) => {
+  const record = (event: HarnessEvent): HarnessEvent => {
     switch (event.type) {
       case 'message':
         return { ...event, text: redact(event.text) };
@@ -59,6 +62,7 @@ export const transcriptPolicy = (
           : { ...event, error: redact(event.error) };
     }
   };
+  return { record, redact };
 };
 
 export interface TranscriptWriter {

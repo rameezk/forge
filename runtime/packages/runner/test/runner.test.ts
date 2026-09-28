@@ -120,6 +120,22 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
   assert.equal(run?.costUncertain, true);
 });
 
+test('given a harness that throws with a secret in its message, when the run is recorded, then the stored error has the secret redacted', async () => {
+  const store = Store.open(':memory:');
+  const id = await runWorkload({
+    store,
+    harness: throwingHarness([], new Error('spawn failed for sk-or-secret')),
+    worker: aWorker(),
+    openTranscript: arrayTranscripts().open,
+    openWorkDir: () => '/work/run-1',
+    now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
+    newId: () => 'run-1',
+    secrets: ['sk-or-secret'],
+  });
+
+  assert.equal(store.getRun(id)?.error, 'spawn failed for [redacted]');
+});
+
 test('given a harness stream that ends without a result event, when it finishes, then the run is error, not left running', async () => {
   const { run } = await runWith([message()]);
 

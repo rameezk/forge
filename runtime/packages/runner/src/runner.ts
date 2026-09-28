@@ -37,7 +37,7 @@ export const runWorkload = async (
 ): Promise<string> => {
   const { store, harness, worker, openTranscript, openWorkDir, now, newId } =
     options;
-  const record = transcriptPolicy(options.secrets ?? []);
+  const policy = transcriptPolicy(options.secrets ?? []);
   const id = newId();
   const transcript = openTranscript(id);
 
@@ -69,7 +69,7 @@ export const runWorkload = async (
     const invocation = invocationFor(worker, openWorkDir(id));
     const started = harness.run(invocation);
     for await (const harnessEvent of started.events) {
-      const event = record(harnessEvent);
+      const event = policy.record(harnessEvent);
       await transcript.append(event);
       if (event.type === 'message') {
         inputTokens += event.usage.inputTokens;
@@ -83,7 +83,9 @@ export const runWorkload = async (
     run = started;
   } catch (cause) {
     status = 'error';
-    error = cause instanceof Error ? cause.message : String(cause);
+    error = policy.redact(
+      cause instanceof Error ? cause.message : String(cause),
+    );
   } finally {
     await transcript.close();
   }
