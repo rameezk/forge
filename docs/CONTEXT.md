@@ -25,7 +25,15 @@ A child harness run that a workload's agent spawns mid-run to perform a delegate
 _Avoid_: child workload, sub-workload
 
 **Managed repository**:
-A repository forge is configured to run workloads against, carrying its own skills that orchestrate the work.
+A repository forge is configured to run workloads against, carrying its own skills that orchestrate the work. Operators declare managed repositories in the runtime config; forge currently supports only those whose tickets are tracked as GitHub issues (ADR-0010).
+
+**Ticket**:
+A unit of buildable work in a managed repository's tracker, sliced from a spec and carrying a status (`ready-for-agent`, `ready-for-human`, or done) and blocking edges to other tickets. On GitHub, a ticket is an issue: its status is a label, done means closed, and its edges are native issue dependencies.
+_Avoid_: issue (the tracker's container, not the concept), job, task
+
+**Frontier**:
+The set of tickets that can be picked up now: open, marked ready, and with no open blockers. Forge's frontier is the agent frontier - frontier tickets labelled `ready-for-agent` - since forge cannot act on `ready-for-human` work.
+_Avoid_: backlog, queue
 
 **Operator**:
 A person who stands up and runs their own forge deployment - the reuser of forge, distinct from its author.
