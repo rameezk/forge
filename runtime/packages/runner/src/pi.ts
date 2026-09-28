@@ -74,6 +74,9 @@ const assistantMessage = (message: PiMessage): MessageEvent => ({
   costUsd: 0,
 });
 
+const tokensOf = ({ usage }: PiMessage): number =>
+  usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+
 const NON_JSON_EXCERPT_CHARS = 200;
 
 const parseLine = (line: string): PiLine | null => {
@@ -90,9 +93,14 @@ class PiStream {
   #lastAssistant: PiMessage | null = null;
   #malformed: string | null = null;
   readonly #generationIds: string[] = [];
+  #unnamedGeneration = false;
 
   get generationIds(): string[] {
     return this.#generationIds;
+  }
+
+  get unnamedGeneration(): boolean {
+    return this.#unnamedGeneration;
   }
 
   get malformed(): boolean {
@@ -119,6 +127,8 @@ class PiStream {
         this.#lastAssistant = event.message;
         if (event.message.responseId !== undefined) {
           this.#generationIds.push(event.message.responseId);
+        } else if (tokensOf(event.message) > 0) {
+          this.#unnamedGeneration = true;
         }
         return assistantMessage(event.message);
       case 'agent_end':
@@ -175,7 +185,10 @@ export class PiHarness implements Harness {
     const stream = new PiStream();
     return {
       events: this.#events(invocation, stream),
-      cost: () => this.#billing.cost(stream.generationIds),
+      cost: async () => {
+        const cost = await this.#billing.cost(stream.generationIds);
+        return stream.unnamedGeneration ? { ...cost, uncertain: true } : cost;
+      },
     };
   }
 

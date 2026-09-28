@@ -316,7 +316,7 @@ test('given any worker, when it runs, then pi works in a fresh per-run directory
   assert.match(pi.cwd, new RegExp(`${run.id}$`));
 });
 
-test('given recorded pi output ending in a provider error and pi exiting 0, when the worker runs, then the run is error with pi error message and the runner exits non-zero', async () => {
+test('given recorded pi output ending in a provider error with no generation and pi exiting 0, when the worker runs, then the run is error with pi error message, the runner exits non-zero, and its zero cost is certain', async () => {
   const { code, run } = await runWorker({
     output: fixture('provider-error.jsonl'),
   });
@@ -324,6 +324,8 @@ test('given recorded pi output ending in a provider error and pi exiting 0, when
   assert.equal(code, 1);
   assert.equal(run.status, 'error');
   assert.equal(run.error, '400 z-ai/glm-5 is not a valid model ID');
+  assert.equal(run.costUsd, 0);
+  assert.equal(run.costUncertain, false);
 });
 
 test('given recorded pi output where a failed attempt is retried and then succeeds, and an OpenRouter billing every generation, when the worker runs, then the run is success and its tokens and billed cost include the failed attempt', async () => {
@@ -479,4 +481,27 @@ test('given a long run with many generations, one of them reported twice, when t
   assert.equal(run.costUsd, 0.0125 + 0.0375 + 12 * 0.5);
   assert.equal(lookups.length, 14);
   assert.ok(Math.max(...lookups.map((lookup) => lookup.inFlight)) <= 4);
+});
+
+test('given recorded pi output where an assistant response used tokens but carries no generation id, when the worker runs, then the run stays success with the cost of the generations it could name, flagged uncertain', async () => {
+  const output = outputFile(
+    readFileSync(fixture('success.jsonl'), 'utf8')
+      .split('\n')
+      .map((line) =>
+        line.includes('"type":"message_end"')
+          ? line.replace(',"responseId":"gen-success-2"', '')
+          : line,
+      )
+      .join('\n'),
+  );
+
+  const { run, lookups } = await runWorker({ output });
+
+  assert.equal(run.status, 'success');
+  assert.deepEqual(
+    lookups.map((lookup) => lookup.id),
+    ['gen-success-1'],
+  );
+  assert.equal(run.costUsd, 0.0125);
+  assert.equal(run.costUncertain, true);
 });
