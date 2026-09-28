@@ -586,12 +586,19 @@ test('given an OpenRouter that answers a generation lookup with not found while 
   }
 });
 
-test('given a successful recorded run and an OpenRouter base URL that is not a valid URL, when the worker runs, then the run stays success and exits zero with cost flagged uncertain', async () => {
-  const { code, run } = await runWorker({
-    output: fixture('success.jsonl'),
-    openRouterBaseUrl: 'openrouter.ai/api/v1',
-  });
+test('given a successful recorded run and an OpenRouter base URL that is not a valid URL, when the worker runs, then the run stays success and exits zero with cost flagged uncertain, and the journal names each generation it could not cost', async () => {
+  const {
+    result: { code, run },
+    journal,
+  } = await journaled(() =>
+    runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: 'openrouter.ai/api/v1',
+    }),
+  );
 
+  assert.match(journal, /could not cost OpenRouter generation "gen-success-1"/);
+  assert.match(journal, /could not cost OpenRouter generation "gen-success-2"/);
   assert.equal(code, 0);
   assert.equal(run.status, 'success');
   assert.equal(run.error, null);
