@@ -3,7 +3,9 @@ import { join } from 'node:path';
 
 const [adapter, extension, pi] = process.argv.slice(2);
 const { piArgs, subagentInvocation } = await import(adapter);
-const { SUBAGENT_INVOCATION_ENV } = await import(join(extension, 'index.ts'));
+const { SUBAGENT_INVOCATION_ENV, childArgs } = await import(
+  join(extension, 'index.ts')
+);
 
 const invocations = [
   {
@@ -38,15 +40,7 @@ for (const invocation of invocations) {
   const parentAccepted = accepts(piArgs(invocation, extension), {
     [SUBAGENT_INVOCATION_ENV]: JSON.stringify(child),
   });
-  const childAccepted = accepts(
-    [
-      ...child.argv.slice(1),
-      '--append-system-prompt',
-      child.systemPrompt,
-      'Task: contract check',
-    ],
-    {},
-  );
+  const childAccepted = accepts(childArgs(child, 'contract check'), {});
   failed ||= !parentAccepted || !childAccepted;
 }
 process.exit(failed ? 1 : 0);

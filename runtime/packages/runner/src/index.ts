@@ -22,6 +22,5 @@ export type { PiHarnessOptions } from './pi.ts';
 export {
   PiHarness,
   piArgs,
-  SUBAGENT_SYSTEM_PROMPT,
   subagentInvocation,
 } from './pi.ts';

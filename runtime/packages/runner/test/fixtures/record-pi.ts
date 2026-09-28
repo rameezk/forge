@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
+import { childArgs, SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
 import type { HarnessInvocation } from '../../src/harness.ts';
 import { piArgs, subagentInvocation } from '../../src/pi.ts';
 
@@ -316,16 +316,10 @@ const record = async (
   childOutDir: string,
 ): Promise<void> => {
   mkdirSync(childOutDir, { recursive: true });
-  const child = subagentInvocation(pi, INVOCATION);
   await recordRun(
     pi,
     alphaChild,
-    [
-      ...child.argv.slice(1),
-      '--append-system-prompt',
-      child.systemPrompt,
-      `Task: ${SUBAGENT_TASKS.alpha}`,
-    ],
+    childArgs(subagentInvocation(pi, INVOCATION), SUBAGENT_TASKS.alpha),
     join(childOutDir, 'child.jsonl'),
   );
 

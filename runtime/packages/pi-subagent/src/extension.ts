@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import {
+  childArgs,
   SUBAGENT_INVOCATION_ENV,
   SUBAGENT_TOOL,
   type SubagentDetails,
@@ -107,7 +108,7 @@ const responseOf = (message: ChildMessage): SubagentResponse => {
 
 export default function subagentExtension(pi: ExtensionApi): void {
   const invocation = readInvocation(process.env);
-  const [command, ...args] = invocation.argv as [string, ...string[]];
+  const [command] = invocation.argv as [string, ...string[]];
 
   pi.registerTool({
     name: SUBAGENT_TOOL,
@@ -126,16 +127,10 @@ export default function subagentExtension(pi: ExtensionApi): void {
       additionalProperties: false,
     },
     async execute(_toolCallId, { task }, _signal, onUpdate, ctx) {
-      const child = spawn(
-        command,
-        [
-          ...args,
-          '--append-system-prompt',
-          invocation.systemPrompt,
-          `Task: ${task}`,
-        ],
-        { cwd: ctx.cwd, stdio: ['ignore', 'pipe', 'inherit'] },
-      );
+      const child = spawn(command, childArgs(invocation, task), {
+        cwd: ctx.cwd,
+        stdio: ['ignore', 'pipe', 'inherit'],
+      });
       const exited = new Promise<Error | null>((resolve) => {
         child.on('error', resolve);
         child.on('close', () => resolve(null));
