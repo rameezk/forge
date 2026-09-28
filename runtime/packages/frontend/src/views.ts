@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import type { HarnessEvent, RunRecord } from '@forge/shared';
+import type { HarnessEvent, MessageEvent, RunRecord } from '@forge/shared';
 import { formatCost, formatDuration, totalCost } from './format.ts';
 
 const STYLES = `
@@ -29,6 +29,16 @@ const STYLES = `
   .message > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin-bottom: 0.4rem; }
   .message pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
   .message-result { opacity: 0.75; font-style: italic; }
+  .subagent { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 0.75rem; }
+  .subagent > summary { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; cursor: pointer; list-style: none; }
+  .subagent > summary::-webkit-details-marker { display: none; }
+  .subagent > summary::before { content: '\\25B6'; display: inline-block; width: 1em; font-size: 0.7rem; text-align: center; opacity: 0.65; transition: transform 0.15s; }
+  .subagent[open] > summary::before { transform: rotate(90deg); }
+  .subagent-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; }
+  .subagent code { font-size: 0.85rem; }
+  .subagent-count { margin-left: auto; font-size: 0.8rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
+  .subagent-body { padding: 0.75rem 1rem 0; border-top: 1px solid var(--line); }
+  .message-report { border-color: color-mix(in srgb, currentColor 35%, transparent); }
 `;
 
 const layout = (
@@ -95,17 +105,75 @@ export const renderList = (
   return layout('Workloads', body);
 };
 
+const renderText = (
+  kind: string,
+  text: string,
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<article class="message message-${kind}">
+    <header>${kind}</header>
+    <pre>${text}</pre>
+  </article>`;
+
 const renderMessage = (
   event: HarnessEvent,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   event.type === 'message'
-    ? html`<article class="message message-${event.role}">
-        <header>${event.role}</header>
-        <pre>${event.text}</pre>
-      </article>`
+    ? renderText(event.role, event.text)
     : html`<article class="message message-result">
         Run ${event.status}${event.error === null ? '' : html`: ${event.error}`}
       </article>`;
+
+interface SubagentGroup {
+  type: 'subagent';
+  scope: string;
+  events: MessageEvent[];
+}
+
+type TranscriptEntry = HarnessEvent | SubagentGroup;
+
+const groupBySubagent = (events: HarnessEvent[]): TranscriptEntry[] => {
+  const groups = new Map<string, SubagentGroup>();
+  const entries: TranscriptEntry[] = [];
+  for (const event of events) {
+    if (event.type !== 'message' || event.subagent === undefined) {
+      entries.push(event);
+      continue;
+    }
+    const group = groups.get(event.subagent);
+    if (group === undefined) {
+      const created: SubagentGroup = { type: 'subagent', scope: event.subagent, events: [event] };
+      groups.set(event.subagent, created);
+      entries.push(created);
+    } else {
+      group.events.push(event);
+    }
+  }
+  return entries;
+};
+
+const renderSubagent = ({
+  scope,
+  events,
+}: SubagentGroup): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const report = events.findLastIndex((event) => event.role === 'assistant');
+  return html`<details class="subagent">
+    <summary>
+      <span class="subagent-label">Subagent</span>
+      <code>${scope}</code>
+      <span class="subagent-count">${events.length} ${events.length === 1 ? 'message' : 'messages'}</span>
+    </summary>
+    <div class="subagent-body">
+    ${events.map((event, index) =>
+      index === report ? renderText('report', event.text) : renderMessage(event),
+    )}
+    </div>
+  </details>`;
+};
+
+const renderEntry = (
+  entry: TranscriptEntry,
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  entry.type === 'subagent' ? renderSubagent(entry) : renderMessage(entry);
 
 export const renderDetail = (
   run: RunRecord,
@@ -133,6 +201,6 @@ export const renderDetail = (
     <h2>Transcript</h2>
     ${events.length === 0
       ? html`<p class="empty">No transcript captured.</p>`
-      : events.map(renderMessage)}`;
+      : groupBySubagent(events).map(renderEntry)}`;
   return layout(run.worker, body);
 };
