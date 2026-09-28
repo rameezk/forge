@@ -113,6 +113,36 @@ const bash = (command: string): ToolCall => ({
   arguments: { command },
 });
 
+const toolOnlyTurns: Respond = (call, res) =>
+  sse(
+    res,
+    call === 1
+      ? toolCallReply(
+          'gen-tools-1',
+          '',
+          [bash('echo forge')],
+          usage(1000, 0, 15),
+        )
+      : call === 2
+        ? toolCallReply(
+            'gen-tools-2',
+            '',
+            [
+              {
+                id: 'call_2',
+                name: 'bash',
+                arguments: { command: 'cat missing.txt' },
+              },
+            ],
+            usage(1100, 1000, 12),
+          )
+        : textReply(
+            'gen-tools-3',
+            'Done with the tools.',
+            usage(1200, 1100, 8),
+          ),
+  );
+
 const SUBAGENT_TASKS = {
   alpha: 'Run echo alpha and report what it printed.',
   beta: 'Say beta.',
@@ -226,6 +256,7 @@ const scenarios: Record<string, Scenario> = {
             ),
       ),
   },
+  'tool-calls': { respond: toolOnlyTurns },
   'provider-error': { respond: (_call, res) => providerRejection(res) },
   retry: {
     respond: (call, res) =>

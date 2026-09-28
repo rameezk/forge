@@ -353,6 +353,122 @@ test('given a recorded run with two parallel subagent calls, when the transcript
   }
 });
 
+test('given a recorded run whose agent calls bash in turns with no text, one call failing, when the transcript is written, then each call is recorded with its arguments and each result with its output and error flag, in stream order', async () => {
+  const { code, run, transcript } = await runWorker({
+    output: fixture('tool-calls.jsonl'),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.inputTokens, 1000 + 1100 + 1200);
+  const toolEvents = parseTranscript(transcript).filter(
+    (event) => event.type === 'tool_call' || event.type === 'tool_result',
+  );
+  assert.deepEqual(toolEvents, [
+    {
+      type: 'tool_call',
+      id: 'call_1',
+      name: 'bash',
+      arguments: { command: 'echo forge' },
+    },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
+    {
+      type: 'tool_call',
+      id: 'call_2',
+      name: 'bash',
+      arguments: { command: 'cat missing.txt' },
+    },
+    {
+      type: 'tool_result',
+      id: 'call_2',
+      isError: true,
+      text: 'cat: missing.txt: No such file or directory\n\n\nCommand exited with code 1',
+    },
+  ]);
+});
+
+test('given a recorded tool call whose arguments and result each exceed the cap, when the transcript is written, then the stored arguments and result text are cut at the cap and end in a truncation marker', async () => {
+  const cap = 32 * 1024;
+  const command = `echo ${'f'.repeat(40_000)}`;
+  const output = `${'a'.repeat(50_000)}\n`;
+  const { transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('tool-calls.jsonl'), 'utf8')
+        .replaceAll('"command":"echo forge"', `"command":"${command}"`)
+        .replaceAll('"text":"forge\\n"', `"text":${JSON.stringify(output)}`),
+    ),
+  });
+
+  const events = parseTranscript(transcript);
+  const call = events.find(
+    (event) => event.type === 'tool_call' && event.id === 'call_1',
+  );
+  const result = events.find(
+    (event) => event.type === 'tool_result' && event.id === 'call_1',
+  );
+  const argumentsJson = JSON.stringify({ command });
+  assert.deepEqual(call, {
+    type: 'tool_call',
+    id: 'call_1',
+    name: 'bash',
+    arguments: `${argumentsJson.slice(0, cap)}\n[truncated ${argumentsJson.length - cap} characters]`,
+  });
+  assert.deepEqual(result, {
+    type: 'tool_result',
+    id: 'call_1',
+    isError: false,
+    text: `${output.slice(0, cap)}\n[truncated ${output.length - cap} characters]`,
+  });
+});
+
+test('given a recorded run whose subagent calls bash, when the transcript is written, then the child call and result carry its subagent scope and the parent subagent calls and their reports carry none', async () => {
+  const { transcript } = await runWorker({
+    output: fixture('subagents.jsonl'),
+  });
+
+  const toolEvents = parseTranscript(transcript).filter(
+    (event) => event.type === 'tool_call' || event.type === 'tool_result',
+  );
+  assert.deepEqual(
+    toolEvents.filter((event) => event.subagent === 'call_alpha'),
+    [
+      {
+        type: 'tool_call',
+        id: 'call_1',
+        name: 'bash',
+        arguments: { command: 'echo alpha' },
+        subagent: 'call_alpha',
+      },
+      {
+        type: 'tool_result',
+        id: 'call_1',
+        isError: false,
+        text: 'alpha\n',
+        subagent: 'call_alpha',
+      },
+    ],
+  );
+  assert.deepEqual(
+    toolEvents
+      .filter((event) => !Object.hasOwn(event, 'subagent'))
+      .map((event) =>
+        event.type === 'tool_call'
+          ? [event.id, event.name, event.arguments]
+          : [event.id, event.isError, event.text],
+      ),
+    [
+      [
+        'call_alpha',
+        'subagent',
+        { task: 'Run echo alpha and report what it printed.' },
+      ],
+      ['call_beta', 'subagent', { task: 'Say beta.' }],
+      ['call_beta', false, 'Beta report: beta.'],
+      ['call_alpha', false, 'Alpha report: echo alpha printed alpha.'],
+    ],
+  );
+  assert.equal(toolEvents.length, 6);
+});
+
 test('given a recording where one subagent call returns an error and the parent finishes normally, when the run completes, then the run succeeds and its tokens and billed cost still count the failed child', async () => {
   const { code, run, lookups } = await runWorker({
     output: fixture('subagent-failure.jsonl'),

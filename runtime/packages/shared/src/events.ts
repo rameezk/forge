@@ -12,6 +12,22 @@ export interface MessageEvent {
   subagent?: string;
 }
 
+export interface ToolCallEvent {
+  type: 'tool_call';
+  id: string;
+  name: string;
+  arguments: unknown;
+  subagent?: string;
+}
+
+export interface ToolResultEvent {
+  type: 'tool_result';
+  id: string;
+  isError: boolean;
+  text: string;
+  subagent?: string;
+}
+
 export interface ResultEvent {
   type: 'result';
   status: 'success' | 'error';
@@ -19,4 +35,5 @@ export interface ResultEvent {
   error: string | null;
 }
 
-export type HarnessEvent = MessageEvent | ResultEvent;
+export type HarnessEvent =
+  MessageEvent | ToolCallEvent | ToolResultEvent | ResultEvent;

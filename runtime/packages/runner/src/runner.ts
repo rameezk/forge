@@ -71,7 +71,7 @@ export const runWorkload = async (
       if (event.type === 'message') {
         inputTokens += event.usage.inputTokens;
         outputTokens += event.usage.outputTokens;
-      } else {
+      } else if (event.type === 'result') {
         status = event.status;
         sessionId = event.sessionId;
         error = event.error;
