@@ -62,6 +62,7 @@ test('given a cost-uncertain run beside a trusted one, when the list is requeste
 
   assert.match(body, /class="run cost-uncertain"/, 'an uncertain run must carry a distinguishing marker');
   assert.match(body, />uncertain</, 'an uncertain run must show a visible badge');
+  assert.match(body, /title="OpenRouter's billed cost could not be confirmed for every generation"/, 'the badge must explain what uncertain means');
 });
 
 test('given only trusted runs, when the list is requested, then no cost-uncertain marker appears', async () => {

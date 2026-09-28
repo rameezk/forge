@@ -79,7 +79,7 @@ export const renderList = (
                   <td><span class="status status-${run.status}">${run.status}</span></td>
                   <td class="cost">
                     ${formatCost(run.costUsd)}${run.costUncertain
-                      ? html`<span class="badge" title="model reported zero cost despite output tokens">uncertain</span>`
+                      ? html`<span class="badge" title="OpenRouter's billed cost could not be confirmed for every generation">uncertain</span>`
                       : ''}
                   </td>
                 </tr>`,
