@@ -25,6 +25,8 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   ...overrides,
 });
 
+const usage = { inputTokens: 5, outputTokens: 5 };
+
 const appWith = (runs: RunRecord[], dir: string = mkdtempSync(join(tmpdir(), 'forge-transcripts-'))) => {
   const store = Store.open(':memory:');
   for (const run of runs) store.insertRun(run);
@@ -115,10 +117,10 @@ const detailsBlocks = (body: string, opening: RegExp): string[] => {
 };
 
 const subagentGroups = (body: string): string[] => detailsBlocks(body, /<details class="subagent"/g);
+const subagentCalls = (body: string): string[] => body.match(/<section class="tool subagent-call[\s\S]*?<\/section>/g) ?? [];
 
-test('given a run whose transcript holds events from two subagent scopes, when its transcript is viewed, then each subagent renders grouped and collapsed and the parent renders ungrouped', async () => {
+test('given a transcript written before subagent calls were recorded, when its transcript is viewed, then each subagent scope still renders grouped and collapsed under its scope and the parent renders ungrouped', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const events: HarnessEvent[] = [
     { type: 'message', role: 'assistant', text: 'parent delegates two reviews', usage, costUsd: 0 },
     { type: 'message', role: 'assistant', text: 'alpha reading the diff', usage, costUsd: 0, subagent: 'call-alpha' },
@@ -144,9 +146,8 @@ test('given a run whose transcript holds events from two subagent scopes, when i
     assert.doesNotMatch(group.slice(0, group.indexOf('>')), /\bopen\b/, 'groups are collapsed by default');
   }
   assert.match(alpha, /<summary>[\s\S]*call-alpha[\s\S]*2 messages[\s\S]*<\/summary>/, 'a collapsed group names its subagent and how much it did');
-  assert.match(alpha, /<article class="message message-report">\s*<header>report<\/header>\s*<pre>alpha report: two findings<\/pre>/, "the child's final message is its report");
-  assert.match(beta, /<article class="message message-report">\s*<header>report<\/header>\s*<pre>beta report: clean<\/pre>/, "the child's final message is its report");
-  assert.doesNotMatch(alpha.replace(/<article class="message message-report">[\s\S]*?<\/article>/, ''), /report/, 'only the final message is the report');
+  assert.doesNotMatch(body, /class="message message-report"/, 'without a recorded subagent result there is no report card');
+  assert.equal(subagentCalls(body).length, 0);
   assert.ok(
     body.indexOf('parent delegates two reviews') < body.indexOf(alpha) &&
       body.indexOf(beta) < body.indexOf('parent triages the findings'),
@@ -185,7 +186,6 @@ const viewTranscript = async (events: HarnessEvent[]): Promise<string> => {
 };
 
 test('given a run whose agent made a bash call in a turn with no text, when its run page is viewed, then a collapsed card shows the tool name and command and no empty assistant card renders', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'message', role: 'user', text: 'run echo forge', usage, costUsd: 0 },
     { type: 'message', role: 'assistant', text: '', usage, costUsd: 0 },
@@ -208,7 +208,6 @@ test('given a run whose agent made a bash call in a turn with no text, when its 
 });
 
 test('given parallel tool calls whose results arrive out of order, when a card is expanded, then it shows its own arguments as pretty json and its own result', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'message', role: 'assistant', text: 'checking both', usage, costUsd: 0 },
     { type: 'tool_call', id: 'call_1', name: 'read', arguments: { path: 'a.txt', limit: 10 } },
@@ -245,7 +244,6 @@ test('given a run with a tool call that returned an error beside one that succee
 });
 
 test('given a subagent tool call sharing its id with a parent tool call, when the run page is viewed, then the subagent card renders inside its group with its own result and the parent card keeps its own', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo parent' } },
     { type: 'tool_result', id: 'call_1', isError: false, text: 'parent output' },
@@ -281,7 +279,6 @@ test('given a tool call whose arguments were capped and which never got a result
 });
 
 test('given a transcript written before tool events were recorded, when its run page is viewed, then every message renders as before, including an empty assistant turn, and no tool card appears', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'message', role: 'user', text: 'run echo forge', usage, costUsd: 0 },
     { type: 'message', role: 'assistant', text: '', usage, costUsd: 0 },
@@ -310,4 +307,198 @@ test('given a provider that reuses a tool call id across turns, when the run pag
   assert.doesNotMatch(first, /second output/);
   assert.match(second, /echo second[\s\S]*second output/);
   assert.doesNotMatch(second, /first output|tool-error/);
+});
+
+const delegation: HarnessEvent[] = [
+  { type: 'message', role: 'assistant', text: 'Delegating both.', usage, costUsd: 0 },
+  { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Run echo alpha and report what it printed.' } },
+  { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: { task: 'Say beta.' } },
+  { type: 'message', role: 'assistant', text: 'Running it.', usage, costUsd: 0, subagent: 'call_alpha' },
+  { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo alpha' }, subagent: 'call_alpha' },
+  { type: 'tool_result', id: 'call_1', isError: false, text: 'alpha\n', subagent: 'call_alpha' },
+  { type: 'message', role: 'assistant', text: 'Alpha report: echo alpha printed alpha.', usage, costUsd: 0, subagent: 'call_alpha' },
+  { type: 'message', role: 'assistant', text: 'Beta report: beta.', usage, costUsd: 0, subagent: 'call_beta' },
+  { type: 'tool_result', id: 'call_beta', isError: false, text: 'Beta report: beta.' },
+  { type: 'tool_result', id: 'call_alpha', isError: false, text: 'Alpha report: echo alpha printed alpha.' },
+  { type: 'message', role: 'assistant', text: 'Both sub-agents reported back.', usage, costUsd: 0 },
+  { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+];
+
+test('given a run whose agent spawned two subagents from one message, when its run page is viewed, then both groups appear nested under that turn in always-expanded subagent call cards', async () => {
+  const body = await viewTranscript(delegation);
+
+  const calls = subagentCalls(body);
+  assert.equal(calls.length, 2, 'each subagent call renders as one card');
+  const [alpha, beta] = calls as [string, string];
+  assert.equal(subagentGroups(alpha).length, 1);
+  assert.equal(subagentGroups(beta).length, 1);
+  assert.equal(subagentGroups(body).length, 2, 'no group renders outside its call card');
+  assert.match(alpha, /Running it\.[\s\S]*echo alpha/);
+  assert.doesNotMatch(alpha, /beta/i);
+  assert.doesNotMatch(beta, /alpha/i);
+  assert.doesNotMatch(alpha.slice(0, alpha.indexOf('<details')), /<details|<summary/, 'a subagent call card cannot be collapsed');
+  assert.ok(
+    body.indexOf('Delegating both.') < body.indexOf(alpha) &&
+      body.indexOf(alpha) < body.indexOf(beta) &&
+      body.indexOf(beta) < body.indexOf('Both sub-agents reported back.'),
+    'both cards render between the delegating turn and the parent reply',
+  );
+  assert.equal(toolCards(body).filter((card) => /subagent/.test(card.slice(0, card.indexOf('</summary>')))).length, 0, 'subagent calls do not also render as plain tool cards');
+});
+
+test('given a run whose agent spawned two subagents, when its run page is viewed, then each group is titled by its task and not by its tool call id', async () => {
+  const body = await viewTranscript(delegation);
+
+  const [alpha, beta] = subagentCalls(body) as [string, string];
+  const summaryOf = (card: string): string => card.slice(card.indexOf('<summary>'), card.indexOf('</summary>'));
+  assert.match(summaryOf(alpha), /<span class="subagent-task" title="Run echo alpha and report what it printed\.">Run echo alpha and report what it printed\.<\/span>/);
+  assert.match(summaryOf(beta), /<span class="subagent-task" title="Say beta\.">Say beta\.<\/span>/);
+  assert.match(summaryOf(alpha), /2 messages/);
+  assert.match(summaryOf(beta), /1 message\b/);
+  assert.doesNotMatch(body, /call_alpha|call_beta/);
+});
+
+test('given a subagent given a long multi-line task, when its group is expanded, then the whole task is shown and the header keeps it on one line', async () => {
+  const task = 'Review the diff.\n\nReport each finding with its file and line.';
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task } },
+    { type: 'message', role: 'assistant', text: 'reviewing', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'clean' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.match(card, /<span class="subagent-task" title="Review the diff\. Report each finding with its file and line\.">/);
+  assert.match(card, /<header>task<\/header>\s*<pre>Review the diff\.\n\nReport each finding with its file and line\.<\/pre>/);
+});
+
+test('given a run whose agent spawned two subagents, when a group is viewed, then its report is the subagent tool result, shown once', async () => {
+  const body = await viewTranscript(delegation);
+
+  const [alpha, beta] = subagentCalls(body) as [string, string];
+  assert.equal(alpha.match(/Alpha report: echo alpha printed alpha\./g)?.length, 1);
+  assert.equal(beta.match(/Beta report: beta\./g)?.length, 1);
+  assert.match(alpha, /<article class="message message-report">\s*<header>report<\/header>\s*<pre>Alpha report: echo alpha printed alpha\.<\/pre>\s*<\/article>\s*<\/div>\s*<\/details>/, 'the report closes the group');
+  assert.match(alpha, /<header>assistant<\/header>\s*<pre>Running it\.<\/pre>/, 'earlier child messages still render');
+  assert.equal(body.match(/class="message message-report"/g)?.length, 2);
+});
+
+test("given a subagent whose final message differs from the result the parent received, when its group is viewed, then both render and the report is the parent's result", async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Summarise the log.' } },
+    { type: 'message', role: 'assistant', text: 'full summary', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'full sum\n...cut' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.match(card, /<header>assistant<\/header>\s*<pre>full summary<\/pre>/);
+  assert.match(card, /<header>report<\/header>\s*<pre>full sum\n\.\.\.cut<\/pre>/);
+});
+
+test('given a subagent call that returned an error, when its run page is viewed, then its card is highlighted, its group is open and the error is its report', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
+    { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: { task: 'Say beta.' } },
+    { type: 'message', role: 'assistant', text: 'partial', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'beta', usage, costUsd: 0, subagent: 'call_beta' },
+    { type: 'tool_result', id: 'call_alpha', isError: true, text: 'Sub-agent failed: provider error' },
+    { type: 'tool_result', id: 'call_beta', isError: false, text: 'beta' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [failed, ok] = subagentCalls(body) as [string, string];
+  assert.match(failed, /^<section class="tool subagent-call tool-error">/);
+  assert.match(failed, /<span class="badge tool-status">error<\/span>/);
+  assert.match(failed, /<details class="subagent" open>/);
+  assert.match(failed, /<header>assistant<\/header>\s*<pre>partial<\/pre>/);
+  assert.match(failed, /<article class="message message-error">\s*<header>error<\/header>\s*<pre>Sub-agent failed: provider error<\/pre>/);
+  assert.match(ok, /^<section class="tool subagent-call">/);
+  assert.match(ok, /<details class="subagent">/);
+  assert.doesNotMatch(ok, /tool-status/);
+});
+
+test('given a subagent call that never got a result, when its run page is viewed, then its group says no report was recorded', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
+    { type: 'message', role: 'assistant', text: 'working on it', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'pi exited on signal SIGKILL' },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.match(card, /working on it[\s\S]*<p class="empty">No report recorded\.<\/p>/);
+  assert.doesNotMatch(card, /class="message message-report"/);
+});
+
+test('given a provider that reuses a subagent call id across turns, when the run page is viewed, then each child nests under the call that spawned it', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_0', name: 'subagent', arguments: { task: 'First task.' } },
+    { type: 'message', role: 'assistant', text: 'first child working', usage, costUsd: 0, subagent: 'call_0' },
+    { type: 'tool_result', id: 'call_0', isError: false, text: 'first report' },
+    { type: 'tool_call', id: 'call_0', name: 'subagent', arguments: { task: 'Second task.' } },
+    { type: 'message', role: 'assistant', text: 'second child working', usage, costUsd: 0, subagent: 'call_0' },
+    { type: 'tool_result', id: 'call_0', isError: false, text: 'second report' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [first, second] = subagentCalls(body) as [string, string];
+  assert.match(first, /First task\.[\s\S]*first child working[\s\S]*first report/);
+  assert.doesNotMatch(first, /second/);
+  assert.match(second, /Second task\.[\s\S]*second child working[\s\S]*second report/);
+  assert.doesNotMatch(second, /first/);
+});
+
+test('given a subagent given an explicit working directory, when its group is expanded, then the working directory is shown with the task', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'List the files.', cwd: 'repo/src' } },
+    { type: 'message', role: 'assistant', text: 'two files', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'two files' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.match(card, /<header>cwd<\/header>\s*<pre>repo\/src<\/pre>[\s\S]*<header>task<\/header>\s*<pre>List the files\.<\/pre>/);
+});
+
+test('given a subagent call whose arguments carry no task text, when its run page is viewed, then its header and body show the same arguments', async () => {
+  const capped = '{"task":"Review the diff\n...cut';
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { cwd: 'repo' } },
+    { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: capped },
+    { type: 'message', role: 'assistant', text: 'working', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'working', usage, costUsd: 0, subagent: 'call_beta' },
+    { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'pi exited on signal SIGKILL' },
+  ]);
+
+  const [alpha, beta] = subagentCalls(body) as [string, string];
+  assert.match(alpha, /<span class="subagent-task" title="\{ &quot;cwd&quot;: &quot;repo&quot; \}">/);
+  assert.match(alpha, /<header>task<\/header>\s*<pre>\{\n  &quot;cwd&quot;: &quot;repo&quot;\n\}<\/pre>/);
+  assert.match(beta, /<span class="subagent-task" title="\{&quot;task&quot;:&quot;Review the diff \.\.\.cut">/);
+  assert.match(beta, /<header>task<\/header>\s*<pre>\{&quot;task&quot;:&quot;Review the diff\n\.\.\.cut<\/pre>/);
+});
+
+test('given a harness whose spawning tool has another name, when its run page is viewed, then children still nest under the call their scope names', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'toolu_01', name: 'Task', arguments: { task: 'Count the files.' } },
+    { type: 'message', role: 'assistant', text: 'three files', usage, costUsd: 0, subagent: 'toolu_01' },
+    { type: 'tool_result', id: 'toolu_01', isError: false, text: 'three files' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.match(card, /<span class="tool-name">Task<\/span>[\s\S]*Count the files\.[\s\S]*<header>report<\/header>\s*<pre>three files<\/pre>/);
+  assert.equal(toolCards(body).length, 0);
+});
+
+test('given a subagent call that failed before its child produced any activity, when its run page is viewed, then it renders as an ordinary tool card that is highlighted and open', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'List the files.', cwd: '../outside' } },
+    { type: 'tool_result', id: 'call_alpha', isError: true, text: 'working directory escapes the run directory' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  assert.equal(subagentCalls(body).length, 0);
+  const [card] = toolCards(body) as [string];
+  assert.match(card, /^<details class="tool tool-error" open>/);
+  assert.match(card, /List the files\.[\s\S]*\.\.\/outside[\s\S]*working directory escapes the run directory/);
 });

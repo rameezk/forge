@@ -9,6 +9,8 @@ import type {
 } from '@forge/shared';
 import { formatCost, formatDuration, totalCost } from './format.ts';
 
+type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
+
 const STYLES = `
   :root { color-scheme: light dark; --line: color-mix(in srgb, currentColor 15%, transparent); }
   * { box-sizing: border-box; }
@@ -44,13 +46,17 @@ const STYLES = `
   .subagent-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; white-space: nowrap; }
   .tool-name { font: 600 0.85rem ui-monospace, monospace; white-space: nowrap; }
   .tool > summary code { opacity: 0.75; }
-  summary code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+  summary code, .subagent-task { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
   .subagent-count { margin-left: auto; white-space: nowrap; font-size: 0.8rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
   .subagent-body { padding: 0.75rem 1rem 0; border-top: 1px solid var(--line); }
   .message-report { border-color: color-mix(in srgb, currentColor 35%, transparent); }
   .tool-error { border-color: #cf222e; }
-  .tool-error .tool-name { color: #cf222e; }
+  .tool-error > summary .tool-name, .tool-error > header .tool-name { color: #cf222e; }
   .badge.tool-status { margin-left: auto; flex-shrink: 0; color: #cf222e; }
+  .subagent-call > header { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; }
+  .subagent-call > .subagent { border: none; border-top: 1px solid var(--line); border-radius: 0; margin: 0; }
+  .message-error { border-color: #cf222e; }
+  .message-error > header { color: #cf222e; opacity: 1; }
   .tool-body { padding: 0.6rem 1rem 0.75rem; border-top: 1px solid var(--line); }
   .tool-body > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin: 0 0 0.3rem; }
   .tool-body > header ~ header { margin-top: 0.75rem; }
@@ -143,9 +149,11 @@ const summaryText = (args: unknown): unknown => {
   return values.find((value) => typeof value === 'string');
 };
 
+const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
 const argumentSummary = (args: unknown): string => {
   const summary = summaryText(args);
-  return typeof summary === 'string' ? summary.replace(/\s+/g, ' ').trim() : '';
+  return typeof summary === 'string' ? oneLine(summary) : '';
 };
 
 const prettyArguments = (args: unknown): string =>
@@ -173,6 +181,11 @@ const toolResults = (events: HarnessEvent[]): ToolResults => {
   return results;
 };
 
+const toolName = (name: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="tool-name">${name}</span>`;
+
+const ERROR_BADGE = html`<span class="badge tool-status">error</span>`;
+
 const renderToolCall = (
   call: ToolCallEvent,
   result: ToolResultEvent | undefined,
@@ -181,9 +194,9 @@ const renderToolCall = (
   const failed = result?.isError === true;
   return html`<details class="tool${failed ? ' tool-error' : ''}"${failed ? html` open` : ''}>
     <summary>
-      <span class="tool-name">${call.name}</span>
+      ${toolName(call.name)}
       <code title="${summary}">${summary}</code>
-      ${failed ? html`<span class="badge tool-status">error</span>` : ''}
+      ${failed ? ERROR_BADGE : ''}
     </summary>
     <div class="tool-body">
       <header>Arguments</header>
@@ -199,7 +212,7 @@ const renderToolCall = (
 const renderEvent = (
   event: HarnessEvent,
   results: ToolResults,
-): HtmlEscapedString | Promise<HtmlEscapedString> | '' => {
+): Rendered => {
   switch (event.type) {
     case 'message':
       return renderText(event.role, event.text);
@@ -214,22 +227,10 @@ const renderEvent = (
   }
 };
 
-const isToolOnlyPreamble = (
-  event: HarnessEvent,
-  next: HarnessEvent | undefined,
-): boolean =>
-  event.type === 'message' &&
-  event.role === 'assistant' &&
-  event.text.length === 0 &&
-  next?.type === 'tool_call' &&
-  next.subagent === event.subagent;
-
-const withoutToolOnlyPreambles = (events: HarnessEvent[]): HarnessEvent[] =>
-  events.filter((event, index) => !isToolOnlyPreamble(event, events[index + 1]));
-
 interface SubagentGroup {
   type: 'subagent';
   scope: string;
+  call?: ToolCallEvent;
   events: ScopedEvent[];
 }
 
@@ -237,55 +238,148 @@ type ScopedEvent = MessageEvent | ToolCallEvent | ToolResultEvent;
 
 type TranscriptEntry = HarnessEvent | SubagentGroup;
 
-const groupBySubagent = (events: HarnessEvent[]): TranscriptEntry[] => {
+const isToolCall = (entry: TranscriptEntry | undefined): boolean =>
+  entry?.type === 'tool_call' ||
+  (entry?.type === 'subagent' && entry.call !== undefined);
+
+const isToolOnlyPreamble = (
+  entry: TranscriptEntry,
+  next: TranscriptEntry | undefined,
+): boolean =>
+  entry.type === 'message' &&
+  entry.role === 'assistant' &&
+  entry.text.length === 0 &&
+  isToolCall(next);
+
+const withoutToolOnlyPreambles = <T extends TranscriptEntry>(entries: T[]): T[] =>
+  entries.filter((entry, index) => !isToolOnlyPreamble(entry, entries[index + 1]));
+
+const nestSubagents = (events: HarnessEvent[]): TranscriptEntry[] => {
+  const calls = new Map<string, { call: ToolCallEvent; index: number }>();
   const groups = new Map<string, SubagentGroup>();
   const entries: TranscriptEntry[] = [];
   for (const event of events) {
     if (event.type === 'result' || event.subagent === undefined) {
+      if (event.type === 'tool_call') {
+        calls.set(event.id, { call: event, index: entries.length });
+        groups.delete(event.id);
+      }
       entries.push(event);
       continue;
     }
-    const group = groups.get(event.subagent);
+    let group = groups.get(event.subagent);
     if (group === undefined) {
-      const created: SubagentGroup = { type: 'subagent', scope: event.subagent, events: [event] };
-      groups.set(event.subagent, created);
-      entries.push(created);
-    } else {
-      group.events.push(event);
+      const spawner = calls.get(event.subagent);
+      group = spawner === undefined
+        ? { type: 'subagent', scope: event.subagent, events: [] }
+        : { type: 'subagent', scope: event.subagent, call: spawner.call, events: [] };
+      groups.set(event.subagent, group);
+      if (spawner === undefined) {
+        entries.push(group);
+      } else {
+        entries[spawner.index] = group;
+      }
     }
+    group.events.push(event);
   }
   return entries;
 };
 
-const renderSubagent = (
-  { scope, events }: SubagentGroup,
-  results: ToolResults,
-): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const report = events.findLastIndex(
+const messageCount = (events: ScopedEvent[]): string => {
+  const messages = events.filter((event) => event.type === 'message').length;
+  return `${messages} ${messages === 1 ? 'message' : 'messages'}`;
+};
+
+const withoutReportMessage = (
+  events: ScopedEvent[],
+  report: ToolResultEvent | undefined,
+): ScopedEvent[] => {
+  const last = events.findLastIndex(
     (event) => event.type === 'message' && event.role === 'assistant',
   );
-  const messages = events.filter((event) => event.type === 'message').length;
-  return html`<details class="subagent">
+  const message = events[last];
+  return message?.type === 'message' && message.text === report?.text
+    ? events.filter((_, index) => index !== last)
+    : events;
+};
+
+const argumentFields = (args: unknown): Record<string, unknown> =>
+  typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
+
+const taskText = (args: unknown): string => {
+  const { task } = argumentFields(args);
+  return typeof task === 'string' ? task : prettyArguments(args);
+};
+
+const renderGroup = (
+  summary: Rendered,
+  count: string,
+  open: boolean,
+  body: Rendered[],
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<details class="subagent"${open ? html` open` : ''}>
     <summary>
-      <span class="subagent-label">Subagent</span>
-      <code title="${scope}">${scope}</code>
-      <span class="subagent-count">${messages} ${messages === 1 ? 'message' : 'messages'}</span>
+      ${summary}
+      <span class="subagent-count">${count}</span>
     </summary>
     <div class="subagent-body">
-    ${events.map((event, index) =>
-      index === report && event.type === 'message'
-        ? renderText('report', event.text)
-        : renderEvent(event, results),
-    )}
+      ${body}
     </div>
   </details>`;
+
+const renderSubagentCall = (
+  call: ToolCallEvent,
+  events: ScopedEvent[],
+  results: ToolResults,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const report = results.get(call);
+  const failed = report?.isError === true;
+  const task = taskText(call.arguments);
+  const { cwd } = argumentFields(call.arguments);
+  const shown = withoutToolOnlyPreambles(events);
+  return html`<section class="tool subagent-call${failed ? ' tool-error' : ''}">
+    <header>
+      ${toolName(call.name)}
+      ${failed ? ERROR_BADGE : ''}
+    </header>
+    ${renderGroup(
+      html`<span class="subagent-task" title="${oneLine(task)}">${oneLine(task)}</span>`,
+      messageCount(shown),
+      failed,
+      [
+        typeof cwd === 'string' ? renderText('cwd', cwd) : '',
+        renderText('task', task),
+        ...withoutReportMessage(shown, report).map((event) => renderEvent(event, results)),
+        report === undefined
+          ? html`<p class="empty">No report recorded.</p>`
+          : renderText(failed ? 'error' : 'report', report.text),
+      ],
+    )}
+  </section>`;
+};
+
+const renderSubagent = (
+  { scope, call, events }: SubagentGroup,
+  results: ToolResults,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  if (call !== undefined) {
+    return renderSubagentCall(call, events, results);
+  }
+  const shown = withoutToolOnlyPreambles(events);
+  return renderGroup(
+    html`<span class="subagent-label">Subagent</span>
+      <code title="${scope}">${scope}</code>`,
+    messageCount(shown),
+    false,
+    shown.map((event) => renderEvent(event, results)),
+  );
 };
 
 const renderTranscript = (
   events: HarnessEvent[],
-): (HtmlEscapedString | Promise<HtmlEscapedString> | '')[] => {
+): Rendered[] => {
   const results = toolResults(events);
-  return groupBySubagent(withoutToolOnlyPreambles(events)).map((entry) =>
+  return withoutToolOnlyPreambles(nestSubagents(events)).map((entry) =>
     entry.type === 'subagent'
       ? renderSubagent(entry, results)
       : renderEvent(entry, results),
