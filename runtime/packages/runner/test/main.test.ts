@@ -228,6 +228,22 @@ const cutBefore = (name: string, eventType: string): string => {
   return outputFile(`${lines.slice(0, cut).join('\n')}\n`);
 };
 
+const journaled = async <T>(
+  body: () => Promise<T>,
+): Promise<{ result: T; journal: string }> => {
+  const lines: string[] = [];
+  const write = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+    lines.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    return { result: await body(), journal: lines.join('') };
+  } finally {
+    process.stderr.write = write;
+  }
+};
+
 const isAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
@@ -340,26 +356,19 @@ test('given recorded pi output where a failed attempt is retried and then succee
 });
 
 test('given pi failing pre-flight with its reason on stderr and exit 1, when the worker runs, then the run is error carrying that reason and stderr still reaches the journal', async () => {
-  const journal: string[] = [];
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
-    journal.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-
-  const outcome = await runWorker({
-    output: fixture('preflight.jsonl'),
-    stderr: fixture('preflight.stderr'),
-    exit: 1,
-  }).finally(() => {
-    process.stderr.write = write;
-  });
+  const { result: outcome, journal } = await journaled(() =>
+    runWorker({
+      output: fixture('preflight.jsonl'),
+      stderr: fixture('preflight.stderr'),
+      exit: 1,
+    }),
+  );
 
   assert.equal(outcome.code, 1);
   assert.equal(outcome.run.status, 'error');
   assert.match(outcome.run.error ?? '', /No API key found for openrouter\./);
   assert.equal(outcome.run.sessionId, sessionIdOf(fixture('preflight.jsonl')));
-  assert.match(journal.join(''), /No API key found for openrouter\./);
+  assert.match(journal, /No API key found for openrouter\./);
 });
 
 test('given pi output that is cut off before a final agent_end, or that ends on an agent_end that will retry, when the worker runs, then the run is error', async () => {
@@ -391,24 +400,27 @@ test('given pi writing output that is not json and staying alive, when the worke
   assert.equal(isAlive(pi.pid), false);
 });
 
-test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a server error, an unusable body, a not found that never clears, or no answer at all, when the worker runs, then the run stays success with the cost it could look up and cost flagged uncertain', async () => {
-  const failures: ReturnType<GenerationStats>[] = [
-    { status: 500, body: { error: { code: 500 } } },
-    { status: 200, body: { data: { id: 'gen-success-2' } } },
-    { status: 200, body: 'not json' },
-    { status: 404, body: { error: { code: 404 } } },
-    'hang',
+test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a rejected key, a server error, an unusable body, a not found that never clears, or no answer at all, when the worker runs, then the run stays success with the cost it could look up, cost flagged uncertain, and the journal names the generation and why without the key', async () => {
+  const failures: [ReturnType<GenerationStats>, RegExp][] = [
+    [{ status: 401, body: { error: { code: 401 } } }, /HTTP 401/],
+    [{ status: 500, body: { error: { code: 500 } } }, /HTTP 500/],
+    [{ status: 200, body: { data: { id: 'gen-success-2' } } }, /total_cost/],
+    [{ status: 200, body: 'not json' }, /JSON/],
+    [{ status: 404, body: { error: { code: 404 } } }, /HTTP 404/],
+    ['hang', /timeout|abort/i],
   ];
 
-  const outcomes = await Promise.all(
-    failures.map((failure) =>
-      runWorker({
-        output: fixture('success.jsonl'),
-        generations: (id, attempt) =>
-          id === 'gen-success-2'
-            ? failure
-            : billedAt(BILLED_BY_ID)(id, attempt),
-      }),
+  const { result: outcomes, journal } = await journaled(() =>
+    Promise.all(
+      failures.map(([failure]) =>
+        runWorker({
+          output: fixture('success.jsonl'),
+          generations: (id, attempt) =>
+            id === 'gen-success-2'
+              ? failure
+              : billedAt(BILLED_BY_ID)(id, attempt),
+        }),
+      ),
     ),
   );
 
@@ -419,6 +431,17 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
     assert.equal(run.costUsd, 0.0125);
     assert.equal(run.costUncertain, true);
   }
+  const reasons = journal
+    .split('\n')
+    .filter((line) => line.includes('"gen-success-2"'));
+  for (const [, reason] of failures) {
+    assert.ok(
+      reasons.some((line) => reason.test(line)),
+      `journal names ${reason}`,
+    );
+  }
+  assert.doesNotMatch(journal, /gen-success-1/);
+  assert.doesNotMatch(journal, new RegExp(OPENROUTER_KEY));
 });
 
 test('given an OpenRouter that answers a generation lookup with not found while its stats lag, or with a rate limit or server error, at first and then its billed cost, when the worker runs, then the run cost includes that generation and is not flagged uncertain', async () => {

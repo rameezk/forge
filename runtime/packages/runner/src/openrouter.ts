@@ -16,7 +16,7 @@ const LOOKUP_TIMEOUT_MS = 5000;
 
 const CONCURRENT_LOOKUPS = 4;
 
-type Lookup = number | 'transient' | 'failed';
+type Lookup = number | { transient: boolean; reason: string };
 
 export interface Billing {
   cost(generationIds: string[]): Promise<RunCost>;
@@ -60,16 +60,21 @@ export class OpenRouterBilling implements Billing {
   }
 
   async #billed(id: string): Promise<number | null> {
+    let reason = '';
     for (const delay of [0, ...RETRY_DELAYS_MS]) {
       await sleep(delay);
       const lookup = await this.#lookup(id);
       if (typeof lookup === 'number') {
         return lookup;
       }
-      if (lookup === 'failed') {
-        return null;
+      reason = lookup.reason;
+      if (!lookup.transient) {
+        break;
       }
     }
+    process.stderr.write(
+      `could not cost OpenRouter generation ${JSON.stringify(id)}: ${reason}\n`,
+    );
     return null;
   }
 
@@ -82,15 +87,21 @@ export class OpenRouterBilling implements Billing {
         signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
       });
       if (!response.ok) {
-        return isTransient(response.status) ? 'transient' : 'failed';
+        return {
+          transient: isTransient(response.status),
+          reason: `HTTP ${response.status}`,
+        };
       }
       const cost = ((await response.json()) as GenerationResponse).data
         ?.total_cost;
       return typeof cost === 'number' && Number.isFinite(cost)
         ? cost
-        : 'failed';
-    } catch {
-      return 'failed';
+        : { transient: false, reason: 'response has no numeric total_cost' };
+    } catch (error) {
+      return {
+        transient: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 }
