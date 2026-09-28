@@ -257,9 +257,10 @@ test('given pi output that is cut off before a final agent_end, or that ends on 
   }
 });
 
-test('given pi writing output that is not json and staying alive, when the worker runs, then the run is error and pi is stopped before the runner returns', async () => {
+test('given pi writing output that is not json and staying alive, when the worker runs, then the run is error naming the bad output, keeps the session id, and pi is stopped before the runner returns', async () => {
+  const header = readFileSync(fixture('success.jsonl'), 'utf8').split('\n')[0];
   const { code, run, pi } = await runWorker({
-    output: outputFile('pi: something went wrong\n'),
+    output: outputFile(`${header}\npi: something went wrong\n`),
     lingerMs: 10_000,
   });
 
@@ -269,5 +270,6 @@ test('given pi writing output that is not json and staying alive, when the worke
     run.error ?? '',
     /pi emitted non-JSON output: pi: something went wrong/,
   );
+  assert.equal(run.sessionId, sessionIdOf(fixture('success.jsonl')));
   assert.equal(isAlive(pi.pid), false);
 });

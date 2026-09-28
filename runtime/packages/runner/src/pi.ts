@@ -74,13 +74,11 @@ const assistantMessage = (message: PiMessage): MessageEvent => ({
 
 const NON_JSON_EXCERPT_CHARS = 200;
 
-const parse = (line: string): PiLine => {
+const parseLine = (line: string): PiLine | null => {
   try {
     return JSON.parse(line) as PiLine;
   } catch {
-    throw new Error(
-      `pi emitted non-JSON output: ${line.slice(0, NON_JSON_EXCERPT_CHARS)}`,
-    );
+    return null;
   }
 };
 
@@ -88,12 +86,21 @@ class PiStream {
   #sessionId: string | null = null;
   #ended = false;
   #lastAssistant: PiMessage | null = null;
+  #malformed: string | null = null;
+
+  get malformed(): boolean {
+    return this.#malformed !== null;
+  }
 
   translate(line: string): HarnessEvent | null {
     if (line.trim().length === 0) {
       return null;
     }
-    const event = parse(line);
+    const event = parseLine(line);
+    if (event === null) {
+      this.#malformed = `pi emitted non-JSON output: ${line.slice(0, NON_JSON_EXCERPT_CHARS)}`;
+      return null;
+    }
     switch (event.type) {
       case 'session':
         this.#sessionId = event.id ?? null;
@@ -112,8 +119,8 @@ class PiStream {
     }
   }
 
-  result(failure: Error | null): HarnessEvent {
-    const error = failure === null ? this.#error() : failure.message;
+  result(exitFailure: Error | null): HarnessEvent {
+    const error = this.#malformed ?? exitFailure?.message ?? this.#error();
     return {
       type: 'result',
       status: error === null ? 'success' : 'error',
@@ -193,11 +200,14 @@ export class PiHarness implements Harness {
       });
       for await (const line of lines) {
         const event = stream.translate(line);
+        if (stream.malformed) {
+          break;
+        }
         if (event !== null) {
           yield event;
         }
       }
-      drained = true;
+      drained = !stream.malformed;
     } finally {
       if (!drained) {
         child.kill('SIGKILL');
