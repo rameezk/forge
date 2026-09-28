@@ -33,7 +33,7 @@ let
       };
       prompt = lib.mkOption {
         type = lib.types.lines;
-        description = "Prompt the worker runs on.";
+        description = "Prompt the worker runs on. It must not start with `-` or `@`, which the harness would parse as an option or a file; the runner rejects such a worker.";
       };
       reasoningEffort = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
