@@ -31,6 +31,7 @@ export interface SubagentResponse {
 
 export interface SubagentDetails {
   responses: SubagentResponse[];
+  error?: string;
 }
 
 export interface SubagentUpdate {
