@@ -65,8 +65,8 @@ interface PiUsage {
 interface PiContent {
   type: string;
   text?: string;
-  id?: string;
-  name?: string;
+  id?: unknown;
+  name?: unknown;
   arguments?: unknown;
 }
 
@@ -121,30 +121,20 @@ const assistantMessage = (
   ...scoped(subagent),
 });
 
-const TOOL_PAYLOAD_CAP_CHARS = 32 * 1024;
-
-const capped = (text: string): string =>
-  text.length <= TOOL_PAYLOAD_CAP_CHARS
-    ? text
-    : `${text.slice(0, TOOL_PAYLOAD_CAP_CHARS)}\n[truncated ${text.length - TOOL_PAYLOAD_CAP_CHARS} characters]`;
-
-const cappedArguments = (value: unknown): unknown => {
-  const json = JSON.stringify(value) ?? '';
-  return json.length <= TOOL_PAYLOAD_CAP_CHARS ? value : capped(json);
-};
-
 const toolCalls = (
   message: PiMessage,
   subagent: string | undefined,
 ): ToolCallEvent[] =>
   message.content.flatMap((part) =>
-    part.type === 'toolCall' && part.id !== undefined && part.name !== undefined
+    part.type === 'toolCall' &&
+    typeof part.id === 'string' &&
+    typeof part.name === 'string'
       ? [
           {
             type: 'tool_call',
             id: part.id,
             name: part.name,
-            arguments: cappedArguments(part.arguments),
+            arguments: part.arguments ?? {},
             ...scoped(subagent),
           },
         ]
@@ -162,7 +152,7 @@ const toolResult = (
           type: 'tool_result',
           id: event.toolCallId,
           isError: event.isError === true,
-          text: capped(textOf(event.result?.content ?? [])),
+          text: textOf(event.result?.content ?? []),
           ...scoped(subagent),
         },
       ];

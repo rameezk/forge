@@ -386,6 +386,96 @@ test('given a recorded run whose agent calls bash in turns with no text, one cal
   ]);
 });
 
+test('given an agent whose tool arguments, tool output and reply contain the OpenRouter key, including where an oversized output is cut, when the transcript is written, then the key never reaches it and each occurrence is marked redacted', async () => {
+  const cap = 32 * 1024;
+  const straddling = `${'a'.repeat(cap - 4)}${OPENROUTER_KEY}${'a'.repeat(100)}`;
+  const { transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('tool-calls.jsonl'), 'utf8')
+        .replaceAll(
+          '"command":"echo forge"',
+          `"command":"echo ${OPENROUTER_KEY}"`,
+        )
+        .replaceAll(
+          '"text":"forge\\n"',
+          `"text":"OPENROUTER_API_KEY=${OPENROUTER_KEY}\\n"`,
+        )
+        .replaceAll(
+          '"text":"cat: missing.txt: No such file or directory\\n\\n\\nCommand exited with code 1"',
+          `"text":"${straddling}"`,
+        )
+        .replaceAll(
+          '"text":"Done with the tools."',
+          `"text":"The key is ${OPENROUTER_KEY}."`,
+        ),
+    ),
+  });
+
+  assert.doesNotMatch(transcript, /sk-o/);
+  const events = parseTranscript(transcript);
+  assert.deepEqual(
+    events.find((event) => event.type === 'tool_call' && event.id === 'call_1'),
+    {
+      type: 'tool_call',
+      id: 'call_1',
+      name: 'bash',
+      arguments: { command: 'echo [redacted]' },
+    },
+  );
+  const resultText = (id: string) =>
+    events.find((event) => event.type === 'tool_result' && event.id === id);
+  assert.deepEqual(resultText('call_1'), {
+    type: 'tool_result',
+    id: 'call_1',
+    isError: false,
+    text: 'OPENROUTER_API_KEY=[redacted]\n',
+  });
+  assert.equal(
+    (resultText('call_2') as { text: string }).text,
+    `${'a'.repeat(cap - 4)}[red\n[truncated ${straddling.length - OPENROUTER_KEY.length + '[redacted]'.length - cap} characters]`,
+  );
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === 'message' && event.text === 'The key is [redacted].',
+    ),
+  );
+});
+
+test('given pi output whose tool call parts have a non-string name or id, or no arguments, when the transcript is written, then malformed calls are skipped and a call without arguments is recorded with none', async () => {
+  const { code, transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('tool-calls.jsonl'), 'utf8')
+        .split('\n')
+        .map((line) =>
+          line.startsWith('{"type":"message_end"')
+            ? line.replace(
+                '{"type":"toolCall","id":"call_1","name":"bash","arguments":{"command":"echo forge"}}',
+                [
+                  '{"type":"toolCall","id":"call_1","name":{"isEscaped":true},"arguments":{}}',
+                  '{"type":"toolCall","id":7,"name":"bash","arguments":{}}',
+                  '{"type":"toolCall","id":"call_bare","name":"ls"}',
+                ].join(','),
+              )
+            : line,
+        )
+        .join('\n'),
+    ),
+  });
+
+  assert.equal(code, 0);
+  const calls = parseTranscript(transcript).filter(
+    (event) => event.type === 'tool_call',
+  );
+  assert.deepEqual(
+    calls.map((call) => [call.id, call.name, call.arguments]),
+    [
+      ['call_bare', 'ls', {}],
+      ['call_2', 'bash', { command: 'cat missing.txt' }],
+    ],
+  );
+});
+
 test('given a recorded tool call whose arguments and result each exceed the cap, when the transcript is written, then the stored arguments and result text are cut at the cap and end in a truncation marker', async () => {
   const cap = 32 * 1024;
   const command = `echo ${'f'.repeat(40_000)}`;

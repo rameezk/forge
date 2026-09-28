@@ -6,7 +6,7 @@ import {
   type RunCost,
   type Worker,
 } from './harness.ts';
-import type { TranscriptWriter } from './transcript.ts';
+import { recordable, type TranscriptWriter } from './transcript.ts';
 
 export interface RunWorkloadOptions {
   store: Store;
@@ -16,6 +16,7 @@ export interface RunWorkloadOptions {
   openWorkDir: (runId: string) => string;
   now: () => string;
   newId: () => string;
+  secrets?: string[];
 }
 
 const UNSETTLED: RunCost = { costUsd: 0, uncertain: true };
@@ -36,6 +37,7 @@ export const runWorkload = async (
 ): Promise<string> => {
   const { store, harness, worker, openTranscript, openWorkDir, now, newId } =
     options;
+  const record = recordable(options.secrets ?? []);
   const id = newId();
   const transcript = openTranscript(id);
 
@@ -66,7 +68,8 @@ export const runWorkload = async (
   try {
     const invocation = invocationFor(worker, openWorkDir(id));
     const started = harness.run(invocation);
-    for await (const event of started.events) {
+    for await (const harnessEvent of started.events) {
+      const event = record(harnessEvent);
       await transcript.append(event);
       if (event.type === 'message') {
         inputTokens += event.usage.inputTokens;
