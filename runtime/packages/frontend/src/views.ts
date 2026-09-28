@@ -7,6 +7,7 @@ import type {
   ToolCallEvent,
   ToolResultEvent,
 } from '@forge/shared';
+import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { formatCost, formatDuration, totalCost } from './format.ts';
 
 const STYLES = `
@@ -231,7 +232,7 @@ type TranscriptEntry = HarnessEvent | SubagentGroup;
 
 const isSubagentCall = (event: HarnessEvent): event is ToolCallEvent =>
   event.type === 'tool_call' &&
-  event.name === 'subagent' &&
+  event.name === SUBAGENT_TOOL &&
   event.subagent === undefined;
 
 const isToolCall = (entry: TranscriptEntry | undefined): boolean =>
