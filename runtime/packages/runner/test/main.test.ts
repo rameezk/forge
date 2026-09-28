@@ -241,6 +241,7 @@ test('given pi failing pre-flight with its reason on stderr and exit 1, when the
   assert.equal(outcome.code, 1);
   assert.equal(outcome.run.status, 'error');
   assert.match(outcome.run.error ?? '', /No API key found for openrouter\./);
+  assert.equal(outcome.run.sessionId, sessionIdOf(fixture('preflight.jsonl')));
   assert.match(journal.join(''), /No API key found for openrouter\./);
 });
 
@@ -264,5 +265,9 @@ test('given pi writing output that is not json and staying alive, when the worke
 
   assert.equal(code, 1);
   assert.equal(run.status, 'error');
+  assert.match(
+    run.error ?? '',
+    /pi emitted non-JSON output: pi: something went wrong/,
+  );
   assert.equal(isAlive(pi.pid), false);
 });

@@ -72,6 +72,18 @@ const assistantMessage = (message: PiMessage): MessageEvent => ({
   costUsd: 0,
 });
 
+const NON_JSON_EXCERPT_CHARS = 200;
+
+const parse = (line: string): PiLine => {
+  try {
+    return JSON.parse(line) as PiLine;
+  } catch {
+    throw new Error(
+      `pi emitted non-JSON output: ${line.slice(0, NON_JSON_EXCERPT_CHARS)}`,
+    );
+  }
+};
+
 class PiStream {
   #sessionId: string | null = null;
   #ended = false;
@@ -81,7 +93,7 @@ class PiStream {
     if (line.trim().length === 0) {
       return null;
     }
-    const event = JSON.parse(line) as PiLine;
+    const event = parse(line);
     switch (event.type) {
       case 'session':
         this.#sessionId = event.id ?? null;
@@ -100,8 +112,8 @@ class PiStream {
     }
   }
 
-  result(): HarnessEvent {
-    const error = this.#error();
+  result(failure: Error | null): HarnessEvent {
+    const error = failure === null ? this.#error() : failure.message;
     return {
       type: 'result',
       status: error === null ? 'success' : 'error',
@@ -193,10 +205,6 @@ export class PiHarness implements Harness {
       }
     }
 
-    const failure = await exit;
-    if (failure !== null) {
-      throw failure;
-    }
-    yield stream.result();
+    yield stream.result(await exit);
   }
 }
