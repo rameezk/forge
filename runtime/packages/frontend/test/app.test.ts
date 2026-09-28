@@ -477,7 +477,7 @@ test('given a subagent call whose arguments carry no task text, when its run pag
   assert.match(beta, /<header>task<\/header>\s*<pre>\{&quot;task&quot;:&quot;Review the diff\n\.\.\.cut<\/pre>/);
 });
 
-test("given a harness whose spawning tool has another name, when its run page is viewed, then children still nest under the call their scope names", async () => {
+test('given a harness whose spawning tool has another name, when its run page is viewed, then children still nest under the call their scope names', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'toolu_01', name: 'Task', arguments: { task: 'Count the files.' } },
     { type: 'message', role: 'assistant', text: 'three files', usage, costUsd: 0, subagent: 'toolu_01' },
