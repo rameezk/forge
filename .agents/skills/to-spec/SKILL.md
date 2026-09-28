@@ -22,7 +22,7 @@ By the time this runs, [[refine]] has done the deciding. Do not interview the us
 
 5. **Publish** to the destination from the config:
    - **local** - write to `docs/specs/NNNN-slug/spec.md` - each spec in its own folder. Number the folder sequentially with 4-digit zero-padding: scan `docs/specs/` for the highest existing number and add one, starting at `0001` if it is empty.
-   - **github** - publish as a single issue on `repo` via `gh`. Title the issue with the feature name and apply a `spec` label, so a fresh session can find it again with `gh issue list --label spec`. Ensure the label exists first with the idempotent `gh label create spec --color 5319E7 --force`, since a fresh repo won't have it. The color is fixed so the `spec` label reads the same across every repo; `--force` normalizes an existing label to it. The issue URL is the spec's identity - GitHub assigns the number, so there is no `NNNN` to manage here.
+   - **github** - publish as a single issue on `repo` via `gh`. Title the issue with the feature name and apply a `spec` label, so a fresh session can find it again with `gh issue list --label spec`. Ensure the label exists first, creating it only if absent so an existing `spec` label keeps its styling: `gh label list --json name -q '.[].name' | grep -qx spec || gh label create spec --color 5319E7`. The color is the default for a fresh repo that has no `spec` label yet. The issue URL is the spec's identity - GitHub assigns the number, so there is no `NNNN` to manage here.
 
 ## Completion
 
