@@ -1,8 +1,6 @@
 # <img src="docs/assets/logo.svg" alt="" height="44" align="top"> Forge
 
 > A declarative software factory.
->
-> <sub>Named after the Marvel mutant [Forge](https://en.wikipedia.org/wiki/Forge_(Marvel_Comics)), whose power is an intuitive genius for inventing machines.</sub>
 
 Forge runs agent workloads on a machine you define declaratively.
 
@@ -13,9 +11,6 @@ Forge stands up a NixOS box to run them on, and every run of a worker is an isol
 Forge records each workload's transcript, token usage and billed cost, and shows them on a dashboard, so you can trace what every worker did and feed that back into improving your workers.
 
 ## How it works
-
-> [!NOTE]
-> Dashed edges are planned and not built yet.
 
 ### System context
 
@@ -32,7 +27,7 @@ flowchart TB
     operator -- "stands up, deploys and watches" --> forge
     forge -- "provisions the server" --> hetzner
     forge -- "calls models, looks up billed cost" --> openrouter
-    forge -. "polls the frontier, works tickets (planned)" .-> github
+    forge -- "polls the frontier, works tickets" --> github
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
     classDef system fill:#1168bd,stroke:#0b4884,color:#fff
@@ -78,7 +73,7 @@ flowchart TB
     runner -- "spawns" --> harness
     harness -- "calls models" --> openrouter
     runner -- "looks up billed cost" --> openrouter
-    runner -. "polls the frontier, works tickets (planned)" .-> github
+    runner -- "polls the frontier, works tickets" --> github
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
     classDef container fill:#438dd5,stroke:#2e6295,color:#fff
@@ -135,3 +130,11 @@ The scaffolded repository's README walks through each step in full.
 
 - [`docs/CONTEXT.md`](docs/CONTEXT.md) - the shared language
 - [`docs/adr/`](docs/adr) - the key decisions behind Forge and why they were made
+
+## Why the name Forge
+
+Forge is named after [Forge](https://en.wikipedia.org/wiki/Forge_(Marvel_Comics)), the Marvel mutant whose power is an intuitive genius for inventing machines.
+
+> _"It always starts with a problem. An impractical, unattainable, unworkable problem that needs to be solved. Then... I solve it. I work it. I attain it. I move and shift and reshape. Make something out of nothing."_
+>
+> <sub>Forge, in [_Extraordinary X-Men_ #18](https://marvel.fandom.com/wiki/Extraordinary_X-Men_Vol_1_18)</sub>
