@@ -25,6 +25,8 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   ...overrides,
 });
 
+const usage = { inputTokens: 5, outputTokens: 5 };
+
 const appWith = (runs: RunRecord[], dir: string = mkdtempSync(join(tmpdir(), 'forge-transcripts-'))) => {
   const store = Store.open(':memory:');
   for (const run of runs) store.insertRun(run);
@@ -115,10 +117,10 @@ const detailsBlocks = (body: string, opening: RegExp): string[] => {
 };
 
 const subagentGroups = (body: string): string[] => detailsBlocks(body, /<details class="subagent"/g);
+const subagentCalls = (body: string): string[] => body.match(/<section class="tool subagent-call[\s\S]*?<\/section>/g) ?? [];
 
 test('given a transcript written before subagent calls were recorded, when its transcript is viewed, then each subagent scope still renders grouped and collapsed under its scope and the parent renders ungrouped', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const events: HarnessEvent[] = [
     { type: 'message', role: 'assistant', text: 'parent delegates two reviews', usage, costUsd: 0 },
     { type: 'message', role: 'assistant', text: 'alpha reading the diff', usage, costUsd: 0, subagent: 'call-alpha' },
@@ -184,7 +186,6 @@ const viewTranscript = async (events: HarnessEvent[]): Promise<string> => {
 };
 
 test('given a run whose agent made a bash call in a turn with no text, when its run page is viewed, then a collapsed card shows the tool name and command and no empty assistant card renders', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'message', role: 'user', text: 'run echo forge', usage, costUsd: 0 },
     { type: 'message', role: 'assistant', text: '', usage, costUsd: 0 },
@@ -207,7 +208,6 @@ test('given a run whose agent made a bash call in a turn with no text, when its 
 });
 
 test('given parallel tool calls whose results arrive out of order, when a card is expanded, then it shows its own arguments as pretty json and its own result', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'message', role: 'assistant', text: 'checking both', usage, costUsd: 0 },
     { type: 'tool_call', id: 'call_1', name: 'read', arguments: { path: 'a.txt', limit: 10 } },
@@ -244,7 +244,6 @@ test('given a run with a tool call that returned an error beside one that succee
 });
 
 test('given a subagent tool call sharing its id with a parent tool call, when the run page is viewed, then the subagent card renders inside its group with its own result and the parent card keeps its own', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo parent' } },
     { type: 'tool_result', id: 'call_1', isError: false, text: 'parent output' },
@@ -280,7 +279,6 @@ test('given a tool call whose arguments were capped and which never got a result
 });
 
 test('given a transcript written before tool events were recorded, when its run page is viewed, then every message renders as before, including an empty assistant turn, and no tool card appears', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'message', role: 'user', text: 'run echo forge', usage, costUsd: 0 },
     { type: 'message', role: 'assistant', text: '', usage, costUsd: 0 },
@@ -311,9 +309,7 @@ test('given a provider that reuses a tool call id across turns, when the run pag
   assert.doesNotMatch(second, /first output|tool-error/);
 });
 
-const subagentCalls = (body: string): string[] => body.match(/<section class="tool subagent-call[\s\S]*?<\/section>/g) ?? [];
-
-const delegation = (usage = { inputTokens: 5, outputTokens: 5 }): HarnessEvent[] => [
+const delegation: HarnessEvent[] = [
   { type: 'message', role: 'assistant', text: 'Delegating both.', usage, costUsd: 0 },
   { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Run echo alpha and report what it printed.' } },
   { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: { task: 'Say beta.' } },
@@ -329,7 +325,7 @@ const delegation = (usage = { inputTokens: 5, outputTokens: 5 }): HarnessEvent[]
 ];
 
 test('given a run whose agent spawned two subagents from one message, when its run page is viewed, then both groups appear nested under that turn in always-expanded subagent call cards', async () => {
-  const body = await viewTranscript(delegation());
+  const body = await viewTranscript(delegation);
 
   const calls = subagentCalls(body);
   assert.equal(calls.length, 2, 'each subagent call renders as one card');
@@ -351,7 +347,7 @@ test('given a run whose agent spawned two subagents from one message, when its r
 });
 
 test('given a run whose agent spawned two subagents, when its run page is viewed, then each group is titled by its task and not by its tool call id', async () => {
-  const body = await viewTranscript(delegation());
+  const body = await viewTranscript(delegation);
 
   const [alpha, beta] = subagentCalls(body) as [string, string];
   const summaryOf = (card: string): string => card.slice(card.indexOf('<summary>'), card.indexOf('</summary>'));
@@ -376,7 +372,7 @@ test('given a subagent given a long multi-line task, when its group is expanded,
 });
 
 test('given a run whose agent spawned two subagents, when a group is viewed, then its report is the subagent tool result, shown once', async () => {
-  const body = await viewTranscript(delegation());
+  const body = await viewTranscript(delegation);
 
   const [alpha, beta] = subagentCalls(body) as [string, string];
   assert.equal(alpha.match(/Alpha report: echo alpha printed alpha\./g)?.length, 1);
@@ -387,7 +383,6 @@ test('given a run whose agent spawned two subagents, when a group is viewed, the
 });
 
 test("given a subagent whose final message differs from the result the parent received, when its group is viewed, then both render and the report is the parent's result", async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Summarise the log.' } },
     { type: 'message', role: 'assistant', text: 'full summary', usage, costUsd: 0, subagent: 'call_alpha' },
@@ -401,7 +396,6 @@ test("given a subagent whose final message differs from the result the parent re
 });
 
 test('given a subagent call that returned an error, when its run page is viewed, then its card is highlighted, its group is open and the error is its report', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
     { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: { task: 'Say beta.' } },
@@ -423,7 +417,6 @@ test('given a subagent call that returned an error, when its run page is viewed,
 });
 
 test('given a subagent call that never got a result, when its run page is viewed, then its group says no report was recorded', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
     { type: 'message', role: 'assistant', text: 'working on it', usage, costUsd: 0, subagent: 'call_alpha' },
@@ -436,7 +429,6 @@ test('given a subagent call that never got a result, when its run page is viewed
 });
 
 test('given a provider that reuses a subagent call id across turns, when the run page is viewed, then each child nests under the call that spawned it', async () => {
-  const usage = { inputTokens: 5, outputTokens: 5 };
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_0', name: 'subagent', arguments: { task: 'First task.' } },
     { type: 'message', role: 'assistant', text: 'first child working', usage, costUsd: 0, subagent: 'call_0' },
@@ -452,4 +444,30 @@ test('given a provider that reuses a subagent call id across turns, when the run
   assert.doesNotMatch(first, /second/);
   assert.match(second, /Second task\.[\s\S]*second child working[\s\S]*second report/);
   assert.doesNotMatch(second, /first/);
+});
+
+test('given a subagent given an explicit working directory, when its group is expanded, then the working directory is shown with the task', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'List the files.', cwd: 'repo/src' } },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'two files' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.match(card, /<header>cwd<\/header>\s*<pre>repo\/src<\/pre>[\s\S]*<header>task<\/header>\s*<pre>List the files\.<\/pre>/);
+});
+
+test('given a subagent call whose arguments carry no task text, when its run page is viewed, then its header and body show the same arguments', async () => {
+  const capped = '{"task":"Review the diff\n...cut';
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { cwd: 'repo' } },
+    { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: capped },
+    { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'pi exited on signal SIGKILL' },
+  ]);
+
+  const [alpha, beta] = subagentCalls(body) as [string, string];
+  assert.match(alpha, /<span class="subagent-task" title="\{ &quot;cwd&quot;: &quot;repo&quot; \}">/);
+  assert.match(alpha, /<header>task<\/header>\s*<pre>\{\n  &quot;cwd&quot;: &quot;repo&quot;\n\}<\/pre>/);
+  assert.match(beta, /<span class="subagent-task" title="\{&quot;task&quot;:&quot;Review the diff \.\.\.cut">/);
+  assert.match(beta, /<header>task<\/header>\s*<pre>\{&quot;task&quot;:&quot;Review the diff\n\.\.\.cut<\/pre>/);
 });

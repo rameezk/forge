@@ -50,7 +50,7 @@ const STYLES = `
   .subagent-body { padding: 0.75rem 1rem 0; border-top: 1px solid var(--line); }
   .message-report { border-color: color-mix(in srgb, currentColor 35%, transparent); }
   .tool-error { border-color: #cf222e; }
-  .tool-error .tool-name { color: #cf222e; }
+  .tool-error > summary .tool-name, .tool-error > header .tool-name { color: #cf222e; }
   .badge.tool-status { margin-left: auto; flex-shrink: 0; color: #cf222e; }
   .subagent-call > header { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; }
   .subagent-call > .subagent { border: none; border-top: 1px solid var(--line); border-radius: 0; margin: 0; }
@@ -148,9 +148,11 @@ const summaryText = (args: unknown): unknown => {
   return values.find((value) => typeof value === 'string');
 };
 
+const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
 const argumentSummary = (args: unknown): string => {
   const summary = summaryText(args);
-  return typeof summary === 'string' ? summary.replace(/\s+/g, ' ').trim() : '';
+  return typeof summary === 'string' ? oneLine(summary) : '';
 };
 
 const prettyArguments = (args: unknown): string =>
@@ -178,6 +180,11 @@ const toolResults = (events: HarnessEvent[]): ToolResults => {
   return results;
 };
 
+const toolName = (name: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="tool-name">${name}</span>`;
+
+const ERROR_BADGE = html`<span class="badge tool-status">error</span>`;
+
 const renderToolCall = (
   call: ToolCallEvent,
   result: ToolResultEvent | undefined,
@@ -186,9 +193,9 @@ const renderToolCall = (
   const failed = result?.isError === true;
   return html`<details class="tool${failed ? ' tool-error' : ''}"${failed ? html` open` : ''}>
     <summary>
-      <span class="tool-name">${call.name}</span>
+      ${toolName(call.name)}
       <code title="${summary}">${summary}</code>
-      ${failed ? html`<span class="badge tool-status">error</span>` : ''}
+      ${failed ? ERROR_BADGE : ''}
     </summary>
     <div class="tool-body">
       <header>Arguments</header>
@@ -293,12 +300,31 @@ const withoutReportMessage = (
     : events;
 };
 
+const argumentFields = (args: unknown): Record<string, unknown> =>
+  typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
+
 const taskText = (args: unknown): string => {
-  const task = typeof args === 'object' && args !== null
-    ? (args as Record<string, unknown>).task
-    : undefined;
+  const { task } = argumentFields(args);
   return typeof task === 'string' ? task : prettyArguments(args);
 };
+
+type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
+
+const renderGroup = (
+  summary: Rendered,
+  count: string,
+  open: boolean,
+  body: Rendered[],
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<details class="subagent"${open ? html` open` : ''}>
+    <summary>
+      ${summary}
+      <span class="subagent-count">${count}</span>
+    </summary>
+    <div class="subagent-body">
+      ${body}
+    </div>
+  </details>`;
 
 const renderSubagentCall = (
   call: ToolCallEvent,
@@ -307,28 +333,27 @@ const renderSubagentCall = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const report = results.get(call);
   const failed = report?.isError === true;
-  const task = argumentSummary(call.arguments);
+  const task = taskText(call.arguments);
+  const { cwd } = argumentFields(call.arguments);
   const shown = withoutToolOnlyPreambles(events);
   return html`<section class="tool subagent-call${failed ? ' tool-error' : ''}">
     <header>
-      <span class="tool-name">${call.name}</span>
-      ${failed ? html`<span class="badge tool-status">error</span>` : ''}
+      ${toolName(call.name)}
+      ${failed ? ERROR_BADGE : ''}
     </header>
-    <details class="subagent"${failed ? html` open` : ''}>
-      <summary>
-        <span class="subagent-task" title="${task}">${task}</span>
-        <span class="subagent-count">${messageCount(shown)}</span>
-      </summary>
-      <div class="subagent-body">
-        ${renderText('task', taskText(call.arguments))}
-        ${withoutReportMessage(shown, report).map(
-          (event) => renderEvent(event, results),
-        )}
-        ${report === undefined
+    ${renderGroup(
+      html`<span class="subagent-task" title="${oneLine(task)}">${oneLine(task)}</span>`,
+      messageCount(shown),
+      failed,
+      [
+        typeof cwd === 'string' ? renderText('cwd', cwd) : '',
+        renderText('task', task),
+        ...withoutReportMessage(shown, report).map((event) => renderEvent(event, results)),
+        report === undefined
           ? html`<p class="empty">No report recorded.</p>`
-          : renderText(failed ? 'error' : 'report', report.text)}
-      </div>
-    </details>
+          : renderText(failed ? 'error' : 'report', report.text),
+      ],
+    )}
   </section>`;
 };
 
@@ -340,16 +365,13 @@ const renderSubagent = (
     return renderSubagentCall(call, events, results);
   }
   const shown = withoutToolOnlyPreambles(events);
-  return html`<details class="subagent">
-    <summary>
-      <span class="subagent-label">Subagent</span>
-      <code title="${scope}">${scope}</code>
-      <span class="subagent-count">${messageCount(shown)}</span>
-    </summary>
-    <div class="subagent-body">
-      ${shown.map((event) => renderEvent(event, results))}
-    </div>
-  </details>`;
+  return renderGroup(
+    html`<span class="subagent-label">Subagent</span>
+      <code title="${scope}">${scope}</code>`,
+    messageCount(shown),
+    false,
+    shown.map((event) => renderEvent(event, results)),
+  );
 };
 
 const renderTranscript = (
