@@ -20,7 +20,7 @@ const harnessFor = (
   }
   return new PiHarness({
     command: harness.command,
-    ...(harness.args === undefined ? {} : { baseArgs: harness.args }),
+    ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
     env,
   });
 };
@@ -49,6 +49,7 @@ export const main = async (
 
   const transcriptsDir = join(stateDir, 'transcripts');
   mkdirSync(transcriptsDir, { recursive: true });
+  const workDirs = join(stateDir, 'work');
   const store = Store.open(join(stateDir, 'forge.db'));
 
   try {
@@ -57,6 +58,11 @@ export const main = async (
       harness,
       worker,
       openTranscript: (runId) => FileTranscript.open(transcriptsDir, runId),
+      openWorkDir: (runId) => {
+        const workDir = join(workDirs, runId);
+        mkdirSync(workDir, { recursive: true });
+        return workDir;
+      },
       now: () => new Date().toISOString(),
       newId: () => randomUUID(),
     });

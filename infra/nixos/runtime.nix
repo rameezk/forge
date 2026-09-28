@@ -16,7 +16,7 @@ let
       args = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
-        description = "Fixed arguments passed before the per-worker invocation arguments.";
+        description = "Operator extra arguments for the harness, passed after the invocation the runner builds and before the prompt. The runner owns the harness's own CLI contract.";
       };
     };
   };
@@ -33,7 +33,7 @@ let
       };
       prompt = lib.mkOption {
         type = lib.types.lines;
-        description = "Prompt the worker runs on.";
+        description = "Prompt the worker runs on. It must not start with `-` or `@`, which the harness would parse as an option or a file; the runner rejects such a worker.";
       };
       reasoningEffort = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
