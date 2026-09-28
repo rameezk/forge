@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { HarnessEvent, MessageEvent } from '@forge/shared';
-import type { Harness, HarnessInvocation } from './harness.ts';
+import type { Harness, HarnessInvocation, HarnessRun } from './harness.ts';
+import type { Billing } from './openrouter.ts';
 
 export const piArgs = (
   invocation: HarnessInvocation,
@@ -40,6 +41,7 @@ interface PiMessage {
   usage: PiUsage;
   stopReason: string;
   errorMessage?: string;
+  responseId?: string;
 }
 
 interface PiLine {
@@ -72,6 +74,9 @@ const assistantMessage = (message: PiMessage): MessageEvent => ({
   costUsd: 0,
 });
 
+const tokensOf = ({ usage }: PiMessage): number =>
+  usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+
 const NON_JSON_EXCERPT_CHARS = 200;
 
 const parseLine = (line: string): PiLine | null => {
@@ -87,6 +92,16 @@ class PiStream {
   #ended = false;
   #lastAssistant: PiMessage | null = null;
   #malformed: string | null = null;
+  readonly #generationIds: string[] = [];
+  #unnamedGeneration = false;
+
+  get generationIds(): string[] {
+    return this.#generationIds;
+  }
+
+  get unnamedGeneration(): boolean {
+    return this.#unnamedGeneration;
+  }
 
   get malformed(): boolean {
     return this.#malformed !== null;
@@ -110,6 +125,11 @@ class PiStream {
           return null;
         }
         this.#lastAssistant = event.message;
+        if (event.message.responseId !== undefined) {
+          this.#generationIds.push(event.message.responseId);
+        } else if (tokensOf(event.message) > 0) {
+          this.#unnamedGeneration = true;
+        }
         return assistantMessage(event.message);
       case 'agent_end':
         this.#ended = event.willRetry === false;
@@ -143,22 +163,39 @@ class PiStream {
 
 export interface PiHarnessOptions {
   command: string;
+  billing: Billing;
   extraArgs?: string[];
   env?: NodeJS.ProcessEnv;
 }
 
 export class PiHarness implements Harness {
   readonly #command: string;
+  readonly #billing: Billing;
   readonly #extraArgs: string[];
   readonly #env: NodeJS.ProcessEnv;
 
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
+    this.#billing = options.billing;
     this.#extraArgs = options.extraArgs ?? [];
     this.#env = options.env ?? process.env;
   }
 
-  async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
+  run(invocation: HarnessInvocation): HarnessRun {
+    const stream = new PiStream();
+    return {
+      events: this.#events(invocation, stream),
+      cost: async () => {
+        const cost = await this.#billing.cost(stream.generationIds);
+        return stream.unnamedGeneration ? { ...cost, uncertain: true } : cost;
+      },
+    };
+  }
+
+  async *#events(
+    invocation: HarnessInvocation,
+    stream: PiStream,
+  ): AsyncIterable<HarnessEvent> {
     const child = spawn(this.#command, piArgs(invocation, this.#extraArgs), {
       cwd: invocation.workDir,
       env: this.#env,
@@ -191,7 +228,6 @@ export class PiHarness implements Harness {
       });
     });
 
-    const stream = new PiStream();
     let drained = false;
     try {
       const lines = createInterface({

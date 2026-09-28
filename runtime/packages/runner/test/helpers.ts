@@ -6,6 +6,8 @@ import type {
 import type {
   Harness,
   HarnessInvocation,
+  HarnessRun,
+  RunCost,
   TranscriptWriter,
   Worker,
 } from '../src/index.ts';
@@ -43,21 +45,36 @@ export interface FakeHarness extends Harness {
   readonly invocations: HarnessInvocation[];
 }
 
+const SETTLED_COST: RunCost = { costUsd: 0.02, uncertain: false };
+
 export const fakeHarness = (
   events: HarnessEvent[],
-  hooks: { beforeEach?: (index: number) => Promise<void> | void } = {},
+  hooks: {
+    beforeEach?: (index: number) => Promise<void> | void;
+    cost?: RunCost | Error;
+  } = {},
 ): FakeHarness => {
   const invocations: HarnessInvocation[] = [];
   return {
     invocations,
-    async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
+    run(invocation: HarnessInvocation): HarnessRun {
       invocations.push(invocation);
-      let index = 0;
-      for (const event of events) {
-        await hooks.beforeEach?.(index);
-        index += 1;
-        yield event;
-      }
+      return {
+        events: (async function* () {
+          let index = 0;
+          for (const event of events) {
+            await hooks.beforeEach?.(index);
+            index += 1;
+            yield event;
+          }
+        })(),
+        cost: async () => {
+          if (hooks.cost instanceof Error) {
+            throw hooks.cost;
+          }
+          return hooks.cost ?? SETTLED_COST;
+        },
+      };
     },
   };
 };
@@ -66,12 +83,15 @@ export const throwingHarness = (
   events: HarnessEvent[],
   error: Error,
 ): Harness => ({
-  async *run(): AsyncIterable<HarnessEvent> {
-    for (const event of events) {
-      yield event;
-    }
-    throw error;
-  },
+  run: (): HarnessRun => ({
+    events: (async function* () {
+      for (const event of events) {
+        yield event;
+      }
+      throw error;
+    })(),
+    cost: async () => SETTLED_COST,
+  }),
 });
 
 export interface ArrayTranscripts {

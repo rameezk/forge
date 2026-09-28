@@ -7,8 +7,18 @@ export interface HarnessInvocation {
   reasoningEffort?: string;
 }
 
+export interface RunCost {
+  costUsd: number;
+  uncertain: boolean;
+}
+
+export interface HarnessRun {
+  events: AsyncIterable<HarnessEvent>;
+  cost(): Promise<RunCost>;
+}
+
 export interface Harness {
-  run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent>;
+  run(invocation: HarnessInvocation): HarnessRun;
 }
 
 export interface Worker {

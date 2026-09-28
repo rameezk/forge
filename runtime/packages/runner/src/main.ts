@@ -5,6 +5,7 @@ import { Store } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
 import { resolveWorker } from './config.ts';
 import type { Harness, Worker } from './harness.ts';
+import { OPENROUTER_API, OpenRouterBilling } from './openrouter.ts';
 import { PiHarness } from './pi.ts';
 import { FileTranscript } from './transcript.ts';
 import { runWorkload } from './runner.ts';
@@ -20,6 +21,10 @@ const harnessFor = (
   }
   return new PiHarness({
     command: harness.command,
+    billing: new OpenRouterBilling({
+      baseUrl: env.OPENROUTER_BASE_URL ?? OPENROUTER_API,
+      apiKey: env.OPENROUTER_API_KEY ?? '',
+    }),
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
     env,
   });

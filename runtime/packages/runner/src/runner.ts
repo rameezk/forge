@@ -1,5 +1,11 @@
 import type { RunStatus, Store } from '@forge/shared';
-import { invocationFor, type Harness, type Worker } from './harness.ts';
+import {
+  invocationFor,
+  type Harness,
+  type HarnessRun,
+  type RunCost,
+  type Worker,
+} from './harness.ts';
 import type { TranscriptWriter } from './transcript.ts';
 
 export interface RunWorkloadOptions {
@@ -11,6 +17,19 @@ export interface RunWorkloadOptions {
   now: () => string;
   newId: () => string;
 }
+
+const UNSETTLED: RunCost = { costUsd: 0, uncertain: true };
+
+const settle = async (run: HarnessRun | null): Promise<RunCost> => {
+  if (run === null) {
+    return UNSETTLED;
+  }
+  try {
+    return await run.cost();
+  } catch {
+    return UNSETTLED;
+  }
+};
 
 export const runWorkload = async (
   options: RunWorkloadOptions,
@@ -39,25 +58,26 @@ export const runWorkload = async (
 
   let inputTokens = 0;
   let outputTokens = 0;
-  let costUsd = 0;
+  let run: HarnessRun | null = null;
   let status: RunStatus = 'error';
   let sessionId: string | null = null;
   let error: string | null = 'harness stream ended without a result';
 
   try {
     const invocation = invocationFor(worker, openWorkDir(id));
-    for await (const event of harness.run(invocation)) {
+    const started = harness.run(invocation);
+    for await (const event of started.events) {
       await transcript.append(event);
       if (event.type === 'message') {
         inputTokens += event.usage.inputTokens;
         outputTokens += event.usage.outputTokens;
-        costUsd += event.costUsd;
       } else {
         status = event.status;
         sessionId = event.sessionId;
         error = event.error;
       }
     }
+    run = started;
   } catch (cause) {
     status = 'error';
     error = cause instanceof Error ? cause.message : String(cause);
@@ -65,11 +85,12 @@ export const runWorkload = async (
     await transcript.close();
   }
 
+  const cost = await settle(run);
   store.finalizeRun(id, {
     endTime: now(),
     status,
-    costUncertain: status === 'success' && outputTokens > 0 && costUsd === 0,
-    costUsd,
+    costUncertain: cost.uncertain,
+    costUsd: cost.costUsd,
     inputTokens,
     outputTokens,
     sessionId,
