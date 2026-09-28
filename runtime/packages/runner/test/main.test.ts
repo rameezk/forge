@@ -8,6 +8,8 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join, sep } from 'node:path';
 import { Store, type RunRecord } from '@forge/shared';
@@ -28,8 +30,72 @@ process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
 if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
 `;
 
+type Billing = (
+  id: string,
+  attempt: number,
+) => { status: number; body?: unknown } | 'hang';
+
+const billedAt =
+  (costs: Record<string, number>): Billing =>
+  (id) => {
+    const cost = costs[id];
+    return cost === undefined
+      ? { status: 404, body: { error: { code: 404 } } }
+      : { status: 200, body: { data: { id, total_cost: cost } } };
+  };
+
+const BILLED = {
+  'gen-success-1': 0.0125,
+  'gen-success-2': 0.0375,
+  'gen-retry-1': 0.002,
+  'gen-retry-2': 0.004,
+};
+
+const OPENROUTER_KEY = 'sk-or-test';
+
+interface Lookup {
+  id: string | null;
+  authorization: string | undefined;
+}
+
+const fakeOpenRouter = async (
+  billing: Billing,
+): Promise<{ baseUrl: string; lookups: Lookup[]; close: () => void }> => {
+  const lookups: Lookup[] = [];
+  const attempts = new Map<string, number>();
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? '/', 'http://fake');
+    const id = url.searchParams.get('id');
+    lookups.push({ id, authorization: request.headers.authorization });
+    const reply =
+      url.pathname === '/api/v1/generation' && id !== null
+        ? billing(id, (attempts.get(id) ?? 0) + 1)
+        : { status: 404 };
+    if (id !== null) {
+      attempts.set(id, (attempts.get(id) ?? 0) + 1);
+    }
+    if (reply === 'hang') {
+      return;
+    }
+    const { status, body } = reply;
+    response.writeHead(status, { 'content-type': 'application/json' });
+    response.end(typeof body === 'string' ? body : JSON.stringify(body ?? ''));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    baseUrl: `http://127.0.0.1:${port}/api/v1`,
+    lookups,
+    close: () => {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+};
+
 interface Scenario {
   output: string;
+  billing?: Billing;
   worker?: Partial<WorkerConfig>;
   harnessArgs?: string[];
   stderr?: string;
@@ -43,6 +109,7 @@ interface Outcome {
   run: RunRecord;
   transcript: string;
   pi: { argv: string[]; cwd: string; pid: number };
+  lookups: Lookup[];
 }
 
 const runWorker = async (scenario: Scenario): Promise<Outcome> => {
@@ -75,7 +142,10 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     }),
   );
 
+  const openRouter = await fakeOpenRouter(scenario.billing ?? billedAt(BILLED));
   const code = await main(['refiner'], {
+    OPENROUTER_BASE_URL: openRouter.baseUrl,
+    OPENROUTER_API_KEY: OPENROUTER_KEY,
     FORGE_RUNTIME_CONFIG: configPath,
     FORGE_STATE_DIR: stateDir,
     FAKE_PI_RECORD: record,
@@ -87,7 +157,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     ...(scenario.lingerMs === undefined
       ? {}
       : { FAKE_PI_LINGER_MS: String(scenario.lingerMs) }),
-  });
+  }).finally(openRouter.close);
 
   const transcripts = readdirSync(join(stateDir, 'transcripts'));
   assert.equal(transcripts.length, 1);
@@ -106,6 +176,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       'utf8',
     ),
     pi: JSON.parse(readFileSync(record, 'utf8')) as Outcome['pi'],
+    lookups: openRouter.lookups,
   };
 };
 
@@ -138,10 +209,10 @@ const sessionIdOf = (output: string): string =>
     }
   ).id;
 
-test('given recorded pi output of a successful multi-message run with tool, turn and streaming events, when the worker runs, then the events forge does not consume are skipped and the run is success with summed full-prompt usage, the session id, a readable transcript, and cost flagged uncertain', async () => {
+test('given recorded pi output of a successful multi-message run with tool, turn and streaming events, and an OpenRouter billing each generation, when the worker runs, then the events forge does not consume are skipped and the run is success with summed full-prompt usage, the session id, a readable transcript, and the summed billed cost looked up with the runner key', async () => {
   const output = fixture('success.jsonl');
 
-  const { code, run, transcript } = await runWorker({ output });
+  const { code, run, transcript, lookups } = await runWorker({ output });
 
   assert.equal(code, 0);
   assert.equal(run.status, 'success');
@@ -149,8 +220,15 @@ test('given recorded pi output of a successful multi-message run with tool, turn
   assert.equal(run.inputTokens, 1200 + 1300);
   assert.equal(run.outputTokens, 40 + 25);
   assert.equal(run.sessionId, sessionIdOf(output));
-  assert.equal(run.costUsd, 0);
-  assert.equal(run.costUncertain, true);
+  assert.equal(run.costUsd, 0.0125 + 0.0375);
+  assert.equal(run.costUncertain, false);
+  assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
+    'gen-success-1',
+    'gen-success-2',
+  ]);
+  for (const lookup of lookups) {
+    assert.equal(lookup.authorization, `Bearer ${OPENROUTER_KEY}`);
+  }
   assert.match(transcript, /Let me look\./);
   assert.match(transcript, /The command printed forge\. All done\./);
 });
@@ -213,13 +291,15 @@ test('given recorded pi output ending in a provider error and pi exiting 0, when
   assert.equal(run.error, '400 z-ai/glm-5 is not a valid model ID');
 });
 
-test('given recorded pi output where a failed attempt is retried and then succeeds, when the worker runs, then the run is success and its tokens include the failed attempt', async () => {
+test('given recorded pi output where a failed attempt is retried and then succeeds, and an OpenRouter billing every generation, when the worker runs, then the run is success and its tokens and billed cost include the failed attempt', async () => {
   const { code, run } = await runWorker({ output: fixture('retry.jsonl') });
 
   assert.equal(code, 0);
   assert.equal(run.status, 'success');
   assert.equal(run.inputTokens, 900 + 900);
   assert.equal(run.outputTokens, 3 + 8);
+  assert.equal(run.costUsd, 0.002 + 0.004);
+  assert.equal(run.costUncertain, false);
 });
 
 test('given pi failing pre-flight with its reason on stderr and exit 1, when the worker runs, then the run is error carrying that reason and stderr still reaches the journal', async () => {
@@ -272,4 +352,50 @@ test('given pi writing output that is not json and staying alive, when the worke
   );
   assert.equal(run.sessionId, sessionIdOf(fixture('success.jsonl')));
   assert.equal(isAlive(pi.pid), false);
+});
+
+test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a server error, an unusable body, a not found that never clears, or no answer at all, when the worker runs, then the run stays success with the cost it could look up and cost flagged uncertain', async () => {
+  const failures: ReturnType<Billing>[] = [
+    { status: 500, body: { error: { code: 500 } } },
+    { status: 200, body: { data: { id: 'gen-success-2' } } },
+    { status: 200, body: 'not json' },
+    { status: 404, body: { error: { code: 404 } } },
+    'hang',
+  ];
+
+  const outcomes = await Promise.all(
+    failures.map((failure) =>
+      runWorker({
+        output: fixture('success.jsonl'),
+        billing: (id, attempt) =>
+          id === 'gen-success-2' ? failure : billedAt(BILLED)(id, attempt),
+      }),
+    ),
+  );
+
+  for (const { code, run } of outcomes) {
+    assert.equal(code, 0);
+    assert.equal(run.status, 'success');
+    assert.equal(run.error, null);
+    assert.equal(run.costUsd, 0.0125);
+    assert.equal(run.costUncertain, true);
+  }
+});
+
+test('given an OpenRouter whose stats for a generation lag, returning not found at first and then its billed cost, when the worker runs, then the run cost includes that generation and is not flagged uncertain', async () => {
+  const { run, lookups } = await runWorker({
+    output: fixture('success.jsonl'),
+    billing: (id, attempt) =>
+      id === 'gen-success-2' && attempt < 3
+        ? billedAt({})(id, attempt)
+        : billedAt(BILLED)(id, attempt),
+  });
+
+  assert.equal(run.status, 'success');
+  assert.equal(run.costUsd, 0.0125 + 0.0375);
+  assert.equal(run.costUncertain, false);
+  assert.equal(
+    lookups.filter((lookup) => lookup.id === 'gen-success-2').length,
+    3,
+  );
 });

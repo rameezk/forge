@@ -1,5 +1,10 @@
 import type { RunStatus, Store } from '@forge/shared';
-import { invocationFor, type Harness, type Worker } from './harness.ts';
+import {
+  invocationFor,
+  type Harness,
+  type RunCost,
+  type Worker,
+} from './harness.ts';
 import type { TranscriptWriter } from './transcript.ts';
 
 export interface RunWorkloadOptions {
@@ -39,25 +44,26 @@ export const runWorkload = async (
 
   let inputTokens = 0;
   let outputTokens = 0;
-  let costUsd = 0;
+  let cost: RunCost = { costUsd: 0, uncertain: true };
   let status: RunStatus = 'error';
   let sessionId: string | null = null;
   let error: string | null = 'harness stream ended without a result';
 
   try {
     const invocation = invocationFor(worker, openWorkDir(id));
-    for await (const event of harness.run(invocation)) {
+    const run = harness.run(invocation);
+    for await (const event of run.events) {
       await transcript.append(event);
       if (event.type === 'message') {
         inputTokens += event.usage.inputTokens;
         outputTokens += event.usage.outputTokens;
-        costUsd += event.costUsd;
       } else {
         status = event.status;
         sessionId = event.sessionId;
         error = event.error;
       }
     }
+    cost = await run.cost();
   } catch (cause) {
     status = 'error';
     error = cause instanceof Error ? cause.message : String(cause);
@@ -68,8 +74,8 @@ export const runWorkload = async (
   store.finalizeRun(id, {
     endTime: now(),
     status,
-    costUncertain: status === 'success' && outputTokens > 0 && costUsd === 0,
-    costUsd,
+    costUncertain: cost.uncertain,
+    costUsd: cost.costUsd,
     inputTokens,
     outputTokens,
     sessionId,

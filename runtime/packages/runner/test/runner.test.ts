@@ -71,18 +71,20 @@ test('given a declared worker and a harness that ends normally, when it runs on 
   assert.equal(run?.error, null);
 });
 
-test('given a harness reporting per-message costs for a priced model, when the run completes, then total cost is their sum and cost-uncertain is false', async () => {
-  const { run } = await runWith([
-    message({ usage: { inputTokens: 10, outputTokens: 5 }, costUsd: 0.5 }),
-    message({ usage: { inputTokens: 20, outputTokens: 7 }, costUsd: 0.25 }),
-    message({ usage: { inputTokens: 0, outputTokens: 3 }, costUsd: 0.125 }),
-    result({ status: 'success' }),
-  ]);
+test('given a multi-message run whose harness reports a billed run cost, when the run completes, then the run records that cost rather than per-message costs and sums the tokens', async () => {
+  const { run } = await runWith(
+    [
+      message({ usage: { inputTokens: 10, outputTokens: 5 }, costUsd: 0.5 }),
+      message({ usage: { inputTokens: 20, outputTokens: 7 }, costUsd: 0.25 }),
+      result({ status: 'success' }),
+    ],
+    { hooks: { cost: { costUsd: 0.875, uncertain: false } } },
+  );
 
   assert.equal(run?.status, 'success');
   assert.equal(run?.costUsd, 0.875);
   assert.equal(run?.inputTokens, 30);
-  assert.equal(run?.outputTokens, 15);
+  assert.equal(run?.outputTokens, 12);
   assert.equal(run?.costUncertain, false);
 });
 
@@ -98,7 +100,7 @@ test('given a harness stream that ends in an error result, when it finishes, the
   assert.equal(run?.endTime, '2026-09-21T10:00:05.000Z');
 });
 
-test('given a runner failure mid-stream, when it finishes, then the run is error with the thrown message and an end time, never left running', async () => {
+test('given a runner failure mid-stream, when it finishes, then the run is error with the thrown message and an end time, never left running, and its cost is flagged uncertain since it was never settled', async () => {
   const store = Store.open(':memory:');
   const id = await runWorkload({
     store,
@@ -114,6 +116,8 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
   assert.equal(run?.status, 'error');
   assert.equal(run?.error, 'harness crashed');
   assert.equal(run?.endTime, '2026-09-21T10:00:05.000Z');
+  assert.equal(run?.costUsd, 0);
+  assert.equal(run?.costUncertain, true);
 });
 
 test('given a harness stream that ends without a result event, when it finishes, then the run is error, not left running', async () => {
@@ -203,23 +207,13 @@ test('given a worker with no reasoning effort declared, when it runs, then the h
   assert.equal('reasoningEffort' in (harness.invocations[0] ?? {}), false);
 });
 
-test('given a run that produces output tokens but whose harness reports zero cost, when it completes, then it is success with zero cost and cost-uncertain true', async () => {
-  const { run } = await runWith([
-    message({ usage: { inputTokens: 40, outputTokens: 12 }, costUsd: 0 }),
-    result({ status: 'success' }),
-  ]);
+test('given a harness that could not settle its run cost, when the run completes, then the run keeps its status and records the partial cost flagged uncertain', async () => {
+  const { run } = await runWith(
+    [message(), result({ status: 'success' })],
+    { hooks: { cost: { costUsd: 0.01, uncertain: true } } },
+  );
 
   assert.equal(run?.status, 'success');
-  assert.equal(run?.costUsd, 0);
-  assert.equal(run?.outputTokens, 12);
+  assert.equal(run?.costUsd, 0.01);
   assert.equal(run?.costUncertain, true);
-});
-
-test('given a run with zero output tokens and zero cost, when it completes, then cost-uncertain is false', async () => {
-  const { run } = await runWith([
-    message({ usage: { inputTokens: 5, outputTokens: 0 }, costUsd: 0 }),
-    result({ status: 'success' }),
-  ]);
-
-  assert.equal(run?.costUncertain, false);
 });
