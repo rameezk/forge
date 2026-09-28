@@ -111,6 +111,7 @@ interface Scenario {
   output: string;
   generations?: GenerationStats;
   openRouterBaseUrl?: string;
+  openRouterKey?: string;
   worker?: Partial<WorkerConfig>;
   harnessArgs?: string[];
   stderr?: string;
@@ -162,7 +163,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   );
   const code = await main(['refiner'], {
     OPENROUTER_BASE_URL: scenario.openRouterBaseUrl ?? openRouter.baseUrl,
-    OPENROUTER_API_KEY: OPENROUTER_KEY,
+    OPENROUTER_API_KEY: scenario.openRouterKey ?? OPENROUTER_KEY,
     FORGE_RUNTIME_CONFIG: configPath,
     FORGE_STATE_DIR: stateDir,
     FAKE_PI_RECORD: record,
@@ -405,7 +406,7 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
     [{ status: 401, body: { error: { code: 401 } } }, /HTTP 401/],
     [{ status: 500, body: { error: { code: 500 } } }, /HTTP 500/],
     [{ status: 200, body: { data: { id: 'gen-success-2' } } }, /total_cost/],
-    [{ status: 200, body: 'not json' }, /JSON/],
+    [{ status: 200, body: 'not json' }, /SyntaxError/],
     [{ status: 404, body: { error: { code: 404 } } }, /HTTP 404/],
     ['hang', /timeout|abort/i],
   ];
@@ -527,4 +528,18 @@ test('given recorded pi output where an assistant response used tokens but carri
   );
   assert.equal(run.costUsd, 0.0125);
   assert.equal(run.costUncertain, true);
+});
+
+test('given an OpenRouter key that is not a valid header value, when the worker runs, then the run stays success with cost flagged uncertain and the key never reaches the journal', async () => {
+  const { result: outcome, journal } = await journaled(() =>
+    runWorker({
+      output: fixture('success.jsonl'),
+      openRouterKey: 'sk-or-secret\nleak',
+    }),
+  );
+
+  assert.equal(outcome.run.status, 'success');
+  assert.equal(outcome.run.costUncertain, true);
+  assert.match(journal, /could not cost OpenRouter generation "gen-success-1"/);
+  assert.doesNotMatch(journal, /sk-or-secret/);
 });

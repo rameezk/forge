@@ -100,7 +100,7 @@ export class OpenRouterBilling implements Billing {
     } catch (error) {
       return {
         transient: false,
-        reason: error instanceof Error ? error.message : String(error),
+        reason: error instanceof Error ? error.name : 'lookup failed',
       };
     }
   }
