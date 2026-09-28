@@ -75,6 +75,7 @@ export const main = async (
       },
       now: () => new Date().toISOString(),
       newId: () => randomUUID(),
+      secrets: [env.OPENROUTER_API_KEY ?? ''],
     });
     return store.getRun(id)?.status === 'error' ? 1 : 0;
   } finally {

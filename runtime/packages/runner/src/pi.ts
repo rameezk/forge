@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import type { HarnessEvent, MessageEvent } from '@forge/shared';
+import type {
+  HarnessEvent,
+  MessageEvent,
+  ToolCallEvent,
+  ToolResultEvent,
+} from '@forge/shared';
 import {
   SUBAGENT_INVOCATION_ENV,
   SUBAGENT_TOOL,
@@ -60,6 +65,9 @@ interface PiUsage {
 interface PiContent {
   type: string;
   text?: string;
+  id?: unknown;
+  name?: unknown;
+  arguments?: unknown;
 }
 
 interface PiMessage {
@@ -78,6 +86,8 @@ interface PiLine {
   willRetry?: boolean;
   toolName?: string;
   toolCallId?: string;
+  isError?: boolean;
+  result?: { content?: PiContent[] };
   partialResult?: { details?: Partial<SubagentUpdate> };
 }
 
@@ -85,12 +95,15 @@ const FAILED_STOP_REASONS = new Set(['error', 'aborted']);
 
 const STDERR_TAIL_CHARS = 4000;
 
-const textOf = (message: PiMessage): string =>
-  message.content
+const textOf = (content: PiContent[]): string =>
+  content
     .flatMap((part) =>
       part.type === 'text' && part.text !== undefined ? [part.text] : [],
     )
     .join('');
+
+const scoped = (subagent: string | undefined): { subagent?: string } =>
+  subagent === undefined ? {} : { subagent };
 
 const assistantMessage = (
   message: PiMessage,
@@ -98,15 +111,51 @@ const assistantMessage = (
 ): MessageEvent => ({
   type: 'message',
   role: 'assistant',
-  text: textOf(message),
+  text: textOf(message.content),
   usage: {
     inputTokens:
       message.usage.input + message.usage.cacheRead + message.usage.cacheWrite,
     outputTokens: message.usage.output,
   },
   costUsd: 0,
-  ...(subagent === undefined ? {} : { subagent }),
+  ...scoped(subagent),
 });
+
+const toolCalls = (
+  message: PiMessage,
+  subagent: string | undefined,
+): ToolCallEvent[] =>
+  message.content.flatMap((part) =>
+    part.type === 'toolCall' &&
+    typeof part.id === 'string' &&
+    typeof part.name === 'string'
+      ? [
+          {
+            type: 'tool_call',
+            id: part.id,
+            name: part.name,
+            arguments: part.arguments ?? {},
+            ...scoped(subagent),
+          },
+        ]
+      : [],
+  );
+
+const toolResult = (
+  event: PiLine,
+  subagent: string | undefined,
+): ToolResultEvent[] =>
+  event.toolCallId === undefined
+    ? []
+    : [
+        {
+          type: 'tool_result',
+          id: event.toolCallId,
+          isError: event.isError === true,
+          text: textOf(event.result?.content ?? []),
+          ...scoped(subagent),
+        },
+      ];
 
 const tokensOf = ({ usage }: PiMessage): number =>
   usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
@@ -141,35 +190,37 @@ class PiStream {
     return this.#malformed !== null;
   }
 
-  translate(line: string): HarnessEvent | null {
+  translate(line: string): HarnessEvent[] {
     if (line.trim().length === 0) {
-      return null;
+      return [];
     }
     const event = parseLine(line);
     if (event === null) {
       this.#malformed = `pi emitted non-JSON output: ${line.slice(0, NON_JSON_EXCERPT_CHARS)}`;
-      return null;
+      return [];
     }
     switch (event.type) {
       case 'session':
         this.#sessionId = event.id ?? null;
-        return null;
+        return [];
       case 'message_end':
         if (event.message?.role !== 'assistant') {
-          return null;
+          return [];
         }
         this.#lastAssistant = event.message;
-        return this.#generation(event.message, undefined);
+        return this.#assistant(event.message, undefined);
+      case 'tool_execution_end':
+        return toolResult(event, undefined);
       case 'tool_execution_update':
         return this.#subagentEvent(event);
       case 'agent_start':
         this.#ended = false;
-        return null;
+        return [];
       case 'agent_end':
         this.#ended = event.willRetry === false;
-        return null;
+        return [];
       default:
-        return null;
+        return [];
     }
   }
 
@@ -182,15 +233,25 @@ class PiStream {
     return assistantMessage(message, subagent);
   }
 
-  #subagentEvent(event: PiLine): MessageEvent | null {
+  #assistant(message: PiMessage, subagent: string | undefined): HarnessEvent[] {
+    return [
+      this.#generation(message, subagent),
+      ...toolCalls(message, subagent),
+    ];
+  }
+
+  #subagentEvent(event: PiLine): HarnessEvent[] {
     if (event.toolName !== SUBAGENT_TOOL || event.toolCallId === undefined) {
-      return null;
+      return [];
     }
     const child = event.partialResult?.details?.event as PiLine | undefined;
-    if (child?.type !== 'message_end' || child.message?.role !== 'assistant') {
-      return null;
+    if (child?.type === 'tool_execution_end') {
+      return toolResult(child, event.toolCallId);
     }
-    return this.#generation(child.message, event.toolCallId);
+    if (child?.type !== 'message_end' || child.message?.role !== 'assistant') {
+      return [];
+    }
+    return this.#assistant(child.message, event.toolCallId);
   }
 
   result(exitFailure: Error | null): HarnessEvent {
@@ -298,13 +359,11 @@ export class PiHarness implements Harness {
         crlfDelay: Infinity,
       });
       for await (const line of lines) {
-        const event = stream.translate(line);
+        const events = stream.translate(line);
         if (stream.malformed) {
           break;
         }
-        if (event !== null) {
-          yield event;
-        }
+        yield* events;
       }
       drained = !stream.malformed;
     } finally {

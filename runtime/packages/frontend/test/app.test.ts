@@ -99,8 +99,22 @@ test('given no such run, when its detail is requested, then the response is 404'
   assert.equal(res.status, 404);
 });
 
-const subagentGroups = (body: string): string[] =>
-  body.match(/<details class="subagent"[^>]*>[\s\S]*?<\/details>/g) ?? [];
+const detailsBlocks = (body: string, opening: RegExp): string[] => {
+  const blocks: string[] = [];
+  for (const match of body.matchAll(opening)) {
+    let depth = 0;
+    for (const tag of body.slice(match.index).matchAll(/<details\b|<\/details>/g)) {
+      depth += tag[0] === '</details>' ? -1 : 1;
+      if (depth === 0) {
+        blocks.push(body.slice(match.index, match.index + tag.index + tag[0].length));
+        break;
+      }
+    }
+  }
+  return blocks;
+};
+
+const subagentGroups = (body: string): string[] => detailsBlocks(body, /<details class="subagent"/g);
 
 test('given a run whose transcript holds events from two subagent scopes, when its transcript is viewed, then each subagent renders grouped and collapsed and the parent renders ungrouped', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
@@ -159,4 +173,141 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
   assert.match(list, /<td class="cost">\s*\$0\.7500/);
   assert.match(detail, /\$0\.7500/);
   assert.match(detail, /1000 in \/ 100 out/);
+});
+
+const toolCards = (body: string): string[] => detailsBlocks(body, /<details class="tool[ "]/g);
+
+const viewTranscript = async (events: HarnessEvent[]): Promise<string> => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl' })], dir);
+  return (await app.request('/runs/run-01')).text();
+};
+
+test('given a run whose agent made a bash call in a turn with no text, when its run page is viewed, then a collapsed card shows the tool name and command and no empty assistant card renders', async () => {
+  const usage = { inputTokens: 5, outputTokens: 5 };
+  const body = await viewTranscript([
+    { type: 'message', role: 'user', text: 'run echo forge', usage, costUsd: 0 },
+    { type: 'message', role: 'assistant', text: '', usage, costUsd: 0 },
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
+    { type: 'message', role: 'assistant', text: 'it printed forge', usage, costUsd: 0 },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const cards = toolCards(body);
+  assert.equal(cards.length, 1);
+  const [card] = cards as [string];
+  assert.match(card, /<summary>[\s\S]*bash[\s\S]*echo forge[\s\S]*<\/summary>/);
+  assert.doesNotMatch(card.slice(0, card.indexOf('>')), /\bopen\b/, 'a successful call is collapsed by default');
+  assert.doesNotMatch(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
+  assert.ok(
+    body.indexOf('run echo forge') < body.indexOf(card) && body.indexOf(card) < body.indexOf('it printed forge'),
+    'the card renders in transcript order',
+  );
+});
+
+test('given parallel tool calls whose results arrive out of order, when a card is expanded, then it shows its own arguments as pretty json and its own result', async () => {
+  const usage = { inputTokens: 5, outputTokens: 5 };
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'checking both', usage, costUsd: 0 },
+    { type: 'tool_call', id: 'call_1', name: 'read', arguments: { path: 'a.txt', limit: 10 } },
+    { type: 'tool_call', id: 'call_2', name: 'read', arguments: { path: 'b.txt' } },
+    { type: 'tool_result', id: 'call_2', isError: false, text: 'contents of b' },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'contents of a' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [first, second] = toolCards(body) as [string, string];
+  assert.match(first, /<summary>[\s\S]*read[\s\S]*a\.txt[\s\S]*<\/summary>/);
+  assert.ok(first.includes(JSON.stringify({ path: 'a.txt', limit: 10 }, null, 2).replaceAll('"', '&quot;')));
+  assert.match(first, /contents of a/);
+  assert.doesNotMatch(first, /contents of b/);
+  assert.match(second, /b\.txt[\s\S]*contents of b/);
+  assert.doesNotMatch(second, /contents of a/);
+});
+
+test('given a run with a tool call that returned an error beside one that succeeded, when its run page is viewed, then only the failed card is highlighted and open by default', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
+    { type: 'tool_call', id: 'call_2', name: 'bash', arguments: { command: 'cat missing.txt' } },
+    { type: 'tool_result', id: 'call_2', isError: true, text: 'cat: missing.txt: No such file or directory' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [ok, failed] = toolCards(body) as [string, string];
+  const openingTag = (card: string): string => card.slice(0, card.indexOf('>'));
+  assert.equal(openingTag(ok), '<details class="tool"');
+  assert.match(openingTag(failed), /class="tool tool-error"/);
+  assert.match(openingTag(failed), /\bopen\b/);
+  assert.match(failed, /No such file or directory/);
+});
+
+test('given a subagent tool call sharing its id with a parent tool call, when the run page is viewed, then the subagent card renders inside its group with its own result and the parent card keeps its own', async () => {
+  const usage = { inputTokens: 5, outputTokens: 5 };
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo parent' } },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'parent output' },
+    { type: 'message', role: 'assistant', text: '', usage, costUsd: 0, subagent: 'call-alpha' },
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo alpha' }, subagent: 'call-alpha' },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'alpha output', subagent: 'call-alpha' },
+    { type: 'message', role: 'assistant', text: 'alpha report', usage, costUsd: 0, subagent: 'call-alpha' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [group] = subagentGroups(body) as [string];
+  assert.match(group, /<summary>[\s\S]*1 message[\s\S]*<\/summary>/);
+  const [inner] = toolCards(group) as [string];
+  assert.match(inner, /echo alpha[\s\S]*alpha output/);
+  assert.doesNotMatch(inner, /parent/);
+  assert.doesNotMatch(group, /<header>assistant<\/header>\s*<pre><\/pre>/);
+  const [outer] = toolCards(body) as [string];
+  assert.match(outer, /echo parent[\s\S]*parent output/);
+  assert.doesNotMatch(outer, /alpha/);
+});
+
+test('given a tool call whose arguments were capped and which never got a result, when the run page is viewed, then its card shows the capped text and says no result was recorded', async () => {
+  const capped = '{"command":"echo ffff\n...cut';
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: capped },
+    { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'pi exited on signal SIGKILL' },
+  ]);
+
+  const [card] = toolCards(body) as [string];
+  assert.match(card, /<summary>[\s\S]*bash[\s\S]*<code[^>]*>\{&quot;command&quot;:&quot;echo ffff \.\.\.cut<\/code>/);
+  assert.match(card, /<pre>\{&quot;command&quot;:&quot;echo ffff\n\.\.\.cut<\/pre>/);
+  assert.match(card, /No result recorded\./);
+});
+
+test('given a transcript written before tool events were recorded, when its run page is viewed, then every message renders as before, including an empty assistant turn, and no tool card appears', async () => {
+  const usage = { inputTokens: 5, outputTokens: 5 };
+  const body = await viewTranscript([
+    { type: 'message', role: 'user', text: 'run echo forge', usage, costUsd: 0 },
+    { type: 'message', role: 'assistant', text: '', usage, costUsd: 0 },
+    { type: 'message', role: 'assistant', text: 'it printed forge', usage, costUsd: 0 },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  assert.equal(toolCards(body).length, 0);
+  assert.equal(body.match(/<article class="message message-assistant">/g)?.length, 2);
+  assert.match(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
+  assert.match(body, /Run success/);
+});
+
+test('given a provider that reuses a tool call id across turns, when the run page is viewed, then each card shows the result that followed it', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_0', name: 'bash', arguments: { command: 'echo first' } },
+    { type: 'tool_result', id: 'call_0', isError: true, text: 'first output' },
+    { type: 'tool_call', id: 'call_0', name: 'bash', arguments: { command: 'echo second' } },
+    { type: 'tool_result', id: 'call_0', isError: false, text: 'second output' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [first, second] = toolCards(body) as [string, string];
+  assert.match(first, /echo first[\s\S]*first output/);
+  assert.match(first, /class="tool tool-error"/);
+  assert.doesNotMatch(first, /second output/);
+  assert.match(second, /echo second[\s\S]*second output/);
+  assert.doesNotMatch(second, /first output|tool-error/);
 });

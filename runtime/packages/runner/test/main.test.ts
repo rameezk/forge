@@ -353,6 +353,255 @@ test('given a recorded run with two parallel subagent calls, when the transcript
   }
 });
 
+test('given a recorded run whose agent calls bash in turns with no text, one call failing, when the transcript is written, then each call is recorded with its arguments and each result with its output and error flag, in stream order', async () => {
+  const { code, run, transcript } = await runWorker({
+    output: fixture('tool-calls.jsonl'),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.inputTokens, 1000 + 1100 + 1200);
+  const toolEvents = parseTranscript(transcript).filter(
+    (event) => event.type === 'tool_call' || event.type === 'tool_result',
+  );
+  assert.deepEqual(toolEvents, [
+    {
+      type: 'tool_call',
+      id: 'call_1',
+      name: 'bash',
+      arguments: { command: 'echo forge' },
+    },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
+    {
+      type: 'tool_call',
+      id: 'call_2',
+      name: 'bash',
+      arguments: { command: 'cat missing.txt' },
+    },
+    {
+      type: 'tool_result',
+      id: 'call_2',
+      isError: true,
+      text: 'cat: missing.txt: No such file or directory\n\n\nCommand exited with code 1',
+    },
+  ]);
+});
+
+test('given an agent whose tool arguments, tool output and reply contain the OpenRouter key, including where an oversized output is cut, when the transcript is written, then the key never reaches it and each occurrence is marked redacted', async () => {
+  const cap = 32 * 1024;
+  const straddling = `${'a'.repeat(cap - 4)}${OPENROUTER_KEY}${'a'.repeat(100)}`;
+  const { transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('tool-calls.jsonl'), 'utf8')
+        .replaceAll(
+          '"command":"echo forge"',
+          `"command":"echo ${OPENROUTER_KEY}"`,
+        )
+        .replaceAll(
+          '"text":"forge\\n"',
+          `"text":"OPENROUTER_API_KEY=${OPENROUTER_KEY}\\n"`,
+        )
+        .replaceAll(
+          '"text":"cat: missing.txt: No such file or directory\\n\\n\\nCommand exited with code 1"',
+          `"text":"${straddling}"`,
+        )
+        .replaceAll(
+          '"text":"Done with the tools."',
+          `"text":"The key is ${OPENROUTER_KEY}."`,
+        ),
+    ),
+  });
+
+  assert.doesNotMatch(transcript, /sk-o/);
+  const events = parseTranscript(transcript);
+  assert.deepEqual(
+    events.find((event) => event.type === 'tool_call' && event.id === 'call_1'),
+    {
+      type: 'tool_call',
+      id: 'call_1',
+      name: 'bash',
+      arguments: { command: 'echo [redacted]' },
+    },
+  );
+  const resultText = (id: string) =>
+    events.find((event) => event.type === 'tool_result' && event.id === id);
+  assert.deepEqual(resultText('call_1'), {
+    type: 'tool_result',
+    id: 'call_1',
+    isError: false,
+    text: 'OPENROUTER_API_KEY=[redacted]\n',
+  });
+  assert.equal(
+    (resultText('call_2') as { text: string }).text,
+    `${'a'.repeat(cap - 4)}[red\n[truncated ${straddling.length - OPENROUTER_KEY.length + '[redacted]'.length - cap} characters]`,
+  );
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === 'message' && event.text === 'The key is [redacted].',
+    ),
+  );
+});
+
+test('given pi failing with the OpenRouter key in its stderr, when the worker runs, then the recorded run error and transcript carry the reason with the key redacted', async () => {
+  const stderr = outputFile(`boom: rejected key ${OPENROUTER_KEY}\n`);
+  const { run, transcript } = await journaled(() =>
+    runWorker({
+      output: fixture('preflight.jsonl'),
+      stderr,
+      exit: 1,
+    }),
+  ).then(({ result }) => result);
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /boom: rejected key \[redacted\]/);
+  assert.doesNotMatch(run.error ?? '', /sk-or-test/);
+  assert.doesNotMatch(transcript, /sk-or-test/);
+});
+
+test('given a key whose leading characters also follow a backslash in an escaped argument, and arguments that contain the key only across a newline, when the worker runs, then the run succeeds and the arguments are recorded unchanged', async () => {
+  const key = 'nkey-0123456789';
+  const { code, run, transcript } = await runWorker({
+    openRouterKey: key,
+    output: outputFile(
+      readFileSync(fixture('tool-calls.jsonl'), 'utf8').replaceAll(
+        '"command":"echo forge"',
+        '"command":"echo\\nkey-0123456789"',
+      ),
+    ),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.deepEqual(
+    parseTranscript(transcript).find(
+      (event) => event.type === 'tool_call' && event.id === 'call_1',
+    ),
+    {
+      type: 'tool_call',
+      id: 'call_1',
+      name: 'bash',
+      arguments: { command: 'echo\nkey-0123456789' },
+    },
+  );
+});
+
+test('given pi output whose tool call parts have a non-string name or id, or no arguments, when the transcript is written, then malformed calls are skipped and a call without arguments is recorded with none', async () => {
+  const { code, transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('tool-calls.jsonl'), 'utf8')
+        .split('\n')
+        .map((line) =>
+          line.startsWith('{"type":"message_end"')
+            ? line.replace(
+                '{"type":"toolCall","id":"call_1","name":"bash","arguments":{"command":"echo forge"}}',
+                [
+                  '{"type":"toolCall","id":"call_1","name":{"isEscaped":true},"arguments":{}}',
+                  '{"type":"toolCall","id":7,"name":"bash","arguments":{}}',
+                  '{"type":"toolCall","id":"call_bare","name":"ls"}',
+                ].join(','),
+              )
+            : line,
+        )
+        .join('\n'),
+    ),
+  });
+
+  assert.equal(code, 0);
+  const calls = parseTranscript(transcript).filter(
+    (event) => event.type === 'tool_call',
+  );
+  assert.deepEqual(
+    calls.map((call) => [call.id, call.name, call.arguments]),
+    [
+      ['call_bare', 'ls', {}],
+      ['call_2', 'bash', { command: 'cat missing.txt' }],
+    ],
+  );
+});
+
+test('given a recorded tool call whose arguments and result each exceed the cap, when the transcript is written, then the stored arguments and result text are cut at the cap and end in a truncation marker', async () => {
+  const cap = 32 * 1024;
+  const command = `echo ${'f'.repeat(40_000)}`;
+  const output = `${'a'.repeat(50_000)}\n`;
+  const { transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('tool-calls.jsonl'), 'utf8')
+        .replaceAll('"command":"echo forge"', `"command":"${command}"`)
+        .replaceAll('"text":"forge\\n"', `"text":${JSON.stringify(output)}`),
+    ),
+  });
+
+  const events = parseTranscript(transcript);
+  const call = events.find(
+    (event) => event.type === 'tool_call' && event.id === 'call_1',
+  );
+  const result = events.find(
+    (event) => event.type === 'tool_result' && event.id === 'call_1',
+  );
+  const argumentsJson = JSON.stringify({ command });
+  assert.deepEqual(call, {
+    type: 'tool_call',
+    id: 'call_1',
+    name: 'bash',
+    arguments: `${argumentsJson.slice(0, cap)}\n[truncated ${argumentsJson.length - cap} characters]`,
+  });
+  assert.deepEqual(result, {
+    type: 'tool_result',
+    id: 'call_1',
+    isError: false,
+    text: `${output.slice(0, cap)}\n[truncated ${output.length - cap} characters]`,
+  });
+});
+
+test('given a recorded run whose subagent calls bash, when the transcript is written, then the child call and result carry its subagent scope and the parent subagent calls and their reports carry none', async () => {
+  const { transcript } = await runWorker({
+    output: fixture('subagents.jsonl'),
+  });
+
+  const toolEvents = parseTranscript(transcript).filter(
+    (event) => event.type === 'tool_call' || event.type === 'tool_result',
+  );
+  assert.deepEqual(
+    toolEvents.filter((event) => event.subagent === 'call_alpha'),
+    [
+      {
+        type: 'tool_call',
+        id: 'call_1',
+        name: 'bash',
+        arguments: { command: 'echo alpha' },
+        subagent: 'call_alpha',
+      },
+      {
+        type: 'tool_result',
+        id: 'call_1',
+        isError: false,
+        text: 'alpha\n',
+        subagent: 'call_alpha',
+      },
+    ],
+  );
+  assert.deepEqual(
+    toolEvents
+      .filter((event) => !Object.hasOwn(event, 'subagent'))
+      .map((event) =>
+        event.type === 'tool_call'
+          ? [event.id, event.name, event.arguments]
+          : [event.id, event.isError, event.text],
+      ),
+    [
+      [
+        'call_alpha',
+        'subagent',
+        { task: 'Run echo alpha and report what it printed.' },
+      ],
+      ['call_beta', 'subagent', { task: 'Say beta.' }],
+      ['call_beta', false, 'Beta report: beta.'],
+      ['call_alpha', false, 'Alpha report: echo alpha printed alpha.'],
+    ],
+  );
+  assert.equal(toolEvents.length, 6);
+});
+
 test('given a recording where one subagent call returns an error and the parent finishes normally, when the run completes, then the run succeeds and its tokens and billed cost still count the failed child', async () => {
   const { code, run, lookups } = await runWorker({
     output: fixture('subagent-failure.jsonl'),
