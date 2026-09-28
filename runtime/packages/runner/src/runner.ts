@@ -6,7 +6,7 @@ import {
   type RunCost,
   type Worker,
 } from './harness.ts';
-import { recordable, type TranscriptWriter } from './transcript.ts';
+import { transcriptPolicy, type TranscriptWriter } from './transcript.ts';
 
 export interface RunWorkloadOptions {
   store: Store;
@@ -37,7 +37,7 @@ export const runWorkload = async (
 ): Promise<string> => {
   const { store, harness, worker, openTranscript, openWorkDir, now, newId } =
     options;
-  const record = recordable(options.secrets ?? []);
+  const record = transcriptPolicy(options.secrets ?? []);
   const id = newId();
   const transcript = openTranscript(id);
 

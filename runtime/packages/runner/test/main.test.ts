@@ -442,6 +442,49 @@ test('given an agent whose tool arguments, tool output and reply contain the Ope
   );
 });
 
+test('given pi failing with the OpenRouter key in its stderr, when the worker runs, then the recorded run error and transcript carry the reason with the key redacted', async () => {
+  const stderr = outputFile(`boom: rejected key ${OPENROUTER_KEY}\n`);
+  const { run, transcript } = await journaled(() =>
+    runWorker({
+      output: fixture('preflight.jsonl'),
+      stderr,
+      exit: 1,
+    }),
+  ).then(({ result }) => result);
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /boom: rejected key \[redacted\]/);
+  assert.doesNotMatch(run.error ?? '', /sk-or-test/);
+  assert.doesNotMatch(transcript, /sk-or-test/);
+});
+
+test('given a key whose leading characters also follow a backslash in an escaped argument, and arguments that contain the key only across a newline, when the worker runs, then the run succeeds and the arguments are recorded unchanged', async () => {
+  const key = 'nkey-0123456789';
+  const { code, run, transcript } = await runWorker({
+    openRouterKey: key,
+    output: outputFile(
+      readFileSync(fixture('tool-calls.jsonl'), 'utf8').replaceAll(
+        '"command":"echo forge"',
+        '"command":"echo\\nkey-0123456789"',
+      ),
+    ),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.deepEqual(
+    parseTranscript(transcript).find(
+      (event) => event.type === 'tool_call' && event.id === 'call_1',
+    ),
+    {
+      type: 'tool_call',
+      id: 'call_1',
+      name: 'bash',
+      arguments: { command: 'echo\nkey-0123456789' },
+    },
+  );
+});
+
 test('given pi output whose tool call parts have a non-string name or id, or no arguments, when the transcript is written, then malformed calls are skipped and a call without arguments is recorded with none', async () => {
   const { code, transcript } = await runWorker({
     output: outputFile(

@@ -12,36 +12,51 @@ const capped = (text: string): string =>
     ? text
     : `${text.slice(0, TOOL_PAYLOAD_CAP_CHARS)}\n[truncated ${text.length - TOOL_PAYLOAD_CAP_CHARS} characters]`;
 
-export const recordable = (
+export const transcriptPolicy = (
   secrets: string[],
 ): ((event: HarnessEvent) => HarnessEvent) => {
   const hidden = secrets.filter((secret) => secret.length > 0);
-  const redact = (text: string, form: (secret: string) => string): string =>
+  const redact = (text: string): string =>
     hidden.reduce(
-      (redacted, secret) => redacted.replaceAll(form(secret), REDACTED),
+      (redacted, secret) => redacted.replaceAll(secret, REDACTED),
       text,
     );
-  const asText = (secret: string): string => secret;
-  const inJson = (secret: string): string =>
-    JSON.stringify(secret).slice(1, -1);
+  const redactValue = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      return redact(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map(redactValue);
+    }
+    if (typeof value === 'object' && value !== null) {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, field]) => [
+          redact(key),
+          redactValue(field),
+        ]),
+      );
+    }
+    return value;
+  };
   return (event) => {
     switch (event.type) {
       case 'message':
-        return { ...event, text: redact(event.text, asText) };
+        return { ...event, text: redact(event.text) };
       case 'tool_call': {
-        const json = redact(JSON.stringify(event.arguments), inJson);
+        const redacted = redactValue(event.arguments);
+        const json = JSON.stringify(redacted) ?? '';
         return {
           ...event,
           arguments:
-            json.length <= TOOL_PAYLOAD_CAP_CHARS
-              ? (JSON.parse(json) as unknown)
-              : capped(json),
+            json.length <= TOOL_PAYLOAD_CAP_CHARS ? redacted : capped(json),
         };
       }
       case 'tool_result':
-        return { ...event, text: capped(redact(event.text, asText)) };
+        return { ...event, text: capped(redact(event.text)) };
       case 'result':
-        return event;
+        return event.error === null
+          ? event
+          : { ...event, error: redact(event.error) };
     }
   };
 };
