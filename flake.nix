@@ -299,7 +299,9 @@
 
           forge-shared = self.packages.${system}.forge-shared;
           forge-runner = self.packages.${system}.forge-runner;
-          pi-cli-contract = pkgs.callPackage ./infra/nix/pi-cli-contract.nix { };
+          pi-cli-contract = pkgs.callPackage ./infra/nix/pi-cli-contract.nix {
+            forge-runner = self.packages.${system}.forge-runner;
+          };
         }
       );
     };

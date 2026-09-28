@@ -9,9 +9,19 @@ import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { piArgs } from '../../src/pi.ts';
+import { SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
+import type { HarnessInvocation } from '../../src/harness.ts';
+import { piArgs, subagentInvocation } from '../../src/pi.ts';
 
-type Respond = (call: number, res: ServerResponse) => void;
+interface ChatRequest {
+  messages: { role: string; content: unknown }[];
+}
+
+type Respond = (
+  call: number,
+  res: ServerResponse,
+  request: ChatRequest,
+) => void;
 
 interface Usage {
   prompt_tokens: number;
@@ -63,33 +73,91 @@ const textReply = (id: string, text: string, total: Usage): unknown[] => [
   usageChunk(id, total),
 ];
 
-const toolCallReply = (id: string, total: Usage): unknown[] => [
-  chunk(id, { role: 'assistant', content: 'Let me look.' }),
-  chunk(id, {
-    tool_calls: [
-      {
-        index: 0,
-        id: 'call_1',
-        type: 'function',
-        function: { name: 'bash', arguments: '' },
-      },
-    ],
-  }),
-  chunk(id, {
-    tool_calls: [
-      { index: 0, function: { arguments: '{"command":"echo forge"}' } },
-    ],
-  }),
+interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, string>;
+}
+
+const toolCallReply = (
+  id: string,
+  text: string,
+  calls: ToolCall[],
+  total: Usage,
+): unknown[] => [
+  chunk(id, { role: 'assistant', content: text }),
+  ...calls.flatMap((call, index) => [
+    chunk(id, {
+      tool_calls: [
+        {
+          index,
+          id: call.id,
+          type: 'function',
+          function: { name: call.name, arguments: '' },
+        },
+      ],
+    }),
+    chunk(id, {
+      tool_calls: [
+        { index, function: { arguments: JSON.stringify(call.arguments) } },
+      ],
+    }),
+  ]),
   chunk(id, {}, 'tool_calls'),
   usageChunk(id, total),
 ];
+
+const bash = (command: string): ToolCall => ({
+  id: 'call_1',
+  name: 'bash',
+  arguments: { command },
+});
+
+const SUBAGENT_TASKS = {
+  alpha: 'Run echo alpha and report what it printed.',
+  beta: 'Say beta.',
+};
+
+const sentToolResults = (request: ChatRequest): boolean =>
+  request.messages.some((message) => message.role === 'tool');
+
+const mentions = (request: ChatRequest, text: string): boolean =>
+  JSON.stringify(request.messages).includes(text);
+
+const alphaChild: Respond = (_call, res, request) =>
+  sse(
+    res,
+    sentToolResults(request)
+      ? textReply(
+          'gen-child-alpha-2',
+          'Alpha report: echo alpha printed alpha.',
+          usage(700, 600, 12),
+        )
+      : toolCallReply(
+          'gen-child-alpha-1',
+          'Running it.',
+          [bash('echo alpha')],
+          usage(600, 0, 20),
+        ),
+  );
+
+const betaChild: Respond = (_call, res) =>
+  sse(
+    res,
+    textReply('gen-child-beta-1', 'Beta report: beta.', usage(500, 0, 6)),
+  );
 
 const scenarios: Record<string, Respond> = {
   success: (call, res) =>
     sse(
       res,
       call === 1
-        ? toolCallReply('gen-success-1', usage(1200, 1000, 40))
+        ? toolCallReply(
+            'gen-success-1',
+            'Let me look.',
+            [bash('echo forge')],
+            usage(1200, 1000, 40),
+          )
         : textReply(
             'gen-success-2',
             'The command printed forge. All done.',
@@ -119,6 +187,42 @@ const scenarios: Record<string, Respond> = {
           res,
           textReply('gen-retry-2', 'Recovered and finished.', usage(900, 0, 8)),
         ),
+  subagents: (call, res, request) => {
+    if (mentions(request, 'You are a sub-agent')) {
+      (mentions(request, SUBAGENT_TASKS.alpha) ? alphaChild : betaChild)(
+        call,
+        res,
+        request,
+      );
+      return;
+    }
+    sse(
+      res,
+      sentToolResults(request)
+        ? textReply(
+            'gen-subagents-2',
+            'Both sub-agents reported back.',
+            usage(1500, 1200, 10),
+          )
+        : toolCallReply(
+            'gen-subagents-1',
+            'Delegating both.',
+            [
+              {
+                id: 'call_alpha',
+                name: 'subagent',
+                arguments: { task: SUBAGENT_TASKS.alpha },
+              },
+              {
+                id: 'call_beta',
+                name: 'subagent',
+                arguments: { task: SUBAGENT_TASKS.beta },
+              },
+            ],
+            usage(1400, 1000, 30),
+          ),
+    );
+  },
 };
 
 const serve = async (
@@ -126,10 +230,11 @@ const serve = async (
 ): Promise<ReturnType<typeof createServer>> => {
   let calls = 0;
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    req.resume();
+    let body = '';
+    req.on('data', (data: Buffer) => (body += data.toString()));
     req.on('end', () => {
       calls += 1;
-      respond(calls, res);
+      respond(calls, res, JSON.parse(body) as ChatRequest);
     });
   });
   server.listen(0, '127.0.0.1');
@@ -137,10 +242,30 @@ const serve = async (
   return server;
 };
 
+const EXTENSION = join(
+  dirname(import.meta.filename),
+  '..',
+  '..',
+  '..',
+  'pi-subagent',
+  'src',
+);
+
+const INVOCATION: HarnessInvocation = {
+  model: 'z-ai/glm-5',
+  prompt: 'Run echo forge, then say what it printed.',
+  workDir: '.',
+  reasoningEffort: 'high',
+};
+
+const SUBAGENTS_PROMPT =
+  'Delegate two tasks to sub-agents in parallel: have one run echo alpha, and the other say beta.';
+
 const runPi = async (
   pi: string,
   baseUrl: string,
   key: string | undefined,
+  args: string[],
 ): Promise<{ stdout: string; stderr: string; code: number | null }> => {
   const home = mkdtempSync(join(tmpdir(), 'forge-record-home-'));
   const work = mkdtempSync(join(tmpdir(), 'forge-record-work-'));
@@ -149,24 +274,18 @@ const runPi = async (
     join(home, '.pi', 'agent', 'models.json'),
     JSON.stringify({ providers: { openrouter: { baseUrl } } }),
   );
-  const child = spawn(
-    pi,
-    piArgs({
-      model: 'z-ai/glm-5',
-      prompt: 'Run echo forge, then say what it printed.',
-      workDir: work,
-      reasoningEffort: 'high',
-    }),
-    {
-      cwd: work,
-      env: {
-        PATH: process.env.PATH ?? '',
-        HOME: home,
-        ...(key === undefined ? {} : { OPENROUTER_API_KEY: key }),
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
+  const child = spawn(pi, args, {
+    cwd: work,
+    env: {
+      PATH: process.env.PATH ?? '',
+      HOME: home,
+      [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
+        subagentInvocation(pi, INVOCATION),
+      ),
+      ...(key === undefined ? {} : { OPENROUTER_API_KEY: key }),
     },
-  );
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (data: Buffer) => (stdout += data.toString()));
@@ -175,19 +294,57 @@ const runPi = async (
   return { stdout, stderr, code };
 };
 
-const record = async (pi: string, outDir: string): Promise<void> => {
+const recordRun = async (
+  pi: string,
+  respond: Respond,
+  args: string[],
+  out: string,
+): Promise<void> => {
+  const server = await serve(respond);
+  const { port } = server.address() as AddressInfo;
+  const run = await runPi(pi, `http://127.0.0.1:${port}/v1`, 'sk-fake', args);
+  server.close();
+  if (run.code !== 0) {
+    throw new Error(`${out}: pi exited ${String(run.code)}: ${run.stderr}`);
+  }
+  writeFileSync(out, run.stdout);
+};
+
+const record = async (
+  pi: string,
+  outDir: string,
+  childOutDir: string,
+): Promise<void> => {
+  mkdirSync(childOutDir, { recursive: true });
+  const child = subagentInvocation(pi, INVOCATION);
+  await recordRun(
+    pi,
+    alphaChild,
+    [
+      ...child.argv.slice(1),
+      '--append-system-prompt',
+      child.systemPrompt,
+      `Task: ${SUBAGENT_TASKS.alpha}`,
+    ],
+    join(childOutDir, 'child.jsonl'),
+  );
+
   mkdirSync(outDir, { recursive: true });
   for (const [name, respond] of Object.entries(scenarios)) {
-    const server = await serve(respond);
-    const { port } = server.address() as AddressInfo;
-    const run = await runPi(pi, `http://127.0.0.1:${port}/v1`, 'sk-fake');
-    server.close();
-    if (run.code !== 0) {
-      throw new Error(`${name}: pi exited ${String(run.code)}: ${run.stderr}`);
-    }
-    writeFileSync(join(outDir, `${name}.jsonl`), run.stdout);
+    const prompt = name === 'subagents' ? SUBAGENTS_PROMPT : INVOCATION.prompt;
+    await recordRun(
+      pi,
+      respond,
+      piArgs({ ...INVOCATION, prompt }, EXTENSION),
+      join(outDir, `${name}.jsonl`),
+    );
   }
-  const preflight = await runPi(pi, 'http://127.0.0.1:9/v1', undefined);
+  const preflight = await runPi(
+    pi,
+    'http://127.0.0.1:9/v1',
+    undefined,
+    piArgs(INVOCATION, EXTENSION),
+  );
   writeFileSync(join(outDir, 'preflight.jsonl'), preflight.stdout);
   writeFileSync(join(outDir, 'preflight.stderr'), preflight.stderr);
 };
@@ -197,4 +354,8 @@ if (pi === undefined) {
   console.error('usage: node record-pi.ts <path-to-pi>');
   process.exit(1);
 }
-await record(pi, join(dirname(import.meta.filename), 'pi'));
+await record(
+  pi,
+  join(dirname(import.meta.filename), 'pi'),
+  join(EXTENSION, '..', 'test', 'fixtures'),
+);

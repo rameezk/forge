@@ -12,7 +12,12 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join, sep } from 'node:path';
-import { Store, type RunRecord } from '@forge/shared';
+import {
+  parseTranscript,
+  Store,
+  type MessageEvent,
+  type RunRecord,
+} from '@forge/shared';
 import type { WorkerConfig } from '../src/index.ts';
 import { main } from '../src/main.ts';
 
@@ -20,10 +25,12 @@ const FIXTURES = join(import.meta.dirname, 'fixtures', 'pi');
 
 const fixture = (name: string): string => join(FIXTURES, name);
 
+const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
+
 const FAKE_PI = `#!${process.execPath}
 import { readFileSync, writeFileSync } from 'node:fs';
 const env = process.env;
-writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid }));
+writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_SUBAGENT_INVOCATION }));
 process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
 if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
 process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
@@ -49,6 +56,11 @@ const BILLED_BY_ID = {
   'gen-success-2': 0.0375,
   'gen-retry-1': 0.002,
   'gen-retry-2': 0.004,
+  'gen-subagents-1': 0.5,
+  'gen-subagents-2': 0.25,
+  'gen-child-alpha-1': 0.125,
+  'gen-child-alpha-2': 0.0625,
+  'gen-child-beta-1': 0.03125,
 };
 
 const OPENROUTER_KEY = 'sk-or-test';
@@ -128,7 +140,12 @@ interface Outcome {
   stateDir: string;
   run: RunRecord;
   transcript: string;
-  pi: { argv: string[]; cwd: string; pid: number };
+  pi: {
+    argv: string[];
+    cwd: string;
+    pid: number;
+    subagentInvocation: string | undefined;
+  };
   lookups: Lookup[];
 }
 
@@ -170,6 +187,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     OPENROUTER_API_KEY: scenario.openRouterKey ?? OPENROUTER_KEY,
     FORGE_RUNTIME_CONFIG: configPath,
     FORGE_STATE_DIR: stateDir,
+    FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
     FAKE_PI_RECORD: record,
     FAKE_PI_OUTPUT: scenario.output,
     FAKE_PI_EXIT: String(scenario.exit ?? 0),
@@ -289,7 +307,53 @@ test('given recorded pi output of a successful multi-message run with tool, turn
   assert.match(transcript, /The command printed forge\. All done\./);
 });
 
-test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, offline, openrouter contract with the plain model, the extras, the prompt last, and a thinking level only when declared', async () => {
+test('given a recorded run where the parent makes two parallel subagent calls and an OpenRouter billing every generation, when the worker runs, then its tokens and billed cost are the sum of the parent and both children, each generation looked up once by its response id', async () => {
+  const { code, run, lookups } = await runWorker({
+    output: fixture('subagents.jsonl'),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.equal(run.inputTokens, 1400 + 1500 + (600 + 700) + 500);
+  assert.equal(run.outputTokens, 30 + 10 + (20 + 12) + 6);
+  assert.equal(run.costUsd, 0.5 + 0.25 + (0.125 + 0.0625) + 0.03125);
+  assert.equal(run.costUncertain, false);
+  assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
+    'gen-child-alpha-1',
+    'gen-child-alpha-2',
+    'gen-child-beta-1',
+    'gen-subagents-1',
+    'gen-subagents-2',
+  ]);
+});
+
+test('given a recorded run with two parallel subagent calls, when the transcript is written, then each child message carries its subagent scope and the parent messages carry none', async () => {
+  const { transcript } = await runWorker({
+    output: fixture('subagents.jsonl'),
+  });
+
+  const messages = parseTranscript(transcript).filter(
+    (event): event is MessageEvent => event.type === 'message',
+  );
+  const textsIn = (scope: string | undefined) =>
+    messages
+      .filter((message) => message.subagent === scope)
+      .map((message) => message.text);
+  assert.deepEqual(textsIn('call_alpha'), [
+    'Running it.',
+    'Alpha report: echo alpha printed alpha.',
+  ]);
+  assert.deepEqual(textsIn('call_beta'), ['Beta report: beta.']);
+  assert.deepEqual(textsIn(undefined), [
+    'Delegating both.',
+    'Both sub-agents reported back.',
+  ]);
+  for (const message of messages.filter((m) => m.subagent === undefined)) {
+    assert.ok(!Object.hasOwn(message, 'subagent'));
+  }
+});
+
+test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, offline, openrouter contract with the plain model, a thinking level only when declared, the subagent extension, the extras, and the prompt last', async () => {
   const output = fixture('success.jsonl');
   const contract = [
     '--mode',
@@ -316,14 +380,55 @@ test('given workers with and without a reasoning effort and a harness with opera
     ...contract,
     '--thinking',
     'high',
+    '-e',
+    EXTENSION,
     '--no-skills',
     'refine the spec',
   ]);
   assert.deepEqual(withoutEffort.pi.argv, [
     ...contract,
+    '-e',
+    EXTENSION,
     '--no-skills',
     'refine the spec',
   ]);
+});
+
+test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then the subagent extension is handed the pi binary with the parent contract, provider, model and thinking level, never the extension, the extras or the prompt, and a sub-agent system prompt', async () => {
+  const output = fixture('success.jsonl');
+
+  const withEffort = await runWorker({
+    output,
+    worker: { reasoningEffort: 'high' },
+    harnessArgs: ['--no-skills'],
+  });
+  const withoutEffort = await runWorker({
+    output,
+    harnessArgs: ['--no-skills'],
+  });
+
+  const childOf = (outcome: Outcome) =>
+    JSON.parse(outcome.pi.subagentInvocation ?? 'null') as {
+      argv: string[];
+      systemPrompt: string;
+    };
+  const withEffortChild = childOf(withEffort);
+  const withoutEffortChild = childOf(withoutEffort);
+  const [binary] = withEffortChild.argv;
+  const parentFlags = (outcome: Outcome) =>
+    outcome.pi.argv.slice(0, outcome.pi.argv.indexOf('-e'));
+  assert.match(binary ?? '', /fake-pi\.mjs$/);
+  assert.deepEqual(withEffortChild.argv, [binary, ...parentFlags(withEffort)]);
+  assert.deepEqual(
+    withoutEffortChild.argv.slice(1),
+    parentFlags(withoutEffort),
+  );
+  assert.ok(withEffortChild.argv.includes('--thinking'));
+  assert.ok(!withoutEffortChild.argv.includes('--thinking'));
+  assert.ok(!withEffortChild.argv.includes('-e'));
+  assert.match(withEffortChild.systemPrompt, /sub-agent/);
+  assert.match(withEffortChild.systemPrompt, /returned verbatim/);
+  assert.match(withEffortChild.systemPrompt, /cannot spawn sub-agents/);
 });
 
 test('given any worker, when it runs, then pi works in a fresh per-run directory under the state directory, never the state directory itself', async () => {
@@ -548,4 +653,27 @@ test('given an OpenRouter key that is not a valid header value, when the worker 
   assert.equal(outcome.run.costUncertain, true);
   assert.match(journal, /could not cost OpenRouter generation "gen-success-1"/);
   assert.doesNotMatch(journal, /sk-or-secret/);
+});
+
+test('given a runner with no subagent extension to load, when a pi worker runs, then the runner refuses before starting pi', async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
+  const configPath = join(stateDir, 'runtime.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      harnesses: { pi: { command: join(stateDir, 'no-pi') } },
+      workers: {
+        refiner: { harness: 'pi', model: 'z-ai/glm-5', prompt: 'refine' },
+      },
+    }),
+  );
+
+  await assert.rejects(
+    main(['refiner'], {
+      FORGE_RUNTIME_CONFIG: configPath,
+      FORGE_STATE_DIR: stateDir,
+    }),
+    /FORGE_PI_SUBAGENT_EXTENSION is not set/,
+  );
+  assert.deepEqual(readdirSync(stateDir), ['runtime.json']);
 });

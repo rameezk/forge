@@ -19,4 +19,9 @@ export { runWorkload } from './runner.ts';
 export type { Billing, OpenRouterBillingOptions } from './openrouter.ts';
 export { OPENROUTER_API, OpenRouterBilling } from './openrouter.ts';
 export type { PiHarnessOptions } from './pi.ts';
-export { PiHarness, piArgs } from './pi.ts';
+export {
+  PiHarness,
+  piArgs,
+  SUBAGENT_SYSTEM_PROMPT,
+  subagentInvocation,
+} from './pi.ts';
