@@ -7,8 +7,9 @@ import type {
   ToolCallEvent,
   ToolResultEvent,
 } from '@forge/shared';
-import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { formatCost, formatDuration, totalCost } from './format.ts';
+
+type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
 const STYLES = `
   :root { color-scheme: light dark; --line: color-mix(in srgb, currentColor 15%, transparent); }
@@ -211,7 +212,7 @@ const renderToolCall = (
 const renderEvent = (
   event: HarnessEvent,
   results: ToolResults,
-): HtmlEscapedString | Promise<HtmlEscapedString> | '' => {
+): Rendered => {
   switch (event.type) {
     case 'message':
       return renderText(event.role, event.text);
@@ -237,11 +238,6 @@ type ScopedEvent = MessageEvent | ToolCallEvent | ToolResultEvent;
 
 type TranscriptEntry = HarnessEvent | SubagentGroup;
 
-const isSubagentCall = (event: HarnessEvent): event is ToolCallEvent =>
-  event.type === 'tool_call' &&
-  event.name === SUBAGENT_TOOL &&
-  event.subagent === undefined;
-
 const isToolCall = (entry: TranscriptEntry | undefined): boolean =>
   entry?.type === 'tool_call' ||
   (entry?.type === 'subagent' && entry.call !== undefined);
@@ -259,25 +255,32 @@ const withoutToolOnlyPreambles = <T extends TranscriptEntry>(entries: T[]): T[] 
   entries.filter((entry, index) => !isToolOnlyPreamble(entry, entries[index + 1]));
 
 const nestSubagents = (events: HarnessEvent[]): TranscriptEntry[] => {
+  const calls = new Map<string, { call: ToolCallEvent; index: number }>();
   const groups = new Map<string, SubagentGroup>();
   const entries: TranscriptEntry[] = [];
   for (const event of events) {
-    if (isSubagentCall(event)) {
-      const group: SubagentGroup = { type: 'subagent', scope: event.id, call: event, events: [] };
-      groups.set(event.id, group);
-      entries.push(group);
-    } else if (event.type === 'result' || event.subagent === undefined) {
+    if (event.type === 'result' || event.subagent === undefined) {
+      if (event.type === 'tool_call') {
+        calls.set(event.id, { call: event, index: entries.length });
+        groups.delete(event.id);
+      }
       entries.push(event);
-    } else {
-      const group = groups.get(event.subagent);
-      if (group === undefined) {
-        const orphan: SubagentGroup = { type: 'subagent', scope: event.subagent, events: [event] };
-        groups.set(event.subagent, orphan);
-        entries.push(orphan);
+      continue;
+    }
+    let group = groups.get(event.subagent);
+    if (group === undefined) {
+      const spawner = calls.get(event.subagent);
+      group = spawner === undefined
+        ? { type: 'subagent', scope: event.subagent, events: [] }
+        : { type: 'subagent', scope: event.subagent, call: spawner.call, events: [] };
+      groups.set(event.subagent, group);
+      if (spawner === undefined) {
+        entries.push(group);
       } else {
-        group.events.push(event);
+        entries[spawner.index] = group;
       }
     }
+    group.events.push(event);
   }
   return entries;
 };
@@ -307,8 +310,6 @@ const taskText = (args: unknown): string => {
   const { task } = argumentFields(args);
   return typeof task === 'string' ? task : prettyArguments(args);
 };
-
-type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
 const renderGroup = (
   summary: Rendered,
@@ -376,7 +377,7 @@ const renderSubagent = (
 
 const renderTranscript = (
   events: HarnessEvent[],
-): (HtmlEscapedString | Promise<HtmlEscapedString> | '')[] => {
+): Rendered[] => {
   const results = toolResults(events);
   return withoutToolOnlyPreambles(nestSubagents(events)).map((entry) =>
     entry.type === 'subagent'

@@ -361,7 +361,8 @@ test('given a run whose agent spawned two subagents, when its run page is viewed
 test('given a subagent given a long multi-line task, when its group is expanded, then the whole task is shown and the header keeps it on one line', async () => {
   const task = 'Review the diff.\n\nReport each finding with its file and line.';
   const body = await viewTranscript([
-    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task, cwd: 'repo' } },
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task } },
+    { type: 'message', role: 'assistant', text: 'reviewing', usage, costUsd: 0, subagent: 'call_alpha' },
     { type: 'tool_result', id: 'call_alpha', isError: false, text: 'clean' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
@@ -400,6 +401,7 @@ test('given a subagent call that returned an error, when its run page is viewed,
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
     { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: { task: 'Say beta.' } },
     { type: 'message', role: 'assistant', text: 'partial', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'beta', usage, costUsd: 0, subagent: 'call_beta' },
     { type: 'tool_result', id: 'call_alpha', isError: true, text: 'Sub-agent failed: provider error' },
     { type: 'tool_result', id: 'call_beta', isError: false, text: 'beta' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
@@ -449,6 +451,7 @@ test('given a provider that reuses a subagent call id across turns, when the run
 test('given a subagent given an explicit working directory, when its group is expanded, then the working directory is shown with the task', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'List the files.', cwd: 'repo/src' } },
+    { type: 'message', role: 'assistant', text: 'two files', usage, costUsd: 0, subagent: 'call_alpha' },
     { type: 'tool_result', id: 'call_alpha', isError: false, text: 'two files' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
@@ -462,6 +465,8 @@ test('given a subagent call whose arguments carry no task text, when its run pag
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { cwd: 'repo' } },
     { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: capped },
+    { type: 'message', role: 'assistant', text: 'working', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'working', usage, costUsd: 0, subagent: 'call_beta' },
     { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'pi exited on signal SIGKILL' },
   ]);
 
@@ -470,4 +475,30 @@ test('given a subagent call whose arguments carry no task text, when its run pag
   assert.match(alpha, /<header>task<\/header>\s*<pre>\{\n  &quot;cwd&quot;: &quot;repo&quot;\n\}<\/pre>/);
   assert.match(beta, /<span class="subagent-task" title="\{&quot;task&quot;:&quot;Review the diff \.\.\.cut">/);
   assert.match(beta, /<header>task<\/header>\s*<pre>\{&quot;task&quot;:&quot;Review the diff\n\.\.\.cut<\/pre>/);
+});
+
+test("given a harness whose spawning tool has another name, when its run page is viewed, then children still nest under the call their scope names", async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'toolu_01', name: 'Task', arguments: { task: 'Count the files.' } },
+    { type: 'message', role: 'assistant', text: 'three files', usage, costUsd: 0, subagent: 'toolu_01' },
+    { type: 'tool_result', id: 'toolu_01', isError: false, text: 'three files' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.match(card, /<span class="tool-name">Task<\/span>[\s\S]*Count the files\.[\s\S]*<header>report<\/header>\s*<pre>three files<\/pre>/);
+  assert.equal(toolCards(body).length, 0);
+});
+
+test('given a subagent call that failed before its child produced any activity, when its run page is viewed, then it renders as an ordinary tool card that is highlighted and open', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'List the files.', cwd: '../outside' } },
+    { type: 'tool_result', id: 'call_alpha', isError: true, text: 'working directory escapes the run directory' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  assert.equal(subagentCalls(body).length, 0);
+  const [card] = toolCards(body) as [string];
+  assert.match(card, /^<details class="tool tool-error" open>/);
+  assert.match(card, /List the files\.[\s\S]*\.\.\/outside[\s\S]*working directory escapes the run directory/);
 });
