@@ -30,13 +30,13 @@ process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
 if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
 `;
 
-type Billing = (
+type GenerationStats = (
   id: string,
   attempt: number,
 ) => { status: number; body?: unknown } | 'hang';
 
 const billedAt =
-  (costs: Record<string, number>): Billing =>
+  (costs: Record<string, number>): GenerationStats =>
   (id) => {
     const cost = costs[id];
     return cost === undefined
@@ -44,7 +44,7 @@ const billedAt =
       : { status: 200, body: { data: { id, total_cost: cost } } };
   };
 
-const BILLED = {
+const BILLED_BY_ID = {
   'gen-success-1': 0.0125,
   'gen-success-2': 0.0375,
   'gen-retry-1': 0.002,
@@ -59,7 +59,7 @@ interface Lookup {
 }
 
 const fakeOpenRouter = async (
-  billing: Billing,
+  generations: GenerationStats,
 ): Promise<{ baseUrl: string; lookups: Lookup[]; close: () => void }> => {
   const lookups: Lookup[] = [];
   const attempts = new Map<string, number>();
@@ -69,7 +69,7 @@ const fakeOpenRouter = async (
     lookups.push({ id, authorization: request.headers.authorization });
     const reply =
       url.pathname === '/api/v1/generation' && id !== null
-        ? billing(id, (attempts.get(id) ?? 0) + 1)
+        ? generations(id, (attempts.get(id) ?? 0) + 1)
         : { status: 404 };
     if (id !== null) {
       attempts.set(id, (attempts.get(id) ?? 0) + 1);
@@ -95,7 +95,7 @@ const fakeOpenRouter = async (
 
 interface Scenario {
   output: string;
-  billing?: Billing;
+  generations?: GenerationStats;
   worker?: Partial<WorkerConfig>;
   harnessArgs?: string[];
   stderr?: string;
@@ -142,7 +142,9 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     }),
   );
 
-  const openRouter = await fakeOpenRouter(scenario.billing ?? billedAt(BILLED));
+  const openRouter = await fakeOpenRouter(
+    scenario.generations ?? billedAt(BILLED_BY_ID),
+  );
   const code = await main(['refiner'], {
     OPENROUTER_BASE_URL: openRouter.baseUrl,
     OPENROUTER_API_KEY: OPENROUTER_KEY,
@@ -355,7 +357,7 @@ test('given pi writing output that is not json and staying alive, when the worke
 });
 
 test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a server error, an unusable body, a not found that never clears, or no answer at all, when the worker runs, then the run stays success with the cost it could look up and cost flagged uncertain', async () => {
-  const failures: ReturnType<Billing>[] = [
+  const failures: ReturnType<GenerationStats>[] = [
     { status: 500, body: { error: { code: 500 } } },
     { status: 200, body: { data: { id: 'gen-success-2' } } },
     { status: 200, body: 'not json' },
@@ -367,8 +369,10 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
     failures.map((failure) =>
       runWorker({
         output: fixture('success.jsonl'),
-        billing: (id, attempt) =>
-          id === 'gen-success-2' ? failure : billedAt(BILLED)(id, attempt),
+        generations: (id, attempt) =>
+          id === 'gen-success-2'
+            ? failure
+            : billedAt(BILLED_BY_ID)(id, attempt),
       }),
     ),
   );
@@ -385,10 +389,10 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
 test('given an OpenRouter whose stats for a generation lag, returning not found at first and then its billed cost, when the worker runs, then the run cost includes that generation and is not flagged uncertain', async () => {
   const { run, lookups } = await runWorker({
     output: fixture('success.jsonl'),
-    billing: (id, attempt) =>
+    generations: (id, attempt) =>
       id === 'gen-success-2' && attempt < 3
         ? billedAt({})(id, attempt)
-        : billedAt(BILLED)(id, attempt),
+        : billedAt(BILLED_BY_ID)(id, attempt),
   });
 
   assert.equal(run.status, 'success');

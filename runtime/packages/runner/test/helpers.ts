@@ -45,7 +45,7 @@ export interface FakeHarness extends Harness {
   readonly invocations: HarnessInvocation[];
 }
 
-const BILLED: RunCost = { costUsd: 0.02, uncertain: false };
+const SETTLED_COST: RunCost = { costUsd: 0.02, uncertain: false };
 
 export const fakeHarness = (
   events: HarnessEvent[],
@@ -68,7 +68,7 @@ export const fakeHarness = (
             yield event;
           }
         })(),
-        cost: async () => hooks.cost ?? BILLED,
+        cost: async () => hooks.cost ?? SETTLED_COST,
       };
     },
   };
@@ -85,7 +85,7 @@ export const throwingHarness = (
       }
       throw error;
     })(),
-    cost: async () => BILLED,
+    cost: async () => SETTLED_COST,
   }),
 });
 
