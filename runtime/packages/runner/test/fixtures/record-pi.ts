@@ -107,8 +107,8 @@ const toolCallReply = (
   usageChunk(id, total),
 ];
 
-const bash = (command: string): ToolCall => ({
-  id: 'call_1',
+const bash = (command: string, id = 'call_1'): ToolCall => ({
+  id,
   name: 'bash',
   arguments: { command },
 });
@@ -127,13 +127,7 @@ const toolOnlyTurns: Respond = (call, res) =>
         ? toolCallReply(
             'gen-tools-2',
             '',
-            [
-              {
-                id: 'call_2',
-                name: 'bash',
-                arguments: { command: 'cat missing.txt' },
-              },
-            ],
+            [bash('cat missing.txt', 'call_2')],
             usage(1100, 1000, 12),
           )
         : textReply(

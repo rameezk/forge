@@ -268,15 +268,15 @@ test('given a subagent tool call sharing its id with a parent tool call, when th
 });
 
 test('given a tool call whose arguments were capped and which never got a result, when the run page is viewed, then its card shows the capped text and says no result was recorded', async () => {
-  const capped = '{"command":"echo ffff\n[truncated 7232 characters]';
+  const capped = '{"command":"echo ffff\n...cut';
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_1', name: 'bash', arguments: capped },
     { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'pi exited on signal SIGKILL' },
   ]);
 
   const [card] = toolCards(body) as [string];
-  assert.match(card, /<summary>[\s\S]*bash[\s\S]*<code[^>]*>\{&quot;command&quot;:&quot;echo ffff \[truncated 7232 characters\]<\/code>/);
-  assert.match(card, /<pre>\{&quot;command&quot;:&quot;echo ffff\n\[truncated 7232 characters\]<\/pre>/);
+  assert.match(card, /<summary>[\s\S]*bash[\s\S]*<code[^>]*>\{&quot;command&quot;:&quot;echo ffff \.\.\.cut<\/code>/);
+  assert.match(card, /<pre>\{&quot;command&quot;:&quot;echo ffff\n\.\.\.cut<\/pre>/);
   assert.match(card, /No result recorded\./);
 });
 

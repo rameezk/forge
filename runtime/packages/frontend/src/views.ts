@@ -50,7 +50,7 @@ const STYLES = `
   .message-report { border-color: color-mix(in srgb, currentColor 35%, transparent); }
   .tool-error { border-color: #cf222e; }
   .tool-error .tool-name { color: #cf222e; }
-  .tool-status { margin-left: auto; flex-shrink: 0;font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: #cf222e; border: 1px solid currentColor; border-radius: 999px; padding: 0.05rem 0.4rem; }
+  .badge.tool-status { margin-left: auto; flex-shrink: 0; color: #cf222e; }
   .tool-body { padding: 0.6rem 1rem 0.75rem; border-top: 1px solid var(--line); }
   .tool-body > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin: 0 0 0.3rem; }
   .tool-body > header ~ header { margin-top: 0.75rem; }
@@ -183,7 +183,7 @@ const renderToolCall = (
     <summary>
       <span class="tool-name">${call.name}</span>
       <code title="${summary}">${summary}</code>
-      ${failed ? html`<span class="tool-status">error</span>` : ''}
+      ${failed ? html`<span class="badge tool-status">error</span>` : ''}
     </summary>
     <div class="tool-body">
       <header>Arguments</header>
