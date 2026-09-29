@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { PolledFrontier, RepositoryFrontier, Ticket } from './frontier.ts';
+import type { PolledFrontier, PollFailure, RepositoryFrontier, Ticket } from './frontier.ts';
 import type { CostStatus, RunRecord, RunResult, RunStatus } from './run.ts';
 
 type RunRow = {
@@ -45,6 +45,7 @@ type RepositoryRow = {
   github: string;
   polled_at: string | null;
   last_error: string | null;
+  failed_at: string | null;
 };
 
 type TicketRow = {
@@ -62,7 +63,8 @@ const CREATE_FRONTIER = `
     repository TEXT PRIMARY KEY,
     github     TEXT NOT NULL,
     polled_at  TEXT,
-    last_error TEXT
+    last_error TEXT,
+    failed_at  TEXT
   ) STRICT;
 
   CREATE TABLE IF NOT EXISTS frontier_tickets (
@@ -273,12 +275,13 @@ export class Store {
     this.#transaction(() => {
       this.#db
         .prepare(
-          `INSERT INTO frontier_repositories (repository, github, polled_at, last_error)
-          VALUES ($repository, $github, $polled_at, NULL)
+          `INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at)
+          VALUES ($repository, $github, $polled_at, NULL, NULL)
           ON CONFLICT (repository) DO UPDATE SET
             github = excluded.github,
             polled_at = excluded.polled_at,
-            last_error = NULL`,
+            last_error = NULL,
+            failed_at = NULL`,
         )
         .run({ repository, github, polled_at: polledAt });
       this.#db
@@ -305,16 +308,22 @@ export class Store {
     });
   }
 
-  recordFrontierError(repository: string, github: string, error: string): void {
+  recordFrontierError({
+    repository,
+    github,
+    message,
+    failedAt,
+  }: { repository: string; github: string } & PollFailure): void {
     this.#db
       .prepare(
-        `INSERT INTO frontier_repositories (repository, github, polled_at, last_error)
-        VALUES ($repository, $github, NULL, $error)
+        `INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at)
+        VALUES ($repository, $github, NULL, $message, $failed_at)
         ON CONFLICT (repository) DO UPDATE SET
           github = excluded.github,
-          last_error = excluded.last_error`,
+          last_error = excluded.last_error,
+          failed_at = excluded.failed_at`,
       )
-      .run({ repository, github, error });
+      .run({ repository, github, message, failed_at: failedAt });
   }
 
   pruneFrontier(declared: string[]): void {
@@ -339,7 +348,10 @@ export class Store {
       repository: row.repository,
       github: row.github,
       polledAt: row.polled_at,
-      lastError: row.last_error,
+      lastError:
+        row.last_error === null || row.failed_at === null
+          ? null
+          : { message: row.last_error, failedAt: row.failed_at },
       tickets: (tickets.all({ repository: row.repository }) as TicketRow[]).map(
         ticketFromRow,
       ),

@@ -511,7 +511,9 @@ const renderRepository = ({
       <a href="https://github.com/${github}">${github}</a>
       ${renderPolled(polledAt)}
     </header>
-    ${lastError === null ? '' : html`<p class="status-error">Last poll failed: ${lastError}</p>`}
+    ${lastError === null
+      ? ''
+      : html`<p class="status-error">Last poll failed ${renderTimestamp(lastError.failedAt)}: ${lastError.message}</p>`}
     ${polledAt === null
       ? ''
       : tickets.length === 0

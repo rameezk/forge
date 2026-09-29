@@ -233,7 +233,7 @@ test('given a store file from before the frontier where another connection brief
   }
 });
 
-test('given a store file whose frontier predates last errors, when the store is opened, then a repository that has never been polled can record an error', () => {
+test('given a store file whose frontier predates last errors, when the store is opened, then the stale snapshot is dropped and a repository that has never been polled can record when and why it failed', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   Store.open(path).close();
   const old = new DatabaseSync(path);
@@ -261,11 +261,11 @@ test('given a store file whose frontier predates last errors, when the store is 
 
   const store = Store.open(path);
   try {
-    store.recordFrontierError('fresh', 'rameezk/fresh', 'GitHub token missing');
-    assert.deepEqual(
-      store.listFrontier().find(({ repository }) => repository === 'fresh'),
-      { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: 'GitHub token missing', tickets: [] },
-    );
+    const failedAt = '2026-09-29T08:20:00.000Z';
+    store.recordFrontierError({ repository: 'fresh', github: 'rameezk/fresh', message: 'GitHub token missing', failedAt });
+    assert.deepEqual(store.listFrontier(), [
+      { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: { message: 'GitHub token missing', failedAt }, tickets: [] },
+    ]);
   } finally {
     store.close();
   }

@@ -178,7 +178,9 @@ test('given two declared repositories with stored snapshots where GitHub now fai
   ]);
   const github = replaying({ 'rameezk/forge': recorded('frontier') });
 
+  const before = new Date().toISOString();
   const code = await main(['sync'], env, github.fetch);
+  const after = new Date().toISOString();
 
   assert.notEqual(code, 0);
   const [forge, gone] = storedFrontier(stateDir);
@@ -188,11 +190,13 @@ test('given two declared repositories with stored snapshots where GitHub now fai
   );
   assert.ok(forge && forge.polledAt !== previousPoll);
   assert.equal(forge.lastError, null);
+  const failedAt = gone?.lastError?.failedAt ?? '';
+  assert.ok(before <= failedAt && failedAt <= after);
   assert.deepEqual(gone, {
     repository: 'gone',
     github: 'rameezk/gone',
     polledAt: previousPoll,
-    lastError: 'GitHub answered 404 for rameezk/gone',
+    lastError: { message: 'GitHub answered 404 for rameezk/gone', failedAt },
     tickets: [staleTicket('rameezk/gone', 2)],
   });
 });
@@ -213,22 +217,18 @@ for (const [absence, token] of [['no', undefined], ['an empty', '']] as const) {
 
     assert.notEqual(code, 0);
     assert.deepEqual(github.requests, []);
-    assert.deepEqual(storedFrontier(stateDir), [
-      {
-        repository: 'forge',
-        github: 'rameezk/forge',
-        polledAt: previousPoll,
-        lastError: 'GitHub token missing',
-        tickets: [staleTicket('rameezk/forge', 1)],
-      },
-      {
-        repository: 'fresh',
-        github: 'rameezk/fresh',
-        polledAt: null,
-        lastError: 'GitHub token missing',
-        tickets: [],
-      },
-    ]);
+    const stored = storedFrontier(stateDir);
+    assert.deepEqual(
+      stored.map(({ lastError }) => lastError?.message),
+      ['GitHub token missing', 'GitHub token missing'],
+    );
+    assert.deepEqual(
+      stored.map(({ repository, polledAt, tickets }) => ({ repository, polledAt, tickets })),
+      [
+        { repository: 'forge', polledAt: previousPoll, tickets: [staleTicket('rameezk/forge', 1)] },
+        { repository: 'fresh', polledAt: null, tickets: [] },
+      ],
+    );
   });
 }
 

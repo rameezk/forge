@@ -56,9 +56,14 @@ export interface PolledFrontier {
   tickets: Ticket[];
 }
 
+export interface PollFailure {
+  message: string;
+  failedAt: string;
+}
+
 export interface RepositoryFrontier extends Omit<PolledFrontier, 'polledAt'> {
   polledAt: string | null;
-  lastError: string | null;
+  lastError: PollFailure | null;
 }
 
 interface IssueNode {

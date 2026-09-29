@@ -44,7 +44,12 @@ export const main = async (
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`${name}: ${message}`);
-        store.recordFrontierError(name, github, message);
+        store.recordFrontierError({
+          repository: name,
+          github,
+          message,
+          failedAt: new Date().toISOString(),
+        });
         failed = true;
       }
     }
