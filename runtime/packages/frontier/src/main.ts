@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { queryFrontier, Store, type Fetch, type Ticket } from '@forge/shared';
+import {
+  oldestFirst,
+  queryFrontier,
+  Store,
+  type Fetch,
+  type Ticket,
+} from '@forge/shared';
 import type { FrontierConfig } from './config.ts';
 
 type Poll = (github: string) => Promise<Ticket[]>;
@@ -65,9 +71,6 @@ const sync = async (
 };
 
 const printable = (line: string): string => line.replace(/\p{Cc}/gu, '');
-
-const oldestFirst = (a: Ticket, b: Ticket): number =>
-  a.createdAt.localeCompare(b.createdAt) || a.number - b.number;
 
 const describeTicket = (ticket: Ticket): string[] => {
   const created = `created ${ticket.createdAt.slice(0, 10)}`;

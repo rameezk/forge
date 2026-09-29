@@ -49,6 +49,9 @@ export interface Ticket {
   createdAt: string;
 }
 
+export const oldestFirst = (a: Ticket, b: Ticket): number =>
+  a.createdAt.localeCompare(b.createdAt) || a.number - b.number;
+
 export interface PolledFrontier {
   repository: string;
   github: string;
