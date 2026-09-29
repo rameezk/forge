@@ -40,14 +40,25 @@ testers.runNixOSTest {
     }
   );
 
-  testScript = ''
-    start_all()
+  nodes.replaced = box "hello && ! command -v git && ! command -v find" (
+    { pkgs, ... }:
+    {
+      forge.runtime.toolset = [
+        pkgs.bash
+        pkgs.hello
+      ];
+    }
+  );
 
+  testScript = ''
     def run_probe(machine):
         machine.wait_for_unit("multi-user.target")
         machine.succeed("install -m 0600 -o forge-runtime -g forge-runtime /dev/null /var/lib/forge/openrouter.env")
-        machine.succeed("systemctl start forge-runner@probe")
-        return machine.succeed("cat /var/lib/forge/work/*/toolset.out")
+        status, _ = machine.execute("systemctl start forge-runner@probe")
+        out = machine.succeed("cat /var/lib/forge/work/*/toolset.out")
+        machine.shutdown()
+        assert status == 0, f"the probe failed with output: {out}"
+        return out
 
     with subtest("a workload can run shell commands with the default toolset"):
         out = run_probe(base)
@@ -57,6 +68,10 @@ testers.runNixOSTest {
     with subtest("operators can extend the toolset"):
         out = run_probe(extended)
         assert "git version" in out, out
+        assert "Hello, world!" in out, out
+
+    with subtest("operators can replace the toolset"):
+        out = run_probe(replaced)
         assert "Hello, world!" in out, out
   '';
 }

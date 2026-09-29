@@ -131,7 +131,7 @@ in
         ]
       '';
       example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
-      description = "Workload toolset: packages on the runner unit's path, so a workload's harness and its subagents can invoke them. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
+      description = "Workload toolset: the packages that make up the runner unit's whole path, so a workload's harness and its subagents can invoke them and nothing else. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
     };
 
     harnesses = lib.mkOption {
@@ -184,7 +184,7 @@ in
         description = "Forge workload runner for worker %i";
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
-        path = cfg.toolset;
+        path = lib.mkForce cfg.toolset;
         serviceConfig = {
           Type = "oneshot";
           User = cfg.user;
