@@ -4,8 +4,12 @@ export const formatCost = (usd: number): string => `$${usd.toFixed(6)}`;
 
 export const formatTotal = (usd: number): string => `$${usd.toFixed(4)}`;
 
-export const formatStarted = (iso: string): string =>
-  `${new Date(iso).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+export const formatStarted = (iso: string): string => {
+  const time = Date.parse(iso);
+  return Number.isNaN(time)
+    ? iso
+    : `${new Date(time).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+};
 
 const tokenCount = new Intl.NumberFormat('en-US');
 

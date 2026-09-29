@@ -116,6 +116,18 @@ test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and it
   assert.equal(detail.match(/<dt>Started<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1], started);
 });
 
+test('given a run whose recorded start time is not a date, when the list and its run page are requested, then both render and show the recorded value as is', async () => {
+  const app = appWith([sampleRun({ id: 'run-01', startTime: 'not-a-date', transcriptRef: null })]);
+
+  const list = await app.request('/');
+  const detail = await app.request('/runs/run-01');
+
+  assert.equal(list.status, 200);
+  assert.equal(detail.status, 200);
+  assert.match(await list.text(), /<time datetime="not-a-date" title="not-a-date">not-a-date<\/time>/);
+  assert.match(await detail.text(), /<time datetime="not-a-date" title="not-a-date">not-a-date<\/time>/);
+});
+
 test('given a run with 44991 input and 3480 output tokens, when its run page is requested, then the counts carry thousands separators', async () => {
   const app = appWith([sampleRun({ id: 'run-01', inputTokens: 44991, outputTokens: 3480, transcriptRef: null })]);
 
