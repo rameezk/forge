@@ -98,7 +98,9 @@ the GitHub token file `/var/lib/forge/github.env`. Only deploy keeps it.
    the key without echoing it and streams it to a freshly created
    `/var/lib/forge/openrouter.env`, owned by the `forge-runtime` user with mode
    `0600`, keeping it out of your shell history and every command line. An empty
-   entry changes nothing, and it is safe to rerun to rotate the key:
+   entry changes nothing, and it is safe to rerun to rotate the key. The billing
+   service uses the same key to settle each run's billed cost, so until the key
+   is there, run costs stay pending on the dashboard:
 
    ```bash
    printf 'OpenRouter key: ' && read -rs key && echo && [ -n "$key" ] &&

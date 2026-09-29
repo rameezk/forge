@@ -28,6 +28,10 @@ _Avoid_: base image, tool path
 The per-workload working directory a harness runs in, kept after the run as an artifact until it ages out.
 _Avoid_: workdir, sandbox
 
+**Generation**:
+One model response within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time.
+_Avoid_: response, completion, call
+
 **Billed cost**:
 What OpenRouter charged for a workload's generations, and the only cost forge records; a harness's own price estimate is never recorded or shown (ADR-0013).
 _Avoid_: estimate, catalog cost

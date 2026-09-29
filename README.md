@@ -39,7 +39,7 @@ flowchart TB
 
 ### Containers
 
-The operator repository stands the box up with the standup toolchain. On the box, the runner runs each workload, a timer polls the managed repositories' frontier from GitHub, and a localhost-only dashboard reads what both recorded.
+The operator repository stands the box up with the standup toolchain. On the box, the runner runs each workload, a billing timer settles each run's billed cost from OpenRouter after it finishes, a timer polls the managed repositories' frontier from GitHub, and a localhost-only dashboard reads what they recorded.
 
 ```mermaid
 flowchart TB
@@ -55,6 +55,7 @@ flowchart TB
         state[("<b>State</b><br/>[SQLite, files]<br/>/var/lib/forge: runs, transcripts and the frontier")]
         runner["<b>forge-runner@worker</b><br/>[Node.js]<br/>Runs one workload, sandboxed"]
         harness["<b>Harness</b><br/>[pi CLI]<br/>Agent runtime for the workload"]
+        billing["<b>forge-billing</b><br/>[Node.js, systemd timer]<br/>Settles billed cost, sandboxed"]
         frontier["<b>forge-frontier-sync</b><br/>[Node.js, systemd timer]<br/>Polls the frontier, sandboxed"]
     end
 
@@ -73,7 +74,8 @@ flowchart TB
     runner -- "records runs and transcripts" --> state
     runner -- "spawns" --> harness
     harness -- "calls models" --> openrouter
-    runner -- "looks up billed cost" --> openrouter
+    billing -- "looks up billed cost" --> openrouter
+    billing -- "records billed cost" --> state
     frontier -- "polls the frontier" --> github
     frontier -- "records the frontier" --> state
 
@@ -82,14 +84,14 @@ flowchart TB
     classDef external fill:#999999,stroke:#6b6b6b,color:#fff
     classDef boundary fill:none,stroke:#888888,stroke-dasharray:6 4
     class operator person
-    class oprepo,toolchain,library,runner,harness,frontier,frontend,state container
+    class oprepo,toolchain,library,runner,harness,billing,frontier,frontend,state container
     class hetzner,openrouter,github external
     class workstation,box boundary
 ```
 
 ### A workload run
 
-One run of a worker, from start to its recorded billed cost.
+One run of a worker, from start to its settled billed cost. The run finishes without waiting on OpenRouter, and shows its cost as pending until every generation is billed.
 
 ```mermaid
 sequenceDiagram
@@ -98,19 +100,25 @@ sequenceDiagram
     participant T as Transcript (file)
     participant H as Harness (pi)
     participant O as OpenRouter
+    participant B as forge-billing (every minute)
 
-    R->>S: record the run as running
+    R->>S: record the run as running, cost pending
     R->>H: spawn with the worker's model and prompt
     loop each generation
         H->>O: model request
         O-->>H: response and generation id
         H-->>R: JSON event
         R->>T: append the event
+        R->>S: record the generation id
     end
     H-->>R: exit
-    R->>O: look up what each generation billed
-    O-->>R: billed cost
-    R->>S: finalize the run with status, tokens and billed cost
+    R->>S: finalize the run with status and tokens
+    loop until every generation is billed, or given up after 24 hours
+        B->>S: read unbilled generations
+        B->>O: look up what each generation billed
+        O-->>B: billed cost, or not indexed yet
+        B->>S: record billed costs and settle the run's cost status
+    end
 ```
 
 ## Get started
