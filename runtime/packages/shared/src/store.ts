@@ -79,11 +79,11 @@ const CREATE_FRONTIER = `
   ) STRICT;
 `;
 
-const HAS_FRONTIER_WITHOUT_LAST_ERROR = `
+const HAS_OUTDATED_FRONTIER = `
   SELECT 1 FROM sqlite_master
   WHERE type = 'table' AND name = 'frontier_repositories'
     AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'last_error'
+      SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'failed_at'
     )
 `;
 
@@ -167,19 +167,19 @@ export class Store {
       this.#migrateCostUncertain();
     }
     db.exec(CREATE_RUNS);
-    if (this.#hasFrontierWithoutLastError()) {
-      this.#migrateFrontierLastError();
+    if (this.#hasOutdatedFrontier()) {
+      this.#migrateOutdatedFrontier();
     }
     db.exec(CREATE_FRONTIER);
   }
 
-  #hasFrontierWithoutLastError(): boolean {
-    return this.#db.prepare(HAS_FRONTIER_WITHOUT_LAST_ERROR).get() !== undefined;
+  #hasOutdatedFrontier(): boolean {
+    return this.#db.prepare(HAS_OUTDATED_FRONTIER).get() !== undefined;
   }
 
-  #migrateFrontierLastError(): void {
+  #migrateOutdatedFrontier(): void {
     this.#transaction(() => {
-      if (this.#hasFrontierWithoutLastError()) {
+      if (this.#hasOutdatedFrontier()) {
         this.#db.exec(DROP_FRONTIER);
         this.#db.exec(CREATE_FRONTIER);
       }
