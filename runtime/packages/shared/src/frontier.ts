@@ -1,0 +1,122 @@
+export const GITHUB_GRAPHQL_API = 'https://api.github.com/graphql';
+
+export const FRONTIER_QUERY = `
+  query Frontier($owner: String!, $name: String!) {
+    repository(owner: $owner, name: $name) {
+      issues(
+        first: 100
+        states: OPEN
+        labels: ["ready-for-agent"]
+        orderBy: { field: CREATED_AT, direction: ASC }
+      ) {
+        nodes {
+          number
+          title
+          url
+          createdAt
+          issueDependenciesSummary {
+            blockedBy
+          }
+          parent {
+            number
+            title
+          }
+        }
+      }
+    }
+  }
+`;
+
+export type Fetch = typeof globalThis.fetch;
+
+export interface SpecRef {
+  number: number;
+  title: string;
+}
+
+export interface Ticket {
+  number: number;
+  title: string;
+  url: string;
+  parent: SpecRef | null;
+  createdAt: string;
+}
+
+export interface RepositoryFrontier {
+  repository: string;
+  github: string;
+  polledAt: string;
+  tickets: Ticket[];
+}
+
+interface IssueNode {
+  number: number;
+  title: string;
+  url: string;
+  createdAt: string;
+  issueDependenciesSummary: { blockedBy: number };
+  parent: SpecRef | null;
+}
+
+interface FrontierResponse {
+  data?: { repository: { issues: { nodes: IssueNode[] } } | null };
+  errors?: { message: string }[];
+}
+
+const GITHUB_REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+
+export const isGithubRepository = (github: string): boolean =>
+  GITHUB_REPOSITORY.test(github);
+
+const ticketUrl = (url: string): string => {
+  if (!url.startsWith('https://github.com/')) {
+    throw new Error(`GitHub returned an unexpected issue URL '${url}'`);
+  }
+  return url;
+};
+
+const toTicket = (issue: IssueNode): Ticket => ({
+  number: issue.number,
+  title: issue.title,
+  url: ticketUrl(issue.url),
+  parent:
+    issue.parent === null
+      ? null
+      : { number: issue.parent.number, title: issue.parent.title },
+  createdAt: issue.createdAt,
+});
+
+export const queryFrontier = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+): Promise<Ticket[]> => {
+  if (!isGithubRepository(github)) {
+    throw new Error(`'${github}' is not a GitHub owner/name`);
+  }
+  const [owner, name] = github.split('/');
+  const response = await fetch(GITHUB_GRAPHQL_API, {
+    method: 'POST',
+    headers: {
+      authorization: `bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ query: FRONTIER_QUERY, variables: { owner, name } }),
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${github}`);
+  }
+  const { data, errors } = (await response.json()) as FrontierResponse;
+  if (errors !== undefined && errors.length > 0) {
+    throw new Error(
+      `GitHub rejected the frontier query for ${github}: ${errors.map((error) => error.message).join('; ')}`,
+    );
+  }
+  const repository = data?.repository;
+  if (repository === undefined || repository === null) {
+    throw new Error(`GitHub found no repository ${github}`);
+  }
+  return repository.issues.nodes
+    .filter((issue) => issue.issueDependenciesSummary.blockedBy === 0)
+    .map(toTicket);
+};

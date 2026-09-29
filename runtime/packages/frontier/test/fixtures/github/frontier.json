@@ -1,0 +1,127 @@
+{
+  "data": {
+    "repository": {
+      "issues": {
+        "nodes": [
+          {
+            "number": 56,
+            "title": "Declared repositories show their frontier on the dashboard",
+            "url": "https://github.com/rameezk/forge/issues/56",
+            "createdAt": "2026-09-28T10:07:58Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 0
+            },
+            "parent": {
+              "number": 54,
+              "title": "Frontier discovery across managed repositories"
+            }
+          },
+          {
+            "number": 57,
+            "title": "Frontier sync survives real-world GitHub",
+            "url": "https://github.com/rameezk/forge/issues/57",
+            "createdAt": "2026-09-28T10:08:01Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 1
+            },
+            "parent": {
+              "number": 54,
+              "title": "Frontier discovery across managed repositories"
+            }
+          },
+          {
+            "number": 58,
+            "title": "forge-frontier list shows the frontier on demand",
+            "url": "https://github.com/rameezk/forge/issues/58",
+            "createdAt": "2026-09-28T10:08:05Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 1
+            },
+            "parent": {
+              "number": 54,
+              "title": "Frontier discovery across managed repositories"
+            }
+          },
+          {
+            "number": 62,
+            "title": "Runtime secrets decrypted on the box via sops-nix",
+            "url": "https://github.com/rameezk/forge/issues/62",
+            "createdAt": "2026-09-28T11:32:23Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 0
+            },
+            "parent": {
+              "number": 61,
+              "title": "Secrets via sops-nix"
+            }
+          },
+          {
+            "number": 63,
+            "title": "Hetzner token from sops instead of .env",
+            "url": "https://github.com/rameezk/forge/issues/63",
+            "createdAt": "2026-09-28T11:32:27Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 0
+            },
+            "parent": {
+              "number": 61,
+              "title": "Secrets via sops-nix"
+            }
+          },
+          {
+            "number": 64,
+            "title": "Pinned host key and just ssh",
+            "url": "https://github.com/rameezk/forge/issues/64",
+            "createdAt": "2026-09-28T11:32:31Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 1
+            },
+            "parent": {
+              "number": 61,
+              "title": "Secrets via sops-nix"
+            }
+          },
+          {
+            "number": 69,
+            "title": "Ship sqlite on the box",
+            "url": "https://github.com/rameezk/forge/issues/69",
+            "createdAt": "2026-09-28T12:26:51Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 0
+            },
+            "parent": {
+              "number": 67,
+              "title": "Billed cost settles after the run"
+            }
+          },
+          {
+            "number": 70,
+            "title": "Billed cost settles after the run",
+            "url": "https://github.com/rameezk/forge/issues/70",
+            "createdAt": "2026-09-28T12:26:54Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 0
+            },
+            "parent": {
+              "number": 67,
+              "title": "Billed cost settles after the run"
+            }
+          },
+          {
+            "number": 81,
+            "title": "Run directories age out",
+            "url": "https://github.com/rameezk/forge/issues/81",
+            "createdAt": "2026-09-28T15:07:58Z",
+            "issueDependenciesSummary": {
+              "blockedBy": 0
+            },
+            "parent": {
+              "number": 23,
+              "title": "Headless workers with a workload metrics dashboard (first runtime slice)"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

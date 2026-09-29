@@ -12,7 +12,7 @@ buildNpmPackage {
 
   src = ../../runtime;
 
-  npmDepsHash = "sha256-C/K3uIUm8tlhUiX+qBhniM30heMyJwNyMNbLX3GRtqY=";
+  npmDepsHash = "sha256-dB9HrSlMOprmKvEtrdhUxi73rkR4x9efKq707MvCEZk=";
 
   dontNpmBuild = true;
 
@@ -33,6 +33,8 @@ buildNpmPackage {
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-run" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}"
+    makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontier" \
+      --add-flags "$out/lib/forge-runtime/packages/frontier/src/main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontend" \
       --add-flags "$out/lib/forge-runtime/packages/frontend/src/main.ts"
     runHook postInstall
@@ -41,7 +43,7 @@ buildNpmPackage {
   passthru = { inherit subagentExtension; };
 
   meta = {
-    description = "Forge runtime: runs one worker headlessly (forge-run) and serves the read-only workload dashboard (forge-frontend).";
+    description = "Forge runtime: runs one worker headlessly (forge-run), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
     mainProgram = "forge-run";
     platforms = nodejs.meta.platforms;
   };

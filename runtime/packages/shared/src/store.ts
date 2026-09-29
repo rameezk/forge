@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { RepositoryFrontier, Ticket } from './frontier.ts';
 import type { CostStatus, RunRecord, RunResult, RunStatus } from './run.ts';
 
 type RunRow = {
@@ -34,6 +35,41 @@ const CREATE_RUNS = `
     transcript_ref TEXT,
     session_id     TEXT,
     error          TEXT
+  ) STRICT;
+`;
+
+type RepositoryRow = {
+  repository: string;
+  github: string;
+  polled_at: string;
+};
+
+type TicketRow = {
+  repository: string;
+  number: number;
+  title: string;
+  url: string;
+  parent_number: number | null;
+  parent_title: string | null;
+  created_at: string;
+};
+
+const CREATE_FRONTIER = `
+  CREATE TABLE IF NOT EXISTS frontier_repositories (
+    repository TEXT PRIMARY KEY,
+    github     TEXT NOT NULL,
+    polled_at  TEXT NOT NULL
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS frontier_tickets (
+    repository    TEXT NOT NULL REFERENCES frontier_repositories (repository) ON DELETE CASCADE,
+    number        INTEGER NOT NULL,
+    title         TEXT NOT NULL,
+    url           TEXT NOT NULL,
+    parent_number INTEGER,
+    parent_title  TEXT,
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (repository, number)
   ) STRICT;
 `;
 
@@ -75,6 +111,17 @@ const toRow = (run: RunRecord): RunRow => ({
   error: run.error,
 });
 
+const ticketFromRow = (row: TicketRow): Ticket => ({
+  number: row.number,
+  title: row.title,
+  url: row.url,
+  parent:
+    row.parent_number === null || row.parent_title === null
+      ? null
+      : { number: row.parent_number, title: row.parent_title },
+  createdAt: row.created_at,
+});
+
 const fromRow = (row: RunRow): RunRecord => ({
   id: row.id,
   worker: row.worker,
@@ -101,6 +148,7 @@ export class Store {
       this.#migrateCostUncertain();
     }
     db.exec(CREATE_RUNS);
+    db.exec(CREATE_FRONTIER);
   }
 
   #hasCostUncertain(): boolean {
@@ -108,11 +156,17 @@ export class Store {
   }
 
   #migrateCostUncertain(): void {
-    this.#db.exec('BEGIN IMMEDIATE');
-    try {
+    this.#transaction(() => {
       if (this.#hasCostUncertain()) {
         this.#db.exec(MIGRATE_COST_UNCERTAIN);
       }
+    });
+  }
+
+  #transaction(work: () => void): void {
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      work();
       this.#db.exec('COMMIT');
     } catch (error) {
       this.#db.exec('ROLLBACK');
@@ -180,6 +234,60 @@ export class Store {
       .prepare('SELECT * FROM runs ORDER BY start_time DESC')
       .all() as RunRow[];
     return rows.map(fromRow);
+  }
+
+  replaceFrontier({ repository, github, polledAt, tickets }: RepositoryFrontier): void {
+    this.#transaction(() => {
+      this.#db
+        .prepare(
+          `INSERT INTO frontier_repositories (repository, github, polled_at)
+          VALUES ($repository, $github, $polled_at)
+          ON CONFLICT (repository) DO UPDATE SET
+            github = excluded.github,
+            polled_at = excluded.polled_at`,
+        )
+        .run({ repository, github, polled_at: polledAt });
+      this.#db
+        .prepare('DELETE FROM frontier_tickets WHERE repository = $repository')
+        .run({ repository });
+      const insert = this.#db.prepare(
+        `INSERT INTO frontier_tickets (
+          repository, number, title, url, parent_number, parent_title, created_at
+        ) VALUES (
+          $repository, $number, $title, $url, $parent_number, $parent_title, $created_at
+        )`,
+      );
+      for (const ticket of tickets) {
+        insert.run({
+          repository,
+          number: ticket.number,
+          title: ticket.title,
+          url: ticket.url,
+          parent_number: ticket.parent?.number ?? null,
+          parent_title: ticket.parent?.title ?? null,
+          created_at: ticket.createdAt,
+        });
+      }
+    });
+  }
+
+  listFrontier(): RepositoryFrontier[] {
+    const repositories = this.#db
+      .prepare('SELECT * FROM frontier_repositories ORDER BY repository')
+      .all() as RepositoryRow[];
+    const tickets = this.#db.prepare(
+      `SELECT * FROM frontier_tickets
+      WHERE repository = $repository
+      ORDER BY created_at, number`,
+    );
+    return repositories.map((row) => ({
+      repository: row.repository,
+      github: row.github,
+      polledAt: row.polled_at,
+      tickets: (tickets.all({ repository: row.repository }) as TicketRow[]).map(
+        ticketFromRow,
+      ),
+    }));
   }
 
   close(): void {
