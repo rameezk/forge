@@ -328,13 +328,22 @@ test('given a child that exits non-zero with its reason on stderr, when the tool
   );
 });
 
-const isAlive = (pid: number): boolean => {
+const isZombie = (pid: number): boolean => {
   try {
-    process.kill(pid, 0);
-    return true;
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z');
   } catch {
     return false;
   }
+};
+
+const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  return !isZombie(pid);
 };
 
 const abortOnceDone = (

@@ -57,6 +57,23 @@ let
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
 
   hasWorkers = cfg.workers != { };
+
+  baseToolset = [
+    "bash"
+    "coreutils"
+    "findutils"
+    "gnugrep"
+    "gnused"
+    "gawk"
+    "diffutils"
+    "gnutar"
+    "gzip"
+    "which"
+    "git"
+    "ripgrep"
+    "jq"
+    "curl"
+  ];
 in
 {
   options.forge.runtime = {
@@ -92,6 +109,14 @@ in
       default = "${cfg.stateDir}/openrouter.env";
       defaultText = lib.literalExpression ''"''${cfg.stateDir}/openrouter.env"'';
       description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets OPENROUTER_API_KEY for the runner.";
+    };
+
+    toolset = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = map (name: pkgs.${name}) baseToolset;
+      defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ]";
+      example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
+      description = "Workload toolset: the packages that make up the runner unit's whole path, so a workload's harness and its subagents can invoke them and nothing else. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
     };
 
     harnesses = lib.mkOption {
@@ -144,6 +169,7 @@ in
         description = "Forge workload runner for worker %i";
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
+        path = lib.mkForce cfg.toolset;
         serviceConfig = {
           Type = "oneshot";
           User = cfg.user;
