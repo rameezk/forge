@@ -376,9 +376,7 @@
 
           forge-shared = self.packages.${system}.forge-shared;
           forge-runner = self.packages.${system}.forge-runner;
-          frontier-command = pkgs.callPackage ./infra/nix/frontier-command-check.nix {
-            forge-runner = self.packages.${system}.forge-runner;
-          };
+          frontier-command = pkgs.callPackage ./infra/nix/frontier-command-check.nix { };
           pi-cli-contract = pkgs.callPackage ./infra/nix/pi-cli-contract.nix {
             forge-runner = self.packages.${system}.forge-runner;
           };

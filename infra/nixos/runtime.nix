@@ -238,7 +238,6 @@ in
           inherit (cfg)
             configFile
             user
-            stateDir
             githubTokenFile
             ;
         })

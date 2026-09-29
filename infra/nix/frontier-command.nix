@@ -4,28 +4,36 @@
   forge-runner,
   configFile,
   user,
-  stateDir,
   githubTokenFile,
 }:
 let
   tokenFile = lib.escapeShellArg githubTokenFile;
+  tokenDir = lib.escapeShellArg (dirOf githubTokenFile);
 in
 writeShellApplication {
   name = "forge-frontier";
-  excludeShellChecks = [ "SC1091" ];
   text = ''
-    if [ ! -x "$(dirname ${tokenFile})" ] || { [ -e ${tokenFile} ] && [ ! -r ${tokenFile} ]; }; then
-      echo "forge-frontier: cannot read ${githubTokenFile}; run it as the ${user} user: sudo -u ${user} forge-frontier $*" >&2
+    if [ "$#" -ne 1 ] || [ "$1" != list ]; then
+      echo "usage: forge-frontier list" >&2
+      exit 2
+    fi
+    if { [ -e ${tokenDir} ] && [ ! -x ${tokenDir} ]; } || { [ -e ${tokenFile} ] && [ ! -r ${tokenFile} ]; }; then
+      echo "forge-frontier: cannot read ${githubTokenFile}; run it as the ${user} user: sudo -u ${user} forge-frontier list" >&2
       exit 1
     fi
+    unset GITHUB_TOKEN
     if [ -e ${tokenFile} ]; then
-      set -a
-      . ${tokenFile}
-      set +a
+      while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+          GITHUB_TOKEN=*) GITHUB_TOKEN="''${line#GITHUB_TOKEN=}" ;;
+        esac
+      done < ${tokenFile}
+    fi
+    if [ -n "''${GITHUB_TOKEN-}" ]; then
+      export GITHUB_TOKEN
     fi
     export FORGE_RUNTIME_CONFIG=${lib.escapeShellArg configFile}
-    export FORGE_STATE_DIR=${lib.escapeShellArg stateDir}
-    exec ${lib.getExe' forge-runner "forge-frontier"} "$@"
+    exec ${lib.getExe' forge-runner "forge-frontier"} list
   '';
-  meta.description = "The box's forge-frontier command: runs forge-frontier against the generated runtime config, loading GITHUB_TOKEN from the GitHub token file.";
+  meta.description = "The box's forge-frontier command: lists the frontier live against the generated runtime config, reading GITHUB_TOKEN from the GitHub token file as data.";
 }
