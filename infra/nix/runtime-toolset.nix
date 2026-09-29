@@ -55,7 +55,7 @@ testers.runNixOSTest {
         machine.wait_for_unit("multi-user.target")
         machine.succeed("install -m 0600 -o forge-runtime -g forge-runtime /dev/null /var/lib/forge/openrouter.env")
         status, _ = machine.execute("systemctl start forge-runner@probe")
-        out = machine.succeed("cat /var/lib/forge/work/*/toolset.out")
+        _, out = machine.execute("cat /var/lib/forge/work/*/toolset.out")
         machine.shutdown()
         assert status == 0, f"the probe failed with output: {out}"
         return out
