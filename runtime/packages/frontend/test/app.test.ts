@@ -154,7 +154,7 @@ test('given a run with a captured transcript, when its detail is requested, then
   assert.match(body, /here is the refined spec/);
 });
 
-test('given a successful run and a failed run, when each run page is requested, then each transcript ends with a status badge styled like the run list', async () => {
+test('given a successful run and a failed run, when each run page is requested, then its header status and the closing transcript line are status badges styled like the run list', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const transcript = (status: 'success' | 'error', error: string | null): string =>
     [
@@ -170,14 +170,19 @@ test('given a successful run and a failed run, when each run page is requested, 
   const list = await (await app.request('/')).text();
   const listBadge = (worker: string): string =>
     rowFor(list, worker).match(/<span class="status [^"]*">[^<]*<\/span>/)?.[0] ?? 'missing';
-  const closing = async (id: string): Promise<string> => {
+  const page = async (id: string) => {
     const body = await (await app.request(`/runs/${id}`)).text();
-    return body.match(/<article class="message message-result">([\s\S]*?)<\/article>\s*<\/main>/)?.[1] ?? '';
+    return {
+      header: body.match(/<dt>Status<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1] ?? '',
+      closing: body.match(/<article class="message message-result">([\s\S]*?)<\/article>\s*<\/main>/)?.[1] ?? '',
+    };
   };
 
-  const ok = await closing('ok');
-  const failed = await closing('failed');
+  const { header: okHeader, closing: ok } = await page('ok');
+  const { header: failedHeader, closing: failed } = await page('failed');
 
+  assert.equal(okHeader, listBadge('ok-worker'));
+  assert.equal(failedHeader, listBadge('failed-worker'));
   assert.ok(ok.includes(listBadge('ok-worker')), ok);
   assert.equal(textOf(ok), 'success');
   assert.ok(failed.includes(listBadge('failed-worker')), failed);

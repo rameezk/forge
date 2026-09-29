@@ -4,6 +4,7 @@ import type {
   HarnessEvent,
   MessageEvent,
   RunRecord,
+  RunStatus,
   ToolCallEvent,
   ToolResultEvent,
 } from '@forge/shared';
@@ -106,7 +107,7 @@ const renderCost = (run: RunRecord): Rendered => {
   }
 };
 
-const renderStatus = (status: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="status status-${status}">${status}</span>`;
 
 const renderStarted = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -429,7 +430,7 @@ export const renderDetail = (
       <dt>Model</dt>
       <dd>${run.model}</dd>
       <dt>Status</dt>
-      <dd>${run.status}</dd>
+      <dd>${renderStatus(run.status)}</dd>
       <dt>Started</dt>
       <dd>${renderStarted(run.startTime)}</dd>
       <dt>Duration</dt>
