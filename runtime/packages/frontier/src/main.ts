@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { queryFrontier, Store, type Fetch } from '@forge/shared';
-import { managedRepositories, type FrontierConfig } from './config.ts';
+import type { FrontierConfig } from './config.ts';
 
 export const main = async (
   argv: string[],
@@ -26,11 +26,10 @@ export const main = async (
   }
 
   const config = JSON.parse(readFileSync(configPath, 'utf8')) as FrontierConfig;
-  const repositories = managedRepositories(config);
   const store = Store.open(join(stateDir, 'forge.db'));
 
   try {
-    for (const { name, github } of repositories) {
+    for (const [name, { github }] of Object.entries(config.repositories)) {
       const tickets = await queryFrontier(fetch, token, github);
       store.replaceFrontier({
         repository: name,

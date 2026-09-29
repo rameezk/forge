@@ -181,19 +181,17 @@
             && lib.hasInfix "%i" runnerUnit.serviceConfig.ExecStart
             && runnerUnit.serviceConfig.User == "forge-runtime"
           ) "the runner unit must be a per-worker oneshot invoking forge-run as the forge-runtime user";
-          runnerSandboxed =
-            lib.asserts.assertMsg
-              (
-                runnerUnit.serviceConfig.NoNewPrivileges == true
-                && runnerUnit.serviceConfig.ProtectSystem == "strict"
-                && runnerUnit.serviceConfig.ProtectHome == true
-                && runnerUnit.serviceConfig.PrivateTmp == true
-                && runnerUnit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
-                && runnerUnit.serviceConfig.RestrictSUIDSGID == true
-                && runnerUnit.serviceConfig.ProtectKernelTunables == true
-                && runnerUnit.serviceConfig.ProtectControlGroups == true
-              )
-              "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, and writable only under the state directory";
+          isHardened =
+            unit:
+            unit.serviceConfig.NoNewPrivileges == true
+            && unit.serviceConfig.ProtectSystem == "strict"
+            && unit.serviceConfig.ProtectHome == true
+            && unit.serviceConfig.PrivateTmp == true
+            && unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+            && unit.serviceConfig.RestrictSUIDSGID == true
+            && unit.serviceConfig.ProtectKernelTunables == true
+            && unit.serviceConfig.ProtectControlGroups == true;
+          runnerSandboxed = lib.asserts.assertMsg (isHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, and writable only under the state directory";
           runnerKeyOutOfStore = lib.asserts.assertMsg (
             runnerUnit.serviceConfig.EnvironmentFile == "/var/lib/forge/openrouter.env"
             && !(lib.hasPrefix builtins.storeDir runnerUnit.serviceConfig.EnvironmentFile)
@@ -239,14 +237,7 @@
           ) "the dashboard port must never be opened in the firewall: it is reached only over an SSH tunnel";
           frontendIsLockedDown =
             unit:
-            unit.serviceConfig.NoNewPrivileges == true
-            && unit.serviceConfig.ProtectSystem == "strict"
-            && unit.serviceConfig.ProtectHome == true
-            && unit.serviceConfig.PrivateTmp == true
-            && unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
-            && unit.serviceConfig.RestrictSUIDSGID == true
-            && unit.serviceConfig.ProtectKernelTunables == true
-            && unit.serviceConfig.ProtectControlGroups == true
+            isHardened unit
             &&
               unit.serviceConfig.RestrictAddressFamilies == [
                 "AF_INET"
@@ -285,16 +276,7 @@
             && lib.elem "network-online.target" frontierService.wants
             && !(frontierService.serviceConfig ? IPAddressDeny)
           ) "the sync service must run forge-frontier sync as the forge-runtime user with outbound network";
-          frontierSandboxed = lib.asserts.assertMsg (
-            frontierService.serviceConfig.NoNewPrivileges == true
-            && frontierService.serviceConfig.ProtectSystem == "strict"
-            && frontierService.serviceConfig.ProtectHome == true
-            && frontierService.serviceConfig.PrivateTmp == true
-            && frontierService.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
-            && frontierService.serviceConfig.RestrictSUIDSGID == true
-            && frontierService.serviceConfig.ProtectKernelTunables == true
-            && frontierService.serviceConfig.ProtectControlGroups == true
-          ) "the sync service must be sandboxed like the runner";
+          frontierSandboxed = lib.asserts.assertMsg (isHardened frontierService) "the sync service must be sandboxed like the runner";
           frontierTokenOptional =
             lib.asserts.assertMsg
               (frontierService.serviceConfig.EnvironmentFile == "-/var/lib/forge/github.env")

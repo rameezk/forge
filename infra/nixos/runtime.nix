@@ -261,7 +261,6 @@ in
     })
 
     (lib.mkIf (hasWorkers || hasRepositories) {
-
       systemd.services.forge-frontend = {
         description = "Forge read-only workload dashboard (localhost only)";
         wantedBy = [ "multi-user.target" ];
