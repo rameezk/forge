@@ -11,6 +11,11 @@ export const formatStarted = (iso: string): string => {
     : `${new Date(time).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
 };
 
+export const formatDate = (iso: string): string => {
+  const time = Date.parse(iso);
+  return Number.isNaN(time) ? iso : new Date(time).toISOString().slice(0, 10);
+};
+
 const tokenCount = new Intl.NumberFormat('en-US');
 
 export const formatTokens = (count: number): string => tokenCount.format(count);

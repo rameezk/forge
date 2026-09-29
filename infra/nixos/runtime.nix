@@ -43,6 +43,16 @@ let
     };
   };
 
+  repositoryModule = lib.types.submodule {
+    options = {
+      github = lib.mkOption {
+        type = lib.types.strMatching "[A-Za-z0-9-]+/[A-Za-z0-9._-]+";
+        example = "rameezk/forge";
+        description = "The repository on GitHub as `owner/name`, whose issues track its tickets.";
+      };
+    };
+  };
+
   runtimeConfig = {
     harnesses = lib.mapAttrs (_: h: { inherit (h) command args; }) cfg.harnesses;
     workers = lib.mapAttrs (
@@ -52,11 +62,24 @@ let
       }
       // lib.optionalAttrs (w.reasoningEffort != null) { inherit (w) reasoningEffort; }
     ) cfg.workers;
+    repositories = lib.mapAttrs (_: r: { inherit (r) github; }) cfg.repositories;
   };
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
 
   hasWorkers = cfg.workers != { };
+  hasRepositories = cfg.repositories != { };
+
+  hardening = {
+    NoNewPrivileges = true;
+    ProtectSystem = "strict";
+    ProtectHome = true;
+    PrivateTmp = true;
+    ReadWritePaths = [ cfg.stateDir ];
+    RestrictSUIDSGID = true;
+    ProtectKernelTunables = true;
+    ProtectControlGroups = true;
+  };
 
   baseToolset = [
     "bash"
@@ -95,7 +118,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runner package providing the forge-run entry point.";
+      description = "Runtime package providing the forge-run, forge-frontier and forge-frontend entry points.";
     };
 
     dashboardPort = lib.mkOption {
@@ -109,6 +132,20 @@ in
       default = "${cfg.stateDir}/openrouter.env";
       defaultText = lib.literalExpression ''"''${cfg.stateDir}/openrouter.env"'';
       description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets OPENROUTER_API_KEY for the runner.";
+    };
+
+    githubTokenFile = lib.mkOption {
+      type = lib.types.str;
+      default = "${cfg.stateDir}/github.env";
+      defaultText = lib.literalExpression ''"''${cfg.stateDir}/github.env"'';
+      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN for the frontier poller. The poller loads it as optional, so a missing file does not stop the unit from starting.";
+    };
+
+    frontier.pollInterval = lib.mkOption {
+      type = lib.types.str;
+      default = "5min";
+      example = "15min";
+      description = "How often the frontier poller syncs the managed repositories' frontier from GitHub, as a systemd time span.";
     };
 
     toolset = lib.mkOption {
@@ -131,20 +168,27 @@ in
       description = "Declared workers, keyed by name; declaring one makes it runnable on demand.";
     };
 
+    repositories = lib.mkOption {
+      type = lib.types.attrsOf repositoryModule;
+      default = { };
+      example = lib.literalExpression ''{ forge.github = "rameezk/forge"; }'';
+      description = "Managed repositories, keyed by a short name; declaring one makes forge poll its frontier and show it on the dashboard.";
+    };
+
     settings = lib.mkOption {
       type = lib.types.attrs;
       readOnly = true;
       internal = true;
       default = runtimeConfig;
-      description = "Structured runtime config (harnesses and workers) the runner resolves a worker from.";
+      description = "Structured runtime config (harnesses, workers and repositories) the runtime reads.";
     };
 
     configFile = lib.mkOption {
       type = lib.types.path;
       readOnly = true;
       default = runtimeConfigFile;
-      defaultText = lib.literalExpression "generated from forge.runtime.harnesses and forge.runtime.workers";
-      description = "Generated runtime config the runner reads to resolve a worker by name.";
+      defaultText = lib.literalExpression "generated from forge.runtime.harnesses, forge.runtime.workers and forge.runtime.repositories";
+      description = "Generated runtime config the runner reads to resolve a worker by name and the frontier poller reads to find the managed repositories.";
     };
   };
 
@@ -182,18 +226,42 @@ in
             "FORGE_STATE_DIR=${cfg.stateDir}"
           ];
           ExecStart = "${cfg.package}/bin/forge-run %i";
+        }
+        // hardening;
+      };
+    })
 
-          NoNewPrivileges = true;
-          ProtectSystem = "strict";
-          ProtectHome = true;
-          PrivateTmp = true;
-          ReadWritePaths = [ cfg.stateDir ];
-          RestrictSUIDSGID = true;
-          ProtectKernelTunables = true;
-          ProtectControlGroups = true;
-        };
+    (lib.mkIf hasRepositories {
+      systemd.services.forge-frontier-sync = {
+        description = "Forge frontier sync from GitHub";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          EnvironmentFile = "-${cfg.githubTokenFile}";
+          Environment = [
+            "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
+            "FORGE_STATE_DIR=${cfg.stateDir}"
+          ];
+          ExecStart = "${cfg.package}/bin/forge-frontier sync";
+        }
+        // hardening;
       };
 
+      systemd.timers.forge-frontier-sync = {
+        description = "Poll the managed repositories' frontier";
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "1min";
+          OnUnitActiveSec = cfg.frontier.pollInterval;
+        };
+      };
+    })
+
+    (lib.mkIf (hasWorkers || hasRepositories) {
       systemd.services.forge-frontend = {
         description = "Forge read-only workload dashboard (localhost only)";
         wantedBy = [ "multi-user.target" ];
@@ -211,14 +279,6 @@ in
           ExecStart = "${cfg.package}/bin/forge-frontend";
           Restart = "on-failure";
 
-          NoNewPrivileges = true;
-          ProtectSystem = "strict";
-          ProtectHome = true;
-          PrivateTmp = true;
-          ReadWritePaths = [ cfg.stateDir ];
-          RestrictSUIDSGID = true;
-          ProtectKernelTunables = true;
-          ProtectControlGroups = true;
           RestrictAddressFamilies = [
             "AF_INET"
             "AF_INET6"
@@ -226,7 +286,8 @@ in
           ];
           IPAddressAllow = "localhost";
           IPAddressDeny = "any";
-        };
+        }
+        // hardening;
       };
     })
   ];
