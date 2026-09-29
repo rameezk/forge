@@ -166,11 +166,16 @@ export const queryFrontier = async (
     throw new Error(`'${github}' is not a GitHub owner/name`);
   }
   const issues: IssueNode[] = [];
+  const cursors = new Set<string>();
   let after: string | null = null;
   do {
     const page = await queryPage(fetch, token, github, after);
     issues.push(...page.nodes);
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+    if (after !== null && cursors.has(after)) {
+      throw new Error(`GitHub paging did not advance for ${github}`);
+    }
+    if (after !== null) cursors.add(after);
   } while (after !== null);
   return issues
     .filter((issue) => issue.issueDependenciesSummary.blockedBy === 0)

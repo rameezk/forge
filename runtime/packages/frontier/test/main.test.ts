@@ -266,3 +266,18 @@ test('given stored rows for a repository no longer declared, when sync runs, the
     db.close();
   }
 });
+
+test('given a repository whose paging never advances past its first cursor, when sync runs, then it records the stalled paging as its error instead of polling forever', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const [first] = recorded('frontier-paged');
+  assert.ok(first);
+  const github = replaying({ 'rameezk/forge': [first, first] });
+
+  const code = await main(['sync'], env, github.fetch);
+
+  assert.notEqual(code, 0);
+  assert.equal(github.requests.length, 2);
+  const [forge] = storedFrontier(stateDir);
+  assert.equal(forge?.lastError?.message, 'GitHub paging did not advance for rameezk/forge');
+  assert.deepEqual(forge?.tickets, []);
+});
