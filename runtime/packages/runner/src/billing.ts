@@ -3,7 +3,9 @@ import type { LookupOutcome, LookUpGeneration } from './openrouter.ts';
 
 const CONCURRENT_LOOKUPS = 4;
 
-const GIVE_UP_AFTER_MS = 24 * 60 * 60 * 1000;
+const GIVE_UP_AFTER_HOURS = 24;
+
+const GIVE_UP_AFTER_MS = GIVE_UP_AFTER_HOURS * 60 * 60 * 1000;
 
 export interface SettleOptions {
   store: Store;
@@ -47,7 +49,7 @@ const resultOf = (
   return overdue
     ? {
         id: generation.id,
-        error: `${lookup.reason}, still unbilled 24 hours after the run ended`,
+        error: `${lookup.reason}, still unbilled after ${GIVE_UP_AFTER_HOURS} hours`,
         givenUp: true,
       }
     : { id: generation.id, error: lookup.reason, givenUp: false };
@@ -77,9 +79,9 @@ export const settleGenerations = async ({
   const quietSince = new Date(
     Date.parse(attemptedAt) - GIVE_UP_AFTER_MS,
   ).toISOString();
-  for (const runId of store.giveUpUnfinishedRuns(quietSince)) {
+  for (const runId of store.giveUpUnfinishedRuns(quietSince, attemptedAt)) {
     log(
-      `gave up on run ${JSON.stringify(runId)}: it never ended and has had no generation for 24 hours`,
+      `gave up on run ${JSON.stringify(runId)}: it never ended and has had no generation for ${GIVE_UP_AFTER_HOURS} hours`,
     );
   }
 };

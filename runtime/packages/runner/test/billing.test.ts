@@ -74,7 +74,7 @@ test('given one run that ended just over 24 hours ago and one just under, each w
   assert.match(log[0] ?? '', /"gen-stale"/);
   assert.match(log[0] ?? '', /run "stale"/);
   assert.match(log[0] ?? '', /HTTP 404/);
-  assert.match(log[0] ?? '', /24 hours/);
+  assert.match(log[0] ?? '', /still unbilled after 24 hours/);
   assert.deepEqual(
     store.listGenerations('fresh').map(({ attempts, lastAttemptAt }) => ({
       attempts,
@@ -102,9 +102,14 @@ test('given a run still running whose generations so far are all billed, when th
   assert.equal(store.getRun('live')?.costUsd, 0.25);
 });
 
-test('given a run whose runner was killed so it never ended, when the settle step runs 24 hours after its last generation, then its cost is unconfirmed with what was billed and the give-up is logged, while a run still within the window stays pending', async () => {
+test('given a run whose runner was killed so it never ended and one killed before any generation, when the settle step runs 24 hours after the last generation or the start, then both costs are unconfirmed with what was billed and each give-up is logged, while a run still within the window stays pending, and a later recompute keeps them unconfirmed', async () => {
   const store = Store.open(':memory:');
   startedRun(store, 'killed');
+  store.insertRun({
+    ...(store.getRun('killed') as NonNullable<ReturnType<Store['getRun']>>),
+    id: 'killed-early',
+    transcriptRef: 'killed-early.jsonl',
+  });
   startedRun(store, 'recent');
   store.recordGeneration({
     runId: 'recent',
@@ -124,9 +129,14 @@ test('given a run whose runner was killed so it never ended, when the settle ste
   assert.equal(store.getRun('killed')?.status, 'running');
   assert.equal(store.getRun('killed')?.costStatus, 'unconfirmed');
   assert.equal(store.getRun('killed')?.costUsd, 0.25);
+  assert.equal(store.getRun('killed-early')?.costStatus, 'unconfirmed');
+  assert.equal(store.getRun('killed-early')?.costUsd, 0);
   assert.equal(store.getRun('recent')?.costStatus, 'pending');
   assert.equal(store.getRun('recent')?.costUsd, 0.5);
-  assert.deepEqual(log, [
+  assert.deepEqual(log.toSorted(), [
     'gave up on run "killed": it never ended and has had no generation for 24 hours',
+    'gave up on run "killed-early": it never ended and has had no generation for 24 hours',
   ]);
+  finish(store, 'killed', NOW);
+  assert.equal(store.getRun('killed')?.costStatus, 'unconfirmed');
 });

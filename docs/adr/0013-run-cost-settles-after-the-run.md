@@ -15,7 +15,7 @@ ADR-0008 made OpenRouter's billed cost the source of run cost, looked up per gen
 
 ## Decision
 
-We will go with Option 4. A run's cost is only ever what OpenRouter billed. Until that is known the run shows as pending, and pi's estimate is never recorded or shown. The runner persists each generation id, and a separate billing service on a systemd timer settles them after the runner exits, giving up on a generation after 24 hours. A run's cost status is pending, billed, or unconfirmed.
+We will go with Option 4. A run's cost is only ever what OpenRouter billed. Until that is known the run shows as pending, and pi's estimate is never recorded or shown. The runner persists each generation id, and a separate billing service on a systemd timer settles them after the runner exits, giving up on a generation after 24 hours. A run whose runner is killed never ends, so once it has had no generation for 24 hours forge gives up on it as well, since later generations may be unrecorded. A run's cost status is pending, billed, or unconfirmed.
 
 ## Consequences
 

@@ -37,7 +37,7 @@ What OpenRouter charged for a workload's generations, and the only cost forge re
 _Avoid_: estimate, catalog cost
 
 **Cost status**:
-How settled a workload's billed cost is: `pending` until every generation is billed, `billed` once they all are, `unconfirmed` once forge gave up on any of them.
+How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, or on a workload that never ended and has had no generation for 24 hours.
 _Avoid_: cost uncertain
 
 **Subagent**:

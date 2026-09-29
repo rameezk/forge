@@ -92,6 +92,8 @@ const CREATE_GENERATIONS = `
 
 const NO_GENERATION_ID = 'no generation id';
 
+const RUN_NEVER_ENDED = 'run never ended, so later generations may be unrecorded';
+
 const SETTLE_RUN_COST = `
   UPDATE runs SET
     cost_usd = (
@@ -432,19 +434,36 @@ export class Store {
     });
   }
 
-  giveUpUnfinishedRuns(quietSince: string): string[] {
-    const rows = this.#db
-      .prepare(
-        `UPDATE runs SET cost_status = 'unconfirmed'
-        WHERE end_time IS NULL AND cost_status = 'pending'
-          AND COALESCE(
-            (SELECT MAX(created_at) FROM generations WHERE run_id = runs.id),
-            start_time
-          ) < $quiet_since
-        RETURNING id`,
-      )
-      .all({ quiet_since: quietSince }) as { id: string }[];
-    return rows.map((row) => row.id);
+  giveUpUnfinishedRuns(quietSince: string, givenUpAt: string): string[] {
+    let runs: string[] = [];
+    this.#transaction(() => {
+      runs = (
+        this.#db
+          .prepare(
+            `SELECT id FROM runs
+            WHERE end_time IS NULL AND cost_status = 'pending'
+              AND COALESCE(
+                (SELECT MAX(created_at) FROM generations WHERE run_id = runs.id),
+                start_time
+              ) < $quiet_since
+            ORDER BY id`,
+          )
+          .all({ quiet_since: quietSince }) as { id: string }[]
+      ).map((row) => row.id);
+      const giveUp = this.#db.prepare(
+        `INSERT INTO generations (run_id, last_error, given_up_at, created_at)
+        VALUES ($run_id, $last_error, $given_up_at, $given_up_at)`,
+      );
+      for (const run of runs) {
+        giveUp.run({
+          run_id: run,
+          last_error: RUN_NEVER_ENDED,
+          given_up_at: givenUpAt,
+        });
+        this.#settleRunCost(run);
+      }
+    });
+    return runs;
   }
 
   #settleRunCost(id: string): void {
