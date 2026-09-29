@@ -307,6 +307,7 @@
           runtime-toolset = pkgs.callPackage ./infra/nix/runtime-toolset.nix {
             forge-runner = self.packages.${system}.forge-runner;
           };
+          run-directories = pkgs.callPackage ./infra/nix/run-directories.nix { };
         }
       );
     };
