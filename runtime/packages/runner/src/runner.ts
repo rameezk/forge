@@ -1,11 +1,5 @@
-import type { RunStatus, Store } from '@forge/shared';
-import {
-  invocationFor,
-  type Harness,
-  type HarnessRun,
-  type RunCost,
-  type Worker,
-} from './harness.ts';
+import type { MessageEvent, RunStatus, Store } from '@forge/shared';
+import { invocationFor, type Harness, type Worker } from './harness.ts';
 import { transcriptPolicy, type TranscriptWriter } from './transcript.ts';
 
 export interface RunWorkloadOptions {
@@ -19,18 +13,10 @@ export interface RunWorkloadOptions {
   secrets?: string[];
 }
 
-const UNSETTLED: RunCost = { costUsd: 0, costStatus: 'unconfirmed' };
-
-const settle = async (run: HarnessRun | null): Promise<RunCost> => {
-  if (run === null) {
-    return UNSETTLED;
-  }
-  try {
-    return await run.cost();
-  } catch {
-    return UNSETTLED;
-  }
-};
+const isBillable = (event: MessageEvent): boolean =>
+  event.role === 'assistant' &&
+  (event.generationId !== null ||
+    event.usage.inputTokens + event.usage.outputTokens > 0);
 
 export const runWorkload = async (
   options: RunWorkloadOptions,
@@ -58,29 +44,43 @@ export const runWorkload = async (
     error: null,
   });
 
+  const recordGeneration = (event: MessageEvent): void => {
+    if (event.generationId === null) {
+      process.stderr.write(
+        `run ${id}: an assistant response used tokens but has no generation id, so its cost is unconfirmed\n`,
+      );
+    }
+    store.recordGeneration({
+      runId: id,
+      generationId: event.generationId,
+      subagent: event.subagent ?? null,
+      createdAt: now(),
+    });
+  };
+
   let inputTokens = 0;
   let outputTokens = 0;
-  let run: HarnessRun | null = null;
   let status: RunStatus = 'error';
   let sessionId: string | null = null;
   let error: string | null = 'harness stream ended without a result';
 
   try {
     const invocation = invocationFor(worker, openWorkDir(id));
-    const started = harness.run(invocation);
-    for await (const harnessEvent of started.events) {
+    for await (const harnessEvent of harness.run(invocation)) {
       const event = policy.record(harnessEvent);
       await transcript.append(event);
       if (event.type === 'message') {
         inputTokens += event.usage.inputTokens;
         outputTokens += event.usage.outputTokens;
+        if (isBillable(event)) {
+          recordGeneration(event);
+        }
       } else if (event.type === 'result') {
         status = event.status;
         sessionId = event.sessionId;
         error = event.error;
       }
     }
-    run = started;
   } catch (cause) {
     status = 'error';
     error = policy.redact(
@@ -90,12 +90,9 @@ export const runWorkload = async (
     await transcript.close();
   }
 
-  const cost = await settle(run);
   store.finalizeRun(id, {
     endTime: now(),
     status,
-    costStatus: cost.costStatus,
-    costUsd: cost.costUsd,
     inputTokens,
     outputTokens,
     sessionId,

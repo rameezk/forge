@@ -23,8 +23,6 @@ export interface RunResult
   extends Pick<
     RunRecord,
     | 'status'
-    | 'costStatus'
-    | 'costUsd'
     | 'inputTokens'
     | 'outputTokens'
     | 'sessionId'

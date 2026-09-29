@@ -1,5 +1,11 @@
 export type { CostStatus, RunRecord, RunResult, RunStatus } from './run.ts';
 export type {
+  GenerationRecord,
+  LookupResult,
+  NewGeneration,
+  UnsettledGeneration,
+} from './generation.ts';
+export type {
   HarnessEvent,
   MessageEvent,
   ResultEvent,

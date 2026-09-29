@@ -15,10 +15,13 @@ import { basename, join, sep } from 'node:path';
 import {
   parseTranscript,
   Store,
+  type GenerationRecord,
   type MessageEvent,
   type RunRecord,
 } from '@forge/shared';
+import { createApp, FileTranscriptSource } from '@forge/frontend';
 import type { WorkerConfig } from '../src/index.ts';
+import { main as bill } from '../src/billing-main.ts';
 import { main } from '../src/main.ts';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'pi');
@@ -63,6 +66,8 @@ const BILLED_BY_ID = {
   'gen-child-beta-1': 0.03125,
 };
 
+const billed = billedAt(BILLED_BY_ID);
+
 const OPENROUTER_KEY = 'sk-or-test';
 
 interface Lookup {
@@ -71,9 +76,15 @@ interface Lookup {
   inFlight: number;
 }
 
+interface FakeOpenRouter {
+  baseUrl: string;
+  lookups: Lookup[];
+  close: () => void;
+}
+
 const fakeOpenRouter = async (
   generations: GenerationStats,
-): Promise<{ baseUrl: string; lookups: Lookup[]; close: () => void }> => {
+): Promise<FakeOpenRouter> => {
   const lookups: Lookup[] = [];
   const attempts = new Map<string, number>();
   let inFlight = 0;
@@ -125,7 +136,6 @@ const fakeOpenRouter = async (
 
 interface Scenario {
   output: string;
-  generations?: GenerationStats;
   openRouterBaseUrl?: string;
   openRouterKey?: string;
   worker?: Partial<WorkerConfig>;
@@ -146,8 +156,28 @@ interface Outcome {
     pid: number;
     subagentInvocation: string | undefined;
   };
-  lookups: Lookup[];
 }
+
+const withStore = <T>(stateDir: string, read: (store: Store) => T): T => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    return read(store);
+  } finally {
+    store.close();
+  }
+};
+
+const storedRun = (stateDir: string, id: string): RunRecord => {
+  const run = withStore(stateDir, (store) => store.getRun(id));
+  assert.ok(run);
+  return run;
+};
+
+const storedGenerations = (
+  stateDir: string,
+  runId: string,
+): GenerationRecord[] =>
+  withStore(stateDir, (store) => store.listGenerations(runId));
 
 const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
@@ -179,11 +209,10 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     }),
   );
 
-  const openRouter = await fakeOpenRouter(
-    scenario.generations ?? billedAt(BILLED_BY_ID),
-  );
   const code = await main(['refiner'], {
-    OPENROUTER_BASE_URL: scenario.openRouterBaseUrl ?? openRouter.baseUrl,
+    ...(scenario.openRouterBaseUrl === undefined
+      ? {}
+      : { OPENROUTER_BASE_URL: scenario.openRouterBaseUrl }),
     OPENROUTER_API_KEY: scenario.openRouterKey ?? OPENROUTER_KEY,
     FORGE_RUNTIME_CONFIG: configPath,
     FORGE_STATE_DIR: stateDir,
@@ -197,27 +226,52 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     ...(scenario.lingerMs === undefined
       ? {}
       : { FAKE_PI_LINGER_MS: String(scenario.lingerMs) }),
-  }).finally(openRouter.close);
+  });
 
   const transcripts = readdirSync(join(stateDir, 'transcripts'));
   assert.equal(transcripts.length, 1);
   const runId = basename(transcripts[0] as string, '.jsonl');
-  const store = Store.open(join(stateDir, 'forge.db'));
-  const run = store.getRun(runId);
-  store.close();
-  assert.ok(run);
 
   return {
     code,
     stateDir,
-    run,
+    run: storedRun(stateDir, runId),
     transcript: readFileSync(
       join(stateDir, 'transcripts', `${runId}.jsonl`),
       'utf8',
     ),
     pi: JSON.parse(readFileSync(record, 'utf8')) as Outcome['pi'],
-    lookups: openRouter.lookups,
   };
+};
+
+const fire = (
+  stateDir: string,
+  openRouter: { baseUrl: string },
+  env: NodeJS.ProcessEnv = {},
+): Promise<number> =>
+  bill({
+    FORGE_STATE_DIR: stateDir,
+    OPENROUTER_BASE_URL: openRouter.baseUrl,
+    OPENROUTER_API_KEY: OPENROUTER_KEY,
+    ...env,
+  });
+
+const settled = async (
+  scenario: Scenario,
+  generations: GenerationStats = billed,
+): Promise<Outcome & { lookups: Lookup[] }> => {
+  const openRouter = await fakeOpenRouter(generations);
+  try {
+    const outcome = await runWorker(scenario);
+    assert.equal(await fire(outcome.stateDir, openRouter), 0);
+    return {
+      ...outcome,
+      run: storedRun(outcome.stateDir, outcome.run.id),
+      lookups: openRouter.lookups,
+    };
+  } finally {
+    openRouter.close();
+  }
 };
 
 const outputFile = (contents: string): string => {
@@ -251,6 +305,28 @@ const cutBefore = (name: string, eventType: string): string => {
   return outputFile(`${lines.slice(0, cut).join('\n')}\n`);
 };
 
+const cutAfterFirstGeneration = (name: string): string => {
+  const lines = readFileSync(fixture(name), 'utf8').split('\n');
+  const cut = lines.findIndex(
+    (line) =>
+      line.includes('"type":"message_end"') && line.includes('"responseId"'),
+  );
+  assert.ok(cut > 0);
+  return outputFile(`${lines.slice(0, cut + 1).join('\n')}\n`);
+};
+
+const withoutGenerationId = (name: string, id: string): string =>
+  outputFile(
+    readFileSync(fixture(name), 'utf8')
+      .split('\n')
+      .map((line) =>
+        line.includes('"type":"message_end"')
+          ? line.replace(`,"responseId":"${id}"`, '')
+          : line,
+      )
+      .join('\n'),
+  );
+
 const journaled = async <T>(
   body: () => Promise<T>,
 ): Promise<{ result: T; journal: string }> => {
@@ -283,10 +359,28 @@ const sessionIdOf = (output: string): string =>
     }
   ).id;
 
-test('given recorded pi output of a successful multi-message run with tool, turn and streaming events, and an OpenRouter billing each generation, when the worker runs, then the events forge does not consume are skipped and the run is success with summed full-prompt usage, the session id, a readable transcript, and the summed billed cost looked up with the runner key', async () => {
+const dashboardCost = async (stateDir: string): Promise<string> => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    const app = createApp({
+      store,
+      transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
+    });
+    const body = await (await app.request('/')).text();
+    const rows = body.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0] ?? '';
+    return (rows.match(/<td class="cost">([\s\S]*?)<\/td>/)?.[1] ?? '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  } finally {
+    store.close();
+  }
+};
+
+test('given recorded pi output of a successful multi-message run with tool, turn and streaming events, when the worker runs, then the events forge does not consume are skipped and the run is success with summed full-prompt usage, the session id, and a readable transcript', async () => {
   const output = fixture('success.jsonl');
 
-  const { code, run, transcript, lookups } = await runWorker({ output });
+  const { code, run, transcript } = await runWorker({ output });
 
   assert.equal(code, 0);
   assert.equal(run.status, 'success');
@@ -294,37 +388,8 @@ test('given recorded pi output of a successful multi-message run with tool, turn
   assert.equal(run.inputTokens, 1200 + 1300);
   assert.equal(run.outputTokens, 40 + 25);
   assert.equal(run.sessionId, sessionIdOf(output));
-  assert.equal(run.costUsd, 0.0125 + 0.0375);
-  assert.equal(run.costStatus, 'billed');
-  assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
-    'gen-success-1',
-    'gen-success-2',
-  ]);
-  for (const lookup of lookups) {
-    assert.equal(lookup.authorization, `Bearer ${OPENROUTER_KEY}`);
-  }
   assert.match(transcript, /Let me look\./);
   assert.match(transcript, /The command printed forge\. All done\./);
-});
-
-test('given a recorded run where the parent makes two parallel subagent calls and an OpenRouter billing every generation, when the worker runs, then its tokens and billed cost are the sum of the parent and both children, each generation looked up once by its response id', async () => {
-  const { code, run, lookups } = await runWorker({
-    output: fixture('subagents.jsonl'),
-  });
-
-  assert.equal(code, 0);
-  assert.equal(run.status, 'success');
-  assert.equal(run.inputTokens, 1400 + 1500 + (600 + 700) + 500);
-  assert.equal(run.outputTokens, 30 + 10 + (20 + 12) + 6);
-  assert.equal(run.costUsd, 0.5 + 0.25 + (0.125 + 0.0625) + 0.03125);
-  assert.equal(run.costStatus, 'billed');
-  assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
-    'gen-child-alpha-1',
-    'gen-child-alpha-2',
-    'gen-child-beta-1',
-    'gen-subagents-1',
-    'gen-subagents-2',
-  ]);
 });
 
 test('given a recorded run with two parallel subagent calls, when the transcript is written, then each child message carries its subagent scope and the parent messages carry none', async () => {
@@ -602,49 +667,6 @@ test('given a recorded run whose subagent calls bash, when the transcript is wri
   assert.equal(toolEvents.length, 6);
 });
 
-test('given a recording where one subagent call returns an error and the parent finishes normally, when the run completes, then the run succeeds and its tokens and billed cost still count the failed child', async () => {
-  const { code, run, lookups } = await runWorker({
-    output: fixture('subagent-failure.jsonl'),
-  });
-
-  assert.equal(code, 0);
-  assert.equal(run.status, 'success');
-  assert.equal(run.error, null);
-  assert.equal(run.inputTokens, 1400 + 1500 + 600 + 500);
-  assert.equal(run.outputTokens, 30 + 10 + 20 + 6);
-  assert.equal(run.costUsd, 0.5 + 0.25 + 0.125 + 0.03125);
-  assert.equal(run.costStatus, 'billed');
-  assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
-    'gen-child-alpha-1',
-    'gen-child-beta-1',
-    'gen-subagents-1',
-    'gen-subagents-2',
-  ]);
-});
-
-test('given a recording with two parallel subagent calls where one child generation lookup fails, when the run completes, then the run is recorded with the cost it could look up, marked unconfirmed', async () => {
-  const billed = billedAt(BILLED_BY_ID);
-  const {
-    result: { code, run },
-    journal,
-  } = await journaled(() =>
-    runWorker({
-      output: fixture('subagents.jsonl'),
-      generations: (id, attempt) =>
-        id === 'gen-child-beta-1' ? { status: 401 } : billed(id, attempt),
-    }),
-  );
-
-  assert.equal(code, 0);
-  assert.equal(run.status, 'success');
-  assert.equal(run.costUsd, 0.5 + 0.25 + 0.125 + 0.0625);
-  assert.equal(run.costStatus, 'unconfirmed');
-  assert.match(
-    journal,
-    /could not cost OpenRouter generation "gen-child-beta-1"/,
-  );
-});
-
 test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, offline, openrouter contract with the plain model, a thinking level only when declared, the subagent extension, the extras, and the prompt last', async () => {
   const output = fixture('success.jsonl');
   const contract = [
@@ -734,29 +756,6 @@ test('given any worker, when it runs, then pi works in a fresh per-run directory
   assert.match(pi.cwd, new RegExp(`${run.id}$`));
 });
 
-test('given recorded pi output ending in a provider error with no generation and pi exiting 0, when the worker runs, then the run is error with pi error message, the runner exits non-zero, and its zero cost is certain', async () => {
-  const { code, run } = await runWorker({
-    output: fixture('provider-error.jsonl'),
-  });
-
-  assert.equal(code, 1);
-  assert.equal(run.status, 'error');
-  assert.equal(run.error, '400 z-ai/glm-5 is not a valid model ID');
-  assert.equal(run.costUsd, 0);
-  assert.equal(run.costStatus, 'billed');
-});
-
-test('given recorded pi output where a failed attempt is retried and then succeeds, and an OpenRouter billing every generation, when the worker runs, then the run is success and its tokens and billed cost include the failed attempt', async () => {
-  const { code, run } = await runWorker({ output: fixture('retry.jsonl') });
-
-  assert.equal(code, 0);
-  assert.equal(run.status, 'success');
-  assert.equal(run.inputTokens, 900 + 900);
-  assert.equal(run.outputTokens, 3 + 8);
-  assert.equal(run.costUsd, 0.002 + 0.004);
-  assert.equal(run.costStatus, 'billed');
-});
-
 test('given pi failing pre-flight with its reason on stderr and exit 1, when the worker runs, then the run is error carrying that reason and stderr still reaches the journal', async () => {
   const { result: outcome, journal } = await journaled(() =>
     runWorker({
@@ -805,37 +804,141 @@ test('given pi writing output that is not json and staying alive, when the worke
   assert.equal(isAlive(pi.pid), false);
 });
 
-test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a rejected key, a server error, an unusable body, a not found that never clears, a connection that keeps dropping, or no answer at all, when the worker runs, then the run stays success with the cost it could look up, cost status unconfirmed, and the journal names the generation and why without the key', async () => {
+test('given a worker, recorded pi output of a successful run, and an OpenRouter that answers not found for every generation, when the worker runs, then the run is success with its tokens and a pending cost, the runner never calls OpenRouter, and the dashboard shows the cost as pending', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}));
+  try {
+    const { code, stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+    });
+
+    assert.equal(code, 0);
+    assert.equal(run.status, 'success');
+    assert.equal(run.inputTokens, 1200 + 1300);
+    assert.equal(run.outputTokens, 40 + 25);
+    assert.equal(run.costStatus, 'pending');
+    assert.equal(run.costUsd, 0);
+    assert.deepEqual(openRouter.lookups, []);
+    assert.equal(await dashboardCost(stateDir), 'pending');
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a finished run whose generations OpenRouter answers with not found for the first two lookups and then with a billed total, when the billing service fires three times, then the run is pending after the first two and billed after the third at the sum of the billed totals, looked up with the billing key', async () => {
+  const openRouter = await fakeOpenRouter((id, attempt) =>
+    attempt <= 2 ? { status: 404, body: { error: { code: 404 } } } : billed(id, attempt),
+  );
+  try {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+    });
+
+    const statuses: string[] = [];
+    for (let firing = 0; firing < 3; firing += 1) {
+      assert.equal(await fire(stateDir, openRouter), 0);
+      statuses.push(storedRun(stateDir, run.id).costStatus);
+    }
+
+    assert.deepEqual(statuses, ['pending', 'pending', 'billed']);
+    assert.equal(storedRun(stateDir, run.id).costUsd, 0.0125 + 0.0375);
+    assert.equal(await dashboardCost(stateDir), '$0.050000');
+    assert.equal(openRouter.lookups.length, 6);
+    for (const lookup of openRouter.lookups) {
+      assert.equal(lookup.authorization, `Bearer ${OPENROUTER_KEY}`);
+    }
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given recorded pi output of one billed assistant message followed by pi dying before the run ends, when the worker runs and the billing service then fires, then the run is error and the generation from before the crash is billed and counted in its cost', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { code, stateDir, run } = await runWorker({
+      output: cutAfterFirstGeneration('success.jsonl'),
+      exit: 137,
+    });
+    assert.equal(code, 1);
+    assert.equal(run.status, 'error');
+    assert.equal(run.costStatus, 'pending');
+
+    await fire(stateDir, openRouter);
+
+    const settledRun = storedRun(stateDir, run.id);
+    assert.equal(settledRun.status, 'error');
+    assert.equal(settledRun.costUsd, 0.0125);
+    assert.equal(settledRun.costStatus, 'billed');
+    assert.deepEqual(
+      openRouter.lookups.map((lookup) => lookup.id),
+      ['gen-success-1'],
+    );
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given recorded pi output where an assistant response used tokens but carries no generation id, when the worker runs, then its cost is unconfirmed without any billing firing, and the generation that has an id is still settled', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { result: outcome, journal } = await journaled(() =>
+      runWorker({ output: withoutGenerationId('success.jsonl', 'gen-success-2') }),
+    );
+    assert.equal(outcome.run.status, 'success');
+    assert.equal(outcome.run.costStatus, 'unconfirmed');
+    assert.match(journal, /no generation id/);
+
+    await fire(outcome.stateDir, openRouter);
+
+    const settledRun = storedRun(outcome.stateDir, outcome.run.id);
+    assert.equal(settledRun.costStatus, 'unconfirmed');
+    assert.equal(settledRun.costUsd, 0.0125);
+    assert.deepEqual(
+      openRouter.lookups.map((lookup) => lookup.id),
+      ['gen-success-1'],
+    );
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given finished runs whose generation OpenRouter answers with a rejected key, a forbidden request, a bad request, a body with no numeric total_cost, or a body that is not json, when the billing service fires, then each run is unconfirmed with the cost it could look up, those generations are never looked up again, and the journal names each generation and why without the key', async () => {
   const failures: [ReturnType<GenerationStats>, RegExp][] = [
     [{ status: 401, body: { error: { code: 401 } } }, /HTTP 401/],
-    [{ status: 500, body: { error: { code: 500 } } }, /HTTP 500/],
+    [{ status: 403, body: { error: { code: 403 } } }, /HTTP 403/],
+    [{ status: 400, body: { error: { code: 400 } } }, /HTTP 400/],
     [{ status: 200, body: { data: { id: 'gen-success-2' } } }, /total_cost/],
     [{ status: 200, body: 'not json' }, /SyntaxError/],
-    [{ status: 404, body: { error: { code: 404 } } }, /HTTP 404/],
-    ['hang', /timeout|abort/i],
-    ['reset', /TypeError UND_ERR_SOCKET/],
   ];
 
   const { result: outcomes, journal } = await journaled(() =>
     Promise.all(
-      failures.map(([failure]) =>
-        runWorker({
-          output: fixture('success.jsonl'),
-          generations: (id, attempt) =>
-            id === 'gen-success-2'
-              ? failure
-              : billedAt(BILLED_BY_ID)(id, attempt),
-        }),
-      ),
+      failures.map(async ([failure]) => {
+        const openRouter = await fakeOpenRouter((id, attempt) =>
+          id === 'gen-success-2' ? failure : billed(id, attempt),
+        );
+        try {
+          const { stateDir, run } = await runWorker({
+            output: fixture('success.jsonl'),
+          });
+          await fire(stateDir, openRouter);
+          await fire(stateDir, openRouter);
+          return {
+            run: storedRun(stateDir, run.id),
+            lookups: openRouter.lookups.map((lookup) => lookup.id).sort(),
+          };
+        } finally {
+          openRouter.close();
+        }
+      }),
     ),
   );
 
-  for (const { code, run } of outcomes) {
-    assert.equal(code, 0);
+  for (const { run, lookups } of outcomes) {
     assert.equal(run.status, 'success');
-    assert.equal(run.error, null);
     assert.equal(run.costUsd, 0.0125);
     assert.equal(run.costStatus, 'unconfirmed');
+    assert.deepEqual(lookups, ['gen-success-1', 'gen-success-2']);
   }
   const reasons = journal
     .split('\n')
@@ -850,68 +953,139 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
   assert.doesNotMatch(journal, new RegExp(OPENROUTER_KEY));
 });
 
-test('given an OpenRouter that answers a generation lookup with not found while its stats lag, a rate limit, a server error, or a dropped connection at first and then its billed cost, when the worker runs, then the run cost includes that generation and is billed', async () => {
-  const transients: ReturnType<GenerationStats>[] = [
-    { status: 404, body: { error: { code: 404 } } },
+test('given a finished run whose generation OpenRouter answers first with a rate limit, then a server error, then a dropped connection, then a billed total, when the billing service fires four times, then the run stays pending until the fourth firing and is then billed', async () => {
+  const temporaries: ReturnType<GenerationStats>[] = [
     { status: 429, body: { error: { code: 429 } } },
     { status: 503, body: { error: { code: 503 } } },
     'reset',
   ];
-
-  const outcomes = await Promise.all(
-    transients.map((transient) =>
-      runWorker({
-        output: fixture('success.jsonl'),
-        generations: (id, attempt) =>
-          id === 'gen-success-2' && attempt < 3
-            ? transient
-            : billedAt(BILLED_BY_ID)(id, attempt),
-      }),
-    ),
+  const openRouter = await fakeOpenRouter((id, attempt) =>
+    id === 'gen-success-2' && attempt <= temporaries.length
+      ? (temporaries[attempt - 1] as ReturnType<GenerationStats>)
+      : billed(id, attempt),
   );
+  try {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+    });
 
-  for (const { run, lookups } of outcomes) {
-    assert.equal(run.status, 'success');
-    assert.equal(run.costUsd, 0.0125 + 0.0375);
-    assert.equal(run.costStatus, 'billed');
+    const statuses: string[] = [];
+    for (let firing = 0; firing < 4; firing += 1) {
+      await fire(stateDir, openRouter);
+      statuses.push(storedRun(stateDir, run.id).costStatus);
+    }
+
+    assert.deepEqual(statuses, ['pending', 'pending', 'pending', 'billed']);
+    assert.equal(storedRun(stateDir, run.id).costUsd, 0.0125 + 0.0375);
     assert.equal(
-      lookups.filter((lookup) => lookup.id === 'gen-success-2').length,
-      3,
+      openRouter.lookups.filter((lookup) => lookup.id === 'gen-success-2').length,
+      4,
     );
+  } finally {
+    openRouter.close();
   }
 });
 
-test('given a successful recorded run and an OpenRouter base URL that is not a valid URL, when the worker runs, then the run stays success and exits zero with cost status unconfirmed, and the journal names each generation it could not cost', async () => {
-  const {
-    result: { code, run },
-    journal,
-  } = await journaled(() =>
-    runWorker({
-      output: fixture('success.jsonl'),
-      openRouterBaseUrl: 'openrouter.ai/api/v1',
-    }),
+test('given a finished run whose generation lookup gets no answer at first and then a billed total, when the billing service fires twice, then the unanswered lookup is retried and the run is billed', async () => {
+  const openRouter = await fakeOpenRouter((id, attempt) =>
+    id === 'gen-success-2' && attempt === 1 ? 'hang' : billed(id, attempt),
   );
+  try {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+    });
 
-  assert.match(journal, /could not cost OpenRouter generation "gen-success-1"/);
-  assert.match(journal, /could not cost OpenRouter generation "gen-success-2"/);
-  assert.equal(code, 0);
-  assert.equal(run.status, 'success');
-  assert.equal(run.error, null);
-  assert.equal(run.costUsd, 0);
-  assert.equal(run.costStatus, 'unconfirmed');
+    await fire(stateDir, openRouter);
+    assert.equal(storedRun(stateDir, run.id).costStatus, 'pending');
+    await fire(stateDir, openRouter);
+
+    assert.equal(storedRun(stateDir, run.id).costStatus, 'billed');
+    assert.equal(storedRun(stateDir, run.id).costUsd, 0.0125 + 0.0375);
+  } finally {
+    openRouter.close();
+  }
 });
 
-test('given a long run with many generations, one of them reported twice, when the worker runs, then each generation is billed once and at most four lookups are in flight at a time', async () => {
+test('given a recorded run where the parent makes two parallel subagent calls, when the billing service fires, then the run cost is the sum of the parent and both children, each generation looked up once, and each child generation records the subagent it came from', async () => {
+  const { stateDir, run, lookups } = await settled({
+    output: fixture('subagents.jsonl'),
+  });
+
+  assert.equal(run.status, 'success');
+  assert.equal(run.inputTokens, 1400 + 1500 + (600 + 700) + 500);
+  assert.equal(run.outputTokens, 30 + 10 + (20 + 12) + 6);
+  assert.equal(run.costUsd, 0.5 + 0.25 + (0.125 + 0.0625) + 0.03125);
+  assert.equal(run.costStatus, 'billed');
+  assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
+    'gen-child-alpha-1',
+    'gen-child-alpha-2',
+    'gen-child-beta-1',
+    'gen-subagents-1',
+    'gen-subagents-2',
+  ]);
+  assert.deepEqual(
+    storedGenerations(stateDir, run.id)
+      .map(({ generationId, subagent, billedCostUsd }) => ({
+        generationId,
+        subagent,
+        billedCostUsd,
+      }))
+      .sort((a, b) => String(a.generationId).localeCompare(String(b.generationId))),
+    [
+      { generationId: 'gen-child-alpha-1', subagent: 'call_alpha', billedCostUsd: 0.125 },
+      { generationId: 'gen-child-alpha-2', subagent: 'call_alpha', billedCostUsd: 0.0625 },
+      { generationId: 'gen-child-beta-1', subagent: 'call_beta', billedCostUsd: 0.03125 },
+      { generationId: 'gen-subagents-1', subagent: null, billedCostUsd: 0.5 },
+      { generationId: 'gen-subagents-2', subagent: null, billedCostUsd: 0.25 },
+    ],
+  );
+});
+
+test('given a recording where one subagent call returns an error and the parent finishes normally, when the billing service fires, then the run succeeds and its tokens and billed cost still count the failed child', async () => {
+  const { run } = await settled({ output: fixture('subagent-failure.jsonl') });
+
+  assert.equal(run.status, 'success');
+  assert.equal(run.error, null);
+  assert.equal(run.inputTokens, 1400 + 1500 + 600 + 500);
+  assert.equal(run.outputTokens, 30 + 10 + 20 + 6);
+  assert.equal(run.costUsd, 0.5 + 0.25 + 0.125 + 0.03125);
+  assert.equal(run.costStatus, 'billed');
+});
+
+test('given recorded pi output where a failed attempt is retried and then succeeds, when the billing service fires, then the run is success and its tokens and billed cost include the failed attempt', async () => {
+  const { code, run } = await settled({ output: fixture('retry.jsonl') });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.equal(run.inputTokens, 900 + 900);
+  assert.equal(run.outputTokens, 3 + 8);
+  assert.equal(run.costUsd, 0.002 + 0.004);
+  assert.equal(run.costStatus, 'billed');
+});
+
+test('given recorded pi output ending in a provider error with no generation and pi exiting 0, when the worker runs, then the run is error with pi error message, the runner exits non-zero, and its zero cost is billed without any billing firing', async () => {
+  const { code, run } = await runWorker({
+    output: fixture('provider-error.jsonl'),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(run.status, 'error');
+  assert.equal(run.error, '400 z-ai/glm-5 is not a valid model ID');
+  assert.equal(run.costUsd, 0);
+  assert.equal(run.costStatus, 'billed');
+});
+
+test('given a long run with many generations, one of them reported twice, when the billing service fires, then each generation is billed once and at most four lookups are in flight at a time', async () => {
   const ids = Array.from({ length: 12 }, (_, index) => `gen-long-${index}`);
   const costs = Object.fromEntries(ids.map((id) => [id, 0.5]));
 
-  const { run, lookups } = await runWorker({
-    output: withGenerations('success.jsonl', [...ids, 'gen-long-0']),
-    generations: (id, attempt) => {
+  const { run, lookups } = await settled(
+    { output: withGenerations('success.jsonl', [...ids, 'gen-long-0']) },
+    (id, attempt) => {
       const reply = billedAt({ ...BILLED_BY_ID, ...costs })(id, attempt);
       return typeof reply === 'string' ? reply : { ...reply, delayMs: 20 };
     },
-  });
+  );
 
   assert.equal(run.status, 'success');
   assert.equal(run.costStatus, 'billed');
@@ -920,41 +1094,37 @@ test('given a long run with many generations, one of them reported twice, when t
   assert.ok(Math.max(...lookups.map((lookup) => lookup.inFlight)) <= 4);
 });
 
-test('given recorded pi output where an assistant response used tokens but carries no generation id, when the worker runs, then the run stays success with the cost of the generations it could name, marked unconfirmed', async () => {
-  const output = outputFile(
-    readFileSync(fixture('success.jsonl'), 'utf8')
-      .split('\n')
-      .map((line) =>
-        line.includes('"type":"message_end"')
-          ? line.replace(',"responseId":"gen-success-2"', '')
-          : line,
-      )
-      .join('\n'),
-  );
-
-  const { run, lookups } = await runWorker({ output });
-
-  assert.equal(run.status, 'success');
-  assert.deepEqual(
-    lookups.map((lookup) => lookup.id),
-    ['gen-success-1'],
-  );
-  assert.equal(run.costUsd, 0.0125);
-  assert.equal(run.costStatus, 'unconfirmed');
-});
-
-test('given an OpenRouter key that is not a valid header value, when the worker runs, then the run stays success with cost status unconfirmed and the key never reaches the journal', async () => {
-  const { result: outcome, journal } = await journaled(() =>
-    runWorker({
+test('given a billing service with no OpenRouter key, a key that is not a valid header value, or a base URL that is not a valid URL, when it fires, then it fails naming the problem without the key, looks nothing up, and leaves the run pending for a fixed configuration to settle', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { stateDir, run } = await runWorker({
       output: fixture('success.jsonl'),
-      openRouterKey: 'sk-or-secret\nleak',
-    }),
-  );
+    });
 
-  assert.equal(outcome.run.status, 'success');
-  assert.equal(outcome.run.costStatus, 'unconfirmed');
-  assert.match(journal, /could not cost OpenRouter generation "gen-success-1"/);
-  assert.doesNotMatch(journal, /sk-or-secret/);
+    for (const [env, problem] of [
+      [{ OPENROUTER_API_KEY: undefined }, /OPENROUTER_API_KEY is not set/],
+      [{ OPENROUTER_API_KEY: 'sk-or-secret\nleak' }, /OPENROUTER_API_KEY is malformed/],
+      [{ OPENROUTER_BASE_URL: 'openrouter.ai/api/v1' }, /OPENROUTER_BASE_URL/],
+    ] as const) {
+      await assert.rejects(fire(stateDir, openRouter, env), (error: Error) => {
+        assert.match(error.message, problem);
+        assert.doesNotMatch(error.message, /sk-or-secret/);
+        return true;
+      });
+    }
+
+    assert.deepEqual(openRouter.lookups, []);
+    assert.equal(storedRun(stateDir, run.id).costStatus, 'pending');
+    assert.ok(
+      storedGenerations(stateDir, run.id).every(
+        (generation) => generation.attempts === 0,
+      ),
+    );
+    await fire(stateDir, openRouter);
+    assert.equal(storedRun(stateDir, run.id).costStatus, 'billed');
+  } finally {
+    openRouter.close();
+  }
 });
 
 test('given a runner with no subagent extension to load, when a pi worker runs, then the runner refuses before starting pi', async () => {

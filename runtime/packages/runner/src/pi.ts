@@ -12,8 +12,7 @@ import {
   type SubagentInvocation,
   type SubagentUpdate,
 } from '@forge/pi-subagent';
-import type { Harness, HarnessInvocation, HarnessRun } from './harness.ts';
-import type { Billing } from './openrouter.ts';
+import type { Harness, HarnessInvocation } from './harness.ts';
 
 const contractArgs = (invocation: HarnessInvocation): string[] => [
   '--mode',
@@ -76,7 +75,7 @@ interface PiMessage {
   usage: PiUsage;
   stopReason: string;
   errorMessage?: string;
-  responseId?: string;
+  responseId?: unknown;
 }
 
 interface PiLine {
@@ -117,7 +116,10 @@ const assistantMessage = (
       message.usage.input + message.usage.cacheRead + message.usage.cacheWrite,
     outputTokens: message.usage.output,
   },
-  costUsd: 0,
+  generationId:
+    typeof message.responseId === 'string' && message.responseId.length > 0
+      ? message.responseId
+      : null,
   ...scoped(subagent),
 });
 
@@ -157,9 +159,6 @@ const toolResult = (
         },
       ];
 
-const tokensOf = ({ usage }: PiMessage): number =>
-  usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-
 const NON_JSON_EXCERPT_CHARS = 200;
 
 const parseLine = (line: string): PiLine | null => {
@@ -175,16 +174,6 @@ class PiStream {
   #ended = false;
   #lastAssistant: PiMessage | null = null;
   #malformed: string | null = null;
-  readonly #generationIds: string[] = [];
-  #unnamedGeneration = false;
-
-  get generationIds(): string[] {
-    return this.#generationIds;
-  }
-
-  get unnamedGeneration(): boolean {
-    return this.#unnamedGeneration;
-  }
 
   get malformed(): boolean {
     return this.#malformed !== null;
@@ -224,20 +213,8 @@ class PiStream {
     }
   }
 
-  #generation(message: PiMessage, subagent: string | undefined): MessageEvent {
-    if (message.responseId !== undefined) {
-      this.#generationIds.push(message.responseId);
-    } else if (tokensOf(message) > 0) {
-      this.#unnamedGeneration = true;
-    }
-    return assistantMessage(message, subagent);
-  }
-
   #assistant(message: PiMessage, subagent: string | undefined): HarnessEvent[] {
-    return [
-      this.#generation(message, subagent),
-      ...toolCalls(message, subagent),
-    ];
+    return [assistantMessage(message, subagent), ...toolCalls(message, subagent)];
   }
 
   #subagentEvent(event: PiLine): HarnessEvent[] {
@@ -279,7 +256,6 @@ class PiStream {
 export interface PiHarnessOptions {
   command: string;
   extension: string;
-  billing: Billing;
   extraArgs?: string[];
   env?: NodeJS.ProcessEnv;
 }
@@ -287,33 +263,18 @@ export interface PiHarnessOptions {
 export class PiHarness implements Harness {
   readonly #command: string;
   readonly #extension: string;
-  readonly #billing: Billing;
   readonly #extraArgs: string[];
   readonly #env: NodeJS.ProcessEnv;
 
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
     this.#extension = options.extension;
-    this.#billing = options.billing;
     this.#extraArgs = options.extraArgs ?? [];
     this.#env = options.env ?? process.env;
   }
 
-  run(invocation: HarnessInvocation): HarnessRun {
+  async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
     const stream = new PiStream();
-    return {
-      events: this.#events(invocation, stream),
-      cost: async () => {
-        const cost = await this.#billing.cost(stream.generationIds);
-        return stream.unnamedGeneration ? { ...cost, costStatus: 'unconfirmed' } : cost;
-      },
-    };
-  }
-
-  async *#events(
-    invocation: HarnessInvocation,
-    stream: PiStream,
-  ): AsyncIterable<HarnessEvent> {
     const args = piArgs(invocation, this.#extension, this.#extraArgs);
     const child = spawn(this.#command, args, {
       cwd: invocation.workDir,
