@@ -72,6 +72,23 @@ runCommand "frontier-command"
     expect 'token=github_pat_test$(touch expanded)' data.out
     expect 'node_options=unset' data.out
 
+    printf 'GITHUB_TOKEN="github_pat_double"\n' > tokens/github.env
+    ${forgeFrontier} list > double.out
+    expect 'token=github_pat_double' double.out
+    printf "GITHUB_TOKEN='github_pat_single'\\n" > tokens/github.env
+    ${forgeFrontier} list > single.out
+    expect 'token=github_pat_single' single.out
+    printf '  GITHUB_TOKEN=github_pat_crlf\r\n' > tokens/github.env
+    ${forgeFrontier} list > crlf.out
+    expect 'token=github_pat_crlf' crlf.out
+
+    rm tokens/github.env
+    ln -s /dev/null tokens/github.env
+    refused list
+    expect 'forge-frontier: tokens/github.env is not a regular file' refused.out
+    rm tokens/github.env
+    printf 'GITHUB_TOKEN=%s\n' github_pat_test > tokens/github.env
+
     refused sync
     refused
     refused list extra

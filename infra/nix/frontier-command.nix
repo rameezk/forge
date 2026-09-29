@@ -21,11 +21,22 @@ writeShellApplication {
       echo "forge-frontier: cannot read ${githubTokenFile}; run it as the ${user} user: sudo -u ${user} forge-frontier list" >&2
       exit 1
     fi
+    if [ -e ${tokenFile} ] && [ ! -f ${tokenFile} ]; then
+      echo "forge-frontier: ${githubTokenFile} is not a regular file" >&2
+      exit 1
+    fi
     unset GITHUB_TOKEN
     if [ -e ${tokenFile} ]; then
       while IFS= read -r line || [ -n "$line" ]; do
+        line="''${line%$'\r'}"
+        line="''${line#"''${line%%[![:space:]]*}"}"
         case "$line" in
-          GITHUB_TOKEN=*) GITHUB_TOKEN="''${line#GITHUB_TOKEN=}" ;;
+          GITHUB_TOKEN=*)
+            GITHUB_TOKEN="''${line#GITHUB_TOKEN=}"
+            case "$GITHUB_TOKEN" in
+              \"*\" | \'*\') GITHUB_TOKEN="''${GITHUB_TOKEN:1:-1}" ;;
+            esac
+            ;;
         esac
       done < ${tokenFile}
     fi
