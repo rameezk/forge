@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Store } from '@forge/shared';
 import type { TranscriptSource } from './transcript.ts';
-import { renderDetail, renderList } from './views.ts';
+import { renderDetail, renderList, renderWork } from './views.ts';
 
 export interface AppOptions {
   store: Store;
@@ -12,6 +12,8 @@ export const createApp = ({ store, transcripts }: AppOptions): Hono => {
   const app = new Hono();
 
   app.get('/', (c) => c.html(renderList(store.listRuns())));
+
+  app.get('/work', (c) => c.html(renderWork(store.listFrontier())));
 
   app.get('/runs/:id', (c) => {
     const run = store.getRun(c.req.param('id'));

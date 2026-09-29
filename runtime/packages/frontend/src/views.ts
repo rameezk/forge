@@ -3,13 +3,16 @@ import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   HarnessEvent,
   MessageEvent,
+  RepositoryFrontier,
   RunRecord,
   RunStatus,
+  SpecRef,
   ToolCallEvent,
   ToolResultEvent,
 } from '@forge/shared';
 import {
   formatCost,
+  formatDate,
   formatDuration,
   formatStarted,
   formatTokens,
@@ -24,6 +27,11 @@ const STYLES = `
   :root { color-scheme: light dark; --line: color-mix(in srgb, CanvasText 15%, Canvas); }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 system-ui, sans-serif; }
+  header.site { border-bottom: 1px solid var(--line); }
+  header.site nav { display: flex; gap: 1.25rem; max-width: 960px; margin: 0 auto; padding: 0.75rem 1rem; }
+  header.site a { text-decoration: none; opacity: 0.65; }
+  header.site a:hover, header.site a[aria-current="page"] { opacity: 1; }
+  header.site a[aria-current="page"] { font-weight: 600; }
   main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
   h1 { font-size: 1.4rem; margin: 0 0 1.5rem; }
   a { color: inherit; }
@@ -73,10 +81,35 @@ const STYLES = `
   .tool-body > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin: 0 0 0.3rem; }
   .tool-body > header ~ header { margin-top: 0.75rem; }
   .tool-body pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+  .repository { margin: 0 0 2.5rem; }
+  .repository > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; margin: 0 0 0.75rem; }
+  .repository h2 { font-size: 1.1rem; margin: 0; }
+  .repository .polled { margin-left: auto; font-size: 0.85rem; opacity: 0.6; }
+  td.number { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .spec-number { opacity: 0.6; font-variant-numeric: tabular-nums; }
 `;
+
+type Page = 'runs' | 'work';
+
+const NAV: { page: Page; href: string; label: string }[] = [
+  { page: 'runs', href: '/', label: 'Runs' },
+  { page: 'work', href: '/work', label: 'Work' },
+];
+
+const renderNav = (current: Page | null): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<header class="site">
+    <nav>
+      ${NAV.map(({ page, href, label }) =>
+        page === current
+          ? html`<a href="${href}" aria-current="page">${label}</a>`
+          : html`<a href="${href}">${label}</a>`,
+      )}
+    </nav>
+  </header>`;
 
 const layout = (
   title: string,
+  current: Page | null,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<!doctype html>
@@ -90,6 +123,7 @@ const layout = (
         </style>
       </head>
       <body>
+        ${renderNav(current)}
         <main>${body}</main>
       </body>
     </html>`;
@@ -110,8 +144,11 @@ const renderCost = (run: RunRecord): Rendered => {
 const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="status status-${status}">${status}</span>`;
 
-const renderStarted = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}">${formatStarted(iso)}</time>`;
+
+const renderDate = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<time datetime="${iso}" title="${iso}">${formatDate(iso)}</time>`;
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
@@ -145,7 +182,7 @@ export const renderList = (
                   (run) => html`<tr class="run cost-${run.costStatus}">
                     <td><a href="/runs/${run.id}">${run.worker}</a></td>
                     <td>${run.model}</td>
-                    <td>${renderStarted(run.startTime)}</td>
+                    <td>${renderTimestamp(run.startTime)}</td>
                     <td>${formatDuration(run.startTime, run.endTime)}</td>
                     <td>${renderStatus(run.status)}</td>
                     <td class="cost">${renderCost(run)}</td>
@@ -160,7 +197,7 @@ export const renderList = (
               </tfoot>
             </table>
           </div>`;
-  return layout('Workloads', body);
+  return layout('Workloads', 'runs', body);
 };
 
 const renderText = (
@@ -432,7 +469,7 @@ export const renderDetail = (
       <dt>Status</dt>
       <dd>${renderStatus(run.status)}</dd>
       <dt>Started</dt>
-      <dd>${renderStarted(run.startTime)}</dd>
+      <dd>${renderTimestamp(run.startTime)}</dd>
       <dt>Duration</dt>
       <dd>${formatDuration(run.startTime, run.endTime)}</dd>
       <dt>Cost</dt>
@@ -445,5 +482,58 @@ export const renderDetail = (
     ${events.length === 0
       ? html`<p class="empty">No transcript captured.</p>`
       : renderTranscript(events)}`;
-  return layout(run.worker, body);
+  return layout(run.worker, null, body);
+};
+
+const renderSpec = (parent: SpecRef | null): Rendered =>
+  parent === null
+    ? html`<span class="empty">No spec</span>`
+    : html`<span class="spec-number">#${parent.number}</span> ${parent.title}`;
+
+const renderRepository = ({
+  repository,
+  github,
+  polledAt,
+  tickets,
+}: RepositoryFrontier): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<section class="repository">
+    <header>
+      <h2>${repository}</h2>
+      <a href="https://github.com/${github}">${github}</a>
+      <span class="polled">Last polled ${renderTimestamp(polledAt)}</span>
+    </header>
+    ${tickets.length === 0
+      ? html`<p class="empty">No tickets on the frontier.</p>`
+      : html`<div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Ticket</th>
+                <th>Title</th>
+                <th>Spec</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tickets.map(
+                (ticket) => html`<tr class="ticket">
+                  <td class="number"><a href="${ticket.url}">#${ticket.number}</a></td>
+                  <td>${ticket.title}</td>
+                  <td>${renderSpec(ticket.parent)}</td>
+                  <td>${renderDate(ticket.createdAt)}</td>
+                </tr>`,
+              )}
+            </tbody>
+          </table>
+        </div>`}
+  </section>`;
+
+export const renderWork = (
+  frontier: RepositoryFrontier[],
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const body = html`<h1>Frontier</h1>
+    ${frontier.length === 0
+      ? html`<p class="empty">No managed repositories have been polled yet.</p>`
+      : frontier.map(renderRepository)}`;
+  return layout('Frontier', 'work', body);
 };
