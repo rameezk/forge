@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl } from '@forge/shared';
+import { isGithubRepository, isGithubUrl } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   HarnessEvent,
@@ -508,7 +508,9 @@ const renderRepository = ({
   html`<section class="repository${lastError === null ? '' : ' stale'}">
     <header>
       <h2>${repository}</h2>
-      <a href="https://github.com/${github}">${github}</a>
+      ${isGithubRepository(github)
+        ? html`<a href="https://github.com/${github}">${github}</a>`
+        : html`<span class="github">${github}</span>`}
       ${renderPolled(polledAt)}
     </header>
     ${lastError === null

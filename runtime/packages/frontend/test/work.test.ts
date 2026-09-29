@@ -155,3 +155,14 @@ test('given a repository that has never been polled successfully, when the work 
   assert.match(forge ?? '', /<span class="polled">Never polled<\/span>/);
   assert.doesNotMatch(forge ?? '', /No tickets on the frontier/);
 });
+
+test('given a stored repository whose github is not an owner/name, when the work page is requested, then it renders without a link', async () => {
+  const app = appWith([
+    { repository: 'forge', github: '../../evil', polledAt: null, lastError: { message: 'GitHub token missing', failedAt: '2026-09-29T08:20:00.000Z' } },
+  ]);
+
+  const [forge] = sections(await (await app.request('/work')).text());
+
+  assert.doesNotMatch(forge ?? '', /<a href="https:\/\/github\.com\/\.\.\/\.\.\/evil"/);
+  assert.match(forge ?? '', /<span class="github">\.\.\/\.\.\/evil<\/span>/);
+});
