@@ -514,13 +514,14 @@ for (const [absence, token] of [
   });
 }
 
-test('given GitHub text carrying terminal control characters, when list runs, then they are stripped before printing', async (t) => {
+test('given GitHub text carrying terminal control characters, when list runs, then they and bidi or format characters are stripped before printing', async (t) => {
   const { env } = declaring({ forge: { github: 'rameezk/forge' } });
   const github = replaying({
     'rameezk/forge': reshaped('frontier', ([node]) => [
       {
         ...node,
-        title: '\u001b]0;pwned\u0007Frontier\u001b[2J sync\nforged line',
+        title:
+          '\u001b]0;pwned\u0007Frontier\u001b[2J sync\nforged line\u202e\u2066\u200b\u2028',
         url: 'https://github.com/rameezk/forge/issues/57\u001b[8m',
         parent: { number: 54, title: '\u009b31mFrontier discovery\r' },
       },
@@ -539,5 +540,42 @@ test('given GitHub text carrying terminal control characters, when list runs, th
       '      https://github.com/rameezk/forge/issues/57[8m',
       '      spec #54 31mFrontier discovery, created 2026-09-28',
     ].join('\n'),
+  );
+});
+
+test('given a GITHUB_TOKEN carrying a control character, when list runs, then it reports a malformed token without echoing it and makes no GitHub request', async (t) => {
+  const { env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const github = replaying({ 'rameezk/forge': recorded('frontier') });
+  const output = printing(t);
+
+  const code = await main(
+    ['list'],
+    { ...env, GITHUB_TOKEN: 'github_pat_se\rcret' },
+    github.fetch,
+  );
+
+  assert.notEqual(code, 0);
+  assert.deepEqual(github.requests, []);
+  assert.equal(
+    output.stdout(),
+    ['forge (rameezk/forge)', '  error: GitHub token malformed'].join('\n'),
+  );
+});
+
+test('given a GITHUB_TOKEN padded with whitespace, when list runs, then GitHub is asked with the trimmed token', async (t) => {
+  const { env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const github = replaying({ 'rameezk/forge': recorded('frontier') });
+  printing(t);
+
+  const code = await main(
+    ['list'],
+    { ...env, GITHUB_TOKEN: ` ${GITHUB_TOKEN}\r\n` },
+    github.fetch,
+  );
+
+  assert.equal(code, 0);
+  assert.deepEqual(
+    github.requests.map(({ authorization }) => authorization),
+    [`bearer ${GITHUB_TOKEN}`],
   );
 });

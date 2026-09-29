@@ -22,11 +22,16 @@ const readConfig = (env: NodeJS.ProcessEnv): FrontierConfig => {
   return JSON.parse(readFileSync(configPath, 'utf8')) as FrontierConfig;
 };
 
+const failing =
+  (message: string): Poll =>
+  () =>
+    Promise.reject(new Error(message));
+
 const polling = (env: NodeJS.ProcessEnv, fetch: Fetch): Poll => {
-  const token = env.GITHUB_TOKEN;
-  return token === undefined || token === ''
-    ? () => Promise.reject(new Error('GitHub token missing'))
-    : (github) => queryFrontier(fetch, token, github);
+  const token = env.GITHUB_TOKEN?.trim() ?? '';
+  if (token === '') return failing('GitHub token missing');
+  if (!/^[\x21-\x7e]+$/.test(token)) return failing('GitHub token malformed');
+  return (github) => queryFrontier(fetch, token, github);
 };
 
 const sync = async (
@@ -70,7 +75,8 @@ const sync = async (
   }
 };
 
-const printable = (line: string): string => line.replace(/\p{Cc}/gu, '');
+const printable = (line: string): string =>
+  line.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '');
 
 const describeTicket = (ticket: Ticket): string[] => {
   const created = `created ${ticket.createdAt.slice(0, 10)}`;
