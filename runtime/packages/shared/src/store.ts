@@ -38,6 +38,8 @@ const CREATE_RUNS = `
   ) STRICT;
 `;
 
+const BUSY_TIMEOUT_MS = 5000;
+
 type RepositoryRow = {
   repository: string;
   github: string;
@@ -175,7 +177,7 @@ export class Store {
   }
 
   static open(path: string): Store {
-    return new Store(new DatabaseSync(path));
+    return new Store(new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS }));
   }
 
   insertRun(run: RunRecord): void {

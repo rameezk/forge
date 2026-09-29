@@ -4,6 +4,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { once } from 'node:events';
+import { Worker } from 'node:worker_threads';
 import { Store } from '../src/index.ts';
 import type { RunRecord } from '../src/index.ts';
 
@@ -179,5 +181,50 @@ test('given a current store file where another connection holds a write transact
   } finally {
     writer.exec('ROLLBACK');
     writer.close();
+  }
+});
+
+const HOLD_WRITE_LOCK = `
+  const { DatabaseSync } = require('node:sqlite');
+  const { parentPort, workerData } = require('node:worker_threads');
+  const writer = new DatabaseSync(workerData.path);
+  writer.exec('BEGIN IMMEDIATE');
+  parentPort.postMessage('locked');
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.holdMs);
+  writer.exec('ROLLBACK');
+  writer.close();
+`;
+
+test('given a store file from before the frontier where another connection briefly holds a write transaction, when the store is opened, then it waits for the writer and adds the frontier tables', async () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE runs (
+      id             TEXT PRIMARY KEY,
+      worker         TEXT NOT NULL,
+      harness        TEXT NOT NULL,
+      model          TEXT NOT NULL,
+      start_time     TEXT NOT NULL,
+      end_time       TEXT,
+      status         TEXT NOT NULL,
+      cost_status    TEXT NOT NULL,
+      cost_usd       REAL NOT NULL,
+      input_tokens   INTEGER NOT NULL,
+      output_tokens  INTEGER NOT NULL,
+      transcript_ref TEXT,
+      session_id     TEXT,
+      error          TEXT
+    ) STRICT;
+  `);
+  old.close();
+  const writer = new Worker(HOLD_WRITE_LOCK, { eval: true, workerData: { path, holdMs: 300 } });
+  await once(writer, 'message');
+
+  try {
+    const store = Store.open(path);
+    assert.deepEqual(store.listFrontier(), []);
+    store.close();
+  } finally {
+    await once(writer, 'exit');
   }
 });
