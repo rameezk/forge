@@ -1,9 +1,7 @@
 import { join } from 'node:path';
-import { Store } from '@forge/shared';
+import { isHeaderValue, Store } from '@forge/shared';
 import { settleGenerations } from './billing.ts';
 import { OPENROUTER_API, openRouterLookUp } from './openrouter.ts';
-
-const HEADER_VALUE = /^[\x21-\x7e]+$/;
 
 const baseUrlOf = (env: NodeJS.ProcessEnv): URL => {
   const baseUrl = env.OPENROUTER_BASE_URL ?? OPENROUTER_API;
@@ -21,7 +19,7 @@ const apiKeyOf = (env: NodeJS.ProcessEnv): string => {
   if (apiKey === undefined || apiKey === '') {
     throw new Error('OPENROUTER_API_KEY is not set');
   }
-  if (!HEADER_VALUE.test(apiKey)) {
+  if (!isHeaderValue(apiKey)) {
     throw new Error('OPENROUTER_API_KEY is malformed');
   }
   return apiKey;

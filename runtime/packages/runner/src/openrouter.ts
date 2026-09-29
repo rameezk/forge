@@ -21,18 +21,18 @@ const failureOf = (error: unknown): string => {
   return typeof code === 'string' ? `${error.name} ${code}` : error.name;
 };
 
-export type Lookup =
+export type LookupOutcome =
   | { outcome: 'billed'; costUsd: number }
   | { outcome: 'temporary' | 'permanent'; reason: string };
 
-export type LookUp = (generationId: string) => Promise<Lookup>;
+export type LookUpGeneration = (generationId: string) => Promise<LookupOutcome>;
 
 interface GenerationResponse {
   data?: { total_cost?: unknown };
 }
 
 export const openRouterLookUp =
-  (baseUrl: URL, apiKey: string): LookUp =>
+  (baseUrl: URL, apiKey: string): LookUpGeneration =>
   async (generationId) => {
     try {
       const url = new URL(`${baseUrl.href.replace(/\/$/, '')}/generation`);

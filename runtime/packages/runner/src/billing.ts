@@ -1,5 +1,5 @@
 import type { LookupResult, Store, UnsettledGeneration } from '@forge/shared';
-import type { Lookup, LookUp } from './openrouter.ts';
+import type { LookupOutcome, LookUpGeneration } from './openrouter.ts';
 
 const CONCURRENT_LOOKUPS = 4;
 
@@ -7,16 +7,16 @@ const GIVE_UP_AFTER_MS = 24 * 60 * 60 * 1000;
 
 export interface SettleOptions {
   store: Store;
-  lookUp: LookUp;
+  lookUp: LookUpGeneration;
   now: () => string;
   log: (line: string) => void;
 }
 
 const lookUpAll = async (
   generations: UnsettledGeneration[],
-  lookUp: LookUp,
-): Promise<Lookup[]> => {
-  const lookups: Lookup[] = [];
+  lookUp: LookUpGeneration,
+): Promise<LookupOutcome[]> => {
+  const lookups: LookupOutcome[] = [];
   let next = 0;
   const lookUpRemaining = async (): Promise<void> => {
     for (let index = next++; index < generations.length; index = next++) {
@@ -33,7 +33,7 @@ const lookUpAll = async (
 
 const resultOf = (
   generation: UnsettledGeneration,
-  lookup: Lookup,
+  lookup: LookupOutcome,
   attemptedAt: string,
 ): LookupResult => {
   if (lookup.outcome === 'billed') {
@@ -63,7 +63,7 @@ export const settleGenerations = async ({
   const lookups = await lookUpAll(generations, lookUp);
   const attemptedAt = now();
   const results = generations.map((generation, index) =>
-    resultOf(generation, lookups[index] as Lookup, attemptedAt),
+    resultOf(generation, lookups[index] as LookupOutcome, attemptedAt),
   );
   store.recordLookups(results, attemptedAt);
   results.forEach((result, index) => {

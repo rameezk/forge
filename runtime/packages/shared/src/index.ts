@@ -31,5 +31,6 @@ export {
   queryFrontier,
   requestFrontierPage,
 } from './frontier.ts';
+export { isHeaderValue } from './http.ts';
 export { Store } from './store.ts';
 export { parseTranscript, transcriptLine } from './transcript.ts';
