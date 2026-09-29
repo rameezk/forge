@@ -18,7 +18,7 @@ import {
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
 const STYLES = `
-  :root { color-scheme: light dark; --line: color-mix(in srgb, currentColor 15%, transparent); }
+  :root { color-scheme: light dark; --line: color-mix(in srgb, CanvasText 15%, Canvas); }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 system-ui, sans-serif; }
   main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
