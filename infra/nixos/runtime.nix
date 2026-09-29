@@ -138,7 +138,7 @@ in
       type = lib.types.str;
       default = "${cfg.stateDir}/github.env";
       defaultText = lib.literalExpression ''"''${cfg.stateDir}/github.env"'';
-      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN for the frontier poller. The poller loads it as optional, so a missing file does not stop the unit from starting.";
+      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN for the frontier poller and the forge-frontier command. Both load it as optional, so a missing file does not stop the unit from starting.";
     };
 
     frontier.pollInterval = lib.mkOption {
@@ -172,7 +172,7 @@ in
       type = lib.types.attrsOf repositoryModule;
       default = { };
       example = lib.literalExpression ''{ forge.github = "rameezk/forge"; }'';
-      description = "Managed repositories, keyed by a short name; declaring one makes forge poll its frontier and show it on the dashboard.";
+      description = "Managed repositories, keyed by a short name; declaring one makes forge poll its frontier, show it on the dashboard, and put the forge-frontier command on the path to list it on demand.";
     };
 
     settings = lib.mkOption {
@@ -232,6 +232,18 @@ in
     })
 
     (lib.mkIf hasRepositories {
+      environment.systemPackages = [
+        (pkgs.callPackage ../nix/frontier-command.nix {
+          forge-runner = cfg.package;
+          inherit (cfg)
+            configFile
+            user
+            stateDir
+            githubTokenFile
+            ;
+        })
+      ];
+
       systemd.services.forge-frontier-sync = {
         description = "Forge frontier sync from GitHub";
         after = [ "network-online.target" ];

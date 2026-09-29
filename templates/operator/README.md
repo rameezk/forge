@@ -157,6 +157,14 @@ A timer then polls each repository's frontier - its open issues labelled
 `ready-for-agent` with no open blockers - every `pollInterval`, and the
 dashboard's Work page shows it.
 
+To see the frontier live, without waiting for the next poll, run
+`forge-frontier list` on the box as the `forge-runtime` user. It queries GitHub
+with the same token and writes nothing:
+
+```bash
+ssh forge@<address> sudo -u forge-runtime forge-frontier list
+```
+
 ## Pinning forge
 
 `flake.nix` consumes forge as `github:rameezk/forge`. Pin it to a specific ref
