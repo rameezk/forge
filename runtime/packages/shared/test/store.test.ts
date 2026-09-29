@@ -161,7 +161,9 @@ test('given a store file in the old schema with one run whose cost was settled, 
     ],
   );
   store.close();
-  assert.deepEqual(Store.open(path).listRuns().map((run) => run.costStatus), ['unconfirmed', 'unconfirmed', 'billed']);
+  const reopened = Store.open(path);
+  assert.deepEqual(reopened.listRuns().map((run) => run.costStatus), ['unconfirmed', 'unconfirmed', 'billed']);
+  reopened.close();
 });
 
 test('given a current store file where another connection holds a write transaction, when the store is opened, then it opens without waiting on that writer', () => {
@@ -171,7 +173,9 @@ test('given a current store file where another connection holds a write transact
   writer.exec('BEGIN IMMEDIATE');
 
   try {
-    assert.deepEqual(Store.open(path).listRuns(), []);
+    const store = Store.open(path);
+    assert.deepEqual(store.listRuns(), []);
+    store.close();
   } finally {
     writer.exec('ROLLBACK');
     writer.close();
