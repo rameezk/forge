@@ -105,6 +105,37 @@ test('given a pending run and an unconfirmed run, when each transcript page is r
   assert.match(unconfirmed, /<span class="badge" title="[^"]+">unconfirmed<\/span>/);
 });
 
+test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and its run page are requested, then both show the start as absolute UTC to the second with the ISO value as a tooltip', async () => {
+  const app = appWith([sampleRun({ id: 'run-01', startTime: '2026-09-28T14:43:24.584Z', transcriptRef: null })]);
+  const started = '<time datetime="2026-09-28T14:43:24.584Z" title="2026-09-28T14:43:24.584Z">2026-09-28 14:43:24 UTC</time>';
+
+  const list = await (await app.request('/')).text();
+  const detail = await (await app.request('/runs/run-01')).text();
+
+  assert.ok(rowFor(list, 'refiner').includes(`<td>${started}</td>`));
+  assert.equal(detail.match(/<dt>Started<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1], started);
+});
+
+test('given a run whose recorded start time is not a date, when the list and its run page are requested, then both render and show the recorded value as is', async () => {
+  const app = appWith([sampleRun({ id: 'run-01', startTime: 'not-a-date', transcriptRef: null })]);
+
+  const list = await app.request('/');
+  const detail = await app.request('/runs/run-01');
+
+  assert.equal(list.status, 200);
+  assert.equal(detail.status, 200);
+  assert.match(await list.text(), /<time datetime="not-a-date" title="not-a-date">not-a-date<\/time>/);
+  assert.match(await detail.text(), /<time datetime="not-a-date" title="not-a-date">not-a-date<\/time>/);
+});
+
+test('given a run with 44991 input and 3480 output tokens, when its run page is requested, then the counts carry thousands separators', async () => {
+  const app = appWith([sampleRun({ id: 'run-01', inputTokens: 44991, outputTokens: 3480, transcriptRef: null })]);
+
+  const body = await (await app.request('/runs/run-01')).text();
+
+  assert.equal(textOf(body.match(/<dt>Tokens<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1] ?? ''), '44,991 in / 3,480 out');
+});
+
 test('given a run with a captured transcript, when its detail is requested, then its messages render', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const events: HarnessEvent[] = [
@@ -121,6 +152,41 @@ test('given a run with a captured transcript, when its detail is requested, then
 
   assert.match(body, /refine the spec please/);
   assert.match(body, /here is the refined spec/);
+});
+
+test('given a successful run and a failed run, when each run page is requested, then its header status and the closing transcript line are status badges styled like the run list', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  const transcript = (status: 'success' | 'error', error: string | null): string =>
+    [
+      { type: 'message', role: 'assistant', text: 'done', usage, costUsd: 0 },
+      { type: 'result', status, sessionId: 'sess-abc', error },
+    ].map((e) => JSON.stringify(e)).join('\n') + '\n';
+  writeFileSync(join(dir, 'ok.jsonl'), transcript('success', null));
+  writeFileSync(join(dir, 'failed.jsonl'), transcript('error', 'provider exploded'));
+  const app = appWith([
+    sampleRun({ id: 'ok', worker: 'ok-worker', status: 'success', transcriptRef: 'ok.jsonl' }),
+    sampleRun({ id: 'failed', worker: 'failed-worker', status: 'error', error: 'provider exploded', transcriptRef: 'failed.jsonl' }),
+  ], dir);
+  const list = await (await app.request('/')).text();
+  const listBadge = (worker: string): string =>
+    rowFor(list, worker).match(/<span class="status [^"]*">[^<]*<\/span>/)?.[0] ?? 'missing';
+  const page = async (id: string) => {
+    const body = await (await app.request(`/runs/${id}`)).text();
+    return {
+      header: body.match(/<dt>Status<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1] ?? '',
+      closing: body.match(/<article class="message message-result">([\s\S]*?)<\/article>\s*<\/main>/)?.[1] ?? '',
+    };
+  };
+
+  const { header: okHeader, closing: ok } = await page('ok');
+  const { header: failedHeader, closing: failed } = await page('failed');
+
+  assert.equal(okHeader, listBadge('ok-worker'));
+  assert.equal(failedHeader, listBadge('failed-worker'));
+  assert.ok(ok.includes(listBadge('ok-worker')), ok);
+  assert.equal(textOf(ok), 'success');
+  assert.ok(failed.includes(listBadge('failed-worker')), failed);
+  assert.equal(textOf(failed), 'error provider exploded');
 });
 
 test('given no such run, when its detail is requested, then the response is 404', async () => {
@@ -202,7 +268,7 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
 
   assert.match(list, /<td class="cost">\s*\$0\.750000/);
   assert.match(detail, /\$0\.750000/);
-  assert.match(detail, /1000 in \/ 100 out/);
+  assert.match(detail, /1,000 in \/ 100 out/);
 });
 
 const toolCards = (body: string): string[] => detailsBlocks(body, /<details class="tool[ "]/g);
@@ -318,7 +384,7 @@ test('given a transcript written before tool events were recorded, when its run 
   assert.equal(toolCards(body).length, 0);
   assert.equal(body.match(/<article class="message message-assistant">/g)?.length, 2);
   assert.match(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
-  assert.match(body, /Run success/);
+  assert.match(body, /<article class="message message-result"><span class="status status-success">success<\/span><\/article>/);
 });
 
 test('given a provider that reuses a tool call id across turns, when the run page is viewed, then each card shows the result that followed it', async () => {

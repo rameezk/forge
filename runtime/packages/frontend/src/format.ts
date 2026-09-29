@@ -4,6 +4,17 @@ export const formatCost = (usd: number): string => `$${usd.toFixed(6)}`;
 
 export const formatTotal = (usd: number): string => `$${usd.toFixed(4)}`;
 
+export const formatStarted = (iso: string): string => {
+  const time = Date.parse(iso);
+  return Number.isNaN(time)
+    ? iso
+    : `${new Date(time).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+};
+
+const tokenCount = new Intl.NumberFormat('en-US');
+
+export const formatTokens = (count: number): string => tokenCount.format(count);
+
 export const formatDuration = (
   startTime: string,
   endTime: string | null,
