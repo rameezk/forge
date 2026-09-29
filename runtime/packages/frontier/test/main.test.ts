@@ -481,33 +481,38 @@ test('given GitHub fails for one of two declared repositories, when list runs, t
   );
 });
 
-test('given no GITHUB_TOKEN, when list runs, then every declared repository shows the token-missing error, no GitHub request is made and the exit code is non-zero', async (t) => {
-  const { env } = declaring({
-    forge: { github: 'rameezk/forge' },
-    fresh: { github: 'rameezk/fresh' },
+for (const [absence, token] of [
+  ['no', undefined],
+  ['an empty', ''],
+] as const) {
+  test(`given ${absence} GITHUB_TOKEN, when list runs, then every declared repository shows the token-missing error, no GitHub request is made and the exit code is non-zero`, async (t) => {
+    const { env } = declaring({
+      forge: { github: 'rameezk/forge' },
+      fresh: { github: 'rameezk/fresh' },
+    });
+    const github = replaying({ 'rameezk/forge': recorded('frontier') });
+    const output = printing(t);
+
+    const code = await main(
+      ['list'],
+      { ...env, GITHUB_TOKEN: token },
+      github.fetch,
+    );
+
+    assert.notEqual(code, 0);
+    assert.deepEqual(github.requests, []);
+    assert.equal(
+      output.stdout(),
+      [
+        'forge (rameezk/forge)',
+        '  error: GitHub token missing',
+        '',
+        'fresh (rameezk/fresh)',
+        '  error: GitHub token missing',
+      ].join('\n'),
+    );
   });
-  const github = replaying({ 'rameezk/forge': recorded('frontier') });
-  const output = printing(t);
-
-  const code = await main(
-    ['list'],
-    { ...env, GITHUB_TOKEN: undefined },
-    github.fetch,
-  );
-
-  assert.notEqual(code, 0);
-  assert.deepEqual(github.requests, []);
-  assert.equal(
-    output.stdout(),
-    [
-      'forge (rameezk/forge)',
-      '  error: GitHub token missing',
-      '',
-      'fresh (rameezk/fresh)',
-      '  error: GitHub token missing',
-    ].join('\n'),
-  );
-});
+}
 
 test('given GitHub text carrying terminal control characters, when list runs, then they are stripped before printing', async (t) => {
   const { env } = declaring({ forge: { github: 'rameezk/forge' } });
