@@ -13,7 +13,7 @@ const endedAgo = (ms: number): string =>
 const startedRun = (
   store: Store,
   id: string,
-  generatedAt: string = endedAgo(DAY_MS + 30_000),
+  generatedAt: string | null = endedAgo(DAY_MS + 30_000),
 ): void => {
   store.insertRun({
     id,
@@ -31,12 +31,14 @@ const startedRun = (
     sessionId: null,
     error: null,
   });
-  store.recordGeneration({
-    runId: id,
-    generationId: `gen-${id}`,
-    subagent: null,
-    createdAt: generatedAt,
-  });
+  if (generatedAt !== null) {
+    store.recordGeneration({
+      runId: id,
+      generationId: `gen-${id}`,
+      subagent: null,
+      createdAt: generatedAt,
+    });
+  }
 };
 
 const finish = (store: Store, id: string, endTime: string): void => {
@@ -102,14 +104,9 @@ test('given a run still running whose generations so far are all billed, when th
   assert.equal(store.getRun('live')?.costUsd, 0.25);
 });
 
-test('given a run whose runner was killed so it never ended and one killed before any generation, when the settle step runs 24 hours after the last generation or the start, then both costs are unconfirmed with what was billed and each give-up is logged, while a run still within the window stays pending, and a later recompute keeps them unconfirmed', async () => {
+test('given a run whose runner was killed so it never ended, when the settle step runs 24 hours after its last generation, then its cost is unconfirmed with what was billed, a given-up row records why, the give-up is logged, and a run still within the window stays pending', async () => {
   const store = Store.open(':memory:');
   startedRun(store, 'killed');
-  store.insertRun({
-    ...(store.getRun('killed') as NonNullable<ReturnType<Store['getRun']>>),
-    id: 'killed-early',
-    transcriptRef: 'killed-early.jsonl',
-  });
   startedRun(store, 'recent');
   store.recordGeneration({
     runId: 'recent',
@@ -129,14 +126,53 @@ test('given a run whose runner was killed so it never ended and one killed befor
   assert.equal(store.getRun('killed')?.status, 'running');
   assert.equal(store.getRun('killed')?.costStatus, 'unconfirmed');
   assert.equal(store.getRun('killed')?.costUsd, 0.25);
-  assert.equal(store.getRun('killed-early')?.costStatus, 'unconfirmed');
-  assert.equal(store.getRun('killed-early')?.costUsd, 0);
+  assert.deepEqual(
+    store
+      .listGenerations('killed')
+      .map(({ generationId, givenUpAt, lastError }) => ({ generationId, givenUpAt, lastError })),
+    [
+      { generationId: 'gen-killed', givenUpAt: null, lastError: null },
+      {
+        generationId: null,
+        givenUpAt: NOW,
+        lastError: 'run never ended, so later generations may be unrecorded',
+      },
+    ],
+  );
   assert.equal(store.getRun('recent')?.costStatus, 'pending');
   assert.equal(store.getRun('recent')?.costUsd, 0.5);
-  assert.deepEqual(log.toSorted(), [
+  assert.deepEqual(log, [
     'gave up on run "killed": it never ended and has had no generation for 24 hours',
-    'gave up on run "killed-early": it never ended and has had no generation for 24 hours',
   ]);
-  finish(store, 'killed', NOW);
-  assert.equal(store.getRun('killed')?.costStatus, 'unconfirmed');
+});
+
+test('given a run whose runner was killed before any generation, when the settle step runs 24 hours after it started, then its cost is unconfirmed at nothing', async () => {
+  const store = Store.open(':memory:');
+  startedRun(store, 'killed-early', null);
+
+  await settleGenerations({
+    store,
+    lookUp: async () => ({ outcome: 'billed', costUsd: 0.25 }),
+    now: () => NOW,
+    log: () => {},
+  });
+
+  assert.equal(store.getRun('killed-early')?.costStatus, 'unconfirmed');
+  assert.equal(store.getRun('killed-early')?.costUsd, 0);
+});
+
+test('given a run given up because it never ended, when its runner later finalizes it, then its cost stays unconfirmed', async () => {
+  const store = Store.open(':memory:');
+  startedRun(store, 'late');
+  await settleGenerations({
+    store,
+    lookUp: async () => ({ outcome: 'billed', costUsd: 0.25 }),
+    now: () => NOW,
+    log: () => {},
+  });
+
+  finish(store, 'late', NOW);
+
+  assert.equal(store.getRun('late')?.costStatus, 'unconfirmed');
+  assert.equal(store.getRun('late')?.costUsd, 0.25);
 });

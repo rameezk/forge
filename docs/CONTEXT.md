@@ -29,7 +29,7 @@ The per-workload working directory a harness runs in, kept after the run as an a
 _Avoid_: workdir, sandbox
 
 **Generation**:
-One model response within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time.
+One model response within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time. The store also keeps a given-up row with no id where a response used tokens without one, or where a workload never ended and later generations may be unrecorded.
 _Avoid_: response, completion, call
 
 **Billed cost**:
