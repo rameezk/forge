@@ -9,16 +9,20 @@ export type {
 } from './events.ts';
 export type {
   Fetch,
+  PolledFrontier,
+  PollFailure,
   RepositoryFrontier,
   SpecRef,
   Ticket,
 } from './frontier.ts';
 export {
+  FRONTIER_PAGE_SIZE,
   FRONTIER_QUERY,
   GITHUB_GRAPHQL_API,
   isGithubRepository,
   isGithubUrl,
   queryFrontier,
+  requestFrontierPage,
 } from './frontier.ts';
 export { Store } from './store.ts';
 export { parseTranscript, transcriptLine } from './transcript.ts';

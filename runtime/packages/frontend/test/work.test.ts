@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { RepositoryFrontier, Ticket } from '@forge/shared';
+import type { PolledFrontier, PollFailure, Ticket } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 
 const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
@@ -16,9 +16,18 @@ const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
   ...overrides,
 });
 
-const appWith = (frontier: RepositoryFrontier[]) => {
+type Seed =
+  | (PolledFrontier & { lastError?: PollFailure })
+  | { repository: string; github: string; polledAt: null; lastError: PollFailure };
+
+const appWith = (frontier: Seed[]) => {
   const store = Store.open(':memory:');
-  for (const repository of frontier) store.replaceFrontier(repository);
+  for (const seed of frontier) {
+    if (seed.polledAt !== null) store.replaceFrontier(seed);
+    if (seed.lastError !== undefined) {
+      store.recordFrontierError({ repository: seed.repository, github: seed.github, ...seed.lastError });
+    }
+  }
   return createApp({
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),
@@ -29,7 +38,7 @@ const textOf = (fragment: string): string =>
   fragment.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
 const sections = (body: string): string[] =>
-  body.match(/<section class="repository">[\s\S]*?<\/section>/g) ?? [];
+  body.match(/<section class="repository[^"]*">[\s\S]*?<\/section>/g) ?? [];
 
 test('given a stored frontier across two repositories, when the work page is requested, then tickets are grouped by repository oldest first, each with its link, parent spec and creation date, under the repository linked to GitHub with its last-polled time', async () => {
   const app = appWith([
@@ -112,4 +121,48 @@ test('given a stored ticket whose url is not a GitHub https link, when the work 
 
   assert.doesNotMatch(forge ?? '', /javascript:/);
   assert.match(forge ?? '', /<td class="number">#56<\/td>/);
+});
+
+test('given a stored snapshot where one repository has a last error, when the work page is requested, then that repository shows its error and last-polled time alongside its stale tickets', async () => {
+  const app = appWith([
+    {
+      repository: 'forge',
+      github: 'rameezk/forge',
+      polledAt: '2026-09-29T08:15:00.000Z',
+      lastError: { message: 'GitHub answered 401 for rameezk/forge', failedAt: '2026-09-29T08:20:00.000Z' },
+      tickets: [ticket()],
+    },
+    { repository: 'healthy', github: 'rameezk/healthy', polledAt: '2026-09-29T08:20:00.000Z', tickets: [] },
+  ]);
+
+  const [forge, healthy] = sections(await (await app.request('/work')).text());
+
+  assert.match(forge ?? '', /^<section class="repository stale">/);
+  assert.match(forge ?? '', /<p class="status-error">Last poll failed <time datetime="2026-09-29T08:20:00.000Z" title="2026-09-29T08:20:00.000Z">2026-09-29 08:20:00 UTC<\/time>: GitHub answered 401 for rameezk\/forge<\/p>/);
+  assert.match(forge ?? '', /Last polled <time datetime="2026-09-29T08:15:00.000Z"/);
+  assert.equal((forge?.match(/<tr class="ticket">/g) ?? []).length, 1);
+  assert.doesNotMatch(healthy ?? '', /status-error|stale/);
+});
+
+test('given a repository that has never been polled successfully, when the work page is requested, then it shows its error and that it was never polled', async () => {
+  const app = appWith([
+    { repository: 'forge', github: 'rameezk/forge', polledAt: null, lastError: { message: 'GitHub token missing', failedAt: '2026-09-29T08:20:00.000Z' } },
+  ]);
+
+  const [forge] = sections(await (await app.request('/work')).text());
+
+  assert.match(forge ?? '', /<p class="status-error">Last poll failed <time[^>]*>[^<]*<\/time>: GitHub token missing<\/p>/);
+  assert.match(forge ?? '', /<span class="polled">Never polled<\/span>/);
+  assert.doesNotMatch(forge ?? '', /No tickets on the frontier/);
+});
+
+test('given a stored repository whose github is not an owner/name, when the work page is requested, then it renders without a link', async () => {
+  const app = appWith([
+    { repository: 'forge', github: '../../evil', polledAt: null, lastError: { message: 'GitHub token missing', failedAt: '2026-09-29T08:20:00.000Z' } },
+  ]);
+
+  const [forge] = sections(await (await app.request('/work')).text());
+
+  assert.doesNotMatch(forge ?? '', /<a href="https:\/\/github\.com\/\.\.\/\.\.\/evil"/);
+  assert.match(forge ?? '', /<span class="github">\.\.\/\.\.\/evil<\/span>/);
 });

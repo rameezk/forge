@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl } from '@forge/shared';
+import { isGithubRepository, isGithubUrl } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   HarnessEvent,
@@ -86,6 +86,8 @@ const STYLES = `
   .repository > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; margin: 0 0 0.75rem; }
   .repository h2 { font-size: 1.1rem; margin: 0; }
   .repository .polled { margin-left: auto; font-size: 0.85rem; opacity: 0.6; }
+  .repository > .status-error { margin: 0 0 0.75rem; }
+  .repository.stale .table-scroll { opacity: 0.6; }
   td.number { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .spec-number { opacity: 0.6; font-variant-numeric: tabular-nums; }
 `;
@@ -491,19 +493,32 @@ const renderSpec = (parent: SpecRef | null): Rendered =>
     ? html`<span class="empty">No spec</span>`
     : html`<span class="spec-number">#${parent.number}</span> ${parent.title}`;
 
+const renderPolled = (polledAt: string | null): Rendered =>
+  polledAt === null
+    ? html`<span class="polled">Never polled</span>`
+    : html`<span class="polled">Last polled ${renderTimestamp(polledAt)}</span>`;
+
 const renderRepository = ({
   repository,
   github,
   polledAt,
+  lastError,
   tickets,
 }: RepositoryFrontier): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<section class="repository">
+  html`<section class="repository${lastError === null ? '' : ' stale'}">
     <header>
       <h2>${repository}</h2>
-      <a href="https://github.com/${github}">${github}</a>
-      <span class="polled">Last polled ${renderTimestamp(polledAt)}</span>
+      ${isGithubRepository(github)
+        ? html`<a href="https://github.com/${github}">${github}</a>`
+        : html`<span class="github">${github}</span>`}
+      ${renderPolled(polledAt)}
     </header>
-    ${tickets.length === 0
+    ${lastError === null
+      ? ''
+      : html`<p class="status-error">Last poll failed ${renderTimestamp(lastError.failedAt)}: ${lastError.message}</p>`}
+    ${polledAt === null
+      ? ''
+      : tickets.length === 0
       ? html`<p class="empty">No tickets on the frontier.</p>`
       : html`<div class="table-scroll">
           <table>

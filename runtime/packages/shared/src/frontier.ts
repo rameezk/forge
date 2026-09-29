@@ -1,14 +1,21 @@
 export const GITHUB_GRAPHQL_API = 'https://api.github.com/graphql';
 
+export const FRONTIER_PAGE_SIZE = 100;
+
 export const FRONTIER_QUERY = `
-  query Frontier($owner: String!, $name: String!) {
+  query Frontier($owner: String!, $name: String!, $first: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
       issues(
-        first: 100
+        first: $first
+        after: $after
         states: OPEN
         labels: ["ready-for-agent"]
         orderBy: { field: CREATED_AT, direction: ASC }
       ) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           number
           title
@@ -42,11 +49,21 @@ export interface Ticket {
   createdAt: string;
 }
 
-export interface RepositoryFrontier {
+export interface PolledFrontier {
   repository: string;
   github: string;
   polledAt: string;
   tickets: Ticket[];
+}
+
+export interface PollFailure {
+  message: string;
+  failedAt: string;
+}
+
+export interface RepositoryFrontier extends Omit<PolledFrontier, 'polledAt'> {
+  polledAt: string | null;
+  lastError: PollFailure | null;
 }
 
 interface IssueNode {
@@ -58,8 +75,13 @@ interface IssueNode {
   parent: SpecRef | null;
 }
 
+interface IssuePage {
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  nodes: IssueNode[];
+}
+
 interface FrontierResponse {
-  data?: { repository: { issues: { nodes: IssueNode[] } } | null };
+  data?: { repository: { issues: IssuePage } | null };
   errors?: { message: string }[];
 }
 
@@ -89,22 +111,35 @@ const toTicket = (issue: IssueNode): Ticket => ({
   createdAt: issue.createdAt,
 });
 
-export const queryFrontier = async (
+export const requestFrontierPage = (
   fetch: Fetch,
   token: string,
   github: string,
-): Promise<Ticket[]> => {
-  if (!isGithubRepository(github)) {
-    throw new Error(`'${github}' is not a GitHub owner/name`);
-  }
+  { first, after }: { first: number; after: string | null },
+): Promise<Response> => {
   const [owner, name] = github.split('/');
-  const response = await fetch(GITHUB_GRAPHQL_API, {
+  return fetch(GITHUB_GRAPHQL_API, {
     method: 'POST',
     headers: {
       authorization: `bearer ${token}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ query: FRONTIER_QUERY, variables: { owner, name } }),
+    body: JSON.stringify({
+      query: FRONTIER_QUERY,
+      variables: { owner, name, first, after },
+    }),
+  });
+};
+
+const queryPage = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  after: string | null,
+): Promise<IssuePage> => {
+  const response = await requestFrontierPage(fetch, token, github, {
+    first: FRONTIER_PAGE_SIZE,
+    after,
   });
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status} for ${github}`);
@@ -119,7 +154,30 @@ export const queryFrontier = async (
   if (repository === undefined || repository === null) {
     throw new Error(`GitHub found no repository ${github}`);
   }
-  return repository.issues.nodes
+  return repository.issues;
+};
+
+export const queryFrontier = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+): Promise<Ticket[]> => {
+  if (!isGithubRepository(github)) {
+    throw new Error(`'${github}' is not a GitHub owner/name`);
+  }
+  const issues: IssueNode[] = [];
+  const cursors = new Set<string>();
+  let after: string | null = null;
+  do {
+    const page = await queryPage(fetch, token, github, after);
+    issues.push(...page.nodes);
+    after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+    if (after !== null && cursors.has(after)) {
+      throw new Error(`GitHub paging did not advance for ${github}`);
+    }
+    if (after !== null) cursors.add(after);
+  } while (after !== null);
+  return issues
     .filter((issue) => issue.issueDependenciesSummary.blockedBy === 0)
     .map(toTicket);
 };

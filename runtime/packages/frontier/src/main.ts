@@ -21,24 +21,39 @@ export const main = async (
     throw new Error('FORGE_STATE_DIR is not set');
   }
   const token = env.GITHUB_TOKEN;
-  if (token === undefined || token === '') {
-    throw new Error('GITHUB_TOKEN is not set');
-  }
+  const poll =
+    token === undefined || token === ''
+      ? () => Promise.reject(new Error('GitHub token missing'))
+      : (github: string) => queryFrontier(fetch, token, github);
 
   const config = JSON.parse(readFileSync(configPath, 'utf8')) as FrontierConfig;
   const store = Store.open(join(stateDir, 'forge.db'));
 
   try {
+    store.pruneFrontier(Object.keys(config.repositories));
+    let failed = false;
     for (const [name, { github }] of Object.entries(config.repositories)) {
-      const tickets = await queryFrontier(fetch, token, github);
-      store.replaceFrontier({
-        repository: name,
-        github,
-        polledAt: new Date().toISOString(),
-        tickets,
-      });
+      try {
+        const tickets = await poll(github);
+        store.replaceFrontier({
+          repository: name,
+          github,
+          polledAt: new Date().toISOString(),
+          tickets,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`${name}: ${message}`);
+        store.recordFrontierError({
+          repository: name,
+          github,
+          message,
+          failedAt: new Date().toISOString(),
+        });
+        failed = true;
+      }
     }
-    return 0;
+    return failed ? 1 : 0;
   } finally {
     store.close();
   }

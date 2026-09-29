@@ -4,8 +4,8 @@
       "repository": {
         "issues": {
           "pageInfo": {
-            "hasNextPage": false,
-            "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0wOS0yOFQxMjoyNjo1NFrPAAAAAU6mrCM="
+            "hasNextPage": true,
+            "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0wOS0yOFQxMTozMjoyM1rPAAAAAU6cQo8="
           },
           "nodes": [
             {
@@ -46,7 +46,21 @@
                 "number": 61,
                 "title": "Secrets via sops-nix"
               }
-            },
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "repository": {
+        "issues": {
+          "pageInfo": {
+            "hasNextPage": true,
+            "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0wOS0yOFQxMjoyNjo1MVrPAAAAAU6mqXg="
+          },
+          "nodes": [
             {
               "number": 63,
               "title": "Hetzner token from sops instead of .env",
@@ -85,7 +99,21 @@
                 "number": 67,
                 "title": "Billed cost settles after the run"
               }
-            },
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "repository": {
+        "issues": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0wOS0yOFQxMjoyNjo1NFrPAAAAAU6mrCM="
+          },
+          "nodes": [
             {
               "number": 70,
               "title": "Billed cost settles after the run",

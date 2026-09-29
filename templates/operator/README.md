@@ -111,7 +111,8 @@ the GitHub token file `/var/lib/forge/github.env`. Only deploy keeps it.
    access token that is read-only on Issues and Metadata for those
    repositories. Workloads run as the same `forge-runtime` user and can read
    it, so give it a short expiry. Like the OpenRouter key, you place it by
-   hand after **every** standup, into `/var/lib/forge/github.env`:
+   hand after **every** standup, into `/var/lib/forge/github.env`. Until it is
+   there, the Work page shows "GitHub token missing" on every repository:
 
    ```bash
    printf 'GitHub token: ' && read -rs token && echo && [ -n "$token" ] &&
