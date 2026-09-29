@@ -237,22 +237,95 @@
           frontendNoPublicPort = lib.asserts.assertMsg (
             !(lib.elem dashboardPort workerHost.config.networking.firewall.allowedTCPPorts)
           ) "the dashboard port must never be opened in the firewall: it is reached only over an SSH tunnel";
-          frontendSandboxed = lib.asserts.assertMsg (
-            frontendUnit.serviceConfig.NoNewPrivileges == true
-            && frontendUnit.serviceConfig.ProtectSystem == "strict"
-            && frontendUnit.serviceConfig.ProtectHome == true
-            && frontendUnit.serviceConfig.PrivateTmp == true
-            && frontendUnit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
-            && frontendUnit.serviceConfig.RestrictSUIDSGID == true
-            && frontendUnit.serviceConfig.ProtectKernelTunables == true
-            && frontendUnit.serviceConfig.ProtectControlGroups == true
+          frontendIsLockedDown =
+            unit:
+            unit.serviceConfig.NoNewPrivileges == true
+            && unit.serviceConfig.ProtectSystem == "strict"
+            && unit.serviceConfig.ProtectHome == true
+            && unit.serviceConfig.PrivateTmp == true
+            && unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+            && unit.serviceConfig.RestrictSUIDSGID == true
+            && unit.serviceConfig.ProtectKernelTunables == true
+            && unit.serviceConfig.ProtectControlGroups == true
             &&
-              frontendUnit.serviceConfig.RestrictAddressFamilies == [
+              unit.serviceConfig.RestrictAddressFamilies == [
                 "AF_INET"
                 "AF_INET6"
                 "AF_UNIX"
               ]
-          ) "the dashboard unit must be sandboxed like the runner";
+            && unit.serviceConfig.IPAddressAllow == "localhost"
+            && unit.serviceConfig.IPAddressDeny == "any";
+          frontendSandboxed = lib.asserts.assertMsg (frontendIsLockedDown frontendUnit) "the dashboard unit must be sandboxed like the runner";
+
+          repositoryHost = mkHost {
+            configFile = exampleConfigFile;
+            modules = [
+              {
+                forge.runtime.repositories.forge.github = "rameezk/forge";
+                forge.runtime.frontier.pollInterval = "15min";
+              }
+            ];
+          };
+          frontierService = repositoryHost.config.systemd.services.forge-frontier-sync;
+          frontierTimer = repositoryHost.config.systemd.timers.forge-frontier-sync;
+
+          frontierDeclared = lib.asserts.assertMsg (
+            (repositoryHost.config.systemd.services ? forge-frontier-sync)
+            && (repositoryHost.config.systemd.timers ? forge-frontier-sync)
+            && frontierTimer.wantedBy == [ "timers.target" ]
+          ) "declaring a repository must define the forge-frontier-sync timer and service";
+          frontierSyncs = lib.asserts.assertMsg (
+            frontierService.serviceConfig.Type == "oneshot"
+            &&
+              frontierService.serviceConfig.ExecStart
+              == "${repositoryHost.config.forge.runtime.package}/bin/forge-frontier sync"
+            && frontierService.serviceConfig.User == "forge-runtime"
+            && frontierService.serviceConfig.Group == "forge-runtime"
+            && lib.elem "network-online.target" frontierService.after
+            && lib.elem "network-online.target" frontierService.wants
+            && !(frontierService.serviceConfig ? IPAddressDeny)
+          ) "the sync service must run forge-frontier sync as the forge-runtime user with outbound network";
+          frontierSandboxed = lib.asserts.assertMsg (
+            frontierService.serviceConfig.NoNewPrivileges == true
+            && frontierService.serviceConfig.ProtectSystem == "strict"
+            && frontierService.serviceConfig.ProtectHome == true
+            && frontierService.serviceConfig.PrivateTmp == true
+            && frontierService.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+            && frontierService.serviceConfig.RestrictSUIDSGID == true
+            && frontierService.serviceConfig.ProtectKernelTunables == true
+            && frontierService.serviceConfig.ProtectControlGroups == true
+          ) "the sync service must be sandboxed like the runner";
+          frontierTokenOptional =
+            lib.asserts.assertMsg
+              (frontierService.serviceConfig.EnvironmentFile == "-/var/lib/forge/github.env")
+              "the sync service must load the GitHub token file as an optional EnvironmentFile outside the Nix store";
+          frontierEnvWired = lib.asserts.assertMsg (
+            lib.any (e: lib.hasInfix "FORGE_RUNTIME_CONFIG=" e) frontierService.serviceConfig.Environment
+            && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") frontierService.serviceConfig.Environment
+          ) "the sync service must point at the generated config and the state directory";
+          frontierPollsAtInterval = lib.asserts.assertMsg (
+            frontierTimer.timerConfig.OnUnitActiveSec == "15min"
+          ) "the frontier timer must poll at the configured interval";
+          frontierDefaultInterval = lib.asserts.assertMsg (
+            nixos.config.forge.runtime.frontier.pollInterval == "5min"
+          ) "the frontier poll interval must default to 5min";
+          frontierConfigReflectsRepositories = lib.asserts.assertMsg (
+            repositoryHost.config.forge.runtime.settings.repositories == {
+              forge.github = "rameezk/forge";
+            }
+          ) "the generated runtime config must include the declared repositories";
+          noRepositoriesNoPoller = lib.asserts.assertMsg (
+            !(workerHost.config.systemd.services ? forge-frontier-sync)
+            && !(workerHost.config.systemd.timers ? forge-frontier-sync)
+          ) "a host with no repositories must have neither the frontier timer nor the sync service";
+          dashboardWithoutWorkers =
+            lib.asserts.assertMsg
+              (
+                (repositoryHost.config.systemd.services ? forge-frontend)
+                && frontendIsLockedDown repositoryHost.config.systemd.services.forge-frontend
+                && !(repositoryHost.config.systemd.services ? "forge-runner@")
+              )
+              "declaring repositories without workers must run the dashboard, locked down as before, and no runner";
         in
         {
           example-reflects-config =
@@ -295,6 +368,21 @@
             assert frontendSandboxed;
             pkgs.runCommand "runtime-dashboard" { } ''
               echo "declaring a worker wires an always-on forge-frontend dashboard bound to localhost, opening no public port" > $out
+            '';
+
+          runtime-frontier =
+            assert frontierDeclared;
+            assert frontierSyncs;
+            assert frontierSandboxed;
+            assert frontierTokenOptional;
+            assert frontierEnvWired;
+            assert frontierPollsAtInterval;
+            assert frontierDefaultInterval;
+            assert frontierConfigReflectsRepositories;
+            assert noRepositoriesNoPoller;
+            assert dashboardWithoutWorkers;
+            pkgs.runCommand "runtime-frontier" { } ''
+              echo "declaring a repository wires a forge-frontier-sync timer and service with an optional GitHub token file, and runs the dashboard without workers" > $out
             '';
 
           forge-shared = self.packages.${system}.forge-shared;
