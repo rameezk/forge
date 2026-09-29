@@ -70,8 +70,16 @@ export const settleGenerations = async ({
     if ('givenUp' in result && result.givenUp) {
       const { generationId, runId } = generations[index] as UnsettledGeneration;
       log(
-        `gave up on OpenRouter generation ${JSON.stringify(generationId)} of run ${runId}: ${result.error}`,
+        `gave up on OpenRouter generation ${JSON.stringify(generationId)} of run ${JSON.stringify(runId)}: ${result.error}`,
       );
     }
   });
+  const quietSince = new Date(
+    Date.parse(attemptedAt) - GIVE_UP_AFTER_MS,
+  ).toISOString();
+  for (const runId of store.giveUpUnfinishedRuns(quietSince)) {
+    log(
+      `gave up on run ${JSON.stringify(runId)}: it never ended and has had no generation for 24 hours`,
+    );
+  }
 };

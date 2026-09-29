@@ -432,6 +432,21 @@ export class Store {
     });
   }
 
+  giveUpUnfinishedRuns(quietSince: string): string[] {
+    const rows = this.#db
+      .prepare(
+        `UPDATE runs SET cost_status = 'unconfirmed'
+        WHERE end_time IS NULL AND cost_status = 'pending'
+          AND COALESCE(
+            (SELECT MAX(created_at) FROM generations WHERE run_id = runs.id),
+            start_time
+          ) < $quiet_since
+        RETURNING id`,
+      )
+      .all({ quiet_since: quietSince }) as { id: string }[];
+    return rows.map((row) => row.id);
+  }
+
   #settleRunCost(id: string): void {
     this.#db.prepare(SETTLE_RUN_COST).run({ id });
   }
