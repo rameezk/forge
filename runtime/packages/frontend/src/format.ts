@@ -1,6 +1,8 @@
 import type { RunRecord } from '@forge/shared';
 
-export const formatCost = (usd: number): string => `$${usd.toFixed(4)}`;
+export const formatCost = (usd: number): string => `$${usd.toFixed(6)}`;
+
+export const formatTotal = (usd: number): string => `$${usd.toFixed(4)}`;
 
 export const formatDuration = (
   startTime: string,
@@ -16,5 +18,12 @@ export const formatDuration = (
   return minutes === 0 ? `${seconds}s` : `${minutes}m ${seconds}s`;
 };
 
-export const totalCost = (runs: RunRecord[]): number =>
-  runs.reduce((sum, run) => sum + run.costUsd, 0);
+const isPending = (run: RunRecord): boolean => run.costStatus === 'pending';
+
+export const settledCost = (runs: RunRecord[]): number =>
+  runs
+    .filter((run) => !isPending(run))
+    .reduce((sum, run) => sum + run.costUsd, 0);
+
+export const pendingCount = (runs: RunRecord[]): number =>
+  runs.filter(isPending).length;

@@ -45,7 +45,7 @@ export interface FakeHarness extends Harness {
   readonly invocations: HarnessInvocation[];
 }
 
-const SETTLED_COST: RunCost = { costUsd: 0.02, uncertain: false };
+const SETTLED_COST: RunCost = { costUsd: 0.02, costStatus: 'billed' };
 
 export const fakeHarness = (
   events: HarnessEvent[],

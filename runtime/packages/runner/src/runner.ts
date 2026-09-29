@@ -19,7 +19,7 @@ export interface RunWorkloadOptions {
   secrets?: string[];
 }
 
-const UNSETTLED: RunCost = { costUsd: 0, uncertain: true };
+const UNSETTLED: RunCost = { costUsd: 0, costStatus: 'unconfirmed' };
 
 const settle = async (run: HarnessRun | null): Promise<RunCost> => {
   if (run === null) {
@@ -49,7 +49,7 @@ export const runWorkload = async (
     startTime: now(),
     endTime: null,
     status: 'running',
-    costUncertain: false,
+    costStatus: 'pending',
     costUsd: 0,
     inputTokens: 0,
     outputTokens: 0,
@@ -94,7 +94,7 @@ export const runWorkload = async (
   store.finalizeRun(id, {
     endTime: now(),
     status,
-    costUncertain: cost.uncertain,
+    costStatus: cost.costStatus,
     costUsd: cost.costUsd,
     inputTokens,
     outputTokens,

@@ -15,7 +15,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   startTime: '2026-09-21T10:00:00.000Z',
   endTime: '2026-09-21T10:03:20.000Z',
   status: 'success',
-  costUncertain: false,
+  costStatus: 'billed',
   costUsd: 0.1234,
   inputTokens: 4200,
   outputTokens: 850,
@@ -54,26 +54,55 @@ test('given several finished runs, when the list is requested, then they render 
   assert.match(body, /\$0\.6000/, 'total cost tally should sum the runs');
 });
 
-test('given a cost-uncertain run beside a trusted one, when the list is requested, then only the uncertain run is marked', async () => {
+const textOf = (fragment: string): string =>
+  fragment.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+const rowFor = (body: string, worker: string): string =>
+  body.match(new RegExp(`<tr class="run[^"]*">(?:(?!</tr>)[\\s\\S])*>${worker}<[\\s\\S]*?</tr>`))?.[0] ?? '';
+
+test('given a billed run costing $0.00093252, an unconfirmed run, and a pending run, when the list is requested, then each shows its cost status readably and the total adds the billed and unconfirmed runs followed by how many are pending', async () => {
   const app = appWith([
-    sampleRun({ id: 'trusted', worker: 'trusted-worker', costUncertain: false }),
-    sampleRun({ id: 'uncertain', worker: 'uncertain-worker', costUncertain: true }),
+    sampleRun({ id: 'billed', worker: 'billed-worker', costStatus: 'billed', costUsd: 0.00093252 }),
+    sampleRun({ id: 'unconfirmed', worker: 'unconfirmed-worker', costStatus: 'unconfirmed', costUsd: 0.0125 }),
+    sampleRun({ id: 'pending', worker: 'pending-worker', costStatus: 'pending', costUsd: 0.5 }),
+  ]);
+
+  const body = await (await app.request('/')).text();
+  const cost = (worker: string): string =>
+    textOf(rowFor(body, worker).match(/<td class="cost">[\s\S]*?<\/td>/)?.[0] ?? '');
+
+  assert.equal(cost('billed-worker'), '$0.000933');
+  assert.equal(cost('unconfirmed-worker'), '$0.012500 unconfirmed');
+  assert.match(rowFor(body, 'unconfirmed-worker'), /<span class="badge" title="[^"]+">unconfirmed<\/span>/);
+  assert.equal(cost('pending-worker'), 'pending');
+  assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.0134 +1 pending');
+});
+
+test('given only settled runs, when the list is requested, then the total carries no pending count', async () => {
+  const app = appWith([
+    sampleRun({ id: 'billed', costStatus: 'billed', costUsd: 0.2 }),
+    sampleRun({ id: 'unconfirmed', costStatus: 'unconfirmed', costUsd: 0.1 }),
   ]);
 
   const body = await (await app.request('/')).text();
 
-  assert.match(body, /class="run cost-uncertain"/, 'an uncertain run must carry a distinguishing marker');
-  assert.match(body, />uncertain</, 'an uncertain run must show a visible badge');
-  assert.match(body, /title="OpenRouter's billed cost could not be confirmed for every generation"/, 'the badge must explain what uncertain means');
+  assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.3000');
 });
 
-test('given only trusted runs, when the list is requested, then no cost-uncertain marker appears', async () => {
-  const app = appWith([sampleRun({ id: 'trusted', costUncertain: false })]);
+test('given a pending run and an unconfirmed run, when each transcript page is requested, then the first shows its cost as pending and the second its partial billed sum marked unconfirmed', async () => {
+  const app = appWith([
+    sampleRun({ id: 'pending', costStatus: 'pending', costUsd: 0.5, transcriptRef: null }),
+    sampleRun({ id: 'unconfirmed', costStatus: 'unconfirmed', costUsd: 0.0125, transcriptRef: null }),
+  ]);
+  const cost = async (id: string): Promise<string> => {
+    const body = await (await app.request(`/runs/${id}`)).text();
+    return body.match(/<dt>Cost<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1] ?? '';
+  };
 
-  const body = await (await app.request('/')).text();
-
-  assert.doesNotMatch(body, /class="run cost-uncertain"/);
-  assert.doesNotMatch(body, />uncertain</);
+  assert.equal(textOf(await cost('pending')), 'pending');
+  const unconfirmed = await cost('unconfirmed');
+  assert.equal(textOf(unconfirmed), '$0.012500 unconfirmed');
+  assert.match(unconfirmed, /<span class="badge" title="[^"]+">unconfirmed<\/span>/);
 });
 
 test('given a run with a captured transcript, when its detail is requested, then its messages render', async () => {
@@ -171,8 +200,8 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
   const list = await (await app.request('/')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
-  assert.match(list, /<td class="cost">\s*\$0\.7500/);
-  assert.match(detail, /\$0\.7500/);
+  assert.match(list, /<td class="cost">\s*\$0\.750000/);
+  assert.match(detail, /\$0\.750000/);
   assert.match(detail, /1000 in \/ 100 out/);
 });
 

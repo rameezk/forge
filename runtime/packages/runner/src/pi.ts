@@ -305,7 +305,7 @@ export class PiHarness implements Harness {
       events: this.#events(invocation, stream),
       cost: async () => {
         const cost = await this.#billing.cost(stream.generationIds);
-        return stream.unnamedGeneration ? { ...cost, uncertain: true } : cost;
+        return stream.unnamedGeneration ? { ...cost, costStatus: 'unconfirmed' } : cost;
       },
     };
   }

@@ -7,12 +7,18 @@ import type {
   ToolCallEvent,
   ToolResultEvent,
 } from '@forge/shared';
-import { formatCost, formatDuration, totalCost } from './format.ts';
+import {
+  formatCost,
+  formatDuration,
+  formatTotal,
+  pendingCount,
+  settledCost,
+} from './format.ts';
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
 const STYLES = `
-  :root { color-scheme: light dark; --line: color-mix(in srgb, currentColor 15%, transparent); }
+  :root { color-scheme: light dark; --line: color-mix(in srgb, CanvasText 15%, Canvas); }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 system-ui, sans-serif; }
   main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
@@ -28,7 +34,8 @@ const STYLES = `
   .status-success { color: #1a7f37; }
   .status-error { color: #cf222e; }
   .status-running { opacity: 0.7; }
-  tr.cost-uncertain td.cost { color: #9a6700; }
+  tr.cost-unconfirmed td.cost { color: #9a6700; }
+  .pending { font-weight: normal; opacity: 0.6; }
   .badge { margin-left: 0.4rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: #9a6700; border: 1px solid currentColor; border-radius: 999px; padding: 0.05rem 0.4rem; }
   .empty { opacity: 0.6; }
   .meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; margin: 0 0 1.5rem; }
@@ -49,7 +56,7 @@ const STYLES = `
   summary code, .subagent-task { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
   .subagent-count { margin-left: auto; white-space: nowrap; font-size: 0.8rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
   .subagent-body { padding: 0.75rem 1rem 0; border-top: 1px solid var(--line); }
-  .message-report { border-color: color-mix(in srgb, currentColor 35%, transparent); }
+  .message-report { border-color: color-mix(in srgb, CanvasText 35%, Canvas); }
   .tool-error { border-color: #cf222e; }
   .tool-error > summary .tool-name, .tool-error > header .tool-name { color: #cf222e; }
   .badge.tool-status { margin-left: auto; flex-shrink: 0; color: #cf222e; }
@@ -82,6 +89,26 @@ const layout = (
       </body>
     </html>`;
 
+const UNCONFIRMED_BADGE = html`<span class="badge" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
+
+const renderCost = (run: RunRecord): Rendered => {
+  switch (run.costStatus) {
+    case 'pending':
+      return html`<span class="pending">pending</span>`;
+    case 'billed':
+      return html`${formatCost(run.costUsd)}`;
+    case 'unconfirmed':
+      return html`${formatCost(run.costUsd)}${UNCONFIRMED_BADGE}`;
+  }
+};
+
+const renderTotal = (runs: RunRecord[]): Rendered => {
+  const pending = pendingCount(runs);
+  return html`${formatTotal(settledCost(runs))}${pending === 0
+    ? ''
+    : html` <span class="pending">+${pending} pending</span>`}`;
+};
+
 export const renderList = (
   runs: RunRecord[],
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
@@ -104,24 +131,20 @@ export const renderList = (
               </thead>
               <tbody>
                 ${runs.map(
-                  (run) => html`<tr class="run ${run.costUncertain ? 'cost-uncertain' : ''}">
+                  (run) => html`<tr class="run cost-${run.costStatus}">
                     <td><a href="/runs/${run.id}">${run.worker}</a></td>
                     <td>${run.model}</td>
                     <td>${run.startTime}</td>
                     <td>${formatDuration(run.startTime, run.endTime)}</td>
                     <td><span class="status status-${run.status}">${run.status}</span></td>
-                    <td class="cost">
-                      ${formatCost(run.costUsd)}${run.costUncertain
-                        ? html`<span class="badge" title="OpenRouter's billed cost could not be confirmed for every generation">uncertain</span>`
-                        : ''}
-                    </td>
+                    <td class="cost">${renderCost(run)}</td>
                   </tr>`,
                 )}
               </tbody>
               <tfoot>
                 <tr>
                   <td colspan="5">Total</td>
-                  <td class="cost">${formatCost(totalCost(runs))}</td>
+                  <td class="cost">${renderTotal(runs)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -402,9 +425,7 @@ export const renderDetail = (
       <dt>Duration</dt>
       <dd>${formatDuration(run.startTime, run.endTime)}</dd>
       <dt>Cost</dt>
-      <dd>
-        ${formatCost(run.costUsd)}${run.costUncertain ? ' (uncertain)' : ''}
-      </dd>
+      <dd>${renderCost(run)}</dd>
       <dt>Tokens</dt>
       <dd>${run.inputTokens} in / ${run.outputTokens} out</dd>
     </dl>
