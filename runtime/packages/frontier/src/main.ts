@@ -64,6 +64,8 @@ const sync = async (
   }
 };
 
+const printable = (line: string): string => line.replace(/\p{Cc}/gu, '');
+
 const oldestFirst = (a: Ticket, b: Ticket): number =>
   a.createdAt.localeCompare(b.createdAt) || a.number - b.number;
 
@@ -96,7 +98,7 @@ const list = async (config: FrontierConfig, poll: Poll): Promise<number> => {
       lines = [`  error: ${errorMessage(error)}`];
       failed = true;
     }
-    groups.push([`${name} (${github})`, ...lines].join('\n'));
+    groups.push([`${name} (${github})`, ...lines].map(printable).join('\n'));
   }
   console.log(groups.join('\n\n'));
   return failed ? 1 : 0;

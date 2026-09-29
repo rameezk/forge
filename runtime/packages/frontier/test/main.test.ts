@@ -508,3 +508,31 @@ test('given no GITHUB_TOKEN, when list runs, then every declared repository show
     ].join('\n'),
   );
 });
+
+test('given GitHub text carrying terminal control characters, when list runs, then they are stripped before printing', async (t) => {
+  const { env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const github = replaying({
+    'rameezk/forge': reshaped('frontier', ([node]) => [
+      {
+        ...node,
+        title: '\u001b]0;pwned\u0007Frontier\u001b[2J sync\nforged line',
+        url: 'https://github.com/rameezk/forge/issues/57\u001b[8m',
+        parent: { number: 54, title: '\u009b31mFrontier discovery\r' },
+      },
+    ]),
+  });
+  const output = printing(t);
+
+  const code = await main(['list'], env, github.fetch);
+
+  assert.equal(code, 0);
+  assert.equal(
+    output.stdout(),
+    [
+      'forge (rameezk/forge)',
+      '  #57 ]0;pwnedFrontier[2J syncforged line',
+      '      https://github.com/rameezk/forge/issues/57[8m',
+      '      spec #54 31mFrontier discovery, created 2026-09-28',
+    ].join('\n'),
+  );
+});
