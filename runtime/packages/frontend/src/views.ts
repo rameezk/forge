@@ -12,7 +12,7 @@ import {
   formatDuration,
   formatTotal,
   pendingCount,
-  totalCost,
+  settledCost,
 } from './format.ts';
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
@@ -56,7 +56,7 @@ const STYLES = `
   summary code, .subagent-task { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
   .subagent-count { margin-left: auto; white-space: nowrap; font-size: 0.8rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
   .subagent-body { padding: 0.75rem 1rem 0; border-top: 1px solid var(--line); }
-  .message-report { border-color: color-mix(in srgb, currentColor 35%, transparent); }
+  .message-report { border-color: color-mix(in srgb, CanvasText 35%, Canvas); }
   .tool-error { border-color: #cf222e; }
   .tool-error > summary .tool-name, .tool-error > header .tool-name { color: #cf222e; }
   .badge.tool-status { margin-left: auto; flex-shrink: 0; color: #cf222e; }
@@ -89,7 +89,7 @@ const layout = (
       </body>
     </html>`;
 
-const UNCONFIRMED_BADGE = html`<span class="badge" title="forge gave up waiting for OpenRouter to bill some generations, so this is only what was billed">unconfirmed</span>`;
+const UNCONFIRMED_BADGE = html`<span class="badge" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
 
 const renderCost = (run: RunRecord): Rendered => {
   switch (run.costStatus) {
@@ -104,7 +104,7 @@ const renderCost = (run: RunRecord): Rendered => {
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
-  return html`${formatTotal(totalCost(runs))}${pending === 0
+  return html`${formatTotal(settledCost(runs))}${pending === 0
     ? ''
     : html` <span class="pending">+${pending} pending</span>`}`;
 };

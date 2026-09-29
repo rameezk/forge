@@ -20,7 +20,7 @@ export const formatDuration = (
 
 const isPending = (run: RunRecord): boolean => run.costStatus === 'pending';
 
-export const totalCost = (runs: RunRecord[]): number =>
+export const settledCost = (runs: RunRecord[]): number =>
   runs
     .filter((run) => !isPending(run))
     .reduce((sum, run) => sum + run.costUsd, 0);
