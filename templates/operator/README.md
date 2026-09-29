@@ -167,6 +167,19 @@ with the same token and writes nothing:
 ssh forge@<address> sudo -u forge-runtime forge-frontier list
 ```
 
+## Inspecting the run store
+
+Runs, their generations and billed cost live in the SQLite store
+`/var/lib/forge/forge.db`. Query it as the `forge-runtime` user, never as root:
+the store keeps write-ahead-log files beside it, and a root `sqlite3` can leave
+them owned by root, which locks the runner, billing and dashboard out of the
+store:
+
+```bash
+ssh forge@<address> sudo -u forge-runtime sqlite3 /var/lib/forge/forge.db \
+  "'select id, status, cost_status, cost_usd from runs order by start_time desc limit 5'"
+```
+
 ## Pinning forge
 
 `flake.nix` consumes forge as `github:rameezk/forge`. Pin it to a specific ref
