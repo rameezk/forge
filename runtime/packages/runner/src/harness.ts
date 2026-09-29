@@ -1,4 +1,4 @@
-import type { HarnessEvent } from '@forge/shared';
+import type { CostStatus, HarnessEvent } from '@forge/shared';
 
 export interface HarnessInvocation {
   model: string;
@@ -9,7 +9,7 @@ export interface HarnessInvocation {
 
 export interface RunCost {
   costUsd: number;
-  uncertain: boolean;
+  costStatus: Exclude<CostStatus, 'pending'>;
 }
 
 export interface HarnessRun {

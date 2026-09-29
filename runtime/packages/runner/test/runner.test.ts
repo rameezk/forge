@@ -78,14 +78,14 @@ test('given a multi-message run whose harness reports a billed run cost, when th
       message({ usage: { inputTokens: 20, outputTokens: 7 }, costUsd: 0.25 }),
       result({ status: 'success' }),
     ],
-    { hooks: { cost: { costUsd: 0.875, uncertain: false } } },
+    { hooks: { cost: { costUsd: 0.875, costStatus: 'billed' } } },
   );
 
   assert.equal(run?.status, 'success');
   assert.equal(run?.costUsd, 0.875);
   assert.equal(run?.inputTokens, 30);
   assert.equal(run?.outputTokens, 12);
-  assert.equal(run?.costUncertain, false);
+  assert.equal(run?.costStatus, 'billed');
 });
 
 test('given a harness stream that ends in an error result, when it finishes, then the run is error with the error captured and an end time set', async () => {
@@ -100,7 +100,7 @@ test('given a harness stream that ends in an error result, when it finishes, the
   assert.equal(run?.endTime, '2026-09-21T10:00:05.000Z');
 });
 
-test('given a runner failure mid-stream, when it finishes, then the run is error with the thrown message and an end time, never left running, and its cost is flagged uncertain since it was never settled', async () => {
+test('given a runner failure mid-stream, when it finishes, then the run is error with the thrown message and an end time, never left running, and its cost is unconfirmed since it was never settled', async () => {
   const store = Store.open(':memory:');
   const id = await runWorkload({
     store,
@@ -117,7 +117,7 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
   assert.equal(run?.error, 'harness crashed');
   assert.equal(run?.endTime, '2026-09-21T10:00:05.000Z');
   assert.equal(run?.costUsd, 0);
-  assert.equal(run?.costUncertain, true);
+  assert.equal(run?.costStatus, 'unconfirmed');
 });
 
 test('given a harness that throws with a secret in its message, when the run is recorded, then the stored error has the secret redacted', async () => {
@@ -144,7 +144,7 @@ test('given a harness stream that ends without a result event, when it finishes,
   assert.match(run?.error ?? '', /without a result/);
 });
 
-test('given a worker whose harness has begun but not finished, when the store is read mid-run, then a run exists with running status, a start time and no end time', async () => {
+test('given a worker whose harness has begun but not finished, when the store is read mid-run, then a run exists with running status, a start time, no end time and a pending cost', async () => {
   const store = Store.open(':memory:');
   let midRun: ReturnType<Store['getRun']>;
   const harness = fakeHarness([message(), result({ status: 'success' })], {
@@ -168,6 +168,7 @@ test('given a worker whose harness has begun but not finished, when the store is
   assert.equal(midRun?.status, 'running');
   assert.equal(midRun?.startTime, '2026-09-21T10:00:00.000Z');
   assert.equal(midRun?.endTime, null);
+  assert.equal(midRun?.costStatus, 'pending');
   assert.equal(midRun?.transcriptRef, 'run-1.jsonl');
 });
 
@@ -223,18 +224,18 @@ test('given a worker with no reasoning effort declared, when it runs, then the h
   assert.equal('reasoningEffort' in (harness.invocations[0] ?? {}), false);
 });
 
-test('given a harness that could not settle its run cost, when the run completes, then the run keeps its status and records the partial cost flagged uncertain', async () => {
+test('given a harness that could not settle its run cost, when the run completes, then the run keeps its status and records the partial cost as unconfirmed', async () => {
   const { run } = await runWith(
     [message(), result({ status: 'success' })],
-    { hooks: { cost: { costUsd: 0.01, uncertain: true } } },
+    { hooks: { cost: { costUsd: 0.01, costStatus: 'unconfirmed' } } },
   );
 
   assert.equal(run?.status, 'success');
   assert.equal(run?.costUsd, 0.01);
-  assert.equal(run?.costUncertain, true);
+  assert.equal(run?.costStatus, 'unconfirmed');
 });
 
-test('given a harness that completes but fails to settle its run cost, when the run completes, then the run keeps its status and error and records zero cost flagged uncertain', async () => {
+test('given a harness that completes but fails to settle its run cost, when the run completes, then the run keeps its status and error and records zero cost as unconfirmed', async () => {
   const { run } = await runWith(
     [message(), result({ status: 'success', sessionId: 'sess-1' })],
     { hooks: { cost: new Error('billing unavailable') } },
@@ -244,5 +245,5 @@ test('given a harness that completes but fails to settle its run cost, when the 
   assert.equal(run?.error, null);
   assert.equal(run?.sessionId, 'sess-1');
   assert.equal(run?.costUsd, 0);
-  assert.equal(run?.costUncertain, true);
+  assert.equal(run?.costStatus, 'unconfirmed');
 });

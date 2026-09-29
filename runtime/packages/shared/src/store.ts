@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { RunRecord, RunResult, RunStatus } from './run.ts';
+import type { CostStatus, RunRecord, RunResult, RunStatus } from './run.ts';
 
 type RunRow = {
   id: string;
@@ -9,7 +9,7 @@ type RunRow = {
   start_time: string;
   end_time: string | null;
   status: string;
-  cost_uncertain: number;
+  cost_status: string;
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
@@ -18,7 +18,7 @@ type RunRow = {
   error: string | null;
 };
 
-const SCHEMA = `
+const CREATE_RUNS = `
   CREATE TABLE IF NOT EXISTS runs (
     id             TEXT PRIMARY KEY,
     worker         TEXT NOT NULL,
@@ -27,7 +27,7 @@ const SCHEMA = `
     start_time     TEXT NOT NULL,
     end_time       TEXT,
     status         TEXT NOT NULL,
-    cost_uncertain INTEGER NOT NULL,
+    cost_status    TEXT NOT NULL,
     cost_usd       REAL NOT NULL,
     input_tokens   INTEGER NOT NULL,
     output_tokens  INTEGER NOT NULL,
@@ -35,6 +35,27 @@ const SCHEMA = `
     session_id     TEXT,
     error          TEXT
   ) STRICT;
+`;
+
+const HAS_COST_UNCERTAIN = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'cost_uncertain'
+`;
+
+const MIGRATE_COST_UNCERTAIN = `
+  ALTER TABLE runs RENAME TO runs_cost_uncertain;
+  ${CREATE_RUNS}
+  INSERT INTO runs (
+    id, worker, harness, model, start_time, end_time, status,
+    cost_status, cost_usd, input_tokens, output_tokens,
+    transcript_ref, session_id, error
+  )
+  SELECT
+    id, worker, harness, model, start_time, end_time, status,
+    CASE cost_uncertain WHEN 0 THEN 'billed' ELSE 'unconfirmed' END,
+    cost_usd, input_tokens, output_tokens,
+    transcript_ref, session_id, error
+  FROM runs_cost_uncertain;
+  DROP TABLE runs_cost_uncertain;
 `;
 
 const toRow = (run: RunRecord): RunRow => ({
@@ -45,7 +66,7 @@ const toRow = (run: RunRecord): RunRow => ({
   start_time: run.startTime,
   end_time: run.endTime,
   status: run.status,
-  cost_uncertain: run.costUncertain ? 1 : 0,
+  cost_status: run.costStatus,
   cost_usd: run.costUsd,
   input_tokens: run.inputTokens,
   output_tokens: run.outputTokens,
@@ -62,7 +83,7 @@ const fromRow = (row: RunRow): RunRecord => ({
   startTime: row.start_time,
   endTime: row.end_time,
   status: row.status as RunStatus,
-  costUncertain: row.cost_uncertain !== 0,
+  costStatus: row.cost_status as CostStatus,
   costUsd: row.cost_usd,
   inputTokens: row.input_tokens,
   outputTokens: row.output_tokens,
@@ -76,7 +97,17 @@ export class Store {
 
   private constructor(db: DatabaseSync) {
     this.#db = db;
-    db.exec(SCHEMA);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (db.prepare(HAS_COST_UNCERTAIN).get() !== undefined) {
+        db.exec(MIGRATE_COST_UNCERTAIN);
+      }
+      db.exec(CREATE_RUNS);
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   static open(path: string): Store {
@@ -89,11 +120,11 @@ export class Store {
       .prepare(
         `INSERT INTO runs (
           id, worker, harness, model, start_time, end_time, status,
-          cost_uncertain, cost_usd, input_tokens, output_tokens,
+          cost_status, cost_usd, input_tokens, output_tokens,
           transcript_ref, session_id, error
         ) VALUES (
           $id, $worker, $harness, $model, $start_time, $end_time, $status,
-          $cost_uncertain, $cost_usd, $input_tokens, $output_tokens,
+          $cost_status, $cost_usd, $input_tokens, $output_tokens,
           $transcript_ref, $session_id, $error
         )`,
       )
@@ -106,7 +137,7 @@ export class Store {
         `UPDATE runs SET
           end_time = $end_time,
           status = $status,
-          cost_uncertain = $cost_uncertain,
+          cost_status = $cost_status,
           cost_usd = $cost_usd,
           input_tokens = $input_tokens,
           output_tokens = $output_tokens,
@@ -118,7 +149,7 @@ export class Store {
         id,
         end_time: result.endTime,
         status: result.status,
-        cost_uncertain: result.costUncertain ? 1 : 0,
+        cost_status: result.costStatus,
         cost_usd: result.costUsd,
         input_tokens: result.inputTokens,
         output_tokens: result.outputTokens,

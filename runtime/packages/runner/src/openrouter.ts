@@ -66,7 +66,7 @@ export class OpenRouterBilling implements Billing {
     const known = billed.filter((cost) => cost !== null);
     return {
       costUsd: known.reduce((sum, cost) => sum + cost, 0),
-      uncertain: known.length < billed.length,
+      costStatus: known.length < billed.length ? 'unconfirmed' : 'billed',
     };
   }
 

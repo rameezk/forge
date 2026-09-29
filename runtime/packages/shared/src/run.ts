@@ -1,5 +1,7 @@
 export type RunStatus = 'running' | 'success' | 'error';
 
+export type CostStatus = 'pending' | 'billed' | 'unconfirmed';
+
 export interface RunRecord {
   id: string;
   worker: string;
@@ -8,7 +10,7 @@ export interface RunRecord {
   startTime: string;
   endTime: string | null;
   status: RunStatus;
-  costUncertain: boolean;
+  costStatus: CostStatus;
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
@@ -21,7 +23,7 @@ export interface RunResult
   extends Pick<
     RunRecord,
     | 'status'
-    | 'costUncertain'
+    | 'costStatus'
     | 'costUsd'
     | 'inputTokens'
     | 'outputTokens'

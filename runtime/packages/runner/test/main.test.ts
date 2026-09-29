@@ -295,7 +295,7 @@ test('given recorded pi output of a successful multi-message run with tool, turn
   assert.equal(run.outputTokens, 40 + 25);
   assert.equal(run.sessionId, sessionIdOf(output));
   assert.equal(run.costUsd, 0.0125 + 0.0375);
-  assert.equal(run.costUncertain, false);
+  assert.equal(run.costStatus, 'billed');
   assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
     'gen-success-1',
     'gen-success-2',
@@ -317,7 +317,7 @@ test('given a recorded run where the parent makes two parallel subagent calls an
   assert.equal(run.inputTokens, 1400 + 1500 + (600 + 700) + 500);
   assert.equal(run.outputTokens, 30 + 10 + (20 + 12) + 6);
   assert.equal(run.costUsd, 0.5 + 0.25 + (0.125 + 0.0625) + 0.03125);
-  assert.equal(run.costUncertain, false);
+  assert.equal(run.costStatus, 'billed');
   assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
     'gen-child-alpha-1',
     'gen-child-alpha-2',
@@ -613,7 +613,7 @@ test('given a recording where one subagent call returns an error and the parent 
   assert.equal(run.inputTokens, 1400 + 1500 + 600 + 500);
   assert.equal(run.outputTokens, 30 + 10 + 20 + 6);
   assert.equal(run.costUsd, 0.5 + 0.25 + 0.125 + 0.03125);
-  assert.equal(run.costUncertain, false);
+  assert.equal(run.costStatus, 'billed');
   assert.deepEqual(lookups.map((lookup) => lookup.id).sort(), [
     'gen-child-alpha-1',
     'gen-child-beta-1',
@@ -622,7 +622,7 @@ test('given a recording where one subagent call returns an error and the parent 
   ]);
 });
 
-test('given a recording with two parallel subagent calls where one child generation lookup fails, when the run completes, then the run is recorded with the cost it could look up, flagged cost-uncertain', async () => {
+test('given a recording with two parallel subagent calls where one child generation lookup fails, when the run completes, then the run is recorded with the cost it could look up, marked unconfirmed', async () => {
   const billed = billedAt(BILLED_BY_ID);
   const {
     result: { code, run },
@@ -638,7 +638,7 @@ test('given a recording with two parallel subagent calls where one child generat
   assert.equal(code, 0);
   assert.equal(run.status, 'success');
   assert.equal(run.costUsd, 0.5 + 0.25 + 0.125 + 0.0625);
-  assert.equal(run.costUncertain, true);
+  assert.equal(run.costStatus, 'unconfirmed');
   assert.match(
     journal,
     /could not cost OpenRouter generation "gen-child-beta-1"/,
@@ -743,7 +743,7 @@ test('given recorded pi output ending in a provider error with no generation and
   assert.equal(run.status, 'error');
   assert.equal(run.error, '400 z-ai/glm-5 is not a valid model ID');
   assert.equal(run.costUsd, 0);
-  assert.equal(run.costUncertain, false);
+  assert.equal(run.costStatus, 'billed');
 });
 
 test('given recorded pi output where a failed attempt is retried and then succeeds, and an OpenRouter billing every generation, when the worker runs, then the run is success and its tokens and billed cost include the failed attempt', async () => {
@@ -754,7 +754,7 @@ test('given recorded pi output where a failed attempt is retried and then succee
   assert.equal(run.inputTokens, 900 + 900);
   assert.equal(run.outputTokens, 3 + 8);
   assert.equal(run.costUsd, 0.002 + 0.004);
-  assert.equal(run.costUncertain, false);
+  assert.equal(run.costStatus, 'billed');
 });
 
 test('given pi failing pre-flight with its reason on stderr and exit 1, when the worker runs, then the run is error carrying that reason and stderr still reaches the journal', async () => {
@@ -805,7 +805,7 @@ test('given pi writing output that is not json and staying alive, when the worke
   assert.equal(isAlive(pi.pid), false);
 });
 
-test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a rejected key, a server error, an unusable body, a not found that never clears, a connection that keeps dropping, or no answer at all, when the worker runs, then the run stays success with the cost it could look up, cost flagged uncertain, and the journal names the generation and why without the key', async () => {
+test('given a successful recorded run and an OpenRouter that keeps failing one generation lookup, with a rejected key, a server error, an unusable body, a not found that never clears, a connection that keeps dropping, or no answer at all, when the worker runs, then the run stays success with the cost it could look up, cost status unconfirmed, and the journal names the generation and why without the key', async () => {
   const failures: [ReturnType<GenerationStats>, RegExp][] = [
     [{ status: 401, body: { error: { code: 401 } } }, /HTTP 401/],
     [{ status: 500, body: { error: { code: 500 } } }, /HTTP 500/],
@@ -835,7 +835,7 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
     assert.equal(run.status, 'success');
     assert.equal(run.error, null);
     assert.equal(run.costUsd, 0.0125);
-    assert.equal(run.costUncertain, true);
+    assert.equal(run.costStatus, 'unconfirmed');
   }
   const reasons = journal
     .split('\n')
@@ -850,7 +850,7 @@ test('given a successful recorded run and an OpenRouter that keeps failing one g
   assert.doesNotMatch(journal, new RegExp(OPENROUTER_KEY));
 });
 
-test('given an OpenRouter that answers a generation lookup with not found while its stats lag, a rate limit, a server error, or a dropped connection at first and then its billed cost, when the worker runs, then the run cost includes that generation and is not flagged uncertain', async () => {
+test('given an OpenRouter that answers a generation lookup with not found while its stats lag, a rate limit, a server error, or a dropped connection at first and then its billed cost, when the worker runs, then the run cost includes that generation and is billed', async () => {
   const transients: ReturnType<GenerationStats>[] = [
     { status: 404, body: { error: { code: 404 } } },
     { status: 429, body: { error: { code: 429 } } },
@@ -873,7 +873,7 @@ test('given an OpenRouter that answers a generation lookup with not found while 
   for (const { run, lookups } of outcomes) {
     assert.equal(run.status, 'success');
     assert.equal(run.costUsd, 0.0125 + 0.0375);
-    assert.equal(run.costUncertain, false);
+    assert.equal(run.costStatus, 'billed');
     assert.equal(
       lookups.filter((lookup) => lookup.id === 'gen-success-2').length,
       3,
@@ -881,7 +881,7 @@ test('given an OpenRouter that answers a generation lookup with not found while 
   }
 });
 
-test('given a successful recorded run and an OpenRouter base URL that is not a valid URL, when the worker runs, then the run stays success and exits zero with cost flagged uncertain, and the journal names each generation it could not cost', async () => {
+test('given a successful recorded run and an OpenRouter base URL that is not a valid URL, when the worker runs, then the run stays success and exits zero with cost status unconfirmed, and the journal names each generation it could not cost', async () => {
   const {
     result: { code, run },
     journal,
@@ -898,7 +898,7 @@ test('given a successful recorded run and an OpenRouter base URL that is not a v
   assert.equal(run.status, 'success');
   assert.equal(run.error, null);
   assert.equal(run.costUsd, 0);
-  assert.equal(run.costUncertain, true);
+  assert.equal(run.costStatus, 'unconfirmed');
 });
 
 test('given a long run with many generations, one of them reported twice, when the worker runs, then each generation is billed once and at most four lookups are in flight at a time', async () => {
@@ -914,13 +914,13 @@ test('given a long run with many generations, one of them reported twice, when t
   });
 
   assert.equal(run.status, 'success');
-  assert.equal(run.costUncertain, false);
+  assert.equal(run.costStatus, 'billed');
   assert.equal(run.costUsd, 0.0125 + 0.0375 + 12 * 0.5);
   assert.equal(lookups.length, 14);
   assert.ok(Math.max(...lookups.map((lookup) => lookup.inFlight)) <= 4);
 });
 
-test('given recorded pi output where an assistant response used tokens but carries no generation id, when the worker runs, then the run stays success with the cost of the generations it could name, flagged uncertain', async () => {
+test('given recorded pi output where an assistant response used tokens but carries no generation id, when the worker runs, then the run stays success with the cost of the generations it could name, marked unconfirmed', async () => {
   const output = outputFile(
     readFileSync(fixture('success.jsonl'), 'utf8')
       .split('\n')
@@ -940,10 +940,10 @@ test('given recorded pi output where an assistant response used tokens but carri
     ['gen-success-1'],
   );
   assert.equal(run.costUsd, 0.0125);
-  assert.equal(run.costUncertain, true);
+  assert.equal(run.costStatus, 'unconfirmed');
 });
 
-test('given an OpenRouter key that is not a valid header value, when the worker runs, then the run stays success with cost flagged uncertain and the key never reaches the journal', async () => {
+test('given an OpenRouter key that is not a valid header value, when the worker runs, then the run stays success with cost status unconfirmed and the key never reaches the journal', async () => {
   const { result: outcome, journal } = await journaled(() =>
     runWorker({
       output: fixture('success.jsonl'),
@@ -952,7 +952,7 @@ test('given an OpenRouter key that is not a valid header value, when the worker 
   );
 
   assert.equal(outcome.run.status, 'success');
-  assert.equal(outcome.run.costUncertain, true);
+  assert.equal(outcome.run.costStatus, 'unconfirmed');
   assert.match(journal, /could not cost OpenRouter generation "gen-success-1"/);
   assert.doesNotMatch(journal, /sk-or-secret/);
 });

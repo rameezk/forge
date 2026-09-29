@@ -1,5 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/index.ts';
 import type { RunRecord } from '../src/index.ts';
 
@@ -11,7 +15,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   startTime: '2026-09-21T10:00:00.000Z',
   endTime: '2026-09-21T10:03:20.000Z',
   status: 'success',
-  costUncertain: false,
+  costStatus: 'billed',
   costUsd: 0.1234,
   inputTokens: 4200,
   outputTokens: 850,
@@ -36,6 +40,7 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     id: 'run-running',
     status: 'running',
     endTime: null,
+    costStatus: 'pending',
     costUsd: 0,
     inputTokens: 0,
     outputTokens: 0,
@@ -47,15 +52,6 @@ test('given a run written at start, when it is inserted, then it round-trips wit
   store.insertRun(run);
 
   assert.deepEqual(store.getRun('run-running'), run);
-});
-
-test('given a run with the cost-uncertain flag set, when it is inserted, then the flag round-trips as a boolean, not an integer', () => {
-  const store = Store.open(':memory:');
-  const run = sampleRun({ id: 'run-uncertain', costUncertain: true });
-
-  store.insertRun(run);
-
-  assert.equal(store.getRun('run-uncertain')?.costUncertain, true);
 });
 
 test('given a fresh store, when an unknown run is read, then it returns undefined', () => {
@@ -101,7 +97,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
   store.finalizeRun('run-final', {
     endTime: '2026-09-21T10:03:20.000Z',
     status: 'success',
-    costUncertain: true,
+    costStatus: 'unconfirmed',
     costUsd: 0.42,
     inputTokens: 1000,
     outputTokens: 200,
@@ -117,7 +113,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     startTime: '2026-09-21T10:00:00.000Z',
     endTime: '2026-09-21T10:03:20.000Z',
     status: 'success',
-    costUncertain: true,
+    costStatus: 'unconfirmed',
     costUsd: 0.42,
     inputTokens: 1000,
     outputTokens: 200,
@@ -125,4 +121,43 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     sessionId: 'sess-final',
     error: null,
   });
+});
+
+test('given a store file in the old schema with one run whose cost was settled and one whose cost was uncertain, when the store is opened, then the first is billed and the second unconfirmed with their recorded costs unchanged', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE runs (
+      id             TEXT PRIMARY KEY,
+      worker         TEXT NOT NULL,
+      harness        TEXT NOT NULL,
+      model          TEXT NOT NULL,
+      start_time     TEXT NOT NULL,
+      end_time       TEXT,
+      status         TEXT NOT NULL,
+      cost_uncertain INTEGER NOT NULL,
+      cost_usd       REAL NOT NULL,
+      input_tokens   INTEGER NOT NULL,
+      output_tokens  INTEGER NOT NULL,
+      transcript_ref TEXT,
+      session_id     TEXT,
+      error          TEXT
+    ) STRICT;
+    INSERT INTO runs VALUES
+      ('settled', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T10:00:00.000Z', '2026-09-21T10:01:00.000Z', 'success', 0, 0.00093252, 1200, 40, 'settled.jsonl', 'sess-1', NULL),
+      ('uncertain', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T11:00:00.000Z', '2026-09-21T11:01:00.000Z', 'success', 1, 0.0125, 1300, 25, 'uncertain.jsonl', 'sess-2', NULL);
+  `);
+  old.close();
+
+  const store = Store.open(path);
+
+  assert.deepEqual(
+    store.listRuns().map(({ id, costStatus, costUsd }) => ({ id, costStatus, costUsd })),
+    [
+      { id: 'uncertain', costStatus: 'unconfirmed', costUsd: 0.0125 },
+      { id: 'settled', costStatus: 'billed', costUsd: 0.00093252 },
+    ],
+  );
+  store.close();
+  assert.deepEqual(Store.open(path).listRuns().map((run) => run.costStatus), ['unconfirmed', 'billed']);
 });
