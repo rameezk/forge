@@ -161,6 +161,7 @@ in
       systemd.tmpfiles.rules = [
         "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/transcripts 0750 ${cfg.user} ${cfg.user} - -"
+        "d ${cfg.stateDir}/work 0750 ${cfg.user} ${cfg.user} mM:14d -"
       ];
     }
 
