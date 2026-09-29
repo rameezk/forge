@@ -57,6 +57,23 @@ let
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
 
   hasWorkers = cfg.workers != { };
+
+  baseToolset = [
+    "bash"
+    "coreutils"
+    "findutils"
+    "gnugrep"
+    "gnused"
+    "gawk"
+    "diffutils"
+    "gnutar"
+    "gzip"
+    "which"
+    "git"
+    "ripgrep"
+    "jq"
+    "curl"
+  ];
 in
 {
   options.forge.runtime = {
@@ -96,40 +113,8 @@ in
 
     toolset = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = with pkgs; [
-        bash
-        coreutils
-        findutils
-        gnugrep
-        gnused
-        gawk
-        diffutils
-        gnutar
-        gzip
-        which
-        git
-        ripgrep
-        jq
-        curl
-      ];
-      defaultText = lib.literalExpression ''
-        with pkgs; [
-          bash
-          coreutils
-          findutils
-          gnugrep
-          gnused
-          gawk
-          diffutils
-          gnutar
-          gzip
-          which
-          git
-          ripgrep
-          jq
-          curl
-        ]
-      '';
+      default = map (name: pkgs.${name}) baseToolset;
+      defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ]";
       example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
       description = "Workload toolset: the packages that make up the runner unit's whole path, so a workload's harness and its subagents can invoke them and nothing else. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
     };
