@@ -97,15 +97,25 @@ export class Store {
 
   private constructor(db: DatabaseSync) {
     this.#db = db;
-    db.exec('BEGIN IMMEDIATE');
+    if (this.#hasCostUncertain()) {
+      this.#migrateCostUncertain();
+    }
+    db.exec(CREATE_RUNS);
+  }
+
+  #hasCostUncertain(): boolean {
+    return this.#db.prepare(HAS_COST_UNCERTAIN).get() !== undefined;
+  }
+
+  #migrateCostUncertain(): void {
+    this.#db.exec('BEGIN IMMEDIATE');
     try {
-      if (db.prepare(HAS_COST_UNCERTAIN).get() !== undefined) {
-        db.exec(MIGRATE_COST_UNCERTAIN);
+      if (this.#hasCostUncertain()) {
+        this.#db.exec(MIGRATE_COST_UNCERTAIN);
       }
-      db.exec(CREATE_RUNS);
-      db.exec('COMMIT');
+      this.#db.exec('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      this.#db.exec('ROLLBACK');
       throw error;
     }
   }

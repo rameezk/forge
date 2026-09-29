@@ -161,3 +161,17 @@ test('given a store file in the old schema with one run whose cost was settled a
   store.close();
   assert.deepEqual(Store.open(path).listRuns().map((run) => run.costStatus), ['unconfirmed', 'billed']);
 });
+
+test('given a current store file where another connection holds a write transaction, when the store is opened, then it opens without waiting on that writer', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  Store.open(path).close();
+  const writer = new DatabaseSync(path);
+  writer.exec('BEGIN IMMEDIATE');
+
+  try {
+    assert.deepEqual(Store.open(path).listRuns(), []);
+  } finally {
+    writer.exec('ROLLBACK');
+    writer.close();
+  }
+});
