@@ -10,6 +10,8 @@ import type {
 import {
   formatCost,
   formatDuration,
+  formatStarted,
+  formatTokens,
   formatTotal,
   pendingCount,
   settledCost,
@@ -38,6 +40,7 @@ const STYLES = `
   .pending { font-weight: normal; opacity: 0.6; }
   .badge { margin-left: 0.4rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: #9a6700; border: 1px solid currentColor; border-radius: 999px; padding: 0.05rem 0.4rem; }
   .empty { opacity: 0.6; }
+  time { white-space: nowrap; }
   .meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; margin: 0 0 1.5rem; }
   .meta dt { opacity: 0.6; }
   .meta dd { margin: 0; font-variant-numeric: tabular-nums; }
@@ -45,7 +48,8 @@ const STYLES = `
   .message { padding: 0.75rem 1rem; }
   .message > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin-bottom: 0.4rem; }
   .message pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
-  .message-result { opacity: 0.75; font-style: italic; }
+  .message-result { display: flex; align-items: baseline; gap: 0.6rem; }
+  .message-result > .status { flex-shrink: 0; }
   .subagent > summary, .tool > summary { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; cursor: pointer; list-style: none; }
   .subagent > summary::-webkit-details-marker, .tool > summary::-webkit-details-marker { display: none; }
   .subagent > summary::before, .tool > summary::before { content: '\\25B6'; display: inline-block; width: 1em; font-size: 0.7rem; text-align: center; opacity: 0.65; transition: transform 0.15s; }
@@ -102,6 +106,12 @@ const renderCost = (run: RunRecord): Rendered => {
   }
 };
 
+const renderStatus = (status: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="status status-${status}">${status}</span>`;
+
+const renderStarted = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<time datetime="${iso}" title="${iso}">${formatStarted(iso)}</time>`;
+
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
   return html`${formatTotal(settledCost(runs))}${pending === 0
@@ -134,9 +144,9 @@ export const renderList = (
                   (run) => html`<tr class="run cost-${run.costStatus}">
                     <td><a href="/runs/${run.id}">${run.worker}</a></td>
                     <td>${run.model}</td>
-                    <td>${run.startTime}</td>
+                    <td>${renderStarted(run.startTime)}</td>
                     <td>${formatDuration(run.startTime, run.endTime)}</td>
-                    <td><span class="status status-${run.status}">${run.status}</span></td>
+                    <td>${renderStatus(run.status)}</td>
                     <td class="cost">${renderCost(run)}</td>
                   </tr>`,
                 )}
@@ -244,9 +254,9 @@ const renderEvent = (
     case 'tool_result':
       return '';
     case 'result':
-      return html`<article class="message message-result">
-        Run ${event.status}${event.error === null ? '' : html`: ${event.error}`}
-      </article>`;
+      return html`<article class="message message-result">${renderStatus(event.status)}${event.error === null
+        ? ''
+        : html`<span>${event.error}</span>`}</article>`;
   }
 };
 
@@ -421,13 +431,13 @@ export const renderDetail = (
       <dt>Status</dt>
       <dd>${run.status}</dd>
       <dt>Started</dt>
-      <dd>${run.startTime}</dd>
+      <dd>${renderStarted(run.startTime)}</dd>
       <dt>Duration</dt>
       <dd>${formatDuration(run.startTime, run.endTime)}</dd>
       <dt>Cost</dt>
       <dd>${renderCost(run)}</dd>
       <dt>Tokens</dt>
-      <dd>${run.inputTokens} in / ${run.outputTokens} out</dd>
+      <dd>${formatTokens(run.inputTokens)} in / ${formatTokens(run.outputTokens)} out</dd>
     </dl>
     ${run.error === null ? '' : html`<p class="status-error">${run.error}</p>`}
     <h2>Transcript</h2>
