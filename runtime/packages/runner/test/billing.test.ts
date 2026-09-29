@@ -146,19 +146,23 @@ test('given a run whose runner was killed so it never ended, when the settle ste
   ]);
 });
 
-test('given a run whose runner was killed before any generation, when the settle step runs 24 hours after it started, then its cost is unconfirmed at nothing', async () => {
+test('given a run whose runner was killed before any generation, when the settle step runs 24 hours after it started, then its cost is unconfirmed at nothing and the give-up is logged', async () => {
   const store = Store.open(':memory:');
   startedRun(store, 'killed-early', null);
+  const log: string[] = [];
 
   await settleGenerations({
     store,
     lookUp: async () => ({ outcome: 'billed', costUsd: 0.25 }),
     now: () => NOW,
-    log: () => {},
+    log: (line) => log.push(line),
   });
 
   assert.equal(store.getRun('killed-early')?.costStatus, 'unconfirmed');
   assert.equal(store.getRun('killed-early')?.costUsd, 0);
+  assert.deepEqual(log, [
+    'gave up on run "killed-early": it never ended and has had no generation for 24 hours',
+  ]);
 });
 
 test('given a run given up because it never ended, when its runner later finalizes it, then its cost stays unconfirmed', async () => {
