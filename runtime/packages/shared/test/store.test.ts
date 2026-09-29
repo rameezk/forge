@@ -190,7 +190,9 @@ const HOLD_WRITE_LOCK = `
   const writer = new DatabaseSync(workerData.path);
   writer.exec('BEGIN IMMEDIATE');
   parentPort.postMessage('locked');
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.holdMs);
+  const released = new Int32Array(workerData.released);
+  Atomics.wait(released, 0, 0, workerData.holdMs);
+  Atomics.store(released, 0, 1);
   writer.exec('ROLLBACK');
   writer.close();
 `;
@@ -217,11 +219,13 @@ test('given a store file from before the frontier where another connection brief
     ) STRICT;
   `);
   old.close();
-  const writer = new Worker(HOLD_WRITE_LOCK, { eval: true, workerData: { path, holdMs: 300 } });
+  const released = new SharedArrayBuffer(4);
+  const writer = new Worker(HOLD_WRITE_LOCK, { eval: true, workerData: { path, holdMs: 300, released } });
   await once(writer, 'message');
 
   try {
     const store = Store.open(path);
+    assert.equal(Atomics.load(new Int32Array(released), 0), 1, 'the store should open only once the writer lets go');
     assert.deepEqual(store.listFrontier(), []);
     store.close();
   } finally {
