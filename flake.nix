@@ -314,7 +314,7 @@
           sqliteWithRepositories = lib.asserts.assertMsg (hasSqlite repositoryHost) "a host with repositories must ship sqlite so the store can be inspected";
           sqliteInert = lib.asserts.assertMsg (
             !(hasSqlite nixos)
-          ) "a host with no workers or repositories must not gain sqlite from forge.runtime";
+          ) "a host with no workers or repositories must not ship sqlite";
         in
         {
           example-reflects-config =
