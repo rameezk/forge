@@ -4,11 +4,11 @@
 
 Forge runs agent workloads on a machine you define declaratively.
 
-You declare **workers** in Nix, each binding a harness (such as `pi`) to a model and a prompt.
+You declare **workers** in Nix, each binding a harness (such as `pi`) to a model and a prompt, and the **managed repositories** whose tickets they work on.
 
 Forge stands up a NixOS box to run them on, and every run of a worker is an isolated **workload**.
 
-Forge records each workload's transcript, token usage and billed cost, and shows them on a dashboard, so you can trace what every worker did and feed that back into improving your workers.
+Forge records each workload's transcript, token usage and billed cost, and shows them on a dashboard, so you can trace what every worker did and feed that back into improving your workers. The dashboard also shows the **frontier** of each managed repository: the tickets ready for an agent to pick up now.
 
 ## How it works
 
@@ -39,7 +39,7 @@ flowchart TB
 
 ### Containers
 
-The operator repository stands the box up with the standup toolchain. On the box, the runner runs each workload and a localhost-only dashboard reads what it recorded.
+The operator repository stands the box up with the standup toolchain. On the box, the runner runs each workload, a timer polls the managed repositories' frontier from GitHub, and a localhost-only dashboard reads what both recorded.
 
 ```mermaid
 flowchart TB
@@ -52,9 +52,10 @@ flowchart TB
 
     subgraph box["Forge box [NixOS]"]
         frontend["<b>forge-frontend</b><br/>[Node.js]<br/>Read-only dashboard on localhost"]
-        state[("<b>State</b><br/>[SQLite, files]<br/>/var/lib/forge: runs and transcripts")]
+        state[("<b>State</b><br/>[SQLite, files]<br/>/var/lib/forge: runs, transcripts and the frontier")]
         runner["<b>forge-runner@worker</b><br/>[Node.js]<br/>Runs one workload, sandboxed"]
         harness["<b>Harness</b><br/>[pi CLI]<br/>Agent runtime for the workload"]
+        frontier["<b>forge-frontier-sync</b><br/>[Node.js, systemd timer]<br/>Polls the frontier, sandboxed"]
     end
 
     library["<b>Forge library</b><br/>[Nix flake]<br/>Host builder, config loader, toolchain"]
@@ -73,14 +74,15 @@ flowchart TB
     runner -- "spawns" --> harness
     harness -- "calls models" --> openrouter
     runner -- "looks up billed cost" --> openrouter
-    runner -- "polls the frontier, works tickets" --> github
+    frontier -- "polls the frontier" --> github
+    frontier -- "records the frontier" --> state
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
     classDef container fill:#438dd5,stroke:#2e6295,color:#fff
     classDef external fill:#999999,stroke:#6b6b6b,color:#fff
     classDef boundary fill:none,stroke:#888888,stroke-dasharray:6 4
     class operator person
-    class oprepo,toolchain,library,runner,harness,frontend,state container
+    class oprepo,toolchain,library,runner,harness,frontier,frontend,state container
     class hetzner,openrouter,github external
     class workstation,box boundary
 ```
@@ -121,7 +123,7 @@ sequenceDiagram
 
 2. Fill in `config.json` from `config.example.json` with your SSH key, hostname and server, and add your Hetzner token to `.env`.
 3. Create the box with `just standup`, then place your OpenRouter key on it.
-4. Declare workers in `flake.nix` and apply them with `just deploy`, which keeps the box's state.
+4. Declare workers and managed repositories in `flake.nix` and apply them with `just deploy`, which keeps the box's state. Place a read-only GitHub token on the box for the frontier poller.
 5. Open the dashboard over an SSH tunnel with `ssh -L 7787:localhost:7787 forge@<address>`, then browse to `http://localhost:7787`.
 
 The scaffolded repository's README walks through each step in full.

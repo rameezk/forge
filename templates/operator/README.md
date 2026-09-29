@@ -65,8 +65,9 @@ configuration and runs without a prompt.
 | `just deploy`   | Applies a changed config to the stood-up box   | Kept                      |
 | `just teardown` | Destroys the box                               | Lost - the server is gone |
 
-Box state is the run store and transcripts under `/var/lib/forge`, and the
-OpenRouter key file `/var/lib/forge/openrouter.env`. Only deploy keeps it.
+Box state is the run store, frontier snapshot and transcripts under
+`/var/lib/forge`, the OpenRouter key file `/var/lib/forge/openrouter.env`, and
+the GitHub token file `/var/lib/forge/github.env`. Only deploy keeps it.
 
 1. Stand the box up:
 
@@ -105,7 +106,19 @@ OpenRouter key file `/var/lib/forge/openrouter.env`. Only deploy keeps it.
      ssh forge@<address> 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/openrouter.env && cat > /var/lib/forge/openrouter.env"'; unset key
    ```
 
-4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
+4. Place the GitHub token if you declare managed repositories. The frontier
+   poller reads each managed repository's issues with a fine-grained personal
+   access token that is read-only on Issues and Metadata for those
+   repositories. Like the OpenRouter key, you place it by hand after **every**
+   standup, into `/var/lib/forge/github.env`:
+
+   ```bash
+   printf 'GitHub token: ' && read -rs token && echo && [ -n "$token" ] &&
+     printf 'GITHUB_TOKEN=%s\n' "$token" |
+     ssh forge@<address> 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/github.env && cat > /var/lib/forge/github.env"'; unset token
+   ```
+
+5. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
    reads the box address from OpenTofu, then runs `nixos-rebuild switch` on the
    box as your admin user, building on the box. It keeps the box's state, and it
    changes only NixOS: it never runs `tofu apply`, so infrastructure changes
@@ -120,12 +133,27 @@ OpenRouter key file `/var/lib/forge/openrouter.env`. Only deploy keeps it.
    A deploy that breaks SSH has no automatic rollback; recover it from the
    Hetzner console.
 
-5. Tear the box down when you are done. This loses the box's state and clears
+6. Tear the box down when you are done. This loses the box's state and clears
    its host key from your `known_hosts`:
 
    ```bash
    just teardown
    ```
+
+## Managed repositories
+
+Declare the repositories forge manages in the same `mkHost` modules as your
+workers, each keyed by a short name and naming its GitHub `owner/name`. Their
+tickets must be tracked as GitHub issues:
+
+```nix
+forge.runtime.repositories.forge.github = "rameezk/forge";
+forge.runtime.frontier.pollInterval = "5min";
+```
+
+A timer then polls each repository's frontier - its open issues labelled
+`ready-for-agent` with no open blockers - every `pollInterval`, and the
+dashboard's Work page shows it.
 
 ## Pinning forge
 
