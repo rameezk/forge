@@ -9,11 +9,13 @@ export type {
 } from './events.ts';
 export type {
   Fetch,
+  PolledFrontier,
   RepositoryFrontier,
   SpecRef,
   Ticket,
 } from './frontier.ts';
 export {
+  FRONTIER_PAGE_SIZE,
   FRONTIER_QUERY,
   GITHUB_GRAPHQL_API,
   isGithubRepository,

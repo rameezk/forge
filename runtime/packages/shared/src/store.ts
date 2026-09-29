@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { RepositoryFrontier, Ticket } from './frontier.ts';
+import type { PolledFrontier, RepositoryFrontier, Ticket } from './frontier.ts';
 import type { CostStatus, RunRecord, RunResult, RunStatus } from './run.ts';
 
 type RunRow = {
@@ -43,7 +43,8 @@ const BUSY_TIMEOUT_MS = 5000;
 type RepositoryRow = {
   repository: string;
   github: string;
-  polled_at: string;
+  polled_at: string | null;
+  last_error: string | null;
 };
 
 type TicketRow = {
@@ -60,7 +61,8 @@ const CREATE_FRONTIER = `
   CREATE TABLE IF NOT EXISTS frontier_repositories (
     repository TEXT PRIMARY KEY,
     github     TEXT NOT NULL,
-    polled_at  TEXT NOT NULL
+    polled_at  TEXT,
+    last_error TEXT
   ) STRICT;
 
   CREATE TABLE IF NOT EXISTS frontier_tickets (
@@ -73,6 +75,19 @@ const CREATE_FRONTIER = `
     created_at    TEXT NOT NULL,
     PRIMARY KEY (repository, number)
   ) STRICT;
+`;
+
+const HAS_FRONTIER_WITHOUT_LAST_ERROR = `
+  SELECT 1 FROM sqlite_master
+  WHERE type = 'table' AND name = 'frontier_repositories'
+    AND NOT EXISTS (
+      SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'last_error'
+    )
+`;
+
+const DROP_FRONTIER = `
+  DROP TABLE frontier_tickets;
+  DROP TABLE frontier_repositories;
 `;
 
 const HAS_COST_UNCERTAIN = `
@@ -150,7 +165,23 @@ export class Store {
       this.#migrateCostUncertain();
     }
     db.exec(CREATE_RUNS);
+    if (this.#hasFrontierWithoutLastError()) {
+      this.#migrateFrontierLastError();
+    }
     db.exec(CREATE_FRONTIER);
+  }
+
+  #hasFrontierWithoutLastError(): boolean {
+    return this.#db.prepare(HAS_FRONTIER_WITHOUT_LAST_ERROR).get() !== undefined;
+  }
+
+  #migrateFrontierLastError(): void {
+    this.#transaction(() => {
+      if (this.#hasFrontierWithoutLastError()) {
+        this.#db.exec(DROP_FRONTIER);
+        this.#db.exec(CREATE_FRONTIER);
+      }
+    });
   }
 
   #hasCostUncertain(): boolean {
@@ -238,15 +269,16 @@ export class Store {
     return rows.map(fromRow);
   }
 
-  replaceFrontier({ repository, github, polledAt, tickets }: RepositoryFrontier): void {
+  replaceFrontier({ repository, github, polledAt, tickets }: PolledFrontier): void {
     this.#transaction(() => {
       this.#db
         .prepare(
-          `INSERT INTO frontier_repositories (repository, github, polled_at)
-          VALUES ($repository, $github, $polled_at)
+          `INSERT INTO frontier_repositories (repository, github, polled_at, last_error)
+          VALUES ($repository, $github, $polled_at, NULL)
           ON CONFLICT (repository) DO UPDATE SET
             github = excluded.github,
-            polled_at = excluded.polled_at`,
+            polled_at = excluded.polled_at,
+            last_error = NULL`,
         )
         .run({ repository, github, polled_at: polledAt });
       this.#db
@@ -273,6 +305,27 @@ export class Store {
     });
   }
 
+  recordFrontierError(repository: string, github: string, error: string): void {
+    this.#db
+      .prepare(
+        `INSERT INTO frontier_repositories (repository, github, polled_at, last_error)
+        VALUES ($repository, $github, NULL, $error)
+        ON CONFLICT (repository) DO UPDATE SET
+          github = excluded.github,
+          last_error = excluded.last_error`,
+      )
+      .run({ repository, github, error });
+  }
+
+  pruneFrontier(declared: string[]): void {
+    this.#db
+      .prepare(
+        `DELETE FROM frontier_repositories
+        WHERE repository NOT IN (SELECT value FROM json_each($declared))`,
+      )
+      .run({ declared: JSON.stringify(declared) });
+  }
+
   listFrontier(): RepositoryFrontier[] {
     const repositories = this.#db
       .prepare('SELECT * FROM frontier_repositories ORDER BY repository')
@@ -286,6 +339,7 @@ export class Store {
       repository: row.repository,
       github: row.github,
       polledAt: row.polled_at,
+      lastError: row.last_error,
       tickets: (tickets.all({ repository: row.repository }) as TicketRow[]).map(
         ticketFromRow,
       ),
