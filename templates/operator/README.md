@@ -109,8 +109,9 @@ the GitHub token file `/var/lib/forge/github.env`. Only deploy keeps it.
 4. Place the GitHub token if you declare managed repositories. The frontier
    poller reads each managed repository's issues with a fine-grained personal
    access token that is read-only on Issues and Metadata for those
-   repositories. Like the OpenRouter key, you place it by hand after **every**
-   standup, into `/var/lib/forge/github.env`:
+   repositories. Workloads run as the same `forge-runtime` user and can read
+   it, so give it a short expiry. Like the OpenRouter key, you place it by
+   hand after **every** standup, into `/var/lib/forge/github.env`:
 
    ```bash
    printf 'GitHub token: ' && read -rs token && echo && [ -n "$token" ] &&
