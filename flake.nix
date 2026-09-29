@@ -303,6 +303,11 @@
             forge-runner = self.packages.${system}.forge-runner;
           };
         }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          runtime-toolset = pkgs.callPackage ./infra/nix/runtime-toolset.nix {
+            forge-runner = self.packages.${system}.forge-runner;
+          };
+        }
       );
     };
 }

@@ -94,6 +94,46 @@ in
       description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets OPENROUTER_API_KEY for the runner.";
     };
 
+    toolset = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = with pkgs; [
+        bash
+        coreutils
+        findutils
+        gnugrep
+        gnused
+        gawk
+        diffutils
+        gnutar
+        gzip
+        which
+        git
+        ripgrep
+        jq
+        curl
+      ];
+      defaultText = lib.literalExpression ''
+        with pkgs; [
+          bash
+          coreutils
+          findutils
+          gnugrep
+          gnused
+          gawk
+          diffutils
+          gnutar
+          gzip
+          which
+          git
+          ripgrep
+          jq
+          curl
+        ]
+      '';
+      example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
+      description = "Workload toolset: packages on the runner unit's path, so a workload's harness and its subagents can invoke them. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
+    };
+
     harnesses = lib.mkOption {
       type = lib.types.attrsOf harnessModule;
       default = { };
@@ -144,6 +184,7 @@ in
         description = "Forge workload runner for worker %i";
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
+        path = cfg.toolset;
         serviceConfig = {
           Type = "oneshot";
           User = cfg.user;
