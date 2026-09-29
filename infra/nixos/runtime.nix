@@ -262,6 +262,8 @@ in
     })
 
     (lib.mkIf (hasWorkers || hasRepositories) {
+      environment.systemPackages = [ pkgs.sqlite ];
+
       systemd.services.forge-frontend = {
         description = "Forge read-only workload dashboard (localhost only)";
         wantedBy = [ "multi-user.target" ];

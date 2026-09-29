@@ -308,6 +308,13 @@
                 && !(repositoryHost.config.systemd.services ? "forge-runner@")
               )
               "declaring repositories without workers must run the dashboard, locked down as before, and no runner";
+
+          hasSqlite = host: lib.elem host.pkgs.sqlite host.config.environment.systemPackages;
+          sqliteWithWorkers = lib.asserts.assertMsg (hasSqlite workerHost) "a host with workers must ship sqlite so the store can be inspected";
+          sqliteWithRepositories = lib.asserts.assertMsg (hasSqlite repositoryHost) "a host with repositories must ship sqlite so the store can be inspected";
+          sqliteInert = lib.asserts.assertMsg (
+            !(hasSqlite nixos)
+          ) "a host with no workers or repositories must not gain sqlite from forge.runtime";
         in
         {
           example-reflects-config =
@@ -365,6 +372,14 @@
             assert dashboardWithoutWorkers;
             pkgs.runCommand "runtime-frontier" { } ''
               echo "declaring a repository wires a forge-frontier-sync timer and service with an optional GitHub token file, and runs the dashboard without workers" > $out
+            '';
+
+          runtime-sqlite =
+            assert sqliteWithWorkers;
+            assert sqliteWithRepositories;
+            assert sqliteInert;
+            pkgs.runCommand "runtime-sqlite" { } ''
+              echo "a host running forge.runtime ships sqlite to inspect the store; an inert host does not" > $out
             '';
 
           forge-shared = self.packages.${system}.forge-shared;
