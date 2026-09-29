@@ -111,14 +111,14 @@ const toTicket = (issue: IssueNode): Ticket => ({
   createdAt: issue.createdAt,
 });
 
-const queryPage = async (
+export const requestFrontierPage = (
   fetch: Fetch,
   token: string,
   github: string,
-  after: string | null,
-): Promise<IssuePage> => {
+  { first, after }: { first: number; after: string | null },
+): Promise<Response> => {
   const [owner, name] = github.split('/');
-  const response = await fetch(GITHUB_GRAPHQL_API, {
+  return fetch(GITHUB_GRAPHQL_API, {
     method: 'POST',
     headers: {
       authorization: `bearer ${token}`,
@@ -126,8 +126,20 @@ const queryPage = async (
     },
     body: JSON.stringify({
       query: FRONTIER_QUERY,
-      variables: { owner, name, first: FRONTIER_PAGE_SIZE, after },
+      variables: { owner, name, first, after },
     }),
+  });
+};
+
+const queryPage = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  after: string | null,
+): Promise<IssuePage> => {
+  const response = await requestFrontierPage(fetch, token, github, {
+    first: FRONTIER_PAGE_SIZE,
+    after,
   });
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status} for ${github}`);

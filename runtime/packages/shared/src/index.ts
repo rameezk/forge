@@ -22,6 +22,7 @@ export {
   isGithubRepository,
   isGithubUrl,
   queryFrontier,
+  requestFrontierPage,
 } from './frontier.ts';
 export { Store } from './store.ts';
 export { parseTranscript, transcriptLine } from './transcript.ts';

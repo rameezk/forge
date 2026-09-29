@@ -10,14 +10,15 @@ import { main } from '../src/main.ts';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
 
-const recorded = (name: string): string[] =>
-  (JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8')) as unknown[]).map(
-    (page) => JSON.stringify(page),
-  );
+interface RecordedPage {
+  data?: { repository: { issues: { pageInfo: { endCursor: string | null } } } | null };
+}
 
-const endCursor = (page: string): string =>
-  (JSON.parse(page) as { data: { repository: { issues: { pageInfo: { endCursor: string } } } } })
-    .data.repository.issues.pageInfo.endCursor;
+const recorded = (name: string): RecordedPage[] =>
+  JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8')) as RecordedPage[];
+
+const endCursor = (page: RecordedPage | undefined): string | null | undefined =>
+  page?.data?.repository?.issues.pageInfo.endCursor;
 
 const GITHUB_TOKEN = 'github_pat_test';
 
@@ -28,7 +29,7 @@ interface Request {
   body: { query: string; variables: Record<string, string | number | null> };
 }
 
-const replaying = (responses: Record<string, string[]>) => {
+const replaying = (responses: Record<string, RecordedPage[]>) => {
   const requests: Request[] = [];
   const fetch = async (
     input: string | URL | globalThis.Request,
@@ -45,13 +46,14 @@ const replaying = (responses: Record<string, string[]>) => {
     const pages = responses[github];
     const after = body.variables.after;
     const response = pages?.find((_, index) =>
-      index === 0 ? after === null : endCursor(pages[index - 1] ?? '') === after,
+      index === 0 ? after === null : endCursor(pages[index - 1]) === after,
     );
-    return response === undefined
-      ? new Response('{"message":"Not Found"}', { status: 404 })
-      : new Response(response, {
-          headers: { 'content-type': 'application/json' },
-        });
+    if (response === undefined) {
+      throw new Error(`no recorded response for ${github} after ${String(after)}`);
+    }
+    return new Response(JSON.stringify(response), {
+      headers: { 'content-type': 'application/json' },
+    });
   };
   return { fetch, requests };
 };
@@ -133,7 +135,8 @@ test('given a declared repository whose recorded response holds unblocked and bl
 
 test('given a declared repository whose recorded response spans several pages, when sync runs, then tickets from every page are stored', async () => {
   const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
-  const github = replaying({ 'rameezk/forge': recorded('frontier-paged') });
+  const pages = recorded('frontier-paged');
+  const github = replaying({ 'rameezk/forge': pages });
 
   const code = await main(['sync'], env, github.fetch);
 
@@ -145,7 +148,7 @@ test('given a declared repository whose recorded response spans several pages, w
   );
   assert.deepEqual(
     github.requests.map(({ body }) => body.variables.after),
-    [null, ...recorded('frontier-paged').slice(0, 2).map(endCursor)],
+    [null, ...pages.slice(0, 2).map(endCursor)],
   );
 });
 
@@ -169,14 +172,17 @@ const staleTicket = (github: string, number: number): Ticket => ({
 test('given two declared repositories with stored snapshots where GitHub now fails for one, when sync runs, then the healthy snapshot is replaced and the failing one keeps its previous tickets and polled time with the error as its last error', async () => {
   const { stateDir, env } = declaring({
     forge: { github: 'rameezk/forge' },
-    gone: { github: 'rameezk/gone' },
+    gone: { github: 'rameezk/forge-does-not-exist' },
   });
   const previousPoll = '2026-09-29T08:00:00.000Z';
   seeding(stateDir, [
     { repository: 'forge', github: 'rameezk/forge', polledAt: previousPoll, tickets: [staleTicket('rameezk/forge', 1)] },
-    { repository: 'gone', github: 'rameezk/gone', polledAt: previousPoll, tickets: [staleTicket('rameezk/gone', 2)] },
+    { repository: 'gone', github: 'rameezk/forge-does-not-exist', polledAt: previousPoll, tickets: [staleTicket('rameezk/forge-does-not-exist', 2)] },
   ]);
-  const github = replaying({ 'rameezk/forge': recorded('frontier') });
+  const github = replaying({
+    'rameezk/forge': recorded('frontier'),
+    'rameezk/forge-does-not-exist': recorded('not-found'),
+  });
 
   const before = new Date().toISOString();
   const code = await main(['sync'], env, github.fetch);
@@ -194,10 +200,14 @@ test('given two declared repositories with stored snapshots where GitHub now fai
   assert.ok(before <= failedAt && failedAt <= after);
   assert.deepEqual(gone, {
     repository: 'gone',
-    github: 'rameezk/gone',
+    github: 'rameezk/forge-does-not-exist',
     polledAt: previousPoll,
-    lastError: { message: 'GitHub answered 404 for rameezk/gone', failedAt },
-    tickets: [staleTicket('rameezk/gone', 2)],
+    lastError: {
+      message:
+        "GitHub rejected the frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
+      failedAt,
+    },
+    tickets: [staleTicket('rameezk/forge-does-not-exist', 2)],
   });
 });
 
