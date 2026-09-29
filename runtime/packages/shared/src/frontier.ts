@@ -68,8 +68,11 @@ const GITHUB_REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 export const isGithubRepository = (github: string): boolean =>
   GITHUB_REPOSITORY.test(github);
 
+export const isGithubUrl = (url: string): boolean =>
+  url.startsWith('https://github.com/');
+
 const ticketUrl = (url: string): string => {
-  if (!url.startsWith('https://github.com/')) {
+  if (!isGithubUrl(url)) {
     throw new Error(`GitHub returned an unexpected issue URL '${url}'`);
   }
   return url;

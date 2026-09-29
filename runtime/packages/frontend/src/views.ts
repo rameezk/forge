@@ -1,4 +1,5 @@
 import { html, raw } from 'hono/html';
+import { isGithubUrl } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   HarnessEvent,
@@ -517,7 +518,9 @@ const renderRepository = ({
             <tbody>
               ${tickets.map(
                 (ticket) => html`<tr class="ticket">
-                  <td class="number"><a href="${ticket.url}">#${ticket.number}</a></td>
+                  <td class="number">${isGithubUrl(ticket.url)
+                    ? html`<a href="${ticket.url}">#${ticket.number}</a>`
+                    : html`#${ticket.number}`}</td>
                   <td>${ticket.title}</td>
                   <td>${renderSpec(ticket.parent)}</td>
                   <td>${renderDate(ticket.createdAt)}</td>

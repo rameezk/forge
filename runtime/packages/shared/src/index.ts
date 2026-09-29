@@ -17,6 +17,7 @@ export {
   FRONTIER_QUERY,
   GITHUB_GRAPHQL_API,
   isGithubRepository,
+  isGithubUrl,
   queryFrontier,
 } from './frontier.ts';
 export { Store } from './store.ts';

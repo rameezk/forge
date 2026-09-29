@@ -97,3 +97,19 @@ test('given the dashboard, when the runs and work pages are requested, then both
   assert.match(await nav('/'), /<a href="\/" aria-current="page">Runs<\/a>\s*<a href="\/work">Work<\/a>/);
   assert.match(await nav('/work'), /<a href="\/">Runs<\/a>\s*<a href="\/work" aria-current="page">Work<\/a>/);
 });
+
+test('given a stored ticket whose url is not a GitHub https link, when the work page is requested, then its number renders without a link', async () => {
+  const app = appWith([
+    {
+      repository: 'forge',
+      github: 'rameezk/forge',
+      polledAt: '2026-09-29T08:15:00.000Z',
+      tickets: [ticket({ url: 'javascript:alert(1)' })],
+    },
+  ]);
+
+  const [forge] = sections(await (await app.request('/work')).text());
+
+  assert.doesNotMatch(forge ?? '', /javascript:/);
+  assert.match(forge ?? '', /<td class="number">#56<\/td>/);
+});
