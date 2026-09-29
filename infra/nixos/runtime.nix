@@ -88,7 +88,7 @@ in
       type = lib.types.path;
       default = "/var/lib/forge";
       readOnly = true;
-      description = "State directory owned by the runtime service user, holding the SQLite store and per-run transcripts.";
+      description = "State directory owned by the runtime service user, holding the SQLite store, per-run transcripts, and run directories, which age out after 14 days.";
     };
 
     package = lib.mkOption {
@@ -161,7 +161,7 @@ in
       systemd.tmpfiles.rules = [
         "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/transcripts 0750 ${cfg.user} ${cfg.user} - -"
-        "d ${cfg.stateDir}/work 0750 ${cfg.user} ${cfg.user} mM:14d -"
+        "d ${cfg.stateDir}/work 0750 ${cfg.user} ${cfg.user} 14d -"
       ];
     }
 
