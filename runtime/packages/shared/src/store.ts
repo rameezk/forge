@@ -51,7 +51,7 @@ const MIGRATE_COST_UNCERTAIN = `
   )
   SELECT
     id, worker, harness, model, start_time, end_time, status,
-    CASE cost_uncertain WHEN 0 THEN 'billed' ELSE 'unconfirmed' END,
+    CASE WHEN cost_uncertain = 0 AND status != 'running' THEN 'billed' ELSE 'unconfirmed' END,
     cost_usd, input_tokens, output_tokens,
     transcript_ref, session_id, error
   FROM runs_cost_uncertain;

@@ -123,7 +123,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
   });
 });
 
-test('given a store file in the old schema with one run whose cost was settled and one whose cost was uncertain, when the store is opened, then the first is billed and the second unconfirmed with their recorded costs unchanged', () => {
+test('given a store file in the old schema with one run whose cost was settled, one whose cost was uncertain, and one left running, when the store is opened, then the first is billed and the others unconfirmed with their recorded costs unchanged', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const old = new DatabaseSync(path);
   old.exec(`
@@ -145,7 +145,8 @@ test('given a store file in the old schema with one run whose cost was settled a
     ) STRICT;
     INSERT INTO runs VALUES
       ('settled', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T10:00:00.000Z', '2026-09-21T10:01:00.000Z', 'success', 0, 0.00093252, 1200, 40, 'settled.jsonl', 'sess-1', NULL),
-      ('uncertain', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T11:00:00.000Z', '2026-09-21T11:01:00.000Z', 'success', 1, 0.0125, 1300, 25, 'uncertain.jsonl', 'sess-2', NULL);
+      ('uncertain', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T11:00:00.000Z', '2026-09-21T11:01:00.000Z', 'success', 1, 0.0125, 1300, 25, 'uncertain.jsonl', 'sess-2', NULL),
+      ('abandoned', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T12:00:00.000Z', NULL, 'running', 0, 0, 0, 0, 'abandoned.jsonl', NULL, NULL);
   `);
   old.close();
 
@@ -154,12 +155,13 @@ test('given a store file in the old schema with one run whose cost was settled a
   assert.deepEqual(
     store.listRuns().map(({ id, costStatus, costUsd }) => ({ id, costStatus, costUsd })),
     [
+      { id: 'abandoned', costStatus: 'unconfirmed', costUsd: 0 },
       { id: 'uncertain', costStatus: 'unconfirmed', costUsd: 0.0125 },
       { id: 'settled', costStatus: 'billed', costUsd: 0.00093252 },
     ],
   );
   store.close();
-  assert.deepEqual(Store.open(path).listRuns().map((run) => run.costStatus), ['unconfirmed', 'billed']);
+  assert.deepEqual(Store.open(path).listRuns().map((run) => run.costStatus), ['unconfirmed', 'unconfirmed', 'billed']);
 });
 
 test('given a current store file where another connection holds a write transaction, when the store is opened, then it opens without waiting on that writer', () => {
