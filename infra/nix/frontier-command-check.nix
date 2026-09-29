@@ -81,6 +81,9 @@ runCommand "frontier-command"
     printf '  GITHUB_TOKEN=github_pat_crlf\r\n' > tokens/github.env
     ${forgeFrontier} list > crlf.out
     expect 'token=github_pat_crlf' crlf.out
+    printf 'GITHUB_TOKEN = "github_pat_spaced" \t\n' > tokens/github.env
+    ${forgeFrontier} list > spaced.out
+    expect 'token=github_pat_spaced' spaced.out
 
     rm tokens/github.env
     ln -s /dev/null tokens/github.env

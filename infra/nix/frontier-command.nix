@@ -25,17 +25,22 @@ writeShellApplication {
       echo "forge-frontier: ${githubTokenFile} is not a regular file" >&2
       exit 1
     fi
+    trim() {
+      local text="$1"
+      text="''${text#"''${text%%[![:space:]]*}"}"
+      printf '%s' "''${text%"''${text##*[![:space:]]}"}"
+    }
     unset GITHUB_TOKEN
     if [ -e ${tokenFile} ]; then
       while IFS= read -r line || [ -n "$line" ]; do
-        line="''${line%$'\r'}"
-        line="''${line#"''${line%%[![:space:]]*}"}"
         case "$line" in
-          GITHUB_TOKEN=*)
-            GITHUB_TOKEN="''${line#GITHUB_TOKEN=}"
-            case "$GITHUB_TOKEN" in
-              \"*\" | \'*\') GITHUB_TOKEN="''${GITHUB_TOKEN:1:-1}" ;;
-            esac
+          *=*)
+            if [ "$(trim "''${line%%=*}")" = GITHUB_TOKEN ]; then
+              GITHUB_TOKEN="$(trim "''${line#*=}")"
+              case "$GITHUB_TOKEN" in
+                \"*\" | \'*\') GITHUB_TOKEN="''${GITHUB_TOKEN:1:-1}" ;;
+              esac
+            fi
             ;;
         esac
       done < ${tokenFile}
