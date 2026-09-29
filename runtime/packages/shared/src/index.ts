@@ -21,6 +21,7 @@ export {
   GITHUB_GRAPHQL_API,
   isGithubRepository,
   isGithubUrl,
+  oldestFirst,
   queryFrontier,
   requestFrontierPage,
 } from './frontier.ts';

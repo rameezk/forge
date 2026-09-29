@@ -300,6 +300,12 @@
             !(workerHost.config.systemd.services ? forge-frontier-sync)
             && !(workerHost.config.systemd.timers ? forge-frontier-sync)
           ) "a host with no repositories must have neither the frontier timer nor the sync service";
+          hasFrontierCommand =
+            host:
+            lib.any (package: lib.getName package == "forge-frontier") host.config.environment.systemPackages;
+          frontierCommandInstalled =
+            lib.asserts.assertMsg (hasFrontierCommand repositoryHost && !(hasFrontierCommand workerHost))
+              "declaring a repository must put the forge-frontier command on the box's path, and a host without repositories must not";
           dashboardWithoutWorkers =
             lib.asserts.assertMsg
               (
@@ -370,8 +376,9 @@
             assert frontierConfigReflectsRepositories;
             assert noRepositoriesNoPoller;
             assert dashboardWithoutWorkers;
+            assert frontierCommandInstalled;
             pkgs.runCommand "runtime-frontier" { } ''
-              echo "declaring a repository wires a forge-frontier-sync timer and service with an optional GitHub token file, and runs the dashboard without workers" > $out
+              echo "declaring a repository wires a forge-frontier-sync timer and service with an optional GitHub token file, puts forge-frontier on the path, and runs the dashboard without workers" > $out
             '';
 
           runtime-sqlite =
@@ -384,6 +391,7 @@
 
           forge-shared = self.packages.${system}.forge-shared;
           forge-runner = self.packages.${system}.forge-runner;
+          frontier-command = pkgs.callPackage ./infra/nix/frontier-command-check.nix { };
           pi-cli-contract = pkgs.callPackage ./infra/nix/pi-cli-contract.nix {
             forge-runner = self.packages.${system}.forge-runner;
           };

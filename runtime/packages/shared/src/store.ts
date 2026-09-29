@@ -1,5 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { PolledFrontier, PollFailure, RepositoryFrontier, Ticket } from './frontier.ts';
+import {
+  oldestFirst,
+  type PolledFrontier,
+  type PollFailure,
+  type RepositoryFrontier,
+  type Ticket,
+} from './frontier.ts';
 import type { CostStatus, RunRecord, RunResult, RunStatus } from './run.ts';
 
 type RunRow = {
@@ -340,9 +346,7 @@ export class Store {
       .prepare('SELECT * FROM frontier_repositories ORDER BY repository')
       .all() as RepositoryRow[];
     const tickets = this.#db.prepare(
-      `SELECT * FROM frontier_tickets
-      WHERE repository = $repository
-      ORDER BY created_at, number`,
+      'SELECT * FROM frontier_tickets WHERE repository = $repository',
     );
     return repositories.map((row) => ({
       repository: row.repository,
@@ -352,9 +356,9 @@ export class Store {
         row.last_error === null || row.failed_at === null
           ? null
           : { message: row.last_error, failedAt: row.failed_at },
-      tickets: (tickets.all({ repository: row.repository }) as TicketRow[]).map(
-        ticketFromRow,
-      ),
+      tickets: (tickets.all({ repository: row.repository }) as TicketRow[])
+        .map(ticketFromRow)
+        .toSorted(oldestFirst),
     }));
   }
 
