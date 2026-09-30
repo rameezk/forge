@@ -362,17 +362,25 @@ FAKE_BLOCK_APPLY="$blocked" just_with_fakes standup >"$work/standup-interrupted.
 standup_pid=$!
 set +m
 for _ in $(seq 100); do
-	[ -e "$blocked" ] && break
+	[ -e "$blocked" ] || ! kill -0 "$standup_pid" 2>/dev/null && break
 	sleep 0.1
 done
-kill -INT -- "-$standup_pid"
-wait "$standup_pid" || true
-if grep -q "tofu apply stopped cleanly" "$keys/fake.log" && ! grep -q "exit status" "$work/standup-interrupted.log"; then
-	echo "ok: Ctrl-C during apply returns only once OpenTofu has stopped, with no stray sops exit line"
-else
-	echo "FAIL: Ctrl-C during apply returned before OpenTofu stopped, or sops printed a stray exit line"
+if [ ! -e "$blocked" ]; then
+	echo "FAIL: standup never reached apply, so it could not be interrupted there"
 	cat "$work/standup-interrupted.log"
+	kill -INT -- "-$standup_pid" 2>/dev/null || true
+	wait "$standup_pid" || true
 	fail=1
+else
+	kill -INT -- "-$standup_pid"
+	wait "$standup_pid" || true
+	if grep -q "tofu apply stopped cleanly" "$keys/fake.log" && ! grep -q "exit status" "$work/standup-interrupted.log"; then
+		echo "ok: Ctrl-C during apply returns only once OpenTofu has stopped, with no stray sops exit line"
+	else
+		echo "FAIL: Ctrl-C during apply returned before OpenTofu stopped, or sops printed a stray exit line"
+		cat "$work/standup-interrupted.log"
+		fail=1
+	fi
 fi
 
 echo "==> case: standup fails fast, before creating anything, when the host key cannot be decrypted"
