@@ -107,13 +107,13 @@ export const main = async (
     repository.github,
     Number(issue),
   );
-  const workloadEnv = withoutGithubToken(env);
   const refused = refusal(ticket);
   if (refused !== null) {
     console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
     return 1;
   }
 
+  const workloadEnv = withoutGithubToken(env);
   return launchWorkload({
     config,
     worker: {

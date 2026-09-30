@@ -279,7 +279,6 @@ test('given a ticket labelled forge:ready that has an open blocker, one that is 
   }
 });
 
-
 const projectInstructions = (path: string): string[] => [
   '--append-system-prompt',
   `<project_context>\n\nProject-specific instructions and guidelines:\n\n<project_instructions path="${path}">`,
