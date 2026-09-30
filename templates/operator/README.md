@@ -50,14 +50,16 @@ direnv, run each one through `nix develop -c <command>` instead and export
    `secrets/runtime.yaml`, the OpenRouter key, is for you and the box.
 
    1. Create your age key at the sops default location, which is
+      `$XDG_CONFIG_HOME/sops/age/keys.txt` when that is set, and otherwise
       `~/.config/sops/age/keys.txt` on Linux and
       `~/Library/Application Support/sops/age/keys.txt` on macOS. Back it up
       somewhere safe: losing it means regenerating every secret, the box's
       host key included.
 
       ```bash
-      key_dir="$HOME/.config/sops/age"
-      [ "$(uname)" = Darwin ] && key_dir="$HOME/Library/Application Support/sops/age"
+      key_dir="${XDG_CONFIG_HOME:-$HOME/.config}/sops/age"
+      [ "$(uname)" = Darwin ] && [ -z "${XDG_CONFIG_HOME:-}" ] &&
+        key_dir="$HOME/Library/Application Support/sops/age"
       mkdir -p "$key_dir"
       age-keygen -o "$key_dir/keys.txt"
       ```
