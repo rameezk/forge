@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 
-const appWith = (stylesheet: string) => {
+const appWith = (css: string) => {
   const store = Store.open(':memory:');
   store.insertRun({
     id: 'run-01',
@@ -27,7 +27,7 @@ const appWith = (stylesheet: string) => {
   return createApp({
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),
-    stylesheet,
+    css,
   });
 };
 

@@ -45,7 +45,7 @@ const renderNav = (current: Page | null): HtmlEscapedString | Promise<HtmlEscape
 const layout = (
   title: string,
   current: Page | null,
-  stylesheet: string,
+  stylesheetHref: string,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<!doctype html>
@@ -54,7 +54,7 @@ const layout = (
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${title}</title>
-        <link rel="stylesheet" href="${stylesheet}" />
+        <link rel="stylesheet" href="${stylesheetHref}" />
       </head>
       <body>
         ${renderNav(current)}
@@ -93,7 +93,7 @@ const renderTotal = (runs: RunRecord[]): Rendered => {
 
 export const renderList = (
   runs: RunRecord[],
-  stylesheet: string,
+  stylesheetHref: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body =
     runs.length === 0
@@ -132,7 +132,7 @@ export const renderList = (
               </tfoot>
             </table>
           </div>`;
-  return layout('Workloads', 'runs', stylesheet, body);
+  return layout('Workloads', 'runs', stylesheetHref, body);
 };
 
 const renderText = (
@@ -395,7 +395,7 @@ const renderTranscript = (
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
-  stylesheet: string,
+  stylesheetHref: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p><a href="/">&larr; Workloads</a></p>
     <h1>${run.worker}</h1>
@@ -418,7 +418,7 @@ export const renderDetail = (
     ${events.length === 0
       ? html`<p class="empty">No transcript captured.</p>`
       : renderTranscript(events)}`;
-  return layout(run.worker, null, stylesheet, body);
+  return layout(run.worker, null, stylesheetHref, body);
 };
 
 const renderSpec = (parent: SpecRef | null): Rendered =>
@@ -481,11 +481,11 @@ const renderRepository = ({
 
 export const renderWork = (
   frontier: RepositoryFrontier[],
-  stylesheet: string,
+  stylesheetHref: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<h1>Frontier</h1>
     ${frontier.length === 0
       ? html`<p class="empty">No managed repositories have been polled yet.</p>`
       : frontier.map(renderRepository)}`;
-  return layout('Frontier', 'work', stylesheet, body);
+  return layout('Frontier', 'work', stylesheetHref, body);
 };

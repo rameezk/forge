@@ -31,7 +31,7 @@ const usage = { inputTokens: 5, outputTokens: 5 };
 const appWith = (runs: RunRecord[], dir: string = mkdtempSync(join(tmpdir(), 'forge-transcripts-'))) => {
   const store = Store.open(':memory:');
   for (const run of runs) store.insertRun(run);
-  return createApp({ store, transcripts: new FileTranscriptSource(dir), stylesheet: '' });
+  return createApp({ store, transcripts: new FileTranscriptSource(dir), css: '' });
 };
 
 test('given several finished runs, when the list is requested, then they render newest-first with a total cost', async () => {

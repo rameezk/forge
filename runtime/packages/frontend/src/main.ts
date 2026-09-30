@@ -11,8 +11,8 @@ export const main = (env: NodeJS.ProcessEnv): void => {
 
   const store = Store.open(join(stateDir, 'forge.db'));
   const transcripts = new FileTranscriptSource(join(stateDir, 'transcripts'));
-  const stylesheet = readFileSync(new URL('../dist/dashboard.css', import.meta.url), 'utf8');
-  const app = createApp({ store, transcripts, stylesheet });
+  const css = readFileSync(new URL('../dist/dashboard.css', import.meta.url), 'utf8');
+  const app = createApp({ store, transcripts, css });
 
   serve({ fetch: app.fetch, hostname, port }, (info) => {
     console.log(`forge dashboard listening on http://${info.address}:${info.port}`);
