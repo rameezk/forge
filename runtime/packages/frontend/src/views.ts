@@ -46,11 +46,13 @@ const TD = 'border-t border-line px-3.5 py-2.5 align-baseline';
 const ROW = 'hover:bg-bg';
 const NUMERIC = 'text-right tabular-nums whitespace-nowrap';
 const PENDING = 'font-normal italic text-muted';
+const NAV_LINK = 'border-b-2 py-1.5 text-[0.9rem] no-underline';
+const POLLED = 'ml-auto text-sm text-muted';
 
 const navLink = (href: string, label: string, current: boolean): HtmlEscapedString | Promise<HtmlEscapedString> =>
   current
-    ? html`<a href="${href}" aria-current="page" class="border-b-2 border-accent py-1.5 text-[0.9rem] font-semibold text-fg no-underline">${label}</a>`
-    : html`<a href="${href}" class="border-b-2 border-transparent py-1.5 text-[0.9rem] text-muted no-underline hover:text-fg">${label}</a>`;
+    ? html`<a href="${href}" aria-current="page" class="${NAV_LINK} border-accent font-semibold text-fg">${label}</a>`
+    : html`<a href="${href}" class="${NAV_LINK} border-transparent text-muted hover:text-fg">${label}</a>`;
 
 const renderHeader = (
   current: Page | null,
@@ -458,8 +460,8 @@ const renderSpec = (parent: SpecRef | null): Rendered =>
 
 const renderPolled = (polledAt: string | null): Rendered =>
   polledAt === null
-    ? html`<span class="ml-auto text-sm text-muted">Never polled</span>`
-    : html`<span class="ml-auto text-sm text-muted">Last polled ${renderTimestamp(polledAt)}</span>`;
+    ? html`<span class="${POLLED}">Never polled</span>`
+    : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt)}</span>`;
 
 const renderRepository = ({
   repository,

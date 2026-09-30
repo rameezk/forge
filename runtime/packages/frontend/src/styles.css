@@ -28,8 +28,8 @@
   h2 { font-size: 1.5em; margin: 0.83em 0; }
   p { margin: 1em 0; }
   a { color: inherit; text-decoration: underline; }
-  .status-error { color: #cf222e; }
-  .badge { margin-left: 0.4rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: #9a6700; border: 1px solid currentColor; border-radius: 999px; padding: 0.05rem 0.4rem; }
+  .status-error { color: var(--color-error); }
+  .badge { margin-left: 0.4rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-warning); border: 1px solid currentColor; border-radius: 999px; padding: 0.05rem 0.4rem; }
   .empty { opacity: 0.6; }
   time { white-space: nowrap; }
   .meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; margin: 0 0 1.5rem; }
@@ -51,13 +51,13 @@
   .subagent-count { margin-left: auto; white-space: nowrap; font-size: 0.8rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
   .subagent-body { padding: 0.75rem 1rem 0; border-top: 1px solid var(--line); }
   .message-report { border-color: color-mix(in srgb, var(--color-fg) 35%, var(--color-bg)); }
-  .tool-error { border-color: #cf222e; }
-  .tool-error > summary .tool-name, .tool-error > header .tool-name { color: #cf222e; }
-  .badge.tool-status { margin-left: auto; flex-shrink: 0; color: #cf222e; }
+  .tool-error { border-color: var(--color-error); }
+  .tool-error > summary .tool-name, .tool-error > header .tool-name { color: var(--color-error); }
+  .badge.tool-status { margin-left: auto; flex-shrink: 0; color: var(--color-error); }
   .subagent-call > header { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; }
   .subagent-call > .subagent { border: none; border-top: 1px solid var(--line); border-radius: 0; margin: 0; }
-  .message-error { border-color: #cf222e; }
-  .message-error > header { color: #cf222e; opacity: 1; }
+  .message-error { border-color: var(--color-error); }
+  .message-error > header { color: var(--color-error); opacity: 1; }
   .tool-body { padding: 0.6rem 1rem 0.75rem; border-top: 1px solid var(--line); }
   .tool-body > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin: 0 0 0.3rem; }
   .tool-body > header ~ header { margin-top: 0.75rem; }

@@ -2,8 +2,7 @@ import { Hono } from 'hono';
 import type { Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import type { TranscriptSource } from './transcript.ts';
-import { renderDetail, renderList, renderWork } from './views.ts';
-import type { AssetHrefs } from './views.ts';
+import { renderDetail, renderList, renderWork, type AssetHrefs } from './views.ts';
 
 export interface AppOptions {
   store: Store;
