@@ -47,10 +47,14 @@ runCommand "dashboard-stylesheet"
     grep -qi '^cache-control:.*immutable' headers.txt || fail "the stylesheet is not cached as immutable:" headers.txt
     cmp -s served.css ${runtime}/packages/frontend/dist/dashboard.css || fail "the served stylesheet is not the package's build"
     grep -q 'tailwindcss v4' served.css || fail "the served stylesheet is not built by Tailwind v4"
+    styles() {
+      selector="$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/\\&/g; s/[][\.*^$+?(){}|/]/\\&/g')"
+      grep -qE "\.$selector([^-A-Za-z0-9_\\\\]|\$)" served.css
+    }
     styled=""
-    for class in $(grep -o 'class="[^"]*"' page.html | sed 's/^class="//; s/"$//' | tr ' ' '\n' | sort -u); do
-      grep -qF ".$class" served.css && { styled=$class; break; }
-    done
+    while read -r class; do
+      styles "$class" && { styled=$class; break; }
+    done < <(grep -o 'class="[^"]*"' page.html | sed 's/^class="//; s/"$//' | tr ' ' '\n' | grep -v '^$' | sort -u)
     [ -n "$styled" ] || fail "the served stylesheet styles none of the Runs page's classes:" page.html
     [ "$href" = "/assets/dashboard-$(sha256sum served.css | cut -c1-16).css" ] || fail "the stylesheet path $href does not hash its content"
 
