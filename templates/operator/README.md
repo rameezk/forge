@@ -24,8 +24,8 @@ direnv, run each one through `nix develop -c <command>` instead and export
    ```
 
    Set `sshPublicKeys` to your own key and `hostname`, `serverType`, and
-   `location` to your box. The build fails loudly if `config.json` is missing or
-   still holds the example placeholder key - there is no silent fallback.
+   `location` to your box. The build fails if `config.json` is missing or still
+   holds the example placeholder key - there is no silent fallback.
 
 2. Copy the environment file and add your token:
 
@@ -91,8 +91,8 @@ direnv, run each one through `nix develop -c <command>` instead and export
       git add -A
       ```
 
-   The build fails loudly if `secrets/runtime.yaml` is missing or `.sops.yaml`
-   still holds the placeholder recipients.
+   The build fails if `secrets/runtime.yaml` is missing or `.sops.yaml` still
+   holds the placeholder recipients.
 
 5. Run the divergence guard (no cloud access required):
 
