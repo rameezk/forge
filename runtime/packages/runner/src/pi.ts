@@ -12,7 +12,7 @@ import {
   type SubagentInvocation,
   type SubagentUpdate,
 } from '@forge/pi-subagent';
-import { hasSkill } from './checkout.ts';
+import { requireSkill } from './checkout.ts';
 import {
   UNATTENDED_INSTRUCTION,
   type Checkout,
@@ -72,9 +72,7 @@ const piPrompt = ({ prompt, checkout }: HarnessInvocation): string => {
     return prompt;
   }
   const [, name = '', rest = ''] = command;
-  if (!hasSkill(checkout, name)) {
-    throw new Error(`skill '${name}' not found in the checkout`);
-  }
+  requireSkill(checkout, name);
   return `/skill:${name}${rest}`;
 };
 

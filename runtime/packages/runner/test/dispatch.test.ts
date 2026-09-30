@@ -350,7 +350,11 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
 
 test('given a worker prompt /work-on {url} and a checkout with no work-on skill, when forge-dispatch runs, then pi never starts and the run records that the skill was not found', async () => {
   const { code, runs, pi } = await journaled(() =>
-    dispatch({ origin: originWith({ '.pi/skills/review/SKILL.md': SKILL }) }),
+    dispatch({
+      origin: originWith({
+        '.pi/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
+      }),
+    }),
   ).then(({ result }) => result);
 
   assert.equal(code, 1);
@@ -475,4 +479,50 @@ test('given work-on skill directories that pi would not load as work-on, because
     }),
   });
   assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
+});
+
+test('given a checkout with two different files pi would load as work-on, from two skill directories, from a differently named directory, from a nested directory, or from a markdown file at a skill directory root, when forge-dispatch runs, then pi never starts and the run names both files', async () => {
+  const other = SKILL.replace('Work on it.', 'Work on it differently.');
+  for (const [files, paths] of [
+    [
+      { '.claude/skills/work-on/SKILL.md': SKILL, '.pi/skills/work-on/SKILL.md': other },
+      '.claude/skills/work-on/SKILL.md, .pi/skills/work-on/SKILL.md',
+    ],
+    [
+      { '.claude/skills/work-on/SKILL.md': SKILL, '.agents/skills/drive/SKILL.md': other },
+      '.claude/skills/work-on/SKILL.md, .agents/skills/drive/SKILL.md',
+    ],
+    [
+      { '.claude/skills/work-on/SKILL.md': SKILL, '.claude/skills/team/drive/SKILL.md': other },
+      '.claude/skills/team/drive/SKILL.md, .claude/skills/work-on/SKILL.md',
+    ],
+    [
+      { '.claude/skills/work-on/SKILL.md': SKILL, '.pi/skills/work-on.md': other },
+      '.claude/skills/work-on/SKILL.md, .pi/skills/work-on.md',
+    ],
+  ] as const) {
+    const { pi, runs } = await journaled(() =>
+      dispatch({ origin: originWith(files) }),
+    ).then(({ result }) => result);
+
+    assert.equal(pi, null, paths);
+    assert.equal(
+      runs[0]?.error,
+      `skill 'work-on' is ambiguous in the checkout: ${paths}`,
+    );
+  }
+});
+
+test('given a checkout whose work-on skill appears in two skill directories through a symlink to one file, or once under a directory named differently from it, when forge-dispatch runs, then pi starts with /skill:work-on', async () => {
+  for (const origin of [
+    originWith(
+      { '.agents/skills/work-on/SKILL.md': SKILL },
+      { '.claude/skills/work-on': '../../.agents/skills/work-on' },
+    ),
+    originWith({ '.agents/skills/drive/SKILL.md': SKILL }),
+  ]) {
+    const { pi } = await dispatch({ origin });
+
+    assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
+  }
 });

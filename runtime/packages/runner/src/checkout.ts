@@ -1,6 +1,12 @@
 import { spawn } from 'node:child_process';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { basename, dirname, join, sep } from 'node:path';
+import {
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  type Stats,
+} from 'node:fs';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
 import type { Checkout } from './harness.ts';
 
@@ -90,24 +96,77 @@ const frontmatterOf = (content: string): Record<string, unknown> => {
     : {};
 };
 
-const loadsAs = (path: string, name: string): boolean => {
+const loadsAs = (path: string): string | null => {
   try {
-    const { name: declared, description } = frontmatterOf(
-      readFileSync(path, 'utf8'),
-    );
-    return (
-      (declared || basename(dirname(path))) === name &&
-      typeof description === 'string' &&
-      description.trim() !== ''
-    );
+    const { name, description } = frontmatterOf(readFileSync(path, 'utf8'));
+    if (typeof description !== 'string' || description.trim() === '') {
+      return null;
+    }
+    return typeof name === 'string' && name !== ''
+      ? name
+      : basename(dirname(path));
   } catch {
-    return false;
+    return null;
   }
 };
 
-export const hasSkill = (checkout: Checkout, name: string): boolean =>
-  SKILL_NAME.test(name) &&
-  checkout.skillPaths.some((skills) => {
-    const path = join(skills, name, 'SKILL.md');
-    return isFile(checkout.root, path) && loadsAs(path, name);
+const statOf = (path: string): Stats | null => {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+};
+
+const skillFilesIn = (
+  dir: string,
+  topLevel: boolean,
+  visited: Set<string>,
+): string[] => {
+  const real = realpathSync(dir);
+  if (visited.has(real)) {
+    return [];
+  }
+  visited.add(real);
+  const entries = readdirSync(dir).sort();
+  const skill = join(dir, 'SKILL.md');
+  if (entries.includes('SKILL.md') && statOf(skill)?.isFile()) {
+    return [skill];
+  }
+  return entries.flatMap((entry) => {
+    const path = join(dir, entry);
+    const stats = statOf(path);
+    if (stats?.isDirectory()) {
+      return entry.startsWith('.') || entry === 'node_modules'
+        ? []
+        : skillFilesIn(path, false, visited);
+    }
+    return topLevel && stats?.isFile() && entry.endsWith('.md') ? [path] : [];
   });
+};
+
+export const requireSkill = (checkout: Checkout, name: string): void => {
+  const matches = new Map<string, string>();
+  if (SKILL_NAME.test(name)) {
+    for (const skills of checkout.skillPaths) {
+      for (const path of skillFilesIn(skills, true, new Set())) {
+        const real = realpathSync(path);
+        if (!matches.has(real) && loadsAs(path) === name) {
+          matches.set(real, path);
+        }
+      }
+    }
+  }
+  const paths = [...matches.values()];
+  if (paths.length > 1) {
+    throw new Error(
+      `skill '${name}' is ambiguous in the checkout: ${paths
+        .map((path) => relative(checkout.root, path))
+        .join(', ')}`,
+    );
+  }
+  const [path] = paths;
+  if (path === undefined || !isFile(checkout.root, path)) {
+    throw new Error(`skill '${name}' not found in the checkout`);
+  }
+};
