@@ -55,6 +55,10 @@ _Avoid_: issue (the tracker's container, not the concept), job, task
 The set of tickets that can be picked up now: open, marked ready, and with no open blockers. Forge's frontier is the agent frontier - frontier tickets labelled `ready-for-agent` - since forge cannot act on `ready-for-human` work.
 _Avoid_: backlog, queue
 
+**Dispatch**:
+Forge picking up a frontier ticket that carries the `forge:ready` label and running a workload against it; the ticket's `forge:*` label tracks the dispatch from claim to outcome (ADR-0016).
+_Avoid_: assignment, scheduling
+
 **Operator**:
 A person who stands up and runs their own forge deployment - the reuser of forge, distinct from its author.
 
