@@ -239,7 +239,7 @@ const toolResults = (events: HarnessEvent[]): ToolResults => {
 };
 
 const toolName = (name: string, failed: boolean): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="shrink-0 whitespace-nowrap font-mono text-[0.85rem] font-semibold ${failed ? 'text-error' : 'text-fg'}" data-tool-name>${name}</span>`;
+  html`<span class="min-w-0 truncate font-mono text-[0.85rem] font-semibold ${failed ? 'text-error' : 'text-fg'}" data-tool-name title="${name}">${name}</span>`;
 
 const ERROR_BADGE = html`<span class="${BADGE} ml-auto bg-error-soft text-error" data-badge="error">error</span>`;
 

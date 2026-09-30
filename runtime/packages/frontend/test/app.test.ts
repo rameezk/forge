@@ -616,3 +616,15 @@ test('given a subagent call that failed before its child produced any activity, 
   assert.match(openingTag(card), /\sopen[\s>]/);
   assert.match(card, /List the files\.[\s\S]*\.\.\/outside[\s\S]*working directory escapes the run directory/);
 });
+
+test('given a tool whose name is longer than a phone-width header, when its run page is viewed, then the card names it in full as a tooltip', async () => {
+  const name = 'mcp__github_enterprise__search_pull_request_review_comments';
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_long', name, arguments: { query: 'retry' } },
+    { type: 'tool_result', id: 'call_long', isError: false, text: 'no comments' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = toolCards(body) as [string];
+  assert.match(card, new RegExp(`<span[^>]*\\sdata-tool-name[^>]*\\stitle="${name}"[^>]*>${name}</span>`));
+});
