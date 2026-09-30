@@ -335,9 +335,12 @@ in
           ];
           IPAddressAllow = "localhost";
           IPAddressDeny = "any";
+          InaccessiblePaths = [
+            "-/run/secrets"
+            "-/run/secrets.d"
+          ];
         }
-        // hardening
-        // hideRunnerEnvFile;
+        // hardening;
       };
     })
   ];

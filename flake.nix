@@ -227,12 +227,15 @@
                 && runnerEnvTemplate.mode == "0400"
               )
               "the runner's EnvironmentFile must be a sops template under /run/secrets, readable only by forge-runtime";
-          runnerKeyHiddenFrom =
-            unit: lib.elem "-${runnerEnvTemplate.path}" (unit.serviceConfig.InaccessiblePaths or [ ]);
-          runnerKeyHiddenFromOtherUnits = lib.asserts.assertMsg (
-            runnerKeyHiddenFrom frontendUnit
-            && runnerKeyHiddenFrom workerAndRepositoryHost.config.systemd.services.forge-frontier-sync
-          ) "the runner's EnvironmentFile must be inaccessible to the dashboard and the frontier poller";
+          hides = path: unit: lib.elem "-${path}" (unit.serviceConfig.InaccessiblePaths or [ ]);
+          runnerKeyHiddenFromOtherUnits =
+            lib.asserts.assertMsg
+              (
+                hides "/run/secrets" frontendUnit
+                && hides "/run/secrets.d" frontendUnit
+                && hides runnerEnvTemplate.path workerAndRepositoryHost.config.systemd.services.forge-frontier-sync
+              )
+              "every secrets generation must be inaccessible to the long-running dashboard, and the runner's EnvironmentFile to the frontier poller";
           workerHostInstantiates = builtins.seq workerHost.config.system.build.toplevel.drvPath true;
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content
