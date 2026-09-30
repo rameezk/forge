@@ -21,7 +21,8 @@ We will go with Option 3.
 
 - `forge-dispatch` imports `loadSkills` from the package named by `FORGE_PI_PACKAGE`, which the runner's Nix wrapper sets to nixpkgs' `pi-coding-agent`.
 - A `/<name>` prompt is refused before pi starts when pi loads no skill under that name, or when more than one distinct file loads under it. The refusal names those files.
-- Before that, the runner walks every skill directory it passes. It refuses the dispatch if any symlink under one resolves outside the checkout, or if a directory link leads to a directory that holds another directory link. pi's loader follows links with no cycle guard, so a loop, or a chain whose links multiply, would hang it.
+- Before that, the runner walks every skill directory it passes. It refuses the dispatch if any symlink under one resolves outside the checkout, if a directory link leads to a directory that holds another directory link, or if two directory links reach the same directory or one inside the other. pi's loader follows links with no cycle guard or visited set, so a loop, a chain, or many links to one directory would make it hang or walk the same tree again for each link.
+- Each real skill directory is passed once, as pi's CLI does with a repeated `--skill` directory.
 - The runner takes a `/<name>` skill command's name up to the first space, as pi does when it expands `/skill:<name>`.
 - The test suite, the runner's build check and the dev shell use the same package through `FORGE_PI_PACKAGE`. The contract check passes it to `resolveCheckout` directly.
 
