@@ -227,6 +227,12 @@
                 && runnerEnvTemplate.mode == "0400"
               )
               "the runner's EnvironmentFile must be a sops template under /run/secrets, readable only by forge-runtime";
+          runnerKeyHiddenFrom =
+            unit: lib.elem "-${runnerEnvTemplate.path}" (unit.serviceConfig.InaccessiblePaths or [ ]);
+          runnerKeyHiddenFromOtherUnits = lib.asserts.assertMsg (
+            runnerKeyHiddenFrom frontendUnit
+            && runnerKeyHiddenFrom workerAndRepositoryHost.config.systemd.services.forge-frontier-sync
+          ) "the runner's EnvironmentFile must be inaccessible to the dashboard and the frontier poller";
           workerHostInstantiates = builtins.seq workerHost.config.system.build.toplevel.drvPath true;
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content
@@ -287,6 +293,22 @@
             && unit.serviceConfig.IPAddressAllow == "localhost"
             && unit.serviceConfig.IPAddressDeny == "any";
           frontendSandboxed = lib.asserts.assertMsg (frontendIsLockedDown frontendUnit) "the dashboard unit must be sandboxed like the runner";
+
+          workerAndRepositoryHost = mkHost {
+            configFile = exampleConfigFile;
+            secretsFile = exampleSecretsFile;
+            modules = [
+              {
+                forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+                forge.runtime.workers.builder = {
+                  harness = "pi";
+                  model = "anthropic/claude-sonnet-4";
+                  prompt = "build the thing";
+                };
+                forge.runtime.repositories.forge.github = "rameezk/forge";
+              }
+            ];
+          };
 
           repositoryHost = mkHost {
             configFile = exampleConfigFile;
@@ -437,6 +459,7 @@
             assert runnerKeyOnly;
             assert noOpenRouterKeyFileOption;
             assert workerHostInstantiates;
+            assert runnerKeyHiddenFromOtherUnits;
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;

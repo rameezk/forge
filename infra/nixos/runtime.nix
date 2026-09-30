@@ -70,6 +70,11 @@ let
   hasWorkers = cfg.workers != { };
   hasRepositories = cfg.repositories != { };
 
+  runnerEnvFile = config.sops.templates."forge-runner.env".path;
+  hideRunnerEnvFile = lib.optionalAttrs hasWorkers {
+    InaccessiblePaths = [ "-${runnerEnvFile}" ];
+  };
+
   hardening = {
     NoNewPrivileges = true;
     ProtectSystem = "strict";
@@ -225,7 +230,7 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = config.sops.templates."forge-runner.env".path;
+          EnvironmentFile = runnerEnvFile;
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
@@ -289,7 +294,8 @@ in
           ];
           ExecStart = "${cfg.package}/bin/forge-frontier sync";
         }
-        // hardening;
+        // hardening
+        // hideRunnerEnvFile;
       };
 
       systemd.timers.forge-frontier-sync = {
@@ -330,7 +336,8 @@ in
           IPAddressAllow = "localhost";
           IPAddressDeny = "any";
         }
-        // hardening;
+        // hardening
+        // hideRunnerEnvFile;
       };
     })
   ];
