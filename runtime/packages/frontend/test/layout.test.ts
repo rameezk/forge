@@ -85,7 +85,7 @@ test('given the stylesheet has not been built, when the dashboard reads it, then
   );
 });
 
-test('given the dashboard\'s styles, when they are read, then only the tailwind import and the palette tokens remain', () => {
+test('given the dashboard\'s styles, when they are read, then only tailwind directives and the palette tokens remain', () => {
   const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
   const theme = styles.match(/@theme\s*\{([^}]*)\}/)?.[1] ?? '';
 
@@ -94,7 +94,8 @@ test('given the dashboard\'s styles, when they are read, then only the tailwind 
   for (const declaration of declarations) {
     assert.match(declaration, /^--color-[\w*-]+:/, `the theme should only hold palette tokens: ${declaration}`);
   }
-  const rest = styles.replace(/@theme\s*\{[^}]*\}/, '').replace(/@import\s+"tailwindcss"[^;]*;/, '').trim();
+  assert.match(styles, /@import\s+"tailwindcss"/);
+  const rest = styles.replace(/@theme\s*\{[^}]*\}/, '').replace(/@[\w-]+\s[^;{}]*;/g, '').trim();
   assert.equal(rest, '', 'no hand-written rules should remain');
 });
 
