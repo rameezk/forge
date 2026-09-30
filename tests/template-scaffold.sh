@@ -274,7 +274,12 @@ mkdir -p "$fake_bin"
 cat >"$fake_bin/tofu" <<'FAKE'
 #!/usr/bin/env bash
 echo "tofu HCLOUD_TOKEN=${HCLOUD_TOKEN:-<unset>} $*" >>"$FAKE_LOG"
-case " $* " in *" output "*) echo '{"server_ipv4":{"value":"203.0.113.10"}}' ;; esac
+case " $* " in *" output "*)
+	if [ -n "${FAKE_OUTPUT_ONCE:-}" ] && [ -e "$FAKE_OUTPUT_ONCE" ]; then exit 1; fi
+	[ -z "${FAKE_OUTPUT_ONCE:-}" ] || touch "$FAKE_OUTPUT_ONCE"
+	echo '{"server_ipv4":{"value":"203.0.113.10"}}'
+	;;
+esac
 case " $* " in *" apply "*)
 	if [ -n "${FAKE_BLOCK_APPLY:-}" ]; then
 		trap 'sleep 1; echo "tofu apply stopped cleanly" >>"$FAKE_LOG"; exit 1' INT
@@ -317,6 +322,7 @@ ControlMaster auto
 ControlPath ~/.ssh/cm-%C
 KnownHostsCommand /bin/echo %H
 GlobalKnownHostsFile ~/.ssh/global_known_hosts
+UpdateHostKeys yes
 CONFIG
 nix_cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 real_ssh="$(PATH="$toolchain_path" command -v ssh)"
@@ -345,6 +351,7 @@ pinned_to_repository() {
 		grep -qx "user forge" "$resolved" &&
 		grep -qx "port 2222" "$resolved" &&
 		grep -qx "globalknownhostsfile /dev/null" "$resolved" &&
+		grep -qx "updatehostkeys false" "$resolved" &&
 		! grep -q "^knownhostscommand " "$resolved"
 }
 
@@ -400,6 +407,18 @@ else
 	cat "$keys/fake.log"
 	fail=1
 fi
+
+echo "==> case: standup's probe decides only by connecting, never by a failed lookup"
+rm -f "$keys/output-read"
+if FAKE_OUTPUT_ONCE="$keys/output-read" just_with_fakes standup >"$work/standup-flaky.log" 2>&1 && grep -q "^ssh " "$keys/fake.log"; then
+	echo "ok: the probe connects with the address standup already read"
+else
+	echo "FAIL: the probe gave up before connecting when a repeated address lookup failed"
+	tail -10 "$work/standup-flaky.log"
+	cat "$keys/fake.log"
+	fail=1
+fi
+just_with_fakes standup >"$work/standup.log" 2>&1
 
 echo "==> case: standup decrypts the Hetzner token for each OpenTofu call from the operator secrets"
 if every_tofu_call_holds_the_token "-chdir=infra/opentofu init" "-chdir=infra/opentofu apply" "-chdir=infra/opentofu output"; then
