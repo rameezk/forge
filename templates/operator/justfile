@@ -1,15 +1,13 @@
 opentofu_dir := "infra/opentofu"
 operator_secrets := "secrets/operator.yaml"
 known_hosts := justfile_directory() / "known_hosts"
-pinned_host_key := "-o " + quote('UserKnownHostsFile="' + known_hosts + '"') + " -o StrictHostKeyChecking=yes -o CheckHostIP=no"
+pinned_host_key := "-o " + quote('UserKnownHostsFile="' + known_hosts + '"') + " -o GlobalKnownHostsFile=/dev/null -o KnownHostsCommand=none -o StrictHostKeyChecking=yes -o CheckHostIP=no"
 
 standup:
     #!/usr/bin/env bash
     set -euo pipefail
     host="$(nix eval --json .#lib.reflect)"
     hostname="$(jq -r '.hostname' <<<"$host")"
-    admin_user="$(jq -r '.adminUser' <<<"$host")"
-    ssh_port="$(jq -r '.sshPort' <<<"$host")"
     extra_files="$(mktemp -d)"
     trap 'rm -rf "$extra_files"' EXIT
     install -d -m 755 "$extra_files/etc/ssh"
@@ -26,9 +24,8 @@ standup:
         echo "error: OpenTofu applied but reports no server address to install onto." >&2
         exit 1
     fi
-    if ssh {{ pinned_host_key }} -o "HostKeyAlias=${hostname}" -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR \
-        -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes \
-        -p "$ssh_port" "${admin_user}@${ip}" true </dev/null 2>/dev/null; then
+    if {{ quote(just_executable()) }} ssh -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR \
+        -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes true </dev/null 2>/dev/null; then
         echo "error: ${hostname} at ${ip} is already installed, and standup would reformat its disk." >&2
         echo "  To apply a config change and keep the box's state, run 'just deploy'." >&2
         echo "  For a fresh box, run 'just teardown' then 'just standup'." >&2
@@ -63,7 +60,7 @@ ssh *args:
     fi
     host="$(nix eval --json .#lib.reflect)"
     hostname="$(jq -r '.hostname' <<<"$host")"
-    exec ssh {{ pinned_host_key }} -o "HostKeyAlias=${hostname}" -p "$(jq -r '.sshPort' <<<"$host")" "$(jq -r '.adminUser' <<<"$host")@${ip}" "$@"
+    exec ssh {{ pinned_host_key }} -o "HostKeyAlias=${hostname}" -o ControlMaster=no -o ControlPath=none -p "$(jq -r '.sshPort' <<<"$host")" "$(jq -r '.adminUser' <<<"$host")@${ip}" "$@"
 
 _address:
     #!/usr/bin/env bash

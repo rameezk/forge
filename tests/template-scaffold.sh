@@ -22,7 +22,7 @@ scaffold() {
 }
 
 fill_config() {
-	jq --arg k "$real_key" '.sshPublicKeys = [$k] | .hostname = "mybox"' "$work/config.example.json" >"$work/config.json"
+	jq --arg k "$real_key" '.sshPublicKeys = [$k] | .hostname = "mybox" | .sshPort = 2222' "$work/config.example.json" >"$work/config.json"
 }
 
 toolchain_path="$(nix develop "path:$forge" -c printenv PATH)"
@@ -287,7 +287,7 @@ FAKE
 cat >"$fake_bin/ssh" <<'FAKE'
 #!/usr/bin/env bash
 echo "ssh $*" >>"$FAKE_LOG"
-"$REAL_SSH" -G "$@" >"$FAKE_LOG.ssh"
+"$REAL_SSH" -F "$HOME/.ssh/config" -G "$@" >"$FAKE_LOG.ssh"
 exit 255
 FAKE
 cat >"$fake_bin/nixos-rebuild" <<'FAKE'
@@ -295,7 +295,7 @@ cat >"$fake_bin/nixos-rebuild" <<'FAKE'
 echo "nixos-rebuild $*" >>"$FAKE_LOG"
 eval "sshopts=($NIX_SSHOPTS)"
 while [ $# -gt 0 ]; do
-	if [ "$1" = --target-host ]; then "$REAL_SSH" -G "${sshopts[@]}" "$2" >"$FAKE_LOG.ssh"; fi
+	if [ "$1" = --target-host ]; then "$REAL_SSH" -F "$HOME/.ssh/config" -G "${sshopts[@]}" "$2" >"$FAKE_LOG.ssh"; fi
 	shift
 done
 FAKE
@@ -310,8 +310,14 @@ FAKE
 chmod +x "$fake_bin"/*
 fake_home="$keys/home"
 mkdir -p "$fake_home/.ssh"
-user_known_hosts="$(printf '203.0.113.10 %s\n[203.0.113.10]:22 %s\n' "$(cat "$keys/host_key.pub")" "$(cat "$keys/host_key.pub")")"
+user_known_hosts="$(printf '203.0.113.10 %s\n[203.0.113.10]:2222 %s\n' "$(cat "$keys/host_key.pub")" "$(cat "$keys/host_key.pub")")"
 printf '%s\n' "$user_known_hosts" >"$fake_home/.ssh/known_hosts"
+cat >"$fake_home/.ssh/config" <<'CONFIG'
+ControlMaster auto
+ControlPath ~/.ssh/cm-%C
+KnownHostsCommand /bin/echo %H
+GlobalKnownHostsFile ~/.ssh/global_known_hosts
+CONFIG
 nix_cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 real_ssh="$(PATH="$toolchain_path" command -v ssh)"
 
@@ -337,7 +343,13 @@ pinned_to_repository() {
 		grep -qx "stricthostkeychecking true" "$resolved" &&
 		grep -qx "hostname 203.0.113.10" "$resolved" &&
 		grep -qx "user forge" "$resolved" &&
-		grep -qx "port 22" "$resolved"
+		grep -qx "port 2222" "$resolved" &&
+		grep -qx "globalknownhostsfile /dev/null" "$resolved" &&
+		! grep -q "^knownhostscommand " "$resolved"
+}
+
+never_multiplexed() {
+	grep -qx "controlmaster false" "$1" && ! grep -q "^controlpath " "$1"
 }
 
 echo "==> case: just ssh connects to the box pinned to the repository's host key"
@@ -345,13 +357,13 @@ scaffold
 fill_operator_repo
 (cd "$work" && nix flake lock "${override[@]}" >/dev/null 2>&1 && git add flake.lock)
 just_with_fakes ssh -N -L 7787:localhost:7787 >"$work/ssh.log" 2>&1 || true
-if [ -f "$keys/fake.log.ssh" ] && pinned_to_repository "$keys/fake.log.ssh" &&
+if [ -f "$keys/fake.log.ssh" ] && pinned_to_repository "$keys/fake.log.ssh" && never_multiplexed "$keys/fake.log.ssh" &&
 	grep -qx "localforward 7787 \[localhost\]:7787" "$keys/fake.log.ssh" && grep -q "^ssh .* -N " "$keys/fake.log"; then
-	echo "ok: just ssh connects as the admin user with the hostname alias, the repository known_hosts and strict checking, passing extra arguments through"
+	echo "ok: just ssh connects as the admin user with the hostname alias, only the repository known_hosts, strict checking and no shared connection, passing extra arguments through"
 else
 	echo "FAIL: just ssh did not connect pinned to the repository's host key with extra arguments passed through"
 	tail -10 "$work/ssh.log"
-	cat "$keys/fake.log"; grep -iE "hostkeyalias|userknownhostsfile|stricthostkeychecking|^hostname|^user |^port |localforward" "$keys/fake.log.ssh"
+	cat "$keys/fake.log"; grep -iE "hostkeyalias|knownhosts|stricthostkeychecking|^control|^hostname|^user |^port |localforward" "$keys/fake.log.ssh"
 	fail=1
 fi
 
@@ -381,7 +393,7 @@ else
 fi
 
 echo "==> case: standup's already-installed probe is pinned, and only the pre-install connection is not"
-if pinned_to_repository "$keys/fake.log.ssh" && ! grep "^nixos-anywhere " "$keys/fake.log" | grep -qiE "ssh-option|known_hosts|StrictHostKeyChecking"; then
+if pinned_to_repository "$keys/fake.log.ssh" && never_multiplexed "$keys/fake.log.ssh" && ! grep "^nixos-anywhere " "$keys/fake.log" | grep -qiE "ssh-option|known_hosts|StrictHostKeyChecking"; then
 	echo "ok: the probe uses the hostname alias, the repository known_hosts and strict checking, and nixos-anywhere keeps its own non-strict defaults"
 else
 	echo "FAIL: standup's probe is not pinned to the repository's host key, or nixos-anywhere was given host key options"
