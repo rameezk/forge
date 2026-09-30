@@ -131,7 +131,7 @@ const layout = (
       </body>
     </html>`;
 
-const UNCONFIRMED_BADGE = html`<span class="badge" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
+const UNCONFIRMED_BADGE = html`<span class="badge" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
 
 const renderCost = (run: RunRecord): Rendered => {
   switch (run.costStatus) {
@@ -145,7 +145,7 @@ const renderCost = (run: RunRecord): Rendered => {
 };
 
 const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="status status-${status}">${status}</span>`;
+  html`<span class="status status-${status}" data-status="${status}">${status}</span>`;
 
 const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}">${formatStarted(iso)}</time>`;
@@ -182,13 +182,13 @@ export const renderList = (
               </thead>
               <tbody>
                 ${runs.map(
-                  (run) => html`<tr class="run cost-${run.costStatus}">
+                  (run) => html`<tr class="run cost-${run.costStatus}" data-run="${run.id}">
                     <td><a href="/runs/${run.id}">${run.worker}</a></td>
                     <td>${run.model}</td>
                     <td>${renderTimestamp(run.startTime)}</td>
                     <td>${formatDuration(run.startTime, run.endTime)}</td>
                     <td>${renderStatus(run.status)}</td>
-                    <td class="cost">${renderCost(run)}</td>
+                    <td class="cost" data-cost>${renderCost(run)}</td>
                   </tr>`,
                 )}
               </tbody>
@@ -207,7 +207,7 @@ const renderText = (
   kind: string,
   text: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<article class="message message-${kind}">
+  html`<article class="message message-${kind}" data-message="${kind}">
     <header>${kind}</header>
     <pre>${text}</pre>
   </article>`;
@@ -256,9 +256,9 @@ const toolResults = (events: HarnessEvent[]): ToolResults => {
 };
 
 const toolName = (name: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="tool-name">${name}</span>`;
+  html`<span class="tool-name" data-tool-name>${name}</span>`;
 
-const ERROR_BADGE = html`<span class="badge tool-status">error</span>`;
+const ERROR_BADGE = html`<span class="badge tool-status" data-badge="error">error</span>`;
 
 const renderToolCall = (
   call: ToolCallEvent,
@@ -266,7 +266,7 @@ const renderToolCall = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const summary = argumentSummary(call.arguments);
   const failed = result?.isError === true;
-  return html`<details class="tool${failed ? ' tool-error' : ''}"${failed ? html` open` : ''}>
+  return html`<details class="tool${failed ? ' tool-error' : ''}" data-tool-call${failed ? html` data-failed open` : ''}>
     <summary>
       ${toolName(call.name)}
       <code title="${summary}">${summary}</code>
@@ -295,7 +295,7 @@ const renderEvent = (
     case 'tool_result':
       return '';
     case 'result':
-      return html`<article class="message message-result">${renderStatus(event.status)}${event.error === null
+      return html`<article class="message message-result" data-message="result">${renderStatus(event.status)}${event.error === null
         ? ''
         : html`<span>${event.error}</span>`}</article>`;
   }
@@ -391,7 +391,7 @@ const renderGroup = (
   open: boolean,
   body: Rendered[],
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<details class="subagent"${open ? html` open` : ''}>
+  html`<details class="subagent" data-subagent-group${open ? html` open` : ''}>
     <summary>
       ${summary}
       <span class="subagent-count">${count}</span>
@@ -411,13 +411,13 @@ const renderSubagentCall = (
   const task = taskText(call.arguments);
   const { cwd } = argumentFields(call.arguments);
   const shown = withoutToolOnlyPreambles(events);
-  return html`<section class="tool subagent-call${failed ? ' tool-error' : ''}">
+  return html`<section class="tool subagent-call${failed ? ' tool-error' : ''}" data-subagent-call${failed ? html` data-failed` : ''}>
     <header>
       ${toolName(call.name)}
       ${failed ? ERROR_BADGE : ''}
     </header>
     ${renderGroup(
-      html`<span class="subagent-task" title="${oneLine(task)}">${oneLine(task)}</span>`,
+      html`<span class="subagent-task" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
       messageCount(shown),
       failed,
       [
@@ -505,7 +505,7 @@ const renderRepository = ({
   lastError,
   tickets,
 }: RepositoryFrontier): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<section class="repository${lastError === null ? '' : ' stale'}">
+  html`<section class="repository${lastError === null ? '' : ' stale'}" data-repository="${repository}"${lastError === null ? '' : html` data-stale`}>
     <header>
       <h2>${repository}</h2>
       ${isGithubRepository(github)
@@ -515,7 +515,7 @@ const renderRepository = ({
     </header>
     ${lastError === null
       ? ''
-      : html`<p class="status-error">Last poll failed ${renderTimestamp(lastError.failedAt)}: ${lastError.message}</p>`}
+      : html`<p class="status-error" data-poll-error>Last poll failed ${renderTimestamp(lastError.failedAt)}: ${lastError.message}</p>`}
     ${polledAt === null
       ? ''
       : tickets.length === 0
@@ -532,7 +532,7 @@ const renderRepository = ({
             </thead>
             <tbody>
               ${tickets.map(
-                (ticket) => html`<tr class="ticket">
+                (ticket) => html`<tr class="ticket" data-ticket="${ticket.number}">
                   <td class="number">${isGithubUrl(ticket.url)
                     ? html`<a href="${ticket.url}">#${ticket.number}</a>`
                     : html`#${ticket.number}`}</td>

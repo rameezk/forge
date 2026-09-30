@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { HarnessEvent, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
+import { openingTag, textOf } from './html.ts';
 
 const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   id: 'run-01',
@@ -54,11 +55,11 @@ test('given several finished runs, when the list is requested, then they render 
   assert.match(body, /\$0\.6000/, 'total cost tally should sum the runs');
 });
 
-const textOf = (fragment: string): string =>
-  fragment.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+const rowFor = (body: string, id: string): string =>
+  body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
 
-const rowFor = (body: string, worker: string): string =>
-  body.match(new RegExp(`<tr class="run[^"]*">(?:(?!</tr>)[\\s\\S])*>${worker}<[\\s\\S]*?</tr>`))?.[0] ?? '';
+const statusIn = (fragment: string): string =>
+  fragment.match(/<span[^>]*\sdata-status="[^"]*"[^>]*>[^<]*<\/span>/)?.[0] ?? 'missing';
 
 test('given a billed run costing $0.00093252, an unconfirmed run, and a pending run, when the list is requested, then each shows its cost status readably and the total adds the billed and unconfirmed runs followed by how many are pending', async () => {
   const app = appWith([
@@ -68,14 +69,29 @@ test('given a billed run costing $0.00093252, an unconfirmed run, and a pending 
   ]);
 
   const body = await (await app.request('/')).text();
-  const cost = (worker: string): string =>
-    textOf(rowFor(body, worker).match(/<td class="cost">[\s\S]*?<\/td>/)?.[0] ?? '');
+  const cost = (id: string): string =>
+    textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '');
 
-  assert.equal(cost('billed-worker'), '$0.000933');
-  assert.equal(cost('unconfirmed-worker'), '$0.012500 unconfirmed');
-  assert.match(rowFor(body, 'unconfirmed-worker'), /<span class="badge" title="[^"]+">unconfirmed<\/span>/);
-  assert.equal(cost('pending-worker'), 'pending');
+  assert.equal(cost('billed'), '$0.000933');
+  assert.equal(cost('unconfirmed'), '$0.012500 unconfirmed');
+  assert.match(rowFor(body, 'unconfirmed'), /<span[^>]*\sdata-badge="unconfirmed"[^>]*\stitle="[^"]+"[^>]*>unconfirmed<\/span>/);
+  assert.equal(cost('pending'), 'pending');
   assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.0134 +1 pending');
+});
+
+test('given a successful, a failed and a running run, when the list is requested, then each row shows its own status', async () => {
+  const app = appWith([
+    sampleRun({ id: 'ok', status: 'success' }),
+    sampleRun({ id: 'failed', status: 'error', error: 'provider exploded' }),
+    sampleRun({ id: 'running', status: 'running', endTime: null, costStatus: 'pending' }),
+  ]);
+
+  const body = await (await app.request('/')).text();
+  for (const [id, status] of [['ok', 'success'], ['failed', 'error'], ['running', 'running']] as const) {
+    const badge = statusIn(rowFor(body, id));
+    assert.match(badge, new RegExp(`\\sdata-status="${status}"`));
+    assert.equal(textOf(badge), status);
+  }
 });
 
 test('given only settled runs, when the list is requested, then the total carries no pending count', async () => {
@@ -102,7 +118,7 @@ test('given a pending run and an unconfirmed run, when each transcript page is r
   assert.equal(textOf(await cost('pending')), 'pending');
   const unconfirmed = await cost('unconfirmed');
   assert.equal(textOf(unconfirmed), '$0.012500 unconfirmed');
-  assert.match(unconfirmed, /<span class="badge" title="[^"]+">unconfirmed<\/span>/);
+  assert.match(unconfirmed, /<span[^>]*\sdata-badge="unconfirmed"[^>]*\stitle="[^"]+"[^>]*>unconfirmed<\/span>/);
 });
 
 test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and its run page are requested, then both show the start as absolute UTC to the second with the ISO value as a tooltip', async () => {
@@ -112,7 +128,7 @@ test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and it
   const list = await (await app.request('/')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
-  assert.ok(rowFor(list, 'refiner').includes(`<td>${started}</td>`));
+  assert.ok(rowFor(list, 'run-01').includes(`<td>${started}</td>`));
   assert.equal(detail.match(/<dt>Started<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1], started);
 });
 
@@ -168,24 +184,23 @@ test('given a successful run and a failed run, when each run page is requested, 
     sampleRun({ id: 'failed', worker: 'failed-worker', status: 'error', error: 'provider exploded', transcriptRef: 'failed.jsonl' }),
   ], dir);
   const list = await (await app.request('/')).text();
-  const listBadge = (worker: string): string =>
-    rowFor(list, worker).match(/<span class="status [^"]*">[^<]*<\/span>/)?.[0] ?? 'missing';
+  const listBadge = (id: string): string => statusIn(rowFor(list, id));
   const page = async (id: string) => {
     const body = await (await app.request(`/runs/${id}`)).text();
     return {
       header: body.match(/<dt>Status<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1] ?? '',
-      closing: body.match(/<article class="message message-result">([\s\S]*?)<\/article>\s*<\/main>/)?.[1] ?? '',
+      closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/main>/)?.[1] ?? '',
     };
   };
 
   const { header: okHeader, closing: ok } = await page('ok');
   const { header: failedHeader, closing: failed } = await page('failed');
 
-  assert.equal(okHeader, listBadge('ok-worker'));
-  assert.equal(failedHeader, listBadge('failed-worker'));
-  assert.ok(ok.includes(listBadge('ok-worker')), ok);
+  assert.equal(okHeader, listBadge('ok'));
+  assert.equal(failedHeader, listBadge('failed'));
+  assert.ok(ok.includes(listBadge('ok')), ok);
   assert.equal(textOf(ok), 'success');
-  assert.ok(failed.includes(listBadge('failed-worker')), failed);
+  assert.ok(failed.includes(listBadge('failed')), failed);
   assert.equal(textOf(failed), 'error provider exploded');
 });
 
@@ -211,8 +226,8 @@ const detailsBlocks = (body: string, opening: RegExp): string[] => {
   return blocks;
 };
 
-const subagentGroups = (body: string): string[] => detailsBlocks(body, /<details class="subagent"/g);
-const subagentCalls = (body: string): string[] => body.match(/<section class="tool subagent-call[\s\S]*?<\/section>/g) ?? [];
+const subagentGroups = (body: string): string[] => detailsBlocks(body, /<details[^>]*\sdata-subagent-group[\s>]/g);
+const subagentCalls = (body: string): string[] => body.match(/<section[^>]*\sdata-subagent-call[\s>][\s\S]*?<\/section>/g) ?? [];
 
 test('given a transcript written before subagent calls were recorded, when its transcript is viewed, then each subagent scope still renders grouped and collapsed under its scope and the parent renders ungrouped', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
@@ -238,10 +253,10 @@ test('given a transcript written before subagent calls were recorded, when its t
   assert.match(beta, /beta scanning for secrets[\s\S]*beta report: clean/);
   assert.doesNotMatch(beta, /alpha|parent/);
   for (const group of groups) {
-    assert.doesNotMatch(group.slice(0, group.indexOf('>')), /\bopen\b/, 'groups are collapsed by default');
+    assert.doesNotMatch(openingTag(group), /\sopen[\s>]/, 'groups are collapsed by default');
   }
   assert.match(alpha, /<summary>[\s\S]*call-alpha[\s\S]*2 messages[\s\S]*<\/summary>/, 'a collapsed group names its subagent and how much it did');
-  assert.doesNotMatch(body, /class="message message-report"/, 'without a recorded subagent result there is no report card');
+  assert.doesNotMatch(body, /data-message="report"/, 'without a recorded subagent result there is no report card');
   assert.equal(subagentCalls(body).length, 0);
   assert.ok(
     body.indexOf('parent delegates two reviews') < body.indexOf(alpha) &&
@@ -266,12 +281,12 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
   const list = await (await app.request('/')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
-  assert.match(list, /<td class="cost">\s*\$0\.750000/);
+  assert.match(list, /<td[^>]*\sdata-cost(?=[\s>])[^>]*>\s*\$0\.750000/);
   assert.match(detail, /\$0\.750000/);
   assert.match(detail, /1,000 in \/ 100 out/);
 });
 
-const toolCards = (body: string): string[] => detailsBlocks(body, /<details class="tool[ "]/g);
+const toolCards = (body: string): string[] => detailsBlocks(body, /<details[^>]*\sdata-tool-call[\s>]/g);
 
 const viewTranscript = async (events: HarnessEvent[]): Promise<string> => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
@@ -294,7 +309,7 @@ test('given a run whose agent made a bash call in a turn with no text, when its 
   assert.equal(cards.length, 1);
   const [card] = cards as [string];
   assert.match(card, /<summary>[\s\S]*bash[\s\S]*echo forge[\s\S]*<\/summary>/);
-  assert.doesNotMatch(card.slice(0, card.indexOf('>')), /\bopen\b/, 'a successful call is collapsed by default');
+  assert.doesNotMatch(openingTag(card), /\sopen[\s>]/, 'a successful call is collapsed by default');
   assert.doesNotMatch(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
   assert.ok(
     body.indexOf('run echo forge') < body.indexOf(card) && body.indexOf(card) < body.indexOf('it printed forge'),
@@ -331,10 +346,9 @@ test('given a run with a tool call that returned an error beside one that succee
   ]);
 
   const [ok, failed] = toolCards(body) as [string, string];
-  const openingTag = (card: string): string => card.slice(0, card.indexOf('>'));
-  assert.equal(openingTag(ok), '<details class="tool"');
-  assert.match(openingTag(failed), /class="tool tool-error"/);
-  assert.match(openingTag(failed), /\bopen\b/);
+  assert.doesNotMatch(openingTag(ok), /\sdata-failed[\s>]|\sopen[\s>]/);
+  assert.match(openingTag(failed), /\sdata-failed[\s>]/);
+  assert.match(openingTag(failed), /\sopen[\s>]/);
   assert.match(failed, /No such file or directory/);
 });
 
@@ -382,9 +396,10 @@ test('given a transcript written before tool events were recorded, when its run 
   ]);
 
   assert.equal(toolCards(body).length, 0);
-  assert.equal(body.match(/<article class="message message-assistant">/g)?.length, 2);
+  assert.equal(body.match(/<article[^>]*\sdata-message="assistant"/g)?.length, 2);
   assert.match(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
-  assert.match(body, /<article class="message message-result"><span class="status status-success">success<\/span><\/article>/);
+  const result = body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>/)?.[1] ?? '';
+  assert.match(result, /^<span[^>]*\sdata-status="success"[^>]*>success<\/span>$/);
 });
 
 test('given a provider that reuses a tool call id across turns, when the run page is viewed, then each card shows the result that followed it', async () => {
@@ -398,10 +413,10 @@ test('given a provider that reuses a tool call id across turns, when the run pag
 
   const [first, second] = toolCards(body) as [string, string];
   assert.match(first, /echo first[\s\S]*first output/);
-  assert.match(first, /class="tool tool-error"/);
+  assert.match(openingTag(first), /\sdata-failed[\s>]/);
   assert.doesNotMatch(first, /second output/);
   assert.match(second, /echo second[\s\S]*second output/);
-  assert.doesNotMatch(second, /first output|tool-error/);
+  assert.doesNotMatch(second, /first output|data-failed/);
 });
 
 const delegation: HarnessEvent[] = [
@@ -446,8 +461,8 @@ test('given a run whose agent spawned two subagents, when its run page is viewed
 
   const [alpha, beta] = subagentCalls(body) as [string, string];
   const summaryOf = (card: string): string => card.slice(card.indexOf('<summary>'), card.indexOf('</summary>'));
-  assert.match(summaryOf(alpha), /<span class="subagent-task" title="Run echo alpha and report what it printed\.">Run echo alpha and report what it printed\.<\/span>/);
-  assert.match(summaryOf(beta), /<span class="subagent-task" title="Say beta\.">Say beta\.<\/span>/);
+  assert.match(summaryOf(alpha), /<span[^>]*\sdata-subagent-task[^>]*\stitle="Run echo alpha and report what it printed\."[^>]*>Run echo alpha and report what it printed\.<\/span>/);
+  assert.match(summaryOf(beta), /<span[^>]*\sdata-subagent-task[^>]*\stitle="Say beta\."[^>]*>Say beta\.<\/span>/);
   assert.match(summaryOf(alpha), /2 messages/);
   assert.match(summaryOf(beta), /1 message\b/);
   assert.doesNotMatch(body, /call_alpha|call_beta/);
@@ -463,7 +478,7 @@ test('given a subagent given a long multi-line task, when its group is expanded,
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /<span class="subagent-task" title="Review the diff\. Report each finding with its file and line\.">/);
+  assert.match(card, /<span[^>]*\sdata-subagent-task[^>]*\stitle="Review the diff\. Report each finding with its file and line\."/);
   assert.match(card, /<header>task<\/header>\s*<pre>Review the diff\.\n\nReport each finding with its file and line\.<\/pre>/);
 });
 
@@ -473,9 +488,9 @@ test('given a run whose agent spawned two subagents, when a group is viewed, the
   const [alpha, beta] = subagentCalls(body) as [string, string];
   assert.equal(alpha.match(/Alpha report: echo alpha printed alpha\./g)?.length, 1);
   assert.equal(beta.match(/Beta report: beta\./g)?.length, 1);
-  assert.match(alpha, /<article class="message message-report">\s*<header>report<\/header>\s*<pre>Alpha report: echo alpha printed alpha\.<\/pre>\s*<\/article>\s*<\/div>\s*<\/details>/, 'the report closes the group');
+  assert.match(alpha, /<article[^>]*\sdata-message="report"[^>]*>\s*<header>report<\/header>\s*<pre>Alpha report: echo alpha printed alpha\.<\/pre>\s*<\/article>\s*<\/div>\s*<\/details>/, 'the report closes the group');
   assert.match(alpha, /<header>assistant<\/header>\s*<pre>Running it\.<\/pre>/, 'earlier child messages still render');
-  assert.equal(body.match(/class="message message-report"/g)?.length, 2);
+  assert.equal(body.match(/\sdata-message="report"/g)?.length, 2);
 });
 
 test("given a subagent whose final message differs from the result the parent received, when its group is viewed, then both render and the report is the parent's result", async () => {
@@ -503,14 +518,17 @@ test('given a subagent call that returned an error, when its run page is viewed,
   ]);
 
   const [failed, ok] = subagentCalls(body) as [string, string];
-  assert.match(failed, /^<section class="tool subagent-call tool-error">/);
-  assert.match(failed, /<span class="badge tool-status">error<\/span>/);
-  assert.match(failed, /<details class="subagent" open>/);
+  assert.match(openingTag(failed), /\sdata-failed[\s>]/);
+  assert.match(failed, /<span[^>]*\sdata-badge="error"[^>]*>error<\/span>/);
+  assert.match(openingTag(subagentGroups(failed)[0] ?? ''), /\sopen[\s>]/);
   assert.match(failed, /<header>assistant<\/header>\s*<pre>partial<\/pre>/);
-  assert.match(failed, /<article class="message message-error">\s*<header>error<\/header>\s*<pre>Sub-agent failed: provider error<\/pre>/);
-  assert.match(ok, /^<section class="tool subagent-call">/);
-  assert.match(ok, /<details class="subagent">/);
-  assert.doesNotMatch(ok, /tool-status/);
+  assert.match(failed, /<article[^>]*\sdata-message="error"[^>]*>\s*<header>error<\/header>\s*<pre>Sub-agent failed: provider error<\/pre>/);
+  assert.doesNotMatch(openingTag(ok), /\sdata-failed[\s>]/);
+  const [okGroup, ...extraGroups] = subagentGroups(ok);
+  assert.deepEqual(extraGroups, []);
+  assert.ok(okGroup, 'the successful call has its group');
+  assert.doesNotMatch(openingTag(okGroup), /\sopen[\s>]/);
+  assert.doesNotMatch(ok, /data-badge=/);
 });
 
 test('given a subagent call that never got a result, when its run page is viewed, then its group says no report was recorded', async () => {
@@ -521,8 +539,8 @@ test('given a subagent call that never got a result, when its run page is viewed
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /working on it[\s\S]*<p class="empty">No report recorded\.<\/p>/);
-  assert.doesNotMatch(card, /class="message message-report"/);
+  assert.match(card, /working on it[\s\S]*<p[^>]*>No report recorded\.<\/p>/);
+  assert.doesNotMatch(card, /data-message="report"/);
 });
 
 test('given a provider that reuses a subagent call id across turns, when the run page is viewed, then each child nests under the call that spawned it', async () => {
@@ -566,9 +584,9 @@ test('given a subagent call whose arguments carry no task text, when its run pag
   ]);
 
   const [alpha, beta] = subagentCalls(body) as [string, string];
-  assert.match(alpha, /<span class="subagent-task" title="\{ &quot;cwd&quot;: &quot;repo&quot; \}">/);
+  assert.match(alpha, /<span[^>]*\sdata-subagent-task[^>]*\stitle="\{ &quot;cwd&quot;: &quot;repo&quot; \}"/);
   assert.match(alpha, /<header>task<\/header>\s*<pre>\{\n  &quot;cwd&quot;: &quot;repo&quot;\n\}<\/pre>/);
-  assert.match(beta, /<span class="subagent-task" title="\{&quot;task&quot;:&quot;Review the diff \.\.\.cut">/);
+  assert.match(beta, /<span[^>]*\sdata-subagent-task[^>]*\stitle="\{&quot;task&quot;:&quot;Review the diff \.\.\.cut"/);
   assert.match(beta, /<header>task<\/header>\s*<pre>\{&quot;task&quot;:&quot;Review the diff\n\.\.\.cut<\/pre>/);
 });
 
@@ -581,7 +599,7 @@ test('given a harness whose spawning tool has another name, when its run page is
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /<span class="tool-name">Task<\/span>[\s\S]*Count the files\.[\s\S]*<header>report<\/header>\s*<pre>three files<\/pre>/);
+  assert.match(card, /<span[^>]*\sdata-tool-name[^>]*>Task<\/span>[\s\S]*Count the files\.[\s\S]*<header>report<\/header>\s*<pre>three files<\/pre>/);
   assert.equal(toolCards(body).length, 0);
 });
 
@@ -594,6 +612,7 @@ test('given a subagent call that failed before its child produced any activity, 
 
   assert.equal(subagentCalls(body).length, 0);
   const [card] = toolCards(body) as [string];
-  assert.match(card, /^<details class="tool tool-error" open>/);
+  assert.match(openingTag(card), /\sdata-failed[\s>]/);
+  assert.match(openingTag(card), /\sopen[\s>]/);
   assert.match(card, /List the files\.[\s\S]*\.\.\/outside[\s\S]*working directory escapes the run directory/);
 });

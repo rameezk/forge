@@ -367,8 +367,7 @@ const dashboardCost = async (stateDir: string): Promise<string> => {
       transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
     });
     const body = await (await app.request('/')).text();
-    const rows = body.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0] ?? '';
-    return (rows.match(/<td class="cost">([\s\S]*?)<\/td>/)?.[1] ?? '')
+    return (body.match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>([\s\S]*?)<\/td>/)?.[1] ?? '')
       .replace(/<[^>]*>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
