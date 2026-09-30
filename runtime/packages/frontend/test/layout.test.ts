@@ -34,7 +34,7 @@ const appWith = ({ css = '', logo = '' }: { css?: string; logo?: string }) => {
   });
 };
 
-const PAGES = ['/', '/runs/run-01', '/work'];
+const PAGES = ['/', '/runs/run-01', '/work'] as const;
 
 const stylesheetLinks = (body: string): string[] =>
   [...body.matchAll(/<link[^>]*\srel="stylesheet"[^>]*>/g)].map(
@@ -127,4 +127,18 @@ test('given the logo path the pages reference, when it is requested, then it ret
 
   const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/')).text()), 'href');
   assert.notEqual(other, path, 'a different logo should get a different path');
+});
+
+test('given each dashboard page, when it is requested, then its title names the page followed by Forge', async () => {
+  const app = appWith({});
+  const titles: Record<(typeof PAGES)[number], string> = {
+    '/': 'Workloads | Forge',
+    '/runs/run-01': 'refiner | Forge',
+    '/work': 'Frontier | Forge',
+  };
+
+  for (const page of PAGES) {
+    const body = await (await app.request(page)).text();
+    assert.equal(textOf(body.match(/<title>[\s\S]*?<\/title>/)?.[0] ?? ''), titles[page], `${page} should be titled ${titles[page]}`);
+  }
 });
