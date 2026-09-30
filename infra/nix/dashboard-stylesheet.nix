@@ -48,7 +48,7 @@ runCommand "dashboard-stylesheet"
     cmp -s served.css ${runtime}/packages/frontend/dist/dashboard.css || fail "the served stylesheet is not the package's build"
     grep -q 'tailwindcss v4' served.css || fail "the served stylesheet is not built by Tailwind v4"
     styles() {
-      selector="$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/\\&/g; s/[][\.*^$+?(){}|/]/\\&/g')"
+      selector="$(printf '%s' "$1" | sed 's/[^A-Za-z0-9_-]/\\&/g; s/[][\.*^$+?(){}|]/\\&/g')"
       grep -qE "\.$selector([^-A-Za-z0-9_\\\\]|\$)" served.css
     }
     styled=""
