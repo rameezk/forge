@@ -118,7 +118,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runtime package providing the forge-run, forge-frontier and forge-frontend entry points.";
+      description = "Runtime package providing the forge-run, forge-billing, forge-frontier and forge-frontend entry points.";
     };
 
     dashboardPort = lib.mkOption {
@@ -131,7 +131,7 @@ in
       type = lib.types.str;
       default = "${cfg.stateDir}/openrouter.env";
       defaultText = lib.literalExpression ''"''${cfg.stateDir}/openrouter.env"'';
-      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets OPENROUTER_API_KEY for the runner.";
+      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets OPENROUTER_API_KEY for the runner and the billing service.";
     };
 
     githubTokenFile = lib.mkOption {
@@ -228,6 +228,31 @@ in
           ExecStart = "${cfg.package}/bin/forge-run %i";
         }
         // hardening;
+      };
+
+      systemd.services.forge-billing = {
+        description = "Forge billing: settle runs' billed cost from OpenRouter";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          EnvironmentFile = cfg.openRouterKeyFile;
+          Environment = [ "FORGE_STATE_DIR=${cfg.stateDir}" ];
+          ExecStart = "${cfg.package}/bin/forge-billing";
+        }
+        // hardening;
+      };
+
+      systemd.timers.forge-billing = {
+        description = "Settle runs' billed cost";
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "1min";
+          OnUnitActiveSec = "1min";
+        };
       };
     })
 

@@ -6,8 +6,6 @@ import type {
 import type {
   Harness,
   HarnessInvocation,
-  HarnessRun,
-  RunCost,
   TranscriptWriter,
   Worker,
 } from '../src/index.ts';
@@ -19,7 +17,7 @@ export const message = (
   role: 'assistant',
   text: 'hello',
   usage: { inputTokens: 100, outputTokens: 40 },
-  costUsd: 0.02,
+  generationId: 'gen-1',
   ...overrides,
 });
 
@@ -45,36 +43,23 @@ export interface FakeHarness extends Harness {
   readonly invocations: HarnessInvocation[];
 }
 
-const SETTLED_COST: RunCost = { costUsd: 0.02, costStatus: 'billed' };
-
 export const fakeHarness = (
   events: HarnessEvent[],
   hooks: {
     beforeEach?: (index: number) => Promise<void> | void;
-    cost?: RunCost | Error;
   } = {},
 ): FakeHarness => {
   const invocations: HarnessInvocation[] = [];
   return {
     invocations,
-    run(invocation: HarnessInvocation): HarnessRun {
+    async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
       invocations.push(invocation);
-      return {
-        events: (async function* () {
-          let index = 0;
-          for (const event of events) {
-            await hooks.beforeEach?.(index);
-            index += 1;
-            yield event;
-          }
-        })(),
-        cost: async () => {
-          if (hooks.cost instanceof Error) {
-            throw hooks.cost;
-          }
-          return hooks.cost ?? SETTLED_COST;
-        },
-      };
+      let index = 0;
+      for (const event of events) {
+        await hooks.beforeEach?.(index);
+        index += 1;
+        yield event;
+      }
     },
   };
 };
@@ -83,15 +68,10 @@ export const throwingHarness = (
   events: HarnessEvent[],
   error: Error,
 ): Harness => ({
-  run: (): HarnessRun => ({
-    events: (async function* () {
-      for (const event of events) {
-        yield event;
-      }
-      throw error;
-    })(),
-    cost: async () => SETTLED_COST,
-  }),
+  async *run(): AsyncIterable<HarnessEvent> {
+    yield* events;
+    throw error;
+  },
 });
 
 export interface ArrayTranscripts {

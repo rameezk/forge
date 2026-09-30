@@ -9,6 +9,9 @@
     "@forge/pi-subagent": "0.0.0",
     "@forge/shared": "0.0.0"
   },
+  "devDependencies": {
+    "@forge/frontend": "0.0.0"
+  },
   "scripts": {
     "test": "node --test 'test/**/*.test.ts'"
   }

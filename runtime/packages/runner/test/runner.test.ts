@@ -40,7 +40,7 @@ const runWith = async (
 test('given a declared worker and a harness that ends normally, when it runs on demand, then a run is recorded and finalized as success with an end time and token counts', async () => {
   const store = Store.open(':memory:');
   const harness = fakeHarness([
-    message({ usage: { inputTokens: 100, outputTokens: 40 }, costUsd: 0.02 }),
+    message({ usage: { inputTokens: 100, outputTokens: 40 } }),
     result({ status: 'success', sessionId: 'sess-1' }),
   ]);
 
@@ -71,21 +71,30 @@ test('given a declared worker and a harness that ends normally, when it runs on 
   assert.equal(run?.error, null);
 });
 
-test('given a multi-message run whose harness reports a billed run cost, when the run completes, then the run records that cost rather than per-message costs and sums the tokens', async () => {
-  const { run } = await runWith(
-    [
-      message({ usage: { inputTokens: 10, outputTokens: 5 }, costUsd: 0.5 }),
-      message({ usage: { inputTokens: 20, outputTokens: 7 }, costUsd: 0.25 }),
-      result({ status: 'success' }),
-    ],
-    { hooks: { cost: { costUsd: 0.875, costStatus: 'billed' } } },
-  );
+test('given a multi-message run, when it completes, then each assistant generation is recorded against the run with its subagent, the tokens are summed, and the cost stays pending for billing to settle', async () => {
+  const { store, run } = await runWith([
+    message({ usage: { inputTokens: 10, outputTokens: 5 }, generationId: 'gen-a' }),
+    message({
+      usage: { inputTokens: 20, outputTokens: 7 },
+      generationId: 'gen-b',
+      subagent: 'call_alpha',
+    }),
+    message({ role: 'user', usage: { inputTokens: 3, outputTokens: 0 }, generationId: null }),
+    result({ status: 'success' }),
+  ]);
 
   assert.equal(run?.status, 'success');
-  assert.equal(run?.costUsd, 0.875);
-  assert.equal(run?.inputTokens, 30);
+  assert.equal(run?.inputTokens, 33);
   assert.equal(run?.outputTokens, 12);
-  assert.equal(run?.costStatus, 'billed');
+  assert.equal(run?.costUsd, 0);
+  assert.equal(run?.costStatus, 'pending');
+  assert.deepEqual(
+    store.listGenerations('run-1').map(({ generationId, subagent }) => ({ generationId, subagent })),
+    [
+      { generationId: 'gen-a', subagent: null },
+      { generationId: 'gen-b', subagent: 'call_alpha' },
+    ],
+  );
 });
 
 test('given a harness stream that ends in an error result, when it finishes, then the run is error with the error captured and an end time set', async () => {
@@ -100,7 +109,7 @@ test('given a harness stream that ends in an error result, when it finishes, the
   assert.equal(run?.endTime, '2026-09-21T10:00:05.000Z');
 });
 
-test('given a runner failure mid-stream, when it finishes, then the run is error with the thrown message and an end time, never left running, and its cost is unconfirmed since it was never settled', async () => {
+test('given a runner failure mid-stream, when it finishes, then the run is error with the thrown message and an end time, never left running, and the generation it saw is left pending for billing to settle', async () => {
   const store = Store.open(':memory:');
   const id = await runWorkload({
     store,
@@ -116,8 +125,11 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
   assert.equal(run?.status, 'error');
   assert.equal(run?.error, 'harness crashed');
   assert.equal(run?.endTime, '2026-09-21T10:00:05.000Z');
-  assert.equal(run?.costUsd, 0);
-  assert.equal(run?.costStatus, 'unconfirmed');
+  assert.equal(run?.costStatus, 'pending');
+  assert.deepEqual(
+    store.listGenerations(id).map((generation) => generation.generationId),
+    ['gen-1'],
+  );
 });
 
 test('given a harness that throws with a secret in its message, when the run is recorded, then the stored error has the secret redacted', async () => {
@@ -222,28 +234,4 @@ test('given a worker with no reasoning effort declared, when it runs, then the h
 
   assert.equal(harness.invocations[0]?.reasoningEffort, undefined);
   assert.equal('reasoningEffort' in (harness.invocations[0] ?? {}), false);
-});
-
-test('given a harness that could not settle its run cost, when the run completes, then the run keeps its status and records the partial cost as unconfirmed', async () => {
-  const { run } = await runWith(
-    [message(), result({ status: 'success' })],
-    { hooks: { cost: { costUsd: 0.01, costStatus: 'unconfirmed' } } },
-  );
-
-  assert.equal(run?.status, 'success');
-  assert.equal(run?.costUsd, 0.01);
-  assert.equal(run?.costStatus, 'unconfirmed');
-});
-
-test('given a harness that completes but fails to settle its run cost, when the run completes, then the run keeps its status and error and records zero cost as unconfirmed', async () => {
-  const { run } = await runWith(
-    [message(), result({ status: 'success', sessionId: 'sess-1' })],
-    { hooks: { cost: new Error('billing unavailable') } },
-  );
-
-  assert.equal(run?.status, 'success');
-  assert.equal(run?.error, null);
-  assert.equal(run?.sessionId, 'sess-1');
-  assert.equal(run?.costUsd, 0);
-  assert.equal(run?.costStatus, 'unconfirmed');
 });

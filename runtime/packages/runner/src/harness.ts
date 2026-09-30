@@ -1,4 +1,4 @@
-import type { CostStatus, HarnessEvent } from '@forge/shared';
+import type { HarnessEvent } from '@forge/shared';
 
 export interface HarnessInvocation {
   model: string;
@@ -7,18 +7,8 @@ export interface HarnessInvocation {
   reasoningEffort?: string;
 }
 
-export interface RunCost {
-  costUsd: number;
-  costStatus: Exclude<CostStatus, 'pending'>;
-}
-
-export interface HarnessRun {
-  events: AsyncIterable<HarnessEvent>;
-  cost(): Promise<RunCost>;
-}
-
 export interface Harness {
-  run(invocation: HarnessInvocation): HarnessRun;
+  run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent>;
 }
 
 export interface Worker {

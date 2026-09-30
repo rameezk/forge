@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  isHeaderValue,
   oldestFirst,
   queryFrontier,
   Store,
@@ -30,7 +31,7 @@ const failing =
 const polling = (env: NodeJS.ProcessEnv, fetch: Fetch): Poll => {
   const token = env.GITHUB_TOKEN?.trim() ?? '';
   if (token === '') return failing('GitHub token missing');
-  if (!/^[\x21-\x7e]+$/.test(token)) return failing('GitHub token malformed');
+  if (!isHeaderValue(token)) return failing('GitHub token malformed');
   return (github) => queryFrontier(fetch, token, github);
 };
 

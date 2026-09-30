@@ -80,7 +80,7 @@ test('given several runs, when they are listed, then they come back newest-first
   );
 });
 
-test('given a run recorded at start, when it is finalized, then result fields are written and identity and transcript are left intact', () => {
+test('given a run recorded at start, when it is finalized, then result fields are written, identity and transcript are left intact, and with no generations its cost is billed at nothing', () => {
   const store = Store.open(':memory:');
   store.insertRun(
     sampleRun({
@@ -99,8 +99,6 @@ test('given a run recorded at start, when it is finalized, then result fields ar
   store.finalizeRun('run-final', {
     endTime: '2026-09-21T10:03:20.000Z',
     status: 'success',
-    costStatus: 'unconfirmed',
-    costUsd: 0.42,
     inputTokens: 1000,
     outputTokens: 200,
     sessionId: 'sess-final',
@@ -115,8 +113,8 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     startTime: '2026-09-21T10:00:00.000Z',
     endTime: '2026-09-21T10:03:20.000Z',
     status: 'success',
-    costStatus: 'unconfirmed',
-    costUsd: 0.42,
+    costStatus: 'billed',
+    costUsd: 0,
     inputTokens: 1000,
     outputTokens: 200,
     transcriptRef: 'run-final.jsonl',
@@ -268,5 +266,34 @@ test('given a store file whose frontier predates last errors, when the store is 
     ]);
   } finally {
     store.close();
+  }
+});
+
+test('given a store file where another process briefly holds a write transaction, when this process writes a run, then the write waits for the other writer and succeeds instead of failing as busy', async () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const store = Store.open(path);
+  const released = new SharedArrayBuffer(4);
+  const writer = new Worker(HOLD_WRITE_LOCK, { eval: true, workerData: { path, holdMs: 300, released } });
+  await once(writer, 'message');
+
+  try {
+    store.insertRun(sampleRun({ id: 'while-locked' }));
+    assert.equal(Atomics.load(new Int32Array(released), 0), 1, 'the write should land only once the other writer lets go');
+    assert.equal(store.getRun('while-locked')?.id, 'while-locked');
+  } finally {
+    store.close();
+    await once(writer, 'exit');
+  }
+});
+
+test('given a store file, when the store is opened, then the file is in write-ahead-log mode so readers never block the writers', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  Store.open(path).close();
+
+  const db = new DatabaseSync(path);
+  try {
+    assert.deepEqual({ ...db.prepare('PRAGMA journal_mode').get() }, { journal_mode: 'wal' });
+  } finally {
+    db.close();
   }
 });

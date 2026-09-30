@@ -8,7 +8,7 @@ export interface MessageEvent {
   role: 'assistant' | 'user' | 'system' | 'tool';
   text: string;
   usage: TokenUsage;
-  costUsd: number;
+  generationId: string | null;
   subagent?: string;
 }
 

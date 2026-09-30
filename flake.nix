@@ -315,6 +315,39 @@
               )
               "declaring repositories without workers must run the dashboard, locked down as before, and no runner";
 
+          billingService = workerHost.config.systemd.services.forge-billing;
+          billingTimer = workerHost.config.systemd.timers.forge-billing;
+          billingDeclared = lib.asserts.assertMsg (
+            (workerHost.config.systemd.services ? forge-billing)
+            && (workerHost.config.systemd.timers ? forge-billing)
+            && billingTimer.wantedBy == [ "timers.target" ]
+          ) "declaring a worker must define the forge-billing timer and service";
+          billingSettles = lib.asserts.assertMsg (
+            billingService.serviceConfig.Type == "oneshot"
+            &&
+              billingService.serviceConfig.ExecStart
+              == "${workerHost.config.forge.runtime.package}/bin/forge-billing"
+            && billingService.serviceConfig.User == "forge-runtime"
+            && billingService.serviceConfig.Group == "forge-runtime"
+            && lib.elem "network-online.target" billingService.after
+            && lib.elem "network-online.target" billingService.wants
+            && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") billingService.serviceConfig.Environment
+          ) "the billing service must run forge-billing as the forge-runtime user against the state directory with outbound network";
+          billingSandboxed = lib.asserts.assertMsg (isHardened billingService) "the billing service must be sandboxed like the runner";
+          billingKeyOutOfStore = lib.asserts.assertMsg (
+            billingService.serviceConfig.EnvironmentFile == "/var/lib/forge/openrouter.env"
+          ) "the billing service must load the OpenRouter key from the runner's EnvironmentFile outside the Nix store";
+          billingFiresEveryMinute = lib.asserts.assertMsg (
+            billingTimer.timerConfig.OnBootSec == "1min"
+            && billingTimer.timerConfig.OnUnitActiveSec == "1min"
+          ) "the billing timer must fire one minute after boot and every minute after that";
+          noWorkersNoBilling = lib.asserts.assertMsg (
+            !(nixos.config.systemd.services ? forge-billing)
+            && !(nixos.config.systemd.timers ? forge-billing)
+            && !(repositoryHost.config.systemd.services ? forge-billing)
+            && !(repositoryHost.config.systemd.timers ? forge-billing)
+          ) "a host with no workers must have neither the billing timer nor the billing service";
+
           hasSqlite = host: lib.elem host.pkgs.sqlite host.config.environment.systemPackages;
           sqliteWithWorkers = lib.asserts.assertMsg (hasSqlite workerHost) "a host with workers must ship sqlite so the store can be inspected";
           sqliteWithRepositories = lib.asserts.assertMsg (hasSqlite repositoryHost) "a host with repositories must ship sqlite so the store can be inspected";
@@ -379,6 +412,17 @@
             assert frontierCommandInstalled;
             pkgs.runCommand "runtime-frontier" { } ''
               echo "declaring a repository wires a forge-frontier-sync timer and service with an optional GitHub token file, puts forge-frontier on the path, and runs the dashboard without workers" > $out
+            '';
+
+          runtime-billing =
+            assert billingDeclared;
+            assert billingSettles;
+            assert billingSandboxed;
+            assert billingKeyOutOfStore;
+            assert billingFiresEveryMinute;
+            assert noWorkersNoBilling;
+            pkgs.runCommand "runtime-billing" { } ''
+              echo "declaring a worker wires a forge-billing oneshot on a one-minute timer that settles billed cost with the out-of-store OpenRouter key" > $out
             '';
 
           runtime-sqlite =

@@ -28,12 +28,16 @@ _Avoid_: base image, tool path
 The per-workload working directory a harness runs in, kept after the run as an artifact until it ages out.
 _Avoid_: workdir, sandbox
 
+**Generation**:
+One model response within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time. The store also keeps a given-up row with no id where a response used tokens without one, or where a workload never ended and later generations may be unrecorded.
+_Avoid_: response, completion, call
+
 **Billed cost**:
 What OpenRouter charged for a workload's generations, and the only cost forge records; a harness's own price estimate is never recorded or shown (ADR-0013).
 _Avoid_: estimate, catalog cost
 
 **Cost status**:
-How settled a workload's billed cost is: `pending` until every generation is billed, `billed` once they all are, `unconfirmed` once forge gave up on any of them.
+How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, or on a workload that never ended and has had no generation for 24 hours.
 _Avoid_: cost uncertain
 
 **Subagent**:

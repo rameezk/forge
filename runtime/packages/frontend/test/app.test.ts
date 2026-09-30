@@ -139,8 +139,8 @@ test('given a run with 44991 input and 3480 output tokens, when its run page is 
 test('given a run with a captured transcript, when its detail is requested, then its messages render', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const events: HarnessEvent[] = [
-    { type: 'message', role: 'user', text: 'refine the spec please', usage: { inputTokens: 10, outputTokens: 0 }, costUsd: 0 },
-    { type: 'message', role: 'assistant', text: 'here is the refined spec', usage: { inputTokens: 0, outputTokens: 20 }, costUsd: 0.01 },
+    { type: 'message', role: 'user', text: 'refine the spec please', usage: { inputTokens: 10, outputTokens: 0 }, generationId: null },
+    { type: 'message', role: 'assistant', text: 'here is the refined spec', usage: { inputTokens: 0, outputTokens: 20 }, generationId: null },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ];
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
@@ -158,7 +158,7 @@ test('given a successful run and a failed run, when each run page is requested, 
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const transcript = (status: 'success' | 'error', error: string | null): string =>
     [
-      { type: 'message', role: 'assistant', text: 'done', usage, costUsd: 0 },
+      { type: 'message', role: 'assistant', text: 'done', usage, generationId: null },
       { type: 'result', status, sessionId: 'sess-abc', error },
     ].map((e) => JSON.stringify(e)).join('\n') + '\n';
   writeFileSync(join(dir, 'ok.jsonl'), transcript('success', null));
@@ -217,12 +217,12 @@ const subagentCalls = (body: string): string[] => body.match(/<section class="to
 test('given a transcript written before subagent calls were recorded, when its transcript is viewed, then each subagent scope still renders grouped and collapsed under its scope and the parent renders ungrouped', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const events: HarnessEvent[] = [
-    { type: 'message', role: 'assistant', text: 'parent delegates two reviews', usage, costUsd: 0 },
-    { type: 'message', role: 'assistant', text: 'alpha reading the diff', usage, costUsd: 0, subagent: 'call-alpha' },
-    { type: 'message', role: 'assistant', text: 'beta scanning for secrets', usage, costUsd: 0, subagent: 'call-beta' },
-    { type: 'message', role: 'assistant', text: 'alpha report: two findings', usage, costUsd: 0, subagent: 'call-alpha' },
-    { type: 'message', role: 'assistant', text: 'beta report: clean', usage, costUsd: 0, subagent: 'call-beta' },
-    { type: 'message', role: 'assistant', text: 'parent triages the findings', usage, costUsd: 0 },
+    { type: 'message', role: 'assistant', text: 'parent delegates two reviews', usage, generationId: null },
+    { type: 'message', role: 'assistant', text: 'alpha reading the diff', usage, generationId: null, subagent: 'call-alpha' },
+    { type: 'message', role: 'assistant', text: 'beta scanning for secrets', usage, generationId: null, subagent: 'call-beta' },
+    { type: 'message', role: 'assistant', text: 'alpha report: two findings', usage, generationId: null, subagent: 'call-alpha' },
+    { type: 'message', role: 'assistant', text: 'beta report: clean', usage, generationId: null, subagent: 'call-beta' },
+    { type: 'message', role: 'assistant', text: 'parent triages the findings', usage, generationId: null },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ];
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
@@ -253,8 +253,8 @@ test('given a transcript written before subagent calls were recorded, when its t
 test('given a run whose recorded tokens and cost include its subagents, when it is listed and viewed, then the displayed totals are the recorded ones', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const events: HarnessEvent[] = [
-    { type: 'message', role: 'assistant', text: 'parent delegates', usage: { inputTokens: 100, outputTokens: 10 }, costUsd: 0 },
-    { type: 'message', role: 'assistant', text: 'child reports', usage: { inputTokens: 700, outputTokens: 40 }, costUsd: 0, subagent: 'call-alpha' },
+    { type: 'message', role: 'assistant', text: 'parent delegates', usage: { inputTokens: 100, outputTokens: 10 }, generationId: null },
+    { type: 'message', role: 'assistant', text: 'child reports', usage: { inputTokens: 700, outputTokens: 40 }, generationId: null, subagent: 'call-alpha' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ];
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
@@ -282,11 +282,11 @@ const viewTranscript = async (events: HarnessEvent[]): Promise<string> => {
 
 test('given a run whose agent made a bash call in a turn with no text, when its run page is viewed, then a collapsed card shows the tool name and command and no empty assistant card renders', async () => {
   const body = await viewTranscript([
-    { type: 'message', role: 'user', text: 'run echo forge', usage, costUsd: 0 },
-    { type: 'message', role: 'assistant', text: '', usage, costUsd: 0 },
+    { type: 'message', role: 'user', text: 'run echo forge', usage, generationId: null },
+    { type: 'message', role: 'assistant', text: '', usage, generationId: null },
     { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
     { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
-    { type: 'message', role: 'assistant', text: 'it printed forge', usage, costUsd: 0 },
+    { type: 'message', role: 'assistant', text: 'it printed forge', usage, generationId: null },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
 
@@ -304,7 +304,7 @@ test('given a run whose agent made a bash call in a turn with no text, when its 
 
 test('given parallel tool calls whose results arrive out of order, when a card is expanded, then it shows its own arguments as pretty json and its own result', async () => {
   const body = await viewTranscript([
-    { type: 'message', role: 'assistant', text: 'checking both', usage, costUsd: 0 },
+    { type: 'message', role: 'assistant', text: 'checking both', usage, generationId: null },
     { type: 'tool_call', id: 'call_1', name: 'read', arguments: { path: 'a.txt', limit: 10 } },
     { type: 'tool_call', id: 'call_2', name: 'read', arguments: { path: 'b.txt' } },
     { type: 'tool_result', id: 'call_2', isError: false, text: 'contents of b' },
@@ -342,10 +342,10 @@ test('given a subagent tool call sharing its id with a parent tool call, when th
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo parent' } },
     { type: 'tool_result', id: 'call_1', isError: false, text: 'parent output' },
-    { type: 'message', role: 'assistant', text: '', usage, costUsd: 0, subagent: 'call-alpha' },
+    { type: 'message', role: 'assistant', text: '', usage, generationId: null, subagent: 'call-alpha' },
     { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo alpha' }, subagent: 'call-alpha' },
     { type: 'tool_result', id: 'call_1', isError: false, text: 'alpha output', subagent: 'call-alpha' },
-    { type: 'message', role: 'assistant', text: 'alpha report', usage, costUsd: 0, subagent: 'call-alpha' },
+    { type: 'message', role: 'assistant', text: 'alpha report', usage, generationId: null, subagent: 'call-alpha' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
 
@@ -375,9 +375,9 @@ test('given a tool call whose arguments were capped and which never got a result
 
 test('given a transcript written before tool events were recorded, when its run page is viewed, then every message renders as before, including an empty assistant turn, and no tool card appears', async () => {
   const body = await viewTranscript([
-    { type: 'message', role: 'user', text: 'run echo forge', usage, costUsd: 0 },
-    { type: 'message', role: 'assistant', text: '', usage, costUsd: 0 },
-    { type: 'message', role: 'assistant', text: 'it printed forge', usage, costUsd: 0 },
+    { type: 'message', role: 'user', text: 'run echo forge', usage, generationId: null },
+    { type: 'message', role: 'assistant', text: '', usage, generationId: null },
+    { type: 'message', role: 'assistant', text: 'it printed forge', usage, generationId: null },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
 
@@ -405,17 +405,17 @@ test('given a provider that reuses a tool call id across turns, when the run pag
 });
 
 const delegation: HarnessEvent[] = [
-  { type: 'message', role: 'assistant', text: 'Delegating both.', usage, costUsd: 0 },
+  { type: 'message', role: 'assistant', text: 'Delegating both.', usage, generationId: null },
   { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Run echo alpha and report what it printed.' } },
   { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: { task: 'Say beta.' } },
-  { type: 'message', role: 'assistant', text: 'Running it.', usage, costUsd: 0, subagent: 'call_alpha' },
+  { type: 'message', role: 'assistant', text: 'Running it.', usage, generationId: null, subagent: 'call_alpha' },
   { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo alpha' }, subagent: 'call_alpha' },
   { type: 'tool_result', id: 'call_1', isError: false, text: 'alpha\n', subagent: 'call_alpha' },
-  { type: 'message', role: 'assistant', text: 'Alpha report: echo alpha printed alpha.', usage, costUsd: 0, subagent: 'call_alpha' },
-  { type: 'message', role: 'assistant', text: 'Beta report: beta.', usage, costUsd: 0, subagent: 'call_beta' },
+  { type: 'message', role: 'assistant', text: 'Alpha report: echo alpha printed alpha.', usage, generationId: null, subagent: 'call_alpha' },
+  { type: 'message', role: 'assistant', text: 'Beta report: beta.', usage, generationId: null, subagent: 'call_beta' },
   { type: 'tool_result', id: 'call_beta', isError: false, text: 'Beta report: beta.' },
   { type: 'tool_result', id: 'call_alpha', isError: false, text: 'Alpha report: echo alpha printed alpha.' },
-  { type: 'message', role: 'assistant', text: 'Both sub-agents reported back.', usage, costUsd: 0 },
+  { type: 'message', role: 'assistant', text: 'Both sub-agents reported back.', usage, generationId: null },
   { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
 ];
 
@@ -457,7 +457,7 @@ test('given a subagent given a long multi-line task, when its group is expanded,
   const task = 'Review the diff.\n\nReport each finding with its file and line.';
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task } },
-    { type: 'message', role: 'assistant', text: 'reviewing', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'reviewing', usage, generationId: null, subagent: 'call_alpha' },
     { type: 'tool_result', id: 'call_alpha', isError: false, text: 'clean' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
@@ -481,7 +481,7 @@ test('given a run whose agent spawned two subagents, when a group is viewed, the
 test("given a subagent whose final message differs from the result the parent received, when its group is viewed, then both render and the report is the parent's result", async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Summarise the log.' } },
-    { type: 'message', role: 'assistant', text: 'full summary', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'full summary', usage, generationId: null, subagent: 'call_alpha' },
     { type: 'tool_result', id: 'call_alpha', isError: false, text: 'full sum\n...cut' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
@@ -495,8 +495,8 @@ test('given a subagent call that returned an error, when its run page is viewed,
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
     { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: { task: 'Say beta.' } },
-    { type: 'message', role: 'assistant', text: 'partial', usage, costUsd: 0, subagent: 'call_alpha' },
-    { type: 'message', role: 'assistant', text: 'beta', usage, costUsd: 0, subagent: 'call_beta' },
+    { type: 'message', role: 'assistant', text: 'partial', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'beta', usage, generationId: null, subagent: 'call_beta' },
     { type: 'tool_result', id: 'call_alpha', isError: true, text: 'Sub-agent failed: provider error' },
     { type: 'tool_result', id: 'call_beta', isError: false, text: 'beta' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
@@ -516,7 +516,7 @@ test('given a subagent call that returned an error, when its run page is viewed,
 test('given a subagent call that never got a result, when its run page is viewed, then its group says no report was recorded', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
-    { type: 'message', role: 'assistant', text: 'working on it', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'working on it', usage, generationId: null, subagent: 'call_alpha' },
     { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'pi exited on signal SIGKILL' },
   ]);
 
@@ -528,10 +528,10 @@ test('given a subagent call that never got a result, when its run page is viewed
 test('given a provider that reuses a subagent call id across turns, when the run page is viewed, then each child nests under the call that spawned it', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_0', name: 'subagent', arguments: { task: 'First task.' } },
-    { type: 'message', role: 'assistant', text: 'first child working', usage, costUsd: 0, subagent: 'call_0' },
+    { type: 'message', role: 'assistant', text: 'first child working', usage, generationId: null, subagent: 'call_0' },
     { type: 'tool_result', id: 'call_0', isError: false, text: 'first report' },
     { type: 'tool_call', id: 'call_0', name: 'subagent', arguments: { task: 'Second task.' } },
-    { type: 'message', role: 'assistant', text: 'second child working', usage, costUsd: 0, subagent: 'call_0' },
+    { type: 'message', role: 'assistant', text: 'second child working', usage, generationId: null, subagent: 'call_0' },
     { type: 'tool_result', id: 'call_0', isError: false, text: 'second report' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
@@ -546,7 +546,7 @@ test('given a provider that reuses a subagent call id across turns, when the run
 test('given a subagent given an explicit working directory, when its group is expanded, then the working directory is shown with the task', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'List the files.', cwd: 'repo/src' } },
-    { type: 'message', role: 'assistant', text: 'two files', usage, costUsd: 0, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'two files', usage, generationId: null, subagent: 'call_alpha' },
     { type: 'tool_result', id: 'call_alpha', isError: false, text: 'two files' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
@@ -560,8 +560,8 @@ test('given a subagent call whose arguments carry no task text, when its run pag
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { cwd: 'repo' } },
     { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: capped },
-    { type: 'message', role: 'assistant', text: 'working', usage, costUsd: 0, subagent: 'call_alpha' },
-    { type: 'message', role: 'assistant', text: 'working', usage, costUsd: 0, subagent: 'call_beta' },
+    { type: 'message', role: 'assistant', text: 'working', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'working', usage, generationId: null, subagent: 'call_beta' },
     { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'pi exited on signal SIGKILL' },
   ]);
 
@@ -575,7 +575,7 @@ test('given a subagent call whose arguments carry no task text, when its run pag
 test('given a harness whose spawning tool has another name, when its run page is viewed, then children still nest under the call their scope names', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'toolu_01', name: 'Task', arguments: { task: 'Count the files.' } },
-    { type: 'message', role: 'assistant', text: 'three files', usage, costUsd: 0, subagent: 'toolu_01' },
+    { type: 'message', role: 'assistant', text: 'three files', usage, generationId: null, subagent: 'toolu_01' },
     { type: 'tool_result', id: 'toolu_01', isError: false, text: 'three files' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
