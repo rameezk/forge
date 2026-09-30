@@ -61,13 +61,16 @@ ssh *args:
         exit 1
     fi
     host="$(nix eval --json .#lib.reflect)"
-    exec {{ quote(just_executable()) }} _connect "$ip" "$(jq -r '.hostname' <<<"$host")" "$(jq -r '.sshPort' <<<"$host")" "$(jq -r '.adminUser' <<<"$host")" "$@"
+    hostname="$(jq -r '.hostname' <<<"$host")"
+    admin_user="$(jq -r '.adminUser' <<<"$host")"
+    ssh_port="$(jq -r '.sshPort' <<<"$host")"
+    exec {{ quote(just_executable()) }} _connect "$ip" "$hostname" "$ssh_port" "$admin_user" "$@"
 
 [positional-arguments]
-_connect ip hostname ssh_port admin_user *args:
+_connect $ip $hostname $ssh_port $admin_user *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    exec ssh {{ pinned_host_key }} -o "HostKeyAlias=$2" -o ControlMaster=no -o ControlPath=none -p "$3" "$4@$1" "${@:5}"
+    exec ssh {{ pinned_host_key }} -o "HostKeyAlias=${hostname}" -o ControlMaster=no -o ControlPath=none -p "$ssh_port" "${admin_user}@${ip}" "${@:5}"
 
 _address:
     #!/usr/bin/env bash
