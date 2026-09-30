@@ -39,7 +39,12 @@ flowchart TB
 
 ### Inside Forge
 
-The operator repository stands the box up with the standup toolchain. On the box, the runner runs each workload, a billing timer settles each run's billed cost from OpenRouter after it finishes, a timer polls the managed repositories' frontier from GitHub, and a localhost-only dashboard reads what they recorded.
+The operator repository stands the box up with the standup toolchain. On the box:
+
+- a runner runs each workload
+- a billing service settles each run's billed cost
+- a frontier service polls each managed repository's frontier
+- a localhost-only dashboard shows what they record
 
 ```mermaid
 flowchart TB
