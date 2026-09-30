@@ -126,19 +126,13 @@ sequenceDiagram
 
 ## Get started
 
-1. Scaffold an operator repository:
+Scaffold an operator repository:
 
-   ```bash
-   nix flake init -t github:rameezk/forge
-   ```
+```bash
+nix flake init -t github:rameezk/forge
+```
 
-2. Fill in `config.json` from `config.example.json` with your SSH key, hostname and server.
-3. Generate the box's host key and keep it, your Hetzner token and your OpenRouter key sops-encrypted in `secrets/`.
-4. Create the box with `just standup`. It installs the host key, so the box decrypts its OpenRouter key on first boot.
-5. Declare workers and managed repositories in `flake.nix` and apply them with `just deploy`, which keeps the box's state. Place a read-only GitHub token on the box for the frontier poller.
-6. Open the dashboard over an SSH tunnel with `ssh -L 7787:localhost:7787 forge@<address>`, then browse to `http://localhost:7787`.
-
-The scaffolded repository's README walks through each step in full.
+Then follow the scaffolded repository's [README](templates/operator/README.md) to generate secrets, stand up the box, deploy workers and open the dashboard.
 
 ## Learn more
 

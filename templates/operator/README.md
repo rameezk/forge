@@ -71,14 +71,26 @@ depends on the auto-activation.
       `age-keygen -y "$key_dir/keys.txt"`, and `REPLACE_WITH_BOX_AGE_RECIPIENT` with
       the recipient printed above.
 
-   4. Create the secrets files, delete the scratch copy of the host key, and
+   4. Pin the box's host key: commit its public key next to the encrypted
+      private key, and write a `known_hosts` entry keyed on your `hostname`
+      rather than the box's address. Every `just` command that connects to the
+      installed box checks against this file, so a reinstall needs no
+      `known_hosts` edits and a mismatched key fails the connection. If you
+      change `hostname` later, rerun the `printf` line below:
+
+      ```bash
+      mkdir -p secrets
+      cp "$host_key_dir/host_key.pub" secrets/host.pub
+      printf '%s %s\n' "$(jq -r .hostname config.json)" "$(cat secrets/host.pub)" >known_hosts
+      ```
+
+   5. Create the secrets files, delete the scratch copy of the host key, and
       stage them. `sops edit` opens a new file with example content; replace
       it with `HCLOUD_TOKEN: <your Hetzner Cloud API token>` in
       `secrets/operator.yaml`, and with
       `openrouter_api_key: <your OpenRouter key>` in `secrets/runtime.yaml`:
 
       ```bash
-      mkdir -p secrets
       jq -Rs '{ssh_host_ed25519_key: .}' "$host_key_dir/host_key" |
         sops encrypt --filename-override secrets/host.yaml --input-type json --output-type yaml --output secrets/host.yaml /dev/stdin
       rm -rf "$host_key_dir"
@@ -87,8 +99,9 @@ depends on the auto-activation.
       git add -A
       ```
 
-   The build fails if `secrets/runtime.yaml` is missing or `.sops.yaml` still
-   holds the placeholder recipients.
+   The build fails if `secrets/runtime.yaml` is missing, `.sops.yaml` still
+   holds the placeholder recipients, or `known_hosts` does not pin
+   `secrets/host.pub` under your `hostname`.
 
 4. Run the divergence guard (no cloud access required):
 
@@ -137,17 +150,15 @@ this repository on every standup and deploy.
    run standup again.
 
 2. Verify it by hand - confirm the box is reachable over SSH with your
-   configured key. Standup clears the box's old host key from your
-   `known_hosts`, so this works even when the address was used by an earlier
-   box:
+   configured key:
 
    ```bash
-   ssh forge@<address>
+   just ssh
    ```
 
-   Here and below, `forge` is the default `adminUser` and SSH runs on the
-   default port 22. If you changed `adminUser` or `sshPort` in `config.json`,
-   use `ssh -p <sshPort> <adminUser>@<address>` instead.
+   `just ssh` fills in the box's address, SSH port and admin user, checks the
+   box against the host key in `known_hosts`, and passes any extra arguments
+   on to `ssh`.
 
 3. Place the GitHub token if you declare managed repositories. The frontier
    poller reads each managed repository's issues with a fine-grained personal
@@ -160,7 +171,7 @@ this repository on every standup and deploy.
    ```bash
    printf 'GitHub token: ' && read -rs token && echo && [ -n "$token" ] &&
      printf 'GITHUB_TOKEN=%s\n' "$token" |
-     ssh forge@<address> 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/github.env && cat > /var/lib/forge/github.env"'; unset token
+     just ssh 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/github.env && cat > /var/lib/forge/github.env"'; unset token
    ```
 
 4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
@@ -178,12 +189,20 @@ this repository on every standup and deploy.
    A deploy that breaks SSH has no automatic rollback; recover it from the
    Hetzner console.
 
-5. Tear the box down when you are done. This loses the box's state and clears
-   its host key from your `known_hosts`:
+5. Tear the box down when you are done. This loses the box's state:
 
    ```bash
    just teardown
    ```
+
+## Opening the dashboard
+
+The dashboard listens only on the box's localhost. Open it over an SSH tunnel,
+then browse to `http://localhost:7787`:
+
+```bash
+just ssh -N -L 7787:localhost:7787
+```
 
 ## Rotating the OpenRouter key
 
@@ -217,7 +236,7 @@ To see the frontier live, without waiting for the next poll, run
 with the same token and writes nothing:
 
 ```bash
-ssh forge@<address> sudo -u forge-runtime forge-frontier list
+just ssh sudo -u forge-runtime forge-frontier list
 ```
 
 ## Inspecting the run store
@@ -226,7 +245,7 @@ Runs, their generations and billed cost live in the SQLite store
 `/var/lib/forge/forge.db`. To inspect them:
 
 ```bash
-ssh forge@<address> sudo -u forge-runtime sqlite3 -readonly /var/lib/forge/forge.db \
+just ssh sudo -u forge-runtime sqlite3 -readonly /var/lib/forge/forge.db \
   "'select id, status, cost_status, cost_usd from runs order by start_time desc limit 5'"
 ```
 
