@@ -233,9 +233,19 @@
               (
                 hides "/run/secrets" frontendUnit
                 && hides "/run/secrets.d" frontendUnit
-                && hides runnerEnvTemplate.path workerAndRepositoryHost.config.systemd.services.forge-frontier-sync
+                &&
+                  lib.all
+                    (
+                      template:
+                      hides workerAndRepositoryHost.config.sops.templates.${template}.path
+                        workerAndRepositoryHost.config.systemd.services.forge-frontier-sync
+                    )
+                    [
+                      "forge-runner.env"
+                      "forge-billing.env"
+                    ]
               )
-              "every secrets generation must be inaccessible to the long-running dashboard, and the runner's EnvironmentFile to the frontier poller";
+              "every secrets generation must be inaccessible to the long-running dashboard, and every OpenRouter key file to the frontier poller";
           workerHostInstantiates = builtins.seq workerHost.config.system.build.toplevel.drvPath true;
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content

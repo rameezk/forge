@@ -70,9 +70,13 @@ let
   hasWorkers = cfg.workers != { };
   hasRepositories = cfg.repositories != { };
 
-  runnerEnvFile = config.sops.templates."forge-runner.env".path;
-  hideRunnerEnvFile = lib.optionalAttrs hasWorkers {
-    InaccessiblePaths = [ "-${runnerEnvFile}" ];
+  openRouterEnvFiles = [
+    "forge-runner.env"
+    "forge-billing.env"
+  ];
+  envFile = name: config.sops.templates.${name}.path;
+  hideOpenRouterEnvFiles = lib.optionalAttrs hasWorkers {
+    InaccessiblePaths = map (name: "-${envFile name}") openRouterEnvFiles;
   };
 
   hardening = {
@@ -214,7 +218,7 @@ in
 
     (lib.mkIf hasWorkers {
       sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
-      sops.templates = lib.genAttrs [ "forge-runner.env" "forge-billing.env" ] (_: {
+      sops.templates = lib.genAttrs openRouterEnvFiles (_: {
         content = "OPENROUTER_API_KEY=${config.sops.placeholder.openrouter_api_key}\n";
         owner = cfg.user;
         mode = "0400";
@@ -230,7 +234,7 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = runnerEnvFile;
+          EnvironmentFile = envFile "forge-runner.env";
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
@@ -249,7 +253,7 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = config.sops.templates."forge-billing.env".path;
+          EnvironmentFile = envFile "forge-billing.env";
           Environment = [ "FORGE_STATE_DIR=${cfg.stateDir}" ];
           ExecStart = "${cfg.package}/bin/forge-billing";
         }
@@ -295,7 +299,7 @@ in
           ExecStart = "${cfg.package}/bin/forge-frontier sync";
         }
         // hardening
-        // hideRunnerEnvFile;
+        // hideOpenRouterEnvFiles;
       };
 
       systemd.timers.forge-frontier-sync = {
