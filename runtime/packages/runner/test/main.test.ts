@@ -346,6 +346,7 @@ const dashboardCost = async (stateDir: string): Promise<string> => {
       store,
       transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
       css: '',
+      logo: '',
     });
     const body = await (await app.request('/')).text();
     return (body.match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>([\s\S]*?)<\/td>/)?.[1] ?? '')

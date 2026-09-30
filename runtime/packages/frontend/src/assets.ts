@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-export const stylesheetPath = (css: string): string =>
-  `/assets/dashboard-${createHash('sha256').update(css).digest('hex').slice(0, 16)}.css`;
+export const assetPath = (name: string, extension: string, content: string): string =>
+  `/assets/${name}-${createHash('sha256').update(content).digest('hex').slice(0, 16)}.${extension}`;
 
 export const readStylesheet = (path: string): string => {
   try {

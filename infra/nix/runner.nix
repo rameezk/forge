@@ -1,4 +1,5 @@
 {
+  lib,
   buildNpmPackage,
   git,
   makeWrapper,
@@ -13,7 +14,14 @@ buildNpmPackage {
   pname = "forge-runner";
   version = "0.0.0";
 
-  src = ../../runtime;
+  src = lib.fileset.toSource {
+    root = ../..;
+    fileset = lib.fileset.unions [
+      ../../runtime
+      ../../docs/assets/logo.svg
+    ];
+  };
+  sourceRoot = "source/runtime";
 
   npmDepsHash = "sha256-oGK+ooKJaESha7dCdDo7xdoP9DLx3zFMuv9VqvW2Oo4=";
 
