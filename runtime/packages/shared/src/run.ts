@@ -2,6 +2,12 @@ export type RunStatus = 'running' | 'success' | 'error';
 
 export type CostStatus = 'pending' | 'billed' | 'unconfirmed';
 
+export interface RunTicket {
+  repository: string;
+  number: number;
+  url: string;
+}
+
 export interface RunRecord {
   id: string;
   worker: string;
@@ -17,6 +23,7 @@ export interface RunRecord {
   transcriptRef: string | null;
   sessionId: string | null;
   error: string | null;
+  ticket: RunTicket | null;
 }
 
 export interface RunResult

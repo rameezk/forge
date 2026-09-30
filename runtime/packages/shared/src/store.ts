@@ -29,6 +29,9 @@ type RunRow = {
   transcript_ref: string | null;
   session_id: string | null;
   error: string | null;
+  repository: string | null;
+  ticket_number: number | null;
+  ticket_url: string | null;
 };
 
 const CREATE_RUNS = `
@@ -46,8 +49,21 @@ const CREATE_RUNS = `
     output_tokens  INTEGER NOT NULL,
     transcript_ref TEXT,
     session_id     TEXT,
-    error          TEXT
+    error          TEXT,
+    repository     TEXT,
+    ticket_number  INTEGER,
+    ticket_url     TEXT
   ) STRICT;
+`;
+
+const HAS_RUN_TICKET = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'ticket_number'
+`;
+
+const ADD_RUN_TICKET = `
+  ALTER TABLE runs ADD COLUMN repository TEXT;
+  ALTER TABLE runs ADD COLUMN ticket_number INTEGER;
+  ALTER TABLE runs ADD COLUMN ticket_url TEXT;
 `;
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -200,6 +216,9 @@ const toRow = (run: RunRecord): RunRow => ({
   transcript_ref: run.transcriptRef,
   session_id: run.sessionId,
   error: run.error,
+  repository: run.ticket?.repository ?? null,
+  ticket_number: run.ticket?.number ?? null,
+  ticket_url: run.ticket?.url ?? null,
 });
 
 const ticketFromRow = (row: TicketRow): Ticket => ({
@@ -240,6 +259,10 @@ const fromRow = (row: RunRow): RunRecord => ({
   transcriptRef: row.transcript_ref,
   sessionId: row.session_id,
   error: row.error,
+  ticket:
+    row.repository === null || row.ticket_number === null || row.ticket_url === null
+      ? null
+      : { repository: row.repository, number: row.ticket_number, url: row.ticket_url },
 });
 
 export class Store {
@@ -252,6 +275,9 @@ export class Store {
       this.#migrateCostUncertain();
     }
     db.exec(CREATE_RUNS);
+    if (!this.#hasRunTicket()) {
+      this.#addRunTicket();
+    }
     db.exec(CREATE_GENERATIONS);
     if (this.#hasOutdatedFrontier()) {
       this.#migrateOutdatedFrontier();
@@ -280,6 +306,18 @@ export class Store {
       if (this.#hasOutdatedFrontier()) {
         this.#db.exec(DROP_FRONTIER);
         this.#db.exec(CREATE_FRONTIER);
+      }
+    });
+  }
+
+  #hasRunTicket(): boolean {
+    return this.#db.prepare(HAS_RUN_TICKET).get() !== undefined;
+  }
+
+  #addRunTicket(): void {
+    this.#transaction(() => {
+      if (!this.#hasRunTicket()) {
+        this.#db.exec(ADD_RUN_TICKET);
       }
     });
   }
@@ -318,11 +356,13 @@ export class Store {
         `INSERT INTO runs (
           id, worker, harness, model, start_time, end_time, status,
           cost_status, cost_usd, input_tokens, output_tokens,
-          transcript_ref, session_id, error
+          transcript_ref, session_id, error,
+          repository, ticket_number, ticket_url
         ) VALUES (
           $id, $worker, $harness, $model, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $input_tokens, $output_tokens,
-          $transcript_ref, $session_id, $error
+          $transcript_ref, $session_id, $error,
+          $repository, $ticket_number, $ticket_url
         )`,
       )
       .run(row);

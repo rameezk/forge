@@ -24,12 +24,19 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   transcriptRef: 'run-01.jsonl',
   sessionId: 'sess-abc',
   error: null,
+  ticket: null,
   ...overrides,
 });
 
-test('given a fresh store, when a run record with every field is inserted, then it round-trips', () => {
+test('given a fresh store, when a run record with every field is inserted, including the ticket it was dispatched for, then it round-trips', () => {
   const store = Store.open(':memory:');
-  const run = sampleRun();
+  const run = sampleRun({
+    ticket: {
+      repository: 'forge',
+      number: 113,
+      url: 'https://github.com/rameezk/forge/issues/113',
+    },
+  });
 
   store.insertRun(run);
 
@@ -120,6 +127,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     transcriptRef: 'run-final.jsonl',
     sessionId: 'sess-final',
     error: null,
+    ticket: null,
   });
 });
 
@@ -164,6 +172,49 @@ test('given a store file in the old schema with one run whose cost was settled, 
   const reopened = Store.open(path);
   assert.deepEqual(reopened.listRuns().map((run) => run.costStatus), ['unconfirmed', 'unconfirmed', 'billed']);
   reopened.close();
+});
+
+test('given a store file whose runs predate dispatch, when the store is opened, then its runs read back with no ticket and a dispatched run can be recorded', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE runs (
+      id             TEXT PRIMARY KEY,
+      worker         TEXT NOT NULL,
+      harness        TEXT NOT NULL,
+      model          TEXT NOT NULL,
+      start_time     TEXT NOT NULL,
+      end_time       TEXT,
+      status         TEXT NOT NULL,
+      cost_status    TEXT NOT NULL,
+      cost_usd       REAL NOT NULL,
+      input_tokens   INTEGER NOT NULL,
+      output_tokens  INTEGER NOT NULL,
+      transcript_ref TEXT,
+      session_id     TEXT,
+      error          TEXT
+    ) STRICT;
+    INSERT INTO runs VALUES
+      ('by-hand', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T10:00:00.000Z', '2026-09-21T10:01:00.000Z', 'success', 'billed', 0.5, 1200, 40, 'by-hand.jsonl', 'sess-1', NULL);
+  `);
+  old.close();
+  const dispatched = sampleRun({
+    id: 'dispatched',
+    startTime: '2026-09-21T11:00:00.000Z',
+    ticket: {
+      repository: 'forge',
+      number: 113,
+      url: 'https://github.com/rameezk/forge/issues/113',
+    },
+  });
+
+  const store = Store.open(path);
+  store.insertRun(dispatched);
+
+  assert.equal(store.getRun('by-hand')?.ticket, null);
+  assert.deepEqual(store.getRun('dispatched'), dispatched);
+  store.close();
+  Store.open(path).close();
 });
 
 test('given a current store file where another connection holds a write transaction, when the store is opened, then it opens without waiting on that writer', () => {

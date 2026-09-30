@@ -12,7 +12,37 @@ import {
   type SubagentInvocation,
   type SubagentUpdate,
 } from '@forge/pi-subagent';
-import type { Harness, HarnessInvocation } from './harness.ts';
+import { requireSkill } from './checkout.ts';
+import {
+  UNATTENDED_INSTRUCTION,
+  type Checkout,
+  type Harness,
+  type HarnessInvocation,
+} from './harness.ts';
+
+const appended = (prompt: string): string[] => ['--append-system-prompt', prompt];
+
+const projectInstructionArgs = (path: string): string[] => [
+  ...appended(
+    `<project_context>\n\nProject-specific instructions and guidelines:\n\n<project_instructions path="${path}">`,
+  ),
+  ...appended(path),
+  ...appended('</project_instructions>\n\n</project_context>'),
+];
+
+const checkoutArgs = (checkout: Checkout): string[] => [
+  ...checkout.skillPaths.flatMap((path) => ['--skill', path]),
+  ...(checkout.systemPrompt === null
+    ? []
+    : ['--system-prompt', checkout.systemPrompt]),
+  ...(checkout.appendSystemPrompt === null
+    ? []
+    : appended(checkout.appendSystemPrompt)),
+  ...(checkout.projectInstructions === null
+    ? []
+    : projectInstructionArgs(checkout.projectInstructions)),
+  ...appended(UNATTENDED_INSTRUCTION),
+];
 
 const contractArgs = (invocation: HarnessInvocation): string[] => [
   '--mode',
@@ -31,7 +61,20 @@ const contractArgs = (invocation: HarnessInvocation): string[] => [
   ...(invocation.reasoningEffort === undefined
     ? []
     : ['--thinking', invocation.reasoningEffort]),
+  ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout)),
 ];
+
+const SKILL_COMMAND = /^\/([^ ]+)([\s\S]*)$/;
+
+const piPrompt = ({ prompt, checkout }: HarnessInvocation): string => {
+  const command = SKILL_COMMAND.exec(prompt);
+  if (checkout === undefined || command === null) {
+    return prompt;
+  }
+  const [, name = '', rest = ''] = command;
+  requireSkill(checkout, name);
+  return `/skill:${name}${rest}`;
+};
 
 export const piArgs = (
   invocation: HarnessInvocation,
@@ -42,7 +85,7 @@ export const piArgs = (
   '-e',
   extension,
   ...extraArgs,
-  invocation.prompt,
+  piPrompt(invocation),
 ];
 
 export const piEnv = (agentDir: string): NodeJS.ProcessEnv => ({

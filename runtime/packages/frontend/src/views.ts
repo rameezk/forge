@@ -7,6 +7,7 @@ import type {
   RepositoryFrontier,
   RunRecord,
   RunStatus,
+  RunTicket,
   SpecRef,
   ToolCallEvent,
   ToolResultEvent,
@@ -121,6 +122,13 @@ const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedSt
 const renderDate = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatDate(iso)}</time>`;
 
+const renderRunTicket = (ticket: RunTicket | null): Rendered =>
+  ticket === null
+    ? ''
+    : html`<span class="text-muted">${ticket.repository}</span> ${isGithubUrl(ticket.url)
+        ? html`<a href="${ticket.url}" class="${LINK}">#${ticket.number}</a>`
+        : html`#${ticket.number}`}`;
+
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
   return html`${formatTotal(settledCost(runs))}${pending === 0
@@ -142,6 +150,7 @@ export const renderList = (
               <thead>
                 <tr>
                   <th class="${TH}">Worker</th>
+                  <th class="${TH}">Ticket</th>
                   <th class="${TH}">Model</th>
                   <th class="${TH}">Started</th>
                   <th class="${TH}">Duration</th>
@@ -153,6 +162,7 @@ export const renderList = (
                 ${runs.map(
                   (run) => html`<tr class="${ROW}" data-run="${run.id}">
                     <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK}">${run.worker}</a></td>
+                    <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderRunTicket(run.ticket)}</td>
                     <td class="${TD} whitespace-nowrap text-muted">${run.model}</td>
                     <td class="${TD}">${renderTimestamp(run.startTime)}</td>
                     <td class="${TD} whitespace-nowrap">${formatDuration(run.startTime, run.endTime)}</td>
@@ -163,7 +173,7 @@ export const renderList = (
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="5" class="${TD} font-semibold">Total</td>
+                  <td colspan="6" class="${TD} font-semibold">Total</td>
                   <td class="${TD} ${NUMERIC} font-semibold">${renderTotal(runs)}</td>
                 </tr>
               </tfoot>

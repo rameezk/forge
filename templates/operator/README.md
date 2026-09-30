@@ -163,7 +163,8 @@ this repository on every standup and deploy.
 3. Place the GitHub token if you declare managed repositories. The frontier
    poller reads each managed repository's issues with a fine-grained personal
    access token that is read-only on Issues and Metadata for those
-   repositories. Workloads run as the same `forge-runtime` user and can read
+   repositories, and `forge-dispatch` uses it to check a ticket before it
+   runs it. Workloads run as the same `forge-runtime` user and can read
    it, so give it a short expiry. You place it by hand after **every** standup,
    into `/var/lib/forge/github.env`. Until it is there, the Work page shows
    "GitHub token missing" on every repository:
@@ -238,6 +239,43 @@ with the same token and writes nothing:
 ```bash
 just ssh sudo -u forge-runtime forge-frontier list
 ```
+
+### Dispatching a ticket
+
+Give a repository a worker to run its tickets. The worker's prompt is written
+the way you would type it locally, with `{repo}` (the repository's
+`owner/name`), `{issue}` (the ticket's number) and `{url}` (its URL) filled in
+for each ticket. It must hold `{issue}` or `{url}`, or the host does not
+evaluate:
+
+```nix
+forge.runtime.workers.builder = {
+  harness = "pi";
+  model = "z-ai/glm-5";
+  prompt = "/work-on {url}";
+};
+forge.runtime.repositories.forge = {
+  github = "rameezk/forge";
+  worker = "builder";
+};
+```
+
+Label a frontier ticket `forge:ready`, then dispatch it on the box:
+
+```bash
+just ssh sudo forge-dispatch forge 113
+```
+
+Forge refuses a ticket that is not on the frontier or not labelled
+`forge:ready`. Otherwise it clones the tip of the repository's default branch
+into a fresh run directory and runs the worker there. The clone is anonymous,
+so the repository must be public. The workload loads the checkout's
+`.claude/skills`, `.agents/skills` and `.pi/skills`, its root `AGENTS.md` (or
+`CLAUDE.md`), and `.pi/SYSTEM.md` and `.pi/APPEND_SYSTEM.md`, and it is told
+that no human will answer. A leading `/<name>` in the prompt runs the
+checkout's skill of that name, and the run fails before the harness starts if
+there is none. The Runs page shows the repository and ticket of each
+dispatched run.
 
 ## Inspecting the run store
 

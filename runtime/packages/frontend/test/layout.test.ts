@@ -25,6 +25,7 @@ const appWith = ({ css = '', logo = '' }: { css?: string; logo?: string }) => {
     transcriptRef: null,
     sessionId: 'sess-abc',
     error: null,
+    ticket: null,
   });
   return createApp({
     store,

@@ -1,3 +1,5 @@
+import { chmodSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   HarnessEvent,
   MessageEvent,
@@ -109,4 +111,65 @@ export const fixedClock = (times: string[]): (() => string) => {
     index += 1;
     return time as string;
   };
+};
+
+const FAKE_PI = `#!${process.execPath}
+import { readFileSync, writeFileSync } from 'node:fs';
+const env = process.env;
+writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR, githubToken: env.GITHUB_TOKEN, nodeOptions: env.NODE_OPTIONS }));
+process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
+if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
+process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
+if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
+`;
+
+export const writeFakePi = (dir: string): string => {
+  const path = join(dir, 'fake-pi.mjs');
+  writeFileSync(path, FAKE_PI);
+  chmodSync(path, 0o755);
+  return path;
+};
+
+export const LOCKDOWN = [
+  '--no-extensions',
+  '--no-skills',
+  '--no-prompt-templates',
+  '--no-themes',
+  '--no-context-files',
+];
+
+export const PI_CONTRACT = [
+  '--mode',
+  'json',
+  '--no-session',
+  ...LOCKDOWN,
+  '--offline',
+  '--provider',
+  'openrouter',
+  '--model',
+  'z-ai/glm-5',
+];
+
+export const journaled = async <T>(
+  body: () => Promise<T>,
+): Promise<{ result: T; journal: string }> => {
+  const lines: string[] = [];
+  const write = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+    lines.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    return { result: await body(), journal: lines.join('') };
+  } finally {
+    process.stderr.write = write;
+  }
+};
+
+export const lockedPiPackage = (): string => {
+  const piPackage = process.env.FORGE_PI_PACKAGE;
+  if (piPackage === undefined) {
+    throw new Error('FORGE_PI_PACKAGE is not set to the locked pi package');
+  }
+  return piPackage;
 };

@@ -1,5 +1,10 @@
-import type { MessageEvent, RunStatus, Store } from '@forge/shared';
-import { invocationFor, type Harness, type Worker } from './harness.ts';
+import type { MessageEvent, RunStatus, RunTicket, Store } from '@forge/shared';
+import {
+  invocationFor,
+  type Harness,
+  type Worker,
+  type Workspace,
+} from './harness.ts';
 import { transcriptPolicy, type TranscriptWriter } from './transcript.ts';
 
 export interface RunWorkloadOptions {
@@ -7,10 +12,11 @@ export interface RunWorkloadOptions {
   harness: Harness;
   worker: Worker;
   openTranscript: (runId: string) => TranscriptWriter;
-  openWorkDir: (runId: string) => string;
+  openWorkspace: (runId: string) => Workspace | Promise<Workspace>;
   now: () => string;
   newId: () => string;
   secrets?: string[];
+  ticket?: RunTicket;
 }
 
 const isBillable = (event: MessageEvent): boolean =>
@@ -21,7 +27,7 @@ const isBillable = (event: MessageEvent): boolean =>
 export const runWorkload = async (
   options: RunWorkloadOptions,
 ): Promise<string> => {
-  const { store, harness, worker, openTranscript, openWorkDir, now, newId } =
+  const { store, harness, worker, openTranscript, openWorkspace, now, newId } =
     options;
   const policy = transcriptPolicy(options.secrets ?? []);
   const id = newId();
@@ -42,6 +48,7 @@ export const runWorkload = async (
     transcriptRef: transcript.ref,
     sessionId: null,
     error: null,
+    ticket: options.ticket ?? null,
   });
 
   const recordGeneration = (event: MessageEvent): void => {
@@ -65,7 +72,7 @@ export const runWorkload = async (
   let error: string | null = 'harness stream ended without a result';
 
   try {
-    const invocation = invocationFor(worker, openWorkDir(id));
+    const invocation = invocationFor(worker, await openWorkspace(id));
     for await (const harnessEvent of harness.run(invocation)) {
       const event = policy.record(harnessEvent);
       await transcript.append(event);

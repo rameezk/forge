@@ -1,9 +1,28 @@
 import type { HarnessEvent } from '@forge/shared';
 
-export interface HarnessInvocation {
+export interface Checkout {
+  root: string;
+  skillPaths: string[];
+  projectInstructions: string | null;
+  systemPrompt: string | null;
+  appendSystemPrompt: string | null;
+  skills: ReadonlyMap<string, readonly string[]>;
+}
+
+export const UNATTENDED_INSTRUCTION = [
+  'You are running unattended: no human will answer questions or confirm anything while you work.',
+  'Where a skill asks you to confirm something the ticket or its spec already settles, proceed without asking.',
+  'Otherwise stop, and end with the question you need answered.',
+].join(' ');
+
+export interface Workspace {
+  workDir: string;
+  checkout?: Checkout;
+}
+
+export interface HarnessInvocation extends Workspace {
   model: string;
   prompt: string;
-  workDir: string;
   reasoningEffort?: string;
 }
 
@@ -26,10 +45,10 @@ export const withEffort = (
 
 export const invocationFor = (
   worker: Worker,
-  workDir: string,
+  workspace: Workspace,
 ): HarnessInvocation => ({
   model: worker.model,
   prompt: worker.prompt,
-  workDir,
+  ...workspace,
   ...withEffort(worker.reasoningEffort),
 });

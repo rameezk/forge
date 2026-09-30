@@ -50,6 +50,12 @@ let
         example = "rameezk/forge";
         description = "The repository on GitHub as `owner/name`, whose issues track its tickets.";
       };
+      worker = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "builder";
+        description = "Worker that `forge-dispatch` runs against this repository's tickets, in a fresh clone of its default branch, or null to only poll its frontier. Its prompt is a template filled in for each ticket: `{repo}` becomes the repository's `owner/name`, `{issue}` the ticket's number and `{url}` its URL, and it must hold `{issue}` or `{url}`. A leading `/<name>` runs the checkout's skill of that name, and the dispatch fails if the checkout has none.";
+      };
     };
   };
 
@@ -62,13 +68,47 @@ let
       }
       // lib.optionalAttrs (w.reasoningEffort != null) { inherit (w) reasoningEffort; }
     ) cfg.workers;
-    repositories = lib.mapAttrs (_: r: { inherit (r) github; }) cfg.repositories;
+    repositories = lib.mapAttrs (
+      _: r: { inherit (r) github; } // lib.optionalAttrs (r.worker != null) { inherit (r) worker; }
+    ) cfg.repositories;
   };
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
 
   hasWorkers = cfg.workers != { };
   hasRepositories = cfg.repositories != { };
+  dispatchedRepositories = lib.filterAttrs (_: r: r.worker != null) cfg.repositories;
+  hasDispatch = dispatchedRepositories != { };
+
+  hasTicketPlaceholder = prompt: lib.hasInfix "{issue}" prompt || lib.hasInfix "{url}" prompt;
+
+  dispatchAssertions = lib.concatLists (
+    lib.mapAttrsToList (
+      name: r:
+      let
+        option = "forge.runtime.repositories.${name}.worker";
+        declared = cfg.workers ? ${r.worker};
+      in
+      [
+        {
+          assertion = builtins.match "[A-Za-z0-9_-]+" name != null;
+          message = "forge.runtime.repositories.${name} declares a worker, so its name must use only letters, digits, `_` and `-`: it names the repository in forge-dispatch and its unit";
+        }
+        {
+          assertion = declared;
+          message = "${option} names undeclared worker '${r.worker}'";
+        }
+        {
+          assertion = !declared || hasTicketPlaceholder cfg.workers.${r.worker}.prompt;
+          message = "worker '${r.worker}', named by ${option}, has no ticket placeholder: its prompt must hold {issue} or {url}";
+        }
+      ]
+    ) dispatchedRepositories
+  );
+
+  dispatchInstance = pkgs.writeShellScript "forge-dispatch-instance" ''
+    exec ${cfg.package}/bin/forge-dispatch "''${1%:*}" "''${1##*:}"
+  '';
 
   openRouterEnvFiles = [
     "forge-runner.env"
@@ -127,7 +167,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runtime package providing the forge-run, forge-billing, forge-frontier and forge-frontend entry points.";
+      description = "Runtime package providing the forge-run, forge-dispatch, forge-billing, forge-frontier and forge-frontend entry points.";
     };
 
     dashboardPort = lib.mkOption {
@@ -145,7 +185,7 @@ in
       type = lib.types.str;
       default = "${cfg.stateDir}/github.env";
       defaultText = lib.literalExpression ''"''${cfg.stateDir}/github.env"'';
-      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN for the frontier poller and the forge-frontier command. Both load it as optional, so a missing file does not stop the unit from starting.";
+      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN for the frontier poller, the forge-frontier command and forge-dispatch. The poller loads it as optional, so a missing file does not stop the unit from starting. The forge-frontier command and forge-dispatch read only GITHUB_TOKEN from it, as data, and forge-dispatch never hands it to the workload.";
     };
 
     frontier.pollInterval = lib.mkOption {
@@ -201,6 +241,8 @@ in
 
   config = lib.mkMerge [
     {
+      assertions = dispatchAssertions;
+
       users.users.${cfg.user} = {
         isSystemUser = true;
         group = cfg.user;
@@ -309,6 +351,33 @@ in
           OnBootSec = "1min";
           OnUnitActiveSec = cfg.frontier.pollInterval;
         };
+      };
+    })
+
+    (lib.mkIf (hasWorkers && hasDispatch) {
+      environment.systemPackages = [
+        (pkgs.callPackage ../nix/dispatch-command.nix { })
+      ];
+
+      systemd.services."forge-dispatch@" = {
+        description = "Forge dispatch of ticket %i";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        path = lib.mkForce cfg.toolset;
+        serviceConfig = {
+          Type = "oneshot";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          EnvironmentFile = envFile "forge-runner.env";
+          Environment = [
+            "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
+            "FORGE_STATE_DIR=${cfg.stateDir}"
+            "FORGE_GITHUB_TOKEN_FILE=${cfg.githubTokenFile}"
+          ];
+          ExecStart = "${dispatchInstance} %i";
+        }
+        // hardening;
       };
     })
 

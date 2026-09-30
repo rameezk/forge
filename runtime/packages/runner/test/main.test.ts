@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chmodSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -21,6 +20,7 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import type { WorkerConfig } from '../src/index.ts';
+import { journaled, LOCKDOWN, PI_CONTRACT, writeFakePi } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { main } from '../src/main.ts';
 
@@ -30,27 +30,9 @@ const fixture = (name: string): string => join(FIXTURES, name);
 
 const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
 
-const LOCKDOWN = [
-  '--no-extensions',
-  '--no-skills',
-  '--no-prompt-templates',
-  '--no-themes',
-  '--no-context-files',
-];
-
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
 const OPERATOR_EXTRAS = ['--skill', '/opt/forge/skills/review'];
-
-const FAKE_PI = `#!${process.execPath}
-import { readFileSync, writeFileSync } from 'node:fs';
-const env = process.env;
-writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR }));
-process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
-if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
-process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
-if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
-`;
 
 type GenerationStats = (
   id: string,
@@ -195,9 +177,7 @@ const storedGenerations = (
 
 const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
-  const fakePi = join(stateDir, 'fake-pi.mjs');
-  writeFileSync(fakePi, FAKE_PI);
-  chmodSync(fakePi, 0o755);
+  const fakePi = writeFakePi(stateDir);
   const record = join(stateDir, 'pi-call.json');
 
   const configPath = join(stateDir, 'runtime.json');
@@ -342,22 +322,6 @@ const withoutGenerationId = (name: string, id: string): string =>
       )
       .join('\n'),
   );
-
-const journaled = async <T>(
-  body: () => Promise<T>,
-): Promise<{ result: T; journal: string }> => {
-  const lines: string[] = [];
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
-    lines.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    return { result: await body(), journal: lines.join('') };
-  } finally {
-    process.stderr.write = write;
-  }
-};
 
 const isAlive = (pid: number): boolean => {
   try {
@@ -686,17 +650,6 @@ test('given a recorded run whose subagent calls bash, when the transcript is wri
 
 test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, lockdown, offline, openrouter contract with the plain model, a thinking level only when declared, the subagent extension, the extras, and the prompt last', async () => {
   const output = fixture('success.jsonl');
-  const contract = [
-    '--mode',
-    'json',
-    '--no-session',
-    ...LOCKDOWN,
-    '--offline',
-    '--provider',
-    'openrouter',
-    '--model',
-    'z-ai/glm-5',
-  ];
 
   const withEffort = await runWorker({
     output,
@@ -709,7 +662,7 @@ test('given workers with and without a reasoning effort and a harness with opera
   });
 
   assert.deepEqual(withEffort.pi.argv, [
-    ...contract,
+    ...PI_CONTRACT,
     '--thinking',
     'high',
     '-e',
@@ -718,7 +671,7 @@ test('given workers with and without a reasoning effort and a harness with opera
     'refine the spec',
   ]);
   assert.deepEqual(withoutEffort.pi.argv, [
-    ...contract,
+    ...PI_CONTRACT,
     '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,
