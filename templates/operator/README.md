@@ -170,10 +170,7 @@ ssh forge@<address> sudo -u forge-runtime forge-frontier list
 ## Inspecting the run store
 
 Runs, their generations and billed cost live in the SQLite store
-`/var/lib/forge/forge.db`. Query it as the `forge-runtime` user, never as root:
-the store keeps write-ahead-log files beside it, and a root `sqlite3` can leave
-them owned by root, which locks the runner, billing and dashboard out of the
-store. Open it read-only so an inspection can never change a run:
+`/var/lib/forge/forge.db`. To inspect them:
 
 ```bash
 ssh forge@<address> sudo -u forge-runtime sqlite3 -readonly /var/lib/forge/forge.db \
