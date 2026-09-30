@@ -589,3 +589,42 @@ test('given a checkout with a link under a skill directory that resolves outside
     );
   }
 });
+
+test('given a checkout whose skill directory links to a directory that itself holds a directory link, once or in a loop back to itself, when forge-dispatch runs, then pi never starts and the run names the inner link', async () => {
+  for (const [origin, link] of [
+    [
+      originWith(
+        {
+          '.claude/skills/work-on/SKILL.md': SKILL,
+          'docs/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
+        },
+        {
+          '.claude/skills/shared': '../../docs/skills',
+          'docs/skills/again': 'review',
+        },
+      ),
+      '.claude/skills/shared/again',
+    ],
+    [
+      originWith(
+        { '.claude/skills/work-on/SKILL.md': SKILL },
+        {
+          '.claude/skills/loop/p': '..',
+          '.claude/skills/loop/q': '..',
+          '.claude/skills/loop/r': '..',
+        },
+      ),
+      '.claude/skills/loop/p/loop/p',
+    ],
+  ] as const) {
+    const { pi, runs } = await journaled(() => dispatch({ origin })).then(
+      ({ result }) => result,
+    );
+
+    assert.equal(pi, null, link);
+    assert.equal(
+      runs[0]?.error,
+      `'${link}' in the checkout's skills links to a directory from inside a linked directory`,
+    );
+  }
+});

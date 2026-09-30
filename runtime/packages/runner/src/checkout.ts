@@ -87,16 +87,14 @@ const realpathOf = (path: string): string | null => {
   }
 };
 
-const confine = (root: string, dir: string, visited: Set<string>): void => {
-  const real = realpathSync(dir);
-  if (visited.has(real)) {
-    return;
-  }
-  visited.add(real);
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+const confine = (root: string, dir: string, linked: boolean): void => {
+  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+  for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      confine(root, path, visited);
+      confine(root, path, linked);
     }
     if (!entry.isSymbolicLink()) {
       continue;
@@ -110,9 +108,15 @@ const confine = (root: string, dir: string, visited: Set<string>): void => {
         `'${relative(root, path)}' in the checkout's skills links outside the checkout`,
       );
     }
-    if (statSync(target).isDirectory()) {
-      confine(root, path, visited);
+    if (!statSync(target).isDirectory()) {
+      continue;
     }
+    if (linked) {
+      throw new Error(
+        `'${relative(root, path)}' in the checkout's skills links to a directory from inside a linked directory`,
+      );
+    }
+    confine(root, path, true);
   }
 };
 
@@ -146,9 +150,8 @@ export const resolveCheckout = (
   const skillPaths = SKILL_DIRS.map((skills) => join(root, skills)).filter(
     (path) => isDirectory(root, path),
   );
-  const visited = new Set<string>();
   for (const skills of skillPaths) {
-    confine(root, skills, visited);
+    confine(root, skills, false);
   }
   return {
     root,
