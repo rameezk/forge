@@ -78,7 +78,7 @@ const layout = (
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>${title}</title>
+        <title>${title} | Forge</title>
         <link rel="icon" type="image/svg+xml" href="${assets.logo}" />
         <link rel="stylesheet" href="${assets.stylesheet}" />
       </head>

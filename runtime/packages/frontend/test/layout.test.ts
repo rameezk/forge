@@ -128,3 +128,17 @@ test('given the logo path the pages reference, when it is requested, then it ret
   const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/')).text()), 'href');
   assert.notEqual(other, path, 'a different logo should get a different path');
 });
+
+test('given each dashboard page, when it is requested, then its title names the page followed by Forge', async () => {
+  const app = appWith({});
+  const titles: [string, string][] = [
+    ['/', 'Workloads | Forge'],
+    ['/runs/run-01', 'refiner | Forge'],
+    ['/work', 'Frontier | Forge'],
+  ];
+
+  for (const [page, title] of titles) {
+    const body = await (await app.request(page)).text();
+    assert.equal(textOf(body.match(/<title>[\s\S]*?<\/title>/)?.[0] ?? ''), title, `${page} should be titled ${title}`);
+  }
+});
