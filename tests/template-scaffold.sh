@@ -268,6 +268,14 @@ cat >"$fake_bin/tofu" <<'FAKE'
 #!/usr/bin/env bash
 echo "tofu HCLOUD_TOKEN=${HCLOUD_TOKEN:-<unset>} $*" >>"$FAKE_LOG"
 case " $* " in *" output "*) echo '{"server_ipv4":{"value":"203.0.113.10"}}' ;; esac
+case " $* " in *" apply "*)
+	if [ -n "${FAKE_BLOCK_APPLY:-}" ]; then
+		trap 'sleep 1; echo "tofu apply stopped cleanly" >>"$FAKE_LOG"; exit 1' INT
+		touch "$FAKE_BLOCK_APPLY"
+		while :; do sleep 0.1; done
+	fi
+	;;
+esac
 FAKE
 cat >"$fake_bin/ssh" <<'FAKE'
 #!/usr/bin/env bash
@@ -275,7 +283,7 @@ exit 255
 FAKE
 cat >"$fake_bin/nixos-anywhere" <<'FAKE'
 #!/usr/bin/env bash
-echo "nixos-anywhere $*" >>"$FAKE_LOG"
+echo "nixos-anywhere HCLOUD_TOKEN=${HCLOUD_TOKEN:-<unset>} $*" >>"$FAKE_LOG"
 while [ $# -gt 0 ]; do
 	if [ "$1" = --extra-files ]; then cp -Rp "$2" "$FAKE_CAPTURE"; fi
 	shift
@@ -321,9 +329,16 @@ fi
 
 echo "==> case: standup decrypts the Hetzner token for each OpenTofu call from the operator secrets"
 if every_tofu_call_holds_the_token "-chdir=infra/opentofu init" "-chdir=infra/opentofu apply" "-chdir=infra/opentofu output"; then
-	echo "ok: every OpenTofu call in standup ran with HCLOUD_TOKEN from secrets/operator.yaml, with none in the shell"
+	echo "ok: every OpenTofu call in standup ran with HCLOUD_TOKEN from secrets/operator.yaml"
 else
 	echo "FAIL: an OpenTofu call in standup ran without the token from secrets/operator.yaml"
+	cat "$keys/fake.log"
+	fail=1
+fi
+if grep -q "^nixos-anywhere HCLOUD_TOKEN=<unset> " "$keys/fake.log"; then
+	echo "ok: the token never reached the standup shell, only the OpenTofu calls"
+else
+	echo "FAIL: the token leaked into the standup shell beyond the OpenTofu calls"
 	cat "$keys/fake.log"
 	fail=1
 fi
@@ -331,11 +346,32 @@ fi
 echo "==> case: teardown decrypts the Hetzner token for each OpenTofu call from the operator secrets"
 if just_with_fakes teardown >"$work/teardown.log" 2>&1 &&
 	every_tofu_call_holds_the_token "-chdir=infra/opentofu output" "-chdir=infra/opentofu destroy"; then
-	echo "ok: every OpenTofu call in teardown ran with HCLOUD_TOKEN from secrets/operator.yaml, with none in the shell"
+	echo "ok: every OpenTofu call in teardown ran with HCLOUD_TOKEN from secrets/operator.yaml"
 else
 	echo "FAIL: an OpenTofu call in teardown ran without the token from secrets/operator.yaml"
 	tail -10 "$work/teardown.log"
 	cat "$keys/fake.log"
+	fail=1
+fi
+
+echo "==> case: interrupting standup waits for OpenTofu to stop cleanly"
+blocked="$keys/apply-started"
+rm -f "$blocked"
+set -m
+FAKE_BLOCK_APPLY="$blocked" just_with_fakes standup >"$work/standup-interrupted.log" 2>&1 &
+standup_pid=$!
+set +m
+for _ in $(seq 100); do
+	[ -e "$blocked" ] && break
+	sleep 0.1
+done
+kill -INT -- "-$standup_pid"
+wait "$standup_pid" || true
+if grep -q "tofu apply stopped cleanly" "$keys/fake.log" && ! grep -q "exit status" "$work/standup-interrupted.log"; then
+	echo "ok: Ctrl-C during apply returns only once OpenTofu has stopped, with no stray sops exit line"
+else
+	echo "FAIL: Ctrl-C during apply returned before OpenTofu stopped, or sops printed a stray exit line"
+	cat "$work/standup-interrupted.log"
 	fail=1
 fi
 
