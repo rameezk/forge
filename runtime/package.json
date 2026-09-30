@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "build": "npm run build -w @forge/frontend",
     "typecheck": "tsc",
     "test": "node --test 'packages/*/test/**/*.test.ts'"
   },

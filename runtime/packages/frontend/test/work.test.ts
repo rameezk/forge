@@ -32,6 +32,7 @@ const appWith = (frontier: Seed[]) => {
   return createApp({
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),
+    css: '',
   });
 };
 
