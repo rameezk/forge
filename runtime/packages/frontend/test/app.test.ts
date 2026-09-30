@@ -132,7 +132,7 @@ test('given a pending run and an unconfirmed run, when each transcript page is r
   ]);
   const cost = async (id: string): Promise<string> => {
     const body = await (await app.request(`/runs/${id}`)).text();
-    return body.match(/<dt>Cost<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1] ?? '';
+    return body.match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '';
   };
 
   assert.equal(textOf(await cost('pending')), 'pending');
@@ -143,13 +143,13 @@ test('given a pending run and an unconfirmed run, when each transcript page is r
 
 test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and its run page are requested, then both show the start as absolute UTC to the second with the ISO value as a tooltip', async () => {
   const app = appWith([sampleRun({ id: 'run-01', startTime: '2026-09-28T14:43:24.584Z', transcriptRef: null })]);
-  const started = '<time datetime="2026-09-28T14:43:24.584Z" title="2026-09-28T14:43:24.584Z">2026-09-28 14:43:24 UTC</time>';
+  const started = /^<time datetime="2026-09-28T14:43:24\.584Z" title="2026-09-28T14:43:24\.584Z"[^>]*>2026-09-28 14:43:24 UTC<\/time>$/;
 
   const list = await (await app.request('/')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
-  assert.ok(rowFor(list, 'run-01').includes(`>${started}</td>`));
-  assert.equal(detail.match(/<dt>Started<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1], started);
+  assert.match(rowFor(list, 'run-01').match(/<td[^>]*>(<time[\s\S]*?<\/time>)<\/td>/)?.[1] ?? '', started);
+  assert.match(detail.match(/<dt[^>]*>Started<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '', started);
 });
 
 test('given a run whose recorded start time is not a date, when the list and its run page are requested, then both render and show the recorded value as is', async () => {
@@ -160,8 +160,8 @@ test('given a run whose recorded start time is not a date, when the list and its
 
   assert.equal(list.status, 200);
   assert.equal(detail.status, 200);
-  assert.match(await list.text(), /<time datetime="not-a-date" title="not-a-date">not-a-date<\/time>/);
-  assert.match(await detail.text(), /<time datetime="not-a-date" title="not-a-date">not-a-date<\/time>/);
+  assert.match(await list.text(), /<time datetime="not-a-date" title="not-a-date"[^>]*>not-a-date<\/time>/);
+  assert.match(await detail.text(), /<time datetime="not-a-date" title="not-a-date"[^>]*>not-a-date<\/time>/);
 });
 
 test('given a run with 44991 input and 3480 output tokens, when its run page is requested, then the counts carry thousands separators', async () => {
@@ -169,7 +169,7 @@ test('given a run with 44991 input and 3480 output tokens, when its run page is 
 
   const body = await (await app.request('/runs/run-01')).text();
 
-  assert.equal(textOf(body.match(/<dt>Tokens<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1] ?? ''), '44,991 in / 3,480 out');
+  assert.equal(textOf(body.match(/<dt[^>]*>Tokens<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''), '44,991 in / 3,480 out');
 });
 
 test('given a run with a captured transcript, when its detail is requested, then its messages render', async () => {
@@ -208,8 +208,8 @@ test('given a successful run and a failed run, when each run page is requested, 
   const page = async (id: string) => {
     const body = await (await app.request(`/runs/${id}`)).text();
     return {
-      header: body.match(/<dt>Status<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1] ?? '',
-      closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/main>/)?.[1] ?? '',
+      header: body.match(/<dt[^>]*>Status<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '',
+      closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/div>\s*<\/main>/)?.[1] ?? '',
     };
   };
 
@@ -275,7 +275,7 @@ test('given a transcript written before subagent calls were recorded, when its t
   for (const group of groups) {
     assert.doesNotMatch(openingTag(group), /\sopen[\s>]/, 'groups are collapsed by default');
   }
-  assert.match(alpha, /<summary>[\s\S]*call-alpha[\s\S]*2 messages[\s\S]*<\/summary>/, 'a collapsed group names its subagent and how much it did');
+  assert.match(alpha, /<summary[^>]*>[\s\S]*call-alpha[\s\S]*2 messages[\s\S]*<\/summary>/, 'a collapsed group names its subagent and how much it did');
   assert.doesNotMatch(body, /data-message="report"/, 'without a recorded subagent result there is no report card');
   assert.equal(subagentCalls(body).length, 0);
   assert.ok(
@@ -328,9 +328,9 @@ test('given a run whose agent made a bash call in a turn with no text, when its 
   const cards = toolCards(body);
   assert.equal(cards.length, 1);
   const [card] = cards as [string];
-  assert.match(card, /<summary>[\s\S]*bash[\s\S]*echo forge[\s\S]*<\/summary>/);
+  assert.match(card, /<summary[^>]*>[\s\S]*bash[\s\S]*echo forge[\s\S]*<\/summary>/);
   assert.doesNotMatch(openingTag(card), /\sopen[\s>]/, 'a successful call is collapsed by default');
-  assert.doesNotMatch(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
+  assert.doesNotMatch(body, /<header[^>]*>assistant<\/header>\s*<pre[^>]*><\/pre>/);
   assert.ok(
     body.indexOf('run echo forge') < body.indexOf(card) && body.indexOf(card) < body.indexOf('it printed forge'),
     'the card renders in transcript order',
@@ -348,7 +348,7 @@ test('given parallel tool calls whose results arrive out of order, when a card i
   ]);
 
   const [first, second] = toolCards(body) as [string, string];
-  assert.match(first, /<summary>[\s\S]*read[\s\S]*a\.txt[\s\S]*<\/summary>/);
+  assert.match(first, /<summary[^>]*>[\s\S]*read[\s\S]*a\.txt[\s\S]*<\/summary>/);
   assert.ok(first.includes(JSON.stringify({ path: 'a.txt', limit: 10 }, null, 2).replaceAll('"', '&quot;')));
   assert.match(first, /contents of a/);
   assert.doesNotMatch(first, /contents of b/);
@@ -384,11 +384,11 @@ test('given a subagent tool call sharing its id with a parent tool call, when th
   ]);
 
   const [group] = subagentGroups(body) as [string];
-  assert.match(group, /<summary>[\s\S]*1 message[\s\S]*<\/summary>/);
+  assert.match(group, /<summary[^>]*>[\s\S]*1 message[\s\S]*<\/summary>/);
   const [inner] = toolCards(group) as [string];
   assert.match(inner, /echo alpha[\s\S]*alpha output/);
   assert.doesNotMatch(inner, /parent/);
-  assert.doesNotMatch(group, /<header>assistant<\/header>\s*<pre><\/pre>/);
+  assert.doesNotMatch(group, /<header[^>]*>assistant<\/header>\s*<pre[^>]*><\/pre>/);
   const [outer] = toolCards(body) as [string];
   assert.match(outer, /echo parent[\s\S]*parent output/);
   assert.doesNotMatch(outer, /alpha/);
@@ -402,8 +402,8 @@ test('given a tool call whose arguments were capped and which never got a result
   ]);
 
   const [card] = toolCards(body) as [string];
-  assert.match(card, /<summary>[\s\S]*bash[\s\S]*<code[^>]*>\{&quot;command&quot;:&quot;echo ffff \.\.\.cut<\/code>/);
-  assert.match(card, /<pre>\{&quot;command&quot;:&quot;echo ffff\n\.\.\.cut<\/pre>/);
+  assert.match(card, /<summary[^>]*>[\s\S]*bash[\s\S]*<code[^>]*>\{&quot;command&quot;:&quot;echo ffff \.\.\.cut<\/code>/);
+  assert.match(card, /<pre[^>]*>\{&quot;command&quot;:&quot;echo ffff\n\.\.\.cut<\/pre>/);
   assert.match(card, /No result recorded\./);
 });
 
@@ -417,7 +417,7 @@ test('given a transcript written before tool events were recorded, when its run 
 
   assert.equal(toolCards(body).length, 0);
   assert.equal(body.match(/<article[^>]*\sdata-message="assistant"/g)?.length, 2);
-  assert.match(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
+  assert.match(body, /<header[^>]*>assistant<\/header>\s*<pre[^>]*><\/pre>/);
   const result = body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>/)?.[1] ?? '';
   assert.match(result, /^<span[^>]*\sdata-status="success"[^>]*>success<\/span>$/);
 });
@@ -480,7 +480,7 @@ test('given a run whose agent spawned two subagents, when its run page is viewed
   const body = await viewTranscript(delegation);
 
   const [alpha, beta] = subagentCalls(body) as [string, string];
-  const summaryOf = (card: string): string => card.slice(card.indexOf('<summary>'), card.indexOf('</summary>'));
+  const summaryOf = (card: string): string => card.slice(card.indexOf('<summary'), card.indexOf('</summary>'));
   assert.match(summaryOf(alpha), /<span[^>]*\sdata-subagent-task[^>]*\stitle="Run echo alpha and report what it printed\."[^>]*>Run echo alpha and report what it printed\.<\/span>/);
   assert.match(summaryOf(beta), /<span[^>]*\sdata-subagent-task[^>]*\stitle="Say beta\."[^>]*>Say beta\.<\/span>/);
   assert.match(summaryOf(alpha), /2 messages/);
@@ -499,7 +499,7 @@ test('given a subagent given a long multi-line task, when its group is expanded,
 
   const [card] = subagentCalls(body) as [string];
   assert.match(card, /<span[^>]*\sdata-subagent-task[^>]*\stitle="Review the diff\. Report each finding with its file and line\."/);
-  assert.match(card, /<header>task<\/header>\s*<pre>Review the diff\.\n\nReport each finding with its file and line\.<\/pre>/);
+  assert.match(card, /<header[^>]*>task<\/header>\s*<pre[^>]*>Review the diff\.\n\nReport each finding with its file and line\.<\/pre>/);
 });
 
 test('given a run whose agent spawned two subagents, when a group is viewed, then its report is the subagent tool result, shown once', async () => {
@@ -508,8 +508,8 @@ test('given a run whose agent spawned two subagents, when a group is viewed, the
   const [alpha, beta] = subagentCalls(body) as [string, string];
   assert.equal(alpha.match(/Alpha report: echo alpha printed alpha\./g)?.length, 1);
   assert.equal(beta.match(/Beta report: beta\./g)?.length, 1);
-  assert.match(alpha, /<article[^>]*\sdata-message="report"[^>]*>\s*<header>report<\/header>\s*<pre>Alpha report: echo alpha printed alpha\.<\/pre>\s*<\/article>\s*<\/div>\s*<\/details>/, 'the report closes the group');
-  assert.match(alpha, /<header>assistant<\/header>\s*<pre>Running it\.<\/pre>/, 'earlier child messages still render');
+  assert.match(alpha, /<article[^>]*\sdata-message="report"[^>]*>\s*<header[^>]*>report<\/header>\s*<pre[^>]*>Alpha report: echo alpha printed alpha\.<\/pre>\s*<\/article>\s*<\/div>\s*<\/details>/, 'the report closes the group');
+  assert.match(alpha, /<header[^>]*>assistant<\/header>\s*<pre[^>]*>Running it\.<\/pre>/, 'earlier child messages still render');
   assert.equal(body.match(/\sdata-message="report"/g)?.length, 2);
 });
 
@@ -522,8 +522,8 @@ test("given a subagent whose final message differs from the result the parent re
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /<header>assistant<\/header>\s*<pre>full summary<\/pre>/);
-  assert.match(card, /<header>report<\/header>\s*<pre>full sum\n\.\.\.cut<\/pre>/);
+  assert.match(card, /<header[^>]*>assistant<\/header>\s*<pre[^>]*>full summary<\/pre>/);
+  assert.match(card, /<header[^>]*>report<\/header>\s*<pre[^>]*>full sum\n\.\.\.cut<\/pre>/);
 });
 
 test('given a subagent call that returned an error, when its run page is viewed, then its card is highlighted, its group is open and the error is its report', async () => {
@@ -541,8 +541,8 @@ test('given a subagent call that returned an error, when its run page is viewed,
   assert.match(openingTag(failed), /\sdata-failed[\s>]/);
   assert.match(failed, /<span[^>]*\sdata-badge="error"[^>]*>error<\/span>/);
   assert.match(openingTag(subagentGroups(failed)[0] ?? ''), /\sopen[\s>]/);
-  assert.match(failed, /<header>assistant<\/header>\s*<pre>partial<\/pre>/);
-  assert.match(failed, /<article[^>]*\sdata-message="error"[^>]*>\s*<header>error<\/header>\s*<pre>Sub-agent failed: provider error<\/pre>/);
+  assert.match(failed, /<header[^>]*>assistant<\/header>\s*<pre[^>]*>partial<\/pre>/);
+  assert.match(failed, /<article[^>]*\sdata-message="error"[^>]*>\s*<header[^>]*>error<\/header>\s*<pre[^>]*>Sub-agent failed: provider error<\/pre>/);
   assert.doesNotMatch(openingTag(ok), /\sdata-failed[\s>]/);
   const [okGroup, ...extraGroups] = subagentGroups(ok);
   assert.deepEqual(extraGroups, []);
@@ -590,7 +590,7 @@ test('given a subagent given an explicit working directory, when its group is ex
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /<header>cwd<\/header>\s*<pre>repo\/src<\/pre>[\s\S]*<header>task<\/header>\s*<pre>List the files\.<\/pre>/);
+  assert.match(card, /<header[^>]*>cwd<\/header>\s*<pre[^>]*>repo\/src<\/pre>[\s\S]*<header[^>]*>task<\/header>\s*<pre[^>]*>List the files\.<\/pre>/);
 });
 
 test('given a subagent call whose arguments carry no task text, when its run page is viewed, then its header and body show the same arguments', async () => {
@@ -605,9 +605,9 @@ test('given a subagent call whose arguments carry no task text, when its run pag
 
   const [alpha, beta] = subagentCalls(body) as [string, string];
   assert.match(alpha, /<span[^>]*\sdata-subagent-task[^>]*\stitle="\{ &quot;cwd&quot;: &quot;repo&quot; \}"/);
-  assert.match(alpha, /<header>task<\/header>\s*<pre>\{\n  &quot;cwd&quot;: &quot;repo&quot;\n\}<\/pre>/);
+  assert.match(alpha, /<header[^>]*>task<\/header>\s*<pre[^>]*>\{\n  &quot;cwd&quot;: &quot;repo&quot;\n\}<\/pre>/);
   assert.match(beta, /<span[^>]*\sdata-subagent-task[^>]*\stitle="\{&quot;task&quot;:&quot;Review the diff \.\.\.cut"/);
-  assert.match(beta, /<header>task<\/header>\s*<pre>\{&quot;task&quot;:&quot;Review the diff\n\.\.\.cut<\/pre>/);
+  assert.match(beta, /<header[^>]*>task<\/header>\s*<pre[^>]*>\{&quot;task&quot;:&quot;Review the diff\n\.\.\.cut<\/pre>/);
 });
 
 test('given a harness whose spawning tool has another name, when its run page is viewed, then children still nest under the call their scope names', async () => {
@@ -619,7 +619,7 @@ test('given a harness whose spawning tool has another name, when its run page is
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /<span[^>]*\sdata-tool-name[^>]*>Task<\/span>[\s\S]*Count the files\.[\s\S]*<header>report<\/header>\s*<pre>three files<\/pre>/);
+  assert.match(card, /<span[^>]*\sdata-tool-name[^>]*>Task<\/span>[\s\S]*Count the files\.[\s\S]*<header[^>]*>report<\/header>\s*<pre[^>]*>three files<\/pre>/);
   assert.equal(toolCards(body).length, 0);
 });
 
@@ -635,4 +635,16 @@ test('given a subagent call that failed before its child produced any activity, 
   assert.match(openingTag(card), /\sdata-failed[\s>]/);
   assert.match(openingTag(card), /\sopen[\s>]/);
   assert.match(card, /List the files\.[\s\S]*\.\.\/outside[\s\S]*working directory escapes the run directory/);
+});
+
+test('given a tool whose name is longer than a phone-width header, when its run page is viewed, then the card names it in full as a tooltip', async () => {
+  const name = 'mcp__github_enterprise__search_pull_request_review_comments';
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_long', name, arguments: { query: 'retry' } },
+    { type: 'tool_result', id: 'call_long', isError: false, text: 'no comments' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = toolCards(body) as [string];
+  assert.match(card, new RegExp(`<span[^>]*\\sdata-tool-name[^>]*\\stitle="${name}"[^>]*>${name}</span>`));
 });
