@@ -4,7 +4,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import { createApp, FileTranscriptSource, readStylesheet } from '../src/index.ts';
+import { createApp, FileTranscriptSource } from '../src/index.ts';
+import { readStylesheet } from '../src/stylesheet.ts';
 
 const appWith = (css: string) => {
   const store = Store.open(':memory:');

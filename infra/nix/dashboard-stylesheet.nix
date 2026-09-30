@@ -10,7 +10,7 @@ in
 runCommand "dashboard-stylesheet"
   {
     nativeBuildInputs = [ curl ];
-    meta.description = "Starts the packaged forge-frontend and checks a page links a content-hashed stylesheet that the dashboard serves as the package's Tailwind build with an immutable cache header, and that the build-only Tailwind toolchain does not ship.";
+    meta.description = "Starts the packaged forge-frontend and checks a page links a content-hashed stylesheet that the dashboard serves as the package's Tailwind build, styling the page's classes, with an immutable cache header, and that the build-only Tailwind toolchain does not ship.";
   }
   ''
     fail() { echo "$1"; shift; for file in "$@"; do cat "$file"; done; exit 1; }
@@ -47,6 +47,11 @@ runCommand "dashboard-stylesheet"
     grep -qi '^cache-control:.*immutable' headers.txt || fail "the stylesheet is not cached as immutable:" headers.txt
     cmp -s served.css ${runtime}/packages/frontend/dist/dashboard.css || fail "the served stylesheet is not the package's build"
     grep -q 'tailwindcss v4' served.css || fail "the served stylesheet is not built by Tailwind v4"
+    styled=""
+    for class in $(grep -o 'class="[^"]*"' page.html | sed 's/^class="//; s/"$//' | tr ' ' '\n' | sort -u); do
+      grep -qF ".$class" served.css && { styled=$class; break; }
+    done
+    [ -n "$styled" ] || fail "the served stylesheet styles none of the Runs page's classes:" page.html
     [ "$href" = "/assets/dashboard-$(sha256sum served.css | cut -c1-16).css" ] || fail "the stylesheet path $href does not hash its content"
 
     echo "the packaged dashboard serves its Tailwind-built stylesheet under a content-hashed, immutable path, without shipping the Tailwind toolchain" > $out
