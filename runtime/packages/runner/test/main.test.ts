@@ -20,7 +20,7 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import type { WorkerConfig } from '../src/index.ts';
-import { writeFakePi } from './helpers.ts';
+import { journaled, LOCKDOWN, PI_CONTRACT, writeFakePi } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { main } from '../src/main.ts';
 
@@ -29,14 +29,6 @@ const FIXTURES = join(import.meta.dirname, 'fixtures', 'pi');
 const fixture = (name: string): string => join(FIXTURES, name);
 
 const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
-
-const LOCKDOWN = [
-  '--no-extensions',
-  '--no-skills',
-  '--no-prompt-templates',
-  '--no-themes',
-  '--no-context-files',
-];
 
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
@@ -330,22 +322,6 @@ const withoutGenerationId = (name: string, id: string): string =>
       )
       .join('\n'),
   );
-
-const journaled = async <T>(
-  body: () => Promise<T>,
-): Promise<{ result: T; journal: string }> => {
-  const lines: string[] = [];
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
-    lines.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    return { result: await body(), journal: lines.join('') };
-  } finally {
-    process.stderr.write = write;
-  }
-};
 
 const isAlive = (pid: number): boolean => {
   try {
@@ -673,17 +649,6 @@ test('given a recorded run whose subagent calls bash, when the transcript is wri
 
 test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, lockdown, offline, openrouter contract with the plain model, a thinking level only when declared, the subagent extension, the extras, and the prompt last', async () => {
   const output = fixture('success.jsonl');
-  const contract = [
-    '--mode',
-    'json',
-    '--no-session',
-    ...LOCKDOWN,
-    '--offline',
-    '--provider',
-    'openrouter',
-    '--model',
-    'z-ai/glm-5',
-  ];
 
   const withEffort = await runWorker({
     output,
@@ -696,7 +661,7 @@ test('given workers with and without a reasoning effort and a harness with opera
   });
 
   assert.deepEqual(withEffort.pi.argv, [
-    ...contract,
+    ...PI_CONTRACT,
     '--thinking',
     'high',
     '-e',
@@ -705,7 +670,7 @@ test('given workers with and without a reasoning effort and a harness with opera
     'refine the spec',
   ]);
   assert.deepEqual(withoutEffort.pi.argv, [
-    ...contract,
+    ...PI_CONTRACT,
     '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,

@@ -56,6 +56,7 @@ export interface LaunchOptions {
   env: NodeJS.ProcessEnv;
   openWorkspace: (workDir: string) => Workspace | Promise<Workspace>;
   ticket?: RunTicket;
+  secrets?: string[];
 }
 
 export const launchWorkload = async ({
@@ -64,6 +65,7 @@ export const launchWorkload = async ({
   env,
   openWorkspace,
   ticket,
+  secrets = [],
 }: LaunchOptions): Promise<number> => {
   const stateDir = stateDirOf(env);
   const harness = harnessFor(config, worker, env);
@@ -83,7 +85,7 @@ export const launchWorkload = async ({
       openWorkspace: (runId) => openWorkspace(join(workDirs, runId)),
       now: () => new Date().toISOString(),
       newId: () => randomUUID(),
-      secrets: [env.OPENROUTER_API_KEY ?? ''],
+      secrets: [env.OPENROUTER_API_KEY ?? '', ...secrets],
       ...(ticket === undefined ? {} : { ticket }),
     });
     return store.getRun(id)?.status === 'error' ? 1 : 0;

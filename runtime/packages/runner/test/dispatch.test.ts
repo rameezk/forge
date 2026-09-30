@@ -15,7 +15,7 @@ import { dirname, join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, type RunRecord } from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
-import { writeFakePi } from './helpers.ts';
+import { journaled, PI_CONTRACT, writeFakePi } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
 
@@ -124,16 +124,21 @@ interface Scenario {
   issue?: number;
   responses?: Record<number, IssueResponse>;
   prompt?: string;
+  tokenFile?: string | null;
+  piOutput?: string;
 }
 
 interface PiCall {
   argv: string[];
   cwd: string;
   subagentInvocation: string | undefined;
+  githubToken: string | undefined;
+  nodeOptions: string | undefined;
 }
 
 interface Outcome {
   code: number;
+  transcript: string;
   stateDir: string;
   origin: Origin;
   runs: RunRecord[];
@@ -164,6 +169,14 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       },
     }),
   );
+  const tokenFile = join(stateDir, 'github.env');
+  const tokenFileContents =
+    scenario.tokenFile === undefined
+      ? `GITHUB_TOKEN=${GITHUB_TOKEN}\n`
+      : scenario.tokenFile;
+  if (tokenFileContents !== null) {
+    writeFileSync(tokenFile, tokenFileContents);
+  }
   const github = replaying(
     scenario.responses ?? {
       113: labelled(recorded('frontier-ticket'), FORGE_READY),
@@ -179,21 +192,27 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_STATE_DIR: stateDir,
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
-      GITHUB_TOKEN,
+      FORGE_GITHUB_TOKEN_FILE: tokenFile,
+      GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
       GIT_CONFIG_COUNT: '1',
       GIT_CONFIG_KEY_0: `url.${pathToFileURL(origin.path).href}.insteadOf`,
       GIT_CONFIG_VALUE_0: 'https://github.com/rameezk/forge.git',
       FAKE_PI_RECORD: record,
-      FAKE_PI_OUTPUT: PI_OUTPUT,
+      FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
     },
     github.fetch,
   );
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
+    const [run] = store.listRuns();
     return {
       code,
+      transcript:
+        run?.transcriptRef == null
+          ? ''
+          : readFileSync(join(stateDir, 'transcripts', run.transcriptRef), 'utf8'),
       stateDir,
       origin,
       runs: store.listRuns(),
@@ -237,20 +256,6 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
   });
 });
 
-const quietly = async <T>(body: () => Promise<T>): Promise<{ result: T; stderr: string }> => {
-  const lines: string[] = [];
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
-    lines.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    return { result: await body(), stderr: lines.join('') };
-  } finally {
-    process.stderr.write = write;
-  }
-};
-
 test('given a ticket labelled forge:ready that has an open blocker, one that is closed, one that is not ready-for-agent, and a frontier ticket without the label, when forge-dispatch runs for each, then none starts a workload or clones, and each refusal names why', async () => {
   const cases = [
     { issue: 115, fixture: 'blocked-ticket', label: true, reason: /forge#115 is not dispatchable: it has open blockers/ },
@@ -262,7 +267,7 @@ test('given a ticket labelled forge:ready that has an open blocker, one that is 
     const response = label
       ? labelled(recorded(fixture), FORGE_READY)
       : recorded(fixture);
-    const { result, stderr } = await quietly(() =>
+    const { result, journal } = await journaled(() =>
       dispatch({ issue, responses: { [issue]: response } }),
     );
 
@@ -270,25 +275,10 @@ test('given a ticket labelled forge:ready that has an open blocker, one that is 
     assert.deepEqual(result.runs, [], fixture);
     assert.equal(result.pi, null, fixture);
     assert.equal(existsSync(join(result.stateDir, 'work')), false, fixture);
-    assert.match(stderr, reason);
+    assert.match(journal, reason);
   }
 });
 
-const CONTRACT = [
-  '--mode',
-  'json',
-  '--no-session',
-  '--no-extensions',
-  '--no-skills',
-  '--no-prompt-templates',
-  '--no-themes',
-  '--no-context-files',
-  '--offline',
-  '--provider',
-  'openrouter',
-  '--model',
-  'z-ai/glm-5',
-];
 
 const projectInstructions = (path: string): string[] => [
   '--append-system-prompt',
@@ -318,7 +308,7 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
   const unattended = pi.argv[pi.argv.indexOf('-e') - 1] ?? '';
   assert.match(unattended, /no human will answer/);
   const flags = [
-    ...CONTRACT,
+    ...PI_CONTRACT,
     '--skill',
     join(root, '.claude', 'skills'),
     '--skill',
@@ -349,7 +339,7 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
 
   assert.ok(pi);
   const root = realpathSync(pi.cwd);
-  const flags = pi.argv.slice(CONTRACT.length, pi.argv.indexOf('-e') - 2);
+  const flags = pi.argv.slice(PI_CONTRACT.length, pi.argv.indexOf('-e') - 2);
   assert.deepEqual(flags, [
     '--skill',
     join(root, '.agents', 'skills'),
@@ -360,7 +350,7 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
 });
 
 test('given a worker prompt /work-on {url} and a checkout with no work-on skill, when forge-dispatch runs, then pi never starts and the run records that the skill was not found', async () => {
-  const { code, runs, pi } = await quietly(() =>
+  const { code, runs, pi } = await journaled(() =>
     dispatch({ origin: originWith({ '.pi/skills/review/SKILL.md': SKILL }) }),
   ).then(({ result }) => result);
 
@@ -378,7 +368,7 @@ test('given a checkout whose skills directory and AGENTS.md are symlinks to outs
   writeFileSync(join(outside, 'skills', 'work-on', 'SKILL.md'), SKILL);
   writeFileSync(join(outside, 'AGENTS.md'), 'Outside instructions\n');
 
-  const { runs, pi } = await quietly(() =>
+  const { runs, pi } = await journaled(() =>
     dispatch({
       origin: originWith(
         {},
@@ -411,7 +401,7 @@ test('given worker prompts using the {repo}, {issue} and {url} placeholders, wit
 test('given a repository whose clone fails, when forge-dispatch runs, then pi never starts and the run records why git could not clone it', async () => {
   const origin = { path: join(tmpdir(), 'forge-origin-missing'), tip: '' };
 
-  const { code, runs, pi } = await quietly(() => dispatch({ origin })).then(
+  const { code, runs, pi } = await journaled(() => dispatch({ origin })).then(
     ({ result }) => result,
   );
 
@@ -430,4 +420,60 @@ test('given an issue GitHub cannot find and a repository that is not declared, w
     dispatch({ repository: 'elsewhere' }),
     /unknown repository 'elsewhere'/,
   );
+});
+
+test('given a GitHub token file that also sets NODE_OPTIONS and quotes the token, and a different GITHUB_TOKEN in the environment, when forge-dispatch runs, then it asks GitHub with the file token alone, and pi gets neither a GitHub token nor anything else from the file', async () => {
+  const { requests, pi } = await dispatch({
+    tokenFile: `NODE_OPTIONS=--require /var/lib/forge/planted.js\n  GITHUB_TOKEN = "${GITHUB_TOKEN}"  \n`,
+  });
+
+  assert.deepEqual(
+    requests.map((request) => request.authorization),
+    [`bearer ${GITHUB_TOKEN}`],
+  );
+  assert.ok(pi);
+  assert.equal(pi.githubToken, undefined);
+  assert.equal(pi.nodeOptions, undefined);
+});
+
+test('given no GitHub token file, or one that sets no token, when forge-dispatch runs, then it fails naming the missing token without asking GitHub', async () => {
+  for (const tokenFile of [null, 'OTHER=value\n']) {
+    await assert.rejects(dispatch({ tokenFile }), /GitHub token missing/);
+  }
+});
+
+test('given an agent that reads the GitHub token from the state directory and repeats it, when forge-dispatch runs, then the transcript carries it redacted', async () => {
+  const piOutput = join(mkdtempSync(join(tmpdir(), 'forge-output-')), 'pi.jsonl');
+  writeFileSync(
+    piOutput,
+    readFileSync(PI_OUTPUT, 'utf8').replaceAll('All done.', `All done. ${GITHUB_TOKEN}`),
+  );
+
+  const { transcript } = await dispatch({ piOutput });
+
+  assert.match(transcript, /All done\. \[redacted\]/);
+  assert.ok(!transcript.includes(GITHUB_TOKEN));
+});
+
+test('given work-on skill directories that pi would not load as work-on, because their frontmatter names another skill or gives no description, when forge-dispatch runs, then pi never starts and the skill is not found, while one naming itself only by its directory is found', async () => {
+  for (const skill of [
+    '---\nname: other\ndescription: Drive one ticket.\n---\n',
+    '---\nname: work-on\n---\n',
+    '---\nname: work-on\ndescription: ""\n---\n',
+    'No frontmatter at all.\n',
+  ]) {
+    const { pi, runs } = await journaled(() =>
+      dispatch({ origin: originWith({ '.claude/skills/work-on/SKILL.md': skill }) }),
+    ).then(({ result }) => result);
+
+    assert.equal(pi, null, skill);
+    assert.equal(runs[0]?.error, "skill 'work-on' not found in the checkout", skill);
+  }
+
+  const { pi } = await dispatch({
+    origin: originWith({
+      '.claude/skills/work-on/SKILL.md': "---\ndescription: 'Drive one ticket.'\n---\n",
+    }),
+  });
+  assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
 });

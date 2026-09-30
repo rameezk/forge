@@ -480,12 +480,14 @@
               )
               "the dispatch unit must be a oneshot running forge-dispatch for its instance as the forge-runtime user on the workload toolset";
           dispatchUnitSandboxed = lib.asserts.assertMsg (isHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
-          dispatchUnitEnvironmentFiles = lib.asserts.assertMsg (
-            dispatchUnit.serviceConfig.EnvironmentFile == [
-              dispatchHost.config.sops.templates."forge-runner.env".path
-              "-/var/lib/forge/github.env"
-            ]
-          ) "the dispatch unit must load the runner's OpenRouter key and the optional GitHub token file";
+          dispatchUnitEnvironmentFiles =
+            lib.asserts.assertMsg
+              (
+                dispatchUnit.serviceConfig.EnvironmentFile
+                == dispatchHost.config.sops.templates."forge-runner.env".path
+                && lib.elem "FORGE_GITHUB_TOKEN_FILE=/var/lib/forge/github.env" dispatchUnit.serviceConfig.Environment
+              )
+              "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, and read the GitHub token file as data";
           dispatchCommandInstalled =
             lib.asserts.assertMsg
               (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))

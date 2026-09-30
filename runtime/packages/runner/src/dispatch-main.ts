@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import {
   isHeaderValue,
+  offFrontier,
   queryTicket,
   type Fetch,
   type TicketState,
@@ -12,19 +14,9 @@ const USAGE = 'usage: forge-dispatch <repository> <issue>';
 
 const FORGE_READY = 'forge:ready';
 
-const READY_FOR_AGENT = 'ready-for-agent';
-
-const refusal = (ticket: TicketState): string | null => {
-  if (!ticket.open) return 'it is closed';
-  if (!ticket.labels.includes(READY_FOR_AGENT)) {
-    return `it is not labelled ${READY_FOR_AGENT}`;
-  }
-  if (ticket.blockedBy > 0) return 'it has open blockers';
-  if (!ticket.labels.includes(FORGE_READY)) {
-    return `it is not labelled ${FORGE_READY}`;
-  }
-  return null;
-};
+const refusal = (ticket: TicketState): string | null =>
+  offFrontier(ticket) ??
+  (ticket.labels.includes(FORGE_READY) ? null : `it is not labelled ${FORGE_READY}`);
 
 const fillPrompt = (
   template: string,
@@ -36,12 +28,42 @@ const fillPrompt = (
     .replaceAll('{issue}', String(ticket.number))
     .replaceAll('{url}', ticket.url);
 
+const readTokenFile = (path: string): string => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw error;
+  }
+};
+
+const unquoted = (value: string): string =>
+  /^(["'])(.*)\1$/s.exec(value)?.[2] ?? value;
+
 const githubToken = (env: NodeJS.ProcessEnv): string => {
-  const token = env.GITHUB_TOKEN?.trim() ?? '';
+  const path = env.FORGE_GITHUB_TOKEN_FILE;
+  if (path === undefined) {
+    throw new Error('FORGE_GITHUB_TOKEN_FILE is not set');
+  }
+  const token =
+    readTokenFile(path)
+      .split(/\r?\n/)
+      .flatMap((line) => {
+        const equals = line.indexOf('=');
+        return equals !== -1 && line.slice(0, equals).trim() === 'GITHUB_TOKEN'
+          ? [unquoted(line.slice(equals + 1).trim())]
+          : [];
+      })
+      .at(-1) ?? '';
   if (token === '') throw new Error('GitHub token missing');
   if (!isHeaderValue(token)) throw new Error('GitHub token malformed');
   return token;
 };
+
+const withoutGithubToken = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
+  Object.fromEntries(
+    Object.entries(env).filter(([name]) => name !== 'GITHUB_TOKEN'),
+  );
 
 const repositoryNamed = (
   repositories: Record<string, RepositoryConfig> | undefined,
@@ -78,12 +100,14 @@ export const main = async (
   const repository = repositoryNamed(config.repositories, name);
   const worker = resolveWorker(config, repository.worker);
 
+  const token = githubToken(env);
   const ticket = await queryTicket(
     fetch,
-    githubToken(env),
+    token,
     repository.github,
     Number(issue),
   );
+  const workloadEnv = withoutGithubToken(env);
   const refused = refusal(ticket);
   if (refused !== null) {
     console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
@@ -96,10 +120,11 @@ export const main = async (
       ...worker,
       prompt: fillPrompt(worker.prompt, repository.github, ticket),
     },
-    env,
+    env: workloadEnv,
+    secrets: [token],
     ticket: { repository: name, number: ticket.number, url: ticket.url },
     openWorkspace: async (workDir) => {
-      await cloneCheckout(repository.github, workDir, env);
+      await cloneCheckout(repository.github, workDir, workloadEnv);
       return { workDir, checkout: resolveCheckout(workDir) };
     },
   });

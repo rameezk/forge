@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import { realpathSync, statSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, join, sep } from 'node:path';
+import { parse } from 'yaml';
 import type { Checkout } from './harness.ts';
 
 const SKILL_DIRS = ['.claude/skills', '.agents/skills', '.pi/skills'];
@@ -77,8 +78,36 @@ export const resolveCheckout = (dir: string): Checkout => {
   };
 };
 
+const frontmatterOf = (content: string): Record<string, unknown> => {
+  const normalized = content.replace(/\r\n?/g, '\n');
+  const end = normalized.indexOf('\n---', 3);
+  if (!normalized.startsWith('---') || end === -1) {
+    return {};
+  }
+  const parsed: unknown = parse(normalized.slice(4, end));
+  return typeof parsed === 'object' && parsed !== null
+    ? (parsed as Record<string, unknown>)
+    : {};
+};
+
+const loadsAs = (path: string, name: string): boolean => {
+  try {
+    const { name: declared, description } = frontmatterOf(
+      readFileSync(path, 'utf8'),
+    );
+    return (
+      (declared || basename(dirname(path))) === name &&
+      typeof description === 'string' &&
+      description.trim() !== ''
+    );
+  } catch {
+    return false;
+  }
+};
+
 export const hasSkill = (checkout: Checkout, name: string): boolean =>
   SKILL_NAME.test(name) &&
-  checkout.skillPaths.some((skills) =>
-    isFile(checkout.root, join(skills, name, 'SKILL.md')),
-  );
+  checkout.skillPaths.some((skills) => {
+    const path = join(skills, name, 'SKILL.md');
+    return isFile(checkout.root, path) && loadsAs(path, name);
+  });

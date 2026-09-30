@@ -34,12 +34,12 @@ export {
   GITHUB_GRAPHQL_API,
   isGithubRepository,
   isGithubUrl,
+  offFrontier,
   oldestFirst,
   queryFrontier,
   queryTicket,
   requestFrontierPage,
   requestTicket,
-  TICKET_QUERY,
 } from './frontier.ts';
 export { isHeaderValue } from './http.ts';
 export { Store } from './store.ts';

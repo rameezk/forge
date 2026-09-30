@@ -185,7 +185,7 @@ in
       type = lib.types.str;
       default = "${cfg.stateDir}/github.env";
       defaultText = lib.literalExpression ''"''${cfg.stateDir}/github.env"'';
-      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN for the frontier poller and the forge-frontier command. Both load it as optional, so a missing file does not stop the unit from starting.";
+      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN for the frontier poller, the forge-frontier command and forge-dispatch. The poller loads it as optional, so a missing file does not stop the unit from starting. The forge-frontier command and forge-dispatch read only GITHUB_TOKEN from it, as data, and forge-dispatch never hands it to the workload.";
     };
 
     frontier.pollInterval = lib.mkOption {
@@ -369,13 +369,11 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = [
-            (envFile "forge-runner.env")
-            "-${cfg.githubTokenFile}"
-          ];
+          EnvironmentFile = envFile "forge-runner.env";
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
+            "FORGE_GITHUB_TOKEN_FILE=${cfg.githubTokenFile}"
           ];
           ExecStart = "${dispatchInstance} %i";
         }
