@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
@@ -83,6 +83,19 @@ test('given the stylesheet has not been built, when the dashboard reads it, then
   assert.throws(() => readStylesheet(missing), (error: Error) =>
     error.message.includes(missing) && error.message.includes('npm run build'),
   );
+});
+
+test('given the dashboard\'s styles, when they are read, then only the tailwind import and the palette tokens remain', () => {
+  const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  const theme = styles.match(/@theme\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  const declarations = theme.split(';').map((declaration) => declaration.trim()).filter(Boolean);
+  assert.ok(declarations.length > 0, 'the palette tokens should be defined in the theme');
+  for (const declaration of declarations) {
+    assert.match(declaration, /^--color-[\w*-]+:/, `the theme should only hold palette tokens: ${declaration}`);
+  }
+  const rest = styles.replace(/@theme\s*\{[^}]*\}/, '').replace(/@import\s+"tailwindcss"[^;]*;/, '').trim();
+  assert.equal(rest, '', 'no hand-written rules should remain');
 });
 
 const LOGO = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><circle cx="64" cy="64" r="8"/></svg>\n';

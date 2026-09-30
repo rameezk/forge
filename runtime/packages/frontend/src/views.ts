@@ -36,9 +36,11 @@ export interface AssetHrefs {
   logo: string;
 }
 
+const FOCUS_RING = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 const PAGE_TITLE = 'm-0 mb-3 text-xl font-bold';
+const SECTION_TITLE = 'm-0 text-[1.1rem] font-bold';
 const EMPTY = 'm-0 text-muted';
-const LINK = 'font-medium text-accent-text no-underline hover:underline';
+const LINK = `rounded-sm font-medium text-accent-text no-underline hover:underline ${FOCUS_RING}`;
 const CARD = 'overflow-x-auto rounded-lg border border-line bg-surface';
 const TABLE = 'w-full border-collapse text-[0.9rem]';
 const TH = 'whitespace-nowrap border-b border-line bg-raised px-3.5 py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-fg';
@@ -46,7 +48,7 @@ const TD = 'border-t border-line px-3.5 py-2.5 align-baseline';
 const ROW = 'hover:bg-bg';
 const NUMERIC = 'text-right tabular-nums whitespace-nowrap';
 const PENDING = 'font-normal italic text-muted';
-const NAV_LINK = 'border-b-2 py-1.5 text-[0.9rem] no-underline';
+const NAV_LINK = `border-b-2 py-1.5 text-[0.9rem] no-underline ${FOCUS_RING}`;
 const POLLED = 'ml-auto text-sm text-muted';
 
 const navLink = (href: string, label: string, current: boolean): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -60,7 +62,7 @@ const renderHeader = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
     <div class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-2">
-      <a href="/" data-brand class="flex items-center gap-2 text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
+      <a href="/" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline ${FOCUS_RING}"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
       </nav>
@@ -74,7 +76,7 @@ const layout = (
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<!doctype html>
-    <html lang="en">
+    <html lang="en" class="scheme-light-dark">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -82,13 +84,15 @@ const layout = (
         <link rel="icon" type="image/svg+xml" href="${assets.logo}" />
         <link rel="stylesheet" href="${assets.stylesheet}" />
       </head>
-      <body class="bg-bg text-fg">
+      <body class="bg-bg text-[15px] text-fg">
         ${renderHeader(current, assets)}
         <main class="mx-auto max-w-6xl px-4 py-8">${body}</main>
       </body>
     </html>`;
 
-const UNCONFIRMED_BADGE = html`<span class="ml-1.5 rounded bg-warning-soft px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-[0.05em] text-warning" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
+const BADGE = 'shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-[0.05em]';
+
+const UNCONFIRMED_BADGE = html`<span class="${BADGE} ml-1.5 bg-warning-soft text-warning" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
 
 const renderCost = (run: RunRecord): Rendered => {
   switch (run.costStatus) {
@@ -111,10 +115,10 @@ const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscape
   html`<span class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-[''] ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;
 
 const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<time datetime="${iso}" title="${iso}">${formatStarted(iso)}</time>`;
+  html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatStarted(iso)}</time>`;
 
 const renderDate = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<time datetime="${iso}" title="${iso}">${formatDate(iso)}</time>`;
+  html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatDate(iso)}</time>`;
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
@@ -167,14 +171,29 @@ export const renderList = (
   return layout('Workloads', 'runs', assets, body);
 };
 
+const BLOCK = 'mb-3 rounded-lg border bg-surface';
+const LABEL = 'm-0 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
+const PROSE = 'm-0 whitespace-pre-wrap break-words font-sans';
+const CODE = 'm-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-raised px-3 py-2.5 font-mono text-[0.8rem] leading-relaxed text-fg';
+
+const MESSAGE_TONE: Record<string, { border: string; label: string }> = {
+  report: { border: 'border-fg/35', label: 'text-muted' },
+  error: { border: 'border-error', label: 'text-error' },
+};
+
+const DEFAULT_TONE = { border: 'border-line', label: 'text-muted' };
+
 const renderText = (
   kind: string,
   text: string,
-): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<article class="message message-${kind}" data-message="${kind}">
-    <header>${kind}</header>
-    <pre>${text}</pre>
+  body: string = PROSE,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const tone = MESSAGE_TONE[kind] ?? DEFAULT_TONE;
+  return html`<article class="${BLOCK} ${tone.border} px-4 py-3" data-message="${kind}">
+    <header class="${LABEL} mb-1.5 ${tone.label}">${kind}</header>
+    <pre class="${body}">${text}</pre>
   </article>`;
+};
 
 const SUMMARY_KEYS = ['command', 'path', 'pattern', 'task'];
 
@@ -219,10 +238,14 @@ const toolResults = (events: HarnessEvent[]): ToolResults => {
   return results;
 };
 
-const toolName = (name: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="tool-name" data-tool-name>${name}</span>`;
+const toolName = (name: string, failed: boolean): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="shrink-0 whitespace-nowrap font-mono text-[0.85rem] font-semibold ${failed ? 'text-error' : 'text-fg'}" data-tool-name>${name}</span>`;
 
-const ERROR_BADGE = html`<span class="badge tool-status" data-badge="error">error</span>`;
+const ERROR_BADGE = html`<span class="${BADGE} ml-auto bg-error-soft text-error" data-badge="error">error</span>`;
+
+const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] group-open:before:rotate-90 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent`;
+
+const SUMMARY_CODE = 'min-w-0 truncate font-mono text-[0.85rem] text-muted';
 
 const renderToolCall = (
   call: ToolCallEvent,
@@ -230,19 +253,19 @@ const renderToolCall = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const summary = argumentSummary(call.arguments);
   const failed = result?.isError === true;
-  return html`<details class="tool${failed ? ' tool-error' : ''}" data-tool-call${failed ? html` data-failed open` : ''}>
-    <summary>
-      ${toolName(call.name)}
-      <code title="${summary}">${summary}</code>
+  return html`<details class="group ${BLOCK} ${failed ? 'border-error' : 'border-line'}" data-tool-call${failed ? html` data-failed open` : ''}>
+    <summary class="${DISCLOSURE}">
+      ${toolName(call.name, failed)}
+      <code class="${SUMMARY_CODE}" title="${summary}">${summary}</code>
       ${failed ? ERROR_BADGE : ''}
     </summary>
-    <div class="tool-body">
-      <header>Arguments</header>
-      <pre>${prettyArguments(call.arguments)}</pre>
-      <header>Result</header>
+    <div class="flex flex-col gap-1.5 border-t border-line px-4 pt-3 pb-4">
+      <header class="${LABEL}">Arguments</header>
+      <pre class="${CODE}">${prettyArguments(call.arguments)}</pre>
+      <header class="${LABEL} mt-2">Result</header>
       ${result === undefined
-        ? html`<p class="empty">No result recorded.</p>`
-        : html`<pre>${result.text}</pre>`}
+        ? html`<p class="${EMPTY}">No result recorded.</p>`
+        : html`<pre class="${CODE}">${result.text}</pre>`}
     </div>
   </details>`;
 };
@@ -259,9 +282,9 @@ const renderEvent = (
     case 'tool_result':
       return '';
     case 'result':
-      return html`<article class="message message-result" data-message="result">${renderStatus(event.status)}${event.error === null
+      return html`<article class="${BLOCK} ${event.status === 'error' ? 'border-error' : 'border-line'} flex items-baseline gap-2.5 px-4 py-3" data-message="result">${renderStatus(event.status)}${event.error === null
         ? ''
-        : html`<span>${event.error}</span>`}</article>`;
+        : html`<span class="min-w-0 break-words">${event.error}</span>`}</article>`;
   }
 };
 
@@ -350,17 +373,18 @@ const taskText = (args: unknown): string => {
 };
 
 const renderGroup = (
+  frame: string,
   summary: Rendered,
   count: string,
   open: boolean,
   body: Rendered[],
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<details class="subagent" data-subagent-group${open ? html` open` : ''}>
-    <summary>
+  html`<details class="group ${frame}" data-subagent-group${open ? html` open` : ''}>
+    <summary class="${DISCLOSURE}">
       ${summary}
-      <span class="subagent-count">${count}</span>
+      <span class="ml-auto shrink-0 whitespace-nowrap text-[0.8rem] tabular-nums text-muted">${count}</span>
     </summary>
-    <div class="subagent-body">
+    <div class="rounded-b-lg border-t border-line bg-bg px-4 pt-3 pb-px">
       ${body}
     </div>
   </details>`;
@@ -375,21 +399,22 @@ const renderSubagentCall = (
   const task = taskText(call.arguments);
   const { cwd } = argumentFields(call.arguments);
   const shown = withoutToolOnlyPreambles(events);
-  return html`<section class="tool subagent-call${failed ? ' tool-error' : ''}" data-subagent-call${failed ? html` data-failed` : ''}>
-    <header>
-      ${toolName(call.name)}
+  return html`<section class="${BLOCK} ${failed ? 'border-error' : 'border-line'}" data-subagent-call${failed ? html` data-failed` : ''}>
+    <header class="flex items-center gap-2.5 px-4 py-2.5">
+      ${toolName(call.name, failed)}
       ${failed ? ERROR_BADGE : ''}
     </header>
     ${renderGroup(
-      html`<span class="subagent-task" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
+      'border-t border-line',
+      html`<span class="min-w-0 truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
       messageCount(shown),
       failed,
       [
-        typeof cwd === 'string' ? renderText('cwd', cwd) : '',
+        typeof cwd === 'string' ? renderText('cwd', cwd, `${PROSE} font-mono text-[0.85rem]`) : '',
         renderText('task', task),
         ...withoutReportMessage(shown, report).map((event) => renderEvent(event, results)),
         report === undefined
-          ? html`<p class="empty">No report recorded.</p>`
+          ? html`<p class="${EMPTY} mb-3">No report recorded.</p>`
           : renderText(failed ? 'error' : 'report', report.text),
       ],
     )}
@@ -405,8 +430,9 @@ const renderSubagent = (
   }
   const shown = withoutToolOnlyPreambles(events);
   return renderGroup(
-    html`<span class="subagent-label">Subagent</span>
-      <code title="${scope}">${scope}</code>`,
+    `${BLOCK} border-line`,
+    html`<span class="${LABEL} whitespace-nowrap">Subagent</span>
+      <code class="${SUMMARY_CODE}" title="${scope}">${scope}</code>`,
     messageCount(shown),
     false,
     shown.map((event) => renderEvent(event, results)),
@@ -424,31 +450,34 @@ const renderTranscript = (
   );
 };
 
+const META_TERM = 'text-muted';
+const META_VALUE = 'm-0 min-w-0 break-words tabular-nums';
+
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const body = html`<p><a href="/">&larr; Workloads</a></p>
-    <h1>${run.worker}</h1>
-    <dl class="meta">
-      <dt>Model</dt>
-      <dd>${run.model}</dd>
-      <dt>Status</dt>
-      <dd>${renderStatus(run.status)}</dd>
-      <dt>Started</dt>
-      <dd>${renderTimestamp(run.startTime)}</dd>
-      <dt>Duration</dt>
-      <dd>${formatDuration(run.startTime, run.endTime)}</dd>
-      <dt>Cost</dt>
-      <dd>${renderCost(run)}</dd>
-      <dt>Tokens</dt>
-      <dd>${formatTokens(run.inputTokens)} in / ${formatTokens(run.outputTokens)} out</dd>
+  const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
+    <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
+    <dl class="m-0 mb-4 grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[0.9rem]">
+      <dt class="${META_TERM}">Model</dt>
+      <dd class="${META_VALUE}">${run.model}</dd>
+      <dt class="${META_TERM}">Status</dt>
+      <dd class="${META_VALUE}">${renderStatus(run.status)}</dd>
+      <dt class="${META_TERM}">Started</dt>
+      <dd class="${META_VALUE}">${renderTimestamp(run.startTime)}</dd>
+      <dt class="${META_TERM}">Duration</dt>
+      <dd class="${META_VALUE}">${formatDuration(run.startTime, run.endTime)}</dd>
+      <dt class="${META_TERM}">Cost</dt>
+      <dd class="${META_VALUE}">${renderCost(run)}</dd>
+      <dt class="${META_TERM}">Tokens</dt>
+      <dd class="${META_VALUE}">${formatTokens(run.inputTokens)} in / ${formatTokens(run.outputTokens)} out</dd>
     </dl>
-    ${run.error === null ? '' : html`<p class="status-error">${run.error}</p>`}
-    <h2>Transcript</h2>
+    ${run.error === null ? '' : html`<p class="m-0 mb-4 rounded-lg bg-error-soft px-4 py-2.5 text-error break-words">${run.error}</p>`}
+    <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
-      ? html`<p class="empty">No transcript captured.</p>`
+      ? html`<p class="${EMPTY}">No transcript captured.</p>`
       : renderTranscript(events)}`;
   return layout(run.worker, null, assets, body);
 };
@@ -472,7 +501,7 @@ const renderRepository = ({
 }: RepositoryFrontier): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<section class="mb-10" data-repository="${repository}"${lastError === null ? '' : html` data-stale`}>
     <header class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-      <h2 class="m-0 text-[1.1rem] font-bold">${repository}</h2>
+      <h2 class="${SECTION_TITLE}">${repository}</h2>
       ${isGithubRepository(github)
         ? html`<a href="https://github.com/${github}" class="${LINK}">${github}</a>`
         : html`<span class="text-muted">${github}</span>`}
