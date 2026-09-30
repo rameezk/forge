@@ -38,7 +38,12 @@ const textOf = (fragment: string): string =>
   fragment.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
 const sections = (body: string): string[] =>
-  body.match(/<section class="repository[^"]*">[\s\S]*?<\/section>/g) ?? [];
+  body.match(/<section[^>]*\sdata-repository="[^"]*"[\s\S]*?<\/section>/g) ?? [];
+
+const ticketRows = (section: string): string[] =>
+  section.match(/<tr[^>]*\sdata-ticket="[^"]*"[\s\S]*?<\/tr>/g) ?? [];
+
+const openingTag = (element: string): string => element.slice(0, element.indexOf('>') + 1);
 
 test('given a stored frontier across two repositories, when the work page is requested, then tickets are grouped by repository oldest first, each with its link, parent spec and creation date, under the repository linked to GitHub with its last-polled time', async () => {
   const app = appWith([
@@ -70,7 +75,7 @@ test('given a stored frontier across two repositories, when the work page is req
   assert.match(forge, /<h2>forge<\/h2>/);
   assert.match(forge, /<a href="https:\/\/github\.com\/rameezk\/forge">rameezk\/forge<\/a>/);
   assert.match(forge, /Last polled <time datetime="2026-09-29T08:15:00.000Z" title="2026-09-29T08:15:00.000Z">2026-09-29 08:15:00 UTC<\/time>/);
-  const rows = forge.match(/<tr class="ticket">[\s\S]*?<\/tr>/g) ?? [];
+  const rows = ticketRows(forge);
   assert.deepEqual(rows.map(textOf), [
     '#56 Declared repositories show their frontier on the dashboard #54 Frontier discovery across managed repositories 2026-09-28',
     '#70 Billed cost settles after the run #67 Billed cost settles after the run 2026-09-28',
@@ -80,7 +85,7 @@ test('given a stored frontier across two repositories, when the work page is req
 
   assert.match(dotfiles, /<h2>dotfiles<\/h2>/);
   assert.match(dotfiles, /<a href="https:\/\/github\.com\/rameezk\/dotfiles">rameezk\/dotfiles<\/a>/);
-  assert.equal(textOf((dotfiles.match(/<tr class="ticket">[\s\S]*?<\/tr>/) ?? [''])[0]), '#3 Unparented chore No spec 2026-09-01');
+  assert.deepEqual(ticketRows(dotfiles).map(textOf), ['#3 Unparented chore No spec 2026-09-01']);
 });
 
 test('given a polled repository with nothing on its frontier, when the work page is requested, then it says so under the repository', async () => {
@@ -88,20 +93,20 @@ test('given a polled repository with nothing on its frontier, when the work page
 
   const [forge] = sections(await (await app.request('/work')).text());
 
-  assert.match(forge ?? '', /<p class="empty">No tickets on the frontier\.<\/p>/);
+  assert.equal(textOf(forge ?? ''), 'forge rameezk/forge Last polled 2026-09-29 08:15:00 UTC No tickets on the frontier.');
   assert.doesNotMatch(forge ?? '', /<table>/);
 });
 
 test('given no repository has been polled, when the work page is requested, then it says the frontier has not been polled yet', async () => {
   const body = await (await appWith([]).request('/work')).text();
 
-  assert.match(body, /<p class="empty">No managed repositories have been polled yet\.<\/p>/);
+  assert.match(body, /<p[^>]*>No managed repositories have been polled yet\.<\/p>/);
 });
 
 test('given the dashboard, when the runs and work pages are requested, then both carry a header linking Runs and Work that marks the current page', async () => {
   const app = appWith([]);
   const nav = async (path: string): Promise<string> =>
-    (await (await app.request(path)).text()).match(/<header class="site">[\s\S]*?<\/header>/)?.[0] ?? '';
+    (await (await app.request(path)).text()).match(/<nav>[\s\S]*?<\/nav>/)?.[0] ?? '';
 
   assert.match(await nav('/'), /<a href="\/" aria-current="page">Runs<\/a>\s*<a href="\/work">Work<\/a>/);
   assert.match(await nav('/work'), /<a href="\/">Runs<\/a>\s*<a href="\/work" aria-current="page">Work<\/a>/);
@@ -117,10 +122,10 @@ test('given a stored ticket whose url is not a GitHub https link, when the work 
     },
   ]);
 
-  const [forge] = sections(await (await app.request('/work')).text());
+  const [row] = ticketRows(sections(await (await app.request('/work')).text())[0] ?? '');
 
-  assert.doesNotMatch(forge ?? '', /javascript:/);
-  assert.match(forge ?? '', /<td class="number">#56<\/td>/);
+  assert.doesNotMatch(row ?? '', /javascript:/);
+  assert.match(row ?? '', /<td[^>]*>#56<\/td>/);
 });
 
 test('given a stored snapshot where one repository has a last error, when the work page is requested, then that repository shows its error and last-polled time alongside its stale tickets', async () => {
@@ -137,11 +142,11 @@ test('given a stored snapshot where one repository has a last error, when the wo
 
   const [forge, healthy] = sections(await (await app.request('/work')).text());
 
-  assert.match(forge ?? '', /^<section class="repository stale">/);
-  assert.match(forge ?? '', /<p class="status-error">Last poll failed <time datetime="2026-09-29T08:20:00.000Z" title="2026-09-29T08:20:00.000Z">2026-09-29 08:20:00 UTC<\/time>: GitHub answered 401 for rameezk\/forge<\/p>/);
+  assert.match(openingTag(forge ?? ''), /\sdata-stale[\s>]/);
+  assert.match(forge ?? '', /<p[^>]*\sdata-poll-error[^>]*>Last poll failed <time datetime="2026-09-29T08:20:00.000Z" title="2026-09-29T08:20:00.000Z">2026-09-29 08:20:00 UTC<\/time>: GitHub answered 401 for rameezk\/forge<\/p>/);
   assert.match(forge ?? '', /Last polled <time datetime="2026-09-29T08:15:00.000Z"/);
-  assert.equal((forge?.match(/<tr class="ticket">/g) ?? []).length, 1);
-  assert.doesNotMatch(healthy ?? '', /status-error|stale/);
+  assert.equal(ticketRows(forge ?? '').length, 1);
+  assert.doesNotMatch(healthy ?? '', /data-poll-error|data-stale/);
 });
 
 test('given a repository that has never been polled successfully, when the work page is requested, then it shows its error and that it was never polled', async () => {
@@ -151,8 +156,8 @@ test('given a repository that has never been polled successfully, when the work 
 
   const [forge] = sections(await (await app.request('/work')).text());
 
-  assert.match(forge ?? '', /<p class="status-error">Last poll failed <time[^>]*>[^<]*<\/time>: GitHub token missing<\/p>/);
-  assert.match(forge ?? '', /<span class="polled">Never polled<\/span>/);
+  assert.match(forge ?? '', /<p[^>]*\sdata-poll-error[^>]*>Last poll failed <time[^>]*>[^<]*<\/time>: GitHub token missing<\/p>/);
+  assert.match(forge ?? '', /<span[^>]*>Never polled<\/span>/);
   assert.doesNotMatch(forge ?? '', /No tickets on the frontier/);
 });
 
@@ -164,5 +169,5 @@ test('given a stored repository whose github is not an owner/name, when the work
   const [forge] = sections(await (await app.request('/work')).text());
 
   assert.doesNotMatch(forge ?? '', /<a href="https:\/\/github\.com\/\.\.\/\.\.\/evil"/);
-  assert.match(forge ?? '', /<span class="github">\.\.\/\.\.\/evil<\/span>/);
+  assert.match(forge ?? '', /<span[^>]*>\.\.\/\.\.\/evil<\/span>/);
 });
