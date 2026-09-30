@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import { createApp, FileTranscriptSource } from '../src/index.ts';
+import { createApp, FileTranscriptSource, readStylesheet } from '../src/index.ts';
 
 const appWith = (css: string) => {
   const store = Store.open(':memory:');
@@ -72,4 +72,12 @@ test('given the hashed stylesheet path a page links to, when it is requested, th
 
   const stale = await app.request('/assets/dashboard-0000000000000000.css');
   assert.equal(stale.status, 404, 'a path for any other content should not be served');
+});
+
+test('given the stylesheet has not been built, when the dashboard reads it, then it fails naming the missing file and how to build it', () => {
+  const missing = join(mkdtempSync(join(tmpdir(), 'forge-dist-')), 'dashboard.css');
+
+  assert.throws(() => readStylesheet(missing), (error: Error) =>
+    error.message.includes(missing) && error.message.includes('npm run build'),
+  );
 });
