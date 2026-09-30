@@ -33,6 +33,7 @@ const appWith = (frontier: Seed[]) => {
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),
     css: '',
+    logo: '',
   });
 };
 
@@ -69,19 +70,19 @@ test('given a stored frontier across two repositories, when the work page is req
   assert.deepEqual(rest, []);
   assert.ok(dotfiles && forge);
 
-  assert.match(forge, /<h2>forge<\/h2>/);
-  assert.match(forge, /<a href="https:\/\/github\.com\/rameezk\/forge">rameezk\/forge<\/a>/);
+  assert.match(forge, /<h2[^>]*>forge<\/h2>/);
+  assert.match(forge, /<a href="https:\/\/github\.com\/rameezk\/forge"[^>]*>rameezk\/forge<\/a>/);
   assert.match(forge, /Last polled <time datetime="2026-09-29T08:15:00.000Z" title="2026-09-29T08:15:00.000Z">2026-09-29 08:15:00 UTC<\/time>/);
   const rows = ticketRows(forge);
   assert.deepEqual(rows.map(textOf), [
     '#56 Declared repositories show their frontier on the dashboard #54 Frontier discovery across managed repositories 2026-09-28',
     '#70 Billed cost settles after the run #67 Billed cost settles after the run 2026-09-28',
   ]);
-  assert.match(rows[0] ?? '', /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/56">#56<\/a>/);
+  assert.match(rows[0] ?? '', /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/56"[^>]*>#56<\/a>/);
   assert.match(rows[0] ?? '', /<time datetime="2026-09-28T10:07:58Z" title="2026-09-28T10:07:58Z">2026-09-28<\/time>/);
 
-  assert.match(dotfiles, /<h2>dotfiles<\/h2>/);
-  assert.match(dotfiles, /<a href="https:\/\/github\.com\/rameezk\/dotfiles">rameezk\/dotfiles<\/a>/);
+  assert.match(dotfiles, /<h2[^>]*>dotfiles<\/h2>/);
+  assert.match(dotfiles, /<a href="https:\/\/github\.com\/rameezk\/dotfiles"[^>]*>rameezk\/dotfiles<\/a>/);
   assert.deepEqual(ticketRows(dotfiles).map(textOf), ['#3 Unparented chore No spec 2026-09-01']);
 });
 
@@ -91,7 +92,7 @@ test('given a polled repository with nothing on its frontier, when the work page
   const [forge] = sections(await (await app.request('/work')).text());
 
   assert.match(forge ?? '', /<p[^>]*>No tickets on the frontier\.<\/p>/);
-  assert.doesNotMatch(forge ?? '', /<table>/);
+  assert.doesNotMatch(forge ?? '', /<table[\s>]/);
 });
 
 test('given no repository has been polled, when the work page is requested, then it says the frontier has not been polled yet', async () => {
@@ -103,10 +104,10 @@ test('given no repository has been polled, when the work page is requested, then
 test('given the dashboard, when the runs and work pages are requested, then both carry a header linking Runs and Work that marks the current page', async () => {
   const app = appWith([]);
   const nav = async (path: string): Promise<string> =>
-    (await (await app.request(path)).text()).match(/<nav>[\s\S]*?<\/nav>/)?.[0] ?? '';
+    (await (await app.request(path)).text()).match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '';
 
-  assert.match(await nav('/'), /<a href="\/" aria-current="page">Runs<\/a>\s*<a href="\/work">Work<\/a>/);
-  assert.match(await nav('/work'), /<a href="\/">Runs<\/a>\s*<a href="\/work" aria-current="page">Work<\/a>/);
+  assert.match(await nav('/'), /<a href="\/" aria-current="page"[^>]*>Runs<\/a>\s*<a href="\/work"(?![^>]*aria-current)[^>]*>Work<\/a>/);
+  assert.match(await nav('/work'), /<a href="\/"(?![^>]*aria-current)[^>]*>Runs<\/a>\s*<a href="\/work" aria-current="page"[^>]*>Work<\/a>/);
 });
 
 test('given a stored ticket whose url is not a GitHub https link, when the work page is requested, then its number renders without a link', async () => {
