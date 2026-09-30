@@ -82,7 +82,7 @@ const accepts = (argv, env) => {
   const loaded = readdirSync(planted.markers);
   if (rejected || !reachedPreflight || loaded.length > 0) {
     console.error(
-      `pi did not accept ${JSON.stringify(argv)} without loading planted resources (exit ${status}, loaded ${JSON.stringify(loaded)}):\n${stderr}`,
+      `pi did not accept ${JSON.stringify(argv)} next to planted resources (exit ${status}, loaded ${JSON.stringify(loaded)}):\n${stderr}`,
     );
     return false;
   }

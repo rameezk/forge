@@ -1156,17 +1156,18 @@ test('given a billing service with no OpenRouter key, a key that is not a valid 
 });
 
 test('given a runner whose subagent extension or read-only agent dir for pi is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
-  const unusable: NodeJS.ProcessEnv[] = [{}, { value: '' }, { value: 'pi' }];
-  const cases = unusable.flatMap(({ value }): [NodeJS.ProcessEnv, RegExp][] => [
-    [
-      { FORGE_PI_AGENT_DIR: AGENT_DIR, FORGE_PI_SUBAGENT_EXTENSION: value },
-      /FORGE_PI_SUBAGENT_EXTENSION is not set to an absolute path/,
+  const cases = [undefined, '', 'pi'].flatMap(
+    (value): [NodeJS.ProcessEnv, RegExp][] => [
+      [
+        { FORGE_PI_AGENT_DIR: AGENT_DIR, FORGE_PI_SUBAGENT_EXTENSION: value },
+        /FORGE_PI_SUBAGENT_EXTENSION is not set to an absolute path/,
+      ],
+      [
+        { FORGE_PI_SUBAGENT_EXTENSION: EXTENSION, FORGE_PI_AGENT_DIR: value },
+        /FORGE_PI_AGENT_DIR is not set to an absolute path/,
+      ],
     ],
-    [
-      { FORGE_PI_SUBAGENT_EXTENSION: EXTENSION, FORGE_PI_AGENT_DIR: value },
-      /FORGE_PI_AGENT_DIR is not set to an absolute path/,
-    ],
-  ]);
+  );
 
   for (const [env, refusal] of cases) {
     const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
