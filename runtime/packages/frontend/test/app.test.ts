@@ -58,6 +58,9 @@ test('given several finished runs, when the list is requested, then they render 
 const rowFor = (body: string, id: string): string =>
   body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
 
+const statusIn = (fragment: string): string =>
+  fragment.match(/<span[^>]*\sdata-status="[^"]*"[^>]*>[^<]*<\/span>/)?.[0] ?? 'missing';
+
 test('given a billed run costing $0.00093252, an unconfirmed run, and a pending run, when the list is requested, then each shows its cost status readably and the total adds the billed and unconfirmed runs followed by how many are pending', async () => {
   const app = appWith([
     sampleRun({ id: 'billed', worker: 'billed-worker', costStatus: 'billed', costUsd: 0.00093252 }),
@@ -84,12 +87,11 @@ test('given a successful, a failed and a running run, when the list is requested
   ]);
 
   const body = await (await app.request('/')).text();
-  const status = (id: string): string =>
-    rowFor(body, id).match(/<span[^>]*\sdata-status="([^"]*)"[^>]*>([^<]*)<\/span>/)?.slice(1).join(' ') ?? '';
-
-  assert.equal(status('ok'), 'success success');
-  assert.equal(status('failed'), 'error error');
-  assert.equal(status('running'), 'running running');
+  for (const [id, status] of [['ok', 'success'], ['failed', 'error'], ['running', 'running']] as const) {
+    const badge = statusIn(rowFor(body, id));
+    assert.match(badge, new RegExp(`\\sdata-status="${status}"`));
+    assert.equal(textOf(badge), status);
+  }
 });
 
 test('given only settled runs, when the list is requested, then the total carries no pending count', async () => {
@@ -182,8 +184,7 @@ test('given a successful run and a failed run, when each run page is requested, 
     sampleRun({ id: 'failed', worker: 'failed-worker', status: 'error', error: 'provider exploded', transcriptRef: 'failed.jsonl' }),
   ], dir);
   const list = await (await app.request('/')).text();
-  const listBadge = (id: string): string =>
-    rowFor(list, id).match(/<span[^>]*\sdata-status="[^"]*"[^>]*>[^<]*<\/span>/)?.[0] ?? 'missing';
+  const listBadge = (id: string): string => statusIn(rowFor(list, id));
   const page = async (id: string) => {
     const body = await (await app.request(`/runs/${id}`)).text();
     return {
@@ -525,8 +526,8 @@ test('given a subagent call that returned an error, when its run page is viewed,
   assert.doesNotMatch(openingTag(ok), /\sdata-failed[\s>]/);
   const [okGroup, ...extraGroups] = subagentGroups(ok);
   assert.deepEqual(extraGroups, []);
-  assert.doesNotMatch(openingTag(okGroup ?? 'missing'), /\sopen[\s>]/);
   assert.ok(okGroup, 'the successful call has its group');
+  assert.doesNotMatch(openingTag(okGroup), /\sopen[\s>]/);
   assert.doesNotMatch(ok, /data-badge=/);
 });
 
