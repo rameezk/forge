@@ -243,7 +243,7 @@ const toolName = (name: string, failed: boolean): HtmlEscapedString | Promise<Ht
 
 const ERROR_BADGE = html`<span class="${BADGE} ml-auto bg-error-soft text-error" data-badge="error">error</span>`;
 
-const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] group-open:before:rotate-90 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent`;
+const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent`;
 
 const SUMMARY_CODE = 'min-w-0 truncate font-mono text-[0.85rem] text-muted';
 
@@ -253,7 +253,7 @@ const renderToolCall = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const summary = argumentSummary(call.arguments);
   const failed = result?.isError === true;
-  return html`<details class="group ${BLOCK} ${failed ? 'border-error' : 'border-line'}" data-tool-call${failed ? html` data-failed open` : ''}>
+  return html`<details class="${BLOCK} ${failed ? 'border-error' : 'border-line'}" data-tool-call${failed ? html` data-failed open` : ''}>
     <summary class="${DISCLOSURE}">
       ${toolName(call.name, failed)}
       <code class="${SUMMARY_CODE}" title="${summary}">${summary}</code>
@@ -379,7 +379,7 @@ const renderGroup = (
   open: boolean,
   body: Rendered[],
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<details class="group ${frame}" data-subagent-group${open ? html` open` : ''}>
+  html`<details class="${frame}" data-subagent-group${open ? html` open` : ''}>
     <summary class="${DISCLOSURE}">
       ${summary}
       <span class="ml-auto shrink-0 whitespace-nowrap text-[0.8rem] tabular-nums text-muted">${count}</span>
