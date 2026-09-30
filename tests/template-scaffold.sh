@@ -2,9 +2,10 @@
 set -euo pipefail
 
 forge="$(git rev-parse --show-toplevel)"
-work="$(mktemp -d)"
+scratch="$(mktemp -d)"
+work="$scratch/operator repo"
 keys="$(mktemp -d)"
-trap 'rm -rf "$work" "$keys"' EXIT
+trap 'rm -rf "$scratch" "$keys"' EXIT
 
 override=(--override-input forge "path:$forge")
 real_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIRealOperatorKeyForTemplateTest operator@test"
@@ -59,10 +60,16 @@ write_operator_secret() {
 	jq -n --arg t "$hcloud_token" '{HCLOUD_TOKEN: $t}' | encrypt_secret secrets/operator.yaml
 }
 
+pin_host_key() {
+	cp "$keys/host_key.pub" "$work/secrets/host.pub"
+	printf '%s %s\n' "$(jq -r .hostname "$work/config.json")" "$(cat "$work/secrets/host.pub")" >"$work/known_hosts"
+}
+
 fill_operator_repo() {
 	fill_config
 	fill_recipients
 	write_host_secret
+	pin_host_key
 	write_runtime_secret
 	write_operator_secret
 	git -C "$work" add -A
@@ -102,10 +109,10 @@ else
 	fail=1
 fi
 
-echo "==> case: the standup, deploy, and teardown commands resolve without executing, against forge's toolchain"
+echo "==> case: the standup, deploy, teardown, and ssh commands resolve without executing, against forge's toolchain"
 scaffold
 fill_operator_repo
-for cmd in standup deploy teardown; do
+for cmd in standup deploy teardown ssh; do
 	if (cd "$work" && nix develop "${override[@]}" -c just -n "$cmd") >"$work/$cmd.log" 2>&1; then
 		echo "ok: '$cmd' resolves cleanly against the forge-sourced toolchain, without executing"
 	else
@@ -279,7 +286,18 @@ esac
 FAKE
 cat >"$fake_bin/ssh" <<'FAKE'
 #!/usr/bin/env bash
+echo "ssh $*" >>"$FAKE_LOG"
+"$REAL_SSH" -G "$@" >"$FAKE_LOG.ssh"
 exit 255
+FAKE
+cat >"$fake_bin/nixos-rebuild" <<'FAKE'
+#!/usr/bin/env bash
+echo "nixos-rebuild $*" >>"$FAKE_LOG"
+eval "sshopts=($NIX_SSHOPTS)"
+while [ $# -gt 0 ]; do
+	if [ "$1" = --target-host ]; then "$REAL_SSH" -G "${sshopts[@]}" "$2" >"$FAKE_LOG.ssh"; fi
+	shift
+done
 FAKE
 cat >"$fake_bin/nixos-anywhere" <<'FAKE'
 #!/usr/bin/env bash
@@ -292,13 +310,16 @@ FAKE
 chmod +x "$fake_bin"/*
 fake_home="$keys/home"
 mkdir -p "$fake_home/.ssh"
+user_known_hosts="$(printf '203.0.113.10 %s\n[203.0.113.10]:22 %s\n' "$(cat "$keys/host_key.pub")" "$(cat "$keys/host_key.pub")")"
+printf '%s\n' "$user_known_hosts" >"$fake_home/.ssh/known_hosts"
 nix_cache="${XDG_CACHE_HOME:-$HOME/.cache}"
+real_ssh="$(PATH="$toolchain_path" command -v ssh)"
 
 just_with_fakes() {
-	rm -rf "$keys/capture" "$keys/fake.log"
+	rm -rf "$keys/capture" "$keys/fake.log" "$keys/fake.log.ssh"
 	touch "$keys/fake.log"
 	(cd "$work" && env -u HCLOUD_TOKEN HOME="$fake_home" XDG_CACHE_HOME="$nix_cache" \
-		FAKE_LOG="$keys/fake.log" FAKE_CAPTURE="$keys/capture" PATH="$fake_bin:$toolchain_path" just "$@")
+		FAKE_LOG="$keys/fake.log" REAL_SSH="$real_ssh" FAKE_CAPTURE="$keys/capture" PATH="$fake_bin:$toolchain_path" just "$@")
 }
 
 every_tofu_call_holds_the_token() {
@@ -309,10 +330,42 @@ every_tofu_call_holds_the_token() {
 	! grep "^tofu " "$keys/fake.log" | grep -vq "^tofu HCLOUD_TOKEN=${hcloud_token} "
 }
 
-echo "==> case: standup injects the decrypted host key at install"
+pinned_to_repository() {
+	local resolved="$1"
+	grep -qx "hostkeyalias mybox" "$resolved" &&
+		grep -qx "userknownhostsfile $(cd "$work" && pwd -P)/known_hosts" "$resolved" &&
+		grep -qx "stricthostkeychecking true" "$resolved" &&
+		grep -qx "hostname 203.0.113.10" "$resolved" &&
+		grep -qx "user forge" "$resolved" &&
+		grep -qx "port 22" "$resolved"
+}
+
+echo "==> case: just ssh connects to the box pinned to the repository's host key"
 scaffold
 fill_operator_repo
 (cd "$work" && nix flake lock "${override[@]}" >/dev/null 2>&1 && git add flake.lock)
+just_with_fakes ssh -N -L 7787:localhost:7787 >"$work/ssh.log" 2>&1 || true
+if [ -f "$keys/fake.log.ssh" ] && pinned_to_repository "$keys/fake.log.ssh" &&
+	grep -qx "localforward 7787 \[localhost\]:7787" "$keys/fake.log.ssh" && grep -q "^ssh .* -N " "$keys/fake.log"; then
+	echo "ok: just ssh connects as the admin user with the hostname alias, the repository known_hosts and strict checking, passing extra arguments through"
+else
+	echo "FAIL: just ssh did not connect pinned to the repository's host key with extra arguments passed through"
+	tail -10 "$work/ssh.log"
+	cat "$keys/fake.log"; grep -iE "hostkeyalias|userknownhostsfile|stricthostkeychecking|^hostname|^user |^port |localforward" "$keys/fake.log.ssh"
+	fail=1
+fi
+
+echo "==> case: deploy connects to the box pinned to the repository's host key"
+if just_with_fakes deploy >"$work/deploy.log" 2>&1 && pinned_to_repository "$keys/fake.log.ssh"; then
+	echo "ok: every SSH hop deploy makes uses the hostname alias, the repository known_hosts and strict checking"
+else
+	echo "FAIL: deploy's SSH options are not pinned to the repository's host key"
+	tail -10 "$work/deploy.log"
+	cat "$keys/fake.log"
+	fail=1
+fi
+
+echo "==> case: standup injects the decrypted host key at install"
 injected="$keys/capture/etc/ssh/ssh_host_ed25519_key"
 if just_with_fakes standup >"$work/standup.log" 2>&1; then
 	if cmp -s "$injected" "$keys/host_key" && [ -n "$(find "$injected" -perm 0600)" ]; then
@@ -324,6 +377,15 @@ if just_with_fakes standup >"$work/standup.log" 2>&1; then
 else
 	echo "FAIL: standup failed with a decryptable host key"
 	tail -20 "$work/standup.log"
+	fail=1
+fi
+
+echo "==> case: standup's already-installed probe is pinned, and only the pre-install connection is not"
+if pinned_to_repository "$keys/fake.log.ssh" && ! grep "^nixos-anywhere " "$keys/fake.log" | grep -qiE "ssh-option|known_hosts|StrictHostKeyChecking"; then
+	echo "ok: the probe uses the hostname alias, the repository known_hosts and strict checking, and nixos-anywhere keeps its own non-strict defaults"
+else
+	echo "FAIL: standup's probe is not pinned to the repository's host key, or nixos-anywhere was given host key options"
+	cat "$keys/fake.log"
 	fail=1
 fi
 
@@ -345,12 +407,21 @@ fi
 
 echo "==> case: teardown decrypts the Hetzner token for each OpenTofu call from the operator secrets"
 if just_with_fakes teardown >"$work/teardown.log" 2>&1 &&
-	every_tofu_call_holds_the_token "-chdir=infra/opentofu output" "-chdir=infra/opentofu destroy"; then
+	every_tofu_call_holds_the_token "-chdir=infra/opentofu destroy"; then
 	echo "ok: every OpenTofu call in teardown ran with HCLOUD_TOKEN from secrets/operator.yaml"
 else
 	echo "FAIL: an OpenTofu call in teardown ran without the token from secrets/operator.yaml"
 	tail -10 "$work/teardown.log"
 	cat "$keys/fake.log"
+	fail=1
+fi
+
+echo "==> case: neither standup nor teardown touches the user's known_hosts"
+if [ "$(cat "$fake_home/.ssh/known_hosts")" = "$user_known_hosts" ]; then
+	echo "ok: the user's known_hosts is unchanged after standup and teardown"
+else
+	echo "FAIL: standup or teardown changed the user's known_hosts"
+	diff <(printf '%s\n' "$user_known_hosts") "$fake_home/.ssh/known_hosts"
 	fail=1
 fi
 
