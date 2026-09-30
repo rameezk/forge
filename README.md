@@ -96,8 +96,6 @@ flowchart TB
 
 ### A workload run
 
-One run of a worker, from start to its settled billed cost. The run finishes without waiting on OpenRouter, and shows its cost as pending until every generation is billed.
-
 ```mermaid
 sequenceDiagram
     participant R as forge-runner@worker
