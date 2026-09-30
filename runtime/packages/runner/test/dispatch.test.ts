@@ -523,7 +523,7 @@ test('given a checkout with two different files pi would load as work-on, from t
   }
 });
 
-test('given a checkout whose work-on skill appears in two skill directories through a symlink to one file, or once under a directory named differently from it, when forge-dispatch runs, then pi starts with /skill:work-on', async () => {
+test('given a checkout whose work-on skill appears in two skill directories through a symlink to one file, once under a directory named differently from it, or beside a dot file pi skips that also names itself work-on, when forge-dispatch runs, then pi starts with /skill:work-on', async () => {
   for (const origin of [
     originWith(
       { '.agents/skills/work-on/SKILL.md': SKILL },
@@ -627,4 +627,24 @@ test('given a checkout whose skill directory links to a directory that itself ho
       `'${link}' in the checkout's skills links to a directory from inside a linked directory`,
     );
   }
+});
+
+test('given a checkout where a second file named work-on is reached through two links, when forge-dispatch runs, then the run names each distinct file once', async () => {
+  const { pi, runs } = await journaled(() =>
+    dispatch({
+      origin: originWith(
+        {
+          '.claude/skills/work-on/SKILL.md': SKILL,
+          '.agents/skills/drive/SKILL.md': SKILL.replace('Work on it.', 'Drive it.'),
+        },
+        { '.pi/skills/drive': '../../.agents/skills/drive' },
+      ),
+    }),
+  ).then(({ result }) => result);
+
+  assert.equal(pi, null);
+  assert.equal(
+    runs[0]?.error,
+    "skill 'work-on' is ambiguous in the checkout: .agents/skills/drive/SKILL.md, .claude/skills/work-on/SKILL.md",
+  );
 });

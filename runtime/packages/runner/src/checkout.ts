@@ -27,13 +27,20 @@ const CONTEXT_FILES = ['AGENTS.md', 'CLAUDE.md'];
 
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-const inside = (root: string, path: string): boolean => {
+const realpathOf = (path: string): string | null => {
   try {
-    const real = realpathSync(path);
-    return real === root || real.startsWith(root + sep);
+    return realpathSync(path);
   } catch {
-    return false;
+    return null;
   }
+};
+
+const within = (root: string, real: string): boolean =>
+  real === root || real.startsWith(root + sep);
+
+const inside = (root: string, path: string): boolean => {
+  const real = realpathOf(path);
+  return real !== null && within(root, real);
 };
 
 const isDirectory = (root: string, path: string): boolean =>
@@ -79,22 +86,14 @@ export const cloneCheckout = (
     });
   });
 
-const realpathOf = (path: string): string | null => {
-  try {
-    return realpathSync(path);
-  } catch {
-    return null;
-  }
-};
-
-const confine = (root: string, dir: string, linked: boolean): void => {
+const refuseUnsafeLinks = (root: string, dir: string, linked: boolean): void => {
   const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
     a.name.localeCompare(b.name),
   );
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      confine(root, path, linked);
+      refuseUnsafeLinks(root, path, linked);
     }
     if (!entry.isSymbolicLink()) {
       continue;
@@ -103,7 +102,7 @@ const confine = (root: string, dir: string, linked: boolean): void => {
     if (target === null) {
       continue;
     }
-    if (target !== root && !target.startsWith(root + sep)) {
+    if (!within(root, target)) {
       throw new Error(
         `'${relative(root, path)}' in the checkout's skills links outside the checkout`,
       );
@@ -116,7 +115,7 @@ const confine = (root: string, dir: string, linked: boolean): void => {
         `'${relative(root, path)}' in the checkout's skills links to a directory from inside a linked directory`,
       );
     }
-    confine(root, path, true);
+    refuseUnsafeLinks(root, path, true);
   }
 };
 
@@ -133,8 +132,16 @@ const skillsIn = (
   });
   const files = new Map(skills.map(({ name, filePath }) => [name, [filePath]]));
   for (const { collision } of diagnostics) {
-    if (collision !== undefined) {
-      files.get(collision.name)?.push(collision.loserPath);
+    if (collision === undefined) {
+      continue;
+    }
+    const paths = files.get(collision.name);
+    if (paths === undefined) {
+      continue;
+    }
+    const loser = realpathOf(collision.loserPath);
+    if (!paths.some((path) => realpathOf(path) === loser)) {
+      paths.push(collision.loserPath);
     }
   }
   return files;
@@ -151,7 +158,7 @@ export const resolveCheckout = (
     (path) => isDirectory(root, path),
   );
   for (const skills of skillPaths) {
-    confine(root, skills, false);
+    refuseUnsafeLinks(root, skills, false);
   }
   return {
     root,
