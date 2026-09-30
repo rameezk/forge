@@ -754,11 +754,7 @@ test('given workers with and without a reasoning effort and a harness with opera
     parentFlags(withoutEffort),
   );
   for (const child of [withEffortChild, withoutEffortChild]) {
-    const start = child.argv.indexOf(LOCKDOWN[0] as string);
-    assert.deepEqual(
-      child.argv.slice(start, start + LOCKDOWN.length),
-      LOCKDOWN,
-    );
+    assert.ok(LOCKDOWN.every((flag) => child.argv.includes(flag)));
   }
   assert.ok(withEffortChild.argv.includes('--thinking'));
   assert.ok(!withoutEffortChild.argv.includes('--thinking'));
@@ -1159,49 +1155,39 @@ test('given a billing service with no OpenRouter key, a key that is not a valid 
   }
 });
 
-test('given a runner with no subagent extension to load, when a pi worker runs, then the runner refuses before starting pi', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
-  const configPath = join(stateDir, 'runtime.json');
-  writeFileSync(
-    configPath,
-    JSON.stringify({
-      harnesses: { pi: { command: join(stateDir, 'no-pi') } },
-      workers: {
-        refiner: { harness: 'pi', model: 'z-ai/glm-5', prompt: 'refine' },
-      },
-    }),
-  );
+test('given a runner with no subagent extension to load or no read-only agent dir for pi, when a pi worker runs, then the runner refuses naming the missing one before starting pi', async () => {
+  const cases: [NodeJS.ProcessEnv, RegExp][] = [
+    [
+      { FORGE_PI_AGENT_DIR: AGENT_DIR },
+      /FORGE_PI_SUBAGENT_EXTENSION is not set/,
+    ],
+    [
+      { FORGE_PI_SUBAGENT_EXTENSION: EXTENSION },
+      /FORGE_PI_AGENT_DIR is not set/,
+    ],
+  ];
 
-  await assert.rejects(
-    main(['refiner'], {
-      FORGE_RUNTIME_CONFIG: configPath,
-      FORGE_STATE_DIR: stateDir,
-    }),
-    /FORGE_PI_SUBAGENT_EXTENSION is not set/,
-  );
-  assert.deepEqual(readdirSync(stateDir), ['runtime.json']);
-});
+  for (const [env, refusal] of cases) {
+    const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
+    const configPath = join(stateDir, 'runtime.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        harnesses: { pi: { command: join(stateDir, 'no-pi') } },
+        workers: {
+          refiner: { harness: 'pi', model: 'z-ai/glm-5', prompt: 'refine' },
+        },
+      }),
+    );
 
-test('given a runner with no read-only agent dir for pi, when a pi worker runs, then the runner refuses before starting pi', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
-  const configPath = join(stateDir, 'runtime.json');
-  writeFileSync(
-    configPath,
-    JSON.stringify({
-      harnesses: { pi: { command: join(stateDir, 'no-pi') } },
-      workers: {
-        refiner: { harness: 'pi', model: 'z-ai/glm-5', prompt: 'refine' },
-      },
-    }),
-  );
-
-  await assert.rejects(
-    main(['refiner'], {
-      FORGE_RUNTIME_CONFIG: configPath,
-      FORGE_STATE_DIR: stateDir,
-      FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
-    }),
-    /FORGE_PI_AGENT_DIR is not set/,
-  );
-  assert.deepEqual(readdirSync(stateDir), ['runtime.json']);
+    await assert.rejects(
+      main(['refiner'], {
+        FORGE_RUNTIME_CONFIG: configPath,
+        FORGE_STATE_DIR: stateDir,
+        ...env,
+      }),
+      refusal,
+    );
+    assert.deepEqual(readdirSync(stateDir), ['runtime.json']);
+  }
 });

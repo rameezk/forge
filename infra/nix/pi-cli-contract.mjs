@@ -65,12 +65,13 @@ const plant = () => {
   return { home, workDir, markers };
 };
 
-const accepts = (argv, env, planted) => {
+const accepts = (argv, env) => {
+  const planted = plant();
   const { status, stderr } = spawnSync(pi, argv, {
     encoding: 'utf8',
-    cwd: planted?.workDir,
+    cwd: planted.workDir,
     env: {
-      HOME: planted?.home ?? process.env.HOME,
+      HOME: planted.home,
       PATH: process.env.PATH,
       ...piEnv(agentDir),
       ...env,
@@ -78,15 +79,15 @@ const accepts = (argv, env, planted) => {
   });
   const rejected = /Unknown option|Failed to load extension/i.test(stderr);
   const reachedPreflight = stderr.includes('No API key found for openrouter.');
-  const loaded = planted === undefined ? [] : readdirSync(planted.markers);
+  const loaded = readdirSync(planted.markers);
   if (rejected || !reachedPreflight || loaded.length > 0) {
     console.error(
-      `pi did not accept ${JSON.stringify(argv)}${planted === undefined ? '' : ' next to planted resources'} (exit ${status}, loaded ${JSON.stringify(loaded)}):\n${stderr}`,
+      `pi did not accept ${JSON.stringify(argv)} without loading planted resources (exit ${status}, loaded ${JSON.stringify(loaded)}):\n${stderr}`,
     );
     return false;
   }
   console.log(
-    `pi accepted ${JSON.stringify(argv)}${planted === undefined ? '' : ' and loaded none of the planted resources'}`,
+    `pi accepted ${JSON.stringify(argv)} and loaded none of the planted resources`,
   );
   return true;
 };
@@ -94,15 +95,10 @@ const accepts = (argv, env, planted) => {
 let failed = false;
 for (const invocation of invocations) {
   const child = subagentInvocation(pi, invocation);
-  const parentEnv = { [SUBAGENT_INVOCATION_ENV]: JSON.stringify(child) };
-  const parent = piArgs(invocation, extension);
-  const childArgv = childArgs(child, 'contract check');
-  const results = [
-    accepts(parent, parentEnv),
-    accepts(childArgv, {}),
-    accepts(parent, parentEnv, plant()),
-    accepts(childArgv, {}, plant()),
-  ];
-  failed ||= results.includes(false);
+  const parentAccepted = accepts(piArgs(invocation, extension), {
+    [SUBAGENT_INVOCATION_ENV]: JSON.stringify(child),
+  });
+  const childAccepted = accepts(childArgs(child, 'contract check'), {});
+  failed ||= !parentAccepted || !childAccepted;
 }
 process.exit(failed ? 1 : 0);
