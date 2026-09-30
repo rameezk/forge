@@ -64,7 +64,7 @@ const contractArgs = (invocation: HarnessInvocation): string[] => [
   ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout)),
 ];
 
-const SKILL_COMMAND = /^\/(\S+)([\s\S]*)$/;
+const SKILL_COMMAND = /^\/([^ ]+)([\s\S]*)$/;
 
 const piPrompt = ({ prompt, checkout }: HarnessInvocation): string => {
   const command = SKILL_COMMAND.exec(prompt);

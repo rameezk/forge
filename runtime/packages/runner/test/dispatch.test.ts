@@ -648,3 +648,15 @@ test('given a checkout where a second file named work-on is reached through two 
     "skill 'work-on' is ambiguous in the checkout: .agents/skills/drive/SKILL.md, .claude/skills/work-on/SKILL.md",
   );
 });
+
+test('given a worker prompt whose skill command is followed by a newline rather than a space, when forge-dispatch runs, then pi never starts, as pi would not expand it', async () => {
+  const { pi, runs } = await journaled(() =>
+    dispatch({ prompt: '/work-on\n{url}' }),
+  ).then(({ result }) => result);
+
+  assert.equal(pi, null);
+  assert.equal(
+    runs[0]?.error,
+    `skill 'work-on\n${TICKET_URL}' not found in the checkout`,
+  );
+});
