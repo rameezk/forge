@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
@@ -8,6 +8,14 @@ import type { Harness, Worker } from './harness.ts';
 import { PiHarness } from './pi.ts';
 import { FileTranscript } from './transcript.ts';
 import { runWorkload } from './runner.ts';
+
+const absolutePath = (env: NodeJS.ProcessEnv, name: string): string => {
+  const value = env[name];
+  if (value === undefined || !isAbsolute(value)) {
+    throw new Error(`${name} is not set to an absolute path`);
+  }
+  return value;
+};
 
 const harnessFor = (
   config: RuntimeConfig,
@@ -18,18 +26,10 @@ const harnessFor = (
   if (harness === undefined || worker.harness !== 'pi') {
     throw new Error(`unsupported harness '${worker.harness}'`);
   }
-  const extension = env.FORGE_PI_SUBAGENT_EXTENSION;
-  if (extension === undefined) {
-    throw new Error('FORGE_PI_SUBAGENT_EXTENSION is not set');
-  }
-  const agentDir = env.FORGE_PI_AGENT_DIR;
-  if (agentDir === undefined) {
-    throw new Error('FORGE_PI_AGENT_DIR is not set');
-  }
   return new PiHarness({
     command: harness.command,
-    extension,
-    agentDir,
+    extension: absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION'),
+    agentDir: absolutePath(env, 'FORGE_PI_AGENT_DIR'),
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
     env,
   });
