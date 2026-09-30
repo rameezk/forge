@@ -176,6 +176,7 @@ const BLOCK = 'rounded-lg border bg-surface';
 const STACK = 'flex flex-col gap-3';
 const LABEL = 'm-0 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 const PROSE = 'm-0 whitespace-pre-wrap break-words font-sans';
+const PATH = 'm-0 whitespace-pre-wrap break-words font-mono text-[0.85rem]';
 const CODE = 'm-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-raised px-3 py-2.5 font-mono text-[0.8rem] leading-relaxed text-fg';
 
 const MESSAGE_TONE = new Map([
@@ -412,7 +413,7 @@ const renderSubagentCall = (
       messageCount(shown),
       failed,
       [
-        typeof cwd === 'string' ? renderText('cwd', cwd, `${PROSE} font-mono text-[0.85rem]`) : '',
+        typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
         renderText('task', task),
         ...withoutReportMessage(shown, report).map((event) => renderEvent(event, results)),
         report === undefined
