@@ -481,4 +481,22 @@ else
 	echo "ok: standup stopped before OpenTofu, naming secrets/host.yaml"
 fi
 
+echo "==> case: standup fails fast, before creating anything, when known_hosts no longer pins the box"
+jq '.hostname = "renamed"' "$work/config.json" >"$work/config.renamed.json"
+mv "$work/config.renamed.json" "$work/config.json"
+git -C "$work" add -A
+if just_with_fakes standup >"$work/standup-drifted.log" 2>&1; then
+	echo "FAIL: standup succeeded with a known_hosts entry for a different hostname"
+	fail=1
+elif ! grep -q "known_hosts" "$work/standup-drifted.log"; then
+	echo "FAIL: standup failed, but not with an error naming known_hosts"
+	tail -10 "$work/standup-drifted.log"
+	fail=1
+elif grep -q "tofu" "$keys/fake.log"; then
+	echo "FAIL: standup ran OpenTofu before failing on the drifted known_hosts"
+	fail=1
+else
+	echo "ok: standup stopped before OpenTofu, naming known_hosts"
+fi
+
 exit $fail

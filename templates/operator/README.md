@@ -76,7 +76,7 @@ depends on the auto-activation.
       rather than the box's address. Every `just` command that connects to the
       installed box checks against this file, so a reinstall needs no
       `known_hosts` edits and a mismatched key fails the connection. If you
-      change `hostname` later, update the name at the start of `known_hosts`:
+      change `hostname` later, rerun the `printf` line below:
 
       ```bash
       mkdir -p secrets
@@ -99,8 +99,9 @@ depends on the auto-activation.
       git add -A
       ```
 
-   The build fails if `secrets/runtime.yaml` is missing or `.sops.yaml` still
-   holds the placeholder recipients.
+   The build fails if `secrets/runtime.yaml` is missing, `.sops.yaml` still
+   holds the placeholder recipients, or `known_hosts` does not pin
+   `secrets/host.pub` under your `hostname`.
 
 4. Run the divergence guard (no cloud access required):
 
