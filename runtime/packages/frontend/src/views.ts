@@ -7,6 +7,7 @@ import type {
   RepositoryFrontier,
   RunRecord,
   RunStatus,
+  RunTicket,
   SpecRef,
   ToolCallEvent,
   ToolResultEvent,
@@ -84,6 +85,13 @@ const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedSt
 const renderDate = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}">${formatDate(iso)}</time>`;
 
+const renderRunTicket = (ticket: RunTicket | null): Rendered =>
+  ticket === null
+    ? ''
+    : html`<span class="ticket-repository">${ticket.repository}</span> ${isGithubUrl(ticket.url)
+        ? html`<a href="${ticket.url}">#${ticket.number}</a>`
+        : html`#${ticket.number}`}`;
+
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
   return html`${formatTotal(settledCost(runs))}${pending === 0
@@ -105,6 +113,7 @@ export const renderList = (
               <thead>
                 <tr>
                   <th>Worker</th>
+                  <th>Ticket</th>
                   <th>Model</th>
                   <th>Started</th>
                   <th>Duration</th>
@@ -116,7 +125,8 @@ export const renderList = (
                 ${runs.map(
                   (run) => html`<tr class="run cost-${run.costStatus}" data-run="${run.id}">
                     <td><a href="/runs/${run.id}">${run.worker}</a></td>
-                    <td>${run.model}</td>
+                    <td class="number" data-run-ticket>${renderRunTicket(run.ticket)}</td>
+                    <td class="model">${run.model}</td>
                     <td>${renderTimestamp(run.startTime)}</td>
                     <td>${formatDuration(run.startTime, run.endTime)}</td>
                     <td>${renderStatus(run.status)}</td>
@@ -126,7 +136,7 @@ export const renderList = (
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="5">Total</td>
+                  <td colspan="6">Total</td>
                   <td class="cost">${renderTotal(runs)}</td>
                 </tr>
               </tfoot>

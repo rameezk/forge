@@ -1,5 +1,6 @@
 {
   buildNpmPackage,
+  git,
   makeWrapper,
   nodejs,
   runCommand,
@@ -17,6 +18,7 @@ buildNpmPackage {
   npmDepsHash = "sha256-2MMFX2tZfCfnmPn6az4uCIReR5hn6mRf4h+jqxn2f98=";
 
   nativeBuildInputs = [ makeWrapper ];
+  nativeCheckInputs = [ git ];
 
   doCheck = true;
   checkPhase = ''
@@ -35,6 +37,10 @@ buildNpmPackage {
       --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
       --set FORGE_PI_AGENT_DIR "${piAgentDir}"
+    makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch" \
+      --add-flags "$out/lib/forge-runtime/packages/runner/src/dispatch-main.ts" \
+      --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
+      --set FORGE_PI_AGENT_DIR "${piAgentDir}"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-billing" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/billing-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontier" \
@@ -47,7 +53,7 @@ buildNpmPackage {
   passthru = { inherit subagentExtension piAgentDir; };
 
   meta = {
-    description = "Forge runtime: runs one worker headlessly (forge-run), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
+    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
     mainProgram = "forge-run";
     platforms = nodejs.meta.platforms;
   };

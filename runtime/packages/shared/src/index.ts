@@ -1,4 +1,10 @@
-export type { CostStatus, RunRecord, RunResult, RunStatus } from './run.ts';
+export type {
+  CostStatus,
+  RunRecord,
+  RunResult,
+  RunStatus,
+  RunTicket,
+} from './run.ts';
 export type {
   GenerationRecord,
   LookupResult,
@@ -20,6 +26,7 @@ export type {
   RepositoryFrontier,
   SpecRef,
   Ticket,
+  TicketState,
 } from './frontier.ts';
 export {
   FRONTIER_PAGE_SIZE,
@@ -29,7 +36,10 @@ export {
   isGithubUrl,
   oldestFirst,
   queryFrontier,
+  queryTicket,
   requestFrontierPage,
+  requestTicket,
+  TICKET_QUERY,
 } from './frontier.ts';
 export { isHeaderValue } from './http.ts';
 export { Store } from './store.ts';

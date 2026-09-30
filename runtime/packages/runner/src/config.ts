@@ -12,9 +12,15 @@ export interface WorkerConfig {
   reasoningEffort?: string;
 }
 
+export interface RepositoryConfig {
+  github: string;
+  worker?: string;
+}
+
 export interface RuntimeConfig {
   harnesses: Record<string, HarnessConfig>;
   workers: Record<string, WorkerConfig>;
+  repositories?: Record<string, RepositoryConfig>;
 }
 
 export const resolveWorker = (

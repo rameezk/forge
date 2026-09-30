@@ -30,6 +30,7 @@ const startedRun = (
     transcriptRef: `${id}.jsonl`,
     sessionId: null,
     error: null,
+    ticket: null,
   });
   if (generatedAt !== null) {
     store.recordGeneration({

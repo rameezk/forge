@@ -1,3 +1,5 @@
+import { chmodSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   HarnessEvent,
   MessageEvent,
@@ -109,4 +111,21 @@ export const fixedClock = (times: string[]): (() => string) => {
     index += 1;
     return time as string;
   };
+};
+
+const FAKE_PI = `#!${process.execPath}
+import { readFileSync, writeFileSync } from 'node:fs';
+const env = process.env;
+writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR }));
+process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
+if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
+process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
+if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
+`;
+
+export const writeFakePi = (dir: string): string => {
+  const path = join(dir, 'fake-pi.mjs');
+  writeFileSync(path, FAKE_PI);
+  chmodSync(path, 0o755);
+  return path;
 };

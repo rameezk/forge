@@ -1,0 +1,22 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 112,
+        "title": "Dispatch frontier tickets to workers",
+        "url": "https://github.com/rameezk/forge/issues/112",
+        "state": "OPEN",
+        "labels": {
+          "nodes": [
+            {
+              "name": "spec"
+            }
+          ]
+        },
+        "issueDependenciesSummary": {
+          "blockedBy": 0
+        }
+      }
+    }
+  }
+}

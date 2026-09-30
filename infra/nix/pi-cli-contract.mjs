@@ -1,21 +1,46 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const [adapter, extension, pi, agentDir] = process.argv.slice(2);
 const { piArgs, piEnv, subagentInvocation } = await import(adapter);
+const { resolveCheckout } = await import(join(dirname(adapter), 'checkout.ts'));
 const { SUBAGENT_INVOCATION_ENV, childArgs } = await import(
   join(extension, 'index.ts')
 );
 
+const SKILL =
+  '---\nname: work-on\ndescription: Contract check skill.\n---\n\nCheck the contract.\n';
+
+const checkoutFiles = {
+  '.claude/skills/work-on/SKILL.md': SKILL,
+  '.pi/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
+  'AGENTS.md': 'Project instructions for the contract check.\n',
+  '.pi/SYSTEM.md': 'System prompt for the contract check.\n',
+  '.pi/APPEND_SYSTEM.md': 'Appended system prompt for the contract check.\n',
+};
+
 const invocations = [
-  {
+  () => ({
     model: 'z-ai/glm-5',
     prompt: 'contract check',
     workDir: '.',
     reasoningEffort: 'high',
+  }),
+  () => ({ model: 'z-ai/glm-5', prompt: 'contract check', workDir: '.' }),
+  (workDir) => {
+    for (const [path, contents] of Object.entries(checkoutFiles)) {
+      mkdirSync(dirname(join(workDir, path)), { recursive: true });
+      writeFileSync(join(workDir, path), contents);
+    }
+    return {
+      model: 'z-ai/glm-5',
+      prompt: '/work-on contract check',
+      workDir,
+      reasoningEffort: 'high',
+      checkout: resolveCheckout(workDir),
+    };
   },
-  { model: 'z-ai/glm-5', prompt: 'contract check', workDir: '.' },
 ];
 
 const plant = () => {
@@ -65,8 +90,7 @@ const plant = () => {
   return { home, workDir, markers };
 };
 
-const accepts = (argv, env) => {
-  const planted = plant();
+const accepts = (planted, argv, env) => {
   const { status, stderr } = spawnSync(pi, argv, {
     encoding: 'utf8',
     cwd: planted.workDir,
@@ -93,12 +117,18 @@ const accepts = (argv, env) => {
 };
 
 let failed = false;
-for (const invocation of invocations) {
+for (const invocationIn of invocations) {
+  const parent = plant();
+  const invocation = invocationIn(parent.workDir);
   const child = subagentInvocation(pi, invocation);
-  const parentAccepted = accepts(piArgs(invocation, extension), {
+  const parentAccepted = accepts(parent, piArgs(invocation, extension), {
     [SUBAGENT_INVOCATION_ENV]: JSON.stringify(child),
   });
-  const childAccepted = accepts(childArgs(child, 'contract check'), {});
+  const childAccepted = accepts(
+    plant(),
+    childArgs(child, 'contract check'),
+    {},
+  );
   failed ||= !parentAccepted || !childAccepted;
 }
 process.exit(failed ? 1 : 0);

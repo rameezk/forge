@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chmodSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -21,6 +20,7 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import type { WorkerConfig } from '../src/index.ts';
+import { writeFakePi } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { main } from '../src/main.ts';
 
@@ -41,16 +41,6 @@ const LOCKDOWN = [
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
 const OPERATOR_EXTRAS = ['--skill', '/opt/forge/skills/review'];
-
-const FAKE_PI = `#!${process.execPath}
-import { readFileSync, writeFileSync } from 'node:fs';
-const env = process.env;
-writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR }));
-process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
-if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
-process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
-if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
-`;
 
 type GenerationStats = (
   id: string,
@@ -195,9 +185,7 @@ const storedGenerations = (
 
 const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
-  const fakePi = join(stateDir, 'fake-pi.mjs');
-  writeFileSync(fakePi, FAKE_PI);
-  chmodSync(fakePi, 0o755);
+  const fakePi = writeFakePi(stateDir);
   const record = join(stateDir, 'pi-call.json');
 
   const configPath = join(stateDir, 'runtime.json');

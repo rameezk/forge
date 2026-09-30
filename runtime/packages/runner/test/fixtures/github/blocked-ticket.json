@@ -1,0 +1,22 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 115,
+        "title": "Dispatch automatically after each frontier sync",
+        "url": "https://github.com/rameezk/forge/issues/115",
+        "state": "OPEN",
+        "labels": {
+          "nodes": [
+            {
+              "name": "ready-for-agent"
+            }
+          ]
+        },
+        "issueDependenciesSummary": {
+          "blockedBy": 1
+        }
+      }
+    }
+  }
+}

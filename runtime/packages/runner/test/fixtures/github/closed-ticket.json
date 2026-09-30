@@ -1,0 +1,22 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 109,
+        "title": "Lock pi's startup loading to the fixed contract",
+        "url": "https://github.com/rameezk/forge/issues/109",
+        "state": "CLOSED",
+        "labels": {
+          "nodes": [
+            {
+              "name": "ready-for-agent"
+            }
+          ]
+        },
+        "issueDependenciesSummary": {
+          "blockedBy": 0
+        }
+      }
+    }
+  }
+}

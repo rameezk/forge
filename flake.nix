@@ -391,6 +391,106 @@
               )
               "declaring repositories without workers must run the dashboard, locked down as before, and no runner";
 
+          dispatchHostWith =
+            prompt:
+            mkHost {
+              configFile = exampleConfigFile;
+              secretsFile = exampleSecretsFile;
+              modules = [
+                {
+                  forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+                  forge.runtime.workers.builder = {
+                    harness = "pi";
+                    model = "anthropic/claude-sonnet-4";
+                    inherit prompt;
+                  };
+                  forge.runtime.repositories.forge = {
+                    github = "rameezk/forge";
+                    worker = "builder";
+                  };
+                }
+              ];
+            };
+          dispatchHost = dispatchHostWith "/work-on {url}";
+          dispatchUnit = dispatchHost.config.systemd.services."forge-dispatch@";
+          hasDispatchCommand =
+            host:
+            lib.any (package: lib.getName package == "forge-dispatch") host.config.environment.systemPackages;
+          failedAssertions = host: map (a: a.message) (lib.filter (a: !a.assertion) host.config.assertions);
+          evaluates = host: (builtins.tryEval host.config.system.build.toplevel.drvPath).success;
+
+          dispatchConfigReflectsWorker = lib.asserts.assertMsg (
+            dispatchHost.config.forge.runtime.settings.repositories == {
+              forge = {
+                github = "rameezk/forge";
+                worker = "builder";
+              };
+            }
+            &&
+              workerAndRepositoryHost.config.forge.runtime.settings.repositories == {
+                forge.github = "rameezk/forge";
+              }
+          ) "the generated runtime config must carry a repository's worker only when it declares one";
+          dispatchHostEvaluates = lib.asserts.assertMsg (
+            evaluates dispatchHost && evaluates (dispatchHostWith "Build {repo}#{issue}")
+          ) "a repository whose worker prompt holds {url} or {issue} must evaluate";
+          placeholderlessWorkerFails =
+            let
+              host = dispatchHostWith "build the thing";
+            in
+            lib.asserts.assertMsg (
+              !(evaluates host) && lib.any (lib.hasInfix "has no ticket placeholder") (failedAssertions host)
+            ) "a worker named by a repository whose prompt has no ticket placeholder must fail evaluation";
+          undeclaredWorkerFails =
+            let
+              host = mkHost {
+                configFile = exampleConfigFile;
+                secretsFile = exampleSecretsFile;
+                modules = [
+                  {
+                    forge.runtime.repositories.forge = {
+                      github = "rameezk/forge";
+                      worker = "missing";
+                    };
+                  }
+                ];
+              };
+            in
+            lib.asserts.assertMsg (
+              !(evaluates host) && lib.any (lib.hasInfix "undeclared worker 'missing'") (failedAssertions host)
+            ) "a repository naming an undeclared worker must fail evaluation";
+          dispatchUnitDeclared =
+            lib.asserts.assertMsg
+              (
+                (dispatchHost.config.systemd.services ? "forge-dispatch@")
+                && !(workerAndRepositoryHost.config.systemd.services ? "forge-dispatch@")
+              )
+              "declaring a repository with a worker must define the forge-dispatch@ template, and a host without one must not";
+          dispatchUnitRunsDispatch =
+            lib.asserts.assertMsg
+              (
+                dispatchUnit.serviceConfig.Type == "oneshot"
+                && lib.hasInfix "%i" dispatchUnit.serviceConfig.ExecStart
+                && dispatchUnit.serviceConfig.User == "forge-runtime"
+                && dispatchUnit.serviceConfig.Group == "forge-runtime"
+                && lib.elem "network-online.target" dispatchUnit.after
+                && dispatchUnit.path == dispatchHost.config.forge.runtime.toolset
+                && lib.any (e: lib.hasInfix "FORGE_RUNTIME_CONFIG=" e) dispatchUnit.serviceConfig.Environment
+                && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") dispatchUnit.serviceConfig.Environment
+              )
+              "the dispatch unit must be a oneshot running forge-dispatch for its instance as the forge-runtime user on the workload toolset";
+          dispatchUnitSandboxed = lib.asserts.assertMsg (isHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
+          dispatchUnitEnvironmentFiles = lib.asserts.assertMsg (
+            dispatchUnit.serviceConfig.EnvironmentFile == [
+              dispatchHost.config.sops.templates."forge-runner.env".path
+              "-/var/lib/forge/github.env"
+            ]
+          ) "the dispatch unit must load the runner's OpenRouter key and the optional GitHub token file";
+          dispatchCommandInstalled =
+            lib.asserts.assertMsg
+              (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))
+              "declaring a repository with a worker must put the forge-dispatch command on the box's path, and a host without one must not";
+
           billingService = workerHost.config.systemd.services.forge-billing;
           billingTimer = workerHost.config.systemd.timers.forge-billing;
           billingDeclared = lib.asserts.assertMsg (
@@ -505,6 +605,20 @@
             assert frontierCommandInstalled;
             pkgs.runCommand "runtime-frontier" { } ''
               echo "declaring a repository wires a forge-frontier-sync timer and service with an optional GitHub token file, puts forge-frontier on the path, and runs the dashboard without workers" > $out
+            '';
+
+          runtime-dispatch =
+            assert dispatchConfigReflectsWorker;
+            assert dispatchHostEvaluates;
+            assert placeholderlessWorkerFails;
+            assert undeclaredWorkerFails;
+            assert dispatchUnitDeclared;
+            assert dispatchUnitRunsDispatch;
+            assert dispatchUnitSandboxed;
+            assert dispatchUnitEnvironmentFiles;
+            assert dispatchCommandInstalled;
+            pkgs.runCommand "runtime-dispatch" { } ''
+              echo "a repository's worker wires a forge-dispatch@ oneshot and the forge-dispatch command, and a worker without a ticket placeholder fails evaluation" > $out
             '';
 
           runtime-billing =

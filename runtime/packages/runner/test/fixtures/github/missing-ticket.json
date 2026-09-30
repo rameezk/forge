@@ -1,0 +1,23 @@
+{
+  "data": {
+    "repository": {
+      "issue": null
+    }
+  },
+  "errors": [
+    {
+      "type": "NOT_FOUND",
+      "path": [
+        "repository",
+        "issue"
+      ],
+      "locations": [
+        {
+          "line": 4,
+          "column": 7
+        }
+      ],
+      "message": "Could not resolve to an Issue with the number of 99999."
+    }
+  ]
+}

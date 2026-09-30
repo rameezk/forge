@@ -69,4 +69,6 @@
   .repository.stale .table-scroll { opacity: 0.6; }
   td.number { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .spec-number { opacity: 0.6; font-variant-numeric: tabular-nums; }
+  .ticket-repository { opacity: 0.6; }
+  td.model { white-space: nowrap; }
 }

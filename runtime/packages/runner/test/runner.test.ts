@@ -27,7 +27,7 @@ const runWith = async (
     harness,
     worker: aWorker(overrides.worker),
     openTranscript: transcripts.open,
-    openWorkDir: () => '/work/run-1',
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock([
       '2026-09-21T10:00:00.000Z',
       '2026-09-21T10:00:05.000Z',
@@ -49,7 +49,7 @@ test('given a declared worker and a harness that ends normally, when it runs on 
     harness,
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
-    openWorkDir: () => '/work/run-1',
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock([
       '2026-09-21T10:00:00.000Z',
       '2026-09-21T10:00:05.000Z',
@@ -116,7 +116,7 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
     harness: throwingHarness([message()], new Error('harness crashed')),
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
-    openWorkDir: () => '/work/run-1',
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
   });
@@ -139,7 +139,7 @@ test('given a harness that throws with a secret in its message, when the run is 
     harness: throwingHarness([], new Error('spawn failed for sk-or-secret')),
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
-    openWorkDir: () => '/work/run-1',
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
     secrets: ['sk-or-secret'],
@@ -172,7 +172,7 @@ test('given a worker whose harness has begun but not finished, when the store is
     harness,
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
-    openWorkDir: () => '/work/run-1',
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
   });
@@ -206,7 +206,7 @@ test('given a harness emitting a multi-event stream, when the worker runs, then 
     harness,
     worker: aWorker(),
     openTranscript: transcripts.open,
-    openWorkDir: () => '/work/run-1',
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
   });

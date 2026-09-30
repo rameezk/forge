@@ -1,0 +1,22 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 113,
+        "title": "Dispatch a ticket by hand into a fresh checkout that loads the repository's instructions",
+        "url": "https://github.com/rameezk/forge/issues/113",
+        "state": "OPEN",
+        "labels": {
+          "nodes": [
+            {
+              "name": "ready-for-agent"
+            }
+          ]
+        },
+        "issueDependenciesSummary": {
+          "blockedBy": 0
+        }
+      }
+    }
+  }
+}

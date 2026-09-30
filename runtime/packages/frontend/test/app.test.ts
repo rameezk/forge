@@ -23,6 +23,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   transcriptRef: 'run-01.jsonl',
   sessionId: 'sess-abc',
   error: null,
+  ticket: null,
   ...overrides,
 });
 
@@ -92,6 +93,25 @@ test('given a successful, a failed and a running run, when the list is requested
     assert.match(badge, new RegExp(`\\sdata-status="${status}"`));
     assert.equal(textOf(badge), status);
   }
+});
+
+test('given a run dispatched for a ticket and a run started by hand, when the list is requested, then the dispatched run shows its repository and ticket linked to the issue and the other shows none', async () => {
+  const app = appWith([
+    sampleRun({
+      id: 'dispatched',
+      ticket: { repository: 'forge', number: 113, url: 'https://github.com/rameezk/forge/issues/113' },
+    }),
+    sampleRun({ id: 'by-hand' }),
+  ]);
+
+  const body = await (await app.request('/')).text();
+  const ticketCell = (id: string): string =>
+    rowFor(body, id).match(/<td[^>]*\sdata-run-ticket(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? 'missing';
+
+  assert.equal(textOf(ticketCell('dispatched')), 'forge #113');
+  assert.match(ticketCell('dispatched'), /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/113">#113<\/a>/);
+  assert.equal(textOf(ticketCell('by-hand')), '');
+  assert.match(body, /<th>Ticket<\/th>/);
 });
 
 test('given only settled runs, when the list is requested, then the total carries no pending count', async () => {
