@@ -283,11 +283,15 @@ while [ $# -gt 0 ]; do
 done
 FAKE
 chmod +x "$fake_bin"/*
+fake_home="$keys/home"
+mkdir -p "$fake_home/.ssh"
+nix_cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 
 standup_with_fakes() {
 	rm -rf "$keys/capture" "$keys/fake.log"
 	touch "$keys/fake.log"
-	(cd "$work" && FAKE_LOG="$keys/fake.log" FAKE_CAPTURE="$keys/capture" PATH="$fake_bin:$toolchain_path" just standup)
+	(cd "$work" && HOME="$fake_home" XDG_CACHE_HOME="$nix_cache" \
+		FAKE_LOG="$keys/fake.log" FAKE_CAPTURE="$keys/capture" PATH="$fake_bin:$toolchain_path" just standup)
 }
 
 echo "==> case: standup injects the decrypted host key at install"
