@@ -2,9 +2,11 @@
   buildNpmPackage,
   makeWrapper,
   nodejs,
+  runCommand,
 }:
 let
   subagentExtension = "lib/forge-runtime/packages/pi-subagent/src";
+  piAgentDir = runCommand "pi-agent-dir" { } "mkdir $out";
 in
 buildNpmPackage {
   pname = "forge-runner";
@@ -32,7 +34,8 @@ buildNpmPackage {
     cp -r package.json package-lock.json packages node_modules "$out/lib/forge-runtime/"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-run" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts" \
-      --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}"
+      --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
+      --set FORGE_PI_AGENT_DIR "${piAgentDir}"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-billing" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/billing-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontier" \
@@ -42,7 +45,7 @@ buildNpmPackage {
     runHook postInstall
   '';
 
-  passthru = { inherit subagentExtension; };
+  passthru = { inherit subagentExtension piAgentDir; };
 
   meta = {
     description = "Forge runtime: runs one worker headlessly (forge-run), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";

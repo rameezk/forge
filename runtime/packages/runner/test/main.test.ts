@@ -30,10 +30,22 @@ const fixture = (name: string): string => join(FIXTURES, name);
 
 const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
 
+const LOCKDOWN = [
+  '--no-extensions',
+  '--no-skills',
+  '--no-prompt-templates',
+  '--no-themes',
+  '--no-context-files',
+];
+
+const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
+
+const OPERATOR_EXTRAS = ['--skill', '/opt/forge/skills/review'];
+
 const FAKE_PI = `#!${process.execPath}
 import { readFileSync, writeFileSync } from 'node:fs';
 const env = process.env;
-writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION }));
+writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR }));
 process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
 if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
 process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
@@ -140,6 +152,7 @@ interface Scenario {
   openRouterKey?: string;
   worker?: Partial<WorkerConfig>;
   harnessArgs?: string[];
+  env?: NodeJS.ProcessEnv;
   stderr?: string;
   exit?: number;
   lingerMs?: number;
@@ -155,6 +168,7 @@ interface Outcome {
     cwd: string;
     pid: number;
     subagentInvocation: string | undefined;
+    agentDir: string | undefined;
   };
 }
 
@@ -217,6 +231,8 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     FORGE_RUNTIME_CONFIG: configPath,
     FORGE_STATE_DIR: stateDir,
     FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
+    FORGE_PI_AGENT_DIR: AGENT_DIR,
+    ...scenario.env,
     FAKE_PI_RECORD: record,
     FAKE_PI_OUTPUT: scenario.output,
     FAKE_PI_EXIT: String(scenario.exit ?? 0),
@@ -666,12 +682,13 @@ test('given a recorded run whose subagent calls bash, when the transcript is wri
   assert.equal(toolEvents.length, 6);
 });
 
-test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, offline, openrouter contract with the plain model, a thinking level only when declared, the subagent extension, the extras, and the prompt last', async () => {
+test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, lockdown, offline, openrouter contract with the plain model, a thinking level only when declared, the subagent extension, the extras, and the prompt last', async () => {
   const output = fixture('success.jsonl');
   const contract = [
     '--mode',
     'json',
     '--no-session',
+    ...LOCKDOWN,
     '--offline',
     '--provider',
     'openrouter',
@@ -682,11 +699,11 @@ test('given workers with and without a reasoning effort and a harness with opera
   const withEffort = await runWorker({
     output,
     worker: { reasoningEffort: 'high' },
-    harnessArgs: ['--no-skills'],
+    harnessArgs: OPERATOR_EXTRAS,
   });
   const withoutEffort = await runWorker({
     output,
-    harnessArgs: ['--no-skills'],
+    harnessArgs: OPERATOR_EXTRAS,
   });
 
   assert.deepEqual(withEffort.pi.argv, [
@@ -695,29 +712,29 @@ test('given workers with and without a reasoning effort and a harness with opera
     'high',
     '-e',
     EXTENSION,
-    '--no-skills',
+    ...OPERATOR_EXTRAS,
     'refine the spec',
   ]);
   assert.deepEqual(withoutEffort.pi.argv, [
     ...contract,
     '-e',
     EXTENSION,
-    '--no-skills',
+    ...OPERATOR_EXTRAS,
     'refine the spec',
   ]);
 });
 
-test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then the subagent extension is handed the pi binary with the parent contract, provider, model and thinking level, never the extension, the extras or the prompt, and a sub-agent system prompt', async () => {
+test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then the subagent extension is handed the pi binary with the parent contract including its lockdown flags, provider, model and thinking level, never the extension, the extras or the prompt, and a sub-agent system prompt', async () => {
   const output = fixture('success.jsonl');
 
   const withEffort = await runWorker({
     output,
     worker: { reasoningEffort: 'high' },
-    harnessArgs: ['--no-skills'],
+    harnessArgs: OPERATOR_EXTRAS,
   });
   const withoutEffort = await runWorker({
     output,
-    harnessArgs: ['--no-skills'],
+    harnessArgs: OPERATOR_EXTRAS,
   });
 
   const childOf = (outcome: Outcome) =>
@@ -736,12 +753,28 @@ test('given workers with and without a reasoning effort and a harness with opera
     withoutEffortChild.argv.slice(1),
     parentFlags(withoutEffort),
   );
+  for (const child of [withEffortChild, withoutEffortChild]) {
+    const start = child.argv.indexOf(LOCKDOWN[0] as string);
+    assert.deepEqual(
+      child.argv.slice(start, start + LOCKDOWN.length),
+      LOCKDOWN,
+    );
+  }
   assert.ok(withEffortChild.argv.includes('--thinking'));
   assert.ok(!withoutEffortChild.argv.includes('--thinking'));
   assert.ok(!withEffortChild.argv.includes('-e'));
   assert.match(withEffortChild.systemPrompt, /sub-agent/);
   assert.match(withEffortChild.systemPrompt, /returned verbatim/);
   assert.match(withEffortChild.systemPrompt, /cannot spawn sub-agents/);
+});
+
+test('given a wrapper that supplies a read-only agent dir and an environment already pointing pi at the writable default, when the worker runs, then pi is spawned with its agent dir set to the supplied one', async () => {
+  const { pi } = await runWorker({
+    output: fixture('success.jsonl'),
+    env: { PI_CODING_AGENT_DIR: '/var/lib/forge/.pi/agent' },
+  });
+
+  assert.equal(pi.agentDir, AGENT_DIR);
 });
 
 test('given any worker, when it runs, then pi works in a fresh per-run directory under the state directory, never the state directory itself', async () => {
@@ -1145,6 +1178,30 @@ test('given a runner with no subagent extension to load, when a pi worker runs, 
       FORGE_STATE_DIR: stateDir,
     }),
     /FORGE_PI_SUBAGENT_EXTENSION is not set/,
+  );
+  assert.deepEqual(readdirSync(stateDir), ['runtime.json']);
+});
+
+test('given a runner with no read-only agent dir for pi, when a pi worker runs, then the runner refuses before starting pi', async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
+  const configPath = join(stateDir, 'runtime.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      harnesses: { pi: { command: join(stateDir, 'no-pi') } },
+      workers: {
+        refiner: { harness: 'pi', model: 'z-ai/glm-5', prompt: 'refine' },
+      },
+    }),
+  );
+
+  await assert.rejects(
+    main(['refiner'], {
+      FORGE_RUNTIME_CONFIG: configPath,
+      FORGE_STATE_DIR: stateDir,
+      FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
+    }),
+    /FORGE_PI_AGENT_DIR is not set/,
   );
   assert.deepEqual(readdirSync(stateDir), ['runtime.json']);
 });

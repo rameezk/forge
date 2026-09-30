@@ -22,9 +22,14 @@ const harnessFor = (
   if (extension === undefined) {
     throw new Error('FORGE_PI_SUBAGENT_EXTENSION is not set');
   }
+  const agentDir = env.FORGE_PI_AGENT_DIR;
+  if (agentDir === undefined) {
+    throw new Error('FORGE_PI_AGENT_DIR is not set');
+  }
   return new PiHarness({
     command: harness.command,
     extension,
+    agentDir,
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
     env,
   });

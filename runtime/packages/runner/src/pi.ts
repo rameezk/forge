@@ -18,6 +18,11 @@ const contractArgs = (invocation: HarnessInvocation): string[] => [
   '--mode',
   'json',
   '--no-session',
+  '--no-extensions',
+  '--no-skills',
+  '--no-prompt-templates',
+  '--no-themes',
+  '--no-context-files',
   '--offline',
   '--provider',
   'openrouter',
@@ -39,6 +44,10 @@ export const piArgs = (
   ...extraArgs,
   invocation.prompt,
 ];
+
+export const piEnv = (agentDir: string): NodeJS.ProcessEnv => ({
+  PI_CODING_AGENT_DIR: agentDir,
+});
 
 const SUBAGENT_SYSTEM_PROMPT = [
   'You are a sub-agent. Another agent delegated the task below to you, and nobody will answer questions while you work on it.',
@@ -256,6 +265,7 @@ class PiStream {
 export interface PiHarnessOptions {
   command: string;
   extension: string;
+  agentDir: string;
   extraArgs?: string[];
   env?: NodeJS.ProcessEnv;
 }
@@ -263,12 +273,14 @@ export interface PiHarnessOptions {
 export class PiHarness implements Harness {
   readonly #command: string;
   readonly #extension: string;
+  readonly #agentDir: string;
   readonly #extraArgs: string[];
   readonly #env: NodeJS.ProcessEnv;
 
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
     this.#extension = options.extension;
+    this.#agentDir = options.agentDir;
     this.#extraArgs = options.extraArgs ?? [];
     this.#env = options.env ?? process.env;
   }
@@ -280,6 +292,7 @@ export class PiHarness implements Harness {
       cwd: invocation.workDir,
       env: {
         ...this.#env,
+        ...piEnv(this.#agentDir),
         [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
           subagentInvocation(this.#command, invocation),
         ),
