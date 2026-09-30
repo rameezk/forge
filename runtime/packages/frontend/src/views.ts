@@ -248,7 +248,7 @@ const ERROR_BADGE = html`<span class="${BADGE} ml-auto bg-error-soft text-error"
 
 const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90 focus-visible:-outline-offset-2`;
 
-const SUMMARY_CODE = 'min-w-0 flex-1 basis-0 truncate font-mono text-[0.85rem] text-muted';
+const SUMMARY_CODE = 'min-w-0 flex-1 truncate font-mono text-[0.85rem] text-muted';
 
 const renderToolCall = (
   call: ToolCallEvent,
