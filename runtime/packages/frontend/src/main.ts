@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { serve } from '@hono/node-server';
 import { Store } from '@forge/shared';
@@ -10,7 +11,8 @@ export const main = (env: NodeJS.ProcessEnv): void => {
 
   const store = Store.open(join(stateDir, 'forge.db'));
   const transcripts = new FileTranscriptSource(join(stateDir, 'transcripts'));
-  const app = createApp({ store, transcripts });
+  const stylesheet = readFileSync(new URL('../dist/dashboard.css', import.meta.url), 'utf8');
+  const app = createApp({ store, transcripts, stylesheet });
 
   serve({ fetch: app.fetch, hostname, port }, (info) => {
     console.log(`forge dashboard listening on http://${info.address}:${info.port}`);

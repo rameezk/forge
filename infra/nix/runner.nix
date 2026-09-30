@@ -12,9 +12,7 @@ buildNpmPackage {
 
   src = ../../runtime;
 
-  npmDepsHash = "sha256-+4hBWyPWxIqxt4TInB0rXladhQ1N0XnpVcNp5NzUMfA=";
-
-  dontNpmBuild = true;
+  npmDepsHash = "sha256-2MMFX2tZfCfnmPn6az4uCIReR5hn6mRf4h+jqxn2f98=";
 
   nativeBuildInputs = [ makeWrapper ];
 

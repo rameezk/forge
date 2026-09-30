@@ -1,4 +1,4 @@
-import { html, raw } from 'hono/html';
+import { html } from 'hono/html';
 import { isGithubRepository, isGithubUrl } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
@@ -24,74 +24,6 @@ import {
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
-const STYLES = `
-  :root { color-scheme: light dark; --line: color-mix(in srgb, CanvasText 15%, Canvas); }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; }
-  header.site { border-bottom: 1px solid var(--line); }
-  header.site nav { display: flex; gap: 1.25rem; max-width: 960px; margin: 0 auto; padding: 0.75rem 1rem; }
-  header.site a { text-decoration: none; opacity: 0.65; }
-  header.site a:hover, header.site a[aria-current="page"] { opacity: 1; }
-  header.site a[aria-current="page"] { font-weight: 600; }
-  main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
-  h1 { font-size: 1.4rem; margin: 0 0 1.5rem; }
-  a { color: inherit; }
-  .table-scroll { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--line); }
-  th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; }
-  td.cost, th.cost { text-align: right; font-variant-numeric: tabular-nums; }
-  tfoot td { font-weight: 600; border-bottom: none; }
-  .status { font-size: 0.8rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--line); }
-  .status-success { color: #1a7f37; }
-  .status-error { color: #cf222e; }
-  .status-running { opacity: 0.7; }
-  tr.cost-unconfirmed td.cost { color: #9a6700; }
-  .pending { font-weight: normal; opacity: 0.6; }
-  .badge { margin-left: 0.4rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: #9a6700; border: 1px solid currentColor; border-radius: 999px; padding: 0.05rem 0.4rem; }
-  .empty { opacity: 0.6; }
-  time { white-space: nowrap; }
-  .meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; margin: 0 0 1.5rem; }
-  .meta dt { opacity: 0.6; }
-  .meta dd { margin: 0; font-variant-numeric: tabular-nums; }
-  .message, .subagent, .tool { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 0.75rem; }
-  .message { padding: 0.75rem 1rem; }
-  .message > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin-bottom: 0.4rem; }
-  .message pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
-  .message-result { display: flex; align-items: baseline; gap: 0.6rem; }
-  .message-result > .status { flex-shrink: 0; }
-  .subagent > summary, .tool > summary { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; cursor: pointer; list-style: none; }
-  .subagent > summary::-webkit-details-marker, .tool > summary::-webkit-details-marker { display: none; }
-  .subagent > summary::before, .tool > summary::before { content: '\\25B6'; display: inline-block; width: 1em; font-size: 0.7rem; text-align: center; opacity: 0.65; transition: transform 0.15s; }
-  .subagent[open] > summary::before, .tool[open] > summary::before { transform: rotate(90deg); }
-  .subagent-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; white-space: nowrap; }
-  .tool-name { font: 600 0.85rem ui-monospace, monospace; white-space: nowrap; }
-  .tool > summary code { opacity: 0.75; }
-  summary code, .subagent-task { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
-  .subagent-count { margin-left: auto; white-space: nowrap; font-size: 0.8rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
-  .subagent-body { padding: 0.75rem 1rem 0; border-top: 1px solid var(--line); }
-  .message-report { border-color: color-mix(in srgb, CanvasText 35%, Canvas); }
-  .tool-error { border-color: #cf222e; }
-  .tool-error > summary .tool-name, .tool-error > header .tool-name { color: #cf222e; }
-  .badge.tool-status { margin-left: auto; flex-shrink: 0; color: #cf222e; }
-  .subagent-call > header { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1rem; }
-  .subagent-call > .subagent { border: none; border-top: 1px solid var(--line); border-radius: 0; margin: 0; }
-  .message-error { border-color: #cf222e; }
-  .message-error > header { color: #cf222e; opacity: 1; }
-  .tool-body { padding: 0.6rem 1rem 0.75rem; border-top: 1px solid var(--line); }
-  .tool-body > header { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; margin: 0 0 0.3rem; }
-  .tool-body > header ~ header { margin-top: 0.75rem; }
-  .tool-body pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
-  .repository { margin: 0 0 2.5rem; }
-  .repository > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; margin: 0 0 0.75rem; }
-  .repository h2 { font-size: 1.1rem; margin: 0; }
-  .repository .polled { margin-left: auto; font-size: 0.85rem; opacity: 0.6; }
-  .repository > .status-error { margin: 0 0 0.75rem; }
-  .repository.stale .table-scroll { opacity: 0.6; }
-  td.number { white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .spec-number { opacity: 0.6; font-variant-numeric: tabular-nums; }
-`;
-
 type Page = 'runs' | 'work';
 
 const NAV: { page: Page; href: string; label: string }[] = [
@@ -113,6 +45,7 @@ const renderNav = (current: Page | null): HtmlEscapedString | Promise<HtmlEscape
 const layout = (
   title: string,
   current: Page | null,
+  stylesheet: string,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<!doctype html>
@@ -121,9 +54,7 @@ const layout = (
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${title}</title>
-        <style>
-          ${raw(STYLES)}
-        </style>
+        <link rel="stylesheet" href="${stylesheet}" />
       </head>
       <body>
         ${renderNav(current)}
@@ -162,6 +93,7 @@ const renderTotal = (runs: RunRecord[]): Rendered => {
 
 export const renderList = (
   runs: RunRecord[],
+  stylesheet: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body =
     runs.length === 0
@@ -200,7 +132,7 @@ export const renderList = (
               </tfoot>
             </table>
           </div>`;
-  return layout('Workloads', 'runs', body);
+  return layout('Workloads', 'runs', stylesheet, body);
 };
 
 const renderText = (
@@ -463,6 +395,7 @@ const renderTranscript = (
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
+  stylesheet: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p><a href="/">&larr; Workloads</a></p>
     <h1>${run.worker}</h1>
@@ -485,7 +418,7 @@ export const renderDetail = (
     ${events.length === 0
       ? html`<p class="empty">No transcript captured.</p>`
       : renderTranscript(events)}`;
-  return layout(run.worker, null, body);
+  return layout(run.worker, null, stylesheet, body);
 };
 
 const renderSpec = (parent: SpecRef | null): Rendered =>
@@ -548,10 +481,11 @@ const renderRepository = ({
 
 export const renderWork = (
   frontier: RepositoryFrontier[],
+  stylesheet: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<h1>Frontier</h1>
     ${frontier.length === 0
       ? html`<p class="empty">No managed repositories have been polled yet.</p>`
       : frontier.map(renderRepository)}`;
-  return layout('Frontier', 'work', body);
+  return layout('Frontier', 'work', stylesheet, body);
 };
