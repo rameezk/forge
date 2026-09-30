@@ -36,11 +36,14 @@ Why this change is needed, in a few sentences. Explain intent, not a diff.
 ## Changes
 - Bullet the notable changes a reviewer should look for
 
+## Before / After
+Side-by-side screenshots of UI changes, produced by [[before-after]].
+
 ## Testing
 How it was verified: commands run, tests added, manual checks. State honestly what was and was not tested.
 
 ## Notes
-Anything else: follow-ups, trade-offs, risks, screenshots. Link issues with `Closes #17` when a github issue was implemented.
+Anything else: follow-ups, trade-offs, risks. Link issues with `Closes #17` when a github issue was implemented.
 ```
 
 ## Workflow
@@ -50,10 +53,13 @@ Anything else: follow-ups, trade-offs, risks, screenshots. Link issues with `Clo
    the PR will contain.
 2. Review the diff: `git diff <default>...HEAD` so the title and description
    reflect what actually changed. Never write a PR description blind.
-3. Draft the title and description following the formats above.
-4. Push the branch: `git push -u origin <branch>` (skip only if it is already
+3. Run [[before-after]] and include the `## Before / After` section it returns.
+   It returns nothing when the change has no visual effect; drop the section
+   then.
+4. Draft the title and description following the formats above.
+5. Push the branch: `git push -u origin <branch>` (skip only if it is already
    pushed and up to date). `gh` needs the branch on the remote.
-5. Using the github cli `gh`, create the PR
+6. Using the github cli `gh`, create the PR
    for example:
 
    ```bash
@@ -61,7 +67,7 @@ Anything else: follow-ups, trade-offs, risks, screenshots. Link issues with `Clo
      --title "<title>" \
      --body "<description>"
    ```
-6. Once the PR exists, report its URL.
+7. Once the PR exists, report its URL.
 
 ## Guardrails
 
