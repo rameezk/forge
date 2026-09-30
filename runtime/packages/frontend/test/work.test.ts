@@ -72,14 +72,14 @@ test('given a stored frontier across two repositories, when the work page is req
 
   assert.match(forge, /<h2[^>]*>forge<\/h2>/);
   assert.match(forge, /<a href="https:\/\/github\.com\/rameezk\/forge"[^>]*>rameezk\/forge<\/a>/);
-  assert.match(forge, /Last polled <time datetime="2026-09-29T08:15:00.000Z" title="2026-09-29T08:15:00.000Z">2026-09-29 08:15:00 UTC<\/time>/);
+  assert.match(forge, /Last polled <time datetime="2026-09-29T08:15:00.000Z" title="2026-09-29T08:15:00.000Z"[^>]*>2026-09-29 08:15:00 UTC<\/time>/);
   const rows = ticketRows(forge);
   assert.deepEqual(rows.map(textOf), [
     '#56 Declared repositories show their frontier on the dashboard #54 Frontier discovery across managed repositories 2026-09-28',
     '#70 Billed cost settles after the run #67 Billed cost settles after the run 2026-09-28',
   ]);
   assert.match(rows[0] ?? '', /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/56"[^>]*>#56<\/a>/);
-  assert.match(rows[0] ?? '', /<time datetime="2026-09-28T10:07:58Z" title="2026-09-28T10:07:58Z">2026-09-28<\/time>/);
+  assert.match(rows[0] ?? '', /<time datetime="2026-09-28T10:07:58Z" title="2026-09-28T10:07:58Z"[^>]*>2026-09-28<\/time>/);
 
   assert.match(dotfiles, /<h2[^>]*>dotfiles<\/h2>/);
   assert.match(dotfiles, /<a href="https:\/\/github\.com\/rameezk\/dotfiles"[^>]*>rameezk\/dotfiles<\/a>/);
@@ -141,7 +141,7 @@ test('given a stored snapshot where one repository has a last error, when the wo
   const [forge, healthy] = sections(await (await app.request('/work')).text());
 
   assert.match(openingTag(forge ?? ''), /\sdata-stale[\s>]/);
-  assert.match(forge ?? '', /<p[^>]*\sdata-poll-error[^>]*>Last poll failed <time datetime="2026-09-29T08:20:00.000Z" title="2026-09-29T08:20:00.000Z">2026-09-29 08:20:00 UTC<\/time>: GitHub answered 401 for rameezk\/forge<\/p>/);
+  assert.match(forge ?? '', /<p[^>]*\sdata-poll-error[^>]*>Last poll failed <time datetime="2026-09-29T08:20:00.000Z" title="2026-09-29T08:20:00.000Z"[^>]*>2026-09-29 08:20:00 UTC<\/time>: GitHub answered 401 for rameezk\/forge<\/p>/);
   assert.match(forge ?? '', /Last polled <time datetime="2026-09-29T08:15:00.000Z"/);
   assert.equal(ticketRows(forge ?? '').length, 1);
   assert.doesNotMatch(healthy ?? '', /data-poll-error|data-stale/);

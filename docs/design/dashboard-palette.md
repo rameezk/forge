@@ -10,17 +10,17 @@ Each token is a Tailwind colour that switches between its light and dark value b
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| bg | #ECEFF4 | #2E3440 | Page background, hovered table rows |
-| surface | #FFFFFF | #3B4252 | Header, cards and tables |
-| raised | #F5F7FA | #434C5E | Table header band, running pill |
-| line | #D8DEE9 | #4C566A | Borders and dividers |
+| bg | #ECEFF4 | #2E3440 | Page background, hovered table rows, the inset body of a subagent |
+| surface | #FFFFFF | #3B4252 | Header, cards, tables and transcript cards |
+| raised | #F5F7FA | #434C5E | Table header band, running pill, tool argument and result blocks |
+| line | #D8DEE9 | #4C566A | Borders and dividers. A subagent report's card border is `fg` at 35% instead |
 | fg | #2E3440 | #ECEFF4 | Body text |
 | muted | #4C566A | #AEB7C7 | Secondary text, pending costs, inactive nav |
 | accent | #F26B1D | #F26B1D | Decoration only: active nav underline, focus rings, the logo |
 | accent-text | #AE4A0A | #F79A63 | Links |
 | accent-soft | #FDE7DA | #4A3A35 | Reserved for an accent tint |
 | success / success-soft | #3F6B2B / #E4EEDC | #A3BE8C / #3E4A42 | Success pill |
-| error / error-soft | #A8404B / #F6E1E3 | #EE9CA3 / #4D3D46 | Error pill, poll error callout |
+| error / error-soft | #A8404B / #F6E1E3 | #EE9CA3 / #4D3D46 | Error pill and badge, poll and run error callouts, the border and label of a failed tool, error message or failed result |
 | warning / warning-soft | #8A6512 / #F8EED6 | #EBCB8B / #4B4843 | Unconfirmed badge |
 
 ## Usage rules
@@ -49,6 +49,8 @@ WCAG 2 contrast ratios of each text colour against the surfaces in the palette. 
 | accent-text | raised | 5.17 | 4.01, not used |
 | success | success-soft | 5.24 | 4.55 |
 | error | error-soft | 4.80 | 4.79 |
+| error | surface | 6.00 | 4.75 |
+| error | bg | 5.21 | 5.90 |
 | warning | warning-soft | 4.60 | 5.83 |
 
 `accent` is never text. As decoration it measures 2.64 (light) and 4.10 (dark) against `bg`, and 3.05 (light) and 3.30 (dark) against `surface`.
