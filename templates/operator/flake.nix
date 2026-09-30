@@ -50,6 +50,8 @@
           )
           "known_hosts must be a single line pinning secrets/host.pub under the hostname '${cfg.hostname}'; write it as the README's setup steps describe before building";
 
+      repoIsReady = configIsFilled && secretsArePresent && recipientsAreFilled && hostKeyIsPinned;
+
       host = forge.lib.mkHost { inherit configFile secretsFile; };
       # Declare a worker to turn this box into a runnable forge host. Pass inline
       # NixOS modules to mkHost; each sets forge.runtime.* and installs the harness
@@ -84,14 +86,11 @@
     in
     {
       nixosConfigurations.${cfg.hostname} =
-        assert configIsFilled;
-        assert secretsArePresent;
-        assert recipientsAreFilled;
-        assert hostKeyIsPinned;
+        assert repoIsReady;
         host;
 
       lib.reflect =
-        assert hostKeyIsPinned;
+        assert repoIsReady;
         {
           hostname = actualHostName;
           authorizedKeys = actualKeys;
@@ -106,10 +105,7 @@
         in
         {
           reflect-config =
-            assert configIsFilled;
-            assert secretsArePresent;
-            assert recipientsAreFilled;
-            assert hostKeyIsPinned;
+            assert repoIsReady;
             assert keysReflectConfig;
             assert hostNameReflectsConfig;
             pkgs.runCommand "reflect-config" { } ''
