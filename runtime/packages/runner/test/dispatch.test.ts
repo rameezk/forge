@@ -555,3 +555,37 @@ test('given a skill whose frontmatter name is a number, when forge-dispatch runs
   assert.equal(runs[0]?.error, "skill '123' not found in the checkout");
 });
 
+test('given a checkout with a link under a skill directory that resolves outside the checkout, directly or through a directory elsewhere in the checkout, when forge-dispatch runs, then pi never starts and the run names the link', async () => {
+  const outside = mkdtempSync(join(tmpdir(), 'forge-outside-'));
+  writeFileSync(join(outside, 'notes.md'), 'Outside notes\n');
+
+  for (const [origin, link] of [
+    [
+      originWith(
+        { '.claude/skills/work-on/SKILL.md': SKILL },
+        { '.claude/skills/work-on/notes.md': join(outside, 'notes.md') },
+      ),
+      '.claude/skills/work-on/notes.md',
+    ],
+    [
+      originWith(
+        { '.claude/skills/work-on/SKILL.md': SKILL, 'docs/README.md': 'Docs\n' },
+        {
+          '.claude/skills/shared': '../../docs',
+          'docs/outside': outside,
+        },
+      ),
+      '.claude/skills/shared/outside',
+    ],
+  ] as const) {
+    const { pi, runs } = await journaled(() => dispatch({ origin })).then(
+      ({ result }) => result,
+    );
+
+    assert.equal(pi, null, link);
+    assert.equal(
+      runs[0]?.error,
+      `'${link}' in the checkout's skills links outside the checkout`,
+    );
+  }
+});

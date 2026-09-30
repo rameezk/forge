@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { realpathSync, statSync } from 'node:fs';
+import { readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Checkout } from './harness.ts';
@@ -79,6 +79,43 @@ export const cloneCheckout = (
     });
   });
 
+const realpathOf = (path: string): string | null => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+};
+
+const confine = (root: string, dir: string, visited: Set<string>): void => {
+  const real = realpathSync(dir);
+  if (visited.has(real)) {
+    return;
+  }
+  visited.add(real);
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      confine(root, path, visited);
+    }
+    if (!entry.isSymbolicLink()) {
+      continue;
+    }
+    const target = realpathOf(path);
+    if (target === null) {
+      continue;
+    }
+    if (target !== root && !target.startsWith(root + sep)) {
+      throw new Error(
+        `'${relative(root, path)}' in the checkout's skills links outside the checkout`,
+      );
+    }
+    if (statSync(target).isDirectory()) {
+      confine(root, path, visited);
+    }
+  }
+};
+
 const skillsIn = (
   root: string,
   skillPaths: string[],
@@ -109,6 +146,10 @@ export const resolveCheckout = (
   const skillPaths = SKILL_DIRS.map((skills) => join(root, skills)).filter(
     (path) => isDirectory(root, path),
   );
+  const visited = new Set<string>();
+  for (const skills of skillPaths) {
+    confine(root, skills, visited);
+  }
   return {
     root,
     skillPaths,
