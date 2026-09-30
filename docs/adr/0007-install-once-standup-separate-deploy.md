@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Its consequence that the OpenRouter key is placed by hand after each standup is superseded by ADR-0011 and ADR-0012.
 
 ## Context
 

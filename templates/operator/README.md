@@ -34,22 +34,33 @@ direnv, run each one through `nix develop -c <command>` instead and export
    $EDITOR .env
    ```
 
-3. Set up your secrets. They live sops-encrypted in `secrets/`, committed next
+3. Track your files in git and enter the dev shell, which puts `sops`, `age`
+   and the rest of the toolchain on your path. The flake evaluates only
+   git-tracked files, so `config.json` is invisible until it is staged:
+
+   ```bash
+   git init
+   git add -A
+   direnv allow
+   ```
+
+4. Set up your secrets. They live sops-encrypted in `secrets/`, committed next
    to your config. `.sops.yaml` scopes who can read each file:
    `secrets/host.yaml`, the box's SSH host key, is for you only, and
    `secrets/runtime.yaml`, the OpenRouter key, is for you and the box.
 
-   1. Create your age key at the sops default location. Back it up somewhere
-      safe: losing it means regenerating every secret, the box's host key
-      included.
+   1. Create your age key at the sops default location, which is
+      `~/.config/sops/age/keys.txt` on Linux and
+      `~/Library/Application Support/sops/age/keys.txt` on macOS. Back it up
+      somewhere safe: losing it means regenerating every secret, the box's
+      host key included.
 
       ```bash
-      mkdir -p ~/.config/sops/age
-      age-keygen -o ~/.config/sops/age/keys.txt
+      key_dir="$HOME/.config/sops/age"
+      [ "$(uname)" = Darwin ] && key_dir="$HOME/Library/Application Support/sops/age"
+      mkdir -p "$key_dir"
+      age-keygen -o "$key_dir/keys.txt"
       ```
-
-      On macOS the default location is
-      `~/Library/Application Support/sops/age/keys.txt` instead.
 
    2. Generate the box's host key pair in a scratch directory and print its
       age recipient:
@@ -62,12 +73,12 @@ direnv, run each one through `nix develop -c <command>` instead and export
 
    3. Fill in the recipients in `.sops.yaml`: replace
       `REPLACE_WITH_OPERATOR_AGE_PUBLIC_KEY` with the output of
-      `age-keygen -y <your age key>`, and `REPLACE_WITH_BOX_AGE_RECIPIENT` with
+      `age-keygen -y "$key_dir/keys.txt"`, and `REPLACE_WITH_BOX_AGE_RECIPIENT` with
       the recipient printed above.
 
-   4. Create the secrets files, then delete the scratch copy of the host key.
-      `sops edit` opens a new file with example content; replace it with
-      `openrouter_api_key: <your OpenRouter key>`:
+   4. Create the secrets files, delete the scratch copy of the host key, and
+      stage them. `sops edit` opens a new file with example content; replace
+      it with `openrouter_api_key: <your OpenRouter key>`:
 
       ```bash
       mkdir -p secrets
@@ -75,19 +86,11 @@ direnv, run each one through `nix develop -c <command>` instead and export
         sops encrypt --filename-override secrets/host.yaml --input-type json --output-type yaml --output secrets/host.yaml /dev/stdin
       rm -rf "$host_key_dir"
       sops edit secrets/runtime.yaml
+      git add -A
       ```
 
    The build fails loudly if `secrets/runtime.yaml` is missing or `.sops.yaml`
    still holds the placeholder recipients.
-
-4. Track your files in git. The flake evaluates only git-tracked files, so
-   `config.json` and your secrets are invisible until they are staged:
-
-   ```bash
-   git init
-   git add -A
-   direnv allow
-   ```
 
 5. Run the divergence guard (no cloud access required):
 
@@ -113,8 +116,8 @@ configuration and runs without a prompt.
 
 Box state is the run store, frontier snapshot and transcripts under
 `/var/lib/forge`, and the GitHub token file `/var/lib/forge/github.env`. Only
-deploy keeps it. Secrets are not box state: the box decrypts them from this
-repository on every standup and deploy.
+deploy keeps it. The OpenRouter key is not box state: the box decrypts it from
+this repository on every standup and deploy.
 
 1. Stand the box up:
 
@@ -145,16 +148,7 @@ repository on every standup and deploy.
    default port 22. If you changed `adminUser` or `sshPort` in `config.json`,
    use `ssh -p <sshPort> <adminUser>@<address>` instead.
 
-3. Rotate the OpenRouter key by editing it with sops, committing, and
-   deploying. The next workload uses the new key:
-
-   ```bash
-   sops edit secrets/runtime.yaml
-   git commit -am "chore: rotate the OpenRouter key"
-   just deploy
-   ```
-
-4. Place the GitHub token if you declare managed repositories. The frontier
+3. Place the GitHub token if you declare managed repositories. The frontier
    poller reads each managed repository's issues with a fine-grained personal
    access token that is read-only on Issues and Metadata for those
    repositories. Workloads run as the same `forge-runtime` user and can read
@@ -168,7 +162,7 @@ repository on every standup and deploy.
      ssh forge@<address> 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/github.env && cat > /var/lib/forge/github.env"'; unset token
    ```
 
-5. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
+4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
    reads the box address from OpenTofu, then runs `nixos-rebuild switch` on the
    box as your admin user, building on the box. It keeps the box's state, and it
    changes only NixOS: it never runs `tofu apply`, so infrastructure changes
@@ -183,12 +177,24 @@ repository on every standup and deploy.
    A deploy that breaks SSH has no automatic rollback; recover it from the
    Hetzner console.
 
-6. Tear the box down when you are done. This loses the box's state and clears
+5. Tear the box down when you are done. This loses the box's state and clears
    its host key from your `known_hosts`:
 
    ```bash
    just teardown
    ```
+
+## Rotating the OpenRouter key
+
+Edit the key with sops, commit, and deploy. The next workload uses the new
+key. Then revoke the old key in OpenRouter: every earlier version stays
+decryptable in git history.
+
+```bash
+sops edit secrets/runtime.yaml
+git commit -am "chore: rotate the OpenRouter key"
+just deploy
+```
 
 ## Managed repositories
 
