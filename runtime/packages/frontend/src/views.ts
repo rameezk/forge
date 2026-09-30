@@ -36,11 +36,12 @@ export interface AssetHrefs {
   logo: string;
 }
 
-const FOCUS_RING = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+const FOCUS_RINGS = '[&_:where(:focus-visible)]:outline-2 [&_:where(:focus-visible)]:outline-offset-2 [&_:where(:focus-visible)]:outline-accent';
 const PAGE_TITLE = 'm-0 mb-3 text-xl font-bold';
 const SECTION_TITLE = 'm-0 text-[1.1rem] font-bold';
 const EMPTY = 'm-0 text-muted';
-const LINK = `rounded-sm font-medium text-accent-text no-underline hover:underline ${FOCUS_RING}`;
+const LINK = 'rounded-sm font-medium text-accent-text no-underline hover:underline';
+const ERROR_CALLOUT = 'm-0 rounded-lg bg-error-soft px-4 py-2.5 text-error break-words';
 const CARD = 'overflow-x-auto rounded-lg border border-line bg-surface';
 const TABLE = 'w-full border-collapse text-[0.9rem]';
 const TH = 'whitespace-nowrap border-b border-line bg-raised px-3.5 py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-fg';
@@ -48,7 +49,7 @@ const TD = 'border-t border-line px-3.5 py-2.5 align-baseline';
 const ROW = 'hover:bg-bg';
 const NUMERIC = 'text-right tabular-nums whitespace-nowrap';
 const PENDING = 'font-normal italic text-muted';
-const NAV_LINK = `border-b-2 py-1.5 text-[0.9rem] no-underline ${FOCUS_RING}`;
+const NAV_LINK = 'border-b-2 py-1.5 text-[0.9rem] no-underline';
 const POLLED = 'ml-auto text-sm text-muted';
 
 const navLink = (href: string, label: string, current: boolean): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -62,7 +63,7 @@ const renderHeader = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
     <div class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-2">
-      <a href="/" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline ${FOCUS_RING}"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
+      <a href="/" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
       </nav>
@@ -84,7 +85,7 @@ const layout = (
         <link rel="icon" type="image/svg+xml" href="${assets.logo}" />
         <link rel="stylesheet" href="${assets.stylesheet}" />
       </head>
-      <body class="bg-bg text-[15px] text-fg">
+      <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}">
         ${renderHeader(current, assets)}
         <main class="mx-auto max-w-6xl px-4 py-8">${body}</main>
       </body>
@@ -171,27 +172,28 @@ export const renderList = (
   return layout('Workloads', 'runs', assets, body);
 };
 
-const BLOCK = 'mb-3 rounded-lg border bg-surface';
+const BLOCK = 'rounded-lg border bg-surface';
+const STACK = 'flex flex-col gap-3';
 const LABEL = 'm-0 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 const PROSE = 'm-0 whitespace-pre-wrap break-words font-sans';
 const CODE = 'm-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-raised px-3 py-2.5 font-mono text-[0.8rem] leading-relaxed text-fg';
 
-const MESSAGE_TONE: Record<string, { border: string; label: string }> = {
-  report: { border: 'border-fg/35', label: 'text-muted' },
-  error: { border: 'border-error', label: 'text-error' },
-};
+const MESSAGE_TONE = new Map([
+  ['report', { border: 'border-fg/35', label: 'text-muted' }],
+  ['error', { border: 'border-error', label: 'text-error' }],
+]);
 
 const DEFAULT_TONE = { border: 'border-line', label: 'text-muted' };
 
 const renderText = (
   kind: string,
   text: string,
-  body: string = PROSE,
+  textClass: string = PROSE,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const tone = MESSAGE_TONE[kind] ?? DEFAULT_TONE;
+  const tone = MESSAGE_TONE.get(kind) ?? DEFAULT_TONE;
   return html`<article class="${BLOCK} ${tone.border} px-4 py-3" data-message="${kind}">
     <header class="${LABEL} mb-1.5 ${tone.label}">${kind}</header>
-    <pre class="${body}">${text}</pre>
+    <pre class="${textClass}">${text}</pre>
   </article>`;
 };
 
@@ -243,7 +245,7 @@ const toolName = (name: string, failed: boolean): HtmlEscapedString | Promise<Ht
 
 const ERROR_BADGE = html`<span class="${BADGE} ml-auto bg-error-soft text-error" data-badge="error">error</span>`;
 
-const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent`;
+const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90 focus-visible:-outline-offset-2`;
 
 const SUMMARY_CODE = 'min-w-0 truncate font-mono text-[0.85rem] text-muted';
 
@@ -384,7 +386,7 @@ const renderGroup = (
       ${summary}
       <span class="ml-auto shrink-0 whitespace-nowrap text-[0.8rem] tabular-nums text-muted">${count}</span>
     </summary>
-    <div class="rounded-b-lg border-t border-line bg-bg px-4 pt-3 pb-px">
+    <div class="${STACK} rounded-b-[7px] border-t border-line bg-bg p-4 pt-3">
       ${body}
     </div>
   </details>`;
@@ -414,7 +416,7 @@ const renderSubagentCall = (
         renderText('task', task),
         ...withoutReportMessage(shown, report).map((event) => renderEvent(event, results)),
         report === undefined
-          ? html`<p class="${EMPTY} mb-3">No report recorded.</p>`
+          ? html`<p class="${EMPTY}">No report recorded.</p>`
           : renderText(failed ? 'error' : 'report', report.text),
       ],
     )}
@@ -474,11 +476,11 @@ export const renderDetail = (
       <dt class="${META_TERM}">Tokens</dt>
       <dd class="${META_VALUE}">${formatTokens(run.inputTokens)} in / ${formatTokens(run.outputTokens)} out</dd>
     </dl>
-    ${run.error === null ? '' : html`<p class="m-0 mb-4 rounded-lg bg-error-soft px-4 py-2.5 text-error break-words">${run.error}</p>`}
+    ${run.error === null ? '' : html`<p class="${ERROR_CALLOUT} mb-4">${run.error}</p>`}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
-      : renderTranscript(events)}`;
+      : html`<div class="${STACK}">${renderTranscript(events)}</div>`}`;
   return layout(run.worker, null, assets, body);
 };
 
@@ -509,7 +511,7 @@ const renderRepository = ({
     </header>
     ${lastError === null
       ? ''
-      : html`<p class="m-0 mb-3 rounded-lg bg-error-soft px-4 py-2.5 text-error break-words" data-poll-error>Last poll failed ${renderTimestamp(lastError.failedAt)}: ${lastError.message}</p>`}
+      : html`<p class="${ERROR_CALLOUT} mb-3" data-poll-error>Last poll failed ${renderTimestamp(lastError.failedAt)}: ${lastError.message}</p>`}
     ${polledAt === null
       ? ''
       : tickets.length === 0

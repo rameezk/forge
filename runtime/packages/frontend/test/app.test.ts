@@ -189,7 +189,7 @@ test('given a successful run and a failed run, when each run page is requested, 
     const body = await (await app.request(`/runs/${id}`)).text();
     return {
       header: body.match(/<dt[^>]*>Status<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '',
-      closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/main>/)?.[1] ?? '',
+      closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/div>\s*<\/main>/)?.[1] ?? '',
     };
   };
 
