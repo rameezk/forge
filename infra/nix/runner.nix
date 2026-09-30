@@ -4,11 +4,13 @@
   git,
   makeWrapper,
   nodejs,
+  pi-coding-agent,
   runCommand,
 }:
 let
   subagentExtension = "lib/forge-runtime/packages/pi-subagent/src";
   piAgentDir = runCommand "pi-agent-dir" { } "mkdir $out";
+  piPackage = "${pi-coding-agent}/lib/node_modules/pi-monorepo";
 in
 buildNpmPackage {
   pname = "forge-runner";
@@ -23,7 +25,7 @@ buildNpmPackage {
   };
   sourceRoot = "source/runtime";
 
-  npmDepsHash = "sha256-oGK+ooKJaESha7dCdDo7xdoP9DLx3zFMuv9VqvW2Oo4=";
+  npmDepsHash = "sha256-2MMFX2tZfCfnmPn6az4uCIReR5hn6mRf4h+jqxn2f98=";
 
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [ git ];
@@ -32,7 +34,7 @@ buildNpmPackage {
   checkPhase = ''
     runHook preCheck
     npm run typecheck
-    node --test 'packages/*/test/**/*.test.ts'
+    FORGE_PI_PACKAGE=${piPackage} node --test 'packages/*/test/**/*.test.ts'
     runHook postCheck
   '';
 
@@ -48,7 +50,8 @@ buildNpmPackage {
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/dispatch-main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
-      --set FORGE_PI_AGENT_DIR "${piAgentDir}"
+      --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
+      --set FORGE_PI_PACKAGE "${piPackage}"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-billing" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/billing-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontier" \
@@ -58,7 +61,7 @@ buildNpmPackage {
     runHook postInstall
   '';
 
-  passthru = { inherit subagentExtension piAgentDir; };
+  passthru = { inherit subagentExtension piAgentDir piPackage; };
 
   meta = {
     description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";

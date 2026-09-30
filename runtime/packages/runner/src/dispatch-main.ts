@@ -7,8 +7,12 @@ import {
   type TicketState,
 } from '@forge/shared';
 import { resolveWorker, type RepositoryConfig } from './config.ts';
-import { cloneCheckout, resolveCheckout } from './checkout.ts';
-import { launchWorkload, readRuntimeConfig } from './workload.ts';
+import { cloneCheckout, loadPiSkills, resolveCheckout } from './checkout.ts';
+import {
+  absolutePath,
+  launchWorkload,
+  readRuntimeConfig,
+} from './workload.ts';
 
 const USAGE = 'usage: forge-dispatch <repository> <issue>';
 
@@ -113,6 +117,7 @@ export const main = async (
     return 1;
   }
 
+  const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
   const workloadEnv = withoutGithubToken(env);
   return launchWorkload({
     config,
@@ -125,7 +130,7 @@ export const main = async (
     ticket: { repository: name, number: ticket.number, url: ticket.url },
     openWorkspace: async (workDir) => {
       await cloneCheckout(repository.github, workDir, workloadEnv);
-      return { workDir, checkout: resolveCheckout(workDir) };
+      return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
     },
   });
 };

@@ -8,7 +8,7 @@ import { PiHarness } from './pi.ts';
 import { FileTranscript } from './transcript.ts';
 import { runWorkload } from './runner.ts';
 
-const absolutePath = (env: NodeJS.ProcessEnv, name: string): string => {
+export const absolutePath = (env: NodeJS.ProcessEnv, name: string): string => {
   const value = env[name];
   if (value === undefined || !isAbsolute(value)) {
     throw new Error(`${name} is not set to an absolute path`);

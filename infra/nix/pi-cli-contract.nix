@@ -15,6 +15,6 @@ runCommand "pi-cli-contract"
   }
   ''
     export HOME="$TMPDIR"
-    node ${./pi-cli-contract.mjs} ${runtime}/packages/runner/src/pi.ts ${forge-runner}/${forge-runner.subagentExtension} ${lib.getExe pi-coding-agent} ${forge-runner.piAgentDir}
+    node ${./pi-cli-contract.mjs} ${runtime}/packages/runner/src/pi.ts ${forge-runner}/${forge-runner.subagentExtension} ${lib.getExe pi-coding-agent} ${forge-runner.piAgentDir} ${forge-runner.piPackage}
     echo "pi-coding-agent ${pi-coding-agent.version} accepts the runner's pi adapter argv and read-only agent dir, loads its subagent extension, and loads nothing planted where a run could write" > $out
   ''

@@ -2,9 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const [adapter, extension, pi, agentDir] = process.argv.slice(2);
+const [adapter, extension, pi, agentDir, piPackage] = process.argv.slice(2);
 const { piArgs, piEnv, subagentInvocation } = await import(adapter);
-const { resolveCheckout } = await import(join(dirname(adapter), 'checkout.ts'));
+const { loadPiSkills, resolveCheckout } = await import(
+  join(dirname(adapter), 'checkout.ts')
+);
+const loadSkills = await loadPiSkills(piPackage);
 const { SUBAGENT_INVOCATION_ENV, childArgs } = await import(
   join(extension, 'index.ts')
 );
@@ -38,7 +41,7 @@ const invocations = [
       prompt: '/prompted-skill contract check',
       workDir,
       reasoningEffort: 'high',
-      checkout: resolveCheckout(workDir),
+      checkout: resolveCheckout(workDir, loadSkills),
     };
   },
 ];

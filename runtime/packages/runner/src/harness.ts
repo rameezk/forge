@@ -6,6 +6,7 @@ export interface Checkout {
   projectInstructions: string | null;
   systemPrompt: string | null;
   appendSystemPrompt: string | null;
+  skills: ReadonlyMap<string, readonly string[]>;
 }
 
 export const UNATTENDED_INSTRUCTION = [

@@ -118,6 +118,7 @@
         {
           default = pkgs.mkShell {
             packages = operatorToolchain system ++ [ pkgs.nodejs ];
+            FORGE_PI_PACKAGE = self.packages.${system}.forge-runner.piPackage;
           };
         }
       );

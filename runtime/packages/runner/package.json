@@ -7,8 +7,7 @@
   },
   "dependencies": {
     "@forge/pi-subagent": "0.0.0",
-    "@forge/shared": "0.0.0",
-    "yaml": "^2.9.1"
+    "@forge/shared": "0.0.0"
   },
   "devDependencies": {
     "@forge/frontend": "0.0.0"

@@ -165,3 +165,11 @@ export const journaled = async <T>(
     process.stderr.write = write;
   }
 };
+
+export const lockedPiPackage = (): string => {
+  const piPackage = process.env.FORGE_PI_PACKAGE;
+  if (piPackage === undefined) {
+    throw new Error('FORGE_PI_PACKAGE is not set to the locked pi package');
+  }
+  return piPackage;
+};

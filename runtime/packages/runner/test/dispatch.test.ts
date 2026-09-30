@@ -15,7 +15,7 @@ import { dirname, join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, type RunRecord } from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
-import { journaled, PI_CONTRACT, writeFakePi } from './helpers.ts';
+import { journaled, PI_CONTRACT, lockedPiPackage, writeFakePi } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
 
@@ -192,6 +192,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_STATE_DIR: stateDir,
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
+      FORGE_PI_PACKAGE: lockedPiPackage(),
       FORGE_GITHUB_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
@@ -481,7 +482,7 @@ test('given work-on skill directories that pi would not load as work-on, because
   assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
 });
 
-test('given a checkout with two different files pi would load as work-on, from two skill directories, from a differently named directory, from a nested directory, or from a markdown file at a skill directory root, when forge-dispatch runs, then pi never starts and the run names both files', async () => {
+test('given a checkout with two different files pi would load as work-on, from two skill directories, from a differently named directory, from a nested directory, from a markdown file at a skill directory root, or from below a SKILL.md an ignore file hides, when forge-dispatch runs, then pi never starts and the run names both files', async () => {
   const other = SKILL.replace('Work on it.', 'Work on it differently.');
   for (const [files, paths] of [
     [
@@ -490,7 +491,7 @@ test('given a checkout with two different files pi would load as work-on, from t
     ],
     [
       { '.claude/skills/work-on/SKILL.md': SKILL, '.agents/skills/drive/SKILL.md': other },
-      '.claude/skills/work-on/SKILL.md, .agents/skills/drive/SKILL.md',
+      '.agents/skills/drive/SKILL.md, .claude/skills/work-on/SKILL.md',
     ],
     [
       { '.claude/skills/work-on/SKILL.md': SKILL, '.claude/skills/team/drive/SKILL.md': other },
@@ -499,6 +500,15 @@ test('given a checkout with two different files pi would load as work-on, from t
     [
       { '.claude/skills/work-on/SKILL.md': SKILL, '.pi/skills/work-on.md': other },
       '.claude/skills/work-on/SKILL.md, .pi/skills/work-on.md',
+    ],
+    [
+      {
+        '.claude/skills/.ignore': 'decoy/SKILL.md\n',
+        '.claude/skills/decoy/SKILL.md': SKILL.replace('work-on', 'decoy'),
+        '.claude/skills/decoy/real/SKILL.md': other,
+        '.pi/skills/work-on/SKILL.md': SKILL,
+      },
+      '.claude/skills/decoy/real/SKILL.md, .pi/skills/work-on/SKILL.md',
     ],
   ] as const) {
     const { pi, runs } = await journaled(() =>
@@ -520,9 +530,28 @@ test('given a checkout whose work-on skill appears in two skill directories thro
       { '.claude/skills/work-on': '../../.agents/skills/work-on' },
     ),
     originWith({ '.agents/skills/drive/SKILL.md': SKILL }),
+    originWith({
+      '.agents/skills/work-on/SKILL.md': SKILL,
+      '.agents/skills/.draft.md': SKILL.replace('Work on it.', 'Draft.'),
+    }),
   ]) {
     const { pi } = await dispatch({ origin });
 
     assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
   }
 });
+
+test('given a skill whose frontmatter name is a number, when forge-dispatch runs a prompt naming its directory, then pi never starts and the skill is not found, as pi names it by the number', async () => {
+  const { pi, runs } = await journaled(() =>
+    dispatch({
+      origin: originWith({
+        '.claude/skills/123/SKILL.md': '---\nname: 123\ndescription: Numbered.\n---\n',
+      }),
+      prompt: '/123 {url}',
+    }),
+  ).then(({ result }) => result);
+
+  assert.equal(pi, null);
+  assert.equal(runs[0]?.error, "skill '123' not found in the checkout");
+});
+
