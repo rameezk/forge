@@ -9,12 +9,12 @@ const { SUBAGENT_INVOCATION_ENV, childArgs } = await import(
   join(extension, 'index.ts')
 );
 
-const SKILL =
-  '---\nname: work-on\ndescription: Contract check skill.\n---\n\nCheck the contract.\n';
+const skill = (name) =>
+  `---\nname: ${name}\ndescription: Contract check skill.\n---\n\nCheck the contract.\n`;
 
 const checkoutFiles = {
-  '.claude/skills/work-on/SKILL.md': SKILL,
-  '.pi/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
+  '.claude/skills/prompted-skill/SKILL.md': skill('prompted-skill'),
+  '.pi/skills/second-skill-dir/SKILL.md': skill('second-skill-dir'),
   'AGENTS.md': 'Project instructions for the contract check.\n',
   '.pi/SYSTEM.md': 'System prompt for the contract check.\n',
   '.pi/APPEND_SYSTEM.md': 'Appended system prompt for the contract check.\n',
@@ -35,7 +35,7 @@ const invocations = [
     }
     return {
       model: 'z-ai/glm-5',
-      prompt: '/work-on contract check',
+      prompt: '/prompted-skill contract check',
       workDir,
       reasoningEffort: 'high',
       checkout: resolveCheckout(workDir),
