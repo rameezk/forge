@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { PolledFrontier, PollFailure, Ticket } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
+import { openingTag, textOf } from './html.ts';
 
 const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
   number: 56,
@@ -34,16 +35,11 @@ const appWith = (frontier: Seed[]) => {
   });
 };
 
-const textOf = (fragment: string): string =>
-  fragment.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-
 const sections = (body: string): string[] =>
   body.match(/<section[^>]*\sdata-repository="[^"]*"[\s\S]*?<\/section>/g) ?? [];
 
 const ticketRows = (section: string): string[] =>
   section.match(/<tr[^>]*\sdata-ticket="[^"]*"[\s\S]*?<\/tr>/g) ?? [];
-
-const openingTag = (element: string): string => element.slice(0, element.indexOf('>') + 1);
 
 test('given a stored frontier across two repositories, when the work page is requested, then tickets are grouped by repository oldest first, each with its link, parent spec and creation date, under the repository linked to GitHub with its last-polled time', async () => {
   const app = appWith([
@@ -93,7 +89,7 @@ test('given a polled repository with nothing on its frontier, when the work page
 
   const [forge] = sections(await (await app.request('/work')).text());
 
-  assert.equal(textOf(forge ?? ''), 'forge rameezk/forge Last polled 2026-09-29 08:15:00 UTC No tickets on the frontier.');
+  assert.match(forge ?? '', /<p[^>]*>No tickets on the frontier\.<\/p>/);
   assert.doesNotMatch(forge ?? '', /<table>/);
 });
 

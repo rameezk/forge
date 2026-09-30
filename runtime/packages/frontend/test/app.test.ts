@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { HarnessEvent, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
+import { openingTag, textOf } from './html.ts';
 
 const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   id: 'run-01',
@@ -54,9 +55,6 @@ test('given several finished runs, when the list is requested, then they render 
   assert.match(body, /\$0\.6000/, 'total cost tally should sum the runs');
 });
 
-const textOf = (fragment: string): string =>
-  fragment.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-
 const rowFor = (body: string, id: string): string =>
   body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
 
@@ -69,13 +67,29 @@ test('given a billed run costing $0.00093252, an unconfirmed run, and a pending 
 
   const body = await (await app.request('/')).text();
   const cost = (id: string): string =>
-    textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost[\s>][\s\S]*?<\/td>/)?.[0] ?? '');
+    textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '');
 
   assert.equal(cost('billed'), '$0.000933');
   assert.equal(cost('unconfirmed'), '$0.012500 unconfirmed');
   assert.match(rowFor(body, 'unconfirmed'), /<span[^>]*\sdata-badge="unconfirmed"[^>]*\stitle="[^"]+"[^>]*>unconfirmed<\/span>/);
   assert.equal(cost('pending'), 'pending');
   assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.0134 +1 pending');
+});
+
+test('given a successful, a failed and a running run, when the list is requested, then each row shows its own status', async () => {
+  const app = appWith([
+    sampleRun({ id: 'ok', status: 'success' }),
+    sampleRun({ id: 'failed', status: 'error', error: 'provider exploded' }),
+    sampleRun({ id: 'running', status: 'running', endTime: null, costStatus: 'pending' }),
+  ]);
+
+  const body = await (await app.request('/')).text();
+  const status = (id: string): string =>
+    rowFor(body, id).match(/<span[^>]*\sdata-status="([^"]*)"[^>]*>([^<]*)<\/span>/)?.slice(1).join(' ') ?? '';
+
+  assert.equal(status('ok'), 'success success');
+  assert.equal(status('failed'), 'error error');
+  assert.equal(status('running'), 'running running');
 });
 
 test('given only settled runs, when the list is requested, then the total carries no pending count', async () => {
@@ -213,7 +227,6 @@ const detailsBlocks = (body: string, opening: RegExp): string[] => {
 
 const subagentGroups = (body: string): string[] => detailsBlocks(body, /<details[^>]*\sdata-subagent-group[\s>]/g);
 const subagentCalls = (body: string): string[] => body.match(/<section[^>]*\sdata-subagent-call[\s>][\s\S]*?<\/section>/g) ?? [];
-const openingTag = (element: string): string => element.slice(0, element.indexOf('>') + 1);
 
 test('given a transcript written before subagent calls were recorded, when its transcript is viewed, then each subagent scope still renders grouped and collapsed under its scope and the parent renders ungrouped', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
@@ -239,7 +252,7 @@ test('given a transcript written before subagent calls were recorded, when its t
   assert.match(beta, /beta scanning for secrets[\s\S]*beta report: clean/);
   assert.doesNotMatch(beta, /alpha|parent/);
   for (const group of groups) {
-    assert.doesNotMatch(openingTag(group), /\sopen[\s>]/,'groups are collapsed by default');
+    assert.doesNotMatch(openingTag(group), /\sopen[\s>]/, 'groups are collapsed by default');
   }
   assert.match(alpha, /<summary>[\s\S]*call-alpha[\s\S]*2 messages[\s\S]*<\/summary>/, 'a collapsed group names its subagent and how much it did');
   assert.doesNotMatch(body, /data-message="report"/, 'without a recorded subagent result there is no report card');
@@ -267,7 +280,7 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
   const list = await (await app.request('/')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
-  assert.match(list, /<td[^>]*\sdata-cost[^>]*>\s*\$0\.750000/);
+  assert.match(list, /<td[^>]*\sdata-cost(?=[\s>])[^>]*>\s*\$0\.750000/);
   assert.match(detail, /\$0\.750000/);
   assert.match(detail, /1,000 in \/ 100 out/);
 });
@@ -295,7 +308,7 @@ test('given a run whose agent made a bash call in a turn with no text, when its 
   assert.equal(cards.length, 1);
   const [card] = cards as [string];
   assert.match(card, /<summary>[\s\S]*bash[\s\S]*echo forge[\s\S]*<\/summary>/);
-  assert.doesNotMatch(openingTag(card), /\sopen[\s>]/,'a successful call is collapsed by default');
+  assert.doesNotMatch(openingTag(card), /\sopen[\s>]/, 'a successful call is collapsed by default');
   assert.doesNotMatch(body, /<header>assistant<\/header>\s*<pre><\/pre>/);
   assert.ok(
     body.indexOf('run echo forge') < body.indexOf(card) && body.indexOf(card) < body.indexOf('it printed forge'),
@@ -510,7 +523,10 @@ test('given a subagent call that returned an error, when its run page is viewed,
   assert.match(failed, /<header>assistant<\/header>\s*<pre>partial<\/pre>/);
   assert.match(failed, /<article[^>]*\sdata-message="error"[^>]*>\s*<header>error<\/header>\s*<pre>Sub-agent failed: provider error<\/pre>/);
   assert.doesNotMatch(openingTag(ok), /\sdata-failed[\s>]/);
-  assert.doesNotMatch(openingTag(subagentGroups(ok)[0] ?? 'missing'), /\sopen[\s>]/);
+  const [okGroup, ...extraGroups] = subagentGroups(ok);
+  assert.deepEqual(extraGroups, []);
+  assert.doesNotMatch(openingTag(okGroup ?? 'missing'), /\sopen[\s>]/);
+  assert.ok(okGroup, 'the successful call has its group');
   assert.doesNotMatch(ok, /data-badge=/);
 });
 
