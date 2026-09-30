@@ -26,6 +26,7 @@ buildNpmPackage {
 
   installPhase = ''
     runHook preInstall
+    npm prune --omit=dev --offline --no-audit --no-fund
     mkdir -p "$out/lib/forge-runtime"
     cp -r package.json package-lock.json packages node_modules "$out/lib/forge-runtime/"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-run" \
