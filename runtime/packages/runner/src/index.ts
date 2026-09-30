@@ -18,5 +18,6 @@ export type { PiHarnessOptions } from './pi.ts';
 export {
   PiHarness,
   piArgs,
+  piEnv,
   subagentInvocation,
 } from './pi.ts';
