@@ -6,13 +6,12 @@ flake template.
 ## In-environment commands
 
 This repository self-loads its environment: entering the directory with
-[direnv](https://direnv.net) active auto-activates the dev shell (putting the
-whole standup toolchain on your path) and loads your token from `.env`,
-tolerating `.env` being absent. Run `direnv allow` once to opt in.
+[direnv](https://direnv.net) active auto-activates the dev shell, putting the
+whole standup toolchain on your path. Run `direnv allow` once to opt in.
 
 Every command below is written in that in-environment form. If you do not use
-direnv, run each one through `nix develop -c <command>` instead and export
-`HCLOUD_TOKEN` yourself; nothing here depends on the auto-activation.
+direnv, run each one through `nix develop -c <command>` instead; nothing here
+depends on the auto-activation.
 
 ## First run
 
@@ -27,14 +26,7 @@ direnv, run each one through `nix develop -c <command>` instead and export
    `location` to your box. The build fails if `config.json` is missing or still
    holds the example placeholder key - there is no silent fallback.
 
-2. Copy the environment file and add your token:
-
-   ```bash
-   cp .env.example .env
-   $EDITOR .env
-   ```
-
-3. Track your files in git and enter the dev shell, which puts `sops`, `age`
+2. Track your files in git and enter the dev shell, which puts `sops`, `age`
    and the rest of the toolchain on your path. The flake evaluates only
    git-tracked files, so `config.json` is invisible until it is staged:
 
@@ -44,9 +36,10 @@ direnv, run each one through `nix develop -c <command>` instead and export
    direnv allow
    ```
 
-4. Set up your secrets. They live sops-encrypted in `secrets/`, committed next
+3. Set up your secrets. They live sops-encrypted in `secrets/`, committed next
    to your config. `.sops.yaml` scopes who can read each file:
-   `secrets/host.yaml`, the box's SSH host key, is for you only, and
+   `secrets/operator.yaml`, your Hetzner Cloud API token, and
+   `secrets/host.yaml`, the box's SSH host key, are for you only, and
    `secrets/runtime.yaml`, the OpenRouter key, is for you and the box.
 
    1. Create your age key at the sops default location, which is
@@ -80,13 +73,16 @@ direnv, run each one through `nix develop -c <command>` instead and export
 
    4. Create the secrets files, delete the scratch copy of the host key, and
       stage them. `sops edit` opens a new file with example content; replace
-      it with `openrouter_api_key: <your OpenRouter key>`:
+      it with `HCLOUD_TOKEN: <your Hetzner Cloud API token>` in
+      `secrets/operator.yaml`, and with
+      `openrouter_api_key: <your OpenRouter key>` in `secrets/runtime.yaml`:
 
       ```bash
       mkdir -p secrets
       jq -Rs '{ssh_host_ed25519_key: .}' "$host_key_dir/host_key" |
         sops encrypt --filename-override secrets/host.yaml --input-type json --output-type yaml --output secrets/host.yaml /dev/stdin
       rm -rf "$host_key_dir"
+      sops edit secrets/operator.yaml
       sops edit secrets/runtime.yaml
       git add -A
       ```
@@ -94,7 +90,7 @@ direnv, run each one through `nix develop -c <command>` instead and export
    The build fails if `secrets/runtime.yaml` is missing or `.sops.yaml` still
    holds the placeholder recipients.
 
-5. Run the divergence guard (no cloud access required):
+4. Run the divergence guard (no cloud access required):
 
    ```bash
    bash tests/divergence-guard.sh
@@ -115,6 +111,9 @@ configuration and runs without a prompt.
 | `just standup`  | Creates a fresh box and installs forge onto it | Lost - the disk is wiped  |
 | `just deploy`   | Applies a changed config to the stood-up box   | Kept                      |
 | `just teardown` | Destroys the box                               | Lost - the server is gone |
+
+Each OpenTofu call runs through `sops exec-env` on `secrets/operator.yaml`, so
+your Hetzner token is decrypted only for that call and never sits in your shell.
 
 Box state is the run store, frontier snapshot and transcripts under
 `/var/lib/forge`, and the GitHub token file `/var/lib/forge/github.env`. Only
