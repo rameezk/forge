@@ -54,11 +54,17 @@ write_runtime_secret() {
 	printf '{"openrouter_api_key": "sk-or-v1-scaffold-test"}' | encrypt_secret secrets/runtime.yaml
 }
 
+hcloud_token="scaffold-test-hetzner-token"
+write_operator_secret() {
+	jq -n --arg t "$hcloud_token" '{HCLOUD_TOKEN: $t}' | encrypt_secret secrets/operator.yaml
+}
+
 fill_operator_repo() {
 	fill_config
 	fill_recipients
 	write_host_secret
 	write_runtime_secret
+	write_operator_secret
 	git -C "$work" add -A
 }
 
@@ -73,14 +79,8 @@ else
 	fail=1
 fi
 
-echo "==> case: a scaffolded repository carries the self-loading environment and the standup wrapper"
+echo "==> case: a scaffolded repository carries the standup wrapper"
 scaffold
-if [ -f "$work/.envrc" ]; then
-	echo "ok: scaffolded repository carries the .envrc self-loading environment file"
-else
-	echo "FAIL: scaffolded repository is missing the .envrc self-loading environment file"
-	fail=1
-fi
 if [ -f "$work/justfile" ]; then
 	echo "ok: scaffolded repository carries the standup/deploy/teardown command wrapper"
 else
@@ -88,17 +88,17 @@ else
 	fail=1
 fi
 
-echo "==> case: the self-loading environment survives a repository with no token yet"
-if grep -q "use flake" "$work/.envrc" && grep -q "dotenv_if_exists .env" "$work/.envrc"; then
-	echo "ok: the .envrc activates the dev shell and loads the token tolerantly, unset when absent"
+echo "==> case: the scaffold ships no plaintext token file"
+if [ "$(grep -v '^[[:space:]]*$' "$work/.envrc")" = "use flake" ]; then
+	echo "ok: the .envrc only activates the dev shell"
 else
-	echo "FAIL: the .envrc must use flake and load the token with dotenv_if_exists (tolerant of absence)"
+	echo "FAIL: the .envrc must only activate the dev shell with 'use flake'"
 	fail=1
 fi
-if [ ! -e "$work/.env" ]; then
-	echo "ok: a freshly scaffolded repository ships no token file for the env to tolerate"
+if [ ! -e "$work/.env" ] && [ ! -e "$work/.env.example" ]; then
+	echo "ok: the scaffold ships neither .env nor .env.example"
 else
-	echo "FAIL: a freshly scaffolded repository unexpectedly ships a .env token file"
+	echo "FAIL: the scaffold ships a plaintext token file (.env or .env.example)"
 	fail=1
 fi
 
@@ -221,7 +221,6 @@ else
 	echo "FAIL: the box's recipient scoping is wrong across secrets/runtime.yaml and secrets/host.yaml"
 	fail=1
 fi
-printf '{"hcloud_token": "t"}' | encrypt_secret secrets/operator.yaml
 if ! grep -q "$box_recipient" "$work/secrets/operator.yaml"; then
 	echo "ok: the box is not a recipient of secrets/operator.yaml"
 else
@@ -267,7 +266,7 @@ fake_bin="$keys/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/tofu" <<'FAKE'
 #!/usr/bin/env bash
-echo "tofu $*" >>"$FAKE_LOG"
+echo "tofu HCLOUD_TOKEN=${HCLOUD_TOKEN:-<unset>} $*" >>"$FAKE_LOG"
 case " $* " in *" output "*) echo '{"server_ipv4":{"value":"203.0.113.10"}}' ;; esac
 FAKE
 cat >"$fake_bin/ssh" <<'FAKE'
@@ -287,11 +286,19 @@ fake_home="$keys/home"
 mkdir -p "$fake_home/.ssh"
 nix_cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 
-standup_with_fakes() {
+just_with_fakes() {
 	rm -rf "$keys/capture" "$keys/fake.log"
 	touch "$keys/fake.log"
-	(cd "$work" && HOME="$fake_home" XDG_CACHE_HOME="$nix_cache" \
-		FAKE_LOG="$keys/fake.log" FAKE_CAPTURE="$keys/capture" PATH="$fake_bin:$toolchain_path" just standup)
+	(cd "$work" && env -u HCLOUD_TOKEN HOME="$fake_home" XDG_CACHE_HOME="$nix_cache" \
+		FAKE_LOG="$keys/fake.log" FAKE_CAPTURE="$keys/capture" PATH="$fake_bin:$toolchain_path" just "$@")
+}
+
+every_tofu_call_holds_the_token() {
+	local expected
+	for expected in "$@"; do
+		grep -q "^tofu .* ${expected}" "$keys/fake.log" || return 1
+	done
+	! grep "^tofu " "$keys/fake.log" | grep -vq "^tofu HCLOUD_TOKEN=${hcloud_token} "
 }
 
 echo "==> case: standup injects the decrypted host key at install"
@@ -299,7 +306,7 @@ scaffold
 fill_operator_repo
 (cd "$work" && nix flake lock "${override[@]}" >/dev/null 2>&1 && git add flake.lock)
 injected="$keys/capture/etc/ssh/ssh_host_ed25519_key"
-if standup_with_fakes >"$work/standup.log" 2>&1; then
+if just_with_fakes standup >"$work/standup.log" 2>&1; then
 	if cmp -s "$injected" "$keys/host_key" && [ -n "$(find "$injected" -perm 0600)" ]; then
 		echo "ok: standup hands nixos-anywhere the host key at /etc/ssh/ssh_host_ed25519_key, owner-only"
 	else
@@ -312,8 +319,28 @@ else
 	fail=1
 fi
 
+echo "==> case: standup decrypts the Hetzner token for each OpenTofu call from the operator secrets"
+if every_tofu_call_holds_the_token "-chdir=infra/opentofu init" "-chdir=infra/opentofu apply" "-chdir=infra/opentofu output"; then
+	echo "ok: every OpenTofu call in standup ran with HCLOUD_TOKEN from secrets/operator.yaml, with none in the shell"
+else
+	echo "FAIL: an OpenTofu call in standup ran without the token from secrets/operator.yaml"
+	cat "$keys/fake.log"
+	fail=1
+fi
+
+echo "==> case: teardown decrypts the Hetzner token for each OpenTofu call from the operator secrets"
+if just_with_fakes teardown >"$work/teardown.log" 2>&1 &&
+	every_tofu_call_holds_the_token "-chdir=infra/opentofu output" "-chdir=infra/opentofu destroy"; then
+	echo "ok: every OpenTofu call in teardown ran with HCLOUD_TOKEN from secrets/operator.yaml, with none in the shell"
+else
+	echo "FAIL: an OpenTofu call in teardown ran without the token from secrets/operator.yaml"
+	tail -10 "$work/teardown.log"
+	cat "$keys/fake.log"
+	fail=1
+fi
+
 echo "==> case: standup fails fast, before creating anything, when the host key cannot be decrypted"
-if SOPS_AGE_KEY_FILE="$keys/stranger.txt" standup_with_fakes >"$work/standup-locked.log" 2>&1; then
+if SOPS_AGE_KEY_FILE="$keys/stranger.txt" just_with_fakes standup >"$work/standup-locked.log" 2>&1; then
 	echo "FAIL: standup succeeded without being able to decrypt the host key"
 	fail=1
 elif ! grep -q "secrets/host.yaml" "$work/standup-locked.log"; then
