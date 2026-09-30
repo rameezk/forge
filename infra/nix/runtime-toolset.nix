@@ -3,6 +3,9 @@
   testers,
   writeShellScript,
   forge-runner,
+  sopsModule,
+  secretsFile,
+  secretsHostKey,
 }:
 let
   stubHarness =
@@ -16,9 +19,16 @@ let
 
   box = probe: extra: {
     imports = [
+      sopsModule
       ../nixos/runtime.nix
       extra
     ];
+    system.activationScripts.hostKey.text = ''
+      install -D -m 0600 ${secretsHostKey} /etc/ssh/ssh_host_ed25519_key
+    '';
+    system.activationScripts.setupSecrets.deps = [ "hostKey" ];
+    sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
+    forge.runtime.secretsFile = secretsFile;
     forge.runtime.package = forge-runner;
     forge.runtime.harnesses.pi.command = "${stubHarness probe}";
     forge.runtime.workers.probe = {
@@ -53,7 +63,6 @@ testers.runNixOSTest {
   testScript = ''
     def run_probe(machine):
         machine.wait_for_unit("multi-user.target")
-        machine.succeed("install -m 0600 -o forge-runtime -g forge-runtime /dev/null /var/lib/forge/openrouter.env")
         status, _ = machine.execute("systemctl start forge-runner@probe")
         _, out = machine.execute("cat /var/lib/forge/work/*/toolset.out")
         machine.shutdown()

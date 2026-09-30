@@ -4,6 +4,9 @@
   forgeConfig,
   ...
 }:
+let
+  hostKey = "/etc/ssh/ssh_host_ed25519_key";
+in
 {
   imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
 
@@ -28,7 +31,15 @@
       PasswordAuthentication = false;
       PermitRootLogin = "no";
     };
+    hostKeys = [
+      {
+        path = hostKey;
+        type = "ed25519";
+      }
+    ];
   };
+
+  sops.age.sshKeyPaths = [ hostKey ];
 
   boot.loader.grub = {
     enable = true;

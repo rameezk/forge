@@ -7,6 +7,9 @@
 
     nixos-anywhere.url = "github:nix-community/nixos-anywhere";
     nixos-anywhere.inputs.nixpkgs.follows = "nixpkgs";
+
+    sops-nix.url = "github:Mic92/sops-nix";
+    sops-nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -15,6 +18,7 @@
       nixpkgs,
       disko,
       nixos-anywhere,
+      sops-nix,
     }:
     let
       lib = nixpkgs.lib;
@@ -36,6 +40,7 @@
       mkHost =
         {
           configFile,
+          secretsFile,
           modules ? [ ],
         }:
         let
@@ -45,11 +50,13 @@
           system = cfg.arch;
           modules = [
             disko.nixosModules.disko
+            sops-nix.nixosModules.sops
             ./infra/nixos/configuration.nix
             ./infra/nixos/disko.nix
             ./infra/nixos/runtime.nix
             { nixpkgs.overlays = [ runnerOverlay ]; }
             { _module.args.forgeConfig = cfg; }
+            { forge.runtime.secretsFile = secretsFile; }
           ]
           ++ modules;
         };
@@ -64,6 +71,9 @@
           pkgs.just
           nixos-anywhere.packages.${system}.default
           pkgs.nixos-rebuild-ng
+          pkgs.sops
+          pkgs.age
+          pkgs.ssh-to-age
         ];
     in
     {
@@ -117,8 +127,12 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           exampleConfigFile = ./infra/config.example.json;
+          exampleSecretsFile = ./tests/fixtures/runtime-secrets.yaml;
           exampleCfg = loadConfig exampleConfigFile;
-          nixos = mkHost { configFile = exampleConfigFile; };
+          nixos = mkHost {
+            configFile = exampleConfigFile;
+            secretsFile = exampleSecretsFile;
+          };
           actualHostName = nixos.config.networking.hostName;
           actualKeys = nixos.config.users.users.${exampleCfg.adminUser}.openssh.authorizedKeys.keys;
           hostNameMatches = lib.asserts.assertMsg (
@@ -134,6 +148,16 @@
             nixos.config.users.users.root.openssh.authorizedKeys.keys == [ ]
           ) "root must have no authorized SSH keys";
           instantiates = builtins.seq nixos.config.system.build.toplevel.drvPath true;
+          boxIdentityIsHostKey = lib.asserts.assertMsg (
+            nixos.config.services.openssh.hostKeys == [
+              {
+                path = "/etc/ssh/ssh_host_ed25519_key";
+                type = "ed25519";
+              }
+            ]
+            && nixos.config.sops.age.sshKeyPaths == [ "/etc/ssh/ssh_host_ed25519_key" ]
+            && nixos.config.sops.gnupg.sshKeyPaths == [ ]
+          ) "the box's only host key must be ed25519, and sops must derive its age identity from it";
 
           runtimeModuleComposed = lib.asserts.assertMsg (
             nixos.config.forge.runtime.stateDir == "/var/lib/forge"
@@ -152,6 +176,7 @@
 
           workerHost = mkHost {
             configFile = exampleConfigFile;
+            secretsFile = exampleSecretsFile;
             modules = [
               {
                 forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
@@ -192,10 +217,44 @@
             && unit.serviceConfig.ProtectKernelTunables == true
             && unit.serviceConfig.ProtectControlGroups == true;
           runnerSandboxed = lib.asserts.assertMsg (isHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, and writable only under the state directory";
-          runnerKeyOutOfStore = lib.asserts.assertMsg (
-            runnerUnit.serviceConfig.EnvironmentFile == "/var/lib/forge/openrouter.env"
-            && !(lib.hasPrefix builtins.storeDir runnerUnit.serviceConfig.EnvironmentFile)
-          ) "the OpenRouter key must reach the runner via an EnvironmentFile outside the Nix store";
+          runnerEnvTemplate = workerHost.config.sops.templates."forge-runner.env";
+          runnerKeyFromSops =
+            lib.asserts.assertMsg
+              (
+                runnerUnit.serviceConfig.EnvironmentFile == runnerEnvTemplate.path
+                && lib.hasPrefix "/run/secrets/" runnerEnvTemplate.path
+                && runnerEnvTemplate.owner == "forge-runtime"
+                && runnerEnvTemplate.mode == "0400"
+              )
+              "the runner's EnvironmentFile must be a sops template under /run/secrets, readable only by forge-runtime";
+          hides = path: unit: lib.elem "-${path}" (unit.serviceConfig.InaccessiblePaths or [ ]);
+          runnerKeyHiddenFromOtherUnits =
+            lib.asserts.assertMsg
+              (
+                hides "/run/secrets" frontendUnit
+                && hides "/run/secrets.d" frontendUnit
+                &&
+                  lib.all
+                    (
+                      template:
+                      hides workerAndRepositoryHost.config.sops.templates.${template}.path
+                        workerAndRepositoryHost.config.systemd.services.forge-frontier-sync
+                    )
+                    [
+                      "forge-runner.env"
+                      "forge-billing.env"
+                    ]
+              )
+              "every secrets generation must be inaccessible to the long-running dashboard, and every OpenRouter key file to the frontier poller";
+          workerHostInstantiates = builtins.seq workerHost.config.system.build.toplevel.drvPath true;
+          runnerKeyOnly = lib.asserts.assertMsg (
+            runnerEnvTemplate.content
+            == "OPENROUTER_API_KEY=${workerHost.config.sops.placeholder.openrouter_api_key}\n"
+            && workerHost.config.sops.secrets.openrouter_api_key.sopsFile == exampleSecretsFile
+          ) "the runner's EnvironmentFile must carry only OPENROUTER_API_KEY, from the runtime secrets file";
+          noOpenRouterKeyFileOption = lib.asserts.assertMsg (
+            !(workerHost.options.forge.runtime ? openRouterKeyFile)
+          ) "the openRouterKeyFile option must be gone: the OpenRouter key comes only from sops";
           runnerEnvWired = lib.asserts.assertMsg (
             lib.any (e: lib.hasInfix "FORGE_RUNTIME_CONFIG=" e) runnerUnit.serviceConfig.Environment
             && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") runnerUnit.serviceConfig.Environment
@@ -248,8 +307,25 @@
             && unit.serviceConfig.IPAddressDeny == "any";
           frontendSandboxed = lib.asserts.assertMsg (frontendIsLockedDown frontendUnit) "the dashboard unit must be sandboxed like the runner";
 
+          workerAndRepositoryHost = mkHost {
+            configFile = exampleConfigFile;
+            secretsFile = exampleSecretsFile;
+            modules = [
+              {
+                forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+                forge.runtime.workers.builder = {
+                  harness = "pi";
+                  model = "anthropic/claude-sonnet-4";
+                  prompt = "build the thing";
+                };
+                forge.runtime.repositories.forge.github = "rameezk/forge";
+              }
+            ];
+          };
+
           repositoryHost = mkHost {
             configFile = exampleConfigFile;
+            secretsFile = exampleSecretsFile;
             modules = [
               {
                 forge.runtime.repositories.forge.github = "rameezk/forge";
@@ -322,24 +398,36 @@
             && (workerHost.config.systemd.timers ? forge-billing)
             && billingTimer.wantedBy == [ "timers.target" ]
           ) "declaring a worker must define the forge-billing timer and service";
-          billingSettles = lib.asserts.assertMsg (
-            billingService.serviceConfig.Type == "oneshot"
-            &&
-              billingService.serviceConfig.ExecStart
-              == "${workerHost.config.forge.runtime.package}/bin/forge-billing"
-            && billingService.serviceConfig.User == "forge-runtime"
-            && billingService.serviceConfig.Group == "forge-runtime"
-            && lib.elem "network-online.target" billingService.after
-            && lib.elem "network-online.target" billingService.wants
-            && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") billingService.serviceConfig.Environment
-          ) "the billing service must run forge-billing as the forge-runtime user against the state directory with outbound network";
+          billingSettles =
+            lib.asserts.assertMsg
+              (
+                billingService.serviceConfig.Type == "oneshot"
+                &&
+                  billingService.serviceConfig.ExecStart
+                  == "${workerHost.config.forge.runtime.package}/bin/forge-billing"
+                && billingService.serviceConfig.User == "forge-runtime"
+                && billingService.serviceConfig.Group == "forge-runtime"
+                && lib.elem "network-online.target" billingService.after
+                && lib.elem "network-online.target" billingService.wants
+                && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") billingService.serviceConfig.Environment
+              )
+              "the billing service must run forge-billing as the forge-runtime user against the state directory with outbound network";
           billingSandboxed = lib.asserts.assertMsg (isHardened billingService) "the billing service must be sandboxed like the runner";
-          billingKeyOutOfStore = lib.asserts.assertMsg (
-            billingService.serviceConfig.EnvironmentFile == "/var/lib/forge/openrouter.env"
-          ) "the billing service must load the OpenRouter key from the runner's EnvironmentFile outside the Nix store";
+          billingEnvTemplate = workerHost.config.sops.templates."forge-billing.env";
+          billingKeyFromSops =
+            lib.asserts.assertMsg
+              (
+                billingService.serviceConfig.EnvironmentFile == billingEnvTemplate.path
+                && lib.hasPrefix "/run/secrets/" billingEnvTemplate.path
+                && billingEnvTemplate.owner == "forge-runtime"
+                && billingEnvTemplate.mode == "0400"
+                &&
+                  billingEnvTemplate.content
+                  == "OPENROUTER_API_KEY=${workerHost.config.sops.placeholder.openrouter_api_key}\n"
+              )
+              "the billing service must load only OPENROUTER_API_KEY from its own sops template under /run/secrets, readable only by forge-runtime";
           billingFiresEveryMinute = lib.asserts.assertMsg (
-            billingTimer.timerConfig.OnBootSec == "1min"
-            && billingTimer.timerConfig.OnUnitActiveSec == "1min"
+            billingTimer.timerConfig.OnBootSec == "1min" && billingTimer.timerConfig.OnUnitActiveSec == "1min"
           ) "the billing timer must fire one minute after boot and every minute after that";
           noWorkersNoBilling = lib.asserts.assertMsg (
             !(nixos.config.systemd.services ? forge-billing)
@@ -362,8 +450,9 @@
             assert rootLoginDisabled;
             assert rootHasNoKeys;
             assert instantiates;
+            assert boxIdentityIsHostKey;
             pkgs.runCommand "example-reflects-config" { } ''
-              echo "example host reflects config.example.json; root login disabled" > $out
+              echo "example host reflects config.example.json; root login disabled; its ed25519 host key is its sops identity" > $out
             '';
 
           runtime-foundation =
@@ -379,13 +468,17 @@
             assert runnerUnitDeclared;
             assert runnerInvokesWorker;
             assert runnerSandboxed;
-            assert runnerKeyOutOfStore;
+            assert runnerKeyFromSops;
+            assert runnerKeyOnly;
+            assert noOpenRouterKeyFileOption;
+            assert workerHostInstantiates;
+            assert runnerKeyHiddenFromOtherUnits;
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
             assert transcriptsProvisioned;
             pkgs.runCommand "runtime-runner" { } ''
-              echo "declaring a worker wires a forge-runner@ oneshot invoking forge-run with an out-of-store OpenRouter key" > $out
+              echo "declaring a worker wires a forge-runner@ oneshot invoking forge-run with only the OpenRouter key, from a sops template" > $out
             '';
 
           runtime-dashboard =
@@ -418,11 +511,11 @@
             assert billingDeclared;
             assert billingSettles;
             assert billingSandboxed;
-            assert billingKeyOutOfStore;
+            assert billingKeyFromSops;
             assert billingFiresEveryMinute;
             assert noWorkersNoBilling;
             pkgs.runCommand "runtime-billing" { } ''
-              echo "declaring a worker wires a forge-billing oneshot on a one-minute timer that settles billed cost with the out-of-store OpenRouter key" > $out
+              echo "declaring a worker wires a forge-billing oneshot on a one-minute timer that settles billed cost with the OpenRouter key from its own sops template" > $out
             '';
 
           runtime-sqlite =
@@ -443,8 +536,13 @@
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           runtime-toolset = pkgs.callPackage ./infra/nix/runtime-toolset.nix {
             forge-runner = self.packages.${system}.forge-runner;
+            sopsModule = sops-nix.nixosModules.sops;
+            secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
-          run-directories = pkgs.callPackage ./infra/nix/run-directories.nix { };
+          run-directories = pkgs.callPackage ./infra/nix/run-directories.nix {
+            sopsModule = sops-nix.nixosModules.sops;
+          };
         }
       );
     };

@@ -1,9 +1,12 @@
-{ testers }:
+{ testers, sopsModule }:
 testers.runNixOSTest {
   name = "run-directories";
 
   nodes.box = {
-    imports = [ ../nixos/runtime.nix ];
+    imports = [
+      sopsModule
+      ../nixos/runtime.nix
+    ];
     services.timesyncd.enable = false;
   };
 

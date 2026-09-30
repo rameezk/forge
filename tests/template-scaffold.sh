@@ -3,7 +3,8 @@ set -euo pipefail
 
 forge="$(git rev-parse --show-toplevel)"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+keys="$(mktemp -d)"
+trap 'rm -rf "$work" "$keys"' EXIT
 
 override=(--override-input forge "path:$forge")
 real_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIRealOperatorKeyForTemplateTest operator@test"
@@ -16,16 +17,58 @@ scaffold() {
 	cp -R "$forge/infra/opentofu" "$work/_forge_module"
 	perl -pi -e 's{source = "github\.com/rameezk/forge//infra/opentofu\?ref=main"}{source = "../../_forge_module"}' "$work/infra/opentofu/main.tf"
 	git -C "$work" init -q
+	git -C "$work" add -A
 }
 
-echo "==> case: a filled config scaffolds a working operator repository whose two tools agree"
+fill_config() {
+	jq --arg k "$real_key" '.sshPublicKeys = [$k] | .hostname = "mybox"' "$work/config.example.json" >"$work/config.json"
+}
+
+toolchain_path="$(nix develop "path:$forge" -c printenv PATH)"
+tool() {
+	PATH="$toolchain_path" "$@"
+}
+
+export SOPS_AGE_KEY_FILE="$keys/operator.txt"
+tool age-keygen -o "$keys/operator.txt" 2>/dev/null
+tool age-keygen -o "$keys/stranger.txt" 2>/dev/null
+ssh-keygen -q -t ed25519 -N "" -C "" -f "$keys/host_key"
+box_recipient="$(tool ssh-to-age <"$keys/host_key.pub")"
+
+fill_recipients() {
+	local operator
+	operator="$(tool age-keygen -y "$SOPS_AGE_KEY_FILE")"
+	perl -pi -e "s/REPLACE_WITH_OPERATOR_AGE_PUBLIC_KEY/$operator/; s/REPLACE_WITH_BOX_AGE_RECIPIENT/$box_recipient/" "$work/.sops.yaml"
+}
+
+encrypt_secret() {
+	mkdir -p "$work/secrets"
+	(cd "$work" && tool sops encrypt --filename-override "$1" --input-type json --output-type yaml --output "$1" /dev/stdin)
+}
+
+write_host_secret() {
+	jq -Rs '{ssh_host_ed25519_key: .}' "$keys/host_key" | encrypt_secret secrets/host.yaml
+}
+
+write_runtime_secret() {
+	printf '{"openrouter_api_key": "sk-or-v1-scaffold-test"}' | encrypt_secret secrets/runtime.yaml
+}
+
+fill_operator_repo() {
+	fill_config
+	fill_recipients
+	write_host_secret
+	write_runtime_secret
+	git -C "$work" add -A
+}
+
+echo "==> case: a filled operator repository scaffolds a working host whose two tools agree"
 scaffold
-jq --arg k "$real_key" '.sshPublicKeys = [$k] | .hostname = "mybox"' "$work/config.example.json" >"$work/config.json"
-git -C "$work" add -A
+fill_operator_repo
 if FORGE_NIX_FLAGS="${override[*]}" bash "$work/tests/divergence-guard.sh" >"$work/guard.log" 2>&1; then
 	echo "ok: divergence guard passed (built keys == planned keys == config.json)"
 else
-	echo "FAIL: divergence guard failed on a filled config"
+	echo "FAIL: divergence guard failed on a filled operator repository"
 	tail -20 "$work/guard.log"
 	fail=1
 fi
@@ -61,8 +104,7 @@ fi
 
 echo "==> case: the standup, deploy, and teardown commands resolve without executing, against forge's toolchain"
 scaffold
-jq --arg k "$real_key" '.sshPublicKeys = [$k] | .hostname = "mybox"' "$work/config.example.json" >"$work/config.json"
-git -C "$work" add -A
+fill_operator_repo
 for cmd in standup deploy teardown; do
 	if (cd "$work" && nix develop "${override[@]}" -c just -n "$cmd") >"$work/$cmd.log" 2>&1; then
 		echo "ok: '$cmd' resolves cleanly against the forge-sourced toolchain, without executing"
@@ -153,6 +195,136 @@ then
 else
 	echo "FAIL: the scaffolded flake does not show a harness, worker, and pi harness install together in a mkHost modules list"
 	fail=1
+fi
+
+echo "==> case: the scaffold ships placeholder sops recipients and no encrypted files"
+scaffold
+if grep -q "REPLACE_WITH_OPERATOR_AGE_PUBLIC_KEY" "$work/.sops.yaml" && grep -q "REPLACE_WITH_BOX_AGE_RECIPIENT" "$work/.sops.yaml"; then
+	echo "ok: .sops.yaml ships placeholder operator and box recipients"
+else
+	echo "FAIL: the scaffold does not ship a .sops.yaml with placeholder recipients"
+	fail=1
+fi
+if [ ! -e "$work/secrets" ]; then
+	echo "ok: the scaffold ships no encrypted secrets files"
+else
+	echo "FAIL: the scaffold ships a secrets directory"
+	fail=1
+fi
+
+echo "==> case: recipients are scoped by path, so the box can read only the runtime secrets"
+scaffold
+fill_operator_repo
+if grep -q "$box_recipient" "$work/secrets/runtime.yaml" && ! grep -q "$box_recipient" "$work/secrets/host.yaml"; then
+	echo "ok: the box is a recipient of secrets/runtime.yaml and not of secrets/host.yaml"
+else
+	echo "FAIL: the box's recipient scoping is wrong across secrets/runtime.yaml and secrets/host.yaml"
+	fail=1
+fi
+printf '{"hcloud_token": "t"}' | encrypt_secret secrets/operator.yaml
+if ! grep -q "$box_recipient" "$work/secrets/operator.yaml"; then
+	echo "ok: the box is not a recipient of secrets/operator.yaml"
+else
+	echo "FAIL: the box can decrypt secrets/operator.yaml"
+	fail=1
+fi
+
+echo "==> case: a missing runtime secrets file fails loudly"
+scaffold
+fill_config
+fill_recipients
+write_host_secret
+git -C "$work" add -A
+if (cd "$work" && nix flake check "${override[@]}") >"$work/no-runtime.log" 2>&1; then
+	echo "FAIL: the build succeeded with no runtime secrets file"
+	fail=1
+elif grep -q "secrets/runtime.yaml" "$work/no-runtime.log"; then
+	echo "ok: failed loudly, naming the missing secrets/runtime.yaml"
+else
+	echo "FAIL: the build failed, but not with an error naming secrets/runtime.yaml"
+	tail -10 "$work/no-runtime.log"
+	fail=1
+fi
+
+echo "==> case: placeholder sops recipients fail loudly"
+scaffold
+cp "$work/.sops.yaml" "$work/sops.placeholder"
+fill_operator_repo
+mv "$work/sops.placeholder" "$work/.sops.yaml"
+git -C "$work" add -A
+if (cd "$work" && nix flake check "${override[@]}") >"$work/no-recipients.log" 2>&1; then
+	echo "FAIL: the build succeeded with placeholder sops recipients"
+	fail=1
+elif grep -q ".sops.yaml" "$work/no-recipients.log" && grep -qi "placeholder" "$work/no-recipients.log"; then
+	echo "ok: failed loudly, naming the placeholder recipients in .sops.yaml"
+else
+	echo "FAIL: the build failed, but not with an error naming the .sops.yaml placeholder"
+	tail -10 "$work/no-recipients.log"
+	fail=1
+fi
+
+fake_bin="$keys/bin"
+mkdir -p "$fake_bin"
+cat >"$fake_bin/tofu" <<'FAKE'
+#!/usr/bin/env bash
+echo "tofu $*" >>"$FAKE_LOG"
+case " $* " in *" output "*) echo '{"server_ipv4":{"value":"203.0.113.10"}}' ;; esac
+FAKE
+cat >"$fake_bin/ssh" <<'FAKE'
+#!/usr/bin/env bash
+exit 255
+FAKE
+cat >"$fake_bin/nixos-anywhere" <<'FAKE'
+#!/usr/bin/env bash
+echo "nixos-anywhere $*" >>"$FAKE_LOG"
+while [ $# -gt 0 ]; do
+	if [ "$1" = --extra-files ]; then cp -Rp "$2" "$FAKE_CAPTURE"; fi
+	shift
+done
+FAKE
+chmod +x "$fake_bin"/*
+fake_home="$keys/home"
+mkdir -p "$fake_home/.ssh"
+nix_cache="${XDG_CACHE_HOME:-$HOME/.cache}"
+
+standup_with_fakes() {
+	rm -rf "$keys/capture" "$keys/fake.log"
+	touch "$keys/fake.log"
+	(cd "$work" && HOME="$fake_home" XDG_CACHE_HOME="$nix_cache" \
+		FAKE_LOG="$keys/fake.log" FAKE_CAPTURE="$keys/capture" PATH="$fake_bin:$toolchain_path" just standup)
+}
+
+echo "==> case: standup injects the decrypted host key at install"
+scaffold
+fill_operator_repo
+(cd "$work" && nix flake lock "${override[@]}" >/dev/null 2>&1 && git add flake.lock)
+injected="$keys/capture/etc/ssh/ssh_host_ed25519_key"
+if standup_with_fakes >"$work/standup.log" 2>&1; then
+	if cmp -s "$injected" "$keys/host_key" && [ -n "$(find "$injected" -perm 0600)" ]; then
+		echo "ok: standup hands nixos-anywhere the host key at /etc/ssh/ssh_host_ed25519_key, owner-only"
+	else
+		echo "FAIL: standup did not inject the decrypted host key, owner-only, at /etc/ssh/ssh_host_ed25519_key"
+		fail=1
+	fi
+else
+	echo "FAIL: standup failed with a decryptable host key"
+	tail -20 "$work/standup.log"
+	fail=1
+fi
+
+echo "==> case: standup fails fast, before creating anything, when the host key cannot be decrypted"
+if SOPS_AGE_KEY_FILE="$keys/stranger.txt" standup_with_fakes >"$work/standup-locked.log" 2>&1; then
+	echo "FAIL: standup succeeded without being able to decrypt the host key"
+	fail=1
+elif ! grep -q "secrets/host.yaml" "$work/standup-locked.log"; then
+	echo "FAIL: standup failed, but not with an error naming secrets/host.yaml"
+	tail -10 "$work/standup-locked.log"
+	fail=1
+elif grep -q "tofu" "$keys/fake.log"; then
+	echo "FAIL: standup ran OpenTofu before failing on the host key"
+	fail=1
+else
+	echo "ok: standup stopped before OpenTofu, naming secrets/host.yaml"
 fi
 
 exit $fail
