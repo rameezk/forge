@@ -86,14 +86,19 @@ export const cloneCheckout = (
     });
   });
 
-const refuseUnsafeLinks = (root: string, dir: string, linked: boolean): void => {
+const refuseUnsafeLinks = (
+  root: string,
+  dir: string,
+  linked: boolean,
+  reached: string[],
+): void => {
   const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
     a.name.localeCompare(b.name),
   );
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      refuseUnsafeLinks(root, path, linked);
+      refuseUnsafeLinks(root, path, linked, reached);
     }
     if (!entry.isSymbolicLink()) {
       continue;
@@ -115,7 +120,15 @@ const refuseUnsafeLinks = (root: string, dir: string, linked: boolean): void => 
         `'${relative(root, path)}' in the checkout's skills links to a directory from inside a linked directory`,
       );
     }
-    refuseUnsafeLinks(root, path, true);
+    if (
+      reached.some((other) => within(other, target) || within(target, other))
+    ) {
+      throw new Error(
+        `'${relative(root, path)}' in the checkout's skills links to a directory another link already reaches`,
+      );
+    }
+    reached.push(target);
+    refuseUnsafeLinks(root, path, true, reached);
   }
 };
 
@@ -155,10 +168,15 @@ export const resolveCheckout = (
   const file = (path: string): string | null =>
     isFile(root, join(root, path)) ? join(root, path) : null;
   const skillPaths = SKILL_DIRS.map((skills) => join(root, skills)).filter(
-    (path) => isDirectory(root, path),
+    (path, index, paths) =>
+      isDirectory(root, path) &&
+      !paths
+        .slice(0, index)
+        .some((earlier) => realpathOf(earlier) === realpathOf(path)),
   );
+  const reached: string[] = [];
   for (const skills of skillPaths) {
-    refuseUnsafeLinks(root, skills, false);
+    refuseUnsafeLinks(root, skills, false, reached);
   }
   return {
     root,

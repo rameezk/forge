@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, type RunRecord } from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
@@ -658,5 +658,60 @@ test('given a worker prompt whose skill command is followed by a newline rather 
   assert.equal(
     runs[0]?.error,
     `skill 'work-on\n${TICKET_URL}' not found in the checkout`,
+  );
+});
+
+test('given a checkout where two skill-directory links reach the same directory, or one reaches inside the other, when forge-dispatch runs, then pi never starts and the run names the second link', async () => {
+  for (const [links, link] of [
+    [
+      {
+        '.claude/skills/first': '../../docs/skills',
+        '.claude/skills/second': '../../docs/skills',
+      },
+      '.claude/skills/second',
+    ],
+    [
+      {
+        '.claude/skills/first': '../../docs/skills',
+        '.pi/skills/second': '../../docs/skills/review',
+      },
+      '.pi/skills/second',
+    ],
+  ] as const) {
+    const { pi, runs } = await journaled(() =>
+      dispatch({
+        origin: originWith(
+          {
+            '.claude/skills/work-on/SKILL.md': SKILL,
+            'docs/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
+          },
+          links,
+        ),
+      }),
+    ).then(({ result }) => result);
+
+    assert.equal(pi, null, link);
+    assert.equal(
+      runs[0]?.error,
+      `'${link}' in the checkout's skills links to a directory another link already reaches`,
+    );
+  }
+});
+
+test('given a checkout whose .claude/skills links to .agents/skills, which links a skill in from elsewhere in the checkout, when forge-dispatch runs, then pi starts with that skill directory passed once', async () => {
+  const { pi } = await dispatch({
+    origin: originWith(
+      { 'docs/work-on/SKILL.md': SKILL, '.agents/skills/README.md': 'Skills\n' },
+      {
+        '.claude/skills': '../.agents/skills',
+        '.agents/skills/work-on': '../../docs/work-on',
+      },
+    ),
+  });
+
+  assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
+  assert.deepEqual(
+    pi?.argv.filter((arg, i) => pi.argv[i - 1] === '--skill').map((path) => relative(pi.cwd, path)),
+    ['.claude/skills'],
   );
 });
