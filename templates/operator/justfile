@@ -7,6 +7,15 @@ standup:
     hostname="$(jq -r '.hostname' <<<"$host")"
     admin_user="$(jq -r '.adminUser' <<<"$host")"
     ssh_port="$(jq -r '.sshPort' <<<"$host")"
+    extra_files="$(mktemp -d)"
+    trap 'rm -rf "$extra_files"' EXIT
+    install -d -m 755 "$extra_files/etc/ssh"
+    host_key="$extra_files/etc/ssh/ssh_host_ed25519_key"
+    if ! (umask 077 && sops decrypt --extract '["ssh_host_ed25519_key"]' secrets/host.yaml >"$host_key"); then
+        echo "error: could not decrypt the box's host key from secrets/host.yaml, so standup stopped before creating anything." >&2
+        echo "  Check that the file exists and that your age key is one of its recipients." >&2
+        exit 1
+    fi
     tofu -chdir={{ opentofu_dir }} init -input=false
     tofu -chdir={{ opentofu_dir }} apply
     ip="$({{ quote(just_executable()) }} _address)"
@@ -22,7 +31,7 @@ standup:
         echo "  For a fresh box, run 'just teardown' then 'just standup'." >&2
         exit 1
     fi
-    nixos-anywhere --flake ".#${hostname}" --target-host "root@${ip}" --build-on remote
+    nixos-anywhere --flake ".#${hostname}" --target-host "root@${ip}" --build-on remote --extra-files "$extra_files"
     {{ quote(just_executable()) }} _forget-host-key "$ip" "$ssh_port"
 
 deploy:

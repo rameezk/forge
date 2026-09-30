@@ -31,13 +31,19 @@
         lib.asserts.assertMsg (cfg.sshPublicKeys != exampleCfg.sshPublicKeys)
           "config.json still holds the example placeholder SSH key; replace it with your own before building";
 
-      host = forge.lib.mkHost { inherit configFile; };
+      secretsFile = ./secrets/runtime.yaml;
+      secretsArePresent = lib.asserts.assertMsg (builtins.pathExists secretsFile) "secrets/runtime.yaml is missing; create it with sops and track it in git before building";
+      recipientsAreFilled =
+        lib.asserts.assertMsg (!(lib.hasInfix "REPLACE_WITH_" (builtins.readFile ./.sops.yaml)))
+          ".sops.yaml still holds the placeholder recipients; replace them with your operator age key and the box's age recipient before building";
+
+      host = forge.lib.mkHost { inherit configFile secretsFile; };
       # Declare a worker to turn this box into a runnable forge host. Pass inline
       # NixOS modules to mkHost; each sets forge.runtime.* and installs the harness
       # binary. Uncomment and adapt:
       #
       #   host = forge.lib.mkHost {
-      #     inherit configFile;
+      #     inherit configFile secretsFile;
       #     modules = [
       #       (
       #         { pkgs, ... }:
@@ -66,6 +72,8 @@
     {
       nixosConfigurations.${cfg.hostname} =
         assert configIsFilled;
+        assert secretsArePresent;
+        assert recipientsAreFilled;
         host;
 
       lib.reflect = {
@@ -83,6 +91,8 @@
         {
           reflect-config =
             assert configIsFilled;
+            assert secretsArePresent;
+            assert recipientsAreFilled;
             assert keysReflectConfig;
             assert hostNameReflectsConfig;
             pkgs.runCommand "reflect-config" { } ''

@@ -34,8 +34,54 @@ direnv, run each one through `nix develop -c <command>` instead and export
    $EDITOR .env
    ```
 
-3. Track your files in git. The flake evaluates only git-tracked files, so
-   `config.json` is invisible until it is staged:
+3. Set up your secrets. They live sops-encrypted in `secrets/`, committed next
+   to your config. `.sops.yaml` scopes who can read each file:
+   `secrets/host.yaml`, the box's SSH host key, is for you only, and
+   `secrets/runtime.yaml`, the OpenRouter key, is for you and the box.
+
+   1. Create your age key at the sops default location. Back it up somewhere
+      safe: losing it means regenerating every secret, the box's host key
+      included.
+
+      ```bash
+      mkdir -p ~/.config/sops/age
+      age-keygen -o ~/.config/sops/age/keys.txt
+      ```
+
+      On macOS the default location is
+      `~/Library/Application Support/sops/age/keys.txt` instead.
+
+   2. Generate the box's host key pair in a scratch directory and print its
+      age recipient:
+
+      ```bash
+      host_key_dir="$(mktemp -d)"
+      ssh-keygen -q -t ed25519 -N "" -C "" -f "$host_key_dir/host_key"
+      ssh-to-age <"$host_key_dir/host_key.pub"
+      ```
+
+   3. Fill in the recipients in `.sops.yaml`: replace
+      `REPLACE_WITH_OPERATOR_AGE_PUBLIC_KEY` with the output of
+      `age-keygen -y <your age key>`, and `REPLACE_WITH_BOX_AGE_RECIPIENT` with
+      the recipient printed above.
+
+   4. Create the secrets files, then delete the scratch copy of the host key.
+      `sops edit` opens a new file with example content; replace it with
+      `openrouter_api_key: <your OpenRouter key>`:
+
+      ```bash
+      mkdir -p secrets
+      jq -Rs '{ssh_host_ed25519_key: .}' "$host_key_dir/host_key" |
+        sops encrypt --filename-override secrets/host.yaml --input-type json --output-type yaml --output secrets/host.yaml /dev/stdin
+      rm -rf "$host_key_dir"
+      sops edit secrets/runtime.yaml
+      ```
+
+   The build fails loudly if `secrets/runtime.yaml` is missing or `.sops.yaml`
+   still holds the placeholder recipients.
+
+4. Track your files in git. The flake evaluates only git-tracked files, so
+   `config.json` and your secrets are invisible until they are staged:
 
    ```bash
    git init
@@ -43,7 +89,7 @@ direnv, run each one through `nix develop -c <command>` instead and export
    direnv allow
    ```
 
-4. Run the divergence guard (no cloud access required):
+5. Run the divergence guard (no cloud access required):
 
    ```bash
    bash tests/divergence-guard.sh
@@ -66,14 +112,20 @@ configuration and runs without a prompt.
 | `just teardown` | Destroys the box                               | Lost - the server is gone |
 
 Box state is the run store, frontier snapshot and transcripts under
-`/var/lib/forge`, the OpenRouter key file `/var/lib/forge/openrouter.env`, and
-the GitHub token file `/var/lib/forge/github.env`. Only deploy keeps it.
+`/var/lib/forge`, and the GitHub token file `/var/lib/forge/github.env`. Only
+deploy keeps it. Secrets are not box state: the box decrypts them from this
+repository on every standup and deploy.
 
 1. Stand the box up:
 
    ```bash
    just standup
    ```
+
+   Standup decrypts the box's host key from `secrets/host.yaml` and installs
+   it, so the box decrypts its runtime secrets on first boot with no manual
+   step. If the host key cannot be decrypted, standup stops before creating
+   anything.
 
    Standup only ever creates a fresh box. If your admin user can already log in
    to the box, standup refuses straight away and points you to `just deploy`, or
@@ -93,28 +145,22 @@ the GitHub token file `/var/lib/forge/github.env`. Only deploy keeps it.
    default port 22. If you changed `adminUser` or `sshPort` in `config.json`,
    use `ssh -p <sshPort> <adminUser>@<address>` instead.
 
-3. Place the OpenRouter key. The key is never in the Nix store or this
-   repository, so you place it by hand after **every** standup. This prompts for
-   the key without echoing it and streams it to a freshly created
-   `/var/lib/forge/openrouter.env`, owned by the `forge-runtime` user with mode
-   `0600`, keeping it out of your shell history and every command line. An empty
-   entry changes nothing, and it is safe to rerun to rotate the key. The billing
-   service uses the same key to settle each run's billed cost, so until the key
-   is there, run costs stay pending on the dashboard:
+3. Rotate the OpenRouter key by editing it with sops, committing, and
+   deploying. The next workload uses the new key:
 
    ```bash
-   printf 'OpenRouter key: ' && read -rs key && echo && [ -n "$key" ] &&
-     printf 'OPENROUTER_API_KEY=%s\n' "$key" |
-     ssh forge@<address> 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/openrouter.env && cat > /var/lib/forge/openrouter.env"'; unset key
+   sops edit secrets/runtime.yaml
+   git commit -am "chore: rotate the OpenRouter key"
+   just deploy
    ```
 
 4. Place the GitHub token if you declare managed repositories. The frontier
    poller reads each managed repository's issues with a fine-grained personal
    access token that is read-only on Issues and Metadata for those
    repositories. Workloads run as the same `forge-runtime` user and can read
-   it, so give it a short expiry. Like the OpenRouter key, you place it by
-   hand after **every** standup, into `/var/lib/forge/github.env`. Until it is
-   there, the Work page shows "GitHub token missing" on every repository:
+   it, so give it a short expiry. You place it by hand after **every** standup,
+   into `/var/lib/forge/github.env`. Until it is there, the Work page shows
+   "GitHub token missing" on every repository:
 
    ```bash
    printf 'GitHub token: ' && read -rs token && echo && [ -n "$token" ] &&

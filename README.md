@@ -133,9 +133,10 @@ sequenceDiagram
    ```
 
 2. Fill in `config.json` from `config.example.json` with your SSH key, hostname and server, and add your Hetzner token to `.env`.
-3. Create the box with `just standup`, then place your OpenRouter key on it.
-4. Declare workers and managed repositories in `flake.nix` and apply them with `just deploy`, which keeps the box's state. Place a read-only GitHub token on the box for the frontier poller.
-5. Open the dashboard over an SSH tunnel with `ssh -L 7787:localhost:7787 forge@<address>`, then browse to `http://localhost:7787`.
+3. Generate the box's host key and keep it and your OpenRouter key sops-encrypted in `secrets/`.
+4. Create the box with `just standup`. It installs the host key, so the box decrypts its OpenRouter key on first boot.
+5. Declare workers and managed repositories in `flake.nix` and apply them with `just deploy`, which keeps the box's state. Place a read-only GitHub token on the box for the frontier poller.
+6. Open the dashboard over an SSH tunnel with `ssh -L 7787:localhost:7787 forge@<address>`, then browse to `http://localhost:7787`.
 
 The scaffolded repository's README walks through each step in full.
 

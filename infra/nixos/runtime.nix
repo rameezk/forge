@@ -127,11 +127,9 @@ in
       description = "Localhost TCP port the read-only dashboard binds to; reached over an SSH tunnel, never exposed publicly.";
     };
 
-    openRouterKeyFile = lib.mkOption {
-      type = lib.types.str;
-      default = "${cfg.stateDir}/openrouter.env";
-      defaultText = lib.literalExpression ''"''${cfg.stateDir}/openrouter.env"'';
-      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets OPENROUTER_API_KEY for the runner and the billing service.";
+    secretsFile = lib.mkOption {
+      type = lib.types.path;
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `openrouter_api_key` when any worker is declared.";
     };
 
     githubTokenFile = lib.mkOption {
@@ -210,6 +208,13 @@ in
     }
 
     (lib.mkIf hasWorkers {
+      sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
+      sops.templates = lib.genAttrs [ "forge-runner.env" "forge-billing.env" ] (_: {
+        content = "OPENROUTER_API_KEY=${config.sops.placeholder.openrouter_api_key}\n";
+        owner = cfg.user;
+        mode = "0400";
+      });
+
       systemd.services."forge-runner@" = {
         description = "Forge workload runner for worker %i";
         after = [ "network-online.target" ];
@@ -220,7 +225,7 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = cfg.openRouterKeyFile;
+          EnvironmentFile = config.sops.templates."forge-runner.env".path;
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
@@ -239,7 +244,7 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = cfg.openRouterKeyFile;
+          EnvironmentFile = config.sops.templates."forge-billing.env".path;
           Environment = [ "FORGE_STATE_DIR=${cfg.stateDir}" ];
           ExecStart = "${cfg.package}/bin/forge-billing";
         }

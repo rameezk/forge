@@ -1,0 +1,13 @@
+keys:
+  - &operator REPLACE_WITH_OPERATOR_AGE_PUBLIC_KEY
+  - &box REPLACE_WITH_BOX_AGE_RECIPIENT
+creation_rules:
+  - path_regex: (^|/)secrets/runtime\.yaml$
+    key_groups:
+      - age:
+          - *operator
+          - *box
+  - path_regex: (^|/)secrets/(operator|host)\.yaml$
+    key_groups:
+      - age:
+          - *operator

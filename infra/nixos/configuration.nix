@@ -28,7 +28,15 @@
       PasswordAuthentication = false;
       PermitRootLogin = "no";
     };
+    hostKeys = [
+      {
+        path = "/etc/ssh/ssh_host_ed25519_key";
+        type = "ed25519";
+      }
+    ];
   };
+
+  sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
 
   boot.loader.grub = {
     enable = true;
