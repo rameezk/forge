@@ -31,21 +31,46 @@ const NAV: { page: Page; href: string; label: string }[] = [
   { page: 'work', href: '/work', label: 'Work' },
 ];
 
-const renderNav = (current: Page | null): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<header class="site">
-    <nav>
-      ${NAV.map(({ page, href, label }) =>
-        page === current
-          ? html`<a href="${href}" aria-current="page">${label}</a>`
-          : html`<a href="${href}">${label}</a>`,
-      )}
-    </nav>
+export interface AssetHrefs {
+  stylesheet: string;
+  logo: string;
+}
+
+const PAGE_TITLE = 'm-0 mb-3 text-xl font-bold';
+const EMPTY = 'm-0 text-muted';
+const LINK = 'font-medium text-accent-text no-underline hover:underline';
+const CARD = 'overflow-x-auto rounded-lg border border-line bg-surface';
+const TABLE = 'w-full border-collapse text-[0.9rem]';
+const TH = 'whitespace-nowrap border-b border-line bg-raised px-3.5 py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-fg';
+const TD = 'border-t border-line px-3.5 py-2.5 align-baseline';
+const ROW = 'hover:bg-bg';
+const NUMERIC = 'text-right tabular-nums whitespace-nowrap';
+const PENDING = 'font-normal italic text-muted';
+const NAV_LINK = 'border-b-2 py-1.5 text-[0.9rem] no-underline';
+const POLLED = 'ml-auto text-sm text-muted';
+
+const navLink = (href: string, label: string, current: boolean): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  current
+    ? html`<a href="${href}" aria-current="page" class="${NAV_LINK} border-accent font-semibold text-fg">${label}</a>`
+    : html`<a href="${href}" class="${NAV_LINK} border-transparent text-muted hover:text-fg">${label}</a>`;
+
+const renderHeader = (
+  current: Page | null,
+  assets: AssetHrefs,
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<header class="border-b border-line bg-surface">
+    <div class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-2">
+      <a href="/" data-brand class="flex items-center gap-2 text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
+      <nav class="flex gap-4">
+        ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
+      </nav>
+    </div>
   </header>`;
 
 const layout = (
   title: string,
   current: Page | null,
-  stylesheetHref: string,
+  assets: AssetHrefs,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<!doctype html>
@@ -54,20 +79,21 @@ const layout = (
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${title}</title>
-        <link rel="stylesheet" href="${stylesheetHref}" />
+        <link rel="icon" type="image/svg+xml" href="${assets.logo}" />
+        <link rel="stylesheet" href="${assets.stylesheet}" />
       </head>
-      <body>
-        ${renderNav(current)}
-        <main>${body}</main>
+      <body class="bg-bg text-fg">
+        ${renderHeader(current, assets)}
+        <main class="mx-auto max-w-6xl px-4 py-8">${body}</main>
       </body>
     </html>`;
 
-const UNCONFIRMED_BADGE = html`<span class="badge" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
+const UNCONFIRMED_BADGE = html`<span class="ml-1.5 rounded bg-warning-soft px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-[0.05em] text-warning" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
 
 const renderCost = (run: RunRecord): Rendered => {
   switch (run.costStatus) {
     case 'pending':
-      return html`<span class="pending">pending</span>`;
+      return html`<span class="${PENDING}">pending</span>`;
     case 'billed':
       return html`${formatCost(run.costUsd)}`;
     case 'unconfirmed':
@@ -75,8 +101,14 @@ const renderCost = (run: RunRecord): Rendered => {
   }
 };
 
+const STATUS_TONE: Record<RunStatus, string> = {
+  success: 'bg-success-soft text-success',
+  error: 'bg-error-soft text-error',
+  running: 'bg-raised text-fg',
+};
+
 const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="status status-${status}" data-status="${status}">${status}</span>`;
+  html`<span class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-[''] ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;
 
 const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}">${formatStarted(iso)}</time>`;
@@ -88,51 +120,51 @@ const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
   return html`${formatTotal(settledCost(runs))}${pending === 0
     ? ''
-    : html` <span class="pending">+${pending} pending</span>`}`;
+    : html` <span class="${PENDING}">+${pending} pending</span>`}`;
 };
 
 export const renderList = (
   runs: RunRecord[],
-  stylesheetHref: string,
+  assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body =
     runs.length === 0
-      ? html`<h1>Workloads</h1>
-          <p class="empty">No workloads have run yet.</p>`
-      : html`<h1>Workloads</h1>
-          <div class="table-scroll">
-            <table>
+      ? html`<h1 class="${PAGE_TITLE}">Workloads</h1>
+          <p class="${EMPTY}">No workloads have run yet.</p>`
+      : html`<h1 class="${PAGE_TITLE}">Workloads</h1>
+          <div class="${CARD}">
+            <table class="${TABLE}">
               <thead>
                 <tr>
-                  <th>Worker</th>
-                  <th>Model</th>
-                  <th>Started</th>
-                  <th>Duration</th>
-                  <th>Status</th>
-                  <th class="cost">Cost</th>
+                  <th class="${TH}">Worker</th>
+                  <th class="${TH}">Model</th>
+                  <th class="${TH}">Started</th>
+                  <th class="${TH}">Duration</th>
+                  <th class="${TH}">Status</th>
+                  <th class="${TH} text-right">Cost</th>
                 </tr>
               </thead>
               <tbody>
                 ${runs.map(
-                  (run) => html`<tr class="run cost-${run.costStatus}" data-run="${run.id}">
-                    <td><a href="/runs/${run.id}">${run.worker}</a></td>
-                    <td>${run.model}</td>
-                    <td>${renderTimestamp(run.startTime)}</td>
-                    <td>${formatDuration(run.startTime, run.endTime)}</td>
-                    <td>${renderStatus(run.status)}</td>
-                    <td class="cost" data-cost>${renderCost(run)}</td>
+                  (run) => html`<tr class="${ROW}" data-run="${run.id}">
+                    <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK}">${run.worker}</a></td>
+                    <td class="${TD} whitespace-nowrap text-muted">${run.model}</td>
+                    <td class="${TD}">${renderTimestamp(run.startTime)}</td>
+                    <td class="${TD} whitespace-nowrap">${formatDuration(run.startTime, run.endTime)}</td>
+                    <td class="${TD}">${renderStatus(run.status)}</td>
+                    <td class="${TD} ${NUMERIC}" data-cost>${renderCost(run)}</td>
                   </tr>`,
                 )}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="5">Total</td>
-                  <td class="cost">${renderTotal(runs)}</td>
+                  <td colspan="5" class="${TD} font-semibold">Total</td>
+                  <td class="${TD} ${NUMERIC} font-semibold">${renderTotal(runs)}</td>
                 </tr>
               </tfoot>
             </table>
           </div>`;
-  return layout('Workloads', 'runs', stylesheetHref, body);
+  return layout('Workloads', 'runs', assets, body);
 };
 
 const renderText = (
@@ -395,7 +427,7 @@ const renderTranscript = (
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
-  stylesheetHref: string,
+  assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p><a href="/">&larr; Workloads</a></p>
     <h1>${run.worker}</h1>
@@ -418,18 +450,18 @@ export const renderDetail = (
     ${events.length === 0
       ? html`<p class="empty">No transcript captured.</p>`
       : renderTranscript(events)}`;
-  return layout(run.worker, null, stylesheetHref, body);
+  return layout(run.worker, null, assets, body);
 };
 
 const renderSpec = (parent: SpecRef | null): Rendered =>
   parent === null
-    ? html`<span class="empty">No spec</span>`
-    : html`<span class="spec-number">#${parent.number}</span> ${parent.title}`;
+    ? html`<span class="text-muted">No spec</span>`
+    : html`<span class="tabular-nums text-muted">#${parent.number}</span> ${parent.title}`;
 
 const renderPolled = (polledAt: string | null): Rendered =>
   polledAt === null
-    ? html`<span class="polled">Never polled</span>`
-    : html`<span class="polled">Last polled ${renderTimestamp(polledAt)}</span>`;
+    ? html`<span class="${POLLED}">Never polled</span>`
+    : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt)}</span>`;
 
 const renderRepository = ({
   repository,
@@ -438,40 +470,40 @@ const renderRepository = ({
   lastError,
   tickets,
 }: RepositoryFrontier): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<section class="repository${lastError === null ? '' : ' stale'}" data-repository="${repository}"${lastError === null ? '' : html` data-stale`}>
-    <header>
-      <h2>${repository}</h2>
+  html`<section class="mb-10" data-repository="${repository}"${lastError === null ? '' : html` data-stale`}>
+    <header class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <h2 class="m-0 text-[1.1rem] font-bold">${repository}</h2>
       ${isGithubRepository(github)
-        ? html`<a href="https://github.com/${github}">${github}</a>`
-        : html`<span class="github">${github}</span>`}
+        ? html`<a href="https://github.com/${github}" class="${LINK}">${github}</a>`
+        : html`<span class="text-muted">${github}</span>`}
       ${renderPolled(polledAt)}
     </header>
     ${lastError === null
       ? ''
-      : html`<p class="status-error" data-poll-error>Last poll failed ${renderTimestamp(lastError.failedAt)}: ${lastError.message}</p>`}
+      : html`<p class="m-0 mb-3 rounded-lg bg-error-soft px-4 py-2.5 text-error break-words" data-poll-error>Last poll failed ${renderTimestamp(lastError.failedAt)}: ${lastError.message}</p>`}
     ${polledAt === null
       ? ''
       : tickets.length === 0
-      ? html`<p class="empty">No tickets on the frontier.</p>`
-      : html`<div class="table-scroll">
-          <table>
+      ? html`<p class="${EMPTY}">No tickets on the frontier.</p>`
+      : html`<div class="${CARD}">
+          <table class="${TABLE}">
             <thead>
               <tr>
-                <th>Ticket</th>
-                <th>Title</th>
-                <th>Spec</th>
-                <th>Created</th>
+                <th class="${TH}">Ticket</th>
+                <th class="${TH}">Title</th>
+                <th class="${TH}">Spec</th>
+                <th class="${TH}">Created</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody${lastError === null ? '' : html` class="text-muted"`}>
               ${tickets.map(
-                (ticket) => html`<tr class="ticket" data-ticket="${ticket.number}">
-                  <td class="number">${isGithubUrl(ticket.url)
-                    ? html`<a href="${ticket.url}">#${ticket.number}</a>`
+                (ticket) => html`<tr class="${ROW}" data-ticket="${ticket.number}">
+                  <td class="${TD} whitespace-nowrap tabular-nums">${isGithubUrl(ticket.url)
+                    ? html`<a href="${ticket.url}" class="${LINK}">#${ticket.number}</a>`
                     : html`#${ticket.number}`}</td>
-                  <td>${ticket.title}</td>
-                  <td>${renderSpec(ticket.parent)}</td>
-                  <td>${renderDate(ticket.createdAt)}</td>
+                  <td class="${TD} min-w-48">${ticket.title}</td>
+                  <td class="${TD} min-w-48">${renderSpec(ticket.parent)}</td>
+                  <td class="${TD}">${renderDate(ticket.createdAt)}</td>
                 </tr>`,
               )}
             </tbody>
@@ -481,11 +513,11 @@ const renderRepository = ({
 
 export const renderWork = (
   frontier: RepositoryFrontier[],
-  stylesheetHref: string,
+  assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const body = html`<h1>Frontier</h1>
+  const body = html`<h1 class="${PAGE_TITLE}">Frontier</h1>
     ${frontier.length === 0
-      ? html`<p class="empty">No managed repositories have been polled yet.</p>`
+      ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : frontier.map(renderRepository)}`;
-  return layout('Frontier', 'work', stylesheetHref, body);
+  return layout('Frontier', 'work', assets, body);
 };

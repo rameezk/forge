@@ -31,7 +31,7 @@ const usage = { inputTokens: 5, outputTokens: 5 };
 const appWith = (runs: RunRecord[], dir: string = mkdtempSync(join(tmpdir(), 'forge-transcripts-'))) => {
   const store = Store.open(':memory:');
   for (const run of runs) store.insertRun(run);
-  return createApp({ store, transcripts: new FileTranscriptSource(dir), css: '' });
+  return createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '' });
 };
 
 test('given several finished runs, when the list is requested, then they render newest-first with a total cost', async () => {
@@ -128,7 +128,7 @@ test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and it
   const list = await (await app.request('/')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
-  assert.ok(rowFor(list, 'run-01').includes(`<td>${started}</td>`));
+  assert.ok(rowFor(list, 'run-01').includes(`>${started}</td>`));
   assert.equal(detail.match(/<dt>Started<\/dt>\s*<dd>([\s\S]*?)<\/dd>/)?.[1], started);
 });
 

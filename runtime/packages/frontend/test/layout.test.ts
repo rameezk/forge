@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
-import { readStylesheet } from '../src/stylesheet.ts';
+import { readStylesheet } from '../src/assets.ts';
+import { openingTag, textOf } from './html.ts';
 
-const appWith = (css: string) => {
+const appWith = ({ css = '', logo = '' }: { css?: string; logo?: string }) => {
   const store = Store.open(':memory:');
   store.insertRun({
     id: 'run-01',
@@ -29,6 +30,7 @@ const appWith = (css: string) => {
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),
     css,
+    logo,
   });
 };
 
@@ -40,8 +42,8 @@ const stylesheetLinks = (body: string): string[] =>
   );
 
 test('given any dashboard page, when it is requested, then it links exactly one stylesheet under a content-hashed path and contains no inline style', async () => {
-  const first = appWith('body { color: red; }');
-  const second = appWith('body { color: blue; }');
+  const first = appWith({ css: 'body { color: red; }' });
+  const second = appWith({ css: 'body { color: blue; }' });
 
   for (const page of PAGES) {
     const body = await (await first.request(page)).text();
@@ -58,7 +60,7 @@ test('given any dashboard page, when it is requested, then it links exactly one 
 
 test('given the hashed stylesheet path a page links to, when it is requested, then it returns the CSS with an immutable, long-lived cache header', async () => {
   const css = 'body { color: red; }';
-  const app = appWith(css);
+  const app = appWith({ css });
   const [path] = stylesheetLinks(await (await app.request('/')).text());
 
   const res = await app.request(path!);
@@ -81,4 +83,48 @@ test('given the stylesheet has not been built, when the dashboard reads it, then
   assert.throws(() => readStylesheet(missing), (error: Error) =>
     error.message.includes(missing) && error.message.includes('npm run build'),
   );
+});
+
+const LOGO = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><circle cx="64" cy="64" r="8"/></svg>\n';
+
+const attribute = (tag: string, name: string): string | undefined =>
+  tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
+
+const favicon = (body: string): string => body.match(/<link[^>]*\srel="icon"[^>]*>/)?.[0] ?? '';
+
+const brand = (body: string): string =>
+  body.match(/<a[^>]*\sdata-brand(?=[\s>])[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
+
+test('given any dashboard page, when it is requested, then its header shows the Forge logo and wordmark linking to the Runs page, and the page declares the SVG logo as its favicon', async () => {
+  const app = appWith({ logo: LOGO });
+
+  for (const page of PAGES) {
+    const body = await (await app.request(page)).text();
+    const header = body.match(/<header[^>]*>[\s\S]*?<\/header>/)?.[0] ?? '';
+    const link = brand(header);
+    assert.equal(attribute(openingTag(link), 'href'), '/', `${page} should link the brand to the Runs page`);
+    assert.equal(textOf(link), 'Forge', `${page} should show the Forge wordmark`);
+
+    const logo = link.match(/<img[^>]*>/)?.[0] ?? '';
+    const icon = favicon(body);
+    assert.equal(attribute(icon, 'type'), 'image/svg+xml', `${page} should declare an SVG favicon`);
+    assert.match(attribute(icon, 'href') ?? '', /^\/assets\/logo-[0-9a-f]{16,}\.svg$/);
+    assert.equal(attribute(logo, 'src'), attribute(icon, 'href'), `${page} should show the favicon's logo in its header`);
+  }
+});
+
+test('given the logo path the pages reference, when it is requested, then it returns the SVG logo with an immutable, long-lived cache header', async () => {
+  const app = appWith({ logo: LOGO });
+  const path = attribute(favicon(await (await app.request('/')).text()), 'href');
+
+  const res = await app.request(path!);
+
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type') ?? '', /^image\/svg\+xml\b/);
+  const cacheControl = (res.headers.get('cache-control') ?? '').split(/,\s*/);
+  assert.ok(cacheControl.includes('immutable'), 'the logo should be cached as immutable');
+  assert.equal(await res.text(), LOGO);
+
+  const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/')).text()), 'href');
+  assert.notEqual(other, path, 'a different logo should get a different path');
 });
