@@ -12,7 +12,7 @@ Forge records each workload's transcript, token usage and billed cost, and shows
 
 ## How it works
 
-### System context
+### Around Forge
 
 Forge sits between the operator, the provider that hosts the box, and the model provider its workloads call.
 
@@ -37,7 +37,7 @@ flowchart TB
     class hetzner,openrouter,github external
 ```
 
-### Containers
+### Inside Forge
 
 The operator repository stands the box up with the standup toolchain. On the box, the runner runs each workload, a billing timer settles each run's billed cost from OpenRouter after it finishes, a timer polls the managed repositories' frontier from GitHub, and a localhost-only dashboard reads what they recorded.
 
