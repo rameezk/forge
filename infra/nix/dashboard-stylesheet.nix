@@ -15,7 +15,7 @@ runCommand "dashboard-stylesheet"
   ''
     fail() { echo "$1"; shift; for file in "$@"; do cat "$file"; done; exit 1; }
 
-    [ ! -e ${runtime}/node_modules/tailwindcss ] && [ ! -e ${runtime}/node_modules/@tailwindcss/cli ] || fail "the packaged runtime ships the build-only Tailwind toolchain"
+    [ ! -e ${runtime}/node_modules/@tailwindcss/typography ] && [ ! -e ${runtime}/node_modules/tailwindcss ] && [ ! -e ${runtime}/node_modules/@tailwindcss/cli ] || fail "the packaged runtime ships the build-only Tailwind toolchain"
 
     export FORGE_STATE_DIR="$(mktemp -d)"
     for candidate in $(seq 17787 17887); do
@@ -56,6 +56,23 @@ runCommand "dashboard-stylesheet"
       styles "$class" && { styled=$class; break; }
     done < <(grep -o 'class="[^"]*"' page.html | sed 's/^class="//; s/"$//' | tr ' ' '\n' | grep -v '^$' | sort -u)
     [ -n "$styled" ] || fail "the served stylesheet styles none of the Runs page's classes:" page.html
+    for rule in \
+      '--tw-prose-body:var(--color-fg)' \
+      '--tw-prose-links:var(--color-accent-text)' \
+      '--tw-prose-pre-bg:var(--color-raised)' \
+      'prose-pre\:overflow-x-auto' \
+      'prose-table\:my-0' \
+      'prose-code\:before\:content-none' \
+      'prose-code\:after\:content-none' \
+      'blockquote_p\]\:before\:content-none' \
+      'blockquote_p\]\:after\:content-none' \
+      '\[\&\>div\]\:my-6' \
+      '\[\&\>\:first-child\]\:mt-0' \
+      '\[\&\>\:last-child\]\:mb-0' \
+      'prose-th\:min-w-32' \
+      'prose-td\:min-w-32'; do
+      grep -qF -- "$rule" served.css || fail "the served stylesheet does not generate the markdown rule $rule"
+    done
     [ "$href" = "/assets/dashboard-$(sha256sum served.css | cut -c1-16).css" ] || fail "the stylesheet path $href does not hash its content"
 
     echo "the packaged dashboard serves its Tailwind-built stylesheet under a content-hashed, immutable path, without shipping the Tailwind toolchain" > $out

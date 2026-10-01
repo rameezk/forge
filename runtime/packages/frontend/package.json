@@ -8,7 +8,8 @@
   "dependencies": {
     "@forge/shared": "0.0.0",
     "@hono/node-server": "^1.13.7",
-    "hono": "^4.13.8"
+    "hono": "^4.13.8",
+    "markdown-it": "14.3.2"
   },
   "scripts": {
     "build": "tailwindcss -i src/styles.css -o dist/dashboard.css --minify",
@@ -17,6 +18,8 @@
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",
+    "@tailwindcss/typography": "0.5.20",
+    "@types/markdown-it": "14.2.0",
     "tailwindcss": "^4.3.3"
   }
 }
