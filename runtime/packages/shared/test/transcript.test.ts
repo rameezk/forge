@@ -4,8 +4,8 @@ import { parseTranscript, transcriptLine } from '../src/index.ts';
 import type { HarnessEvent } from '../src/index.ts';
 
 const events: [HarnessEvent, HarnessEvent, HarnessEvent] = [
-  { type: 'message', role: 'user', text: 'refine the spec', usage: { inputTokens: 1, outputTokens: 0 }, generationId: null },
-  { type: 'message', role: 'assistant', text: 'done', usage: { inputTokens: 0, outputTokens: 2 }, generationId: null },
+  { type: 'message', role: 'user', text: 'refine the spec', usage: { inputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null },
+  { type: 'message', role: 'assistant', text: 'done', usage: { inputTokens: 0, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null },
   { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
 ];
 

@@ -63,6 +63,9 @@ const billedAt =
 const BILLED_BY_ID = {
   'gen-success-1': 0.0125,
   'gen-success-2': 0.0375,
+  'gen-tools-1': 0.01,
+  'gen-tools-2': 0.02,
+  'gen-tools-3': 0.04,
   'gen-retry-1': 0.002,
   'gen-retry-2': 0.004,
   'gen-subagents-1': 0.5,
@@ -152,6 +155,7 @@ interface Scenario {
   lingerMs?: number;
   bwrapFailure?: string;
   harness?: 'direct' | 'linked' | 'missing' | 'relative';
+  whileRunning?: (stateDir: string) => Promise<void>;
 }
 
 interface Outcome {
@@ -263,7 +267,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     }),
   );
 
-  const code = await main(['refiner'], {
+  const running = main(['refiner'], {
     ...(scenario.openRouterBaseUrl === undefined
       ? {}
       : { OPENROUTER_BASE_URL: scenario.openRouterBaseUrl }),
@@ -276,6 +280,8 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     FORGE_BWRAP: fakeBwrap,
     ...scenario.env,
   });
+  await scenario.whileRunning?.(stateDir);
+  const code = await running;
 
   const transcripts = readdirSync(join(stateDir, 'transcripts'));
   assert.equal(transcripts.length, 1);
@@ -329,6 +335,21 @@ const settled = async (
   }
 };
 
+const generationsRecorded = async (
+  stateDir: string,
+  count: number,
+): Promise<RunRecord> => {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const run = withStore(stateDir, (store) => store.listRuns()[0]);
+    if (run !== undefined && storedGenerations(stateDir, run.id).length >= count) {
+      return run;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail(`the run did not record ${count} generations within 5 seconds`);
+};
+
 const outputFile = (contents: string): string => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-output-')), 'pi.jsonl');
   writeFileSync(path, contents);
@@ -358,16 +379,6 @@ const cutBefore = (name: string, eventType: string): string => {
   const cut = lines.findIndex((line) => line.includes(`"type":"${eventType}"`));
   assert.ok(cut > 0);
   return outputFile(`${lines.slice(0, cut).join('\n')}\n`);
-};
-
-const cutAfterFirstGeneration = (name: string): string => {
-  const lines = readFileSync(fixture(name), 'utf8').split('\n');
-  const cut = lines.findIndex(
-    (line) =>
-      line.includes('"type":"message_end"') && line.includes('"responseId"'),
-  );
-  assert.ok(cut > 0);
-  return outputFile(`${lines.slice(0, cut + 1).join('\n')}\n`);
 };
 
 const withoutGenerationId = (name: string, id: string): string =>
@@ -417,7 +428,7 @@ const dashboardCost = async (stateDir: string): Promise<string> => {
   }
 };
 
-test('given recorded pi output of a successful multi-message run with tool, turn and streaming events, when the worker runs, then the events forge does not consume are skipped and the run is success with summed full-prompt usage, the session id, and a readable transcript', async () => {
+test('given recorded pi output of a successful multi-message run with tool, turn and streaming events, when the worker runs, then the events forge does not consume are skipped and the run is success with its usage summed with the cache split, the session id, and a readable transcript', async () => {
   const output = fixture('success.jsonl');
 
   const { code, run, transcript } = await runWorker({ output });
@@ -425,11 +436,91 @@ test('given recorded pi output of a successful multi-message run with tool, turn
   assert.equal(code, 0);
   assert.equal(run.status, 'success');
   assert.equal(run.error, null);
-  assert.equal(run.inputTokens, 1200 + 1300);
+  assert.equal(run.inputTokens, 200 + 100);
   assert.equal(run.outputTokens, 40 + 25);
+  assert.equal(run.cacheReadTokens, 0 + 1000);
+  assert.equal(run.cacheWriteTokens, 1000 + 200);
   assert.equal(run.sessionId, sessionIdOf(output));
   assert.match(transcript, /Let me look\./);
   assert.match(transcript, /The command printed forge\. All done\./);
+});
+
+test('given a workload whose pi has completed two generations with cache reads and writes, when the store is read before the workload ends, then each generation carries its four token counts from pi and the workload totals are their sum', async () => {
+  let live: { run: RunRecord; generations: GenerationRecord[] } | undefined;
+
+  await runWorker({
+    output: cutBefore('success.jsonl', 'agent_end'),
+    lingerMs: 1000,
+    whileRunning: async (stateDir) => {
+      const run = await generationsRecorded(stateDir, 2);
+      live = { run, generations: storedGenerations(stateDir, run.id) };
+    },
+  });
+
+  assert.ok(live);
+  assert.equal(live.run.endTime, null);
+  assert.deepEqual(
+    live.generations.map(({ generationId, usage }) => ({ generationId, usage })),
+    [
+      {
+        generationId: 'gen-success-1',
+        usage: { inputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 1000 },
+      },
+      {
+        generationId: 'gen-success-2',
+        usage: { inputTokens: 100, outputTokens: 25, cacheReadTokens: 1000, cacheWriteTokens: 200 },
+      },
+    ],
+  );
+  assert.deepEqual(
+    {
+      inputTokens: live.run.inputTokens,
+      outputTokens: live.run.outputTokens,
+      cacheReadTokens: live.run.cacheReadTokens,
+      cacheWriteTokens: live.run.cacheWriteTokens,
+    },
+    { inputTokens: 300, outputTokens: 65, cacheReadTokens: 1000, cacheWriteTokens: 1200 },
+  );
+});
+
+test('given pi output whose usage counts are too large to read back, negative, fractional or not numbers, when the worker runs, then those counts are recorded as 0, the valid counts still sum, and the dashboard still lists and shows the run', async () => {
+  const output = outputFile(
+    readFileSync(fixture('success.jsonl'), 'utf8')
+      .split('\n')
+      .map((line) =>
+        line.includes('"type":"message_end"') && line.includes('"responseId":"gen-success-1"')
+          ? line.replace(
+              /"usage":\{"input":\d+,"output":\d+,"cacheRead":\d+,"cacheWrite":\d+/,
+              '"usage":{"input":1152921504606846976,"output":-40,"cacheRead":1.5,"cacheWrite":"1000"',
+            )
+          : line,
+      )
+      .join('\n'),
+  );
+
+  const { stateDir, run } = await runWorker({ output });
+
+  assert.deepEqual(
+    storedGenerations(stateDir, run.id).map(({ usage }) => usage),
+    [
+      { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { inputTokens: 100, outputTokens: 25, cacheReadTokens: 1000, cacheWriteTokens: 200 },
+    ],
+  );
+  assert.equal(run.inputTokens, 100);
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    const app = createApp({
+      store,
+      transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
+      css: '',
+      logo: '',
+    });
+    assert.equal((await app.request('/')).status, 200);
+    assert.equal((await app.request(`/runs/${run.id}`)).status, 200);
+  } finally {
+    store.close();
+  }
 });
 
 test('given a recorded run with two parallel subagent calls, when the transcript is written, then each child message carries its subagent scope and the parent messages carry none', async () => {
@@ -464,7 +555,8 @@ test('given a recorded run whose agent calls bash in turns with no text, one cal
   });
 
   assert.equal(code, 0);
-  assert.equal(run.inputTokens, 1000 + 1100 + 1200);
+  assert.equal(run.inputTokens, 1000 + 100 + 100);
+  assert.equal(run.cacheReadTokens, 0 + 1000 + 1100);
   const toolEvents = parseTranscript(transcript).filter(
     (event) => event.type === 'tool_call' || event.type === 'tool_result',
   );
@@ -988,7 +1080,7 @@ test('given a worker, recorded pi output of a successful run, and an OpenRouter 
 
     assert.equal(code, 0);
     assert.equal(run.status, 'success');
-    assert.equal(run.inputTokens, 1200 + 1300);
+    assert.equal(run.inputTokens, 200 + 100);
     assert.equal(run.outputTokens, 40 + 25);
     assert.equal(run.costStatus, 'pending');
     assert.equal(run.costUsd, 0);
@@ -1026,26 +1118,40 @@ test('given a finished run whose generations OpenRouter answers with not found f
   }
 });
 
-test('given recorded pi output of one billed assistant message followed by pi dying before the run ends, when the worker runs and the billing service then fires, then the run is error and the generation from before the crash is billed and counted in its cost', async () => {
+test('given recorded pi output of three generations followed by pi dying without a result, when the worker runs and the billing service then fires, then the run is error, its token totals are the sum of those three generations, and each is billed and counted in its cost', async () => {
   const openRouter = await fakeOpenRouter(billed);
   try {
     const { code, stateDir, run } = await runWorker({
-      output: cutAfterFirstGeneration('success.jsonl'),
+      output: cutBefore('tool-calls.jsonl', 'agent_end'),
       exit: 137,
     });
     assert.equal(code, 1);
     assert.equal(run.status, 'error');
     assert.equal(run.costStatus, 'pending');
+    assert.deepEqual(
+      {
+        inputTokens: run.inputTokens,
+        outputTokens: run.outputTokens,
+        cacheReadTokens: run.cacheReadTokens,
+        cacheWriteTokens: run.cacheWriteTokens,
+      },
+      {
+        inputTokens: 1000 + 100 + 100,
+        outputTokens: 15 + 12 + 8,
+        cacheReadTokens: 0 + 1000 + 1100,
+        cacheWriteTokens: 0,
+      },
+    );
 
     await fire(stateDir, openRouter);
 
     const settledRun = storedRun(stateDir, run.id);
     assert.equal(settledRun.status, 'error');
-    assert.equal(settledRun.costUsd, 0.0125);
+    assert.equal(settledRun.costUsd, 0.01 + 0.02 + 0.04);
     assert.equal(settledRun.costStatus, 'billed');
     assert.deepEqual(
-      openRouter.lookups.map((lookup) => lookup.id),
-      ['gen-success-1'],
+      openRouter.lookups.map((lookup) => lookup.id).sort(),
+      ['gen-tools-1', 'gen-tools-2', 'gen-tools-3'],
     );
   } finally {
     openRouter.close();
@@ -1186,7 +1292,8 @@ test('given a recorded run where the parent makes two parallel subagent calls, w
   });
 
   assert.equal(run.status, 'success');
-  assert.equal(run.inputTokens, 1400 + 1500 + (600 + 700) + 500);
+  assert.equal(run.inputTokens, 400 + 300 + (600 + 100) + 500);
+  assert.equal(run.cacheReadTokens, 1000 + 1200 + (0 + 600) + 0);
   assert.equal(run.outputTokens, 30 + 10 + (20 + 12) + 6);
   assert.equal(run.costUsd, 0.5 + 0.25 + (0.125 + 0.0625) + 0.03125);
   assert.equal(run.costStatus, 'billed');
@@ -1220,7 +1327,8 @@ test('given a recording where one subagent call returns an error and the parent 
 
   assert.equal(run.status, 'success');
   assert.equal(run.error, null);
-  assert.equal(run.inputTokens, 1400 + 1500 + 600 + 500);
+  assert.equal(run.inputTokens, 400 + 300 + 600 + 500);
+  assert.equal(run.cacheReadTokens, 1000 + 1200 + 0 + 0);
   assert.equal(run.outputTokens, 30 + 10 + 20 + 6);
   assert.equal(run.costUsd, 0.5 + 0.25 + 0.125 + 0.03125);
   assert.equal(run.costStatus, 'billed');

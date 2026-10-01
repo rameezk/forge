@@ -1,11 +1,15 @@
+import type { TokenUsage } from './events.ts';
+
 export interface NewGeneration {
   runId: string;
   generationId: string | null;
   subagent: string | null;
+  usage: TokenUsage;
   createdAt: string;
 }
 
-export interface GenerationRecord extends NewGeneration {
+export interface GenerationRecord extends Omit<NewGeneration, 'usage'> {
+  usage: TokenUsage | null;
   billedCostUsd: number | null;
   attempts: number;
   lastAttemptAt: string | null;

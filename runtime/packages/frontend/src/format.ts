@@ -20,6 +20,22 @@ const tokenCount = new Intl.NumberFormat('en-US');
 
 export const formatTokens = (count: number): string => tokenCount.format(count);
 
+const percentage = new Intl.NumberFormat('en-US', {
+  style: 'percent',
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
+export const cacheHitRate = (
+  run: Pick<RunRecord, 'inputTokens' | 'cacheReadTokens' | 'cacheWriteTokens'>,
+): string | null => {
+  if (run.cacheReadTokens === null || run.cacheWriteTokens === null) {
+    return null;
+  }
+  const promptTokens = run.inputTokens + run.cacheReadTokens + run.cacheWriteTokens;
+  return promptTokens === 0 ? 'n/a' : percentage.format(run.cacheReadTokens / promptTokens);
+};
+
 export const formatDuration = (
   startTime: string,
   endTime: string | null,

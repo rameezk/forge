@@ -40,7 +40,7 @@ const runWith = async (
 test('given a declared worker and a harness that ends normally, when it runs on demand, then a run is recorded and finalized as success with an end time and token counts', async () => {
   const store = Store.open(':memory:');
   const harness = fakeHarness([
-    message({ usage: { inputTokens: 100, outputTokens: 40 } }),
+    message({ usage: { inputTokens: 100, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 } }),
     result({ status: 'success', sessionId: 'sess-1' }),
   ]);
 
@@ -73,18 +73,18 @@ test('given a declared worker and a harness that ends normally, when it runs on 
 
 test('given a multi-message run, when it completes, then each assistant generation is recorded against the run with its subagent, the tokens are summed, and the cost stays pending for billing to settle', async () => {
   const { store, run } = await runWith([
-    message({ usage: { inputTokens: 10, outputTokens: 5 }, generationId: 'gen-a' }),
+    message({ usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: 'gen-a' }),
     message({
-      usage: { inputTokens: 20, outputTokens: 7 },
+      usage: { inputTokens: 20, outputTokens: 7, cacheReadTokens: 0, cacheWriteTokens: 0 },
       generationId: 'gen-b',
       subagent: 'call_alpha',
     }),
-    message({ role: 'user', usage: { inputTokens: 3, outputTokens: 0 }, generationId: null }),
+    message({ role: 'user', usage: { inputTokens: 3, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null }),
     result({ status: 'success' }),
   ]);
 
   assert.equal(run?.status, 'success');
-  assert.equal(run?.inputTokens, 33);
+  assert.equal(run?.inputTokens, 30);
   assert.equal(run?.outputTokens, 12);
   assert.equal(run?.costUsd, 0);
   assert.equal(run?.costStatus, 'pending');
@@ -95,6 +95,19 @@ test('given a multi-message run, when it completes, then each assistant generati
       { generationId: 'gen-b', subagent: 'call_alpha' },
     ],
   );
+});
+
+test('given an assistant response with no generation id whose whole prompt was read from or written to the cache, when the run ends, then its tokens are recorded and counted in the run totals', async () => {
+  const { store, run } = await runWith([
+    message({ usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 900, cacheWriteTokens: 0 }, generationId: null }),
+    message({ usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 300 }, generationId: null }),
+    result({ status: 'success' }),
+  ]);
+
+  assert.equal(store.listGenerations('run-1').length, 2);
+  assert.equal(run?.cacheReadTokens, 900);
+  assert.equal(run?.cacheWriteTokens, 300);
+  assert.equal(run?.costStatus, 'unconfirmed');
 });
 
 test('given a harness stream that ends in an error result, when it finishes, then the run is error with the error captured and an end time set', async () => {

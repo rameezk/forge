@@ -20,6 +20,8 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   costUsd: 0.1234,
   inputTokens: 4200,
   outputTokens: 850,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
   transcriptRef: 'run-01.jsonl',
   sessionId: 'sess-abc',
   error: null,
@@ -27,7 +29,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   ...overrides,
 });
 
-const usage = { inputTokens: 5, outputTokens: 5 };
+const usage = { inputTokens: 5, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
 const appWith = (runs: RunRecord[], dir: string = mkdtempSync(join(tmpdir(), 'forge-transcripts-'))) => {
   const store = Store.open(':memory:');
@@ -164,19 +166,59 @@ test('given a run whose recorded start time is not a date, when the list and its
   assert.match(await detail.text(), /<time datetime="not-a-date" title="not-a-date"[^>]*>not-a-date<\/time>/);
 });
 
-test('given a run with 44991 input and 3480 output tokens, when its run page is requested, then the counts carry thousands separators', async () => {
-  const app = appWith([sampleRun({ id: 'run-01', inputTokens: 44991, outputTokens: 3480, transcriptRef: null })]);
+const summaryValue = (body: string, term: string): string =>
+  textOf(body.match(new RegExp(`<dt[^>]*>${term}</dt>\\s*<dd[^>]*>([\\s\\S]*?)</dd>`))?.[1] ?? 'missing');
+
+test('given a run with 44991 input, 3480 output, 120000 cache-read and 5009 cache-write tokens, when its run page is requested, then the summary shows each count with thousands separators and the cache hit rate as cache read over all prompt tokens', async () => {
+  const app = appWith([
+    sampleRun({ id: 'run-01', inputTokens: 44991, outputTokens: 3480, cacheReadTokens: 120000, cacheWriteTokens: 5009, transcriptRef: null }),
+  ]);
 
   const body = await (await app.request('/runs/run-01')).text();
 
-  assert.equal(textOf(body.match(/<dt[^>]*>Tokens<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''), '44,991 in / 3,480 out');
+  assert.equal(summaryValue(body, 'Tokens'), '44,991 in / 3,480 out');
+  assert.equal(summaryValue(body, 'Cache'), '120,000 read / 5,009 write');
+  assert.equal(summaryValue(body, 'Cache hit rate'), '70.6%');
+});
+
+test('given a run recorded before the cache split was kept, and a running run with no prompt tokens yet, when their run pages are requested, then neither shows a cache figure it does not have', async () => {
+  const app = appWith([
+    sampleRun({ id: 'legacy', cacheReadTokens: null, cacheWriteTokens: null, transcriptRef: null }),
+    sampleRun({ id: 'fresh', status: 'running', endTime: null, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, transcriptRef: null }),
+  ]);
+
+  const legacy = await (await app.request('/runs/legacy')).text();
+  const fresh = await (await app.request('/runs/fresh')).text();
+
+  assert.equal(summaryValue(legacy, 'Tokens'), '4,200 in / 850 out');
+  assert.equal(summaryValue(legacy, 'Cache'), 'not recorded');
+  assert.equal(summaryValue(legacy, 'Cache hit rate'), 'not recorded');
+  assert.equal(summaryValue(fresh, 'Cache'), '0 read / 0 write');
+  assert.equal(summaryValue(fresh, 'Cache hit rate'), 'n/a');
+});
+
+test('given runs with cache reads and writes, from before the cache split was kept, and with no prompt tokens yet, when the list is requested, then each row shows its cache hit rate', async () => {
+  const app = appWith([
+    sampleRun({ id: 'cached', startTime: '2026-09-21T12:00:00.000Z', inputTokens: 300, outputTokens: 65, cacheReadTokens: 1000, cacheWriteTokens: 1200 }),
+    sampleRun({ id: 'legacy', startTime: '2026-09-21T11:00:00.000Z', inputTokens: 1200, outputTokens: 40, cacheReadTokens: null, cacheWriteTokens: null }),
+    sampleRun({ id: 'fresh', startTime: '2026-09-21T10:00:00.000Z', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }),
+  ]);
+
+  const body = await (await app.request('/')).text();
+  const cell = (id: string, name: string): string =>
+    textOf(rowFor(body, id).match(new RegExp(`<td[^>]*\\s${name}(?=[\\s>])[^>]*>([\\s\\S]*?)</td>`))?.[1] ?? 'missing');
+
+  assert.deepEqual(
+    ['cached', 'legacy', 'fresh'].map((id) => cell(id, 'data-cache-hit')),
+    ['40.0%', 'not recorded', 'n/a'],
+  );
 });
 
 test('given a run with a captured transcript, when its detail is requested, then its messages render', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const events: HarnessEvent[] = [
-    { type: 'message', role: 'user', text: 'refine the spec please', usage: { inputTokens: 10, outputTokens: 0 }, generationId: null },
-    { type: 'message', role: 'assistant', text: 'here is the refined spec', usage: { inputTokens: 0, outputTokens: 20 }, generationId: null },
+    { type: 'message', role: 'user', text: 'refine the spec please', usage: { inputTokens: 10, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null },
+    { type: 'message', role: 'assistant', text: 'here is the refined spec', usage: { inputTokens: 0, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ];
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
@@ -288,8 +330,8 @@ test('given a transcript written before subagent calls were recorded, when its t
 test('given a run whose recorded tokens and cost include its subagents, when it is listed and viewed, then the displayed totals are the recorded ones', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const events: HarnessEvent[] = [
-    { type: 'message', role: 'assistant', text: 'parent delegates', usage: { inputTokens: 100, outputTokens: 10 }, generationId: null },
-    { type: 'message', role: 'assistant', text: 'child reports', usage: { inputTokens: 700, outputTokens: 40 }, generationId: null, subagent: 'call-alpha' },
+    { type: 'message', role: 'assistant', text: 'parent delegates', usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null },
+    { type: 'message', role: 'assistant', text: 'child reports', usage: { inputTokens: 700, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null, subagent: 'call-alpha' },
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ];
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
@@ -748,7 +790,7 @@ const viewWithGenerations = async (
   const store = Store.open(':memory:');
   store.insertRun(sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl', ...run }));
   for (const { generationId, subagent } of generations) {
-    store.recordGeneration({ runId: 'run-01', generationId, subagent, createdAt: '2026-09-21T10:01:00.000Z' });
+    store.recordGeneration({ runId: 'run-01', generationId, subagent, usage, createdAt: '2026-09-21T10:01:00.000Z' });
   }
   const ids = new Map(store.unsettledGenerations().map((g) => [g.generationId, g.id]));
   const lookups: LookupResult[] = [];
@@ -763,7 +805,7 @@ const viewWithGenerations = async (
 };
 
 const child = (subagent: string, inputTokens: number, outputTokens: number): HarnessEvent => ({
-  type: 'message', role: 'assistant', text: `${subagent} working`, usage: { inputTokens, outputTokens }, generationId: null, subagent,
+  type: 'message', role: 'assistant', text: `${subagent} working`, usage: { inputTokens, outputTokens, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null, subagent,
 });
 
 const spawn = (id: string): HarnessEvent => ({ type: 'tool_call', id, name: 'subagent', arguments: { task: `task ${id}` } });

@@ -35,6 +35,8 @@ type RunRow = {
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
   transcript_ref: string | null;
   session_id: string | null;
   error: string | null;
@@ -61,7 +63,9 @@ const CREATE_RUNS = `
     error          TEXT,
     repository     TEXT,
     ticket_number  INTEGER,
-    ticket_url     TEXT
+    ticket_url     TEXT,
+    cache_read_tokens  INTEGER,
+    cache_write_tokens INTEGER
   ) STRICT;
 `;
 
@@ -75,12 +79,25 @@ const ADD_RUN_TICKET = `
   ALTER TABLE runs ADD COLUMN ticket_url TEXT;
 `;
 
+const HAS_RUN_CACHE_TOKENS = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'cache_read_tokens'
+`;
+
+const ADD_RUN_CACHE_TOKENS = `
+  ALTER TABLE runs ADD COLUMN cache_read_tokens INTEGER;
+  ALTER TABLE runs ADD COLUMN cache_write_tokens INTEGER;
+`;
+
 const BUSY_TIMEOUT_MS = 5000;
 
 type GenerationRow = {
   run_id: string;
   generation_id: string | null;
   subagent: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
   billed_cost_usd: number | null;
   attempts: number;
   last_attempt_at: string | null;
@@ -108,6 +125,10 @@ const CREATE_GENERATIONS = `
     last_error      TEXT,
     given_up_at     TEXT,
     created_at      TEXT NOT NULL,
+    input_tokens       INTEGER,
+    output_tokens      INTEGER,
+    cache_read_tokens  INTEGER,
+    cache_write_tokens INTEGER,
     UNIQUE (run_id, generation_id)
   ) STRICT;
 
@@ -115,12 +136,33 @@ const CREATE_GENERATIONS = `
     WHERE billed_cost_usd IS NULL AND given_up_at IS NULL;
 `;
 
+const HAS_GENERATION_TOKENS = `
+  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'input_tokens'
+`;
+
+const ADD_GENERATION_TOKENS = `
+  ALTER TABLE generations ADD COLUMN input_tokens INTEGER;
+  ALTER TABLE generations ADD COLUMN output_tokens INTEGER;
+  ALTER TABLE generations ADD COLUMN cache_read_tokens INTEGER;
+  ALTER TABLE generations ADD COLUMN cache_write_tokens INTEGER;
+`;
+
 const NO_GENERATION_ID = 'no generation id';
 
 const RUN_NEVER_ENDED = 'run never ended, so later generations may be unrecorded';
 
-const SETTLE_RUN_COST = `
+const generationSum = (column: string): string =>
+  `${column} = COALESCE(
+    (SELECT MIN(SUM(${column}), ${Number.MAX_SAFE_INTEGER}) FROM generations WHERE run_id = runs.id),
+    ${column}
+  )`;
+
+const SETTLE_RUN = `
   UPDATE runs SET
+    ${generationSum('input_tokens')},
+    ${generationSum('output_tokens')},
+    ${generationSum('cache_read_tokens')},
+    ${generationSum('cache_write_tokens')},
     cost_usd = (
       SELECT COALESCE(SUM(billed_cost_usd), 0) FROM generations WHERE run_id = runs.id
     ),
@@ -276,6 +318,8 @@ const toRow = (run: RunRecord): RunRow => ({
   cost_usd: run.costUsd,
   input_tokens: run.inputTokens,
   output_tokens: run.outputTokens,
+  cache_read_tokens: run.cacheReadTokens,
+  cache_write_tokens: run.cacheWriteTokens,
   transcript_ref: run.transcriptRef,
   session_id: run.sessionId,
   error: run.error,
@@ -299,6 +343,18 @@ const generationFromRow = (row: GenerationRow): GenerationRecord => ({
   runId: row.run_id,
   generationId: row.generation_id,
   subagent: row.subagent,
+  usage:
+    row.input_tokens === null ||
+    row.output_tokens === null ||
+    row.cache_read_tokens === null ||
+    row.cache_write_tokens === null
+      ? null
+      : {
+          inputTokens: row.input_tokens,
+          outputTokens: row.output_tokens,
+          cacheReadTokens: row.cache_read_tokens,
+          cacheWriteTokens: row.cache_write_tokens,
+        },
   billedCostUsd: row.billed_cost_usd,
   attempts: row.attempts,
   lastAttemptAt: row.last_attempt_at,
@@ -319,6 +375,8 @@ const fromRow = (row: RunRow): RunRecord => ({
   costUsd: row.cost_usd,
   inputTokens: row.input_tokens,
   outputTokens: row.output_tokens,
+  cacheReadTokens: row.cache_read_tokens,
+  cacheWriteTokens: row.cache_write_tokens,
   transcriptRef: row.transcript_ref,
   sessionId: row.session_id,
   error: row.error,
@@ -338,10 +396,10 @@ export class Store {
       this.#migrateCostUncertain();
     }
     db.exec(CREATE_RUNS);
-    if (!this.#hasRunTicket()) {
-      this.#addRunTicket();
-    }
+    this.#addColumnsOnce(HAS_RUN_TICKET, ADD_RUN_TICKET);
+    this.#addColumnsOnce(HAS_RUN_CACHE_TOKENS, ADD_RUN_CACHE_TOKENS);
     db.exec(CREATE_GENERATIONS);
+    this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     if (this.#hasOutdatedFrontier()) {
       this.#migrateOutdatedFrontier();
     }
@@ -374,14 +432,14 @@ export class Store {
     });
   }
 
-  #hasRunTicket(): boolean {
-    return this.#db.prepare(HAS_RUN_TICKET).get() !== undefined;
-  }
-
-  #addRunTicket(): void {
+  #addColumnsOnce(present: string, add: string): void {
+    const has = (): boolean => this.#db.prepare(present).get() !== undefined;
+    if (has()) {
+      return;
+    }
     this.#transaction(() => {
-      if (!this.#hasRunTicket()) {
-        this.#db.exec(ADD_RUN_TICKET);
+      if (!has()) {
+        this.#db.exec(add);
       }
     });
   }
@@ -420,11 +478,13 @@ export class Store {
         `INSERT INTO runs (
           id, worker, harness, model, start_time, end_time, status,
           cost_status, cost_usd, input_tokens, output_tokens,
+          cache_read_tokens, cache_write_tokens,
           transcript_ref, session_id, error,
           repository, ticket_number, ticket_url
         ) VALUES (
           $id, $worker, $harness, $model, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $input_tokens, $output_tokens,
+          $cache_read_tokens, $cache_write_tokens,
           $transcript_ref, $session_id, $error,
           $repository, $ticket_number, $ticket_url
         )`,
@@ -439,8 +499,6 @@ export class Store {
           `UPDATE runs SET
             end_time = $end_time,
             status = $status,
-            input_tokens = $input_tokens,
-            output_tokens = $output_tokens,
             session_id = $session_id,
             error = $error
           WHERE id = $id`,
@@ -449,12 +507,10 @@ export class Store {
           id,
           end_time: result.endTime,
           status: result.status,
-          input_tokens: result.inputTokens,
-          output_tokens: result.outputTokens,
           session_id: result.sessionId,
           error: result.error,
         });
-      this.#settleRunCost(id);
+      this.#settleRun(id);
     });
   }
 
@@ -464,9 +520,13 @@ export class Store {
       this.#db
         .prepare(
           `INSERT INTO generations (
-            run_id, generation_id, subagent, last_error, given_up_at, created_at
+            run_id, generation_id, subagent,
+            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+            last_error, given_up_at, created_at
           ) VALUES (
-            $run_id, $generation_id, $subagent, $last_error, $given_up_at, $created_at
+            $run_id, $generation_id, $subagent,
+            $input_tokens, $output_tokens, $cache_read_tokens, $cache_write_tokens,
+            $last_error, $given_up_at, $created_at
           )
           ON CONFLICT (run_id, generation_id) DO NOTHING`,
         )
@@ -474,11 +534,15 @@ export class Store {
           run_id: generation.runId,
           generation_id: generation.generationId,
           subagent: generation.subagent,
+          input_tokens: generation.usage.inputTokens,
+          output_tokens: generation.usage.outputTokens,
+          cache_read_tokens: generation.usage.cacheReadTokens,
+          cache_write_tokens: generation.usage.cacheWriteTokens,
           last_error: unnamed ? NO_GENERATION_ID : null,
           given_up_at: unnamed ? generation.createdAt : null,
           created_at: generation.createdAt,
         });
-      this.#settleRunCost(generation.runId);
+      this.#settleRun(generation.runId);
     });
   }
 
@@ -533,7 +597,7 @@ export class Store {
         }
       }
       for (const run of runs) {
-        this.#settleRunCost(run);
+        this.#settleRun(run);
       }
     });
   }
@@ -564,14 +628,14 @@ export class Store {
           last_error: RUN_NEVER_ENDED,
           given_up_at: givenUpAt,
         });
-        this.#settleRunCost(run);
+        this.#settleRun(run);
       }
     });
     return runs;
   }
 
-  #settleRunCost(id: string): void {
-    this.#db.prepare(SETTLE_RUN_COST).run({ id });
+  #settleRun(id: string): void {
+    this.#db.prepare(SETTLE_RUN).run({ id });
   }
 
   getRun(id: string): RunRecord | undefined {

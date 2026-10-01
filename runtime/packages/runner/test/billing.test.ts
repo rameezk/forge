@@ -7,6 +7,13 @@ const NOW = '2026-09-29T12:00:00.000Z';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const NO_USAGE = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+};
+
 const endedAgo = (ms: number): string =>
   new Date(Date.parse(NOW) - ms).toISOString();
 
@@ -27,6 +34,8 @@ const startedRun = (
     costUsd: 0,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     transcriptRef: `${id}.jsonl`,
     sessionId: null,
     error: null,
@@ -37,6 +46,7 @@ const startedRun = (
       runId: id,
       generationId: `gen-${id}`,
       subagent: null,
+      usage: NO_USAGE,
       createdAt: generatedAt,
     });
   }
@@ -46,8 +56,6 @@ const finish = (store: Store, id: string, endTime: string): void => {
   store.finalizeRun(id, {
     endTime,
     status: 'success',
-    inputTokens: 100,
-    outputTokens: 10,
     sessionId: null,
     error: null,
   });
@@ -113,6 +121,7 @@ test('given a run whose runner was killed so it never ended, when the settle ste
     runId: 'recent',
     generationId: 'gen-recent-late',
     subagent: null,
+    usage: NO_USAGE,
     createdAt: endedAgo(DAY_MS - 1000),
   });
   const log: string[] = [];
