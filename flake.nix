@@ -230,7 +230,7 @@
             && lib.hasInfix "%i" runnerUnit.serviceConfig.ExecStart
             && runnerUnit.serviceConfig.User == "forge-runtime"
           ) "the runner unit must be a per-worker oneshot invoking forge-run as the forge-runtime user";
-          isConfined =
+          isUnitHardened =
             unit:
             unit.serviceConfig.NoNewPrivileges == true
             && unit.serviceConfig.ProtectSystem == "strict"
@@ -244,8 +244,8 @@
                 "/run/secrets"
                 "/run/secrets.d"
               ];
-          isHardened = unit: isConfined unit && unit.serviceConfig.ProtectKernelTunables == true;
-          isWorkloadHardened = unit: isConfined unit && unit.serviceConfig.ProtectKernelTunables == false;
+          isHardened = unit: isUnitHardened unit && unit.serviceConfig.ProtectKernelTunables == true;
+          isWorkloadHardened = unit: isUnitHardened unit && unit.serviceConfig.ProtectKernelTunables == false;
           runnerSandboxed = lib.asserts.assertMsg (isWorkloadHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, writable only under the state directory, and blind to every secrets generation, which reaches it only through what systemd reads outside its namespace. Its kernel tunables stay unprotected, because their read-only overmounts in /proc stop bubblewrap mounting the fresh /proc of a workload's sandbox";
           runnerEnvTemplate = workerHost.config.sops.templates."forge-runner.env";
           runnerKeyFromSops =
