@@ -1,4 +1,5 @@
 import type { Billing, NativeUsage } from '@forge/shared';
+import { tokenCount } from './token-count.ts';
 
 export const OPENROUTER_API = 'https://openrouter.ai/api/v1';
 
@@ -38,13 +39,10 @@ interface GenerationData {
   provider_name?: unknown;
 }
 
-const countOf = (value: unknown): number | null =>
-  Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : null;
-
 const usageOf = (data: GenerationData): NativeUsage | null => {
-  const promptTokens = countOf(data.native_tokens_prompt);
-  const cacheReadTokens = countOf(data.native_tokens_cached);
-  const outputTokens = countOf(data.native_tokens_completion);
+  const promptTokens = tokenCount(data.native_tokens_prompt);
+  const cacheReadTokens = tokenCount(data.native_tokens_cached);
+  const outputTokens = tokenCount(data.native_tokens_completion);
   return promptTokens === null || cacheReadTokens === null || outputTokens === null
     ? null
     : { promptTokens, cacheReadTokens, outputTokens };
@@ -53,7 +51,7 @@ const usageOf = (data: GenerationData): NativeUsage | null => {
 const billingOf = (data: GenerationData, costUsd: number): Billing => ({
   costUsd,
   usage: usageOf(data),
-  reasoningTokens: countOf(data.native_tokens_reasoning),
+  reasoningTokens: tokenCount(data.native_tokens_reasoning),
   provider:
     typeof data.provider_name === 'string' && data.provider_name !== ''
       ? data.provider_name

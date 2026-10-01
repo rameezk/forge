@@ -16,6 +16,7 @@ import {
 } from '@forge/pi-subagent';
 import { requireSkill } from './checkout.ts';
 import { spawnSandboxed, type Sandbox } from './sandbox.ts';
+import { tokenCount } from './token-count.ts';
 import {
   UNATTENDED_INSTRUCTION,
   type Checkout,
@@ -156,9 +157,6 @@ const textOf = (content: PiContent[]): string =>
     )
     .join('');
 
-const tokenCount = (count: unknown): number =>
-  Number.isSafeInteger(count) && (count as number) >= 0 ? (count as number) : 0;
-
 const scoped = (subagent: string | undefined): { subagent?: string } =>
   subagent === undefined ? {} : { subagent };
 
@@ -170,10 +168,10 @@ const assistantMessage = (
   role: 'assistant',
   text: textOf(message.content),
   usage: {
-    inputTokens: tokenCount(message.usage.input),
-    outputTokens: tokenCount(message.usage.output),
-    cacheReadTokens: tokenCount(message.usage.cacheRead),
-    cacheWriteTokens: tokenCount(message.usage.cacheWrite),
+    inputTokens: tokenCount(message.usage.input) ?? 0,
+    outputTokens: tokenCount(message.usage.output) ?? 0,
+    cacheReadTokens: tokenCount(message.usage.cacheRead) ?? 0,
+    cacheWriteTokens: tokenCount(message.usage.cacheWrite) ?? 0,
   },
   generationId:
     typeof message.responseId === 'string' && message.responseId.length > 0
