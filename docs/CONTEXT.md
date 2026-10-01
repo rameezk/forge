@@ -33,7 +33,7 @@ One model response within a workload, its subagents' included, identified by Ope
 _Avoid_: response, completion, call
 
 **Billed cost**:
-What OpenRouter charged for a workload's generations, and the only cost forge records; a harness's own price estimate is never recorded or shown (ADR-0013).
+What OpenRouter charged for a workload's generations, and the only cost forge records; a harness's own price estimate is never recorded or shown (ADR-0013). While the cost status is pending, it is what has been billed so far (ADR-0028).
 _Avoid_: estimate, catalog cost
 
 **Cost status**:
