@@ -4,7 +4,6 @@
   testers,
   writeShellScriptBin,
   bash,
-  nix,
   util-linux,
   forge-runner,
   sopsModule,
@@ -69,8 +68,8 @@ let
         cp ${flake} flake/flake.nix
         printf '#!${bash}/bin/bash\necho ran through the nix daemon\n' > flake/hello
         chmod +x flake/hello
-        ${lib.getExe nix} --extra-experimental-features 'nix-command flakes' --offline run "path:$PWD/flake" > nix.out 2>&1
-        ${lib.getExe nix} --extra-experimental-features nix-command store info >> nix.out 2>&1
+        nix --offline run "path:$PWD/flake" > nix.out 2>&1
+        nix store info >> nix.out 2>&1
         ;;
     esac
     echo '{"type":"agent_start"}'
@@ -205,10 +204,12 @@ testers.runNixOSTest {
         shell = {"OLDPWD", "PWD", "SHLVL", "_"}
         assert names <= deliberate | shell, names - deliberate - shell
 
-    with subtest("the agent can use nix through the daemon socket"):
+    with subtest("the agent can nix run a flake from its path, through the daemon socket"):
         out = box.succeed(f"cat {run_dir}/nix.out")
         assert "ran through the nix daemon" in out, out
-        assert "daemon" in out.split("ran through the nix daemon", 1)[1], out
+        store_info = out.split("ran through the nix daemon", 1)[1]
+        assert "Store URL: daemon" in store_info, out
+        assert "Trusted: 0" in store_info, out
 
     box.shutdown()
 

@@ -345,6 +345,22 @@ works. Any path in the harness's extra `args` must be in the Nix store, since
 the sandbox sees nothing else of the box. If the sandbox cannot start, the
 workload fails with that reason, and the harness never runs unconfined.
 
+### Nix in a workload
+
+Every workload has `nix` on its path, with `nix-command` and `flakes` enabled
+box-wide, so the agent can `nix run` or `nix build` through the box's nix
+daemon, using the box's disk and network. Once a week the store is garbage
+collected: profile generations older than 14 days, the box's own system
+generations included, are deleted, and then every store path nothing roots,
+whatever its age. Run directories age out after the same 14 days.
+
+`forge-runtime` is never a trusted nix user, so a workload cannot add unsigned
+paths or change substituters, and cannot plant a tool for a later workload
+through the store. A host that makes it trusted in `nix.settings.trusted-users`
+or `nix.settings.extra-trusted-users`, by name, by one of its groups or through
+`*`, does not evaluate, and neither does one that sets either setting in
+`nix.extraOptions`. A nix.conf file included from elsewhere is not checked.
+
 ## Inspecting the run store
 
 Runs, their generations and billed cost live in the SQLite store
