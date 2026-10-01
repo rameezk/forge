@@ -27,14 +27,19 @@ interface Usage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
-  prompt_tokens_details: { cached_tokens: number };
+  prompt_tokens_details: { cached_tokens: number; cache_write_tokens: number };
 }
 
-const usage = (prompt: number, cached: number, completion: number): Usage => ({
+const usage = (
+  prompt: number,
+  cached: number,
+  completion: number,
+  written = 0,
+): Usage => ({
   prompt_tokens: prompt,
   completion_tokens: completion,
   total_tokens: prompt + completion,
-  prompt_tokens_details: { cached_tokens: cached },
+  prompt_tokens_details: { cached_tokens: cached, cache_write_tokens: written },
 });
 
 const chunk = (
@@ -241,12 +246,12 @@ const scenarios: Record<string, Scenario> = {
               'gen-success-1',
               'Let me look.',
               [bash('echo forge')],
-              usage(1200, 1000, 40),
+              usage(1200, 0, 40, 1000),
             )
           : textReply(
               'gen-success-2',
               'The command printed forge. All done.',
-              usage(1300, 1200, 25),
+              usage(1300, 1000, 25, 200),
             ),
       ),
   },
