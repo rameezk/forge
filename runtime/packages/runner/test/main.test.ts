@@ -151,6 +151,7 @@ interface Outcome {
     pid: number;
     subagentInvocation: string | undefined;
     agentDir: string | undefined;
+    env: Record<string, string>;
   };
 }
 
@@ -199,6 +200,9 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
           prompt: 'refine the spec',
           ...scenario.worker,
         },
+      },
+      dispatch: {
+        gitIdentity: { name: 'Forge Operator', email: 'operator@example.com' },
       },
     }),
   );
@@ -726,6 +730,15 @@ test('given a wrapper that supplies a read-only agent dir and an environment alr
   });
 
   assert.equal(pi.agentDir, AGENT_DIR);
+});
+
+test('given a scheduled workload on a host whose dispatch git identity is set, when it runs, then its environment has no git identity, credential helper or GitHub token', async () => {
+  const { pi } = await runWorker({ output: fixture('success.jsonl') });
+
+  assert.deepEqual(
+    Object.keys(pi.env).filter((name) => /^(GIT_|GITHUB_TOKEN$)/.test(name)),
+    [],
+  );
 });
 
 test('given any worker, when it runs, then pi works in a fresh per-run directory under the state directory, never the state directory itself', async () => {

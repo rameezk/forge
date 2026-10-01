@@ -41,7 +41,7 @@ in
 testers.runNixOSTest {
   name = "runtime-toolset";
 
-  nodes.base = box "git --version && rg --version" { };
+  nodes.base = box "git --version && rg --version && gh --version" { };
 
   nodes.extended = box "git --version && hello" (
     { options, pkgs, ... }:
@@ -73,6 +73,7 @@ testers.runNixOSTest {
         out = run_probe(base)
         assert "git version" in out, out
         assert "ripgrep" in out, out
+        assert "gh version" in out, out
 
     with subtest("operators can extend the toolset"):
         out = run_probe(extended)

@@ -21,9 +21,11 @@ import {
 } from '@forge/shared';
 import {
   resolveWorker,
+  type GitIdentity,
   type RepositoryConfig,
   type RuntimeConfig,
 } from './config.ts';
+import { gitEnvironment } from './git.ts';
 import type { Worker } from './harness.ts';
 import {
   cloneCheckout,
@@ -69,6 +71,14 @@ const outcomeOf = (
     return { state: 'failed', reason: 'errored', detail: run.error };
   }
   return { state: 'failed', reason: 'no-pull-request', detail: finalMessage };
+};
+
+const gitIdentityOf = (config: RuntimeConfig): GitIdentity => {
+  const identity = config.dispatch?.gitIdentity;
+  if (identity === undefined) {
+    throw new Error('forge.runtime.dispatch.gitIdentity is not set');
+  }
+  return identity;
 };
 
 const repositoryNamed = (
@@ -124,6 +134,7 @@ const launch = async ({
   worker,
   github,
   token,
+  gitEnv,
   ticket,
   runId,
 }: {
@@ -132,11 +143,12 @@ const launch = async ({
   worker: Worker;
   github: string;
   token: string;
+  gitEnv: Record<string, string>;
   ticket: DispatchTicket;
   runId: string;
 }): Promise<LaunchResult> => {
   const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
-  const workloadEnv = { ...env, GITHUB_TOKEN: token };
+  const workloadEnv = { ...env, GITHUB_TOKEN: token, ...gitEnv };
   return launchWorkload({
     config,
     worker,
@@ -168,6 +180,7 @@ export const main = async (
   const config = readRuntimeConfig(env);
   const repository = repositoryNamed(config.repositories, name);
   const worker = resolveWorker(config, repository.worker);
+  const gitEnv = gitEnvironment(env, gitIdentityOf(config));
   const token = githubWriteToken(env);
 
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
@@ -225,6 +238,7 @@ export const main = async (
           worker: { ...worker, prompt: fillPrompt(worker.prompt, repository.github, ticket) },
           github: repository.github,
           token,
+          gitEnv,
           ticket: dispatched,
           runId,
         });

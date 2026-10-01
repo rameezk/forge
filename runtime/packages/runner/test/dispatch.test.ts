@@ -31,6 +31,8 @@ const GITHUB_TOKEN = 'github_pat_test';
 
 const TICKET_URL = 'https://github.com/rameezk/forge/issues/113';
 
+const GIT_IDENTITY = { name: 'Forge Operator', email: 'operator@example.com' };
+
 interface IssueResponse {
   data: {
     repository: {
@@ -231,6 +233,9 @@ interface Scenario {
   prompt?: string;
   tokenFile?: string | null;
   piOutput?: string;
+  gitIdentity?: typeof GIT_IDENTITY | null;
+  gitConfig?: Record<string, string>;
+  env?: Record<string, string>;
 }
 
 interface PiCall {
@@ -239,6 +244,7 @@ interface PiCall {
   subagentInvocation: string | undefined;
   githubToken: string | undefined;
   nodeOptions: string | undefined;
+  env: Record<string, string>;
 }
 
 interface Outcome {
@@ -253,6 +259,17 @@ interface Outcome {
   requests: GraphqlRequest[];
   labelWrites: LabelWrite[];
 }
+
+const gitConfigOf = (
+  entries: Record<string, string>,
+): Record<string, string> =>
+  Object.fromEntries([
+    ['GIT_CONFIG_COUNT', String(Object.keys(entries).length)],
+    ...Object.entries(entries).flatMap(([key, value], index) => [
+      [`GIT_CONFIG_KEY_${index}`, key],
+      [`GIT_CONFIG_VALUE_${index}`, value],
+    ]),
+  ]);
 
 const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin =
@@ -275,6 +292,10 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       repositories: {
         forge: { github: 'rameezk/forge', worker: 'builder' },
       },
+      dispatch:
+        scenario.gitIdentity === null
+          ? {}
+          : { gitIdentity: scenario.gitIdentity ?? GIT_IDENTITY },
     }),
   );
   const tokenFile = join(stateDir, 'github-write.env');
@@ -318,11 +339,14 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
-      GIT_CONFIG_COUNT: '1',
-      GIT_CONFIG_KEY_0: `url.${pathToFileURL(origin.path).href}.insteadOf`,
-      GIT_CONFIG_VALUE_0: 'https://github.com/rameezk/forge.git',
+      ...gitConfigOf({
+        [`url.${pathToFileURL(origin.path).href}.insteadOf`]:
+          'https://github.com/rameezk/forge.git',
+        ...scenario.gitConfig,
+      }),
       FAKE_PI_RECORD: record,
       FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
+      ...scenario.env,
     },
     github.fetch,
   ).catch((error: unknown) => {
@@ -395,6 +419,63 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
     number: 113,
     url: TICKET_URL,
   });
+});
+
+const gitAs = (pi: PiCall, ...args: string[]): string =>
+  execFileSync('git', args, { cwd: pi.cwd, env: pi.env, encoding: 'utf8' }).trim();
+
+test('given a host whose git identity is set, when a ticket is dispatched, then a commit the workload makes carries that identity as its author and committer', async () => {
+  const { pi } = await dispatch();
+
+  assert.ok(pi);
+  gitAs(pi, 'commit', '--quiet', '--allow-empty', '-m', 'work');
+  assert.equal(
+    gitAs(pi, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>'),
+    'Forge Operator <operator@example.com>\nForge Operator <operator@example.com>',
+  );
+});
+
+const githubCredential = (pi: PiCall): string =>
+  execFileSync('git', ['credential', 'fill'], {
+    cwd: pi.cwd,
+    env: { ...pi.env, GIT_TERMINAL_PROMPT: '0' },
+    input: 'protocol=https\nhost=github.com\n\n',
+    encoding: 'utf8',
+  });
+
+test('given a dispatched workload on a box whose git config already has a credential helper, when git asks for credentials for https://github.com, then it gets the write token, and neither its HOME nor the checkout\'s git config holds a credential', async () => {
+  const { pi } = await dispatch({
+    gitConfig: {
+      'credential.helper': '!f() { echo username=someone-else; echo password=not-the-write-token; }; f',
+    },
+  });
+
+  assert.ok(pi);
+  const credential = githubCredential(pi);
+  assert.match(credential, /^username=x-access-token$/m);
+  assert.match(credential, new RegExp(`^password=${GITHUB_TOKEN}$`, 'm'));
+  const home = pi.env.HOME;
+  assert.ok(home);
+  for (const file of ['.gitconfig', '.git-credentials', '.config/git']) {
+    assert.equal(existsSync(join(home, file)), false, file);
+  }
+  assert.doesNotMatch(readFileSync(join(pi.cwd, '.git', 'config'), 'utf8'), /github_pat|helper/);
+});
+
+test('given a managed repository, when it is dispatched, then its clone runs with the same credential environment as the workload', async () => {
+  const hooks = mkdtempSync(join(tmpdir(), 'forge-hooks-'));
+  const credential = join(hooks, 'credential');
+  writeFileSync(
+    join(hooks, 'post-checkout'),
+    `#!/bin/sh\nprintf 'protocol=https\\nhost=github.com\\n\\n' | GIT_TERMINAL_PROMPT=0 git credential fill > '${credential}'\n`,
+    { mode: 0o755 },
+  );
+
+  const { pi } = await dispatch({ gitConfig: { 'core.hooksPath': hooks } });
+
+  assert.ok(pi);
+  assert.equal(readFileSync(credential, 'utf8'), githubCredential(pi));
+  assert.match(readFileSync(credential, 'utf8'), new RegExp(`^password=${GITHUB_TOKEN}$`, 'm'));
 });
 
 test('given a frontier ticket labelled forge:ready, when it is dispatched, then forge:running replaces forge:ready before the workload starts', async () => {
@@ -867,6 +948,26 @@ test('given a GitHub write-token file that also sets NODE_OPTIONS and quotes the
 test('given no GitHub write-token file, or one that sets no token, when forge-dispatch runs, then it fails naming the missing write token without asking GitHub', async () => {
   for (const tokenFile of [null, 'OTHER=value\n']) {
     await assert.rejects(dispatch({ tokenFile }), /GitHub write token missing/);
+  }
+});
+
+test('given a runtime config with no git identity, when forge-dispatch runs, then it fails naming the missing identity', async () => {
+  await assert.rejects(
+    dispatch({ gitIdentity: null }),
+    /forge\.runtime\.dispatch\.gitIdentity is not set/,
+  );
+});
+
+test('given a runner whose inherited GIT_CONFIG_COUNT is not a count, when forge-dispatch runs, then it fails naming it without claiming the ticket or starting a workload', async () => {
+  for (const count of ['two', '-1', '1.5', '01']) {
+    const { failure, labelWrites, pi } = await dispatch({
+      env: { GIT_CONFIG_COUNT: count },
+      failing: true,
+    });
+
+    assert.match(String(failure), /GIT_CONFIG_COUNT/, count);
+    assert.deepEqual(labelWrites, [], count);
+    assert.equal(pi, null, count);
   }
 });
 
