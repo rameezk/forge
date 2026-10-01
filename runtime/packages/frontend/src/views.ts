@@ -159,7 +159,10 @@ const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rende
   if (providers.length > 0) {
     return html`${providers.join(', ')}`;
   }
-  return run.costStatus === 'pending' ? html`<span class="${PENDING}">pending</span>` : NOT_RECORDED;
+  const settling =
+    run.costStatus === 'pending' ||
+    generations.some(({ billedCostUsd, givenUpAt }) => billedCostUsd === null && givenUpAt === null);
+  return settling ? html`<span class="${PENDING}">pending</span>` : NOT_RECORDED;
 };
 
 const renderTotal = (runs: RunRecord[]): Rendered => {

@@ -804,7 +804,7 @@ const viewWithGenerations = async (
   return (await app.request('/runs/run-01')).text();
 };
 
-test('given a workload whose generations were served by two providers, one of them twice, with another generation not yet billed, a workload with no generation billed yet, and an ended workload whose only generation was given up, when their detail pages are requested, then the first summary lists both providers once each in the order they first served, the second shows them as pending and the third as not recorded', async () => {
+test('given a workload whose generations were served by two providers, one of them twice, with another generation not yet billed, a workload with no generation billed yet, a running workload with one generation given up and another not yet billed, and an ended workload whose only generation was given up, when their detail pages are requested, then the first summary lists both providers once each in the order they first served, the second and third show them as pending and the last as not recorded', async () => {
   const served = await viewWithGenerations({}, [], [
     { generationId: 'g1', subagent: null, outcome: 'billed', provider: 'Z.AI' },
     { generationId: 'g2', subagent: 'call_a', outcome: 'billed', provider: 'Novita' },
@@ -815,12 +815,17 @@ test('given a workload whose generations were served by two providers, one of th
     { generationId: 'g1', subagent: null, outcome: 'unbilled' },
   ]);
 
+  const partlyGivenUp = await viewWithGenerations({ status: 'running', endTime: null }, [], [
+    { generationId: 'g1', subagent: null, outcome: 'given-up' },
+    { generationId: 'g2', subagent: null, outcome: 'unbilled' },
+  ]);
   const givenUp = await viewWithGenerations({}, [], [
     { generationId: 'g1', subagent: null, outcome: 'given-up' },
   ]);
 
   assert.equal(summaryValue(served, 'Providers'), 'Z.AI, Novita');
   assert.equal(summaryValue(unbilled, 'Providers'), 'pending');
+  assert.equal(summaryValue(partlyGivenUp, 'Providers'), 'pending');
   assert.equal(summaryValue(givenUp, 'Providers'), 'not recorded');
 });
 
