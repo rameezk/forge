@@ -221,7 +221,9 @@ const MARKDOWN = [
   '[--tw-prose-lead:var(--color-muted)] [--tw-prose-counters:var(--color-muted)] [--tw-prose-bullets:var(--color-muted)] [--tw-prose-captions:var(--color-muted)]',
   '[--tw-prose-hr:var(--color-line)] [--tw-prose-quote-borders:var(--color-line)] [--tw-prose-th-borders:var(--color-line)] [--tw-prose-td-borders:var(--color-line)]',
   '[--tw-prose-links:var(--color-accent-text)] [--tw-prose-pre-bg:var(--color-raised)]',
-  'prose-pre:overflow-x-auto',
+  'prose-pre:overflow-x-auto prose-table:my-0',
+  'prose-code:before:content-none prose-code:after:content-none',
+  '[&_blockquote_p]:before:content-none [&_blockquote_p]:after:content-none',
 ].join(' ');
 
 const renderProse = (

@@ -29,7 +29,7 @@ md.renderer.rules.link_open = (tokens, index, options, _env, self) => {
   return self.renderToken(tokens, index, options);
 };
 
-md.renderer.rules.table_open = () => '<div class="overflow-x-auto"><table>\n';
+md.renderer.rules.table_open = () => '<div class="my-6 overflow-x-auto"><table>\n';
 md.renderer.rules.table_close = () => '</table></div>\n';
 
 export const renderMarkdown = (text: string): string => md.render(text);

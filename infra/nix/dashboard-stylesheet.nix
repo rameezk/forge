@@ -56,7 +56,7 @@ runCommand "dashboard-stylesheet"
       styles "$class" && { styled=$class; break; }
     done < <(grep -o 'class="[^"]*"' page.html | sed 's/^class="//; s/"$//' | tr ' ' '\n' | grep -v '^$' | sort -u)
     [ -n "$styled" ] || fail "the served stylesheet styles none of the Runs page's classes:" page.html
-    for rule in '--tw-prose-body:var(--color-fg)' '--tw-prose-links:var(--color-accent-text)' '--tw-prose-pre-bg:var(--color-raised)' 'prose-pre\:overflow-x-auto'; do
+    for rule in '--tw-prose-body:var(--color-fg)' '--tw-prose-links:var(--color-accent-text)' '--tw-prose-pre-bg:var(--color-raised)' 'prose-pre\:overflow-x-auto' 'prose-code\:before\:content-none' 'prose-table\:my-0' 'blockquote_p\]\:before\:content-none'; do
       grep -qF -- "$rule" served.css || fail "the served stylesheet does not generate the markdown rule $rule"
     done
     [ "$href" = "/assets/dashboard-$(sha256sum served.css | cut -c1-16).css" ] || fail "the stylesheet path $href does not hash its content"
