@@ -486,7 +486,7 @@
               (
                 dispatchUnit.serviceConfig.EnvironmentFile
                 == dispatchHost.config.sops.templates."forge-runner.env".path
-                && lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=/var/lib/forge/github-write.env" dispatchUnit.serviceConfig.Environment
+                && lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=/var/lib/forge-credentials/github-write.env" dispatchUnit.serviceConfig.Environment
                 && !(lib.any (lib.hasInfix "/var/lib/forge/github.env") dispatchUnit.serviceConfig.Environment)
               )
               "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, read the GitHub write-token file as data, and never see the frontier's read-only token";
@@ -494,7 +494,7 @@
           frontierSyncEnsuresLabels =
             lib.asserts.assertMsg
               (
-                lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=/var/lib/forge/github-write.env" dispatchHostSync.serviceConfig.Environment
+                lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=/var/lib/forge-credentials/github-write.env" dispatchHostSync.serviceConfig.Environment
                 && dispatchHostSync.serviceConfig.EnvironmentFile == "-/var/lib/forge/github.env"
                 && !(lib.any (lib.hasInfix "FORGE_GITHUB_WRITE_TOKEN_FILE") frontierService.serviceConfig.Environment)
               )
@@ -502,8 +502,7 @@
           writeTokenHidden =
             let
               services = dispatchHost.config.systemd.services;
-              hides =
-                unit: lib.elem "-/var/lib/forge/github-write.env" (unit.serviceConfig.InaccessiblePaths or [ ]);
+              hides = unit: lib.elem "/var/lib/forge-credentials" (unit.serviceConfig.InaccessiblePaths or [ ]);
             in
             lib.asserts.assertMsg
               (
@@ -511,12 +510,15 @@
                 && hides services.forge-billing
                 && hides services.forge-frontend
                 && lib.elem "-/run/secrets" services.forge-frontend.serviceConfig.InaccessiblePaths
+                && lib.elem "d /var/lib/forge-credentials 0700 forge-runtime forge-runtime - -" dispatchHost.config.systemd.tmpfiles.rules
+                && !(lib.hasPrefix "/var/lib/forge/" dispatchHost.config.forge.runtime.githubWriteTokenFile)
               )
-              "on a host that dispatches, the GitHub write-token file must be inaccessible to the scheduled runner, billing and the dashboard, which never need it";
+              "the GitHub write-token file must live in its own always-present directory outside the run-writable state directory, masked without a missing-path exception from the scheduled runner, billing and the dashboard";
           writeTokenSeparate =
             lib.asserts.assertMsg
               (
-                dispatchHost.config.forge.runtime.githubWriteTokenFile == "/var/lib/forge/github-write.env"
+                dispatchHost.config.forge.runtime.githubWriteTokenFile
+                == "/var/lib/forge-credentials/github-write.env"
                 && dispatchHost.config.forge.runtime.githubTokenFile == "/var/lib/forge/github.env"
               )
               "the GitHub write-token file must default to its own file beside the frontier's read-only token file";

@@ -119,7 +119,9 @@ let
     InaccessiblePaths = map (name: "-${envFile name}") openRouterEnvFiles;
   };
 
-  hideGithubWriteToken = [ "-${cfg.githubWriteTokenFile}" ];
+  credentialsDir = "/var/lib/forge-credentials";
+
+  hideGithubWriteToken = [ credentialsDir ];
 
   hardening = {
     NoNewPrivileges = true;
@@ -192,9 +194,9 @@ in
 
     githubWriteTokenFile = lib.mkOption {
       type = lib.types.str;
-      default = "${cfg.stateDir}/github-write.env";
-      defaultText = lib.literalExpression ''"''${cfg.stateDir}/github-write.env"'';
-      description = "Path to a restricted file in EnvironmentFile format, outside the Nix store, that sets GITHUB_TOKEN to a fine-grained token with write access on Contents, Pull requests and Issues of the managed repositories. Only hosts with a repository that declares a worker use it: forge-dispatch moves tickets through the `forge:*` labels with it and hands it to the workload as GITHUB_TOKEN, and the frontier sync ensures the `forge:*` labels exist with it. Both read only GITHUB_TOKEN from it, as data, so nothing else in the file reaches their environment.";
+      default = "${credentialsDir}/github-write.env";
+      readOnly = true;
+      description = "Path to a restricted file in EnvironmentFile format that sets GITHUB_TOKEN to a fine-grained token with write access on Contents, Pull requests and Issues of the managed repositories. It lives in its own directory outside the run-writable state directory, which no unit can write and which is masked from the scheduled runner, billing and the dashboard. Only hosts with a repository that declares a worker use it: forge-dispatch moves tickets through the `forge:*` labels with it and hands it to the workload as GITHUB_TOKEN, and the frontier sync ensures the `forge:*` labels exist with it. Both read only GITHUB_TOKEN from it, as data, so nothing else in the file reaches their environment.";
     };
 
     frontier.pollInterval = lib.mkOption {
@@ -264,6 +266,7 @@ in
         "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/transcripts 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/work 0750 ${cfg.user} ${cfg.user} 14d -"
+        "d ${credentialsDir} 0700 ${cfg.user} ${cfg.user} - -"
       ];
     }
 

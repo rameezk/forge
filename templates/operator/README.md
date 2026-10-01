@@ -130,8 +130,7 @@ your Hetzner token is decrypted only for that call and never sits in your shell.
 
 Box state is the run store, frontier snapshot and transcripts under
 `/var/lib/forge`, and the GitHub token files `/var/lib/forge/github.env` and
-`/var/lib/forge/github-write.env`. Only
-deploy keeps it. The OpenRouter key is not box state: the box decrypts it from
+`/var/lib/forge-credentials/github-write.env`. Only deploy keeps it. The OpenRouter key is not box state: the box decrypts it from
 this repository on every standup and deploy.
 
 1. Stand the box up:
@@ -182,16 +181,20 @@ this repository on every standup and deploy.
    dispatched agent gets it as `GITHUB_TOKEN`, so the repository's skills can
    push branches and open pull requests. A run can use it for anything it
    allows in every managed repository, so protect each default branch and give
-   the token a short expiry. Scheduled workers, billing and the dashboard
-   cannot read it. Place it after **every** standup, into
-   `/var/lib/forge/github-write.env`. Until it is there, `forge-dispatch`
+   the token a short expiry. It lives outside the state directory, where no
+   run can change it, and the file is hidden from scheduled workers, billing
+   and the dashboard. Workloads still run as one user, though, so a scheduled
+   run can read it from a dispatched agent running at the same time, until
+   workloads are confined from each other. Place it after **every** standup,
+   into `/var/lib/forge-credentials/github-write.env`. Until it is there,
+   `forge-dispatch`
    fails with "GitHub write token missing", and each frontier sync still
    refreshes the Work page but reports the same error and exits non-zero:
 
    ```bash
    printf 'GitHub write token: ' && read -rs token && echo && [ -n "$token" ] &&
      printf 'GITHUB_TOKEN=%s\n' "$token" |
-     just ssh 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/github-write.env && cat > /var/lib/forge/github-write.env"'; unset token
+     just ssh 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge-credentials/github-write.env && cat > /var/lib/forge-credentials/github-write.env"'; unset token
    ```
 
 4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
@@ -298,9 +301,9 @@ there is none. The Runs page shows the repository and ticket of each
 dispatched run.
 
 When the run ends, forge asks GitHub whether an open pull request from a
-branch of the repository itself closes the ticket. Pull requests from forks or
-other repositories do not count. If one does, the ticket becomes `forge:done`, however the run ended.
-Otherwise it becomes `forge:failed`. The Work page shows each ticket's
+branch of the repository itself closes the ticket, ignoring pull requests from
+forks or other repositories. If one does, the ticket becomes `forge:done`,
+however the run ended. Otherwise it becomes `forge:failed`. The Work page shows each ticket's
 dispatch state, and for a failed ticket its reason, linked to its run: the run
 errored, it ended without a pull request (with the agent's final message), the
 skill was not found, or the run was interrupted. Each dispatch moves a ticket
