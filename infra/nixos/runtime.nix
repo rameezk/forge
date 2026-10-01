@@ -11,12 +11,12 @@ let
     options = {
       command = lib.mkOption {
         type = lib.types.str;
-        description = "Executable that runs this harness headlessly and emits its event stream.";
+        description = "Executable that runs this harness headlessly and emits its event stream. It is resolved to its real path before the workload sandbox starts, so it must resolve into the Nix store.";
       };
       args = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
-        description = "Operator extra arguments for the harness, passed after the invocation the runner builds and before the prompt. The runner owns the harness's own CLI contract.";
+        description = "Operator extra arguments for the harness, passed after the invocation the runner builds and before the prompt. The runner owns the harness's own CLI contract. The harness runs in the workload sandbox, so any path an argument names must be in the Nix store.";
       };
     };
   };

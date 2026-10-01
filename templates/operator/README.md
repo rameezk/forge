@@ -340,7 +340,9 @@ containers, do not work in a workload. Anything a workload should keep
 belongs in its run directory.
 
 The harness command is resolved to its real path before the sandbox starts,
-so a command under `/run/current-system/sw/bin` works. If the sandbox cannot
+so a command under `/run/current-system/sw/bin` works. Any path in the
+harness's extra `args` must be in the Nix store, since the sandbox sees
+nothing else of the box. If the sandbox cannot
 start, the workload fails with that reason, and the harness never runs
 unconfined.
 
