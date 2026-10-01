@@ -13,7 +13,7 @@ import {
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { basename, join, sep } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import {
   parseTranscript,
   Store,
@@ -151,8 +151,7 @@ interface Scenario {
   exit?: number;
   lingerMs?: number;
   bwrapFailure?: string;
-  linkedHarness?: boolean;
-  missingHarness?: boolean;
+  harness?: 'direct' | 'linked' | 'missing' | 'relative';
 }
 
 interface Outcome {
@@ -193,22 +192,31 @@ const storedGenerations = (
 ): GenerationRecord[] =>
   withStore(stateDir, (store) => store.listGenerations(runId));
 
-const linkInto = (stateDir: string, target: string): string => {
-  const bin = join(stateDir, 'current-system', 'sw', 'bin');
-  mkdirSync(bin, { recursive: true });
-  symlinkSync(target, join(bin, 'pi'));
-  return join(bin, 'pi');
+const systemPi = (stateDir: string): string =>
+  join(stateDir, 'current-system', 'sw', 'bin', 'pi');
+
+const harnessCommand = (
+  stateDir: string,
+  fakePi: string,
+  harness: Scenario['harness'] = 'direct',
+): string => {
+  switch (harness) {
+    case 'direct':
+      return fakePi;
+    case 'linked':
+      mkdirSync(dirname(systemPi(stateDir)), { recursive: true });
+      symlinkSync(fakePi, systemPi(stateDir));
+      return systemPi(stateDir);
+    case 'missing':
+      return systemPi(stateDir);
+    case 'relative':
+      return 'pi';
+  }
 };
 
 const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
   const fakePi = writeFakePi(stateDir);
-  const harnessCommand =
-    scenario.missingHarness === true
-      ? join(stateDir, 'current-system', 'sw', 'bin', 'pi')
-      : scenario.linkedHarness === true
-        ? linkInto(stateDir, fakePi)
-        : fakePi;
   const record = join(stateDir, 'pi-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
   const fakeBwrap = writeFakeBwrap(stateDir, {
@@ -235,7 +243,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     JSON.stringify({
       harnesses: {
         pi: {
-          command: harnessCommand,
+          command: harnessCommand(stateDir, fakePi, scenario.harness),
           ...(scenario.harnessArgs === undefined
             ? {}
             : { args: scenario.harnessArgs }),
@@ -826,7 +834,7 @@ test('given a workload about to start, when the runner launches its harness, the
 test('given a harness command reached through a link the sandbox does not carry, like /run/current-system/sw/bin/pi, when the runner launches the harness, then pi and its subagents are started by its real path', async () => {
   const { bwrap, pi } = await runWorker({
     output: fixture('success.jsonl'),
-    linkedHarness: true,
+    harness: 'linked',
   });
 
   const command = bwrap.argv[bwrap.argv.indexOf('--') + 1];
@@ -838,21 +846,31 @@ test('given a harness command reached through a link the sandbox does not carry,
   assert.equal(subagentCommand, command);
 });
 
-test('given a harness command that does not exist, when the worker runs, then the run is recorded as error naming the command, and pi never starts', async () => {
-  const { code, run, stateDir, piStarted } = await runWorker({
+test('given a harness command that does not exist, or one that is not an absolute path, when the worker runs, then the run is recorded as error naming the command, and pi never starts', async () => {
+  const missing = await runWorker({
     output: fixture('success.jsonl'),
-    missingHarness: true,
+    harness: 'missing',
+  });
+  const relative = await runWorker({
+    output: fixture('success.jsonl'),
+    harness: 'relative',
   });
 
-  assert.equal(code, 1);
-  assert.equal(run.status, 'error');
   assert.ok(
-    (run.error ?? '').startsWith(
-      `the harness command ${join(stateDir, 'current-system', 'sw', 'bin', 'pi')} cannot be resolved: ENOENT`,
+    (missing.run.error ?? '').startsWith(
+      `the harness command ${systemPi(missing.stateDir)} cannot be resolved: ENOENT`,
     ),
-    run.error ?? '',
+    missing.run.error ?? '',
   );
-  assert.equal(piStarted, false);
+  assert.equal(
+    relative.run.error,
+    'the harness command pi cannot be resolved: it is not an absolute path',
+  );
+  for (const { code, run, piStarted } of [missing, relative]) {
+    assert.equal(code, 1);
+    assert.equal(run.status, 'error');
+    assert.equal(piStarted, false);
+  }
 });
 
 test('given a runner whose own environment holds more than the harness needs, when it launches the harness, then the harness environment holds only the system settings, its throwaway HOME, the OpenRouter key and pi\'s own variables', async () => {

@@ -309,15 +309,15 @@ class PiStream {
 }
 
 const realCommand = (command: string): string => {
+  const unresolved = (reason: string): Error =>
+    new Error(`the harness command ${command} cannot be resolved: ${reason}`);
   if (!isAbsolute(command)) {
-    return command;
+    throw unresolved('it is not an absolute path');
   }
   try {
     return realpathSync(command);
   } catch (cause) {
-    throw new Error(
-      `the harness command ${command} cannot be resolved: ${errorMessage(cause)}`,
-    );
+    throw unresolved(errorMessage(cause));
   }
 };
 
