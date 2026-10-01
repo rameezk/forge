@@ -6,7 +6,11 @@
           "nodes": [
             {
               "number": 143,
-              "state": "MERGED"
+              "state": "MERGED",
+              "isCrossRepository": false,
+              "repository": {
+                "nameWithOwner": "rameezk/forge"
+              }
             }
           ]
         }

@@ -31,7 +31,7 @@ export const createApp = ({ store, transcripts, css, logo }: AppOptions): Hono =
   app.get('/', (c) => c.html(renderList(store.listRuns(), assets)));
 
   app.get('/work', (c) =>
-    c.html(renderWork(store.listFrontier(), store.listDispatches(), assets)),
+    c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), assets)),
   );
 
   app.get('/runs/:id', (c) => {

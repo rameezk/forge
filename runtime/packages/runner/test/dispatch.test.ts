@@ -63,7 +63,12 @@ interface ClosingResponse {
     repository: {
       issue: {
         closedByPullRequestsReferences: {
-          nodes: { number: number; state: string }[];
+          nodes: {
+            number: number;
+            state: string;
+            isCrossRepository: boolean;
+            repository: { nameWithOwner: string };
+          }[];
         };
       };
     };
@@ -75,10 +80,15 @@ const closing = (name: string): ClosingResponse =>
     readFileSync(join(GITHUB_FIXTURES, `${name}.json`), 'utf8'),
   ) as ClosingResponse;
 
-const opened = (response: ClosingResponse): ClosingResponse => {
+const opened = (
+  response: ClosingResponse,
+  from: { isCrossRepository?: boolean; repository?: string } = {},
+): ClosingResponse => {
   const copy = structuredClone(response);
   for (const node of copy.data.repository.issue.closedByPullRequestsReferences.nodes) {
     node.state = 'OPEN';
+    node.isCrossRepository = from.isCrossRepository ?? node.isCrossRepository;
+    node.repository.nameWithOwner = from.repository ?? node.repository.nameWithOwner;
   }
   return copy;
 };
@@ -116,6 +126,7 @@ const fakeGithub = (
   pullRequests: ClosingResponse,
   running: LabelledResponse,
   labelStatus: number,
+  pullRequestsStatus: number,
   piRecord: () => string,
 ) => {
   const requests: GraphqlRequest[] = [];
@@ -138,7 +149,11 @@ const fakeGithub = (
       };
       const operation = /query (\w+)/.exec(body.query)?.[1];
       requests.push({ operation, authorization, variables: body.variables });
-      if (operation === 'ClosingPullRequests') return json(pullRequests);
+      if (operation === 'ClosingPullRequests') {
+        return pullRequestsStatus === 200
+          ? json(pullRequests)
+          : json({ message: 'Bad Gateway' }, pullRequestsStatus);
+      }
       if (operation === 'LabelledIssues') {
         assert.equal(body.variables.label, 'forge:running');
         return json(running);
@@ -208,6 +223,7 @@ interface Scenario {
   pullRequests?: ClosingResponse;
   running?: LabelledResponse;
   labelStatus?: number;
+  pullRequestsStatus?: number;
   failing?: boolean;
   seed?: (store: Store) => void;
   prompt?: string;
@@ -274,6 +290,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     scenario.pullRequests ?? opened(closing('merged-pull-request')),
     scenario.running ?? labelledIssues([]),
     scenario.labelStatus ?? 200,
+    scenario.pullRequestsStatus ?? 200,
     () => record,
   );
   if (scenario.seed !== undefined) {
@@ -325,7 +342,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       stateDir,
       origin,
       runs: store.listRuns(),
-      dispatches: store.listDispatches(),
+      dispatches: store.listDispatches(new Date().toISOString()),
       pi: existsSync(record)
         ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall)
         : null,
@@ -431,12 +448,17 @@ const piOutputEnding = (text: string): string => {
   return path;
 };
 
-test('given a run that ends with a question and leaves no open pull request closing the ticket, when the run ends, then the ticket becomes forge:failed with the agent\'s final message as the reason, and nothing but the label is written to the ticket', async () => {
+test('given a run that ends with a question and leaves no open pull request from the repository itself closing the ticket, whether there is none, a merged one, an open one from a fork or one in another repository, when the run ends, then the ticket becomes forge:failed with the agent\'s final message as the reason, and nothing but the label is written to the ticket', async () => {
   const question = 'Should the label check use REST or GraphQL?';
-  for (const pullRequests of ['no-pull-request', 'merged-pull-request']) {
+  for (const [pullRequests, response] of [
+    ['none', closing('no-pull-request')],
+    ['merged', closing('merged-pull-request')],
+    ['open from a fork', opened(closing('merged-pull-request'), { isCrossRepository: true })],
+    ['open in another repository', opened(closing('merged-pull-request'), { repository: 'someone/elsewhere' })],
+  ] as const) {
     const { labelWrites, runs, dispatches } = await dispatch({
       piOutput: piOutputEnding(question),
-      pullRequests: closing(pullRequests),
+      pullRequests: response,
     });
 
     assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'), pullRequests);
@@ -506,11 +528,11 @@ test('given tickets labelled forge:running, one whose dispatch stopped beating, 
   assert.deepEqual(
     dispatches
       .filter(({ number }) => number !== 113)
-      .map(({ number, runId, state, reason }) => ({ number, runId, state, reason })),
+      .map(({ number, state, reason }) => ({ number, state, reason })),
     [
-      { number: 114, runId: 'run-stale', state: 'failed', reason: 'interrupted' },
-      { number: 115, runId: null, state: 'failed', reason: 'interrupted' },
-      { number: 123, runId: 'run-live', state: 'running', reason: null },
+      { number: 114, state: 'failed', reason: 'interrupted' },
+      { number: 115, state: 'failed', reason: 'interrupted' },
+      { number: 123, state: 'running', reason: null },
     ],
   );
 });
@@ -543,6 +565,65 @@ test('given GitHub refuses the claim, when forge-dispatch runs, then it fails na
     dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
     [{ state: 'failed', reason: 'errored', detail: `could not claim the ticket: ${refused}` }],
   );
+});
+
+test('given GitHub fails the pull request check after the run, when forge-dispatch runs, then it fails naming the error, and the dispatch fails as errored with that error rather than being left to look interrupted', async () => {
+  const { failure, runs, labelWrites, dispatches } = await dispatch({
+    pullRequestsStatus: 502,
+    failing: true,
+  });
+
+  const error = 'GitHub answered 502 for rameezk/forge#113';
+  assert.ok(failure instanceof Error);
+  assert.equal(failure.message, error);
+  assert.equal(runs[0]?.status, 'success');
+  assert.equal(labelWrites.length, 2);
+  assert.deepEqual(
+    dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'errored', detail: `could not record the outcome: ${error}` }],
+  );
+});
+
+test('given a ticket still labelled forge:running whose dispatch already ended done or failed, when the next dispatch pass runs, then the label catches up with the recorded outcome and its reason is kept', async () => {
+  const at = '2026-09-30T08:00:00.000Z';
+  const { labelWrites, dispatches } = await dispatch({
+    running: labelledIssues([114, 115]),
+    seed: (store) => {
+      const done = store.startDispatch(forgeTicket(114), 'run-114', at);
+      const failed = store.startDispatch(forgeTicket(115), 'run-115', at);
+      assert.ok(done !== null && failed !== null);
+      store.endDispatch(done, { state: 'done' }, at);
+      store.endDispatch(failed, { state: 'failed', reason: 'errored', detail: 'GitHub answered 502' }, at);
+    },
+  });
+
+  assert.deepEqual(labelWrites.slice(0, 4), [
+    ...interruptedLabelWrites(114).map((write, index) =>
+      index === 0 ? { ...write, body: { labels: ['forge:done'] } } : write,
+    ),
+    ...interruptedLabelWrites(115),
+  ]);
+  assert.deepEqual(
+    dispatches
+      .filter(({ number }) => number !== 113)
+      .map(({ number, state, reason, detail }) => ({ number, state, reason, detail })),
+    [
+      { number: 114, state: 'done', reason: null, detail: null },
+      { number: 115, state: 'failed', reason: 'errored', detail: 'GitHub answered 502' },
+    ],
+  );
+});
+
+test('given a run that ends without a pull request on an enormous final message, when the run ends, then the stored reason keeps only its first 2000 characters', async () => {
+  const { dispatches } = await dispatch({
+    piOutput: piOutputEnding('x'.repeat(100_000)),
+    pullRequests: closing('no-pull-request'),
+  });
+
+  const detail = dispatches[0]?.detail ?? '';
+  assert.equal(detail.length, 2000);
+  assert.ok(detail.startsWith('The command printed forge. xxx'));
+  assert.ok(detail.endsWith('x…'));
 });
 
 test('given a ticket labelled forge:ready that has an open blocker, one that is closed, one that is not ready-for-agent, and a frontier ticket without the label, when forge-dispatch runs for each, then none starts a workload or clones, and each refusal names why', async () => {

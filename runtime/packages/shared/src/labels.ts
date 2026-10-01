@@ -1,4 +1,4 @@
-import { isGithubRepository, type Fetch } from './frontier.ts';
+import { requireGithubRepository, type Fetch } from './frontier.ts';
 
 export const GITHUB_REST_API = 'https://api.github.com';
 
@@ -45,9 +45,7 @@ const requestRest = async (
   path: string,
   body?: unknown,
 ): Promise<Response> => {
-  if (!isGithubRepository(github)) {
-    throw new Error(`'${github}' is not a GitHub owner/name`);
-  }
+  requireGithubRepository(github);
   return fetch(`${GITHUB_REST_API}/repos/${github}${path}`, {
     method,
     headers: {

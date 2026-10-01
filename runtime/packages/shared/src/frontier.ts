@@ -88,6 +88,10 @@ const CLOSING_PULL_REQUESTS_QUERY = `
           nodes {
             number
             state
+            isCrossRepository
+            repository {
+              nameWithOwner
+            }
           }
         }
       }
@@ -154,6 +158,12 @@ const GITHUB_REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 export const isGithubRepository = (github: string): boolean =>
   GITHUB_REPOSITORY.test(github);
 
+export const requireGithubRepository = (github: string): void => {
+  if (!isGithubRepository(github)) {
+    throw new Error(`'${github}' is not a GitHub owner/name`);
+  }
+};
+
 export const isGithubUrl = (url: string): boolean =>
   url.startsWith('https://github.com/');
 
@@ -182,6 +192,7 @@ const requestGraphql = (
   github: string,
   variables: Record<string, string | number | null>,
 ): Promise<Response> => {
+  requireGithubRepository(github);
   const [owner, name] = github.split('/');
   return fetch(GITHUB_GRAPHQL_API, {
     method: 'POST',
@@ -221,7 +232,7 @@ export const requestClosingPullRequests = (
   requestGraphql(fetch, token, CLOSING_PULL_REQUESTS_QUERY, github, { number });
 
 const queryPage = async <Node>(
-  query: string,
+  subject: string,
   request: (after: string | null) => Promise<Response>,
   github: string,
   after: string | null,
@@ -233,7 +244,7 @@ const queryPage = async <Node>(
   const { data, errors } = (await response.json()) as IssuesResponse<Node>;
   if (errors !== undefined && errors.length > 0) {
     throw new Error(
-      `GitHub rejected the ${query} query for ${github}: ${errors.map((error) => error.message).join('; ')}`,
+      `GitHub rejected the ${subject} query for ${github}: ${errors.map((error) => error.message).join('; ')}`,
     );
   }
   const repository = data?.repository;
@@ -244,18 +255,15 @@ const queryPage = async <Node>(
 };
 
 const queryIssues = async <Node>(
-  query: string,
+  subject: string,
   github: string,
   request: (after: string | null) => Promise<Response>,
 ): Promise<Node[]> => {
-  if (!isGithubRepository(github)) {
-    throw new Error(`'${github}' is not a GitHub owner/name`);
-  }
   const issues: Node[] = [];
   const cursors = new Set<string>();
   let after: string | null = null;
   do {
-    const page: IssuePage<Node> = await queryPage<Node>(query, request, github, after);
+    const page: IssuePage<Node> = await queryPage<Node>(subject, request, github, after);
     issues.push(...page.nodes);
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
     if (after !== null && cursors.has(after)) {
@@ -340,9 +348,6 @@ export const queryTicket = async (
   github: string,
   number: number,
 ): Promise<TicketState> => {
-  if (!isGithubRepository(github)) {
-    throw new Error(`'${github}' is not a GitHub owner/name`);
-  }
   const response = await requestTicket(fetch, token, github, number);
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
@@ -370,7 +375,13 @@ interface ClosingPullRequestsResponse {
   data?: {
     repository: {
       issue: {
-        closedByPullRequestsReferences: { nodes: { state: string }[] };
+        closedByPullRequestsReferences: {
+          nodes: {
+            state: string;
+            isCrossRepository: boolean;
+            repository: { nameWithOwner: string };
+          }[];
+        };
       } | null;
     } | null;
   };
@@ -383,9 +394,6 @@ export const hasOpenClosingPullRequest = async (
   github: string,
   number: number,
 ): Promise<boolean> => {
-  if (!isGithubRepository(github)) {
-    throw new Error(`'${github}' is not a GitHub owner/name`);
-  }
   const response = await requestClosingPullRequests(fetch, token, github, number);
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
@@ -402,7 +410,10 @@ export const hasOpenClosingPullRequest = async (
     );
   }
   return issue.closedByPullRequestsReferences.nodes.some(
-    (pullRequest) => pullRequest.state === 'OPEN',
+    (pullRequest) =>
+      pullRequest.state === 'OPEN' &&
+      !pullRequest.isCrossRepository &&
+      pullRequest.repository.nameWithOwner.toLowerCase() === github.toLowerCase(),
   );
 };
 

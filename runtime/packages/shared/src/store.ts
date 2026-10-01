@@ -7,6 +7,7 @@ import {
   type Ticket,
 } from './frontier.ts';
 import {
+  DISPATCH_DETAIL_LIMIT,
   DISPATCH_STALE_MS,
   type DispatchFailure,
   type DispatchOutcome,
@@ -220,6 +221,11 @@ const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
 });
+
+const boundedDetail = (detail: string | null): string | null =>
+  detail === null || detail.length <= DISPATCH_DETAIL_LIMIT
+    ? detail
+    : `${detail.slice(0, DISPATCH_DETAIL_LIMIT - 1)}…`;
 
 const liveSince = (now: string): string =>
   new Date(Date.parse(now) - DISPATCH_STALE_MS).toISOString();
@@ -735,19 +741,24 @@ export class Store {
     return id;
   }
 
-  interruptDispatch(ticket: DispatchTicket, now: string): boolean {
-    let interrupted = false;
+  reconcileDispatch(
+    ticket: DispatchTicket,
+    now: string,
+  ): Exclude<DispatchState, 'running'> | null {
+    let settled: Exclude<DispatchState, 'running'> | null = null;
     this.#transaction(() => {
       const latest = this.#latestDispatch(ticket);
-      if (latest?.state === 'running') {
-        if (latest.alive_at >= liveSince(now)) return;
-        this.#interruptStale(latest, now);
-      } else if (latest?.reason !== 'interrupted') {
+      if (latest === undefined) {
         this.#insertDispatch(ticket, null, 'failed', 'interrupted', now);
+        settled = 'failed';
+      } else if (latest.state !== 'running') {
+        settled = latest.state as Exclude<DispatchState, 'running'>;
+      } else if (latest.alive_at < liveSince(now)) {
+        this.#interruptStale(latest, now);
+        settled = 'failed';
       }
-      interrupted = true;
     });
-    return interrupted;
+    return settled;
   }
 
   touchDispatch(id: number, now: string): void {
@@ -769,22 +780,28 @@ export class Store {
         id,
         state: outcome.state,
         reason: outcome.state === 'failed' ? outcome.reason : null,
-        detail: outcome.state === 'failed' ? outcome.detail : null,
+        detail: outcome.state === 'failed' ? boundedDetail(outcome.detail) : null,
         ended_at: endedAt,
       });
   }
 
-  listDispatches(): DispatchRecord[] {
+  listDispatches(now: string): DispatchRecord[] {
     const rows = this.#db
       .prepare(
-        `SELECT * FROM dispatches d
-        WHERE id = (
+        `SELECT
+          d.id, d.repository, d.number, d.url,
+          CASE WHEN EXISTS (SELECT 1 FROM runs WHERE id = d.run_id) THEN d.run_id END AS run_id,
+          CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'failed' ELSE d.state END AS state,
+          CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'interrupted' ELSE d.reason END AS reason,
+          d.detail, d.started_at, d.alive_at, d.ended_at
+        FROM dispatches d
+        WHERE d.id = (
           SELECT MAX(id) FROM dispatches
           WHERE repository = d.repository AND number = d.number
         )
-        ORDER BY repository, number`,
+        ORDER BY d.repository, d.number`,
       )
-      .all() as DispatchRow[];
+      .all({ live_since: liveSince(now) }) as DispatchRow[];
     return rows.map(dispatchFromRow);
   }
 

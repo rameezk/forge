@@ -171,8 +171,8 @@ test('given a stored repository whose github is not an owner/name, when the work
   assert.match(forge ?? '', /<span[^>]*>\.\.\/\.\.\/evil<\/span>/);
 });
 
-test('given frontier tickets that forge dispatched, one running, one done and one failed for each reason, and one never dispatched, when the work page is requested, then each shows its dispatch state, and a failed one its reason with a link to its run', async () => {
-  const numbers = [56, 57, 58, 59, 60, 61, 62];
+test('given frontier tickets that forge dispatched, one running, one done, one failed for each reason, one whose dispatch stopped beating, one whose run never started, and one never dispatched, when the work page is requested, then each shows its dispatch state, and a failed one its reason, linked to its run when that run exists', async () => {
+  const numbers = [56, 57, 58, 59, 60, 61, 62, 63, 64];
   const at = '2026-09-30T08:00:00.000Z';
   const forgeTicket = (number: number) => ({
     repository: 'forge',
@@ -189,9 +189,28 @@ test('given frontier tickets that forge dispatched, one running, one done and on
       },
     ],
     (store) => {
-      const dispatched = (number: number) => {
-        const id = store.startDispatch(forgeTicket(number), `run-${number}`, new Date().toISOString());
+      const dispatched = (number: number, startedAt = new Date().toISOString()) => {
+        const id = store.startDispatch(forgeTicket(number), `run-${number}`, startedAt);
         assert.ok(id !== null);
+        if (number !== 63) {
+          store.insertRun({
+            id: `run-${number}`,
+            worker: 'builder',
+            harness: 'pi',
+            model: 'z-ai/glm-5',
+            startTime: startedAt,
+            endTime: null,
+            status: 'running',
+            costStatus: 'pending',
+            costUsd: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            transcriptRef: null,
+            sessionId: null,
+            error: null,
+            ticket: forgeTicket(number),
+          });
+        }
         return id;
       };
       dispatched(56);
@@ -199,7 +218,9 @@ test('given frontier tickets that forge dispatched, one running, one done and on
       store.endDispatch(dispatched(58), { state: 'failed', reason: 'errored', detail: 'git could not clone rameezk/forge' }, at);
       store.endDispatch(dispatched(59), { state: 'failed', reason: 'no-pull-request', detail: 'Should the check use <b>REST</b>?' }, at);
       store.endDispatch(dispatched(60), { state: 'failed', reason: 'skill-not-found', detail: "skill 'work-on' not found in the checkout" }, at);
-      store.interruptDispatch(forgeTicket(61), at);
+      store.reconcileDispatch(forgeTicket(61), at);
+      dispatched(62, '2026-09-01T09:00:00.000Z');
+      store.endDispatch(dispatched(63), { state: 'failed', reason: 'errored', detail: 'could not claim the ticket: GitHub answered 403' }, at);
     },
   );
 
@@ -216,12 +237,14 @@ test('given frontier tickets that forge dispatched, one running, one done and on
       ['failed No pull request: Should the check use &lt;b&gt;REST&lt;/b&gt;?', 'failed'],
       ["failed Skill not found: skill &#39;work-on&#39; not found in the checkout", 'failed'],
       ['failed Interrupted', 'failed'],
+      ['failed Interrupted', 'failed'],
+      ['failed Run errored: could not claim the ticket: GitHub answered 403', 'failed'],
       ['', null],
     ],
   );
   assert.deepEqual(
     rows.map((row) => /<a href="(\/runs\/[^"]*)"/.exec(dispatchCell(row))?.[1] ?? null),
-    ['/runs/run-56', '/runs/run-57', '/runs/run-58', '/runs/run-59', '/runs/run-60', null, null],
+    ['/runs/run-56', '/runs/run-57', '/runs/run-58', '/runs/run-59', '/runs/run-60', null, '/runs/run-62', null, null],
   );
   assert.doesNotMatch(rows[3] ?? '', /<b>REST<\/b>/);
 });

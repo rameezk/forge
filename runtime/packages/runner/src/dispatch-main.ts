@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import {
+  errorMessage,
   DISPATCH_HEARTBEAT_MS,
   FORGE_DONE,
   FORGE_FAILED,
@@ -14,10 +15,16 @@ import {
   Store,
   swapLabel,
   type DispatchOutcome,
+  type DispatchTicket,
   type Fetch,
   type TicketState,
 } from '@forge/shared';
-import { resolveWorker, type RepositoryConfig } from './config.ts';
+import {
+  resolveWorker,
+  type RepositoryConfig,
+  type RuntimeConfig,
+} from './config.ts';
+import type { Worker } from './harness.ts';
 import {
   cloneCheckout,
   loadPiSkills,
@@ -33,9 +40,6 @@ import {
 } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 const USAGE = 'usage: forge-dispatch <repository> <issue>';
 
@@ -94,10 +98,17 @@ const reconcileInterrupted = async (
     if (worker === undefined) continue;
     try {
       for (const issue of await queryLabelled(fetch, token, github, FORGE_RUNNING)) {
-        const ticket = { repository: name, ...issue };
-        if (store.interruptDispatch(ticket, now())) {
-          await swapLabel(fetch, token, github, issue.number, FORGE_RUNNING, FORGE_FAILED);
-          console.error(`${name}#${issue.number} was interrupted`);
+        const settled = store.reconcileDispatch({ repository: name, ...issue }, now());
+        if (settled !== null) {
+          await swapLabel(
+            fetch,
+            token,
+            github,
+            issue.number,
+            FORGE_RUNNING,
+            settled === 'done' ? FORGE_DONE : FORGE_FAILED,
+          );
+          console.error(`${name}#${issue.number} was settled as ${settled}`);
         }
       }
     } catch (error) {
@@ -106,6 +117,39 @@ const reconcileInterrupted = async (
       );
     }
   }
+};
+
+const launch = async ({
+  env,
+  config,
+  worker,
+  github,
+  token,
+  ticket,
+  runId,
+}: {
+  env: NodeJS.ProcessEnv;
+  config: RuntimeConfig;
+  worker: Worker;
+  github: string;
+  token: string;
+  ticket: DispatchTicket;
+  runId: string;
+}): Promise<LaunchResult> => {
+  const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
+  const workloadEnv = { ...env, GITHUB_TOKEN: token };
+  return launchWorkload({
+    config,
+    worker,
+    env: workloadEnv,
+    secrets: [token],
+    ticket,
+    runId,
+    openWorkspace: async (workDir) => {
+      await cloneCheckout(github, workDir, workloadEnv);
+      return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
+    },
+  });
 };
 
 export const main = async (
@@ -143,7 +187,6 @@ export const main = async (
       return 1;
     }
 
-    const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
     const dispatched = { repository: name, number: ticket.number, url: ticket.url };
     const runId = randomUUID();
     const dispatchId = store.startDispatch(dispatched, runId, now());
@@ -158,62 +201,43 @@ export const main = async (
       DISPATCH_HEARTBEAT_MS,
     );
     try {
-      try {
-        await swapLabel(
-          fetch,
-          token,
-          repository.github,
-          ticket.number,
-          FORGE_READY,
-          FORGE_RUNNING,
-        );
-      } catch (error) {
-        store.endDispatch(
-          dispatchId,
-          {
-            state: 'failed',
-            reason: 'errored',
-            detail: `could not claim the ticket: ${errorMessage(error)}`,
-          },
-          now(),
-        );
-        throw error;
-      }
+      const failingAs =
+        (stage: string) =>
+        (error: unknown): never => {
+          store.endDispatch(
+            dispatchId,
+            { state: 'failed', reason: 'errored', detail: `${stage}: ${errorMessage(error)}` },
+            now(),
+          );
+          throw error;
+        };
+      const relabel = (from: string, to: string): Promise<void> =>
+        swapLabel(fetch, token, repository.github, ticket.number, from, to);
 
-      const workloadEnv = { ...env, GITHUB_TOKEN: token };
-      const launched = await launchWorkload({
+      await relabel(FORGE_READY, FORGE_RUNNING).catch(
+        failingAs('could not claim the ticket'),
+      );
+      const launched = await launch({
+        env,
         config,
-        worker: {
-          ...worker,
-          prompt: fillPrompt(worker.prompt, repository.github, ticket),
-        },
-        env: workloadEnv,
-        secrets: [token],
+        worker: { ...worker, prompt: fillPrompt(worker.prompt, repository.github, ticket) },
+        github: repository.github,
+        token,
         ticket: dispatched,
         runId,
-        openWorkspace: async (workDir) => {
-          await cloneCheckout(repository.github, workDir, workloadEnv);
-          return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
-        },
-      });
-
-      const outcome = outcomeOf(
-        await hasOpenClosingPullRequest(
-          fetch,
-          token,
-          repository.github,
-          ticket.number,
-        ),
-        launched,
-      );
-      await swapLabel(
+      }).catch(failingAs('could not start the workload'));
+      const outcome = await hasOpenClosingPullRequest(
         fetch,
         token,
         repository.github,
         ticket.number,
-        FORGE_RUNNING,
-        outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,
-      );
+      )
+        .then((pullRequestOpen) => outcomeOf(pullRequestOpen, launched))
+        .then(async (settled) => {
+          await relabel(FORGE_RUNNING, settled.state === 'done' ? FORGE_DONE : FORGE_FAILED);
+          return settled;
+        })
+        .catch(failingAs('could not record the outcome'));
       store.endDispatch(dispatchId, outcome, now());
       return launched.run.status === 'error' ? 1 : 0;
     } finally {

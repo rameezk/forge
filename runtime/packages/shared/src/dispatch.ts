@@ -2,6 +2,8 @@ export const DISPATCH_HEARTBEAT_MS = 20_000;
 
 export const DISPATCH_STALE_MS = 120_000;
 
+export const DISPATCH_DETAIL_LIMIT = 2000;
+
 export type DispatchState = 'running' | 'done' | 'failed';
 
 export type DispatchFailure =

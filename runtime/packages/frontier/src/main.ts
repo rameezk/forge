@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  errorMessage,
   ensureLabels,
   githubWriteToken,
   isHeaderValue,
@@ -13,9 +14,6 @@ import {
 import type { FrontierConfig } from './config.ts';
 
 type Poll = (github: string) => Promise<Ticket[]>;
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 const readConfig = (env: NodeJS.ProcessEnv): FrontierConfig => {
   const configPath = env.FORGE_RUNTIME_CONFIG;

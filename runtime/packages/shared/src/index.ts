@@ -54,6 +54,7 @@ export {
   requestTicket,
 } from './frontier.ts';
 export { DISPATCH_HEARTBEAT_MS, DISPATCH_STALE_MS } from './dispatch.ts';
+export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export { githubWriteToken } from './token.ts';
 export { Store } from './store.ts';
