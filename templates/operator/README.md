@@ -40,7 +40,8 @@ depends on the auto-activation.
    to your config. `.sops.yaml` scopes who can read each file:
    `secrets/operator.yaml`, your Hetzner Cloud API token, and
    `secrets/host.yaml`, the box's SSH host key, are for you only, and
-   `secrets/runtime.yaml`, the OpenRouter key, is for you and the box.
+   `secrets/runtime.yaml`, the OpenRouter key and the GitHub tokens, is for
+   you and the box.
 
    1. Create your age key at the sops default location, which is
       `$XDG_CONFIG_HOME/sops/age/keys.txt` when that is set, and otherwise
@@ -88,7 +89,9 @@ depends on the auto-activation.
       stage them. `sops edit` opens a new file with example content; replace
       it with `HCLOUD_TOKEN: <your Hetzner Cloud API token>` in
       `secrets/operator.yaml`, and with
-      `openrouter_api_key: <your OpenRouter key>` in `secrets/runtime.yaml`:
+      `openrouter_api_key: <your OpenRouter key>` in `secrets/runtime.yaml`.
+      If you declare managed repositories, also add their GitHub tokens to
+      `secrets/runtime.yaml`, as [GitHub tokens](#github-tokens) describes:
 
       ```bash
       jq -Rs '{ssh_host_ed25519_key: .}' "$host_key_dir/host_key" |
@@ -99,9 +102,10 @@ depends on the auto-activation.
       git add -A
       ```
 
-   The build fails if `secrets/runtime.yaml` is missing, `.sops.yaml` still
-   holds the placeholder recipients, or `known_hosts` does not pin
-   `secrets/host.pub` under your `hostname`.
+   The build fails if `secrets/runtime.yaml` is missing or lacks a key your
+   workers or repositories need, `.sops.yaml` still holds the placeholder
+   recipients, or `known_hosts` does not pin `secrets/host.pub` under your
+   `hostname`.
 
 4. Run the divergence guard (no cloud access required):
 
@@ -129,10 +133,9 @@ Each OpenTofu call runs through `sops exec-env` on `secrets/operator.yaml`, so
 your Hetzner token is decrypted only for that call and never sits in your shell.
 
 Box state is the run store, frontier snapshot and transcripts under
-`/var/lib/forge`, and the GitHub token files `/var/lib/forge/github.env` and
-`/var/lib/forge-credentials/github-write.env`. Only deploy keeps it. The
-OpenRouter key is not box state: the box decrypts it from this repository on
-every standup and deploy.
+`/var/lib/forge`. Only deploy keeps it. The OpenRouter key and the GitHub
+tokens are not box state: the box decrypts them from this repository on every
+standup and deploy.
 
 1. Stand the box up:
 
@@ -161,45 +164,7 @@ every standup and deploy.
    box against the host key in `known_hosts`, and passes any extra arguments
    on to `ssh`.
 
-3. Place the GitHub token if you declare managed repositories. The frontier
-   poller reads each managed repository's issues with a fine-grained personal
-   access token that is read-only on Issues and Metadata for those
-   repositories. Workloads run as the same `forge-runtime` user and can read
-   it, so give it a short expiry. You place it by hand after **every** standup,
-   into `/var/lib/forge/github.env`. Until it is there, the Work page shows
-   "GitHub token missing" on every repository:
-
-   ```bash
-   printf 'GitHub token: ' && read -rs token && echo && [ -n "$token" ] &&
-     printf 'GITHUB_TOKEN=%s\n' "$token" |
-     just ssh 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/github.env && cat > /var/lib/forge/github.env"'; unset token
-   ```
-
-   If a repository declares a worker, also place the GitHub write token. It is
-   a separate fine-grained personal access token with read and write access on
-   Contents, Pull requests and Issues for the managed repositories. Forge uses
-   it to move dispatched tickets through their `forge:*` labels, and the
-   dispatched agent gets it as `GITHUB_TOKEN`, so the repository's skills can
-   push branches and open pull requests. A run can use it for anything it
-   allows in every managed repository, so protect each default branch and give
-   the token a short expiry. It lives outside the state directory, where no
-   run can change it, and its directory is masked from scheduled workers,
-   billing and the dashboard. The mask does not stop a scheduled run, though:
-   every unit runs as one user, so a scheduled run can read the token through
-   `/proc` from the frontier sync or a dispatch, until workloads are confined
-   from each other. Treat every workload as able to use it. Place it after
-   **every** standup, into `/var/lib/forge-credentials/github-write.env`.
-   Until it is there, `forge-dispatch` fails with "GitHub write token
-   missing", and each frontier sync still refreshes the Work page but reports
-   the same error and exits non-zero:
-
-   ```bash
-   printf 'GitHub write token: ' && read -rs token && echo && [ -n "$token" ] &&
-     printf 'GITHUB_TOKEN=%s\n' "$token" |
-     just ssh 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge-credentials/github-write.env && cat > /var/lib/forge-credentials/github-write.env"'; unset token
-   ```
-
-4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
+3. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
    reads the box address from OpenTofu, then runs `nixos-rebuild switch` on the
    box as your admin user, building on the box. It keeps the box's state, and it
    changes only NixOS: it never runs `tofu apply`, so infrastructure changes
@@ -214,7 +179,7 @@ every standup and deploy.
    A deploy that breaks SSH has no automatic rollback; recover it from the
    Hetzner console.
 
-5. Tear the box down when you are done. This loses the box's state:
+4. Tear the box down when you are done. This loses the box's state:
 
    ```bash
    just teardown
@@ -229,11 +194,12 @@ then browse to `http://localhost:7787`:
 just ssh -N -L 7787:localhost:7787
 ```
 
-## Rotating the OpenRouter key
+## Rotating a runtime secret
 
-Edit the key with sops, commit, and deploy. The next workload uses the new
-key. Then revoke the old key in OpenRouter: every earlier version stays
-decryptable in git history.
+Edit the OpenRouter key or a GitHub token with sops, commit, and deploy. The
+next workload, frontier sync or dispatch uses the new value. Then revoke the
+old one in OpenRouter or GitHub: every earlier version stays decryptable in
+git history.
 
 ```bash
 sops edit secrets/runtime.yaml
@@ -255,6 +221,38 @@ forge.runtime.frontier.pollInterval = "5min";
 A timer then polls each repository's frontier - its open issues labelled
 `ready-for-agent` with no open blockers - every `pollInterval`, and the
 dashboard's Work page shows it.
+
+### GitHub tokens
+
+Forge reads GitHub with tokens from `secrets/runtime.yaml`. Add them with
+`sops edit secrets/runtime.yaml`, commit, and deploy. The build fails, naming
+the missing key, if a token your repositories need is not there.
+
+- `github_token`, needed when you declare any managed repository: a
+  fine-grained personal access token that is read-only on Issues and Metadata
+  for the managed repositories. The frontier sync and `forge-frontier list`
+  read the frontier with it.
+- `github_write_token`, needed when a repository declares a worker: a
+  separate fine-grained personal access token with read and write access on
+  Contents, Pull requests and Issues. It must cover **every** declared
+  repository, not only those with a worker, because each frontier sync makes
+  sure all of them have the `forge:*` labels. Forge also uses it to move
+  dispatched tickets through those labels, and the dispatched agent gets it
+  as `GITHUB_TOKEN`, so the repository's skills can push branches and open
+  pull requests.
+
+```yaml
+openrouter_api_key: <your OpenRouter key>
+github_token: <your read-only GitHub token>
+github_write_token: <your GitHub write token>
+```
+
+A run can use the write token for anything it allows in every managed
+repository, so protect each default branch and give the token a short expiry.
+Each token is masked from the units that never use it, but every unit runs as
+one user, so a scheduled run can read either token through `/proc` from the
+frontier sync or a dispatch, until workloads are confined from each other.
+Treat every workload as able to use them.
 
 To see the frontier live, without waiting for the next poll, run
 `forge-frontier list` on the box as the `forge-runtime` user. It queries GitHub

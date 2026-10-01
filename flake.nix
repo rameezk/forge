@@ -171,6 +171,14 @@
             (rule: lib.hasInfix "/var/lib/forge" rule && lib.hasInfix "forge-runtime" rule)
             nixos.config.systemd.tmpfiles.rules
           ) "/var/lib/forge must be provisioned as a forge-runtime-owned state directory";
+          handPlacedTokensRemoved =
+            lib.asserts.assertMsg
+              (
+                lib.elem "r /var/lib/forge/github.env - - - - -" nixos.config.systemd.tmpfiles.rules
+                && lib.elem "R /var/lib/forge-credentials - - - - -" nixos.config.systemd.tmpfiles.rules
+                && !(lib.any (lib.hasPrefix "d /var/lib/forge-credentials") nixos.config.systemd.tmpfiles.rules)
+              )
+              "every host must delete a leftover hand-placed github.env and /var/lib/forge-credentials on activation, so no plain-text token stays behind";
           runtimeInert = lib.asserts.assertMsg (
             !(lib.any (name: lib.hasInfix "forge" name) (lib.attrNames nixos.config.systemd.services))
           ) "forge.runtime must stay inert when no workers are declared: no runner unit appears";
@@ -354,10 +362,30 @@
             && !(frontierService.serviceConfig ? IPAddressDeny)
           ) "the sync service must run forge-frontier sync as the forge-runtime user with outbound network";
           frontierSandboxed = lib.asserts.assertMsg (isHardened frontierService) "the sync service must be sandboxed like the runner";
-          frontierTokenOptional =
+          frontierTokenTemplate = repositoryHost.config.sops.templates."forge-github.env";
+          frontierTokenFromSops =
             lib.asserts.assertMsg
-              (frontierService.serviceConfig.EnvironmentFile == "-/var/lib/forge/github.env")
-              "the sync service must load the GitHub token file as an optional EnvironmentFile outside the Nix store";
+              (
+                frontierService.serviceConfig.EnvironmentFile == frontierTokenTemplate.path
+                && lib.hasPrefix "/run/secrets/" frontierTokenTemplate.path
+                && frontierTokenTemplate.owner == "forge-runtime"
+                && frontierTokenTemplate.mode == "0400"
+                &&
+                  frontierTokenTemplate.content
+                  == "GITHUB_TOKEN=${repositoryHost.config.sops.placeholder.github_token}\n"
+                && repositoryHost.config.sops.secrets.github_token.sopsFile == exampleSecretsFile
+                && !(workerHost.config.sops.secrets ? github_token)
+              )
+              "the sync service must load only GITHUB_TOKEN as a required EnvironmentFile, from a sops template of the runtime secrets file's github_token under /run/secrets readable only by forge-runtime, and a host without repositories must not need github_token";
+          frontierCommandReadsSopsToken =
+            let
+              command = lib.findFirst (
+                package: lib.getName package == "forge-frontier"
+              ) null repositoryHost.config.environment.systemPackages;
+            in
+            lib.asserts.assertMsg (
+              command != null && lib.hasInfix frontierTokenTemplate.path command.text
+            ) "the forge-frontier command must read GITHUB_TOKEN from the frontier token's sops template";
           frontierEnvWired = lib.asserts.assertMsg (
             lib.any (e: lib.hasInfix "FORGE_RUNTIME_CONFIG=" e) frontierService.serviceConfig.Environment
             && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") frontierService.serviceConfig.Environment
@@ -392,27 +420,31 @@
               )
               "declaring repositories without workers must run the dashboard, locked down as before, and no runner";
 
-          dispatchHostWith =
-            prompt:
+          repositoryModule = {
+            forge.runtime.repositories.forge.github = "rameezk/forge";
+          };
+          dispatchModuleWith = prompt: {
+            forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+            forge.runtime.workers.builder = {
+              harness = "pi";
+              model = "anthropic/claude-sonnet-4";
+              inherit prompt;
+            };
+            forge.runtime.repositories.forge = {
+              github = "rameezk/forge";
+              worker = "builder";
+            };
+          };
+          dispatchModule = dispatchModuleWith "/work-on {url}";
+          secretsHost =
+            secretsFile: module:
             mkHost {
               configFile = exampleConfigFile;
-              secretsFile = exampleSecretsFile;
-              modules = [
-                {
-                  forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
-                  forge.runtime.workers.builder = {
-                    harness = "pi";
-                    model = "anthropic/claude-sonnet-4";
-                    inherit prompt;
-                  };
-                  forge.runtime.repositories.forge = {
-                    github = "rameezk/forge";
-                    worker = "builder";
-                  };
-                }
-              ];
+              inherit secretsFile;
+              modules = [ module ];
             };
-          dispatchHost = dispatchHostWith "/work-on {url}";
+          dispatchHostWith = prompt: secretsHost exampleSecretsFile (dispatchModuleWith prompt);
+          dispatchHost = secretsHost exampleSecretsFile dispatchModule;
           dispatchUnit = dispatchHost.config.systemd.services."forge-dispatch@";
           hasDispatchCommand =
             host:
@@ -481,47 +513,77 @@
               )
               "the dispatch unit must be a oneshot running forge-dispatch for its instance as the forge-runtime user on the workload toolset";
           dispatchUnitSandboxed = lib.asserts.assertMsg (isHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
+          writeTokenTemplate = dispatchHost.config.sops.templates."forge-github-write.env";
+          writeTokenFileVariable = "FORGE_GITHUB_WRITE_TOKEN_FILE=${writeTokenTemplate.path}";
+          dispatchFrontierToken = dispatchHost.config.sops.templates."forge-github.env".path;
+          writeTokenFromSops =
+            lib.asserts.assertMsg
+              (
+                lib.hasPrefix "/run/secrets/" writeTokenTemplate.path
+                && writeTokenTemplate.owner == "forge-runtime"
+                && writeTokenTemplate.mode == "0400"
+                &&
+                  writeTokenTemplate.content
+                  == "GITHUB_TOKEN=${dispatchHost.config.sops.placeholder.github_write_token}\n"
+                && dispatchHost.config.sops.secrets.github_write_token.sopsFile == exampleSecretsFile
+                && writeTokenTemplate.path != dispatchFrontierToken
+                && !(workerAndRepositoryHost.config.sops.secrets ? github_write_token)
+              )
+              "the GitHub write token must be its own sops template of the runtime secrets file's github_write_token under /run/secrets, readable only by forge-runtime, and a host that does not dispatch must not need github_write_token";
           dispatchUnitEnvironmentFiles =
             lib.asserts.assertMsg
               (
                 dispatchUnit.serviceConfig.EnvironmentFile
                 == dispatchHost.config.sops.templates."forge-runner.env".path
-                && lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=/var/lib/forge-credentials/github-write.env" dispatchUnit.serviceConfig.Environment
-                && !(lib.any (lib.hasInfix "/var/lib/forge/github.env") dispatchUnit.serviceConfig.Environment)
+                && lib.elem writeTokenFileVariable dispatchUnit.serviceConfig.Environment
+                && hides dispatchFrontierToken dispatchUnit
               )
-              "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, read the GitHub write-token file as data, and never see the frontier's read-only token";
+              "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, read the GitHub write token's sops template as data, and never see the frontier's read-only token";
           dispatchHostSync = dispatchHost.config.systemd.services.forge-frontier-sync;
           frontierSyncEnsuresLabels =
             lib.asserts.assertMsg
               (
-                lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=/var/lib/forge-credentials/github-write.env" dispatchHostSync.serviceConfig.Environment
-                && dispatchHostSync.serviceConfig.EnvironmentFile == "-/var/lib/forge/github.env"
+                lib.elem writeTokenFileVariable dispatchHostSync.serviceConfig.Environment
+                && dispatchHostSync.serviceConfig.EnvironmentFile == dispatchFrontierToken
                 && !(lib.any (lib.hasInfix "FORGE_GITHUB_WRITE_TOKEN_FILE") frontierService.serviceConfig.Environment)
               )
-              "on a host that dispatches, the sync service must read the GitHub write-token file as data to ensure the forge labels, while polling with the frontier's read-only token; a host that does not dispatch must not give it the write token";
-          writeTokenHidden =
+              "on a host that dispatches, the sync service must read the GitHub write token's sops template as data to ensure the forge labels, while polling with the frontier's read-only token; a host that does not dispatch must not give it the write token";
+          forgeServices =
+            host: lib.filterAttrs (name: _: lib.hasPrefix "forge" name) host.config.systemd.services;
+          environmentFiles = unit: lib.toList (unit.serviceConfig.EnvironmentFile or [ ]);
+          writeTokenNeverLoaded = lib.asserts.assertMsg (lib.all
+            (unit: !(lib.elem writeTokenTemplate.path (environmentFiles unit)))
+            (lib.attrValues (forgeServices dispatchHost))
+          ) "no unit may load the GitHub write token as an EnvironmentFile: it is read only as data";
+          tokensHidden =
             let
               services = dispatchHost.config.systemd.services;
-              hides = unit: lib.elem "/var/lib/forge-credentials" (unit.serviceConfig.InaccessiblePaths or [ ]);
             in
             lib.asserts.assertMsg
               (
-                hides services."forge-runner@"
-                && hides services.forge-billing
-                && hides services.forge-frontend
-                && lib.elem "-/run/secrets" services.forge-frontend.serviceConfig.InaccessiblePaths
-                && lib.elem "d /var/lib/forge-credentials 0700 forge-runtime forge-runtime - -" dispatchHost.config.systemd.tmpfiles.rules
-                && !(lib.hasPrefix "/var/lib/forge/" dispatchHost.config.forge.runtime.githubWriteTokenFile)
+                lib.all (unit: hides dispatchFrontierToken unit && hides writeTokenTemplate.path unit) [
+                  services."forge-runner@"
+                  services.forge-billing
+                ]
+                && hides "/run/secrets" services.forge-frontend
               )
-              "the GitHub write-token file must live in its own always-present directory outside the run-writable state directory, masked without a missing-path exception from the scheduled runner, billing and the dashboard";
-          writeTokenSeparate =
+              "the frontier token and the GitHub write token must be inaccessible to the scheduled runner and billing, and every secret to the dashboard";
+          noHandPlacedTokens =
+            let
+              mentionsHandPlacedPath =
+                text:
+                lib.hasInfix "/var/lib/forge/github.env" text || lib.hasInfix "/var/lib/forge-credentials" text;
+              unitMentions =
+                unit:
+                lib.any mentionsHandPlacedPath (environmentFiles unit ++ (unit.serviceConfig.Environment or [ ]));
+            in
             lib.asserts.assertMsg
               (
-                dispatchHost.config.forge.runtime.githubWriteTokenFile
-                == "/var/lib/forge-credentials/github-write.env"
-                && dispatchHost.config.forge.runtime.githubTokenFile == "/var/lib/forge/github.env"
+                !(dispatchHost.options.forge.runtime ? githubTokenFile)
+                && !(dispatchHost.options.forge.runtime ? githubWriteTokenFile)
+                && !(lib.any unitMentions (lib.attrValues (forgeServices dispatchHost)))
               )
-              "the GitHub write-token file must be its own file, apart from the frontier's read-only token file";
+              "the githubTokenFile and githubWriteTokenFile options must be gone, and no unit may read a token from the state directory or /var/lib/forge-credentials: both GitHub tokens come only from sops";
           dispatchCommandInstalled =
             lib.asserts.assertMsg
               (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))
@@ -596,8 +658,9 @@
             assert runtimeUserDefined;
             assert stateDirProvisioned;
             assert runtimeInert;
+            assert handPlacedTokensRemoved;
             pkgs.runCommand "runtime-foundation" { } ''
-              echo "forge.runtime composed and inert; forge-runtime user and /var/lib/forge state dir provisioned" > $out
+              echo "forge.runtime composed and inert; forge-runtime user and /var/lib/forge state dir provisioned; hand-placed GitHub token files removed" > $out
             '';
 
           runtime-runner =
@@ -631,7 +694,8 @@
             assert frontierDeclared;
             assert frontierSyncs;
             assert frontierSandboxed;
-            assert frontierTokenOptional;
+            assert frontierTokenFromSops;
+            assert frontierCommandReadsSopsToken;
             assert frontierEnvWired;
             assert frontierPollsAtInterval;
             assert frontierDefaultInterval;
@@ -640,7 +704,7 @@
             assert dashboardWithoutWorkers;
             assert frontierCommandInstalled;
             pkgs.runCommand "runtime-frontier" { } ''
-              echo "declaring a repository wires a forge-frontier-sync timer and service with an optional GitHub token file, puts forge-frontier on the path, and runs the dashboard without workers" > $out
+              echo "declaring a repository wires a forge-frontier-sync timer and service with the GitHub token from a sops template, puts forge-frontier on the path reading the same token, and runs the dashboard without workers" > $out
             '';
 
           runtime-dispatch =
@@ -653,11 +717,13 @@
             assert dispatchUnitSandboxed;
             assert dispatchUnitEnvironmentFiles;
             assert frontierSyncEnsuresLabels;
-            assert writeTokenSeparate;
-            assert writeTokenHidden;
+            assert writeTokenFromSops;
+            assert writeTokenNeverLoaded;
+            assert tokensHidden;
+            assert noHandPlacedTokens;
             assert dispatchCommandInstalled;
             pkgs.runCommand "runtime-dispatch" { } ''
-              echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command and the GitHub write token, and a worker without a ticket placeholder fails evaluation" > $out
+              echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command and the GitHub write token from sops, and a worker without a ticket placeholder fails evaluation" > $out
             '';
 
           runtime-billing =
@@ -682,6 +748,29 @@
           forge-shared = self.packages.${system}.forge-shared;
           forge-runner = self.packages.${system}.forge-runner;
           frontier-command = pkgs.callPackage ./infra/nix/frontier-command-check.nix { };
+          runtime-secrets = pkgs.callPackage ./infra/nix/runtime-secrets-check.nix {
+            inherit (sops-nix.packages.${system}) sops-install-secrets;
+            cases = [
+              {
+                name = "repository-without-github-token";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github.yaml repositoryModule;
+                refusedKey = "github_token";
+              }
+              {
+                name = "repository-without-write-token";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-write.yaml repositoryModule;
+              }
+              {
+                name = "dispatch-without-write-token";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-write.yaml dispatchModule;
+                refusedKey = "github_write_token";
+              }
+              {
+                name = "dispatch-with-every-token";
+                host = secretsHost exampleSecretsFile dispatchModule;
+              }
+            ];
+          };
           dashboard-stylesheet = pkgs.callPackage ./infra/nix/dashboard-stylesheet.nix {
             forge-runner = self.packages.${system}.forge-runner;
           };
@@ -692,6 +781,11 @@
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           runtime-toolset = pkgs.callPackage ./infra/nix/runtime-toolset.nix {
             forge-runner = self.packages.${system}.forge-runner;
+            sopsModule = sops-nix.nixosModules.sops;
+            secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
+          };
+          github-tokens = pkgs.callPackage ./infra/nix/github-tokens.nix {
             sopsModule = sops-nix.nixosModules.sops;
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
