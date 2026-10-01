@@ -121,10 +121,11 @@ let
     mode = "0400";
   };
 
-  readWriteTokenAsCredential = {
-    LoadCredential = [ "github-write-token:${envFile "forge-github-write.env"}" ];
+  writeTokenCredentialId = "github-write-token";
+  writeTokenCredential = {
+    LoadCredential = [ "${writeTokenCredentialId}:${envFile "forge-github-write.env"}" ];
   };
-  writeTokenFileVariable = "FORGE_GITHUB_WRITE_TOKEN_FILE=%d/github-write-token";
+  writeTokenFileVariable = "FORGE_GITHUB_WRITE_TOKEN_FILE=%d/${writeTokenCredentialId}";
 
   hardening = {
     NoNewPrivileges = true;
@@ -345,7 +346,7 @@ in
           ++ lib.optional hasDispatch writeTokenFileVariable;
           ExecStart = "${cfg.package}/bin/forge-frontier sync";
         }
-        // lib.optionalAttrs hasDispatch readWriteTokenAsCredential
+        // lib.optionalAttrs hasDispatch writeTokenCredential
         // hardening;
       };
 
@@ -387,7 +388,7 @@ in
           ];
           ExecStart = "${dispatchInstance} %i";
         }
-        // readWriteTokenAsCredential
+        // writeTokenCredential
         // hardening;
       };
     })
