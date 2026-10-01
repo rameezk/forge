@@ -129,6 +129,22 @@ let
     ) dispatchedRepositories
   );
 
+  runtimeUser = config.users.users.${cfg.user};
+  runtimeGroups = lib.unique (
+    [ runtimeUser.group ]
+    ++ lib.attrNames (lib.filterAttrs (_: group: lib.elem cfg.user group.members) config.users.groups)
+  );
+  runtimeTrustNames = [
+    cfg.user
+    "*"
+  ]
+  ++ map (group: "@${group}") runtimeGroups;
+
+  untrustedAssertion = {
+    assertion = !(lib.any (name: lib.elem name runtimeTrustNames) config.nix.settings.trusted-users);
+    message = "${cfg.user} must never be a trusted nix user, by name, by group or through a wildcard in nix.settings.trusted-users: a trusted user can add unsigned paths and change substituters, so one workload could plant a tool for a later one through the store";
+  };
+
   dispatchInstance = pkgs.writeShellScript "forge-dispatch-instance" ''
     exec ${cfg.package}/bin/forge-dispatch "''${1%:*}" "''${1##*:}"
   '';
@@ -237,8 +253,8 @@ in
 
     toolset = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = map (name: pkgs.${name}) baseToolset;
-      defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ]";
+      default = map (name: pkgs.${name}) baseToolset ++ [ config.nix.package ];
+      defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ] ++ [ config.nix.package ]";
       example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
       description = "Workload toolset: the packages that make up the runner unit's whole path, so a workload's harness and its subagents can invoke them and nothing else. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
     };
@@ -281,9 +297,24 @@ in
 
   config = lib.mkMerge [
     {
-      assertions = [ gitIdentityAssertion ] ++ dispatchAssertions;
+      assertions = [
+        gitIdentityAssertion
+        untrustedAssertion
+      ]
+      ++ dispatchAssertions;
 
       security.allowUserNamespaces = true;
+
+      nix.settings.experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
+
+      nix.gc = {
+        automatic = true;
+        dates = [ "weekly" ];
+        options = "--delete-older-than 14d";
+      };
 
       users.users.${cfg.user} = {
         isSystemUser = true;

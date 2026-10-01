@@ -194,6 +194,50 @@
           runtimeHomeEmpty =
             lib.asserts.assertMsg (nixos.config.users.users.forge-runtime.home == "/var/empty")
               "the forge-runtime user's home must be /var/empty, so none of forge's processes read dotfiles from the state directory";
+          nixSettings = nixos.config.nix.settings;
+          flakesEnabled =
+            lib.asserts.assertMsg
+              (lib.all (feature: lib.elem feature (nixSettings.experimental-features or [ ])) [
+                "nix-command"
+                "flakes"
+              ])
+              "the forge.runtime module must enable nix-command and flakes box-wide, so a workload can run nix run and nix print-dev-env";
+          storeCollectedWeekly =
+            lib.asserts.assertMsg
+              (
+                nixos.config.nix.gc.automatic
+                && nixos.config.nix.gc.dates == [ "weekly" ]
+                && nixos.config.nix.gc.options == "--delete-older-than 14d"
+              )
+              "the nix store must be garbage collected weekly, deleting anything older than 14 days, to match the age-out of run directories";
+          nixInToolset = lib.asserts.assertMsg (lib.elem nixos.config.nix.package nixos.config.forge.runtime.toolset) "the base workload toolset must carry the box's nix, so a workload can use nix through the daemon";
+          trustingHost =
+            module:
+            mkHost {
+              configFile = exampleConfigFile;
+              secretsFile = exampleSecretsFile;
+              modules = [ module ];
+            };
+          trusting = trustedUsers: { nix.settings.trusted-users = trustedUsers; };
+          trustedRuntimeFails =
+            module:
+            let
+              host = trustingHost module;
+            in
+            !(evaluates host)
+            && lib.any (lib.hasInfix "must never be a trusted nix user") (failedAssertions host);
+          runtimeNeverTrusted =
+            lib.asserts.assertMsg
+              (
+                lib.all trustedRuntimeFails [
+                  (trusting [ "forge-runtime" ])
+                  (trusting [ "@forge-runtime" ])
+                  (trusting [ "*" ])
+                  (trusting [ "@wheel" ] // { users.users.forge-runtime.extraGroups = [ "wheel" ]; })
+                ]
+                && evaluates (trustingHost (trusting [ "@wheel" ]))
+              )
+              "a host that makes forge-runtime a trusted nix user, by name, by any of its groups or through a wildcard, must fail evaluation: one workload could otherwise plant a tool for a later one through the store";
           runtimeInert = lib.asserts.assertMsg (
             !(lib.any (name: lib.hasInfix "forge" name) (lib.attrNames nixos.config.systemd.services))
           ) "forge.runtime must stay inert when no workers are declared: no runner unit appears";
@@ -704,6 +748,15 @@
             assert runtimeHomeEmpty;
             pkgs.runCommand "runtime-foundation" { } ''
               echo "forge.runtime composed and inert; forge-runtime user with an empty home and /var/lib/forge state dir provisioned; user namespaces allowed for the workload sandbox; hand-placed GitHub token files removed" > $out
+            '';
+
+          runtime-nix =
+            assert flakesEnabled;
+            assert storeCollectedWeekly;
+            assert nixInToolset;
+            assert runtimeNeverTrusted;
+            pkgs.runCommand "runtime-nix" { } ''
+              echo "flakes enabled box-wide; the store collected weekly, deleting anything older than 14 days; nix in the base workload toolset; forge-runtime never a trusted nix user" > $out
             '';
 
           runtime-runner =
