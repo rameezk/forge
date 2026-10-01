@@ -28,6 +28,10 @@ _Avoid_: base image, tool path
 The per-workload working directory a harness runs in, kept after the run as an artifact until it ages out.
 _Avoid_: workdir, sandbox
 
+**Workload sandbox**:
+The bubblewrap sandbox a workload's harness and its subagents run in: the Nix store and system files read-only, the run directory read-write, a throwaway `/tmp` and HOME, and no view of the state directory, the secrets or any other process. The harness holds only the credentials the runner deliberately puts in its environment (ADR-0024).
+_Avoid_: container, jail
+
 **Generation**:
 One model response within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time. The store also keeps a given-up row with no id where a response used tokens without one, or where a workload never ended and later generations may be unrecorded.
 _Avoid_: response, completion, call

@@ -250,10 +250,10 @@ github_write_token: <your GitHub write token>
 A run can use the write token for anything it allows in every managed
 repository, so protect each default branch and give the token a short expiry.
 No forge service can read the decrypted secrets on the box; each gets only
-the tokens it uses, from systemd. Every service runs as one user, though, so a
-scheduled run can read either token through `/proc` from the frontier sync or
-a dispatch, until workloads are confined from each other.
-Treat every workload as able to use them.
+the tokens it uses, from systemd. A workload's agent runs in a sandbox that
+sees neither the secrets nor any other process, so it holds only what forge
+hands it: the OpenRouter key, and the write token on a dispatch. Treat every
+dispatched workload as able to use the write token.
 
 To see the frontier live, without waiting for the next poll, run
 `forge-frontier list` on the box as the `forge-runtime` user. It queries GitHub
@@ -327,6 +327,23 @@ recorded outcome. To retry a ticket, label it `forge:ready` again. The labels ar
 the only thing forge writes to a ticket. On a host that dispatches, each
 frontier sync also makes sure every declared repository has the four `forge:*`
 labels, with their fixed descriptions and colours.
+
+## The workload sandbox
+
+Every workload's harness, and every subagent it spawns, runs in a bubblewrap
+sandbox. It sees the Nix store, `/etc`, `/bin` and `/usr` read-only, its own
+run directory read-write, and a fresh `/tmp` and HOME that are thrown away
+when the workload ends. The state directory, `/run` and every other process
+on the box are hidden from it, and it shares the box's network. It cannot
+create user namespaces of its own, so tools that need them, such as rootless
+containers, do not work in a workload. Anything a workload should keep
+belongs in its run directory.
+
+The harness command must be an absolute path. It is resolved to its real path
+before the sandbox starts, so a command under `/run/current-system/sw/bin`
+works. Any path in the harness's extra `args` must be in the Nix store, since
+the sandbox sees nothing else of the box. If the sandbox cannot start, the
+workload fails with that reason, and the harness never runs unconfined.
 
 ## Inspecting the run store
 

@@ -135,6 +135,7 @@ const launch = async ({
   github,
   token,
   gitEnv,
+  identity,
   ticket,
   runId,
 }: {
@@ -144,20 +145,22 @@ const launch = async ({
   github: string;
   token: string;
   gitEnv: Record<string, string>;
+  identity: GitIdentity;
   ticket: DispatchTicket;
   runId: string;
 }): Promise<LaunchResult> => {
   const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
-  const workloadEnv = { ...env, GITHUB_TOKEN: token, ...gitEnv };
+  const cloneEnv = { ...env, GITHUB_TOKEN: token, ...gitEnv };
   return launchWorkload({
     config,
     worker,
-    env: workloadEnv,
+    env,
+    harnessEnv: { GITHUB_TOKEN: token, ...gitEnvironment({}, identity) },
     secrets: [token],
     ticket,
     runId,
     openWorkspace: async (workDir) => {
-      await cloneCheckout(github, workDir, workloadEnv);
+      await cloneCheckout(github, workDir, cloneEnv);
       return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
     },
   });
@@ -180,7 +183,8 @@ export const main = async (
   const config = readRuntimeConfig(env);
   const repository = repositoryNamed(config.repositories, name);
   const worker = resolveWorker(config, repository.worker);
-  const gitEnv = gitEnvironment(env, gitIdentityOf(config));
+  const identity = gitIdentityOf(config);
+  const gitEnv = gitEnvironment(env, identity);
   const token = githubWriteToken(env);
 
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
@@ -239,6 +243,7 @@ export const main = async (
           github: repository.github,
           token,
           gitEnv,
+          identity,
           ticket: dispatched,
           runId,
         });

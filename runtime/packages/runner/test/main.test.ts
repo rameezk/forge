@@ -1,16 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { basename, join, sep } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import {
   parseTranscript,
   Store,
@@ -20,7 +23,14 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import type { WorkerConfig } from '../src/index.ts';
-import { journaled, LOCKDOWN, PI_CONTRACT, writeFakePi } from './helpers.ts';
+import {
+  journaled,
+  LOCKDOWN,
+  PI_CONTRACT,
+  writeFakeBwrap,
+  writeFakePi,
+  type BwrapCall,
+} from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { main } from '../src/main.ts';
 
@@ -33,6 +43,8 @@ const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
 const OPERATOR_EXTRAS = ['--skill', '/opt/forge/skills/review'];
+
+const RUNNER_HOME = '/var/empty';
 
 type GenerationStats = (
   id: string,
@@ -138,6 +150,8 @@ interface Scenario {
   stderr?: string;
   exit?: number;
   lingerMs?: number;
+  bwrapFailure?: string;
+  harness?: 'direct' | 'linked' | 'missing' | 'relative';
 }
 
 interface Outcome {
@@ -145,6 +159,8 @@ interface Outcome {
   stateDir: string;
   run: RunRecord;
   transcript: string;
+  bwrap: BwrapCall;
+  piStarted: boolean;
   pi: {
     argv: string[];
     cwd: string;
@@ -176,10 +192,50 @@ const storedGenerations = (
 ): GenerationRecord[] =>
   withStore(stateDir, (store) => store.listGenerations(runId));
 
+const systemPi = (stateDir: string): string =>
+  join(stateDir, 'current-system', 'sw', 'bin', 'pi');
+
+const harnessCommand = (
+  stateDir: string,
+  fakePi: string,
+  harness: Scenario['harness'] = 'direct',
+): string => {
+  switch (harness) {
+    case 'direct':
+      return fakePi;
+    case 'linked':
+      mkdirSync(dirname(systemPi(stateDir)), { recursive: true });
+      symlinkSync(fakePi, systemPi(stateDir));
+      return systemPi(stateDir);
+    case 'missing':
+      return systemPi(stateDir);
+    case 'relative':
+      return 'pi';
+  }
+};
+
 const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
   const fakePi = writeFakePi(stateDir);
   const record = join(stateDir, 'pi-call.json');
+  const bwrapRecord = join(stateDir, 'bwrap-call.json');
+  const fakeBwrap = writeFakeBwrap(stateDir, {
+    record: bwrapRecord,
+    harnessEnv: {
+      FAKE_PI_RECORD: record,
+      FAKE_PI_OUTPUT: scenario.output,
+      FAKE_PI_EXIT: String(scenario.exit ?? 0),
+      ...(scenario.stderr === undefined
+        ? {}
+        : { FAKE_PI_STDERR: scenario.stderr }),
+      ...(scenario.lingerMs === undefined
+        ? {}
+        : { FAKE_PI_LINGER_MS: String(scenario.lingerMs) }),
+    },
+    ...(scenario.bwrapFailure === undefined
+      ? {}
+      : { failure: scenario.bwrapFailure }),
+  });
 
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -187,7 +243,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     JSON.stringify({
       harnesses: {
         pi: {
-          command: fakePi,
+          command: harnessCommand(stateDir, fakePi, scenario.harness),
           ...(scenario.harnessArgs === undefined
             ? {}
             : { args: scenario.harnessArgs }),
@@ -212,20 +268,13 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       ? {}
       : { OPENROUTER_BASE_URL: scenario.openRouterBaseUrl }),
     OPENROUTER_API_KEY: scenario.openRouterKey ?? OPENROUTER_KEY,
+    HOME: RUNNER_HOME,
     FORGE_RUNTIME_CONFIG: configPath,
     FORGE_STATE_DIR: stateDir,
     FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
     FORGE_PI_AGENT_DIR: AGENT_DIR,
+    FORGE_BWRAP: fakeBwrap,
     ...scenario.env,
-    FAKE_PI_RECORD: record,
-    FAKE_PI_OUTPUT: scenario.output,
-    FAKE_PI_EXIT: String(scenario.exit ?? 0),
-    ...(scenario.stderr === undefined
-      ? {}
-      : { FAKE_PI_STDERR: scenario.stderr }),
-    ...(scenario.lingerMs === undefined
-      ? {}
-      : { FAKE_PI_LINGER_MS: String(scenario.lingerMs) }),
   });
 
   const transcripts = readdirSync(join(stateDir, 'transcripts'));
@@ -240,7 +289,13 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       join(stateDir, 'transcripts', `${runId}.jsonl`),
       'utf8',
     ),
-    pi: JSON.parse(readFileSync(record, 'utf8')) as Outcome['pi'],
+    get bwrap() {
+      return JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall;
+    },
+    piStarted: existsSync(record),
+    get pi() {
+      return JSON.parse(readFileSync(record, 'utf8')) as Outcome['pi'];
+    },
   };
 };
 
@@ -732,15 +787,6 @@ test('given a wrapper that supplies a read-only agent dir and an environment alr
   assert.equal(pi.agentDir, AGENT_DIR);
 });
 
-test('given a scheduled workload on a host whose dispatch git identity is set, when it runs, then its environment has no git identity, credential helper or GitHub token', async () => {
-  const { pi } = await runWorker({ output: fixture('success.jsonl') });
-
-  assert.deepEqual(
-    Object.keys(pi.env).filter((name) => /^(GIT_|GITHUB_TOKEN$)/.test(name)),
-    [],
-  );
-});
-
 test('given any worker, when it runs, then pi works in a fresh per-run directory under the state directory, never the state directory itself', async () => {
   const { stateDir, run, pi } = await runWorker({
     output: fixture('success.jsonl'),
@@ -750,6 +796,138 @@ test('given any worker, when it runs, then pi works in a fresh per-run directory
   assert.notEqual(pi.cwd, state);
   assert.ok(pi.cwd.startsWith(state + sep));
   assert.match(pi.cwd, new RegExp(`${run.id}$`));
+});
+
+test('given a workload about to start, when the runner launches its harness, then pi runs inside bubblewrap with the nix store, the daemon socket and the system files read-only, its run directory read-write at its real path, fresh /dev, /proc, /tmp and HOME, its own pid, ipc and uts namespaces, no nested user namespaces, and nothing else from the box', async () => {
+  const { bwrap, pi, run, stateDir } = await runWorker({
+    output: fixture('success.jsonl'),
+  });
+
+  const workDir = join(stateDir, 'work', run.id);
+  const separator = bwrap.argv.indexOf('--');
+  assert.deepEqual(bwrap.argv.slice(0, separator), [
+    '--unshare-user',
+    '--disable-userns',
+    '--unshare-pid',
+    '--unshare-ipc',
+    '--unshare-uts',
+    '--die-with-parent',
+    '--new-session',
+    '--ro-bind', '/nix/store', '/nix/store',
+    '--ro-bind', '/nix/var/nix/daemon-socket', '/nix/var/nix/daemon-socket',
+    '--ro-bind', '/etc', '/etc',
+    '--ro-bind', '/bin', '/bin',
+    '--ro-bind', '/usr', '/usr',
+    '--dev', '/dev',
+    '--proc', '/proc',
+    '--tmpfs', '/tmp',
+    '--tmpfs', RUNNER_HOME,
+    '--bind', workDir, workDir,
+    '--remount-ro', '/',
+    '--chdir', workDir,
+    '--json-status-fd', '3',
+  ]);
+  assert.deepEqual(bwrap.argv.slice(separator + 1).slice(1), pi.argv);
+  assert.equal(pi.cwd, realpathSync(workDir));
+});
+
+test('given a harness command reached through a link the sandbox does not carry, like /run/current-system/sw/bin/pi, when the runner launches the harness, then pi and its subagents are started by its real path', async () => {
+  const { bwrap, pi } = await runWorker({
+    output: fixture('success.jsonl'),
+    harness: 'linked',
+  });
+
+  const command = bwrap.argv[bwrap.argv.indexOf('--') + 1];
+  const [subagentCommand] = (
+    JSON.parse(pi.subagentInvocation ?? 'null') as { argv: string[] }
+  ).argv;
+  assert.match(command ?? '', /fake-pi\.mjs$/);
+  assert.equal(command, realpathSync(command ?? ''));
+  assert.equal(subagentCommand, command);
+});
+
+test('given a harness command that does not exist, or one that is not an absolute path, when the worker runs, then the run is recorded as error naming the command, and pi never starts', async () => {
+  const missing = await runWorker({
+    output: fixture('success.jsonl'),
+    harness: 'missing',
+  });
+  const relative = await runWorker({
+    output: fixture('success.jsonl'),
+    harness: 'relative',
+  });
+
+  assert.ok(
+    (missing.run.error ?? '').startsWith(
+      `the harness command ${systemPi(missing.stateDir)} cannot be resolved: ENOENT`,
+    ),
+    missing.run.error ?? '',
+  );
+  assert.equal(
+    relative.run.error,
+    'the harness command pi cannot be resolved: it is not an absolute path',
+  );
+  for (const { code, run, piStarted } of [missing, relative]) {
+    assert.equal(code, 1);
+    assert.equal(run.status, 'error');
+    assert.equal(piStarted, false);
+  }
+});
+
+test('given a runner whose own environment holds more than the harness needs, when it launches the harness, then the harness environment holds only the system settings, its throwaway HOME, the OpenRouter key and pi\'s own variables', async () => {
+  const { bwrap } = await runWorker({
+    output: fixture('success.jsonl'),
+    env: {
+      PATH: '/nix/store/00000000000000000000000000000000-toolset/bin',
+      LANG: 'en_US.UTF-8',
+      LOCALE_ARCHIVE: '/nix/store/00000000000000000000000000000000-locales/lib/locale/locale-archive',
+      TZDIR: '/etc/zoneinfo',
+      GITHUB_TOKEN: 'github_pat_from_the_runner',
+      FORGE_GITHUB_WRITE_TOKEN_FILE: '/run/credentials/forge-dispatch@forge:113.service/github-write-token',
+      CREDENTIALS_DIRECTORY: '/run/credentials/forge-runner@refiner.service',
+      NODE_OPTIONS: '--require /var/lib/forge/planted.js',
+      GIT_CONFIG_COUNT: '0',
+    },
+  });
+
+  assert.deepEqual(Object.keys(bwrap.env).sort(), [
+    'FORGE_PI_SUBAGENT_INVOCATION',
+    'HOME',
+    'LANG',
+    'LOCALE_ARCHIVE',
+    'OPENROUTER_API_KEY',
+    'PATH',
+    'PI_CODING_AGENT_DIR',
+    'TZDIR',
+  ]);
+  assert.equal(bwrap.env.OPENROUTER_API_KEY, OPENROUTER_KEY);
+  assert.equal(bwrap.env.HOME, RUNNER_HOME);
+});
+
+test('given a sandbox that cannot set up or a bubblewrap that is missing, when the runner launches the harness, then the run is error naming the sandbox and why, and pi never starts', async () => {
+  const refused = await journaled(() =>
+    runWorker({
+      output: fixture('success.jsonl'),
+      bwrapFailure: 'bwrap: setting up uid map: Permission denied',
+    }),
+  ).then(({ result }) => result);
+  const missing = await runWorker({
+    output: fixture('success.jsonl'),
+    env: { FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap' },
+  });
+
+  assert.equal(
+    refused.run.error,
+    'the workload sandbox could not start: bwrap: setting up uid map: Permission denied',
+  );
+  assert.equal(
+    missing.run.error,
+    'the workload sandbox could not start: spawn /nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap ENOENT',
+  );
+  for (const { code, run, piStarted } of [refused, missing]) {
+    assert.equal(code, 1);
+    assert.equal(run.status, 'error');
+    assert.equal(piStarted, false);
+  }
 });
 
 test('given pi failing pre-flight with its reason on stderr and exit 1, when the worker runs, then the run is error carrying that reason and stderr still reaches the journal', async () => {
@@ -1123,18 +1301,18 @@ test('given a billing service with no OpenRouter key, a key that is not a valid 
   }
 });
 
-test('given a runner whose subagent extension or read-only agent dir for pi is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
-  const cases = [undefined, '', 'pi'].flatMap(
-    (value): [NodeJS.ProcessEnv, RegExp][] => [
-      [
-        { FORGE_PI_AGENT_DIR: AGENT_DIR, FORGE_PI_SUBAGENT_EXTENSION: value },
-        /FORGE_PI_SUBAGENT_EXTENSION is not set to an absolute path/,
-      ],
-      [
-        { FORGE_PI_SUBAGENT_EXTENSION: EXTENSION, FORGE_PI_AGENT_DIR: value },
-        /FORGE_PI_AGENT_DIR is not set to an absolute path/,
-      ],
-    ],
+test('given a runner whose subagent extension, read-only agent dir, bubblewrap or HOME is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
+  const valid = {
+    FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
+    FORGE_PI_AGENT_DIR: AGENT_DIR,
+    FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap',
+    HOME: RUNNER_HOME,
+  };
+  const cases = [undefined, '', 'pi'].flatMap((value) =>
+    Object.keys(valid).map((name): [NodeJS.ProcessEnv, RegExp] => [
+      { ...valid, [name]: value },
+      new RegExp(`${name} is not set to an absolute path`),
+    ]),
   );
 
   for (const [env, refusal] of cases) {

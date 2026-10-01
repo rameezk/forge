@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { createInterface } from 'node:readline';
-import type {
-  HarnessEvent,
-  MessageEvent,
-  ToolCallEvent,
-  ToolResultEvent,
+import {
+  errorMessage,
+  type HarnessEvent,
+  type MessageEvent,
+  type ToolCallEvent,
+  type ToolResultEvent,
 } from '@forge/shared';
 import {
   SUBAGENT_INVOCATION_ENV,
@@ -13,6 +15,7 @@ import {
   type SubagentUpdate,
 } from '@forge/pi-subagent';
 import { requireSkill } from './checkout.ts';
+import { spawnSandboxed, type Sandbox } from './sandbox.ts';
 import {
   UNATTENDED_INSTRUCTION,
   type Checkout,
@@ -305,74 +308,102 @@ class PiStream {
   }
 }
 
+const realCommand = (command: string): string => {
+  const unresolved = (reason: string): Error =>
+    new Error(`the harness command ${command} cannot be resolved: ${reason}`);
+  if (!isAbsolute(command)) {
+    throw unresolved('it is not an absolute path');
+  }
+  try {
+    return realpathSync(command);
+  } catch (cause) {
+    throw unresolved(errorMessage(cause));
+  }
+};
+
 export interface PiHarnessOptions {
   command: string;
   extension: string;
   agentDir: string;
+  sandbox: Sandbox;
+  env: Record<string, string>;
   extraArgs?: string[];
-  env?: NodeJS.ProcessEnv;
 }
 
 export class PiHarness implements Harness {
   readonly #command: string;
   readonly #extension: string;
   readonly #agentDir: string;
+  readonly #sandbox: Sandbox;
   readonly #extraArgs: string[];
-  readonly #env: NodeJS.ProcessEnv;
+  readonly #env: Record<string, string>;
 
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
     this.#extension = options.extension;
     this.#agentDir = options.agentDir;
+    this.#sandbox = options.sandbox;
     this.#extraArgs = options.extraArgs ?? [];
-    this.#env = options.env ?? process.env;
+    this.#env = options.env;
   }
 
   async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
     const stream = new PiStream();
+    const command = realCommand(this.#command);
     const args = piArgs(invocation, this.#extension, this.#extraArgs);
-    const child = spawn(this.#command, args, {
-      cwd: invocation.workDir,
-      env: {
-        ...this.#env,
-        ...piEnv(this.#agentDir),
-        [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
-          subagentInvocation(this.#command, invocation),
-        ),
+    const { child, stdout, stderr, harnessRan } = spawnSandboxed(
+      this.#sandbox,
+      command,
+      args,
+      {
+        workDir: invocation.workDir,
+        env: {
+          ...this.#env,
+          ...piEnv(this.#agentDir),
+          [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
+            subagentInvocation(command, invocation),
+          ),
+        },
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    );
 
     let stderrTail = '';
-    child.stderr.on('data', (chunk: Buffer) => {
+    stderr.on('data', (chunk: Buffer) => {
       process.stderr.write(chunk);
       stderrTail = (stderrTail + chunk.toString()).slice(-STDERR_TAIL_CHARS);
     });
 
-    const exit = new Promise<Error | null>((resolve) => {
-      child.on('error', resolve);
-      child.on('close', (code, signal) => {
-        if (code === 0) {
-          resolve(null);
-          return;
-        }
-        const how =
-          code === null ? `on signal ${String(signal)}` : `with code ${code}`;
-        const reason = stderrTail.trim();
-        resolve(
-          new Error(
-            reason.length === 0
-              ? `pi exited ${how}`
-              : `pi exited ${how}: ${reason}`,
-          ),
-        );
-      });
+    const closed = new Promise<Error | { code: number | null; signal: string | null }>(
+      (resolve) => {
+        child.on('error', resolve);
+        child.on('close', (code, signal) => resolve({ code, signal }));
+      },
+    );
+
+    const exit = closed.then(async (closing): Promise<Error | null> => {
+      const reason = stderrTail.trim();
+      if (!(await harnessRan)) {
+        const why = closing instanceof Error ? closing.message : reason;
+        return new Error(`the workload sandbox could not start: ${why}`);
+      }
+      if (closing instanceof Error) {
+        return closing;
+      }
+      const { code, signal } = closing;
+      if (code === 0) {
+        return null;
+      }
+      const how =
+        code === null ? `on signal ${String(signal)}` : `with code ${code}`;
+      return new Error(
+        reason.length === 0 ? `pi exited ${how}` : `pi exited ${how}: ${reason}`,
+      );
     });
 
     let drained = false;
     try {
       const lines = createInterface({
-        input: child.stdout,
+        input: stdout,
         crlfDelay: Infinity,
       });
       for await (const line of lines) {

@@ -10,13 +10,13 @@ let
   harnessModule = lib.types.submodule {
     options = {
       command = lib.mkOption {
-        type = lib.types.str;
-        description = "Executable that runs this harness headlessly and emits its event stream.";
+        type = lib.types.strMatching "/.+";
+        description = "Executable that runs this harness headlessly and emits its event stream. It must be an absolute path, and it is resolved to its real path before the workload sandbox starts, so it must resolve into the Nix store.";
       };
       args = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
-        description = "Operator extra arguments for the harness, passed after the invocation the runner builds and before the prompt. The runner owns the harness's own CLI contract.";
+        description = "Operator extra arguments for the harness, passed after the invocation the runner builds and before the prompt. The runner owns the harness's own CLI contract. The harness runs in the workload sandbox, so any path an argument names must be in the Nix store.";
       };
     };
   };
@@ -165,6 +165,10 @@ let
     ];
   };
 
+  workloadHardening = hardening // {
+    ProtectKernelTunables = false;
+  };
+
   baseToolset = [
     "bash"
     "coreutils"
@@ -279,10 +283,12 @@ in
     {
       assertions = [ gitIdentityAssertion ] ++ dispatchAssertions;
 
+      security.allowUserNamespaces = true;
+
       users.users.${cfg.user} = {
         isSystemUser = true;
         group = cfg.user;
-        home = cfg.stateDir;
+        home = "/var/empty";
         description = "Forge runtime service user";
       };
       users.groups.${cfg.user} = { };
@@ -319,7 +325,7 @@ in
           ];
           ExecStart = "${cfg.package}/bin/forge-run %i";
         }
-        // hardening;
+        // workloadHardening;
       };
 
       systemd.services.forge-billing = {
@@ -420,7 +426,7 @@ in
           ExecStart = "${dispatchInstance} %i";
         }
         // writeTokenCredential
-        // hardening;
+        // workloadHardening;
       };
     })
 

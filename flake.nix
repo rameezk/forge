@@ -179,6 +179,21 @@
                 && !(lib.any (lib.hasPrefix "d /var/lib/forge-credentials") nixos.config.systemd.tmpfiles.rules)
               )
               "every host must delete a leftover hand-placed github.env and /var/lib/forge-credentials on activation, so no plain-text token stays behind";
+          definedByRuntimeModule =
+            option:
+            lib.any (
+              definition: lib.hasSuffix "/infra/nixos/runtime.nix" (toString definition.file)
+            ) option.definitionsWithLocations;
+          sandboxSupported =
+            lib.asserts.assertMsg
+              (
+                nixos.config.security.allowUserNamespaces
+                && definedByRuntimeModule nixos.options.security.allowUserNamespaces
+              )
+              "the forge.runtime module must allow user namespaces explicitly: every workload's harness runs in a bubblewrap sandbox that needs them";
+          runtimeHomeEmpty =
+            lib.asserts.assertMsg (nixos.config.users.users.forge-runtime.home == "/var/empty")
+              "the forge-runtime user's home must be /var/empty, so none of forge's processes read dotfiles from the state directory";
           runtimeInert = lib.asserts.assertMsg (
             !(lib.any (name: lib.hasInfix "forge" name) (lib.attrNames nixos.config.systemd.services))
           ) "forge.runtime must stay inert when no workers are declared: no runner unit appears";
@@ -215,7 +230,7 @@
             && lib.hasInfix "%i" runnerUnit.serviceConfig.ExecStart
             && runnerUnit.serviceConfig.User == "forge-runtime"
           ) "the runner unit must be a per-worker oneshot invoking forge-run as the forge-runtime user";
-          isHardened =
+          isUnitHardened =
             unit:
             unit.serviceConfig.NoNewPrivileges == true
             && unit.serviceConfig.ProtectSystem == "strict"
@@ -223,14 +238,15 @@
             && unit.serviceConfig.PrivateTmp == true
             && unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
             && unit.serviceConfig.RestrictSUIDSGID == true
-            && unit.serviceConfig.ProtectKernelTunables == true
             && unit.serviceConfig.ProtectControlGroups == true
             &&
               (unit.serviceConfig.InaccessiblePaths or [ ]) == [
                 "/run/secrets"
                 "/run/secrets.d"
               ];
-          runnerSandboxed = lib.asserts.assertMsg (isHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, writable only under the state directory, and blind to every secrets generation, which reaches it only through what systemd reads outside its namespace";
+          isHardened = unit: isUnitHardened unit && unit.serviceConfig.ProtectKernelTunables == true;
+          isWorkloadHardened = unit: isUnitHardened unit && unit.serviceConfig.ProtectKernelTunables == false;
+          runnerSandboxed = lib.asserts.assertMsg (isWorkloadHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, writable only under the state directory, and blind to every secrets generation, which reaches it only through what systemd reads outside its namespace. Its kernel tunables stay unprotected, because bubblewrap must mount a fresh /proc for a workload's sandbox, which their read-only overmounts in /proc forbid, and must write /proc/sys/user/max_user_namespaces to refuse nested user namespaces (ADR-0030)";
           runnerEnvTemplate = workerHost.config.sops.templates."forge-runner.env";
           runnerKeyFromSops =
             lib.asserts.assertMsg
@@ -242,6 +258,25 @@
               )
               "the runner's EnvironmentFile must be a sops template under /run/secrets, readable only by forge-runtime";
           workerHostInstantiates = builtins.seq workerHost.config.system.build.toplevel.drvPath true;
+          relativeHarnessCommandFails =
+            lib.asserts.assertMsg
+              (
+                !(evaluates (mkHost {
+                  configFile = exampleConfigFile;
+                  secretsFile = exampleSecretsFile;
+                  modules = [
+                    {
+                      forge.runtime.harnesses.pi.command = "pi";
+                      forge.runtime.workers.builder = {
+                        harness = "pi";
+                        model = "anthropic/claude-sonnet-4";
+                        prompt = "build the thing";
+                      };
+                    }
+                  ];
+                }))
+              )
+              "a harness command that is not an absolute path must fail evaluation: the workload sandbox can only run a command resolved to its real path";
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content
             == "OPENROUTER_API_KEY=${workerHost.config.sops.placeholder.openrouter_api_key}\n"
@@ -528,7 +563,7 @@
                 && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") dispatchUnit.serviceConfig.Environment
               )
               "the dispatch unit must be a oneshot running forge-dispatch for its instance as the forge-runtime user on the workload toolset";
-          dispatchUnitSandboxed = lib.asserts.assertMsg (isHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
+          dispatchUnitSandboxed = lib.asserts.assertMsg (isWorkloadHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
           writeTokenTemplate = dispatchHost.config.sops.templates."forge-github-write.env";
           readsWriteTokenAsCredential =
             unit:
@@ -665,8 +700,10 @@
             assert stateDirProvisioned;
             assert runtimeInert;
             assert handPlacedTokensRemoved;
+            assert sandboxSupported;
+            assert runtimeHomeEmpty;
             pkgs.runCommand "runtime-foundation" { } ''
-              echo "forge.runtime composed and inert; forge-runtime user and /var/lib/forge state dir provisioned; hand-placed GitHub token files removed" > $out
+              echo "forge.runtime composed and inert; forge-runtime user with an empty home and /var/lib/forge state dir provisioned; user namespaces allowed for the workload sandbox; hand-placed GitHub token files removed" > $out
             '';
 
           runtime-runner =
@@ -677,6 +714,7 @@
             assert runnerKeyOnly;
             assert noOpenRouterKeyFileOption;
             assert workerHostInstantiates;
+            assert relativeHarnessCommandFails;
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
@@ -793,6 +831,12 @@
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
           github-tokens = pkgs.callPackage ./infra/nix/github-tokens.nix {
+            sopsModule = sops-nix.nixosModules.sops;
+            secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
+          };
+          workload-sandbox = pkgs.callPackage ./infra/nix/workload-sandbox.nix {
+            forge-runner = self.packages.${system}.forge-runner;
             sopsModule = sops-nix.nixosModules.sops;
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;

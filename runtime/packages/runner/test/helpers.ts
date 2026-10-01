@@ -121,11 +121,60 @@ process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
 if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
 process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
 if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
+if (env.FAKE_BWRAP_STATUS_FD) process.on('exit', (code) => writeFileSync(Number(env.FAKE_BWRAP_STATUS_FD), JSON.stringify({ 'exit-code': code }) + '\\n'));
 `;
 
 export const writeFakePi = (dir: string): string => {
   const path = join(dir, 'fake-pi.mjs');
   writeFileSync(path, FAKE_PI);
+  chmodSync(path, 0o755);
+  return path;
+};
+
+const FAKE_BWRAP_RECORDER = `import { writeFileSync } from 'node:fs';
+const [record, ...argv] = process.argv.slice(2);
+const { PWD, SHLVL, _, __CF_USER_TEXT_ENCODING, ...env } = process.env;
+writeFileSync(record, JSON.stringify({ argv, env }));
+`;
+
+const quoted = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+
+export interface FakeBwrapOptions {
+  record: string;
+  harnessEnv: Record<string, string>;
+  failure?: string;
+}
+
+export interface BwrapCall {
+  argv: string[];
+  env: Record<string, string>;
+}
+
+export const writeFakeBwrap = (
+  dir: string,
+  { record, harnessEnv, failure }: FakeBwrapOptions,
+): string => {
+  const recorder = join(dir, 'fake-bwrap-recorder.mjs');
+  writeFileSync(recorder, FAKE_BWRAP_RECORDER);
+  const path = join(dir, 'fake-bwrap');
+  writeFileSync(
+    path,
+    [
+      '#!/bin/sh',
+      `${quoted(process.execPath)} ${quoted(recorder)} ${quoted(record)} "$@"`,
+      ...(failure === undefined ? [] : [`echo ${quoted(failure)} >&2`, 'exit 1']),
+      'while [ "$1" != -- ]; do',
+      '  if [ "$1" = --chdir ]; then dir=$2; fi',
+      '  shift',
+      'done',
+      'shift',
+      ...Object.entries(harnessEnv).map(
+        ([name, value]) => `export ${name}=${quoted(value)}`,
+      ),
+      'cd "$dir" && FAKE_BWRAP_STATUS_FD=3 exec "$@"',
+      '',
+    ].join('\n'),
+  );
   chmodSync(path, 0o755);
   return path;
 };
