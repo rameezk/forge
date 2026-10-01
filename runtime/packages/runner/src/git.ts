@@ -11,7 +11,11 @@ const GIT_CONFIG: [string, string][] = [
 const gitConfigEnvironment = (
   env: NodeJS.ProcessEnv,
 ): Record<string, string> => {
-  const inherited = Number(env.GIT_CONFIG_COUNT ?? 0);
+  const count = env.GIT_CONFIG_COUNT ?? '';
+  if (!/^(0|[1-9][0-9]*)?$/.test(count)) {
+    throw new Error(`GIT_CONFIG_COUNT is not a count: '${count}'`);
+  }
+  const inherited = Number(count);
   return Object.fromEntries([
     ['GIT_CONFIG_COUNT', String(inherited + GIT_CONFIG.length)],
     ...GIT_CONFIG.flatMap(([key, value], index) => [

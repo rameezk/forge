@@ -235,6 +235,7 @@ interface Scenario {
   piOutput?: string;
   gitIdentity?: typeof GIT_IDENTITY | null;
   gitConfig?: Record<string, string>;
+  env?: Record<string, string>;
 }
 
 interface PiCall {
@@ -259,7 +260,7 @@ interface Outcome {
   labelWrites: LabelWrite[];
 }
 
-const gitConfigEnvironment = (
+const gitConfigOf = (
   entries: Record<string, string>,
 ): Record<string, string> =>
   Object.fromEntries([
@@ -338,13 +339,14 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
-      ...gitConfigEnvironment({
+      ...gitConfigOf({
         [`url.${pathToFileURL(origin.path).href}.insteadOf`]:
           'https://github.com/rameezk/forge.git',
         ...scenario.gitConfig,
       }),
       FAKE_PI_RECORD: record,
       FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
+      ...scenario.env,
     },
     github.fetch,
   ).catch((error: unknown) => {
@@ -954,6 +956,19 @@ test('given a runtime config with no git identity, when forge-dispatch runs, the
     dispatch({ gitIdentity: null }),
     /forge\.runtime\.dispatch\.gitIdentity is not set/,
   );
+});
+
+test('given a runner whose inherited GIT_CONFIG_COUNT is not a count, when forge-dispatch runs, then it fails naming it without claiming the ticket or starting a workload', async () => {
+  for (const count of ['two', '-1', '1.5', '01']) {
+    const { failure, labelWrites, pi } = await dispatch({
+      env: { GIT_CONFIG_COUNT: count },
+      failing: true,
+    });
+
+    assert.match(String(failure), /GIT_CONFIG_COUNT/, count);
+    assert.deepEqual(labelWrites, [], count);
+    assert.equal(pi, null, count);
+  }
 });
 
 test('given an agent that reads the GitHub token from the state directory and repeats it, when forge-dispatch runs, then the transcript carries it redacted', async () => {
