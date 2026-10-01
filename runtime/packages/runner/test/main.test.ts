@@ -339,13 +339,15 @@ const generationsRecorded = async (
   stateDir: string,
   count: number,
 ): Promise<RunRecord> => {
-  for (;;) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
     const run = withStore(stateDir, (store) => store.listRuns()[0]);
     if (run !== undefined && storedGenerations(stateDir, run.id).length >= count) {
       return run;
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+  assert.fail(`the run did not record ${count} generations within 5 seconds`);
 };
 
 const outputFile = (contents: string): string => {
