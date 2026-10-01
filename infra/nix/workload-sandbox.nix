@@ -60,7 +60,7 @@ let
           attempt "write home" "touch $HOME/scratch"
           attempt "write tmp" "touch /tmp/scratch"
           attempt "write run directory" "echo inside > inside.out"
-          attempt "create user namespace" "${lib.getExe' util-linux "unshare"} --user true"
+          attempt "create user namespace" "${lib.getExe' util-linux "unshare"} --user true 2> userns.err"
         } > sandbox.out
         env | cut -d= -f1 | sort > env.out
         test -n "''${OPENROUTER_API_KEY-}" && echo present > openrouter.out
@@ -180,6 +180,8 @@ testers.runNixOSTest {
 
     with subtest("the harness cannot create nested user namespaces"):
         assert seen["create user namespace"] == "denied", seen
+        refusal = box.succeed(f"cat {run_dir}/userns.err")
+        assert "No space left on device" in refusal, refusal
 
     with subtest("the harness sees neither the runner nor any other workload"):
         processes = box.succeed(f"cat {run_dir}/processes.out").split()
