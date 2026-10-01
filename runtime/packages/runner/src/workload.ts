@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store, type RunRecord, type RunTicket } from '@forge/shared';
@@ -71,9 +71,7 @@ const harnessFor = (
     home: absolutePath(env, 'HOME'),
   };
   return new PiHarness({
-    command: isAbsolute(harness.command)
-      ? realpathSync(harness.command)
-      : harness.command,
+    command: harness.command,
     extension,
     agentDir,
     sandbox,

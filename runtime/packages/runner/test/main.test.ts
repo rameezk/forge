@@ -152,6 +152,7 @@ interface Scenario {
   lingerMs?: number;
   bwrapFailure?: string;
   linkedHarness?: boolean;
+  missingHarness?: boolean;
 }
 
 interface Outcome {
@@ -203,7 +204,11 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
   const fakePi = writeFakePi(stateDir);
   const harnessCommand =
-    scenario.linkedHarness === true ? linkInto(stateDir, fakePi) : fakePi;
+    scenario.missingHarness === true
+      ? join(stateDir, 'current-system', 'sw', 'bin', 'pi')
+      : scenario.linkedHarness === true
+        ? linkInto(stateDir, fakePi)
+        : fakePi;
   const record = join(stateDir, 'pi-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
   const fakeBwrap = writeFakeBwrap(stateDir, {
@@ -830,6 +835,23 @@ test('given a harness command reached through a link the sandbox does not carry,
   assert.match(command ?? '', /fake-pi\.mjs$/);
   assert.equal(command, realpathSync(command ?? ''));
   assert.equal(subagentCommand, command);
+});
+
+test('given a harness command that does not exist, when the worker runs, then the run is recorded as error naming the command, and pi never starts', async () => {
+  const { code, run, stateDir, piStarted } = await runWorker({
+    output: fixture('success.jsonl'),
+    missingHarness: true,
+  });
+
+  assert.equal(code, 1);
+  assert.equal(run.status, 'error');
+  assert.ok(
+    (run.error ?? '').startsWith(
+      `the harness command ${join(stateDir, 'current-system', 'sw', 'bin', 'pi')} cannot be resolved: ENOENT`,
+    ),
+    run.error ?? '',
+  );
+  assert.equal(piStarted, false);
 });
 
 test('given a runner whose own environment holds more than the harness needs, when it launches the harness, then the harness environment holds only the system settings, its throwaway HOME, the OpenRouter key and pi\'s own variables', async () => {

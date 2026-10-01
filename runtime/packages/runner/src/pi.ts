@@ -1,9 +1,12 @@
+import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { createInterface } from 'node:readline';
-import type {
-  HarnessEvent,
-  MessageEvent,
-  ToolCallEvent,
-  ToolResultEvent,
+import {
+  errorMessage,
+  type HarnessEvent,
+  type MessageEvent,
+  type ToolCallEvent,
+  type ToolResultEvent,
 } from '@forge/shared';
 import {
   SUBAGENT_INVOCATION_ENV,
@@ -305,6 +308,19 @@ class PiStream {
   }
 }
 
+const realCommand = (command: string): string => {
+  if (!isAbsolute(command)) {
+    return command;
+  }
+  try {
+    return realpathSync(command);
+  } catch (cause) {
+    throw new Error(
+      `the harness command ${command} cannot be resolved: ${errorMessage(cause)}`,
+    );
+  }
+};
+
 export interface PiHarnessOptions {
   command: string;
   extension: string;
@@ -333,10 +349,11 @@ export class PiHarness implements Harness {
 
   async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
     const stream = new PiStream();
+    const command = realCommand(this.#command);
     const args = piArgs(invocation, this.#extension, this.#extraArgs);
     const { child, stdout, stderr, harnessRan } = spawnSandboxed(
       this.#sandbox,
-      this.#command,
+      command,
       args,
       {
         workDir: invocation.workDir,
@@ -344,7 +361,7 @@ export class PiHarness implements Harness {
           ...this.#env,
           ...piEnv(this.#agentDir),
           [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
-            subagentInvocation(this.#command, invocation),
+            subagentInvocation(command, invocation),
           ),
         },
       },
