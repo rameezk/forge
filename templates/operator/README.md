@@ -334,8 +334,10 @@ Every workload's harness, and every subagent it spawns, runs in a bubblewrap
 sandbox. It sees the Nix store, `/etc`, `/bin` and `/usr` read-only, its own
 run directory read-write, and a fresh `/tmp` and HOME that are thrown away
 when the workload ends. The state directory, `/run` and every other process
-on the box are hidden from it, and it shares the box's network. Anything a
-workload should keep belongs in its run directory.
+on the box are hidden from it, and it shares the box's network. It cannot
+create user namespaces of its own, so tools that need them, such as rootless
+containers, do not work in a workload. Anything a workload should keep
+belongs in its run directory.
 
 The harness command is resolved to its real path before the sandbox starts,
 so a command under `/run/current-system/sw/bin` works. If the sandbox cannot

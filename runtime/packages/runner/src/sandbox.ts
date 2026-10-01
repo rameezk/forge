@@ -12,6 +12,7 @@ const readOnly = (path: string): string[] => ['--ro-bind', path, path];
 
 export const sandboxArgs = ({ home }: Sandbox, workDir: string): string[] => [
   '--unshare-user',
+  '--disable-userns',
   '--unshare-pid',
   '--unshare-ipc',
   '--unshare-uts',

@@ -790,7 +790,7 @@ test('given any worker, when it runs, then pi works in a fresh per-run directory
   assert.match(pi.cwd, new RegExp(`${run.id}$`));
 });
 
-test('given a workload about to start, when the runner launches its harness, then pi runs inside bubblewrap with the nix store, the daemon socket and the system files read-only, its run directory read-write at its real path, fresh /dev, /proc, /tmp and HOME, its own pid, ipc and uts namespaces, and nothing else from the box', async () => {
+test('given a workload about to start, when the runner launches its harness, then pi runs inside bubblewrap with the nix store, the daemon socket and the system files read-only, its run directory read-write at its real path, fresh /dev, /proc, /tmp and HOME, its own pid, ipc and uts namespaces, no nested user namespaces, and nothing else from the box', async () => {
   const { bwrap, pi, run, stateDir } = await runWorker({
     output: fixture('success.jsonl'),
   });
@@ -799,6 +799,7 @@ test('given a workload about to start, when the runner launches its harness, the
   const separator = bwrap.argv.indexOf('--');
   assert.deepEqual(bwrap.argv.slice(0, separator), [
     '--unshare-user',
+    '--disable-userns',
     '--unshare-pid',
     '--unshare-ipc',
     '--unshare-uts',
