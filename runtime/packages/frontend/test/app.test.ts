@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { HarnessEvent, RunRecord } from '@forge/shared';
+import type { HarnessEvent, LookupResult, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
@@ -736,4 +736,116 @@ test('given tool arguments, results and error text with markdown syntax, when th
   assert.match(body, /<pre[^>]*>boom \*\*failed\*\*<\/pre>/);
   assert.match(body, /echo \*\*x\*\*/);
   assert.doesNotMatch(body, /<strong>|<em>/);
+});
+
+const viewWithGenerations = async (
+  run: Partial<RunRecord>,
+  events: HarnessEvent[],
+  generations: { generationId: string; subagent: string | null; outcome: 'billed' | 'unbilled' | 'given-up'; cost?: number }[],
+): Promise<string> => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  const store = Store.open(':memory:');
+  store.insertRun(sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl', ...run }));
+  for (const { generationId, subagent } of generations) {
+    store.recordGeneration({ runId: 'run-01', generationId, subagent, createdAt: '2026-09-21T10:01:00.000Z' });
+  }
+  const ids = new Map(store.unsettledGenerations().map((g) => [g.generationId, g.id]));
+  const lookups: LookupResult[] = [];
+  for (const generation of generations) {
+    const id = ids.get(generation.generationId)!;
+    if (generation.outcome === 'billed') lookups.push({ id, billedCostUsd: generation.cost ?? 0 });
+    if (generation.outcome === 'given-up') lookups.push({ id, error: 'not found', givenUp: true });
+  }
+  store.recordLookups(lookups, '2026-09-21T10:02:00.000Z');
+  const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '' });
+  return (await app.request('/runs/run-01')).text();
+};
+
+const child = (subagent: string, inputTokens: number, outputTokens: number): HarnessEvent => ({
+  type: 'message', role: 'assistant', text: `${subagent} working`, usage: { inputTokens, outputTokens }, generationId: null, subagent,
+});
+
+const spawn = (id: string): HarnessEvent => ({ type: 'tool_call', id, name: 'subagent', arguments: { task: `task ${id}` } });
+
+const headerOf = (card: string): string => card.slice(card.indexOf('<summary'), card.indexOf('</summary>'));
+
+test('given a run with two subagents, when its run page is viewed, then each header shows that child\'s own tokens, status and cost', async () => {
+  const body = await viewWithGenerations({}, [
+    spawn('call_a'), spawn('call_b'),
+    child('call_a', 1200, 30), child('call_a', 300, 20), child('call_b', 40, 5),
+    { type: 'tool_result', id: 'call_a', isError: false, text: 'a done' },
+    { type: 'tool_result', id: 'call_b', isError: false, text: 'b done' },
+    { type: 'result', status: 'success', sessionId: null, error: null },
+  ], [
+    { generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.25 },
+    { generationId: 'g2', subagent: 'call_a', outcome: 'billed', cost: 0.5 },
+    { generationId: 'g3', subagent: 'call_b', outcome: 'billed', cost: 0.01 },
+    { generationId: 'g4', subagent: null, outcome: 'billed', cost: 9 },
+  ]);
+
+  const [a, b] = subagentCalls(body).map((card) => headerOf(card)) as [string, string];
+  assert.match(a, /data-status="success"/);
+  assert.match(textOf(a), /1,500 in \/ 50 out/);
+  assert.match(textOf(a), /\$0\.750000/);
+  assert.match(textOf(a), /2 messages/);
+  assert.match(b, /data-status="success"/);
+  assert.match(textOf(b), /40 in \/ 5 out/);
+  assert.match(textOf(b), /\$0\.010000/);
+});
+
+test('given subagents with a successful report, an error report, no report in a running run, and no report in an ended run, when run pages are viewed, then their headers show success, error, running and error', async () => {
+  const events = (result: HarnessEvent[]): HarnessEvent[] => [spawn('call_a'), child('call_a', 1, 1), ...result];
+  const statusOfOnly = async (run: Partial<RunRecord>, result: HarnessEvent[]): Promise<string> => {
+    const body = await viewWithGenerations(run, events(result), []);
+    return headerOf(subagentCalls(body)[0] ?? '').match(/data-status="([^"]*)"/)?.[1] ?? 'missing';
+  };
+
+  assert.equal(await statusOfOnly({}, [{ type: 'tool_result', id: 'call_a', isError: false, text: 'ok' }]), 'success');
+  assert.equal(await statusOfOnly({}, [{ type: 'tool_result', id: 'call_a', isError: true, text: 'boom' }]), 'error');
+  assert.equal(await statusOfOnly({ status: 'running', endTime: null }, []), 'running');
+  assert.equal(await statusOfOnly({ status: 'error' }, []), 'error');
+});
+
+test('given subagents whose generations are all billed, partly unbilled and partly given up, when the run page is viewed, then their headers show the billed cost, pending, and the cost so far with the unconfirmed badge', async () => {
+  const body = await viewWithGenerations({}, [
+    spawn('call_a'), spawn('call_b'), spawn('call_c'),
+    child('call_a', 1, 1), child('call_b', 1, 1), child('call_c', 1, 1),
+    { type: 'result', status: 'success', sessionId: null, error: null },
+  ], [
+    { generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.1 },
+    { generationId: 'g2', subagent: 'call_b', outcome: 'billed', cost: 0.2 },
+    { generationId: 'g3', subagent: 'call_b', outcome: 'unbilled' },
+    { generationId: 'g4', subagent: 'call_c', outcome: 'billed', cost: 0.3 },
+    { generationId: 'g5', subagent: 'call_c', outcome: 'given-up' },
+  ]);
+
+  const [a, b, c] = subagentCalls(body).map((card) => headerOf(card)) as [string, string, string];
+  assert.match(textOf(a), /\$0\.100000/);
+  assert.doesNotMatch(a, /data-badge=|pending/);
+  assert.match(textOf(b), /pending/);
+  assert.match(textOf(c), /\$0\.300000/);
+  assert.match(c, /data-badge="unconfirmed"/);
+});
+
+test('given a run whose subagent events have no recorded spawning tool call, when its run page is viewed, then that subagent\'s header shows its tokens, status and cost', async () => {
+  const body = await viewWithGenerations({ status: 'error' }, [
+    child('call_a', 70, 8),
+    { type: 'result', status: 'error', sessionId: null, error: 'x' },
+  ], [{ generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.04 }]);
+
+  const [group] = subagentGroups(body) as [string];
+  const header = headerOf(group);
+  assert.match(header, /data-status="error"/);
+  assert.match(textOf(header), /70 in \/ 8 out/);
+  assert.match(textOf(header), /\$0\.040000/);
+  assert.match(textOf(header), /1 message/);
+});
+
+test('given a running run whose subagent has only billed generations so far, when the run page is viewed, then its header shows pending because more may follow', async () => {
+  const body = await viewWithGenerations({ status: 'running', endTime: null }, [
+    spawn('call_a'), child('call_a', 1, 1),
+  ], [{ generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.1 }]);
+
+  assert.match(textOf(headerOf(subagentCalls(body)[0] ?? '')), /pending/);
 });

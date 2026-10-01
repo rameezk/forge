@@ -39,7 +39,7 @@ export const createApp = ({ store, transcripts, css, logo }: AppOptions): Hono =
     if (run === undefined) return c.notFound();
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
-    return c.html(renderDetail(run, events, assets));
+    return c.html(renderDetail(run, events, store.listGenerations(run.id), assets));
   });
 
   return app;
