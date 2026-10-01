@@ -1,14 +1,17 @@
 {
   lib,
+  bubblewrap,
   buildNpmPackage,
   git,
   makeWrapper,
   nodejs,
   pi-coding-agent,
   runCommand,
+  stdenv,
 }:
 let
   subagentExtension = "lib/forge-runtime/packages/pi-subagent/src";
+  sandboxFlags = lib.optionalString stdenv.hostPlatform.isLinux "--set FORGE_BWRAP ${lib.getExe bubblewrap}";
   piAgentDir = runCommand "pi-agent-dir" { } "mkdir $out";
   piPackage = "${pi-coding-agent}/lib/node_modules/pi-monorepo";
 in
@@ -46,11 +49,13 @@ buildNpmPackage {
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-run" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
-      --set FORGE_PI_AGENT_DIR "${piAgentDir}"
+      --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
+      ${sandboxFlags}
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/dispatch-main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
       --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
+      ${sandboxFlags} \
       --set FORGE_PI_PACKAGE "${piPackage}"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-billing" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/billing-main.ts"

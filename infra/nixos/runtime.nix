@@ -165,6 +165,10 @@ let
     ];
   };
 
+  workloadHardening = hardening // {
+    ProtectKernelTunables = false;
+  };
+
   baseToolset = [
     "bash"
     "coreutils"
@@ -279,10 +283,12 @@ in
     {
       assertions = [ gitIdentityAssertion ] ++ dispatchAssertions;
 
+      security.allowUserNamespaces = true;
+
       users.users.${cfg.user} = {
         isSystemUser = true;
         group = cfg.user;
-        home = cfg.stateDir;
+        home = "/var/empty";
         description = "Forge runtime service user";
       };
       users.groups.${cfg.user} = { };
@@ -319,7 +325,7 @@ in
           ];
           ExecStart = "${cfg.package}/bin/forge-run %i";
         }
-        // hardening;
+        // workloadHardening;
       };
 
       systemd.services.forge-billing = {
@@ -420,7 +426,7 @@ in
           ExecStart = "${dispatchInstance} %i";
         }
         // writeTokenCredential
-        // hardening;
+        // workloadHardening;
       };
     })
 

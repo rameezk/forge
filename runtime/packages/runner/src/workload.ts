@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store, type RunRecord, type RunTicket } from '@forge/shared';
@@ -32,21 +32,53 @@ export const stateDirOf = (env: NodeJS.ProcessEnv): string => {
   return stateDir;
 };
 
+const SYSTEM_VARIABLES = ['PATH', 'LANG', 'LOCALE_ARCHIVE', 'TZDIR'];
+
+const picked = (
+  env: NodeJS.ProcessEnv,
+  names: string[],
+): Record<string, string> =>
+  Object.fromEntries(
+    names.flatMap((name) => {
+      const value = env[name];
+      return value === undefined ? [] : [[name, value]];
+    }),
+  );
+
+const harnessEnvironment = (
+  env: NodeJS.ProcessEnv,
+  harnessEnv: Record<string, string>,
+): Record<string, string> => ({
+  ...picked(env, SYSTEM_VARIABLES),
+  ...picked(env, ['OPENROUTER_API_KEY']),
+  ...harnessEnv,
+});
+
 const harnessFor = (
   config: RuntimeConfig,
   worker: Worker,
   env: NodeJS.ProcessEnv,
+  harnessEnv: Record<string, string>,
 ): Harness => {
   const harness = config.harnesses[worker.harness];
   if (harness === undefined || worker.harness !== 'pi') {
     throw new Error(`unsupported harness '${worker.harness}'`);
   }
+  const extension = absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION');
+  const agentDir = absolutePath(env, 'FORGE_PI_AGENT_DIR');
+  const sandbox = {
+    bwrap: absolutePath(env, 'FORGE_BWRAP'),
+    home: absolutePath(env, 'HOME'),
+  };
   return new PiHarness({
-    command: harness.command,
-    extension: absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION'),
-    agentDir: absolutePath(env, 'FORGE_PI_AGENT_DIR'),
+    command: isAbsolute(harness.command)
+      ? realpathSync(harness.command)
+      : harness.command,
+    extension,
+    agentDir,
+    sandbox,
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
-    env,
+    env: harnessEnvironment(env, harnessEnv),
   });
 };
 
@@ -55,6 +87,7 @@ export interface LaunchOptions {
   worker: Worker;
   env: NodeJS.ProcessEnv;
   openWorkspace: (workDir: string) => Workspace | Promise<Workspace>;
+  harnessEnv?: Record<string, string>;
   ticket?: RunTicket;
   secrets?: string[];
   runId?: string;
@@ -71,12 +104,13 @@ export const launchWorkload = async ({
   worker,
   env,
   openWorkspace,
+  harnessEnv = {},
   ticket,
   secrets = [],
   runId = randomUUID(),
 }: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
-  const harness = harnessFor(config, worker, env);
+  const harness = harnessFor(config, worker, env, harnessEnv);
 
   const transcriptsDir = join(stateDir, 'transcripts');
   mkdirSync(transcriptsDir, { recursive: true });

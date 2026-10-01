@@ -15,7 +15,14 @@ import { dirname, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, type DispatchRecord, type RunRecord } from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
-import { journaled, PI_CONTRACT, lockedPiPackage, writeFakePi } from './helpers.ts';
+import {
+  journaled,
+  PI_CONTRACT,
+  lockedPiPackage,
+  writeFakeBwrap,
+  writeFakePi,
+  type BwrapCall,
+} from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
 
@@ -256,6 +263,7 @@ interface Outcome {
   runs: RunRecord[];
   dispatches: DispatchRecord[];
   pi: PiCall | null;
+  bwrap: BwrapCall | null;
   requests: GraphqlRequest[];
   labelWrites: LabelWrite[];
 }
@@ -277,6 +285,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     originWith({ '.claude/skills/work-on/SKILL.md': SKILL });
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-dispatch-'));
   const record = join(stateDir, 'pi-call.json');
+  const bwrapRecord = join(stateDir, 'bwrap-call.json');
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
     configPath,
@@ -336,6 +345,13 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
       FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
+      FORGE_BWRAP: writeFakeBwrap(stateDir, {
+        record: bwrapRecord,
+        harnessEnv: {
+          FAKE_PI_RECORD: record,
+          FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
+        },
+      }),
       FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
@@ -344,8 +360,6 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
           'https://github.com/rameezk/forge.git',
         ...scenario.gitConfig,
       }),
-      FAKE_PI_RECORD: record,
-      FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
       ...scenario.env,
     },
     github.fetch,
@@ -371,6 +385,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       dispatches: store.listDispatches(new Date().toISOString()),
       pi: existsSync(record)
         ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall)
+        : null,
+      bwrap: existsSync(bwrapRecord)
+        ? (JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall)
         : null,
       requests: github.requests,
       labelWrites: github.labelWrites,
@@ -435,23 +452,27 @@ test('given a host whose git identity is set, when a ticket is dispatched, then 
   );
 });
 
-const githubCredential = (pi: PiCall): string =>
+const githubCredential = (
+  pi: PiCall,
+  env: Record<string, string> = {},
+): string =>
   execFileSync('git', ['credential', 'fill'], {
     cwd: pi.cwd,
-    env: { ...pi.env, GIT_TERMINAL_PROMPT: '0' },
+    env: { ...pi.env, GIT_TERMINAL_PROMPT: '0', ...env },
     input: 'protocol=https\nhost=github.com\n\n',
     encoding: 'utf8',
   });
 
-test('given a dispatched workload on a box whose git config already has a credential helper, when git asks for credentials for https://github.com, then it gets the write token, and neither its HOME nor the checkout\'s git config holds a credential', async () => {
-  const { pi } = await dispatch({
-    gitConfig: {
-      'credential.helper': '!f() { echo username=someone-else; echo password=not-the-write-token; }; f',
-    },
-  });
+test('given a dispatched workload on a box whose system git config already has a credential helper, when git asks for credentials for https://github.com, then it gets the write token, and neither its HOME nor the checkout\'s git config holds a credential', async () => {
+  const systemConfig = join(mkdtempSync(join(tmpdir(), 'forge-etc-')), 'gitconfig');
+  writeFileSync(
+    systemConfig,
+    '[credential]\n\thelper = "!f() { echo username=someone-else; echo password=not-the-write-token; }; f"\n',
+  );
+  const { pi } = await dispatch();
 
   assert.ok(pi);
-  const credential = githubCredential(pi);
+  const credential = githubCredential(pi, { GIT_CONFIG_SYSTEM: systemConfig });
   assert.match(credential, /^username=x-access-token$/m);
   assert.match(credential, new RegExp(`^password=${GITHUB_TOKEN}$`, 'm'));
   const home = pi.env.HOME;
@@ -943,6 +964,33 @@ test('given a GitHub write-token file that also sets NODE_OPTIONS and quotes the
   assert.ok(pi);
   assert.equal(pi.githubToken, GITHUB_TOKEN);
   assert.equal(pi.nodeOptions, undefined);
+});
+
+test('given a runner whose own environment holds its git config, the write-token file and more, when a ticket is dispatched, then the harness environment holds only the system settings, its HOME, the OpenRouter key, the write token, the git identity and credential helper, and pi\'s own variables', async () => {
+  const { bwrap } = await dispatch({
+    env: { NODE_OPTIONS: '--require /var/lib/forge/planted.js' },
+  });
+
+  assert.ok(bwrap);
+  assert.deepEqual(Object.keys(bwrap.env).sort(), [
+    'FORGE_PI_SUBAGENT_INVOCATION',
+    'GITHUB_TOKEN',
+    'GIT_AUTHOR_EMAIL',
+    'GIT_AUTHOR_NAME',
+    'GIT_COMMITTER_EMAIL',
+    'GIT_COMMITTER_NAME',
+    'GIT_CONFIG_COUNT',
+    'GIT_CONFIG_KEY_0',
+    'GIT_CONFIG_KEY_1',
+    'GIT_CONFIG_VALUE_0',
+    'GIT_CONFIG_VALUE_1',
+    'HOME',
+    'OPENROUTER_API_KEY',
+    'PATH',
+    'PI_CODING_AGENT_DIR',
+  ]);
+  assert.equal(bwrap.env.GITHUB_TOKEN, GITHUB_TOKEN);
+  assert.equal(bwrap.env.GIT_CONFIG_COUNT, '2');
 });
 
 test('given no GitHub write-token file, or one that sets no token, when forge-dispatch runs, then it fails naming the missing write token without asking GitHub', async () => {
