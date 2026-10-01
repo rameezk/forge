@@ -841,3 +841,11 @@ test('given a run whose subagent events have no recorded spawning tool call, whe
   assert.match(textOf(header), /\$0\.040000/);
   assert.match(textOf(header), /1 message/);
 });
+
+test('given a running run whose subagent has only billed generations so far, when the run page is viewed, then its header shows pending because more may follow', async () => {
+  const body = await viewWithGenerations({ status: 'running', endTime: null }, [
+    spawn('call_a'), child('call_a', 1, 1),
+  ], [{ generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.1 }]);
+
+  assert.match(textOf(headerOf(subagentCalls(body)[0] ?? '')), /pending/);
+});

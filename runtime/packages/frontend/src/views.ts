@@ -433,6 +433,7 @@ const subagentStatus = (
 const subagentCost = (
   scope: string,
   generations: GenerationRecord[],
+  runStatus: RunStatus,
 ): Pick<RunRecord, 'costStatus' | 'costUsd'> => {
   const own = generations.filter((generation) => generation.subagent === scope);
   const costUsd = own.reduce(
@@ -442,7 +443,10 @@ const subagentCost = (
   if (own.some((generation) => generation.givenUpAt !== null)) {
     return { costStatus: 'unconfirmed', costUsd };
   }
-  if (own.some((generation) => generation.billedCostUsd === null)) {
+  if (
+    runStatus === 'running' ||
+    own.some((generation) => generation.billedCostUsd === null)
+  ) {
     return { costStatus: 'pending', costUsd };
   }
   return { costStatus: 'billed', costUsd };
@@ -466,7 +470,7 @@ const renderFigures = (
   return html`<span class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[0.8rem] tabular-nums text-muted" data-subagent-figures>
     ${renderStatus(subagentStatus(report, runStatus))}
     <span class="whitespace-nowrap" data-subagent-tokens>${formatTokens(inputTokens)} in / ${formatTokens(outputTokens)} out</span>
-    <span class="whitespace-nowrap" data-subagent-cost>${renderCost(subagentCost(scope, generations))}</span>
+    <span class="whitespace-nowrap" data-subagent-cost>${renderCost(subagentCost(scope, generations, runStatus))}</span>
     <span class="whitespace-nowrap">${messageCount(shown)}</span>
   </span>`;
 };
