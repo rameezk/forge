@@ -98,6 +98,8 @@ type GenerationRow = {
   output_tokens: number | null;
   cache_read_tokens: number | null;
   cache_write_tokens: number | null;
+  reasoning_tokens: number | null;
+  provider: string | null;
   billed_cost_usd: number | null;
   attempts: number;
   last_attempt_at: string | null;
@@ -129,6 +131,8 @@ const CREATE_GENERATIONS = `
     output_tokens      INTEGER,
     cache_read_tokens  INTEGER,
     cache_write_tokens INTEGER,
+    reasoning_tokens   INTEGER,
+    provider           TEXT,
     UNIQUE (run_id, generation_id)
   ) STRICT;
 
@@ -145,6 +149,15 @@ const ADD_GENERATION_TOKENS = `
   ALTER TABLE generations ADD COLUMN output_tokens INTEGER;
   ALTER TABLE generations ADD COLUMN cache_read_tokens INTEGER;
   ALTER TABLE generations ADD COLUMN cache_write_tokens INTEGER;
+`;
+
+const HAS_GENERATION_BILLING = `
+  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'provider'
+`;
+
+const ADD_GENERATION_BILLING = `
+  ALTER TABLE generations ADD COLUMN reasoning_tokens INTEGER;
+  ALTER TABLE generations ADD COLUMN provider TEXT;
 `;
 
 const NO_GENERATION_ID = 'no generation id';
@@ -356,6 +369,8 @@ const generationFromRow = (row: GenerationRow): GenerationRecord => ({
           cacheWriteTokens: row.cache_write_tokens,
         },
   billedCostUsd: row.billed_cost_usd,
+  reasoningTokens: row.reasoning_tokens,
+  provider: row.provider,
   attempts: row.attempts,
   lastAttemptAt: row.last_attempt_at,
   lastError: row.last_error,
@@ -400,6 +415,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_CACHE_TOKENS, ADD_RUN_CACHE_TOKENS);
     db.exec(CREATE_GENERATIONS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
+    this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
     if (this.#hasOutdatedFrontier()) {
       this.#migrateOutdatedFrontier();
     }
@@ -577,23 +593,43 @@ export class Store {
           attempts = attempts + 1,
           last_attempt_at = $attempted_at,
           billed_cost_usd = $billed_cost_usd,
+          reasoning_tokens = $reasoning_tokens,
+          provider = $provider,
           last_error = $last_error,
           given_up_at = $given_up_at
         WHERE id = $id AND billed_cost_usd IS NULL AND given_up_at IS NULL
         RETURNING run_id`,
       );
+      const replaceUsage = this.#db.prepare(
+        `UPDATE generations SET
+          input_tokens = MAX(0, $prompt_tokens - $cache_read_tokens - cache_write_tokens),
+          output_tokens = $output_tokens,
+          cache_read_tokens = $cache_read_tokens
+        WHERE id = $id AND cache_write_tokens IS NOT NULL`,
+      );
       const runs = new Set<string>();
       for (const result of results) {
-        const billed = 'billedCostUsd' in result;
+        const billing = 'billing' in result ? result.billing : null;
         const row = record.get({
           id: result.id,
           attempted_at: attemptedAt,
-          billed_cost_usd: billed ? result.billedCostUsd : null,
-          last_error: billed ? null : result.error,
-          given_up_at: !billed && result.givenUp ? attemptedAt : null,
+          billed_cost_usd: billing?.costUsd ?? null,
+          reasoning_tokens: billing?.reasoningTokens ?? null,
+          provider: billing?.provider ?? null,
+          last_error: 'error' in result ? result.error : null,
+          given_up_at: 'givenUp' in result && result.givenUp ? attemptedAt : null,
         }) as { run_id: string } | undefined;
-        if (row !== undefined) {
-          runs.add(row.run_id);
+        if (row === undefined) {
+          continue;
+        }
+        runs.add(row.run_id);
+        if (billing !== null && billing.usage !== null) {
+          replaceUsage.run({
+            id: result.id,
+            prompt_tokens: billing.usage.promptTokens,
+            cache_read_tokens: billing.usage.cacheReadTokens,
+            output_tokens: billing.usage.outputTokens,
+          });
         }
       }
       for (const run of runs) {

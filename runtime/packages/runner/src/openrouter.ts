@@ -1,3 +1,6 @@
+import type { Billing, NativeUsage } from '@forge/shared';
+import { tokenCount } from './token-count.ts';
+
 export const OPENROUTER_API = 'https://openrouter.ai/api/v1';
 
 const NOT_FOUND = 404;
@@ -22,14 +25,38 @@ const failureOf = (error: unknown): string => {
 };
 
 export type LookupOutcome =
-  | { outcome: 'billed'; costUsd: number }
+  | { outcome: 'billed'; billing: Billing }
   | { outcome: 'temporary' | 'permanent'; reason: string };
 
 export type LookUpGeneration = (generationId: string) => Promise<LookupOutcome>;
 
-interface GenerationResponse {
-  data?: { total_cost?: unknown };
+interface GenerationData {
+  total_cost?: unknown;
+  native_tokens_prompt?: unknown;
+  native_tokens_cached?: unknown;
+  native_tokens_completion?: unknown;
+  native_tokens_reasoning?: unknown;
+  provider_name?: unknown;
 }
+
+const usageOf = (data: GenerationData): NativeUsage | null => {
+  const promptTokens = tokenCount(data.native_tokens_prompt);
+  const cacheReadTokens = tokenCount(data.native_tokens_cached);
+  const outputTokens = tokenCount(data.native_tokens_completion);
+  return promptTokens === null || cacheReadTokens === null || outputTokens === null
+    ? null
+    : { promptTokens, cacheReadTokens, outputTokens };
+};
+
+const billingOf = (data: GenerationData, costUsd: number): Billing => ({
+  costUsd,
+  usage: usageOf(data),
+  reasoningTokens: tokenCount(data.native_tokens_reasoning),
+  provider:
+    typeof data.provider_name === 'string' && data.provider_name !== ''
+      ? data.provider_name
+      : null,
+});
 
 export const openRouterLookUp =
   (baseUrl: URL, apiKey: string): LookUpGeneration =>
@@ -47,10 +74,11 @@ export const openRouterLookUp =
           reason: `HTTP ${response.status}`,
         };
       }
-      const cost = ((await response.json()) as GenerationResponse).data
-        ?.total_cost;
+      const data =
+        ((await response.json()) as { data?: GenerationData } | null)?.data ?? {};
+      const cost = data.total_cost;
       return typeof cost === 'number' && Number.isFinite(cost)
-        ? { outcome: 'billed', costUsd: cost }
+        ? { outcome: 'billed', billing: billingOf(data, cost) }
         : { outcome: 'permanent', reason: 'response has no numeric total_cost' };
     } catch (error) {
       return {
