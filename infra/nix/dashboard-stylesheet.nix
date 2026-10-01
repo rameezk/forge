@@ -15,7 +15,7 @@ runCommand "dashboard-stylesheet"
   ''
     fail() { echo "$1"; shift; for file in "$@"; do cat "$file"; done; exit 1; }
 
-    [ ! -e ${runtime}/node_modules/tailwindcss ] && [ ! -e ${runtime}/node_modules/@tailwindcss/cli ] || fail "the packaged runtime ships the build-only Tailwind toolchain"
+    [ ! -e ${runtime}/node_modules/@tailwindcss/typography ] && [ ! -e ${runtime}/node_modules/tailwindcss ] && [ ! -e ${runtime}/node_modules/@tailwindcss/cli ] || fail "the packaged runtime ships the build-only Tailwind toolchain"
 
     export FORGE_STATE_DIR="$(mktemp -d)"
     for candidate in $(seq 17787 17887); do

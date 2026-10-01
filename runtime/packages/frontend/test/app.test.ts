@@ -330,7 +330,7 @@ test('given a run whose agent made a bash call in a turn with no text, when its 
   const [card] = cards as [string];
   assert.match(card, /<summary[^>]*>[\s\S]*bash[\s\S]*echo forge[\s\S]*<\/summary>/);
   assert.doesNotMatch(openingTag(card), /\sopen[\s>]/, 'a successful call is collapsed by default');
-  assert.doesNotMatch(body, /<header[^>]*>assistant<\/header>\s*<pre[^>]*><\/pre>/);
+  assert.doesNotMatch(body, /<header[^>]*>assistant<\/header>\s*<div[^>]*><\/div>/);
   assert.ok(
     body.indexOf('run echo forge') < body.indexOf(card) && body.indexOf(card) < body.indexOf('it printed forge'),
     'the card renders in transcript order',
@@ -388,7 +388,7 @@ test('given a subagent tool call sharing its id with a parent tool call, when th
   const [inner] = toolCards(group) as [string];
   assert.match(inner, /echo alpha[\s\S]*alpha output/);
   assert.doesNotMatch(inner, /parent/);
-  assert.doesNotMatch(group, /<header[^>]*>assistant<\/header>\s*<pre[^>]*><\/pre>/);
+  assert.doesNotMatch(group, /<header[^>]*>assistant<\/header>\s*<div[^>]*><\/div>/);
   const [outer] = toolCards(body) as [string];
   assert.match(outer, /echo parent[\s\S]*parent output/);
   assert.doesNotMatch(outer, /alpha/);
@@ -417,7 +417,7 @@ test('given a transcript written before tool events were recorded, when its run 
 
   assert.equal(toolCards(body).length, 0);
   assert.equal(body.match(/<article[^>]*\sdata-message="assistant"/g)?.length, 2);
-  assert.match(body, /<header[^>]*>assistant<\/header>\s*<pre[^>]*><\/pre>/);
+  assert.match(body, /<header[^>]*>assistant<\/header>\s*<div[^>]*><\/div>/);
   const result = body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>/)?.[1] ?? '';
   assert.match(result, /^<span[^>]*\sdata-status="success"[^>]*>success<\/span>$/);
 });
@@ -499,7 +499,7 @@ test('given a subagent given a long multi-line task, when its group is expanded,
 
   const [card] = subagentCalls(body) as [string];
   assert.match(card, /<span[^>]*\sdata-subagent-task[^>]*\stitle="Review the diff\. Report each finding with its file and line\."/);
-  assert.match(card, /<header[^>]*>task<\/header>\s*<pre[^>]*>Review the diff\.\n\nReport each finding with its file and line\.<\/pre>/);
+  assert.match(card, /<header[^>]*>task<\/header>\s*<div[^>]*>\s*<p>Review the diff\.<\/p>\s*<p>Report each finding with its file and line\.<\/p>\s*<\/div>/);
 });
 
 test('given a run whose agent spawned two subagents, when a group is viewed, then its report is the subagent tool result, shown once', async () => {
@@ -508,8 +508,8 @@ test('given a run whose agent spawned two subagents, when a group is viewed, the
   const [alpha, beta] = subagentCalls(body) as [string, string];
   assert.equal(alpha.match(/Alpha report: echo alpha printed alpha\./g)?.length, 1);
   assert.equal(beta.match(/Beta report: beta\./g)?.length, 1);
-  assert.match(alpha, /<article[^>]*\sdata-message="report"[^>]*>\s*<header[^>]*>report<\/header>\s*<pre[^>]*>Alpha report: echo alpha printed alpha\.<\/pre>\s*<\/article>\s*<\/div>\s*<\/details>/, 'the report closes the group');
-  assert.match(alpha, /<header[^>]*>assistant<\/header>\s*<pre[^>]*>Running it\.<\/pre>/, 'earlier child messages still render');
+  assert.match(alpha, /<article[^>]*\sdata-message="report"[^>]*>\s*<header[^>]*>report<\/header>\s*<div[^>]*>\s*<p>Alpha report: echo alpha printed alpha\.<\/p>\s*<\/div>\s*<\/article>\s*<\/div>\s*<\/details>/, 'the report closes the group');
+  assert.match(alpha, /<header[^>]*>assistant<\/header>\s*<div[^>]*>\s*<p>Running it\.<\/p>\s*<\/div>/, 'earlier child messages still render');
   assert.equal(body.match(/\sdata-message="report"/g)?.length, 2);
 });
 
@@ -522,8 +522,8 @@ test("given a subagent whose final message differs from the result the parent re
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /<header[^>]*>assistant<\/header>\s*<pre[^>]*>full summary<\/pre>/);
-  assert.match(card, /<header[^>]*>report<\/header>\s*<pre[^>]*>full sum\n\.\.\.cut<\/pre>/);
+  assert.match(card, /<header[^>]*>assistant<\/header>\s*<div[^>]*>\s*<p>full summary<\/p>\s*<\/div>/);
+  assert.match(card, /<header[^>]*>report<\/header>\s*<div[^>]*>\s*<p>full sum\n\.\.\.cut<\/p>\s*<\/div>/);
 });
 
 test('given a subagent call that returned an error, when its run page is viewed, then its card is highlighted, its group is open and the error is its report', async () => {
@@ -541,7 +541,7 @@ test('given a subagent call that returned an error, when its run page is viewed,
   assert.match(openingTag(failed), /\sdata-failed[\s>]/);
   assert.match(failed, /<span[^>]*\sdata-badge="error"[^>]*>error<\/span>/);
   assert.match(openingTag(subagentGroups(failed)[0] ?? ''), /\sopen[\s>]/);
-  assert.match(failed, /<header[^>]*>assistant<\/header>\s*<pre[^>]*>partial<\/pre>/);
+  assert.match(failed, /<header[^>]*>assistant<\/header>\s*<div[^>]*>\s*<p>partial<\/p>\s*<\/div>/);
   assert.match(failed, /<article[^>]*\sdata-message="error"[^>]*>\s*<header[^>]*>error<\/header>\s*<pre[^>]*>Sub-agent failed: provider error<\/pre>/);
   assert.doesNotMatch(openingTag(ok), /\sdata-failed[\s>]/);
   const [okGroup, ...extraGroups] = subagentGroups(ok);
@@ -590,7 +590,7 @@ test('given a subagent given an explicit working directory, when its group is ex
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /<header[^>]*>cwd<\/header>\s*<pre[^>]*>repo\/src<\/pre>[\s\S]*<header[^>]*>task<\/header>\s*<pre[^>]*>List the files\.<\/pre>/);
+  assert.match(card, /<header[^>]*>cwd<\/header>\s*<pre[^>]*>repo\/src<\/pre>[\s\S]*<header[^>]*>task<\/header>\s*<div[^>]*>\s*<p>List the files\.<\/p>\s*<\/div>/);
 });
 
 test('given a subagent call whose arguments carry no task text, when its run page is viewed, then its header and body show the same arguments', async () => {
@@ -619,7 +619,7 @@ test('given a harness whose spawning tool has another name, when its run page is
   ]);
 
   const [card] = subagentCalls(body) as [string];
-  assert.match(card, /<span[^>]*\sdata-tool-name[^>]*>Task<\/span>[\s\S]*Count the files\.[\s\S]*<header[^>]*>report<\/header>\s*<pre[^>]*>three files<\/pre>/);
+  assert.match(card, /<span[^>]*\sdata-tool-name[^>]*>Task<\/span>[\s\S]*Count the files\.[\s\S]*<header[^>]*>report<\/header>\s*<div[^>]*>\s*<p>three files<\/p>\s*<\/div>/);
   assert.equal(toolCards(body).length, 0);
 });
 
@@ -647,4 +647,93 @@ test('given a tool whose name is longer than a phone-width header, when its run 
 
   const [card] = toolCards(body) as [string];
   assert.match(card, new RegExp(`<span[^>]*\\sdata-tool-name[^>]*\\stitle="${name}"[^>]*>${name}</span>`));
+});
+
+const messageCard = (body: string, kind: string): string => {
+  const match = body.match(new RegExp(`<article[^>]*\\sdata-message="${kind}"[\\s\\S]*?</article>`));
+  assert.ok(match, `a ${kind} card renders`);
+  return match[0];
+};
+
+test('given an agent reply with bold text, a table and a code fence, when the run page is viewed, then they render as formatted markdown', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'This is **bold**.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```\nlet x = 1;\n```', usage, generationId: null },
+  ]);
+
+  const card = messageCard(body, 'assistant');
+  assert.match(card, /<strong>bold<\/strong>/);
+  assert.match(card, /<table>[\s\S]*<td>1<\/td>/);
+  assert.match(card, /<pre><code>let x = 1;\n<\/code><\/pre>/);
+  assert.doesNotMatch(card, /\*\*bold\*\*|\|---/);
+});
+
+test('given a subagent task and report containing markdown, when the run page is viewed, then both render as formatted markdown', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_a', name: 'subagent', arguments: { task: 'Check **the** repo' } },
+    { type: 'message', role: 'assistant', text: 'working on `it`', usage, generationId: null, subagent: 'call_a' },
+    { type: 'tool_result', id: 'call_a', isError: false, text: 'All **clean**', subagent: undefined },
+  ] as HarnessEvent[]);
+
+  const [call] = subagentCalls(body) as [string];
+  assert.match(messageCard(call, 'task'), /<strong>the<\/strong>/);
+  assert.match(messageCard(call, 'report'), /<strong>clean<\/strong>/);
+  assert.match(call, /<code>it<\/code>/, 'the subagent own messages render as markdown');
+});
+
+test('given an agent message with raw HTML, when the run page is viewed, then the tag is escaped text', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'hi <script>alert(1)</script>', usage, generationId: null },
+  ]);
+
+  assert.doesNotMatch(body, /<script>alert/);
+  assert.match(messageCard(body, 'assistant'), /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test('given an agent message with a markdown image, when the run page is viewed, then no image renders and the markdown shows as text', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'look ![alt](https://evil.example/x.png)', usage, generationId: null },
+  ]);
+
+  const card = messageCard(body, 'assistant');
+  assert.doesNotMatch(card, /<img/);
+  assert.match(card, /!\[alt\]\(https:\/\/evil\.example\/x\.png\)/);
+  assert.doesNotMatch(card, /<a /, 'the image url is not linked either');
+});
+
+test('given an agent message with safe, unsafe and bare links, when the run page is viewed, then only http, https and mailto links are rendered', async () => {
+  const body = await viewTranscript([
+    {
+      type: 'message',
+      role: 'assistant',
+      text: '[good](https://example.com/a) [bad](javascript:alert(1)) [mail](mailto:a@example.com) [data](data:text/html;base64,AAAA) https://bare.example.com',
+      usage,
+      generationId: null,
+    },
+  ]);
+
+  const card = messageCard(body, 'assistant');
+  const anchors = card.match(/<a [^>]*>/g) ?? [];
+  assert.equal(anchors.length, 2);
+  for (const anchor of anchors) {
+    assert.match(anchor, /rel="noopener noreferrer nofollow"/);
+  }
+  assert.match(card, /<a href="https:\/\/example\.com\/a"/);
+  assert.match(card, /<a href="mailto:a@example\.com"/);
+  assert.doesNotMatch(card, /href="javascript|href="data|href="https:\/\/bare/);
+  assert.match(card, /\[bad\]\(javascript:alert\(1\)\)/);
+  assert.match(card, /https:\/\/bare\.example\.com/);
+});
+
+test('given tool arguments, results and error text with markdown syntax, when the run page is viewed, then they stay verbatim', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'c1', name: 'bash', arguments: { command: 'echo **x**' } },
+    { type: 'tool_result', id: 'c1', isError: false, text: '**result** `y`' },
+    { type: 'tool_call', id: 'c2', name: 'bash', arguments: { command: 'false' } },
+    { type: 'tool_result', id: 'c2', isError: true, text: 'boom **failed**' },
+  ]);
+
+  assert.match(body, /<pre[^>]*>\*\*result\*\* `y`<\/pre>/);
+  assert.match(body, /<pre[^>]*>boom \*\*failed\*\*<\/pre>/);
+  assert.match(body, /echo \*\*x\*\*/);
+  assert.doesNotMatch(body, /<strong>|<em>/);
 });

@@ -1,4 +1,4 @@
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import { isGithubRepository, isGithubUrl } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
@@ -25,6 +25,7 @@ import {
   pendingCount,
   settledCost,
 } from './format.ts';
+import { renderMarkdown } from './markdown.ts';
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
@@ -213,6 +214,28 @@ const renderText = (
   </article>`;
 };
 
+// Typography's colours mapped to the palette tokens; code blocks and tables scroll in place.
+const MARKDOWN = [
+  'prose prose-sm max-w-none break-words',
+  ...['body', 'headings', 'bold', 'code', 'pre-code', 'quotes'].map((part) => `[--tw-prose-${part}:var(--color-fg)]`),
+  ...['lead', 'counters', 'bullets', 'captions'].map((part) => `[--tw-prose-${part}:var(--color-muted)]`),
+  ...['hr', 'quote-borders', 'th-borders', 'td-borders'].map((part) => `[--tw-prose-${part}:var(--color-line)]`),
+  '[--tw-prose-links:var(--color-accent-text)] [--tw-prose-pre-bg:var(--color-raised)]',
+  'prose-pre:overflow-x-auto',
+].join(' ');
+
+// Only agent prose is markdown (ADR-0019); data stays in renderText.
+const renderProse = (
+  kind: string,
+  text: string,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const tone = MESSAGE_TONE.get(kind) ?? DEFAULT_TONE;
+  return html`<article class="${BLOCK} ${tone.border} px-4 py-3" data-message="${kind}">
+    <header class="${LABEL} mb-1.5 ${tone.label}">${kind}</header>
+    <div class="${MARKDOWN}" data-markdown>${raw(renderMarkdown(text))}</div>
+  </article>`;
+};
+
 const SUMMARY_KEYS = ['command', 'path', 'pattern', 'task'];
 
 const summaryText = (args: unknown): unknown => {
@@ -294,7 +317,7 @@ const renderEvent = (
 ): Rendered => {
   switch (event.type) {
     case 'message':
-      return renderText(event.role, event.text);
+      return renderProse(event.role, event.text);
     case 'tool_call':
       return renderToolCall(event, results.get(event));
     case 'tool_result':
@@ -429,11 +452,11 @@ const renderSubagentCall = (
       failed,
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
-        renderText('task', task),
+        (typeof argumentFields(call.arguments).task === 'string' ? renderProse : renderText)('task', task),
         ...withoutReportMessage(shown, report).map((event) => renderEvent(event, results)),
         report === undefined
           ? html`<p class="${EMPTY}">No report recorded.</p>`
-          : renderText(failed ? 'error' : 'report', report.text),
+          : failed ? renderText('error', report.text) : renderProse('report', report.text),
       ],
     )}
   </section>`;
