@@ -10,6 +10,7 @@ const md = new MarkdownIt({ html: false, linkify: false });
 md.validateLink = (url) => SAFE_LINK.test(url.trim());
 
 // An image is shown as its own markdown source instead of loading anything.
+// md.disable("image") is not enough: it would leave ![alt](url) to render as a link.
 // The stock rule is run silently only to find where the image ends.
 const stockImage = (md.inline.ruler as unknown as { __rules__: { name: string; fn: (state: StateInline, silent: boolean) => boolean }[] }).__rules__.find((rule) => rule.name === 'image')?.fn;
 if (stockImage === undefined) {

@@ -215,11 +215,13 @@ const renderText = (
 };
 
 // Typography's colours mapped to the palette tokens; code blocks and tables scroll in place.
+// Written out in full: Tailwind only generates class names it can read literally.
 const MARKDOWN = [
   'prose prose-sm max-w-none break-words',
-  ...['body', 'headings', 'bold', 'code', 'pre-code', 'quotes'].map((part) => `[--tw-prose-${part}:var(--color-fg)]`),
-  ...['lead', 'counters', 'bullets', 'captions'].map((part) => `[--tw-prose-${part}:var(--color-muted)]`),
-  ...['hr', 'quote-borders', 'th-borders', 'td-borders'].map((part) => `[--tw-prose-${part}:var(--color-line)]`),
+  '[--tw-prose-body:var(--color-fg)] [--tw-prose-headings:var(--color-fg)] [--tw-prose-bold:var(--color-fg)]',
+  '[--tw-prose-code:var(--color-fg)] [--tw-prose-pre-code:var(--color-fg)] [--tw-prose-quotes:var(--color-fg)]',
+  '[--tw-prose-lead:var(--color-muted)] [--tw-prose-counters:var(--color-muted)] [--tw-prose-bullets:var(--color-muted)] [--tw-prose-captions:var(--color-muted)]',
+  '[--tw-prose-hr:var(--color-line)] [--tw-prose-quote-borders:var(--color-line)] [--tw-prose-th-borders:var(--color-line)] [--tw-prose-td-borders:var(--color-line)]',
   '[--tw-prose-links:var(--color-accent-text)] [--tw-prose-pre-bg:var(--color-raised)]',
   'prose-pre:overflow-x-auto',
 ].join(' ');
