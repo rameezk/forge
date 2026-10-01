@@ -138,13 +138,17 @@ let
     "forge-billing.env"
   ];
   envFile = name: config.sops.templates.${name}.path;
-  hideOpenRouterEnvFiles = lib.optionalAttrs hasWorkers {
-    InaccessiblePaths = map (name: "-${envFile name}") openRouterEnvFiles;
+  envTemplate = variable: secret: {
+    content = "${variable}=${config.sops.placeholder.${secret}}\n";
+    owner = cfg.user;
+    mode = "0400";
   };
 
-  credentialsDir = "/var/lib/forge-credentials";
-
-  hideGithubWriteToken = [ credentialsDir ];
+  writeTokenCredentialId = "github-write-token";
+  writeTokenCredential = {
+    LoadCredential = [ "${writeTokenCredentialId}:${envFile "forge-github-write.env"}" ];
+  };
+  writeTokenFileVariable = "FORGE_GITHUB_WRITE_TOKEN_FILE=%d/${writeTokenCredentialId}";
 
   hardening = {
     NoNewPrivileges = true;
@@ -155,6 +159,10 @@ let
     RestrictSUIDSGID = true;
     ProtectKernelTunables = true;
     ProtectControlGroups = true;
+    InaccessiblePaths = [
+      "/run/secrets"
+      "/run/secrets.d"
+    ];
   };
 
   baseToolset = [
@@ -206,21 +214,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `openrouter_api_key` when any worker is declared.";
-    };
-
-    githubTokenFile = lib.mkOption {
-      type = lib.types.str;
-      default = "${cfg.stateDir}/github.env";
-      defaultText = lib.literalExpression ''"''${cfg.stateDir}/github.env"'';
-      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN to the frontier's read-only token for the frontier poller and the forge-frontier command. The poller loads it as optional, so a missing file does not stop the unit from starting. The forge-frontier command reads only GITHUB_TOKEN from it, as data. Dispatch never reads it.";
-    };
-
-    githubWriteTokenFile = lib.mkOption {
-      type = lib.types.str;
-      default = "${credentialsDir}/github-write.env";
-      readOnly = true;
-      description = "Path to a restricted file in EnvironmentFile format that sets GITHUB_TOKEN to a fine-grained token with write access on Contents, Pull requests and Issues of the managed repositories. It lives in its own directory outside the run-writable state directory, which no unit can write and which is masked from the scheduled runner, billing and the dashboard. Only hosts with a repository that declares a worker use it: forge-dispatch moves tickets through the `forge:*` labels with it and hands it to the workload as GITHUB_TOKEN, and the frontier sync ensures the `forge:*` labels exist with it. Both read only GITHUB_TOKEN from it, as data, so nothing else in the file reaches their environment.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `openrouter_api_key` when any worker is declared, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests and Issues of every managed repository) when a repository declares a worker. No unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch and the frontier sync read only GITHUB_TOKEN, as data.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -297,17 +291,16 @@ in
         "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/transcripts 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/work 0750 ${cfg.user} ${cfg.user} 14d -"
-        "d ${credentialsDir} 0700 ${cfg.user} ${cfg.user} - -"
+        "r ${cfg.stateDir}/github.env - - - - -"
+        "R /var/lib/forge-credentials - - - - -"
       ];
     }
 
     (lib.mkIf hasWorkers {
       sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
-      sops.templates = lib.genAttrs openRouterEnvFiles (_: {
-        content = "OPENROUTER_API_KEY=${config.sops.placeholder.openrouter_api_key}\n";
-        owner = cfg.user;
-        mode = "0400";
-      });
+      sops.templates = lib.genAttrs openRouterEnvFiles (
+        _: envTemplate "OPENROUTER_API_KEY" "openrouter_api_key"
+      );
 
       systemd.services."forge-runner@" = {
         description = "Forge workload runner for worker %i";
@@ -325,7 +318,6 @@ in
             "FORGE_STATE_DIR=${cfg.stateDir}"
           ];
           ExecStart = "${cfg.package}/bin/forge-run %i";
-          InaccessiblePaths = hideGithubWriteToken;
         }
         // hardening;
       };
@@ -342,7 +334,6 @@ in
           EnvironmentFile = envFile "forge-billing.env";
           Environment = [ "FORGE_STATE_DIR=${cfg.stateDir}" ];
           ExecStart = "${cfg.package}/bin/forge-billing";
-          InaccessiblePaths = hideGithubWriteToken;
         }
         // hardening;
       };
@@ -358,14 +349,14 @@ in
     })
 
     (lib.mkIf hasRepositories {
+      sops.secrets.github_token.sopsFile = cfg.secretsFile;
+      sops.templates."forge-github.env" = envTemplate "GITHUB_TOKEN" "github_token";
+
       environment.systemPackages = [
         (pkgs.callPackage ../nix/frontier-command.nix {
           forge-runner = cfg.package;
-          inherit (cfg)
-            configFile
-            user
-            githubTokenFile
-            ;
+          inherit (cfg) configFile user;
+          githubTokenFile = envFile "forge-github.env";
         })
       ];
 
@@ -378,16 +369,16 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = "-${cfg.githubTokenFile}";
+          EnvironmentFile = envFile "forge-github.env";
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
           ]
-          ++ lib.optional hasDispatch "FORGE_GITHUB_WRITE_TOKEN_FILE=${cfg.githubWriteTokenFile}";
+          ++ lib.optional hasDispatch writeTokenFileVariable;
           ExecStart = "${cfg.package}/bin/forge-frontier sync";
         }
-        // hardening
-        // hideOpenRouterEnvFiles;
+        // lib.optionalAttrs hasDispatch writeTokenCredential
+        // hardening;
       };
 
       systemd.timers.forge-frontier-sync = {
@@ -398,6 +389,11 @@ in
           OnUnitActiveSec = cfg.frontier.pollInterval;
         };
       };
+    })
+
+    (lib.mkIf hasDispatch {
+      sops.secrets.github_write_token.sopsFile = cfg.secretsFile;
+      sops.templates."forge-github-write.env" = envTemplate "GITHUB_TOKEN" "github_write_token";
     })
 
     (lib.mkIf (hasWorkers && hasDispatch) {
@@ -419,10 +415,11 @@ in
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
-            "FORGE_GITHUB_WRITE_TOKEN_FILE=${cfg.githubWriteTokenFile}"
+            writeTokenFileVariable
           ];
           ExecStart = "${dispatchInstance} %i";
         }
+        // writeTokenCredential
         // hardening;
       };
     })
@@ -454,11 +451,6 @@ in
           ];
           IPAddressAllow = "localhost";
           IPAddressDeny = "any";
-          InaccessiblePaths = [
-            "-/run/secrets"
-            "-/run/secrets.d"
-          ]
-          ++ hideGithubWriteToken;
         }
         // hardening;
       };
