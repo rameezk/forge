@@ -6,6 +6,14 @@ import {
   type RepositoryFrontier,
   type Ticket,
 } from './frontier.ts';
+import {
+  DISPATCH_STALE_MS,
+  type DispatchFailure,
+  type DispatchOutcome,
+  type DispatchRecord,
+  type DispatchState,
+  type DispatchTicket,
+} from './dispatch.ts';
 import type {
   GenerationRecord,
   LookupResult,
@@ -167,6 +175,55 @@ const CREATE_FRONTIER = `
   ) STRICT;
 `;
 
+type DispatchRow = {
+  id: number;
+  repository: string;
+  number: number;
+  url: string;
+  run_id: string | null;
+  state: string;
+  reason: string | null;
+  detail: string | null;
+  started_at: string;
+  alive_at: string;
+  ended_at: string | null;
+};
+
+const CREATE_DISPATCHES = `
+  CREATE TABLE IF NOT EXISTS dispatches (
+    id         INTEGER PRIMARY KEY,
+    repository TEXT NOT NULL,
+    number     INTEGER NOT NULL,
+    url        TEXT NOT NULL,
+    run_id     TEXT,
+    state      TEXT NOT NULL,
+    reason     TEXT,
+    detail     TEXT,
+    started_at TEXT NOT NULL,
+    alive_at   TEXT NOT NULL,
+    ended_at   TEXT
+  ) STRICT;
+
+  CREATE INDEX IF NOT EXISTS dispatches_ticket ON dispatches (repository, number, id);
+`;
+
+const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
+  id: row.id,
+  repository: row.repository,
+  number: row.number,
+  url: row.url,
+  runId: row.run_id,
+  state: row.state as DispatchState,
+  reason: row.reason as DispatchFailure | null,
+  detail: row.detail,
+  startedAt: row.started_at,
+  aliveAt: row.alive_at,
+  endedAt: row.ended_at,
+});
+
+const liveSince = (now: string): string =>
+  new Date(Date.parse(now) - DISPATCH_STALE_MS).toISOString();
+
 const HAS_OUTDATED_FRONTIER = `
   SELECT 1 FROM sqlite_master
   WHERE type = 'table' AND name = 'frontier_repositories'
@@ -283,6 +340,7 @@ export class Store {
       this.#migrateOutdatedFrontier();
     }
     db.exec(CREATE_FRONTIER);
+    db.exec(CREATE_DISPATCHES);
   }
 
   #useWriteAheadLog(): void {
@@ -607,6 +665,127 @@ export class Store {
         .map(ticketFromRow)
         .toSorted(oldestFirst),
     }));
+  }
+
+  #latestDispatch(ticket: DispatchTicket): DispatchRow | undefined {
+    return this.#db
+      .prepare(
+        `SELECT * FROM dispatches
+        WHERE repository = $repository AND number = $number
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({ repository: ticket.repository, number: ticket.number }) as
+      | DispatchRow
+      | undefined;
+  }
+
+  #interruptStale(row: DispatchRow, now: string): void {
+    this.#db
+      .prepare(
+        `UPDATE dispatches SET
+          state = 'failed', reason = 'interrupted', ended_at = $ended_at
+        WHERE id = $id`,
+      )
+      .run({ id: row.id, ended_at: now });
+  }
+
+  #insertDispatch(
+    ticket: DispatchTicket,
+    runId: string | null,
+    state: DispatchState,
+    reason: DispatchFailure | null,
+    now: string,
+  ): number {
+    const row = this.#db
+      .prepare(
+        `INSERT INTO dispatches (
+          repository, number, url, run_id, state, reason, started_at, alive_at, ended_at
+        ) VALUES (
+          $repository, $number, $url, $run_id, $state, $reason, $now, $now, $ended_at
+        )
+        RETURNING id`,
+      )
+      .get({
+        repository: ticket.repository,
+        number: ticket.number,
+        url: ticket.url,
+        run_id: runId,
+        state,
+        reason,
+        now,
+        ended_at: state === 'running' ? null : now,
+      }) as { id: number };
+    return row.id;
+  }
+
+  startDispatch(
+    ticket: DispatchTicket,
+    runId: string,
+    startedAt: string,
+  ): number | null {
+    let id: number | null = null;
+    this.#transaction(() => {
+      const latest = this.#latestDispatch(ticket);
+      if (latest?.state === 'running') {
+        if (latest.alive_at >= liveSince(startedAt)) return;
+        this.#interruptStale(latest, startedAt);
+      }
+      id = this.#insertDispatch(ticket, runId, 'running', null, startedAt);
+    });
+    return id;
+  }
+
+  interruptDispatch(ticket: DispatchTicket, now: string): boolean {
+    let interrupted = false;
+    this.#transaction(() => {
+      const latest = this.#latestDispatch(ticket);
+      if (latest?.state === 'running') {
+        if (latest.alive_at >= liveSince(now)) return;
+        this.#interruptStale(latest, now);
+      } else if (latest?.reason !== 'interrupted') {
+        this.#insertDispatch(ticket, null, 'failed', 'interrupted', now);
+      }
+      interrupted = true;
+    });
+    return interrupted;
+  }
+
+  touchDispatch(id: number, now: string): void {
+    this.#db
+      .prepare(
+        `UPDATE dispatches SET alive_at = $now WHERE id = $id AND state = 'running'`,
+      )
+      .run({ id, now });
+  }
+
+  endDispatch(id: number, outcome: DispatchOutcome, endedAt: string): void {
+    this.#db
+      .prepare(
+        `UPDATE dispatches SET
+          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at
+        WHERE id = $id`,
+      )
+      .run({
+        id,
+        state: outcome.state,
+        reason: outcome.state === 'failed' ? outcome.reason : null,
+        detail: outcome.state === 'failed' ? outcome.detail : null,
+        ended_at: endedAt,
+      });
+  }
+
+  listDispatches(): DispatchRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM dispatches d
+        WHERE id = (
+          SELECT MAX(id) FROM dispatches
+          WHERE repository = d.repository AND number = d.number
+        )
+        ORDER BY repository, number`,
+      )
+      .all() as DispatchRow[];
+    return rows.map(dispatchFromRow);
   }
 
   close(): void {

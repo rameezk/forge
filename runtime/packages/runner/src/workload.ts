@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Store, type RunTicket } from '@forge/shared';
+import { Store, type RunRecord, type RunTicket } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
 import type { Harness, Worker, Workspace } from './harness.ts';
 import { PiHarness } from './pi.ts';
@@ -24,7 +24,7 @@ export const readRuntimeConfig = (env: NodeJS.ProcessEnv): RuntimeConfig => {
   return JSON.parse(readFileSync(configPath, 'utf8')) as RuntimeConfig;
 };
 
-const stateDirOf = (env: NodeJS.ProcessEnv): string => {
+export const stateDirOf = (env: NodeJS.ProcessEnv): string => {
   const stateDir = env.FORGE_STATE_DIR;
   if (stateDir === undefined) {
     throw new Error('FORGE_STATE_DIR is not set');
@@ -57,6 +57,13 @@ export interface LaunchOptions {
   openWorkspace: (workDir: string) => Workspace | Promise<Workspace>;
   ticket?: RunTicket;
   secrets?: string[];
+  runId?: string;
+}
+
+export interface LaunchResult {
+  run: RunRecord;
+  finalMessage: string | null;
+  cause: unknown;
 }
 
 export const launchWorkload = async ({
@@ -66,7 +73,8 @@ export const launchWorkload = async ({
   openWorkspace,
   ticket,
   secrets = [],
-}: LaunchOptions): Promise<number> => {
+  runId = randomUUID(),
+}: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
   const harness = harnessFor(config, worker, env);
 
@@ -77,18 +85,20 @@ export const launchWorkload = async ({
   const store = Store.open(join(stateDir, 'forge.db'));
 
   try {
-    const id = await runWorkload({
+    const { id, finalMessage, cause } = await runWorkload({
       store,
       harness,
       worker,
       openTranscript: (runId) => FileTranscript.open(transcriptsDir, runId),
       openWorkspace: (runId) => openWorkspace(join(workDirs, runId)),
       now: () => new Date().toISOString(),
-      newId: () => randomUUID(),
+      newId: () => runId,
       secrets: [env.OPENROUTER_API_KEY ?? '', ...secrets],
       ...(ticket === undefined ? {} : { ticket }),
     });
-    return store.getRun(id)?.status === 'error' ? 1 : 0;
+    const run = store.getRun(id);
+    if (run === undefined) throw new Error(`run ${id} was not recorded`);
+    return { run, finalMessage, cause };
   } finally {
     store.close();
   }

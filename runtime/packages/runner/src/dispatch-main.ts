@@ -1,22 +1,43 @@
-import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import {
-  isHeaderValue,
+  DISPATCH_HEARTBEAT_MS,
+  FORGE_DONE,
+  FORGE_FAILED,
+  FORGE_READY,
+  FORGE_RUNNING,
+  hasOpenClosingPullRequest,
+  githubWriteToken,
   offFrontier,
+  queryLabelled,
   queryTicket,
+  Store,
+  swapLabel,
+  type DispatchOutcome,
   type Fetch,
   type TicketState,
 } from '@forge/shared';
 import { resolveWorker, type RepositoryConfig } from './config.ts';
-import { cloneCheckout, loadPiSkills, resolveCheckout } from './checkout.ts';
+import {
+  cloneCheckout,
+  loadPiSkills,
+  resolveCheckout,
+  SkillNotFound,
+} from './checkout.ts';
 import {
   absolutePath,
   launchWorkload,
   readRuntimeConfig,
+  stateDirOf,
+  type LaunchResult,
 } from './workload.ts';
 
-const USAGE = 'usage: forge-dispatch <repository> <issue>';
+const now = (): string => new Date().toISOString();
 
-const FORGE_READY = 'forge:ready';
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const USAGE = 'usage: forge-dispatch <repository> <issue>';
 
 const refusal = (ticket: TicketState): string | null =>
   offFrontier(ticket) ??
@@ -32,42 +53,19 @@ const fillPrompt = (
     .replaceAll('{issue}', String(ticket.number))
     .replaceAll('{url}', ticket.url);
 
-const readTokenFile = (path: string): string => {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
-    throw error;
+const outcomeOf = (
+  pullRequestOpen: boolean,
+  { run, finalMessage, cause }: LaunchResult,
+): DispatchOutcome => {
+  if (pullRequestOpen) return { state: 'done' };
+  if (cause instanceof SkillNotFound) {
+    return { state: 'failed', reason: 'skill-not-found', detail: run.error };
   }
-};
-
-const unquoted = (value: string): string =>
-  /^(["'])(.*)\1$/s.exec(value)?.[2] ?? value;
-
-const githubToken = (env: NodeJS.ProcessEnv): string => {
-  const path = env.FORGE_GITHUB_TOKEN_FILE;
-  if (path === undefined) {
-    throw new Error('FORGE_GITHUB_TOKEN_FILE is not set');
+  if (run.status === 'error') {
+    return { state: 'failed', reason: 'errored', detail: run.error };
   }
-  const token =
-    readTokenFile(path)
-      .split(/\r?\n/)
-      .flatMap((line) => {
-        const equals = line.indexOf('=');
-        return equals !== -1 && line.slice(0, equals).trim() === 'GITHUB_TOKEN'
-          ? [unquoted(line.slice(equals + 1).trim())]
-          : [];
-      })
-      .at(-1) ?? '';
-  if (token === '') throw new Error('GitHub token missing');
-  if (!isHeaderValue(token)) throw new Error('GitHub token malformed');
-  return token;
+  return { state: 'failed', reason: 'no-pull-request', detail: finalMessage };
 };
-
-const withoutGithubToken = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
-  Object.fromEntries(
-    Object.entries(env).filter(([name]) => name !== 'GITHUB_TOKEN'),
-  );
 
 const repositoryNamed = (
   repositories: Record<string, RepositoryConfig> | undefined,
@@ -84,6 +82,30 @@ const repositoryNamed = (
     throw new Error(`repository '${name}' declares no worker`);
   }
   return { github: repository.github, worker: repository.worker };
+};
+
+const reconcileInterrupted = async (
+  store: Store,
+  repositories: Record<string, RepositoryConfig> | undefined,
+  fetch: Fetch,
+  token: string,
+): Promise<void> => {
+  for (const [name, { github, worker }] of Object.entries(repositories ?? {})) {
+    if (worker === undefined) continue;
+    try {
+      for (const issue of await queryLabelled(fetch, token, github, FORGE_RUNNING)) {
+        const ticket = { repository: name, ...issue };
+        if (store.interruptDispatch(ticket, now())) {
+          await swapLabel(fetch, token, github, issue.number, FORGE_RUNNING, FORGE_FAILED);
+          console.error(`${name}#${issue.number} was interrupted`);
+        }
+      }
+    } catch (error) {
+      console.error(
+        `${name}: could not reconcile interrupted dispatches: ${errorMessage(error)}`,
+      );
+    }
+  }
 };
 
 export const main = async (
@@ -103,43 +125,110 @@ export const main = async (
   const config = readRuntimeConfig(env);
   const repository = repositoryNamed(config.repositories, name);
   const worker = resolveWorker(config, repository.worker);
+  const token = githubWriteToken(env);
 
-  const token = githubToken(env);
-  const ticket = await queryTicket(
-    fetch,
-    token,
-    repository.github,
-    Number(issue),
-  );
-  const refused = refusal(ticket);
-  if (refused !== null) {
-    console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
-    return 1;
+  const store = Store.open(join(stateDirOf(env), 'forge.db'));
+  try {
+    await reconcileInterrupted(store, config.repositories, fetch, token);
+
+    const ticket = await queryTicket(
+      fetch,
+      token,
+      repository.github,
+      Number(issue),
+    );
+    const refused = refusal(ticket);
+    if (refused !== null) {
+      console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
+      return 1;
+    }
+
+    const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
+    const dispatched = { repository: name, number: ticket.number, url: ticket.url };
+    const runId = randomUUID();
+    const dispatchId = store.startDispatch(dispatched, runId, now());
+    if (dispatchId === null) {
+      console.error(
+        `${name}#${ticket.number} is not dispatchable: it is already being dispatched`,
+      );
+      return 1;
+    }
+    const heartbeat = setInterval(
+      () => store.touchDispatch(dispatchId, now()),
+      DISPATCH_HEARTBEAT_MS,
+    );
+    try {
+      try {
+        await swapLabel(
+          fetch,
+          token,
+          repository.github,
+          ticket.number,
+          FORGE_READY,
+          FORGE_RUNNING,
+        );
+      } catch (error) {
+        store.endDispatch(
+          dispatchId,
+          {
+            state: 'failed',
+            reason: 'errored',
+            detail: `could not claim the ticket: ${errorMessage(error)}`,
+          },
+          now(),
+        );
+        throw error;
+      }
+
+      const workloadEnv = { ...env, GITHUB_TOKEN: token };
+      const launched = await launchWorkload({
+        config,
+        worker: {
+          ...worker,
+          prompt: fillPrompt(worker.prompt, repository.github, ticket),
+        },
+        env: workloadEnv,
+        secrets: [token],
+        ticket: dispatched,
+        runId,
+        openWorkspace: async (workDir) => {
+          await cloneCheckout(repository.github, workDir, workloadEnv);
+          return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
+        },
+      });
+
+      const outcome = outcomeOf(
+        await hasOpenClosingPullRequest(
+          fetch,
+          token,
+          repository.github,
+          ticket.number,
+        ),
+        launched,
+      );
+      await swapLabel(
+        fetch,
+        token,
+        repository.github,
+        ticket.number,
+        FORGE_RUNNING,
+        outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,
+      );
+      store.endDispatch(dispatchId, outcome, now());
+      return launched.run.status === 'error' ? 1 : 0;
+    } finally {
+      clearInterval(heartbeat);
+    }
+  } finally {
+    store.close();
   }
-
-  const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
-  const workloadEnv = withoutGithubToken(env);
-  return launchWorkload({
-    config,
-    worker: {
-      ...worker,
-      prompt: fillPrompt(worker.prompt, repository.github, ticket),
-    },
-    env: workloadEnv,
-    secrets: [token],
-    ticket: { repository: name, number: ticket.number, url: ticket.url },
-    openWorkspace: async (workDir) => {
-      await cloneCheckout(repository.github, workDir, workloadEnv);
-      return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
-    },
-  });
 };
 
 if (import.meta.filename === process.argv[1]) {
   main(process.argv.slice(2), process.env, globalThis.fetch)
     .then((code) => process.exit(code))
     .catch((error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(errorMessage(error));
       process.exit(1);
     });
 }

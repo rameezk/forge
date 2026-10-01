@@ -129,7 +129,8 @@ Each OpenTofu call runs through `sops exec-env` on `secrets/operator.yaml`, so
 your Hetzner token is decrypted only for that call and never sits in your shell.
 
 Box state is the run store, frontier snapshot and transcripts under
-`/var/lib/forge`, and the GitHub token file `/var/lib/forge/github.env`. Only
+`/var/lib/forge`, and the GitHub token files `/var/lib/forge/github.env` and
+`/var/lib/forge/github-write.env`. Only
 deploy keeps it. The OpenRouter key is not box state: the box decrypts it from
 this repository on every standup and deploy.
 
@@ -163,8 +164,7 @@ this repository on every standup and deploy.
 3. Place the GitHub token if you declare managed repositories. The frontier
    poller reads each managed repository's issues with a fine-grained personal
    access token that is read-only on Issues and Metadata for those
-   repositories, and `forge-dispatch` uses it to check a ticket before it
-   runs it. Workloads run as the same `forge-runtime` user and can read
+   repositories. Workloads run as the same `forge-runtime` user and can read
    it, so give it a short expiry. You place it by hand after **every** standup,
    into `/var/lib/forge/github.env`. Until it is there, the Work page shows
    "GitHub token missing" on every repository:
@@ -173,6 +173,22 @@ this repository on every standup and deploy.
    printf 'GitHub token: ' && read -rs token && echo && [ -n "$token" ] &&
      printf 'GITHUB_TOKEN=%s\n' "$token" |
      just ssh 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/github.env && cat > /var/lib/forge/github.env"'; unset token
+   ```
+
+   If a repository declares a worker, also place the GitHub write token. It is
+   a separate fine-grained personal access token with read and write access on
+   Contents, Pull requests and Issues for the managed repositories. Forge uses
+   it to move dispatched tickets through their `forge:*` labels, and the
+   dispatched agent gets it as `GITHUB_TOKEN`, so the repository's skills can
+   push branches and open pull requests. A run can use it for anything it
+   allows in every managed repository, so protect each default branch and give
+   the token a short expiry. Place it after **every** standup, into
+   `/var/lib/forge/github-write.env`:
+
+   ```bash
+   printf 'GitHub write token: ' && read -rs token && echo && [ -n "$token" ] &&
+     printf 'GITHUB_TOKEN=%s\n' "$token" |
+     just ssh 'sudo -u forge-runtime sh -c "umask 077 && rm -f /var/lib/forge/github-write.env && cat > /var/lib/forge/github-write.env"'; unset token
    ```
 
 4. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
@@ -267,8 +283,9 @@ just ssh sudo forge-dispatch forge 113
 ```
 
 Forge refuses a ticket that is not on the frontier or not labelled
-`forge:ready`. Otherwise it clones the tip of the repository's default branch
-into a fresh run directory and runs the worker there. The clone is anonymous,
+`forge:ready`. Otherwise it claims the ticket by replacing `forge:ready` with
+`forge:running`, clones the tip of the repository's default branch into a
+fresh run directory and runs the worker there. The clone is anonymous,
 so the repository must be public. The workload loads the checkout's
 `.claude/skills`, `.agents/skills` and `.pi/skills`, its root `AGENTS.md` (or
 `CLAUDE.md`), and `.pi/SYSTEM.md` and `.pi/APPEND_SYSTEM.md`, and it is told
@@ -276,6 +293,18 @@ that no human will answer. A leading `/<name>` in the prompt runs the
 checkout's skill of that name, and the run fails before the harness starts if
 there is none. The Runs page shows the repository and ticket of each
 dispatched run.
+
+When the run ends, forge asks GitHub whether an open pull request closes the
+ticket. If one does, the ticket becomes `forge:done`, however the run ended.
+Otherwise it becomes `forge:failed`. The Work page shows each ticket's
+dispatch state, and for a failed ticket its reason, linked to its run: the run
+errored, it ended without a pull request (with the agent's final message), the
+skill was not found, or the run was interrupted. Each dispatch moves a ticket
+labelled `forge:running` that no live dispatch is working on to `forge:failed`
+as interrupted. To retry a ticket, label it `forge:ready` again. The labels are
+the only thing forge writes to a ticket. On a host that dispatches, each
+frontier sync also makes sure every declared repository has the four `forge:*`
+labels, with their fixed descriptions and colours.
 
 ## Inspecting the run store
 

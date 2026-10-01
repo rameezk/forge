@@ -21,8 +21,9 @@ type Seed =
   | (PolledFrontier & { lastError?: PollFailure })
   | { repository: string; github: string; polledAt: null; lastError: PollFailure };
 
-const appWith = (frontier: Seed[]) => {
+const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}) => {
   const store = Store.open(':memory:');
+  dispatch(store);
   for (const seed of frontier) {
     if (seed.polledAt !== null) store.replaceFrontier(seed);
     if (seed.lastError !== undefined) {
@@ -168,4 +169,59 @@ test('given a stored repository whose github is not an owner/name, when the work
 
   assert.doesNotMatch(forge ?? '', /<a href="https:\/\/github\.com\/\.\.\/\.\.\/evil"/);
   assert.match(forge ?? '', /<span[^>]*>\.\.\/\.\.\/evil<\/span>/);
+});
+
+test('given frontier tickets that forge dispatched, one running, one done and one failed for each reason, and one never dispatched, when the work page is requested, then each shows its dispatch state, and a failed one its reason with a link to its run', async () => {
+  const numbers = [56, 57, 58, 59, 60, 61, 62];
+  const at = '2026-09-30T08:00:00.000Z';
+  const forgeTicket = (number: number) => ({
+    repository: 'forge',
+    number,
+    url: `https://github.com/rameezk/forge/issues/${number}`,
+  });
+  const app = appWith(
+    [
+      {
+        repository: 'forge',
+        github: 'rameezk/forge',
+        polledAt: '2026-09-29T08:15:00.000Z',
+        tickets: numbers.map((number) => ticket({ number, title: `Ticket ${number}`, url: forgeTicket(number).url, parent: null })),
+      },
+    ],
+    (store) => {
+      const dispatched = (number: number) => {
+        const id = store.startDispatch(forgeTicket(number), `run-${number}`, new Date().toISOString());
+        assert.ok(id !== null);
+        return id;
+      };
+      dispatched(56);
+      store.endDispatch(dispatched(57), { state: 'done' }, at);
+      store.endDispatch(dispatched(58), { state: 'failed', reason: 'errored', detail: 'git could not clone rameezk/forge' }, at);
+      store.endDispatch(dispatched(59), { state: 'failed', reason: 'no-pull-request', detail: 'Should the check use <b>REST</b>?' }, at);
+      store.endDispatch(dispatched(60), { state: 'failed', reason: 'skill-not-found', detail: "skill 'work-on' not found in the checkout" }, at);
+      store.interruptDispatch(forgeTicket(61), at);
+    },
+  );
+
+  const rows = ticketRows(sections(await (await app.request('/work')).text())[0] ?? '');
+
+  const dispatchCell = (row: string): string =>
+    row.match(/<td[^>]*\sdata-dispatch(?:="[^"]*")?[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
+  assert.deepEqual(
+    rows.map((row) => [textOf(dispatchCell(row)), /data-dispatch="([^"]*)"/.exec(row)?.[1] ?? null]),
+    [
+      ['running', 'running'],
+      ['done', 'done'],
+      ['failed Run errored: git could not clone rameezk/forge', 'failed'],
+      ['failed No pull request: Should the check use &lt;b&gt;REST&lt;/b&gt;?', 'failed'],
+      ["failed Skill not found: skill &#39;work-on&#39; not found in the checkout", 'failed'],
+      ['failed Interrupted', 'failed'],
+      ['', null],
+    ],
+  );
+  assert.deepEqual(
+    rows.map((row) => /<a href="(\/runs\/[^"]*)"/.exec(dispatchCell(row))?.[1] ?? null),
+    ['/runs/run-56', '/runs/run-57', '/runs/run-58', '/runs/run-59', '/runs/run-60', null, null],
+  );
+  assert.doesNotMatch(rows[3] ?? '', /<b>REST<\/b>/);
 });

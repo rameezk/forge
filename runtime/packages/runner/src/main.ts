@@ -12,7 +12,7 @@ export const main = async (
   }
 
   const config = readRuntimeConfig(env);
-  return launchWorkload({
+  const { run } = await launchWorkload({
     config,
     worker: resolveWorker(config, name),
     env,
@@ -21,6 +21,7 @@ export const main = async (
       return { workDir };
     },
   });
+  return run.status === 'error' ? 1 : 0;
 };
 
 if (import.meta.filename === process.argv[1]) {

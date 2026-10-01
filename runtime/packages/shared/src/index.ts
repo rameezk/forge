@@ -12,6 +12,13 @@ export type {
   UnsettledGeneration,
 } from './generation.ts';
 export type {
+  DispatchFailure,
+  DispatchOutcome,
+  DispatchRecord,
+  DispatchState,
+  DispatchTicket,
+} from './dispatch.ts';
+export type {
   HarnessEvent,
   MessageEvent,
   ResultEvent,
@@ -21,6 +28,7 @@ export type {
 } from './events.ts';
 export type {
   Fetch,
+  LabelledIssue,
   PolledFrontier,
   PollFailure,
   RepositoryFrontier,
@@ -32,15 +40,31 @@ export {
   FRONTIER_PAGE_SIZE,
   FRONTIER_QUERY,
   GITHUB_GRAPHQL_API,
+  hasOpenClosingPullRequest,
   isGithubRepository,
   isGithubUrl,
   offFrontier,
   oldestFirst,
   queryFrontier,
+  queryLabelled,
   queryTicket,
   requestFrontierPage,
+  requestLabelledPage,
+  requestClosingPullRequests,
   requestTicket,
 } from './frontier.ts';
+export { DISPATCH_HEARTBEAT_MS, DISPATCH_STALE_MS } from './dispatch.ts';
 export { isHeaderValue } from './http.ts';
+export { githubWriteToken } from './token.ts';
 export { Store } from './store.ts';
 export { parseTranscript, transcriptLine } from './transcript.ts';
+export {
+  FORGE_DONE,
+  FORGE_FAILED,
+  FORGE_READY,
+  FORGE_LABELS,
+  FORGE_RUNNING,
+  GITHUB_REST_API,
+  ensureLabels,
+  swapLabel,
+} from './labels.ts';

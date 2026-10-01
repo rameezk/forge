@@ -148,6 +148,116 @@ test('given a declared repository whose recorded response holds unblocked and bl
   );
 });
 
+const FORGE_LABELS = [
+  { name: 'forge:ready', color: '1d76db', description: 'Queued for forge: an agent picks it up once it is on the frontier' },
+  { name: 'forge:running', color: 'fbca04', description: 'Forge is running an agent on this ticket' },
+  { name: 'forge:done', color: '0e8a16', description: "Forge's agent opened a pull request that closes this ticket" },
+  { name: 'forge:failed', color: 'd93f0b', description: "Forge's agent left no pull request; see forge's dashboard, and set forge:ready to retry" },
+];
+
+const WRITE_TOKEN = 'github_pat_write';
+
+interface LabelCall {
+  method: string;
+  path: string;
+  authorization: string | null;
+  body: unknown;
+}
+
+const recordedLabel = (name: string): Record<string, unknown> =>
+  JSON.parse(
+    readFileSync(join(FIXTURES, `${name}.json`), 'utf8'),
+  ) as Record<string, unknown>;
+
+const labelling = (
+  graphql: ReturnType<typeof replaying>,
+  existing: Record<string, { color: string; description: string }>,
+) => {
+  const calls: LabelCall[] = [];
+  const fetch = async (
+    input: string | URL | globalThis.Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = new URL(String(input));
+    if (url.pathname === '/graphql') return graphql.fetch(input, init);
+    const method = init?.method ?? 'GET';
+    calls.push({
+      method,
+      path: url.pathname,
+      authorization: new Headers(init?.headers).get('authorization'),
+      body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+    });
+    const name = decodeURIComponent(url.pathname.split('/').at(-1) ?? '');
+    const label = existing[name];
+    if (method === 'GET') {
+      return label === undefined
+        ? new Response(JSON.stringify(recordedLabel('label-missing')), { status: 404 })
+        : new Response(JSON.stringify({ ...recordedLabel('label'), name, ...label }));
+    }
+    return new Response(JSON.stringify(recordedLabel('label')), {
+      status: method === 'POST' ? 201 : 200,
+    });
+  };
+  return { fetch, calls };
+};
+
+const withWriteToken = (env: Record<string, string>, stateDir: string, contents: string) => {
+  const path = join(stateDir, 'github-write.env');
+  writeFileSync(path, contents);
+  return { ...env, FORGE_GITHUB_WRITE_TOKEN_FILE: path };
+};
+
+test('given a declared repository missing two forge labels and holding one with a stale colour, when sync runs with a GitHub write-token file, then all four forge labels exist with their fixed descriptions and colours, written with the write token', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const [ready, running, done, failed] = FORGE_LABELS;
+  assert.ok(ready && running && done && failed);
+  const github = labelling(replaying({ 'rameezk/forge': recorded('frontier') }), {
+    'forge:running': { color: 'ededed', description: running.description },
+    'forge:done': { color: done.color.toUpperCase(), description: done.description },
+  });
+
+  const code = await main(
+    ['sync'],
+    withWriteToken(env, stateDir, `GITHUB_TOKEN=${WRITE_TOKEN}\n`),
+    github.fetch,
+  );
+
+  assert.equal(code, 0);
+  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 6);
+  assert.deepEqual(
+    github.calls.filter(({ method }) => method !== 'GET'),
+    [
+      { method: 'POST', path: '/repos/rameezk/forge/labels', authorization: `bearer ${WRITE_TOKEN}`, body: ready },
+      {
+        method: 'PATCH',
+        path: '/repos/rameezk/forge/labels/forge%3Arunning',
+        authorization: `bearer ${WRITE_TOKEN}`,
+        body: { color: running.color, description: running.description },
+      },
+      { method: 'POST', path: '/repos/rameezk/forge/labels', authorization: `bearer ${WRITE_TOKEN}`, body: failed },
+    ],
+  );
+  assert.ok(github.calls.every(({ authorization }) => authorization === `bearer ${WRITE_TOKEN}`));
+});
+
+test('given a GitHub write-token file that sets no token, when sync runs, then the frontier is still stored, and the missing write token is reported with a non-zero exit code', async (t) => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const github = labelling(replaying({ 'rameezk/forge': recorded('frontier') }), {});
+  const stderr: string[] = [];
+  t.mock.method(console, 'error', (line: string) => stderr.push(line));
+
+  const code = await main(
+    ['sync'],
+    withWriteToken(env, stateDir, 'OTHER=value\n'),
+    github.fetch,
+  );
+
+  assert.notEqual(code, 0);
+  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 6);
+  assert.deepEqual(github.calls, []);
+  assert.deepEqual(stderr, ['forge: could not ensure the forge labels: GitHub write token missing']);
+});
+
 test('given a declared repository whose recorded response spans several pages, when sync runs, then tickets from every page are stored', async () => {
   const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
   const pages = recorded('frontier-paged');

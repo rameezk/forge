@@ -486,9 +486,26 @@
               (
                 dispatchUnit.serviceConfig.EnvironmentFile
                 == dispatchHost.config.sops.templates."forge-runner.env".path
-                && lib.elem "FORGE_GITHUB_TOKEN_FILE=/var/lib/forge/github.env" dispatchUnit.serviceConfig.Environment
+                && lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=/var/lib/forge/github-write.env" dispatchUnit.serviceConfig.Environment
+                && !(lib.any (lib.hasInfix "/var/lib/forge/github.env") dispatchUnit.serviceConfig.Environment)
               )
-              "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, and read the GitHub token file as data";
+              "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, read the GitHub write-token file as data, and never see the frontier's read-only token";
+          dispatchHostSync = dispatchHost.config.systemd.services.forge-frontier-sync;
+          frontierSyncEnsuresLabels =
+            lib.asserts.assertMsg
+              (
+                lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=/var/lib/forge/github-write.env" dispatchHostSync.serviceConfig.Environment
+                && dispatchHostSync.serviceConfig.EnvironmentFile == "-/var/lib/forge/github.env"
+                && !(lib.any (lib.hasInfix "FORGE_GITHUB_WRITE_TOKEN_FILE") frontierService.serviceConfig.Environment)
+              )
+              "on a host that dispatches, the sync service must read the GitHub write-token file as data to ensure the forge labels, while polling with the frontier's read-only token; a host that does not dispatch must not give it the write token";
+          writeTokenSeparate =
+            lib.asserts.assertMsg
+              (
+                dispatchHost.config.forge.runtime.githubWriteTokenFile == "/var/lib/forge/github-write.env"
+                && dispatchHost.config.forge.runtime.githubTokenFile == "/var/lib/forge/github.env"
+              )
+              "the GitHub write-token file must default to its own file beside the frontier's read-only token file";
           dispatchCommandInstalled =
             lib.asserts.assertMsg
               (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))
@@ -619,9 +636,11 @@
             assert dispatchUnitRunsDispatch;
             assert dispatchUnitSandboxed;
             assert dispatchUnitEnvironmentFiles;
+            assert frontierSyncEnsuresLabels;
+            assert writeTokenSeparate;
             assert dispatchCommandInstalled;
             pkgs.runCommand "runtime-dispatch" { } ''
-              echo "a repository's worker wires a forge-dispatch@ oneshot and the forge-dispatch command, and a worker without a ticket placeholder fails evaluation" > $out
+              echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command and the GitHub write token, and a worker without a ticket placeholder fails evaluation" > $out
             '';
 
           runtime-billing =

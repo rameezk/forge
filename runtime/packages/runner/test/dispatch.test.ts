@@ -13,13 +13,15 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Store, type RunRecord } from '@forge/shared';
+import { Store, type DispatchRecord, type RunRecord } from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
 import { journaled, PI_CONTRACT, lockedPiPackage, writeFakePi } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
 
 const PI_OUTPUT = join(import.meta.dirname, 'fixtures', 'pi', 'success.jsonl');
+
+const PROVIDER_ERROR = join(import.meta.dirname, 'fixtures', 'pi', 'provider-error.jsonl');
 
 const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
 
@@ -51,32 +53,112 @@ const labelled = (response: IssueResponse, label: string): IssueResponse => {
 const FORGE_READY = 'forge:ready';
 
 interface GraphqlRequest {
+  operation: string | undefined;
   authorization: string | null;
   variables: Record<string, unknown>;
 }
 
-const replaying = (responses: Record<number, IssueResponse>) => {
-  const requests: GraphqlRequest[] = [];
-  const fetch = async (
-    _input: string | URL | Request,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    const body = JSON.parse(String(init?.body)) as {
-      variables: Record<string, unknown>;
+interface ClosingResponse {
+  data: {
+    repository: {
+      issue: {
+        closedByPullRequestsReferences: {
+          nodes: { number: number; state: string }[];
+        };
+      };
     };
-    requests.push({
-      authorization: new Headers(init?.headers).get('authorization'),
-      variables: body.variables,
-    });
-    const response = responses[Number(body.variables.number)];
-    if (response === undefined) {
-      throw new Error(`no recorded response for ${String(body.variables.number)}`);
-    }
-    return new Response(JSON.stringify(response), {
+  };
+}
+
+const closing = (name: string): ClosingResponse =>
+  JSON.parse(
+    readFileSync(join(GITHUB_FIXTURES, `${name}.json`), 'utf8'),
+  ) as ClosingResponse;
+
+const opened = (response: ClosingResponse): ClosingResponse => {
+  const copy = structuredClone(response);
+  for (const node of copy.data.repository.issue.closedByPullRequestsReferences.nodes) {
+    node.state = 'OPEN';
+  }
+  return copy;
+};
+
+interface LabelWrite {
+  method: string;
+  path: string;
+  authorization: string | null;
+  body: unknown;
+  piStarted: boolean;
+}
+
+interface LabelledResponse {
+  data: {
+    repository: {
+      issues: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        nodes: { number: number; url: string }[];
+      };
+    };
+  };
+}
+
+const labelledIssues = (numbers: number[]): LabelledResponse => {
+  const response = JSON.parse(
+    readFileSync(join(GITHUB_FIXTURES, 'labelled-issues.json'), 'utf8'),
+  ) as LabelledResponse;
+  const { issues } = response.data.repository;
+  issues.nodes = issues.nodes.filter((node) => numbers.includes(node.number));
+  return response;
+};
+
+const fakeGithub = (
+  responses: Record<number, IssueResponse>,
+  pullRequests: ClosingResponse,
+  running: LabelledResponse,
+  labelStatus: number,
+  piRecord: () => string,
+) => {
+  const requests: GraphqlRequest[] = [];
+  const labelWrites: LabelWrite[] = [];
+  const json = (body: unknown, status = 200): Response =>
+    new Response(JSON.stringify(body), {
+      status,
       headers: { 'content-type': 'application/json' },
     });
+  const fetch = async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = new URL(String(input));
+    const authorization = new Headers(init?.headers).get('authorization');
+    if (url.pathname === '/graphql') {
+      const body = JSON.parse(String(init?.body)) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      const operation = /query (\w+)/.exec(body.query)?.[1];
+      requests.push({ operation, authorization, variables: body.variables });
+      if (operation === 'ClosingPullRequests') return json(pullRequests);
+      if (operation === 'LabelledIssues') {
+        assert.equal(body.variables.label, 'forge:running');
+        return json(running);
+      }
+      const response = responses[Number(body.variables.number)];
+      if (response === undefined) {
+        throw new Error(`no recorded response for ${String(body.variables.number)}`);
+      }
+      return json(response);
+    }
+    labelWrites.push({
+      method: init?.method ?? 'GET',
+      path: url.pathname,
+      authorization,
+      body: init?.body === undefined ? null : JSON.parse(String(init.body)),
+      piStarted: existsSync(piRecord()),
+    });
+    return json([], labelStatus);
   };
-  return { fetch, requests };
+  return { fetch, requests, labelWrites };
 };
 
 const git = (cwd: string, ...args: string[]): string =>
@@ -123,6 +205,11 @@ interface Scenario {
   repository?: string;
   issue?: number;
   responses?: Record<number, IssueResponse>;
+  pullRequests?: ClosingResponse;
+  running?: LabelledResponse;
+  labelStatus?: number;
+  failing?: boolean;
+  seed?: (store: Store) => void;
   prompt?: string;
   tokenFile?: string | null;
   piOutput?: string;
@@ -138,12 +225,15 @@ interface PiCall {
 
 interface Outcome {
   code: number;
+  failure: unknown;
   transcript: string;
   stateDir: string;
   origin: Origin;
   runs: RunRecord[];
+  dispatches: DispatchRecord[];
   pi: PiCall | null;
   requests: GraphqlRequest[];
+  labelWrites: LabelWrite[];
 }
 
 const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
@@ -169,7 +259,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       },
     }),
   );
-  const tokenFile = join(stateDir, 'github.env');
+  const tokenFile = join(stateDir, 'github-write.env');
   const tokenFileContents =
     scenario.tokenFile === undefined
       ? `GITHUB_TOKEN=${GITHUB_TOKEN}\n`
@@ -177,12 +267,25 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
   if (tokenFileContents !== null) {
     writeFileSync(tokenFile, tokenFileContents);
   }
-  const github = replaying(
+  const github = fakeGithub(
     scenario.responses ?? {
       113: labelled(recorded('frontier-ticket'), FORGE_READY),
     },
+    scenario.pullRequests ?? opened(closing('merged-pull-request')),
+    scenario.running ?? labelledIssues([]),
+    scenario.labelStatus ?? 200,
+    () => record,
   );
+  if (scenario.seed !== undefined) {
+    const seeded = Store.open(join(stateDir, 'forge.db'));
+    try {
+      scenario.seed(seeded);
+    } finally {
+      seeded.close();
+    }
+  }
 
+  let failure: unknown = null;
   const code = await main(
     [scenario.repository ?? 'forge', String(scenario.issue ?? 113)],
     {
@@ -193,7 +296,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
       FORGE_PI_PACKAGE: lockedPiPackage(),
-      FORGE_GITHUB_TOKEN_FILE: tokenFile,
+      FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
       GIT_CONFIG_COUNT: '1',
@@ -203,13 +306,18 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
     },
     github.fetch,
-  );
+  ).catch((error: unknown) => {
+    if (scenario.failing !== true) throw error;
+    failure = error;
+    return 1;
+  });
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     const [run] = store.listRuns();
     return {
       code,
+      failure,
       transcript:
         run?.transcriptRef == null
           ? ''
@@ -217,10 +325,12 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       stateDir,
       origin,
       runs: store.listRuns(),
+      dispatches: store.listDispatches(),
       pi: existsSync(record)
         ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall)
         : null,
       requests: github.requests,
+      labelWrites: github.labelWrites,
     };
   } finally {
     store.close();
@@ -241,6 +351,17 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
   assert.equal(git(workDir, 'status', '--porcelain'), '');
   assert.deepEqual(requests, [
     {
+      operation: 'LabelledIssues',
+      authorization: `bearer ${GITHUB_TOKEN}`,
+      variables: { owner: 'rameezk', name: 'forge', label: 'forge:running', first: 100, after: null },
+    },
+    {
+      operation: 'Ticket',
+      authorization: `bearer ${GITHUB_TOKEN}`,
+      variables: { owner: 'rameezk', name: 'forge', number: 113 },
+    },
+    {
+      operation: 'ClosingPullRequests',
       authorization: `bearer ${GITHUB_TOKEN}`,
       variables: { owner: 'rameezk', name: 'forge', number: 113 },
     },
@@ -255,6 +376,173 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
     number: 113,
     url: TICKET_URL,
   });
+});
+
+test('given a frontier ticket labelled forge:ready, when it is dispatched, then forge:running replaces forge:ready before the workload starts', async () => {
+  const { labelWrites } = await dispatch();
+
+  assert.deepEqual(labelWrites.slice(0, 2), [
+    {
+      method: 'POST',
+      path: '/repos/rameezk/forge/issues/113/labels',
+      authorization: `bearer ${GITHUB_TOKEN}`,
+      body: { labels: ['forge:running'] },
+      piStarted: false,
+    },
+    {
+      method: 'DELETE',
+      path: '/repos/rameezk/forge/issues/113/labels/forge%3Aready',
+      authorization: `bearer ${GITHUB_TOKEN}`,
+      body: null,
+      piStarted: false,
+    },
+  ]);
+});
+
+const finalLabelWrites = (label: string): LabelWrite[] => [
+  {
+    method: 'POST',
+    path: '/repos/rameezk/forge/issues/113/labels',
+    authorization: `bearer ${GITHUB_TOKEN}`,
+    body: { labels: [label] },
+    piStarted: true,
+  },
+  {
+    method: 'DELETE',
+    path: '/repos/rameezk/forge/issues/113/labels/forge%3Arunning',
+    authorization: `bearer ${GITHUB_TOKEN}`,
+    body: null,
+    piStarted: true,
+  },
+];
+
+test('given a run after which an open pull request closes the ticket, when the run ends, whether it succeeded or errored, then the ticket becomes forge:done', async () => {
+  for (const piOutput of [PI_OUTPUT, PROVIDER_ERROR]) {
+    const { labelWrites, runs } = await dispatch({ piOutput });
+
+    assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:done'), piOutput);
+    assert.equal(runs[0]?.status, piOutput === PI_OUTPUT ? 'success' : 'error');
+  }
+});
+
+const piOutputEnding = (text: string): string => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-output-')), 'pi.jsonl');
+  writeFileSync(path, readFileSync(PI_OUTPUT, 'utf8').replaceAll('All done.', text));
+  return path;
+};
+
+test('given a run that ends with a question and leaves no open pull request closing the ticket, when the run ends, then the ticket becomes forge:failed with the agent\'s final message as the reason, and nothing but the label is written to the ticket', async () => {
+  const question = 'Should the label check use REST or GraphQL?';
+  for (const pullRequests of ['no-pull-request', 'merged-pull-request']) {
+    const { labelWrites, runs, dispatches } = await dispatch({
+      piOutput: piOutputEnding(question),
+      pullRequests: closing(pullRequests),
+    });
+
+    assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'), pullRequests);
+    assert.ok(
+      labelWrites.every(({ path }) => path.startsWith('/repos/rameezk/forge/issues/113/labels')),
+      pullRequests,
+    );
+    const [run] = runs;
+    assert.ok(run);
+    assert.deepEqual(
+      dispatches.map(({ repository, number, url, runId, state, reason, detail }) => ({
+        repository, number, url, runId, state, reason, detail,
+      })),
+      [
+        {
+          repository: 'forge',
+          number: 113,
+          url: TICKET_URL,
+          runId: run.id,
+          state: 'failed',
+          reason: 'no-pull-request',
+          detail: `The command printed forge. ${question}`,
+        },
+      ],
+      pullRequests,
+    );
+  }
+});
+
+const forgeTicket = (number: number) => ({
+  repository: 'forge',
+  number,
+  url: `https://github.com/rameezk/forge/issues/${number}`,
+});
+
+const interruptedLabelWrites = (number: number): LabelWrite[] => [
+  {
+    method: 'POST',
+    path: `/repos/rameezk/forge/issues/${number}/labels`,
+    authorization: `bearer ${GITHUB_TOKEN}`,
+    body: { labels: ['forge:failed'] },
+    piStarted: false,
+  },
+  {
+    method: 'DELETE',
+    path: `/repos/rameezk/forge/issues/${number}/labels/forge%3Arunning`,
+    authorization: `bearer ${GITHUB_TOKEN}`,
+    body: null,
+    piStarted: false,
+  },
+];
+
+test('given tickets labelled forge:running, one whose dispatch stopped beating, one with no dispatch in the store, and one with a live dispatch, when the next dispatch pass runs, then the first two become forge:failed with interrupted as the reason and the live one is left alone', async () => {
+  const { labelWrites, dispatches } = await dispatch({
+    running: labelledIssues([114, 115, 123]),
+    seed: (store) => {
+      store.startDispatch(forgeTicket(114), 'run-stale', '2026-09-01T09:00:00.000Z');
+      store.startDispatch(forgeTicket(123), 'run-live', new Date().toISOString());
+    },
+  });
+
+  assert.deepEqual(labelWrites.slice(0, 4), [
+    ...interruptedLabelWrites(114),
+    ...interruptedLabelWrites(115),
+  ]);
+  assert.ok(labelWrites.every(({ path }) => !path.includes('/issues/123/')));
+  assert.deepEqual(
+    dispatches
+      .filter(({ number }) => number !== 113)
+      .map(({ number, runId, state, reason }) => ({ number, runId, state, reason })),
+    [
+      { number: 114, runId: 'run-stale', state: 'failed', reason: 'interrupted' },
+      { number: 115, runId: null, state: 'failed', reason: 'interrupted' },
+      { number: 123, runId: 'run-live', state: 'running', reason: null },
+    ],
+  );
+});
+
+test('given a live dispatch of the ticket already in the store, when forge-dispatch runs for it, then it refuses without claiming the ticket or starting a workload', async () => {
+  const { result, journal } = await journaled(() =>
+    dispatch({
+      seed: (store) => {
+        store.startDispatch(forgeTicket(113), 'run-live', new Date().toISOString());
+      },
+    }),
+  );
+
+  assert.equal(result.code, 1);
+  assert.equal(result.pi, null);
+  assert.deepEqual(result.runs, []);
+  assert.deepEqual(result.labelWrites, []);
+  assert.match(journal, /forge#113 is not dispatchable: it is already being dispatched/);
+});
+
+test('given GitHub refuses the claim, when forge-dispatch runs, then it fails naming the refusal, starts no workload, and the dispatch fails with the claim as the reason', async () => {
+  const { failure, pi, runs, dispatches } = await dispatch({ labelStatus: 403, failing: true });
+
+  const refused = 'GitHub answered 403 labelling rameezk/forge#113 forge:running';
+  assert.ok(failure instanceof Error);
+  assert.equal(failure.message, refused);
+  assert.equal(pi, null);
+  assert.deepEqual(runs, []);
+  assert.deepEqual(
+    dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'errored', detail: `could not claim the ticket: ${refused}` }],
+  );
 });
 
 test('given a ticket labelled forge:ready that has an open blocker, one that is closed, one that is not ready-for-agent, and a frontier ticket without the label, when forge-dispatch runs for each, then none starts a workload or clones, and each refusal names why', async () => {
@@ -275,6 +563,7 @@ test('given a ticket labelled forge:ready that has an open blocker, one that is 
     assert.equal(result.code, 1, fixture);
     assert.deepEqual(result.runs, [], fixture);
     assert.equal(result.pi, null, fixture);
+    assert.deepEqual(result.labelWrites, [], fixture);
     assert.equal(existsSync(join(result.stateDir, 'work')), false, fixture);
     assert.match(journal, reason);
   }
@@ -349,12 +638,13 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
   ]);
 });
 
-test('given a worker prompt /work-on {url} and a checkout with no work-on skill, when forge-dispatch runs, then pi never starts and the run records that the skill was not found', async () => {
-  const { code, runs, pi } = await journaled(() =>
+test('given a worker prompt /work-on {url} and a checkout with no work-on skill, when forge-dispatch runs, then pi never starts, the run records that the skill was not found, and the ticket becomes forge:failed with skill not found as the reason', async () => {
+  const { code, runs, pi, labelWrites, dispatches } = await journaled(() =>
     dispatch({
       origin: originWith({
         '.pi/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
       }),
+      pullRequests: closing('no-pull-request'),
     }),
   ).then(({ result }) => result);
 
@@ -364,6 +654,14 @@ test('given a worker prompt /work-on {url} and a checkout with no work-on skill,
   assert.equal(run?.status, 'error');
   assert.equal(run?.error, "skill 'work-on' not found in the checkout");
   assert.equal(run?.ticket?.number, 113);
+  assert.deepEqual(
+    labelWrites.slice(2),
+    finalLabelWrites('forge:failed').map((write) => ({ ...write, piStarted: false })),
+  );
+  assert.deepEqual(
+    dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'skill-not-found', detail: "skill 'work-on' not found in the checkout" }],
+  );
 });
 
 test('given a checkout whose skills directory and AGENTS.md are symlinks to outside the checkout, when forge-dispatch runs, then neither is passed and the work-on skill they would bring is not found', async () => {
@@ -402,17 +700,20 @@ test('given worker prompts using the {repo}, {issue} and {url} placeholders, wit
   );
 });
 
-test('given a repository whose clone fails, when forge-dispatch runs, then pi never starts and the run records why git could not clone it', async () => {
+test('given a repository whose clone fails, when forge-dispatch runs, then pi never starts, the run records why git could not clone it, and the ticket fails because the run errored', async () => {
   const origin = { path: join(tmpdir(), 'forge-origin-missing'), tip: '' };
 
-  const { code, runs, pi } = await journaled(() => dispatch({ origin })).then(
-    ({ result }) => result,
-  );
+  const { code, runs, pi, dispatches } = await journaled(() =>
+    dispatch({ origin, pullRequests: closing('no-pull-request') }),
+  ).then(({ result }) => result);
 
   assert.equal(code, 1);
   assert.equal(pi, null);
   assert.equal(runs[0]?.status, 'error');
   assert.match(runs[0]?.error ?? '', /^git could not clone rameezk\/forge: /);
+  assert.equal(dispatches[0]?.state, 'failed');
+  assert.equal(dispatches[0]?.reason, 'errored');
+  assert.equal(dispatches[0]?.detail, runs[0]?.error);
 });
 
 test('given an issue GitHub cannot find and a repository that is not declared, when forge-dispatch runs for each, then it fails naming the problem', async () => {
@@ -426,23 +727,23 @@ test('given an issue GitHub cannot find and a repository that is not declared, w
   );
 });
 
-test('given a GitHub token file that also sets NODE_OPTIONS and quotes the token, and a different GITHUB_TOKEN in the environment, when forge-dispatch runs, then it asks GitHub with the file token alone, and pi gets neither a GitHub token nor anything else from the file', async () => {
-  const { requests, pi } = await dispatch({
+test('given a GitHub write-token file that also sets NODE_OPTIONS and quotes the token, and a different GITHUB_TOKEN in the environment, when forge-dispatch runs, then every GitHub call uses the file token, and pi gets it as GITHUB_TOKEN and nothing else from the file', async () => {
+  const { requests, labelWrites, pi } = await dispatch({
     tokenFile: `NODE_OPTIONS=--require /var/lib/forge/planted.js\n  GITHUB_TOKEN = "${GITHUB_TOKEN}"  \n`,
   });
 
   assert.deepEqual(
-    requests.map((request) => request.authorization),
-    [`bearer ${GITHUB_TOKEN}`],
+    new Set([...requests, ...labelWrites].map((request) => request.authorization)),
+    new Set([`bearer ${GITHUB_TOKEN}`]),
   );
   assert.ok(pi);
-  assert.equal(pi.githubToken, undefined);
+  assert.equal(pi.githubToken, GITHUB_TOKEN);
   assert.equal(pi.nodeOptions, undefined);
 });
 
-test('given no GitHub token file, or one that sets no token, when forge-dispatch runs, then it fails naming the missing token without asking GitHub', async () => {
+test('given no GitHub write-token file, or one that sets no token, when forge-dispatch runs, then it fails naming the missing write token without asking GitHub', async () => {
   for (const tokenFile of [null, 'OTHER=value\n']) {
-    await assert.rejects(dispatch({ tokenFile }), /GitHub token missing/);
+    await assert.rejects(dispatch({ tokenFile }), /GitHub write token missing/);
   }
 });
 
