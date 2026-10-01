@@ -21,7 +21,7 @@ A named, reusable configuration that binds a harness to a model, a prompt, and a
 The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract - though the runner currently implements only the `pi` harness. Each harness's own CLI and event format belongs to its adapter in the runner, not to operator config (ADR-0008).
 
 **Workload toolset**:
-The set of command-line tools a workload's harness and its subagents can invoke on the box. Forge ships a base set, and operators may extend or replace it.
+The command-line tools on a workload's `PATH`. Forge ships a base set, and operators may extend or replace it. It is a convenience, not a limit: the workload sandbox exposes the Nix store and the nix daemon, so a workload can run anything in the store (ADR-0024, ADR-0027).
 _Avoid_: base image, tool path
 
 **Run directory**:
@@ -37,12 +37,20 @@ One model response within a workload, its subagents' included, identified by Ope
 _Avoid_: response, completion, call
 
 **Billed cost**:
-What OpenRouter charged for a workload's generations, and the only cost forge records; a harness's own price estimate is never recorded or shown (ADR-0013). While the cost status is pending, it is what has been billed so far (ADR-0028).
-_Avoid_: estimate, catalog cost
+What OpenRouter charged for a workload's generations; a harness's own price estimate is never recorded or shown (ADR-0013). While the cost status is pending, it is what has been billed so far (ADR-0028).
+_Avoid_: catalog cost
+
+**Estimated cost**:
+Forge's own price for a generation OpenRouter has not billed yet: the harness's token counts at OpenRouter's list price for the model, recorded at run start. Replaced by the billed cost once known, and always shown as estimated (ADR-0032).
+_Avoid_: harness cost, pi cost
 
 **Cost status**:
-How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, or on a workload that never ended and has had no generation for 24 hours.
+How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, including on an interrupted workload, where later generations may be unrecorded (ADR-0031).
 _Avoid_: cost uncertain
+
+**Interrupted**:
+The end state of a workload whose runner stopped heartbeating before finishing it, for example because its unit was killed; distinct from `error`, where the harness itself ended the workload with an error (ADR-0031).
+_Avoid_: crashed, stuck, abandoned
 
 **Subagent**:
 A child harness run that a workload's agent spawns mid-run to perform a delegated task and report back; it is part of the spawning workload, never a workload of its own (ADR-0009).
