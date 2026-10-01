@@ -5,7 +5,7 @@ description: Review a change along two independent axes - Standards (does it fol
 
 # Code Review
 
-Review the diff between `HEAD` and a fixed point along two axes that are kept deliberately apart:
+Review the diff between a head commit and a fixed point along two axes that are kept deliberately apart:
 
 - **Standards** - does the change follow this repo's documented conventions and stay clear of code smells? This axis is also where the feature-wide cleanup [[tdd]] defers to review lands - cross-slice test consolidation included, since it needs the whole change in view.
 - **Spec** - does the change faithfully implement the ticket it came from, and the spec behind it?
@@ -20,7 +20,9 @@ This is a read-only pass. It reports; it does not touch code. Fixing what it fin
 
 The fixed point is whatever the user gives - a commit SHA, a branch, a tag, `main`, `HEAD~5`. If they name none, default to the branch's base - the pending change on the current branch - and ask only when that is ambiguous (detached HEAD, or already sitting on the default branch with nothing to compare). Never silently assume `main`.
 
-Capture the diff once, three-dot so the comparison is against the merge-base: `git diff <fixed-point>...HEAD`. Note the commits too: `git log <fixed-point>..HEAD --oneline`. Before spawning anything, confirm the ref resolves (`git rev-parse <fixed-point>`) and the diff is non-empty - a bad ref or empty diff should fail here, in the open, not inside two sub-agents.
+The head is the commit SHA the caller passes, or `HEAD` if they pass none. Resolve both to SHAs once (`git rev-parse <fixed-point>`, `git rev-parse <head>`) and use those SHAs everywhere below, never the moving `HEAD`, so the review covers exactly one commit range and says which.
+
+Capture the diff once, three-dot so the comparison is against the merge-base: `git diff <fixed-point>...<head>`. Note the commits too: `git log <fixed-point>..<head> --oneline`. Before spawning anything, confirm both refs resolve and the diff is non-empty - a bad ref or empty diff should fail here, in the open, not inside two sub-agents.
 
 ### 2. Find the spec source
 
@@ -33,7 +35,7 @@ Find what the change was *supposed* to do, in this order, resolving the tracker 
 
 ### 3. Find the standards sources
 
-Gather what documents how code should be written *in this repo*: `CODING_STANDARDS.md`, `CONTRIBUTING.md`, or the like, plus the ADRs in the area the diff touches (see [[decision-context]]) - a change that contradicts an accepted ADR is a standards breach. `docs/CONTEXT.md` is the glossary, not a standard, but the Standards axis uses it to judge whether a name matches the project's real vocabulary.
+Gather what documents how code should be written *in this repo*: `CODING_STANDARDS.md`, `CONTRIBUTING.md`, or the like, plus the ADRs in the area the diff touches (see [[decision-context]]) - a change that contradicts an accepted ADR is a standards breach, and so is any edit to an existing ADR beyond its Status line, since ADRs are immutable. `docs/CONTEXT.md` is the glossary, not a standard, but the Standards axis uses it to judge whether a name matches the project's real vocabulary.
 
 On top of whatever the repo documents, the Standards axis always carries the **Fowler smell baseline** - a fixed set of code smells (_Refactoring_, ch.3) that applies even when the repo documents nothing, with the two rules that bind it (the repo overrides; every smell is a judgement call). The full catalogue is in [`martin-fowler-code-smells.md`](martin-fowler-code-smells.md); read it here so you can hand it to the Standards axis in step 4, which has no other access to it.
 
@@ -49,7 +51,7 @@ Either way, each axis gets the same inputs and the same brief.
 
 - The full diff command and commit list.
 - The standards-source files from step 3, **plus the Fowler baseline from [`martin-fowler-code-smells.md`](martin-fowler-code-smells.md) pasted in full** (a spawned sub-agent has no other access to it; an inline pass carries it in this context).
-- The brief: "Report, per file or hunk where relevant, (a) every place the diff violates a documented repo standard or an accepted ADR - cite the standard (file plus the rule) or the ADR; and (b) any baseline smell you spot - name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard and ADR breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard or ADR overrides the baseline. You are seeing the whole change at once, which the test-driven build could not - so also own the feature-wide cleanup [[tdd]] defers to review: flag duplication that spans slices in production *and* test code (tests are code and rot the same way), and any consolidation or structural refactor that only makes sense with the full feature in view. Skip anything lint, formatter, or type-checker enforces. Under 400 words."
+- The brief: "Report, per file or hunk where relevant, (a) every place the diff violates a documented repo standard or an accepted ADR, or edits an existing ADR anywhere other than its Status line (always a hard violation - ADRs are immutable) - cite the standard (file plus the rule) or the ADR; and (b) any baseline smell you spot - name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard and ADR breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard or ADR overrides the baseline. You are seeing the whole change at once, which the test-driven build could not - so also own the feature-wide cleanup [[tdd]] defers to review: flag duplication that spans slices in production *and* test code (tests are code and rot the same way), and any consolidation or structural refactor that only makes sense with the full feature in view. Skip anything lint, formatter, or type-checker enforces. Under 400 words."
 
 **Spec axis** - give it:
 
@@ -60,6 +62,8 @@ Either way, each axis gets the same inputs and the same brief.
 If there is no spec, skip the Spec axis and say so in the report.
 
 ### 5. Aggregate
+
+Open the report with the reviewed range on its own first line: `Reviewed <fixed-point-sha>...<head-sha>`, both as resolved in step 1. A caller uses it to tell which commit the review covers.
 
 Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or re-rank findings across axes - the separation is the point.
 
@@ -76,4 +80,4 @@ Reporting them separately stops one axis from masking the other.
 
 ## Completion
 
-Done when both axes have reported (or the Spec axis has been recorded as skipped for want of a spec) and the findings are laid out side by side under their own headings, unmerged and un-re-ranked, with the per-axis summary line. Then stop: this skill finds; it does not fix - hand fixes to [[tdd]].
+Done when the report opens with the reviewed range, both axes have reported (or the Spec axis has been recorded as skipped for want of a spec) and the findings are laid out side by side under their own headings, unmerged and un-re-ranked, with the per-axis summary line. Then stop: this skill finds; it does not fix - hand fixes to [[tdd]].
