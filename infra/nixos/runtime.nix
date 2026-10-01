@@ -11,7 +11,7 @@ let
     options = {
       command = lib.mkOption {
         type = lib.types.str;
-        description = "Executable that runs this harness headlessly and emits its event stream. It is resolved to its real path before the workload sandbox starts, so it must resolve into the Nix store.";
+        description = "Executable that runs this harness headlessly and emits its event stream. It must be an absolute path, and it is resolved to its real path before the workload sandbox starts, so it must resolve into the Nix store.";
       };
       args = lib.mkOption {
         type = lib.types.listOf lib.types.str;

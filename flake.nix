@@ -246,7 +246,7 @@
               ];
           isHardened = unit: isUnitHardened unit && unit.serviceConfig.ProtectKernelTunables == true;
           isWorkloadHardened = unit: isUnitHardened unit && unit.serviceConfig.ProtectKernelTunables == false;
-          runnerSandboxed = lib.asserts.assertMsg (isWorkloadHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, writable only under the state directory, and blind to every secrets generation, which reaches it only through what systemd reads outside its namespace. Its kernel tunables stay unprotected, because their read-only overmounts in /proc stop bubblewrap mounting the fresh /proc of a workload's sandbox";
+          runnerSandboxed = lib.asserts.assertMsg (isWorkloadHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, writable only under the state directory, and blind to every secrets generation, which reaches it only through what systemd reads outside its namespace. Its kernel tunables stay unprotected, because bubblewrap must mount a fresh /proc for a workload's sandbox, which their read-only overmounts in /proc forbid, and must write /proc/sys/user/max_user_namespaces to refuse nested user namespaces (ADR-0030)";
           runnerEnvTemplate = workerHost.config.sops.templates."forge-runner.env";
           runnerKeyFromSops =
             lib.asserts.assertMsg

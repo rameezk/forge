@@ -339,12 +339,11 @@ create user namespaces of its own, so tools that need them, such as rootless
 containers, do not work in a workload. Anything a workload should keep
 belongs in its run directory.
 
-The harness command is resolved to its real path before the sandbox starts,
-so a command under `/run/current-system/sw/bin` works. Any path in the
-harness's extra `args` must be in the Nix store, since the sandbox sees
-nothing else of the box. If the sandbox cannot
-start, the workload fails with that reason, and the harness never runs
-unconfined.
+The harness command must be an absolute path. It is resolved to its real path
+before the sandbox starts, so a command under `/run/current-system/sw/bin`
+works. Any path in the harness's extra `args` must be in the Nix store, since
+the sandbox sees nothing else of the box. If the sandbox cannot start, the
+workload fails with that reason, and the harness never runs unconfined.
 
 ## Inspecting the run store
 
