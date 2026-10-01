@@ -521,7 +521,7 @@
                 == "/var/lib/forge-credentials/github-write.env"
                 && dispatchHost.config.forge.runtime.githubTokenFile == "/var/lib/forge/github.env"
               )
-              "the GitHub write-token file must default to its own file beside the frontier's read-only token file";
+              "the GitHub write-token file must be its own file, apart from the frontier's read-only token file";
           dispatchCommandInstalled =
             lib.asserts.assertMsg
               (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))

@@ -214,7 +214,7 @@ export const main = async (
           FORGE_READY,
         ]);
       } catch (error) {
-        failAs('could not claim the ticket', error);
+        return failAs('could not claim the ticket', error);
       }
 
       let launched: LaunchResult;

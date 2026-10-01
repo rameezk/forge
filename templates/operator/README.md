@@ -130,8 +130,9 @@ your Hetzner token is decrypted only for that call and never sits in your shell.
 
 Box state is the run store, frontier snapshot and transcripts under
 `/var/lib/forge`, and the GitHub token files `/var/lib/forge/github.env` and
-`/var/lib/forge-credentials/github-write.env`. Only deploy keeps it. The OpenRouter key is not box state: the box decrypts it from
-this repository on every standup and deploy.
+`/var/lib/forge-credentials/github-write.env`. Only deploy keeps it. The
+OpenRouter key is not box state: the box decrypts it from this repository on
+every standup and deploy.
 
 1. Stand the box up:
 
@@ -182,14 +183,15 @@ this repository on every standup and deploy.
    push branches and open pull requests. A run can use it for anything it
    allows in every managed repository, so protect each default branch and give
    the token a short expiry. It lives outside the state directory, where no
-   run can change it, and the file is hidden from scheduled workers, billing
-   and the dashboard. Workloads still run as one user, though, so a scheduled
-   run can read it from a dispatched agent running at the same time, until
-   workloads are confined from each other. Place it after **every** standup,
-   into `/var/lib/forge-credentials/github-write.env`. Until it is there,
-   `forge-dispatch`
-   fails with "GitHub write token missing", and each frontier sync still
-   refreshes the Work page but reports the same error and exits non-zero:
+   run can change it, and its directory is masked from scheduled workers,
+   billing and the dashboard. The mask does not stop a scheduled run, though:
+   every unit runs as one user, so a scheduled run can read the token through
+   `/proc` from the frontier sync or a dispatch, until workloads are confined
+   from each other. Treat every workload as able to use it. Place it after
+   **every** standup, into `/var/lib/forge-credentials/github-write.env`.
+   Until it is there, `forge-dispatch` fails with "GitHub write token
+   missing", and each frontier sync still refreshes the Work page but reports
+   the same error and exits non-zero:
 
    ```bash
    printf 'GitHub write token: ' && read -rs token && echo && [ -n "$token" ] &&
