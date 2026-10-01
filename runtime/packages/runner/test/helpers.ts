@@ -18,7 +18,7 @@ export const message = (
   type: 'message',
   role: 'assistant',
   text: 'hello',
-  usage: { inputTokens: 100, outputTokens: 40 },
+  usage: { inputTokens: 100, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 },
   generationId: 'gen-1',
   ...overrides,
 });

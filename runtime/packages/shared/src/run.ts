@@ -20,6 +20,8 @@ export interface RunRecord {
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
   transcriptRef: string | null;
   sessionId: string | null;
   error: string | null;
@@ -27,13 +29,6 @@ export interface RunRecord {
 }
 
 export interface RunResult
-  extends Pick<
-    RunRecord,
-    | 'status'
-    | 'inputTokens'
-    | 'outputTokens'
-    | 'sessionId'
-    | 'error'
-  > {
+  extends Pick<RunRecord, 'status' | 'sessionId' | 'error'> {
   endTime: string;
 }

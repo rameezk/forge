@@ -22,6 +22,8 @@ const appWith = ({ css = '', logo = '' }: { css?: string; logo?: string }) => {
     costUsd: 0.1234,
     inputTokens: 4200,
     outputTokens: 850,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     transcriptRef: null,
     sessionId: 'sess-abc',
     error: null,

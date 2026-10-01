@@ -167,9 +167,10 @@ const assistantMessage = (
   role: 'assistant',
   text: textOf(message.content),
   usage: {
-    inputTokens:
-      message.usage.input + message.usage.cacheRead + message.usage.cacheWrite,
+    inputTokens: message.usage.input,
     outputTokens: message.usage.output,
+    cacheReadTokens: message.usage.cacheRead,
+    cacheWriteTokens: message.usage.cacheWrite,
   },
   generationId:
     typeof message.responseId === 'string' && message.responseId.length > 0

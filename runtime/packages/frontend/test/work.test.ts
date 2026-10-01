@@ -205,6 +205,8 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
             costUsd: 0,
             inputTokens: 0,
             outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
             transcriptRef: null,
             sessionId: null,
             error: null,

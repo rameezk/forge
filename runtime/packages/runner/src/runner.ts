@@ -51,6 +51,8 @@ export const runWorkload = async (
     costUsd: 0,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     transcriptRef: transcript.ref,
     sessionId: null,
     error: null,
@@ -67,12 +69,11 @@ export const runWorkload = async (
       runId: id,
       generationId: event.generationId,
       subagent: event.subagent ?? null,
+      usage: event.usage,
       createdAt: now(),
     });
   };
 
-  let inputTokens = 0;
-  let outputTokens = 0;
   let status: RunStatus = 'error';
   let sessionId: string | null = null;
   let error: string | null = 'harness stream ended without a result';
@@ -85,8 +86,6 @@ export const runWorkload = async (
       const event = policy.record(harnessEvent);
       await transcript.append(event);
       if (event.type === 'message') {
-        inputTokens += event.usage.inputTokens;
-        outputTokens += event.usage.outputTokens;
         if (isBillable(event)) {
           recordGeneration(event);
         }
@@ -116,8 +115,6 @@ export const runWorkload = async (
   store.finalizeRun(id, {
     endTime: now(),
     status,
-    inputTokens,
-    outputTokens,
     sessionId,
     error,
   });

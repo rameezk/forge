@@ -17,6 +17,7 @@ import type {
   ToolResultEvent,
 } from '@forge/shared';
 import {
+  cacheHitRate,
   formatCost,
   formatDate,
   formatDuration,
@@ -136,6 +137,21 @@ const renderRunTicket = (ticket: RunTicket | null): Rendered =>
         ? html`<a href="${ticket.url}" class="${LINK}">#${ticket.number}</a>`
         : html`#${ticket.number}`}`;
 
+const NOT_RECORDED = html`<span class="${PENDING}">not recorded</span>`;
+
+const renderTokens = (run: Pick<RunRecord, 'inputTokens' | 'outputTokens'>): string =>
+  `${formatTokens(run.inputTokens)} in / ${formatTokens(run.outputTokens)} out`;
+
+const renderCache = (run: RunRecord): Rendered =>
+  run.cacheReadTokens === null || run.cacheWriteTokens === null
+    ? NOT_RECORDED
+    : html`${formatTokens(run.cacheReadTokens)} read / ${formatTokens(run.cacheWriteTokens)} write`;
+
+const renderCacheHitRate = (run: RunRecord): Rendered => {
+  const rate = cacheHitRate(run);
+  return rate === null ? NOT_RECORDED : html`${rate}`;
+};
+
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
   return html`${formatTotal(settledCost(runs))}${pending === 0
@@ -162,6 +178,7 @@ export const renderList = (
                   <th class="${TH}">Started</th>
                   <th class="${TH}">Duration</th>
                   <th class="${TH}">Status</th>
+                  <th class="${TH} text-right">Cache hit</th>
                   <th class="${TH} text-right">Cost</th>
                 </tr>
               </thead>
@@ -174,13 +191,14 @@ export const renderList = (
                     <td class="${TD}">${renderTimestamp(run.startTime)}</td>
                     <td class="${TD} whitespace-nowrap">${formatDuration(run.startTime, run.endTime)}</td>
                     <td class="${TD}">${renderStatus(run.status)}</td>
+                    <td class="${TD} ${NUMERIC}" data-cache-hit>${renderCacheHitRate(run)}</td>
                     <td class="${TD} ${NUMERIC}" data-cost>${renderCost(run)}</td>
                   </tr>`,
                 )}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="6" class="${TD} font-semibold">Total</td>
+                  <td colspan="7" class="${TD} font-semibold">Total</td>
                   <td class="${TD} ${NUMERIC} font-semibold">${renderTotal(runs)}</td>
                 </tr>
               </tfoot>
@@ -469,7 +487,7 @@ const renderFigures = (
   }
   return html`<span class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[0.8rem] tabular-nums text-muted" data-subagent-figures>
     ${renderStatus(subagentStatus(report, runStatus))}
-    <span class="whitespace-nowrap" data-subagent-tokens>${formatTokens(inputTokens)} in / ${formatTokens(outputTokens)} out</span>
+    <span class="whitespace-nowrap" data-subagent-tokens>${renderTokens({ inputTokens, outputTokens })}</span>
     <span class="whitespace-nowrap" data-subagent-cost>${renderCost(subagentCost(scope, generations, runStatus))}</span>
     <span class="whitespace-nowrap">${messageCount(shown)}</span>
   </span>`;
@@ -582,7 +600,11 @@ export const renderDetail = (
       <dt class="${META_TERM}">Cost</dt>
       <dd class="${META_VALUE}">${renderCost(run)}</dd>
       <dt class="${META_TERM}">Tokens</dt>
-      <dd class="${META_VALUE}">${formatTokens(run.inputTokens)} in / ${formatTokens(run.outputTokens)} out</dd>
+      <dd class="${META_VALUE}">${renderTokens(run)}</dd>
+      <dt class="${META_TERM}">Cache</dt>
+      <dd class="${META_VALUE}">${renderCache(run)}</dd>
+      <dt class="${META_TERM}">Cache hit rate</dt>
+      <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
     </dl>
     ${run.error === null ? '' : html`<p class="${ERROR_CALLOUT} mb-4">${run.error}</p>`}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>

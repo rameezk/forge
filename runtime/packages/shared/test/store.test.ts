@@ -21,6 +21,8 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   costUsd: 0.1234,
   inputTokens: 4200,
   outputTokens: 850,
+  cacheReadTokens: 3100,
+  cacheWriteTokens: 600,
   transcriptRef: 'run-01.jsonl',
   sessionId: 'sess-abc',
   error: null,
@@ -53,6 +55,8 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     costUsd: 0,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     transcriptRef: null,
     sessionId: null,
     error: null,
@@ -97,6 +101,8 @@ test('given a run recorded at start, when it is finalized, then result fields ar
       costUsd: 0,
       inputTokens: 0,
       outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       transcriptRef: 'run-final.jsonl',
       sessionId: null,
       error: null,
@@ -106,8 +112,6 @@ test('given a run recorded at start, when it is finalized, then result fields ar
   store.finalizeRun('run-final', {
     endTime: '2026-09-21T10:03:20.000Z',
     status: 'success',
-    inputTokens: 1000,
-    outputTokens: 200,
     sessionId: 'sess-final',
     error: null,
   });
@@ -122,8 +126,10 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     status: 'success',
     costStatus: 'billed',
     costUsd: 0,
-    inputTokens: 1000,
-    outputTokens: 200,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     transcriptRef: 'run-final.jsonl',
     sessionId: 'sess-final',
     error: null,
@@ -213,6 +219,70 @@ test('given a store file whose runs predate dispatch, when the store is opened, 
 
   assert.equal(store.getRun('by-hand')?.ticket, null);
   assert.deepEqual(store.getRun('dispatched'), dispatched);
+  store.close();
+  Store.open(path).close();
+});
+
+test('given a store whose generations predate token columns, holding finished workloads with token totals, when it is opened and billing later settles a legacy generation, then it migrates in place and those workloads keep their recorded totals with their cache split unknown', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE runs (
+      id             TEXT PRIMARY KEY,
+      worker         TEXT NOT NULL,
+      harness        TEXT NOT NULL,
+      model          TEXT NOT NULL,
+      start_time     TEXT NOT NULL,
+      end_time       TEXT,
+      status         TEXT NOT NULL,
+      cost_status    TEXT NOT NULL,
+      cost_usd       REAL NOT NULL,
+      input_tokens   INTEGER NOT NULL,
+      output_tokens  INTEGER NOT NULL,
+      transcript_ref TEXT,
+      session_id     TEXT,
+      error          TEXT,
+      repository     TEXT,
+      ticket_number  INTEGER,
+      ticket_url     TEXT
+    ) STRICT;
+    CREATE TABLE generations (
+      id              INTEGER PRIMARY KEY,
+      run_id          TEXT NOT NULL,
+      generation_id   TEXT,
+      subagent        TEXT,
+      billed_cost_usd REAL,
+      attempts        INTEGER NOT NULL DEFAULT 0,
+      last_attempt_at TEXT,
+      last_error      TEXT,
+      given_up_at     TEXT,
+      created_at      TEXT NOT NULL,
+      UNIQUE (run_id, generation_id)
+    ) STRICT;
+    INSERT INTO runs VALUES
+      ('billed', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T10:00:00.000Z', '2026-09-21T10:01:00.000Z', 'success', 'billed', 0.5, 1200, 40, 'billed.jsonl', 'sess-1', NULL, NULL, NULL, NULL),
+      ('settling', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T11:00:00.000Z', '2026-09-21T11:01:00.000Z', 'success', 'pending', 0, 2500, 65, 'settling.jsonl', 'sess-2', NULL, NULL, NULL, NULL);
+    INSERT INTO generations (run_id, generation_id, billed_cost_usd, created_at) VALUES
+      ('billed', 'gen-billed', 0.5, '2026-09-21T10:00:30.000Z'),
+      ('settling', 'gen-settling', NULL, '2026-09-21T11:00:30.000Z');
+  `);
+  old.close();
+
+  const store = Store.open(path);
+  const [unsettled] = store.unsettledGenerations();
+  assert.ok(unsettled);
+  store.recordLookups([{ id: unsettled.id, billedCostUsd: 0.25 }], '2026-09-21T11:02:00.000Z');
+
+  assert.deepEqual(
+    store.listRuns().map(({ id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd }) => ({
+      id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd,
+    })),
+    [
+      { id: 'settling', inputTokens: 2500, outputTokens: 65, cacheReadTokens: null, cacheWriteTokens: null, costUsd: 0.25 },
+      { id: 'billed', inputTokens: 1200, outputTokens: 40, cacheReadTokens: null, cacheWriteTokens: null, costUsd: 0.5 },
+    ],
+  );
+  assert.deepEqual(store.listGenerations('billed').map((generation) => generation.usage), [null]);
   store.close();
   Store.open(path).close();
 });
