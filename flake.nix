@@ -234,10 +234,16 @@
                   (trusting [ "@forge-runtime" ])
                   (trusting [ "*" ])
                   (trusting [ "@wheel" ] // { users.users.forge-runtime.extraGroups = [ "wheel" ]; })
+                  { nix.settings.extra-trusted-users = [ "forge-runtime" ]; }
+                  { nix.extraOptions = "trusted-users = root forge-runtime"; }
+                  { nix.extraOptions = "extra-trusted-users = @forge-runtime"; }
                 ]
                 && evaluates (trustingHost (trusting [ "@wheel" ]))
+                && evaluates (trustingHost {
+                  nix.settings.extra-trusted-users = [ "@wheel" ];
+                })
               )
-              "a host that makes forge-runtime a trusted nix user, by name, by any of its groups or through a wildcard, must fail evaluation: one workload could otherwise plant a tool for a later one through the store";
+              "a host that makes forge-runtime a trusted nix user in trusted-users or extra-trusted-users, by name, by any of its groups or through a wildcard, or that sets either in nix.extraOptions, must fail evaluation: one workload could otherwise plant a tool for a later one through the store";
           runtimeInert = lib.asserts.assertMsg (
             !(lib.any (name: lib.hasInfix "forge" name) (lib.attrNames nixos.config.systemd.services))
           ) "forge.runtime must stay inert when no workers are declared: no runner unit appears";

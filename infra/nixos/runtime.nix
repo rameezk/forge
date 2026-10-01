@@ -140,9 +140,16 @@ let
   ]
   ++ map (group: "@${group}") runtimeGroups;
 
+  trustedUsers =
+    config.nix.settings.trusted-users ++ lib.toList (config.nix.settings.extra-trusted-users or [ ]);
+  extraOptionsSetTrust = lib.any (
+    line: builtins.match "[[:space:]]*(extra-)?trusted-users[[:space:]]*=.*" line != null
+  ) (lib.splitString "\n" config.nix.extraOptions);
+
   untrustedAssertion = {
-    assertion = !(lib.any (name: lib.elem name runtimeTrustNames) config.nix.settings.trusted-users);
-    message = "${cfg.user} must never be a trusted nix user, by name, by group or through a wildcard in nix.settings.trusted-users: a trusted user can add unsigned paths and change substituters, so one workload could plant a tool for a later one through the store";
+    assertion =
+      !(lib.any (name: lib.elem name runtimeTrustNames) trustedUsers) && !extraOptionsSetTrust;
+    message = "${cfg.user} must never be a trusted nix user, by name, by group or through a wildcard in nix.settings.trusted-users or nix.settings.extra-trusted-users, and nix.extraOptions must not set either, since evaluation cannot check it there: a trusted user can add unsigned paths and change substituters, so one workload could plant a tool for a later one through the store";
   };
 
   dispatchInstance = pkgs.writeShellScript "forge-dispatch-instance" ''
