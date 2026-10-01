@@ -2,6 +2,9 @@ import { html } from 'hono/html';
 import { isGithubRepository, isGithubUrl } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
+  DispatchFailure,
+  DispatchRecord,
+  DispatchState,
   HarnessEvent,
   MessageEvent,
   RepositoryFrontier,
@@ -107,6 +110,8 @@ const renderCost = (run: RunRecord): Rendered => {
   }
 };
 
+const PILL = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-['']";
+
 const STATUS_TONE: Record<RunStatus, string> = {
   success: 'bg-success-soft text-success',
   error: 'bg-error-soft text-error',
@@ -114,7 +119,7 @@ const STATUS_TONE: Record<RunStatus, string> = {
 };
 
 const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-[''] ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;
+  html`<span class="${PILL} ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;
 
 const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatStarted(iso)}</time>`;
@@ -500,18 +505,48 @@ const renderSpec = (parent: SpecRef | null): Rendered =>
     ? html`<span class="text-muted">No spec</span>`
     : html`<span class="tabular-nums text-muted">#${parent.number}</span> ${parent.title}`;
 
+const DISPATCH_TONE: Record<DispatchState, string> = {
+  running: 'bg-raised text-fg',
+  done: 'bg-success-soft text-success',
+  failed: 'bg-error-soft text-error',
+};
+
+const FAILURE_LABEL: Record<DispatchFailure, string> = {
+  errored: 'Run errored',
+  'no-pull-request': 'No pull request',
+  'skill-not-found': 'Skill not found',
+  interrupted: 'Interrupted',
+};
+
+const failureText = ({ reason, detail }: DispatchRecord): string | null => {
+  if (reason === null) return null;
+  const label = FAILURE_LABEL[reason];
+  return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
+};
+
+const renderDispatch = (dispatch: DispatchRecord | undefined): Rendered => {
+  if (dispatch === undefined) return html`<td class="${TD}"></td>`;
+  const badge = html`<span class="${PILL} ${DISPATCH_TONE[dispatch.state]}">${dispatch.state}</span>`;
+  const failure = failureText(dispatch);
+  return html`<td class="${TD} min-w-48" data-dispatch="${dispatch.state}">${dispatch.runId === null
+      ? badge
+      : html`<a href="/runs/${encodeURIComponent(dispatch.runId)}" class="rounded-full no-underline hover:opacity-80">${badge}</a>`}${failure === null
+      ? ''
+      : html`<p class="m-0 mt-1 line-clamp-3 text-xs break-words whitespace-pre-line text-muted" title="${failure}">${failure}</p>`}</td>`;
+};
+
+const ticketKey = (repository: string, number: number): string =>
+  `${repository}#${number}`;
+
 const renderPolled = (polledAt: string | null): Rendered =>
   polledAt === null
     ? html`<span class="${POLLED}">Never polled</span>`
     : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt)}</span>`;
 
-const renderRepository = ({
-  repository,
-  github,
-  polledAt,
-  lastError,
-  tickets,
-}: RepositoryFrontier): HtmlEscapedString | Promise<HtmlEscapedString> =>
+const renderRepository = (
+  { repository, github, polledAt, lastError, tickets }: RepositoryFrontier,
+  dispatches: ReadonlyMap<string, DispatchRecord>,
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<section class="mb-10" data-repository="${repository}"${lastError === null ? '' : html` data-stale`}>
     <header class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
       <h2 class="${SECTION_TITLE}">${repository}</h2>
@@ -535,6 +570,7 @@ const renderRepository = ({
                 <th class="${TH}">Title</th>
                 <th class="${TH}">Spec</th>
                 <th class="${TH}">Created</th>
+                <th class="${TH}">Dispatch</th>
               </tr>
             </thead>
             <tbody${lastError === null ? '' : html` class="text-muted"`}>
@@ -546,6 +582,7 @@ const renderRepository = ({
                   <td class="${TD} min-w-48">${ticket.title}</td>
                   <td class="${TD} min-w-48">${renderSpec(ticket.parent)}</td>
                   <td class="${TD}">${renderDate(ticket.createdAt)}</td>
+                  ${renderDispatch(dispatches.get(ticketKey(repository, ticket.number)))}
                 </tr>`,
               )}
             </tbody>
@@ -555,11 +592,15 @@ const renderRepository = ({
 
 export const renderWork = (
   frontier: RepositoryFrontier[],
+  dispatches: DispatchRecord[],
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const byTicket = new Map(
+    dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch]),
+  );
   const body = html`<h1 class="${PAGE_TITLE}">Frontier</h1>
     ${frontier.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
-      : frontier.map(renderRepository)}`;
+      : frontier.map((repository) => renderRepository(repository, byTicket))}`;
   return layout('Frontier', 'work', assets, body);
 };

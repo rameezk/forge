@@ -1,22 +1,47 @@
-import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import {
-  isHeaderValue,
+  errorMessage,
+  DISPATCH_HEARTBEAT_MS,
+  FORGE_DONE,
+  FORGE_FAILED,
+  FORGE_READY,
+  FORGE_RUNNING,
+  hasOpenClosingPullRequest,
+  githubWriteToken,
   offFrontier,
+  queryLabelled,
   queryTicket,
+  Store,
+  relabel,
+  type DispatchOutcome,
+  type DispatchTicket,
   type Fetch,
   type TicketState,
 } from '@forge/shared';
-import { resolveWorker, type RepositoryConfig } from './config.ts';
-import { cloneCheckout, loadPiSkills, resolveCheckout } from './checkout.ts';
+import {
+  resolveWorker,
+  type RepositoryConfig,
+  type RuntimeConfig,
+} from './config.ts';
+import type { Worker } from './harness.ts';
+import {
+  cloneCheckout,
+  loadPiSkills,
+  resolveCheckout,
+  SkillNotFound,
+} from './checkout.ts';
 import {
   absolutePath,
   launchWorkload,
   readRuntimeConfig,
+  stateDirOf,
+  type LaunchResult,
 } from './workload.ts';
 
-const USAGE = 'usage: forge-dispatch <repository> <issue>';
+const now = (): string => new Date().toISOString();
 
-const FORGE_READY = 'forge:ready';
+const USAGE = 'usage: forge-dispatch <repository> <issue>';
 
 const refusal = (ticket: TicketState): string | null =>
   offFrontier(ticket) ??
@@ -32,42 +57,19 @@ const fillPrompt = (
     .replaceAll('{issue}', String(ticket.number))
     .replaceAll('{url}', ticket.url);
 
-const readTokenFile = (path: string): string => {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
-    throw error;
+const outcomeOf = (
+  pullRequestOpen: boolean,
+  { run, finalMessage, cause }: LaunchResult,
+): DispatchOutcome => {
+  if (pullRequestOpen) return { state: 'done' };
+  if (cause instanceof SkillNotFound) {
+    return { state: 'failed', reason: 'skill-not-found', detail: run.error };
   }
-};
-
-const unquoted = (value: string): string =>
-  /^(["'])(.*)\1$/s.exec(value)?.[2] ?? value;
-
-const githubToken = (env: NodeJS.ProcessEnv): string => {
-  const path = env.FORGE_GITHUB_TOKEN_FILE;
-  if (path === undefined) {
-    throw new Error('FORGE_GITHUB_TOKEN_FILE is not set');
+  if (run.status === 'error') {
+    return { state: 'failed', reason: 'errored', detail: run.error };
   }
-  const token =
-    readTokenFile(path)
-      .split(/\r?\n/)
-      .flatMap((line) => {
-        const equals = line.indexOf('=');
-        return equals !== -1 && line.slice(0, equals).trim() === 'GITHUB_TOKEN'
-          ? [unquoted(line.slice(equals + 1).trim())]
-          : [];
-      })
-      .at(-1) ?? '';
-  if (token === '') throw new Error('GitHub token missing');
-  if (!isHeaderValue(token)) throw new Error('GitHub token malformed');
-  return token;
+  return { state: 'failed', reason: 'no-pull-request', detail: finalMessage };
 };
-
-const withoutGithubToken = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
-  Object.fromEntries(
-    Object.entries(env).filter(([name]) => name !== 'GITHUB_TOKEN'),
-  );
 
 const repositoryNamed = (
   repositories: Record<string, RepositoryConfig> | undefined,
@@ -84,6 +86,69 @@ const repositoryNamed = (
     throw new Error(`repository '${name}' declares no worker`);
   }
   return { github: repository.github, worker: repository.worker };
+};
+
+const settleRunningTickets = async (
+  store: Store,
+  repositories: Record<string, RepositoryConfig> | undefined,
+  fetch: Fetch,
+  token: string,
+): Promise<void> => {
+  for (const [name, { github, worker }] of Object.entries(repositories ?? {})) {
+    if (worker === undefined) continue;
+    try {
+      for (const issue of await queryLabelled(fetch, token, github, FORGE_RUNNING)) {
+        const settled = store.reconcileDispatch({ repository: name, ...issue }, now());
+        if (settled === null) continue;
+        await relabel(
+          fetch,
+          token,
+          github,
+          issue.number,
+          settled === 'done' ? FORGE_DONE : FORGE_FAILED,
+          [FORGE_RUNNING, FORGE_READY],
+        );
+        console.error(`${name}#${issue.number} was settled as ${settled}`);
+      }
+    } catch (error) {
+      console.error(
+        `${name}: could not settle tickets labelled ${FORGE_RUNNING}: ${errorMessage(error)}`,
+      );
+    }
+  }
+};
+
+const launch = async ({
+  env,
+  config,
+  worker,
+  github,
+  token,
+  ticket,
+  runId,
+}: {
+  env: NodeJS.ProcessEnv;
+  config: RuntimeConfig;
+  worker: Worker;
+  github: string;
+  token: string;
+  ticket: DispatchTicket;
+  runId: string;
+}): Promise<LaunchResult> => {
+  const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
+  const workloadEnv = { ...env, GITHUB_TOKEN: token };
+  return launchWorkload({
+    config,
+    worker,
+    env: workloadEnv,
+    secrets: [token],
+    ticket,
+    runId,
+    openWorkspace: async (workDir) => {
+      await cloneCheckout(github, workDir, workloadEnv);
+      return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
+    },
+  });
 };
 
 export const main = async (
@@ -103,43 +168,106 @@ export const main = async (
   const config = readRuntimeConfig(env);
   const repository = repositoryNamed(config.repositories, name);
   const worker = resolveWorker(config, repository.worker);
+  const token = githubWriteToken(env);
 
-  const token = githubToken(env);
-  const ticket = await queryTicket(
-    fetch,
-    token,
-    repository.github,
-    Number(issue),
-  );
-  const refused = refusal(ticket);
-  if (refused !== null) {
-    console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
-    return 1;
+  const store = Store.open(join(stateDirOf(env), 'forge.db'));
+  try {
+    await settleRunningTickets(store, config.repositories, fetch, token);
+
+    const ticket = await queryTicket(
+      fetch,
+      token,
+      repository.github,
+      Number(issue),
+    );
+    const refused = refusal(ticket);
+    if (refused !== null) {
+      console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
+      return 1;
+    }
+
+    const dispatched = { repository: name, number: ticket.number, url: ticket.url };
+    const runId = randomUUID();
+    const dispatchId = store.startDispatch(dispatched, runId, now());
+    if (dispatchId === null) {
+      console.error(
+        `${name}#${ticket.number} is not dispatchable: it is already being dispatched`,
+      );
+      return 1;
+    }
+    const heartbeat = setInterval(
+      () => store.touchDispatch(dispatchId, now()),
+      DISPATCH_HEARTBEAT_MS,
+    );
+    try {
+      const failAs = (stage: string, error: unknown): never => {
+        store.endDispatch(
+          dispatchId,
+          { state: 'failed', reason: 'errored', detail: `${stage}: ${errorMessage(error)}` },
+          now(),
+        );
+        throw error;
+      };
+
+      try {
+        await relabel(fetch, token, repository.github, ticket.number, FORGE_RUNNING, [
+          FORGE_READY,
+        ]);
+      } catch (error) {
+        return failAs('could not claim the ticket', error);
+      }
+
+      let launched: LaunchResult;
+      try {
+        launched = await launch({
+          env,
+          config,
+          worker: { ...worker, prompt: fillPrompt(worker.prompt, repository.github, ticket) },
+          github: repository.github,
+          token,
+          ticket: dispatched,
+          runId,
+        });
+      } catch (error) {
+        return failAs('could not start the workload', error);
+      }
+
+      let pullRequestOpen: boolean;
+      try {
+        pullRequestOpen = await hasOpenClosingPullRequest(
+          fetch,
+          token,
+          repository.github,
+          ticket.number,
+        );
+      } catch (error) {
+        return failAs('could not check for a pull request', error);
+      }
+
+      const outcome = outcomeOf(pullRequestOpen, launched);
+      store.endDispatch(dispatchId, outcome, now());
+      await relabel(
+        fetch,
+        token,
+        repository.github,
+        ticket.number,
+        outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,
+        [FORGE_RUNNING],
+      );
+      return launched.run.status === 'error' ? 1 : 0;
+    } finally {
+      clearInterval(heartbeat);
+    }
+  } finally {
+    store.close();
   }
-
-  const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
-  const workloadEnv = withoutGithubToken(env);
-  return launchWorkload({
-    config,
-    worker: {
-      ...worker,
-      prompt: fillPrompt(worker.prompt, repository.github, ticket),
-    },
-    env: workloadEnv,
-    secrets: [token],
-    ticket: { repository: name, number: ticket.number, url: ticket.url },
-    openWorkspace: async (workDir) => {
-      await cloneCheckout(repository.github, workDir, workloadEnv);
-      return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
-    },
-  });
 };
 
 if (import.meta.filename === process.argv[1]) {
   main(process.argv.slice(2), process.env, globalThis.fetch)
     .then((code) => process.exit(code))
     .catch((error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(errorMessage(error));
       process.exit(1);
     });
 }

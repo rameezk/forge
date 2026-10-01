@@ -22,7 +22,7 @@ const runWith = async (
   const store = Store.open(':memory:');
   const harness = fakeHarness(events, overrides.hooks);
   const transcripts = arrayTranscripts();
-  const id = await runWorkload({
+  const { id } = await runWorkload({
     store,
     harness,
     worker: aWorker(overrides.worker),
@@ -44,7 +44,7 @@ test('given a declared worker and a harness that ends normally, when it runs on 
     result({ status: 'success', sessionId: 'sess-1' }),
   ]);
 
-  const id = await runWorkload({
+  const { id } = await runWorkload({
     store,
     harness,
     worker: aWorker(),
@@ -111,7 +111,7 @@ test('given a harness stream that ends in an error result, when it finishes, the
 
 test('given a runner failure mid-stream, when it finishes, then the run is error with the thrown message and an end time, never left running, and the generation it saw is left pending for billing to settle', async () => {
   const store = Store.open(':memory:');
-  const id = await runWorkload({
+  const { id } = await runWorkload({
     store,
     harness: throwingHarness([message()], new Error('harness crashed')),
     worker: aWorker(),
@@ -134,7 +134,7 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
 
 test('given a harness that throws with a secret in its message, when the run is recorded, then the stored error has the secret redacted', async () => {
   const store = Store.open(':memory:');
-  const id = await runWorkload({
+  const { id } = await runWorkload({
     store,
     harness: throwingHarness([], new Error('spawn failed for sk-or-secret')),
     worker: aWorker(),
@@ -201,7 +201,7 @@ test('given a harness emitting a multi-event stream, when the worker runs, then 
     },
   });
 
-  const id = await runWorkload({
+  const { id } = await runWorkload({
     store,
     harness,
     worker: aWorker(),

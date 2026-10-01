@@ -6,6 +6,15 @@ import {
   type RepositoryFrontier,
   type Ticket,
 } from './frontier.ts';
+import {
+  DISPATCH_DETAIL_LIMIT,
+  DISPATCH_STALE_MS,
+  type DispatchFailure,
+  type DispatchOutcome,
+  type DispatchRecord,
+  type DispatchState,
+  type DispatchTicket,
+} from './dispatch.ts';
 import type {
   GenerationRecord,
   LookupResult,
@@ -167,6 +176,60 @@ const CREATE_FRONTIER = `
   ) STRICT;
 `;
 
+type DispatchRow = {
+  id: number;
+  repository: string;
+  number: number;
+  url: string;
+  run_id: string | null;
+  state: string;
+  reason: string | null;
+  detail: string | null;
+  started_at: string;
+  alive_at: string;
+  ended_at: string | null;
+};
+
+const CREATE_DISPATCHES = `
+  CREATE TABLE IF NOT EXISTS dispatches (
+    id         INTEGER PRIMARY KEY,
+    repository TEXT NOT NULL,
+    number     INTEGER NOT NULL,
+    url        TEXT NOT NULL,
+    run_id     TEXT,
+    state      TEXT NOT NULL,
+    reason     TEXT,
+    detail     TEXT,
+    started_at TEXT NOT NULL,
+    alive_at   TEXT NOT NULL,
+    ended_at   TEXT
+  ) STRICT;
+
+  CREATE INDEX IF NOT EXISTS dispatches_ticket ON dispatches (repository, number, id);
+`;
+
+const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
+  id: row.id,
+  repository: row.repository,
+  number: row.number,
+  url: row.url,
+  runId: row.run_id,
+  state: row.state as DispatchState,
+  reason: row.reason as DispatchFailure | null,
+  detail: row.detail,
+  startedAt: row.started_at,
+  aliveAt: row.alive_at,
+  endedAt: row.ended_at,
+});
+
+const boundedDetail = (detail: string | null): string | null =>
+  detail === null || detail.length <= DISPATCH_DETAIL_LIMIT
+    ? detail
+    : `${detail.slice(0, DISPATCH_DETAIL_LIMIT - 1)}…`;
+
+const liveSince = (now: string): string =>
+  new Date(Date.parse(now) - DISPATCH_STALE_MS).toISOString();
+
 const HAS_OUTDATED_FRONTIER = `
   SELECT 1 FROM sqlite_master
   WHERE type = 'table' AND name = 'frontier_repositories'
@@ -283,6 +346,7 @@ export class Store {
       this.#migrateOutdatedFrontier();
     }
     db.exec(CREATE_FRONTIER);
+    db.exec(CREATE_DISPATCHES);
   }
 
   #useWriteAheadLog(): void {
@@ -607,6 +671,138 @@ export class Store {
         .map(ticketFromRow)
         .toSorted(oldestFirst),
     }));
+  }
+
+  #latestDispatch(ticket: DispatchTicket): DispatchRow | undefined {
+    return this.#db
+      .prepare(
+        `SELECT * FROM dispatches
+        WHERE repository = $repository AND number = $number
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({ repository: ticket.repository, number: ticket.number }) as
+      | DispatchRow
+      | undefined;
+  }
+
+  #interruptStale(row: DispatchRow, now: string): void {
+    this.#db
+      .prepare(
+        `UPDATE dispatches SET
+          state = 'failed', reason = 'interrupted', ended_at = $ended_at
+        WHERE id = $id`,
+      )
+      .run({ id: row.id, ended_at: now });
+  }
+
+  #insertDispatch(
+    ticket: DispatchTicket,
+    runId: string | null,
+    state: DispatchState,
+    reason: DispatchFailure | null,
+    now: string,
+  ): number {
+    const row = this.#db
+      .prepare(
+        `INSERT INTO dispatches (
+          repository, number, url, run_id, state, reason, started_at, alive_at, ended_at
+        ) VALUES (
+          $repository, $number, $url, $run_id, $state, $reason, $now, $now, $ended_at
+        )
+        RETURNING id`,
+      )
+      .get({
+        repository: ticket.repository,
+        number: ticket.number,
+        url: ticket.url,
+        run_id: runId,
+        state,
+        reason,
+        now,
+        ended_at: state === 'running' ? null : now,
+      }) as { id: number };
+    return row.id;
+  }
+
+  startDispatch(
+    ticket: DispatchTicket,
+    runId: string,
+    startedAt: string,
+  ): number | null {
+    let id: number | null = null;
+    this.#transaction(() => {
+      const latest = this.#latestDispatch(ticket);
+      if (latest?.state === 'running') {
+        if (latest.alive_at >= liveSince(startedAt)) return;
+        this.#interruptStale(latest, startedAt);
+      }
+      id = this.#insertDispatch(ticket, runId, 'running', null, startedAt);
+    });
+    return id;
+  }
+
+  reconcileDispatch(
+    ticket: DispatchTicket,
+    now: string,
+  ): Exclude<DispatchState, 'running'> | null {
+    let settled: Exclude<DispatchState, 'running'> | null = null;
+    this.#transaction(() => {
+      const latest = this.#latestDispatch(ticket);
+      if (latest === undefined) {
+        this.#insertDispatch(ticket, null, 'failed', 'interrupted', now);
+        settled = 'failed';
+      } else if (latest.state !== 'running') {
+        settled = latest.state as Exclude<DispatchState, 'running'>;
+      } else if (latest.alive_at < liveSince(now)) {
+        this.#interruptStale(latest, now);
+        settled = 'failed';
+      }
+    });
+    return settled;
+  }
+
+  touchDispatch(id: number, now: string): void {
+    this.#db
+      .prepare(
+        `UPDATE dispatches SET alive_at = $now WHERE id = $id AND state = 'running'`,
+      )
+      .run({ id, now });
+  }
+
+  endDispatch(id: number, outcome: DispatchOutcome, endedAt: string): void {
+    this.#db
+      .prepare(
+        `UPDATE dispatches SET
+          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at
+        WHERE id = $id`,
+      )
+      .run({
+        id,
+        state: outcome.state,
+        reason: outcome.state === 'failed' ? outcome.reason : null,
+        detail: outcome.state === 'failed' ? boundedDetail(outcome.detail) : null,
+        ended_at: endedAt,
+      });
+  }
+
+  listDispatches(now: string): DispatchRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT
+          d.id, d.repository, d.number, d.url,
+          CASE WHEN EXISTS (SELECT 1 FROM runs WHERE id = d.run_id) THEN d.run_id END AS run_id,
+          CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'failed' ELSE d.state END AS state,
+          CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'interrupted' ELSE d.reason END AS reason,
+          d.detail, d.started_at, d.alive_at, d.ended_at
+        FROM dispatches d
+        WHERE d.id = (
+          SELECT MAX(id) FROM dispatches
+          WHERE repository = d.repository AND number = d.number
+        )
+        ORDER BY d.repository, d.number`,
+      )
+      .all({ live_since: liveSince(now) }) as DispatchRow[];
+    return rows.map(dispatchFromRow);
   }
 
   close(): void {

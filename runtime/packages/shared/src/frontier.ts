@@ -36,6 +36,29 @@ export const FRONTIER_QUERY = `
   }
 `;
 
+const LABELLED_QUERY = `
+  query LabelledIssues($owner: String!, $name: String!, $label: String!, $first: Int!, $after: String) {
+    repository(owner: $owner, name: $name) {
+      issues(
+        first: $first
+        after: $after
+        states: OPEN
+        labels: [$label]
+        orderBy: { field: CREATED_AT, direction: ASC }
+      ) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          number
+          url
+        }
+      }
+    }
+  }
+`;
+
 const TICKET_QUERY = `
   query Ticket($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
@@ -51,6 +74,25 @@ const TICKET_QUERY = `
         }
         issueDependenciesSummary {
           blockedBy
+        }
+      }
+    }
+  }
+`;
+
+const CLOSING_PULL_REQUESTS_QUERY = `
+  query ClosingPullRequests($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      issue(number: $number) {
+        closedByPullRequestsReferences(first: 100, includeClosedPrs: false) {
+          nodes {
+            number
+            state
+            isCrossRepository
+            repository {
+              nameWithOwner
+            }
+          }
         }
       }
     }
@@ -101,13 +143,13 @@ interface IssueNode {
   parent: SpecRef | null;
 }
 
-interface IssuePage {
+interface IssuePage<Node> {
   pageInfo: { hasNextPage: boolean; endCursor: string | null };
-  nodes: IssueNode[];
+  nodes: Node[];
 }
 
-interface FrontierResponse {
-  data?: { repository: { issues: IssuePage } | null };
+interface IssuesResponse<Node> {
+  data?: { repository: { issues: IssuePage<Node> } | null };
   errors?: { message: string }[];
 }
 
@@ -115,6 +157,12 @@ const GITHUB_REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 export const isGithubRepository = (github: string): boolean =>
   GITHUB_REPOSITORY.test(github);
+
+export const requireGithubRepository = (github: string): void => {
+  if (!isGithubRepository(github)) {
+    throw new Error(`'${github}' is not a GitHub owner/name`);
+  }
+};
 
 export const isGithubUrl = (url: string): boolean =>
   url.startsWith('https://github.com/');
@@ -144,6 +192,7 @@ const requestGraphql = (
   github: string,
   variables: Record<string, string | number | null>,
 ): Promise<Response> => {
+  requireGithubRepository(github);
   const [owner, name] = github.split('/');
   return fetch(GITHUB_GRAPHQL_API, {
     method: 'POST',
@@ -174,23 +223,28 @@ export const requestTicket = (
 ): Promise<Response> =>
   requestGraphql(fetch, token, TICKET_QUERY, github, { number });
 
-const queryPage = async (
+export const requestClosingPullRequests = (
   fetch: Fetch,
   token: string,
   github: string,
+  number: number,
+): Promise<Response> =>
+  requestGraphql(fetch, token, CLOSING_PULL_REQUESTS_QUERY, github, { number });
+
+const queryPage = async <Node>(
+  subject: string,
+  request: (after: string | null) => Promise<Response>,
+  github: string,
   after: string | null,
-): Promise<IssuePage> => {
-  const response = await requestFrontierPage(fetch, token, github, {
-    first: FRONTIER_PAGE_SIZE,
-    after,
-  });
+): Promise<IssuePage<Node>> => {
+  const response = await request(after);
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status} for ${github}`);
   }
-  const { data, errors } = (await response.json()) as FrontierResponse;
+  const { data, errors } = (await response.json()) as IssuesResponse<Node>;
   if (errors !== undefined && errors.length > 0) {
     throw new Error(
-      `GitHub rejected the frontier query for ${github}: ${errors.map((error) => error.message).join('; ')}`,
+      `GitHub rejected the ${subject} query for ${github}: ${errors.map((error) => error.message).join('; ')}`,
     );
   }
   const repository = data?.repository;
@@ -200,19 +254,16 @@ const queryPage = async (
   return repository.issues;
 };
 
-export const queryFrontier = async (
-  fetch: Fetch,
-  token: string,
+const queryIssues = async <Node>(
+  subject: string,
   github: string,
-): Promise<Ticket[]> => {
-  if (!isGithubRepository(github)) {
-    throw new Error(`'${github}' is not a GitHub owner/name`);
-  }
-  const issues: IssueNode[] = [];
+  request: (after: string | null) => Promise<Response>,
+): Promise<Node[]> => {
+  const issues: Node[] = [];
   const cursors = new Set<string>();
   let after: string | null = null;
   do {
-    const page = await queryPage(fetch, token, github, after);
+    const page: IssuePage<Node> = await queryPage<Node>(subject, request, github, after);
     issues.push(...page.nodes);
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
     if (after !== null && cursors.has(after)) {
@@ -220,10 +271,53 @@ export const queryFrontier = async (
     }
     if (after !== null) cursors.add(after);
   } while (after !== null);
-  return issues
+  return issues;
+};
+
+export const queryFrontier = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+): Promise<Ticket[]> =>
+  (
+    await queryIssues<IssueNode>('frontier', github, (after) =>
+      requestFrontierPage(fetch, token, github, {
+        first: FRONTIER_PAGE_SIZE,
+        after,
+      }),
+    )
+  )
     .filter((issue) => issue.issueDependenciesSummary.blockedBy === 0)
     .map(toTicket);
-};
+
+export interface LabelledIssue {
+  number: number;
+  url: string;
+}
+
+export const requestLabelledPage = (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  label: string,
+  { first, after }: { first: number; after: string | null },
+): Promise<Response> =>
+  requestGraphql(fetch, token, LABELLED_QUERY, github, { label, first, after });
+
+export const queryLabelled = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  label: string,
+): Promise<LabelledIssue[]> =>
+  (
+    await queryIssues<LabelledIssue>(`${label} issues`, github, (after) =>
+      requestLabelledPage(fetch, token, github, label, {
+        first: FRONTIER_PAGE_SIZE,
+        after,
+      }),
+    )
+  ).map((issue) => ({ number: issue.number, url: ticketUrl(issue.url) }));
 
 export interface TicketState {
   number: number;
@@ -254,9 +348,6 @@ export const queryTicket = async (
   github: string,
   number: number,
 ): Promise<TicketState> => {
-  if (!isGithubRepository(github)) {
-    throw new Error(`'${github}' is not a GitHub owner/name`);
-  }
   const response = await requestTicket(fetch, token, github, number);
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
@@ -278,6 +369,52 @@ export const queryTicket = async (
     labels: issue.labels.nodes.map((label) => label.name),
     blockedBy: issue.issueDependenciesSummary.blockedBy,
   };
+};
+
+interface ClosingPullRequestsResponse {
+  data?: {
+    repository: {
+      issue: {
+        closedByPullRequestsReferences: {
+          nodes: {
+            state: string;
+            isCrossRepository: boolean;
+            repository: { nameWithOwner: string };
+          }[];
+        };
+      } | null;
+    } | null;
+  };
+  errors?: { message: string }[];
+}
+
+export const hasOpenClosingPullRequest = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+): Promise<boolean> => {
+  const response = await requestClosingPullRequests(fetch, token, github, number);
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
+  }
+  const { data, errors } = (await response.json()) as ClosingPullRequestsResponse;
+  const issue = data?.repository?.issue;
+  if (issue === undefined || issue === null) {
+    const reason =
+      errors === undefined || errors.length === 0
+        ? 'no such issue'
+        : errors.map((error) => error.message).join('; ');
+    throw new Error(
+      `GitHub found no pull requests closing ${github}#${number}: ${reason}`,
+    );
+  }
+  return issue.closedByPullRequestsReferences.nodes.some(
+    (pullRequest) =>
+      pullRequest.state === 'OPEN' &&
+      !pullRequest.isCrossRepository &&
+      pullRequest.repository.nameWithOwner.toLowerCase() === github.toLowerCase(),
+  );
 };
 
 export const offFrontier = (ticket: TicketState): string | null => {

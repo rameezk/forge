@@ -19,6 +19,12 @@ export interface RunWorkloadOptions {
   ticket?: RunTicket;
 }
 
+export interface WorkloadResult {
+  id: string;
+  finalMessage: string | null;
+  cause: unknown;
+}
+
 const isBillable = (event: MessageEvent): boolean =>
   event.role === 'assistant' &&
   (event.generationId !== null ||
@@ -26,7 +32,7 @@ const isBillable = (event: MessageEvent): boolean =>
 
 export const runWorkload = async (
   options: RunWorkloadOptions,
-): Promise<string> => {
+): Promise<WorkloadResult> => {
   const { store, harness, worker, openTranscript, openWorkspace, now, newId } =
     options;
   const policy = transcriptPolicy(options.secrets ?? []);
@@ -70,6 +76,8 @@ export const runWorkload = async (
   let status: RunStatus = 'error';
   let sessionId: string | null = null;
   let error: string | null = 'harness stream ended without a result';
+  let finalMessage: string | null = null;
+  let thrown: unknown = null;
 
   try {
     const invocation = invocationFor(worker, await openWorkspace(id));
@@ -82,6 +90,13 @@ export const runWorkload = async (
         if (isBillable(event)) {
           recordGeneration(event);
         }
+        if (
+          event.role === 'assistant' &&
+          event.subagent === undefined &&
+          event.text.trim() !== ''
+        ) {
+          finalMessage = event.text;
+        }
       } else if (event.type === 'result') {
         status = event.status;
         sessionId = event.sessionId;
@@ -89,6 +104,7 @@ export const runWorkload = async (
       }
     }
   } catch (cause) {
+    thrown = cause;
     status = 'error';
     error = policy.redact(
       cause instanceof Error ? cause.message : String(cause),
@@ -106,5 +122,5 @@ export const runWorkload = async (
     error,
   });
 
-  return id;
+  return { id, finalMessage, cause: thrown };
 };

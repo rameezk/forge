@@ -189,10 +189,12 @@ export const resolveCheckout = (
   };
 };
 
+export class SkillNotFound extends Error {}
+
 export const requireSkill = (checkout: Checkout, name: string): void => {
   const files = SKILL_NAME.test(name) ? checkout.skills.get(name) : undefined;
   if (files === undefined) {
-    throw new Error(`skill '${name}' not found in the checkout`);
+    throw new SkillNotFound(`skill '${name}' not found in the checkout`);
   }
   if (files.length > 1) {
     throw new Error(

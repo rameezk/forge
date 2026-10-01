@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  errorMessage,
+  ensureLabels,
+  githubWriteToken,
   isHeaderValue,
   oldestFirst,
   queryFrontier,
@@ -11,9 +14,6 @@ import {
 import type { FrontierConfig } from './config.ts';
 
 type Poll = (github: string) => Promise<Ticket[]>;
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 const readConfig = (env: NodeJS.ProcessEnv): FrontierConfig => {
   const configPath = env.FORGE_RUNTIME_CONFIG;
@@ -35,10 +35,19 @@ const polling = (env: NodeJS.ProcessEnv, fetch: Fetch): Poll => {
   return (github) => queryFrontier(fetch, token, github);
 };
 
+const ensuringLabels = (
+  env: NodeJS.ProcessEnv,
+  fetch: Fetch,
+): ((github: string) => Promise<void>) | null =>
+  env.FORGE_GITHUB_WRITE_TOKEN_FILE === undefined
+    ? null
+    : (github) => ensureLabels(fetch, githubWriteToken(env), github);
+
 const sync = async (
   config: FrontierConfig,
   env: NodeJS.ProcessEnv,
   poll: Poll,
+  ensure: ((github: string) => Promise<void>) | null,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
   if (stateDir === undefined) {
@@ -67,6 +76,13 @@ const sync = async (
           message,
           failedAt: new Date().toISOString(),
         });
+        failed = true;
+      }
+      if (ensure === null) continue;
+      try {
+        await ensure(github);
+      } catch (error) {
+        console.error(`${name}: could not ensure the forge labels: ${errorMessage(error)}`);
         failed = true;
       }
     }
@@ -125,7 +141,9 @@ export const main = async (
   }
   const config = readConfig(env);
   const poll = polling(env, fetch);
-  return command === 'sync' ? sync(config, env, poll) : list(config, poll);
+  return command === 'sync'
+    ? sync(config, env, poll, ensuringLabels(env, fetch))
+    : list(config, poll);
 };
 
 if (import.meta.filename === process.argv[1]) {

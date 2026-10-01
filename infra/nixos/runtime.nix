@@ -119,6 +119,10 @@ let
     InaccessiblePaths = map (name: "-${envFile name}") openRouterEnvFiles;
   };
 
+  credentialsDir = "/var/lib/forge-credentials";
+
+  hideGithubWriteToken = [ credentialsDir ];
+
   hardening = {
     NoNewPrivileges = true;
     ProtectSystem = "strict";
@@ -185,7 +189,14 @@ in
       type = lib.types.str;
       default = "${cfg.stateDir}/github.env";
       defaultText = lib.literalExpression ''"''${cfg.stateDir}/github.env"'';
-      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN for the frontier poller, the forge-frontier command and forge-dispatch. The poller loads it as optional, so a missing file does not stop the unit from starting. The forge-frontier command and forge-dispatch read only GITHUB_TOKEN from it, as data, and forge-dispatch never hands it to the workload.";
+      description = "Path to a restricted systemd EnvironmentFile, outside the Nix store, that sets GITHUB_TOKEN to the frontier's read-only token for the frontier poller and the forge-frontier command. The poller loads it as optional, so a missing file does not stop the unit from starting. The forge-frontier command reads only GITHUB_TOKEN from it, as data. Dispatch never reads it.";
+    };
+
+    githubWriteTokenFile = lib.mkOption {
+      type = lib.types.str;
+      default = "${credentialsDir}/github-write.env";
+      readOnly = true;
+      description = "Path to a restricted file in EnvironmentFile format that sets GITHUB_TOKEN to a fine-grained token with write access on Contents, Pull requests and Issues of the managed repositories. It lives in its own directory outside the run-writable state directory, which no unit can write and which is masked from the scheduled runner, billing and the dashboard. Only hosts with a repository that declares a worker use it: forge-dispatch moves tickets through the `forge:*` labels with it and hands it to the workload as GITHUB_TOKEN, and the frontier sync ensures the `forge:*` labels exist with it. Both read only GITHUB_TOKEN from it, as data, so nothing else in the file reaches their environment.";
     };
 
     frontier.pollInterval = lib.mkOption {
@@ -255,6 +266,7 @@ in
         "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/transcripts 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/work 0750 ${cfg.user} ${cfg.user} 14d -"
+        "d ${credentialsDir} 0700 ${cfg.user} ${cfg.user} - -"
       ];
     }
 
@@ -282,6 +294,7 @@ in
             "FORGE_STATE_DIR=${cfg.stateDir}"
           ];
           ExecStart = "${cfg.package}/bin/forge-run %i";
+          InaccessiblePaths = hideGithubWriteToken;
         }
         // hardening;
       };
@@ -298,6 +311,7 @@ in
           EnvironmentFile = envFile "forge-billing.env";
           Environment = [ "FORGE_STATE_DIR=${cfg.stateDir}" ];
           ExecStart = "${cfg.package}/bin/forge-billing";
+          InaccessiblePaths = hideGithubWriteToken;
         }
         // hardening;
       };
@@ -337,7 +351,8 @@ in
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
-          ];
+          ]
+          ++ lib.optional hasDispatch "FORGE_GITHUB_WRITE_TOKEN_FILE=${cfg.githubWriteTokenFile}";
           ExecStart = "${cfg.package}/bin/forge-frontier sync";
         }
         // hardening
@@ -373,7 +388,7 @@ in
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
-            "FORGE_GITHUB_TOKEN_FILE=${cfg.githubTokenFile}"
+            "FORGE_GITHUB_WRITE_TOKEN_FILE=${cfg.githubWriteTokenFile}"
           ];
           ExecStart = "${dispatchInstance} %i";
         }
@@ -411,7 +426,8 @@ in
           InaccessiblePaths = [
             "-/run/secrets"
             "-/run/secrets.d"
-          ];
+          ]
+          ++ hideGithubWriteToken;
         }
         // hardening;
       };
