@@ -13,7 +13,7 @@ import {
   queryLabelled,
   queryTicket,
   Store,
-  swapLabel,
+  relabel,
   type DispatchOutcome,
   type DispatchTicket,
   type Fetch,
@@ -88,7 +88,7 @@ const repositoryNamed = (
   return { github: repository.github, worker: repository.worker };
 };
 
-const reconcileInterrupted = async (
+const settleRunningTickets = async (
   store: Store,
   repositories: Record<string, RepositoryConfig> | undefined,
   fetch: Fetch,
@@ -99,21 +99,20 @@ const reconcileInterrupted = async (
     try {
       for (const issue of await queryLabelled(fetch, token, github, FORGE_RUNNING)) {
         const settled = store.reconcileDispatch({ repository: name, ...issue }, now());
-        if (settled !== null) {
-          await swapLabel(
-            fetch,
-            token,
-            github,
-            issue.number,
-            FORGE_RUNNING,
-            settled === 'done' ? FORGE_DONE : FORGE_FAILED,
-          );
-          console.error(`${name}#${issue.number} was settled as ${settled}`);
-        }
+        if (settled === null) continue;
+        await relabel(
+          fetch,
+          token,
+          github,
+          issue.number,
+          settled === 'done' ? FORGE_DONE : FORGE_FAILED,
+          [FORGE_RUNNING, FORGE_READY],
+        );
+        console.error(`${name}#${issue.number} was settled as ${settled}`);
       }
     } catch (error) {
       console.error(
-        `${name}: could not reconcile interrupted dispatches: ${errorMessage(error)}`,
+        `${name}: could not settle tickets labelled ${FORGE_RUNNING}: ${errorMessage(error)}`,
       );
     }
   }
@@ -173,7 +172,7 @@ export const main = async (
 
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   try {
-    await reconcileInterrupted(store, config.repositories, fetch, token);
+    await settleRunningTickets(store, config.repositories, fetch, token);
 
     const ticket = await queryTicket(
       fetch,
@@ -201,44 +200,60 @@ export const main = async (
       DISPATCH_HEARTBEAT_MS,
     );
     try {
-      const failingAs =
-        (stage: string) =>
-        (error: unknown): never => {
-          store.endDispatch(
-            dispatchId,
-            { state: 'failed', reason: 'errored', detail: `${stage}: ${errorMessage(error)}` },
-            now(),
-          );
-          throw error;
-        };
-      const relabel = (from: string, to: string): Promise<void> =>
-        swapLabel(fetch, token, repository.github, ticket.number, from, to);
+      const failAs = (stage: string, error: unknown): never => {
+        store.endDispatch(
+          dispatchId,
+          { state: 'failed', reason: 'errored', detail: `${stage}: ${errorMessage(error)}` },
+          now(),
+        );
+        throw error;
+      };
 
-      await relabel(FORGE_READY, FORGE_RUNNING).catch(
-        failingAs('could not claim the ticket'),
-      );
-      const launched = await launch({
-        env,
-        config,
-        worker: { ...worker, prompt: fillPrompt(worker.prompt, repository.github, ticket) },
-        github: repository.github,
-        token,
-        ticket: dispatched,
-        runId,
-      }).catch(failingAs('could not start the workload'));
-      const outcome = await hasOpenClosingPullRequest(
+      try {
+        await relabel(fetch, token, repository.github, ticket.number, FORGE_RUNNING, [
+          FORGE_READY,
+        ]);
+      } catch (error) {
+        failAs('could not claim the ticket', error);
+      }
+
+      let launched: LaunchResult;
+      try {
+        launched = await launch({
+          env,
+          config,
+          worker: { ...worker, prompt: fillPrompt(worker.prompt, repository.github, ticket) },
+          github: repository.github,
+          token,
+          ticket: dispatched,
+          runId,
+        });
+      } catch (error) {
+        return failAs('could not start the workload', error);
+      }
+
+      let pullRequestOpen: boolean;
+      try {
+        pullRequestOpen = await hasOpenClosingPullRequest(
+          fetch,
+          token,
+          repository.github,
+          ticket.number,
+        );
+      } catch (error) {
+        return failAs('could not check for a pull request', error);
+      }
+
+      const outcome = outcomeOf(pullRequestOpen, launched);
+      store.endDispatch(dispatchId, outcome, now());
+      await relabel(
         fetch,
         token,
         repository.github,
         ticket.number,
-      )
-        .then((pullRequestOpen) => outcomeOf(pullRequestOpen, launched))
-        .then(async (settled) => {
-          await relabel(FORGE_RUNNING, settled.state === 'done' ? FORGE_DONE : FORGE_FAILED);
-          return settled;
-        })
-        .catch(failingAs('could not record the outcome'));
-      store.endDispatch(dispatchId, outcome, now());
+        outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,
+        [FORGE_RUNNING],
+      );
       return launched.run.status === 'error' ? 1 : 0;
     } finally {
       clearInterval(heartbeat);

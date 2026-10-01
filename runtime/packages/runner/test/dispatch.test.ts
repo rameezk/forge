@@ -125,7 +125,7 @@ const fakeGithub = (
   responses: Record<number, IssueResponse>,
   pullRequests: ClosingResponse,
   running: LabelledResponse,
-  labelStatus: number,
+  labelStatus: (write: Pick<LabelWrite, 'method' | 'path' | 'body'>) => number,
   pullRequestsStatus: number,
   piRecord: () => string,
 ) => {
@@ -164,14 +164,15 @@ const fakeGithub = (
       }
       return json(response);
     }
-    labelWrites.push({
+    const write = {
       method: init?.method ?? 'GET',
       path: url.pathname,
       authorization,
       body: init?.body === undefined ? null : JSON.parse(String(init.body)),
       piStarted: existsSync(piRecord()),
-    });
-    return json([], labelStatus);
+    };
+    labelWrites.push(write);
+    return json([], labelStatus(write));
   };
   return { fetch, requests, labelWrites };
 };
@@ -222,8 +223,9 @@ interface Scenario {
   responses?: Record<number, IssueResponse>;
   pullRequests?: ClosingResponse;
   running?: LabelledResponse;
-  labelStatus?: number;
+  labelStatus?: (write: Pick<LabelWrite, 'method' | 'path' | 'body'>) => number;
   pullRequestsStatus?: number;
+  piPackage?: string;
   failing?: boolean;
   seed?: (store: Store) => void;
   prompt?: string;
@@ -289,7 +291,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     },
     scenario.pullRequests ?? opened(closing('merged-pull-request')),
     scenario.running ?? labelledIssues([]),
-    scenario.labelStatus ?? 200,
+    scenario.labelStatus ?? (() => 200),
     scenario.pullRequestsStatus ?? 200,
     () => record,
   );
@@ -312,7 +314,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_STATE_DIR: stateDir,
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
-      FORGE_PI_PACKAGE: lockedPiPackage(),
+      FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
       FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
@@ -509,9 +511,16 @@ const interruptedLabelWrites = (number: number): LabelWrite[] => [
     body: null,
     piStarted: false,
   },
+  {
+    method: 'DELETE',
+    path: `/repos/rameezk/forge/issues/${number}/labels/forge%3Aready`,
+    authorization: `bearer ${GITHUB_TOKEN}`,
+    body: null,
+    piStarted: false,
+  },
 ];
 
-test('given tickets labelled forge:running, one whose dispatch stopped beating, one with no dispatch in the store, and one with a live dispatch, when the next dispatch pass runs, then the first two become forge:failed with interrupted as the reason and the live one is left alone', async () => {
+test('given tickets labelled forge:running, one whose dispatch stopped beating, one with no dispatch in the store, and one with a live dispatch, when the next dispatch pass runs, then the first two become forge:failed with interrupted as the reason, losing any forge:ready a split claim left behind, and the live one is left alone', async () => {
   const { labelWrites, dispatches } = await dispatch({
     running: labelledIssues([114, 115, 123]),
     seed: (store) => {
@@ -520,7 +529,7 @@ test('given tickets labelled forge:running, one whose dispatch stopped beating, 
     },
   });
 
-  assert.deepEqual(labelWrites.slice(0, 4), [
+  assert.deepEqual(labelWrites.slice(0, 6), [
     ...interruptedLabelWrites(114),
     ...interruptedLabelWrites(115),
   ]);
@@ -554,7 +563,10 @@ test('given a live dispatch of the ticket already in the store, when forge-dispa
 });
 
 test('given GitHub refuses the claim, when forge-dispatch runs, then it fails naming the refusal, starts no workload, and the dispatch fails with the claim as the reason', async () => {
-  const { failure, pi, runs, dispatches } = await dispatch({ labelStatus: 403, failing: true });
+  const { failure, pi, runs, dispatches } = await dispatch({
+    labelStatus: ({ method }) => (method === 'POST' ? 403 : 200),
+    failing: true,
+  });
 
   const refused = 'GitHub answered 403 labelling rameezk/forge#113 forge:running';
   assert.ok(failure instanceof Error);
@@ -580,7 +592,7 @@ test('given GitHub fails the pull request check after the run, when forge-dispat
   assert.equal(labelWrites.length, 2);
   assert.deepEqual(
     dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
-    [{ state: 'failed', reason: 'errored', detail: `could not record the outcome: ${error}` }],
+    [{ state: 'failed', reason: 'errored', detail: `could not check for a pull request: ${error}` }],
   );
 });
 
@@ -597,7 +609,7 @@ test('given a ticket still labelled forge:running whose dispatch already ended d
     },
   });
 
-  assert.deepEqual(labelWrites.slice(0, 4), [
+  assert.deepEqual(labelWrites.slice(0, 6), [
     ...interruptedLabelWrites(114).map((write, index) =>
       index === 0 ? { ...write, body: { labels: ['forge:done'] } } : write,
     ),
@@ -624,6 +636,36 @@ test('given a run that ends without a pull request on an enormous final message,
   assert.equal(detail.length, 2000);
   assert.ok(detail.startsWith('The command printed forge. xxx'));
   assert.ok(detail.endsWith('x…'));
+});
+
+const adding = (label: string) => ({ method, body }: Pick<LabelWrite, 'method' | 'body'>) =>
+  method === 'POST' && JSON.stringify(body) === JSON.stringify({ labels: [label] }) ? 502 : 200;
+
+test('given GitHub fails to set forge:done after a run that left an open pull request, when forge-dispatch runs, then it fails naming the error, and the dispatch is still recorded as done so the next pass can finish the label', async () => {
+  const { failure, dispatches } = await dispatch({
+    labelStatus: adding('forge:done'),
+    failing: true,
+  });
+
+  assert.ok(failure instanceof Error);
+  assert.equal(failure.message, 'GitHub answered 502 labelling rameezk/forge#113 forge:done');
+  assert.deepEqual(
+    dispatches.map(({ state, reason }) => ({ state, reason })),
+    [{ state: 'done', reason: null }],
+  );
+});
+
+test('given the locked pi package cannot be loaded, when forge-dispatch runs, then it fails, and the dispatch fails as errored because the workload could not start', async () => {
+  const { failure, pi, dispatches } = await dispatch({
+    piPackage: join(tmpdir(), 'forge-no-pi-package'),
+    failing: true,
+  });
+
+  assert.ok(failure instanceof Error);
+  assert.equal(pi, null);
+  assert.equal(dispatches[0]?.state, 'failed');
+  assert.equal(dispatches[0]?.reason, 'errored');
+  assert.match(dispatches[0]?.detail ?? '', /^could not start the workload: /);
 });
 
 test('given a ticket labelled forge:ready that has an open blocker, one that is closed, one that is not ready-for-agent, and a frontier ticket without the label, when forge-dispatch runs for each, then none starts a workload or clones, and each refusal names why', async () => {

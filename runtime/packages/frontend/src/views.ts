@@ -532,7 +532,7 @@ const renderDispatch = (dispatch: DispatchRecord | undefined): Rendered => {
       ? badge
       : html`<a href="/runs/${encodeURIComponent(dispatch.runId)}" class="rounded-full no-underline hover:opacity-80">${badge}</a>`}${failure === null
       ? ''
-      : html`<p class="m-0 mt-1 line-clamp-3 text-xs break-words whitespace-pre-line text-muted">${failure}</p>`}</td>`;
+      : html`<p class="m-0 mt-1 line-clamp-3 text-xs break-words whitespace-pre-line text-muted" title="${failure}">${failure}</p>`}</td>`;
 };
 
 const ticketKey = (repository: string, number: number): string =>

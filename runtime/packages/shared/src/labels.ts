@@ -60,13 +60,13 @@ const requestRest = async (
 const labelPath = (label: string): string =>
   `/labels/${encodeURIComponent(label)}`;
 
-export const swapLabel = async (
+export const relabel = async (
   fetch: Fetch,
   token: string,
   github: string,
   number: number,
-  from: string,
-  to: string,
+  add: string,
+  remove: readonly string[],
 ): Promise<void> => {
   const added = await requestRest(
     fetch,
@@ -74,24 +74,26 @@ export const swapLabel = async (
     'POST',
     github,
     `/issues/${number}/labels`,
-    { labels: [to] },
+    { labels: [add] },
   );
   if (!added.ok) {
     throw new Error(
-      `GitHub answered ${added.status} labelling ${github}#${number} ${to}`,
+      `GitHub answered ${added.status} labelling ${github}#${number} ${add}`,
     );
   }
-  const removed = await requestRest(
-    fetch,
-    token,
-    'DELETE',
-    github,
-    `/issues/${number}${labelPath(from)}`,
-  );
-  if (!removed.ok && removed.status !== 404) {
-    throw new Error(
-      `GitHub answered ${removed.status} removing ${from} from ${github}#${number}`,
+  for (const label of remove) {
+    const removed = await requestRest(
+      fetch,
+      token,
+      'DELETE',
+      github,
+      `/issues/${number}${labelPath(label)}`,
     );
+    if (!removed.ok && removed.status !== 404) {
+      throw new Error(
+        `GitHub answered ${removed.status} removing ${label} from ${github}#${number}`,
+      );
+    }
   }
 };
 

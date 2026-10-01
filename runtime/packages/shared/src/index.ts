@@ -67,5 +67,5 @@ export {
   FORGE_RUNNING,
   GITHUB_REST_API,
   ensureLabels,
-  swapLabel,
+  relabel,
 } from './labels.ts';
