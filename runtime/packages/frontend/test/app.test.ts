@@ -576,9 +576,9 @@ test('given a provider that reuses a subagent call id across turns, when the run
 
   const [first, second] = subagentCalls(body) as [string, string];
   assert.match(first, /First task\.[\s\S]*first child working[\s\S]*first report/);
-  assert.doesNotMatch(first, /second/);
+  assert.doesNotMatch(textOf(first), /second/);
   assert.match(second, /Second task\.[\s\S]*second child working[\s\S]*second report/);
-  assert.doesNotMatch(second, /first/);
+  assert.doesNotMatch(textOf(second), /first/);
 });
 
 test('given a subagent given an explicit working directory, when its group is expanded, then the working directory is shown with the task', async () => {
