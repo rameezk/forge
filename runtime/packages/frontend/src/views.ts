@@ -5,6 +5,7 @@ import type {
   DispatchFailure,
   DispatchRecord,
   DispatchState,
+  GenerationRecord,
   HarnessEvent,
   MessageEvent,
   RepositoryFrontier,
@@ -100,7 +101,7 @@ const BADGE = 'shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-bold uppercase
 
 const UNCONFIRMED_BADGE = html`<span class="${BADGE} ml-1.5 bg-warning-soft text-warning" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
 
-const renderCost = (run: RunRecord): Rendered => {
+const renderCost = (run: Pick<RunRecord, 'costStatus' | 'costUsd'>): Rendered => {
   switch (run.costStatus) {
     case 'pending':
       return html`<span class="${PENDING}">pending</span>`;
@@ -415,17 +416,72 @@ const taskText = (args: unknown): string => {
   return typeof task === 'string' ? task : prettyArguments(args);
 };
 
+interface SubagentContext {
+  results: ToolResults;
+  generations: GenerationRecord[];
+  runStatus: RunStatus;
+}
+
+const subagentStatus = (
+  report: ToolResultEvent | undefined,
+  runStatus: RunStatus,
+): RunStatus => {
+  if (report !== undefined) return report.isError ? 'error' : 'success';
+  return runStatus === 'running' ? 'running' : 'error';
+};
+
+const subagentCost = (
+  scope: string,
+  generations: GenerationRecord[],
+): Pick<RunRecord, 'costStatus' | 'costUsd'> => {
+  const own = generations.filter((generation) => generation.subagent === scope);
+  const costUsd = own.reduce(
+    (sum, generation) => sum + (generation.billedCostUsd ?? 0),
+    0,
+  );
+  if (own.some((generation) => generation.givenUpAt !== null)) {
+    return { costStatus: 'unconfirmed', costUsd };
+  }
+  if (own.some((generation) => generation.billedCostUsd === null)) {
+    return { costStatus: 'pending', costUsd };
+  }
+  return { costStatus: 'billed', costUsd };
+};
+
+const renderFigures = (
+  scope: string,
+  events: ScopedEvent[],
+  shown: ScopedEvent[],
+  report: ToolResultEvent | undefined,
+  { generations, runStatus }: SubagentContext,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  for (const event of events) {
+    if (event.type === 'message') {
+      inputTokens += event.usage.inputTokens;
+      outputTokens += event.usage.outputTokens;
+    }
+  }
+  return html`<span class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[0.8rem] tabular-nums text-muted" data-subagent-figures>
+    ${renderStatus(subagentStatus(report, runStatus))}
+    <span class="whitespace-nowrap" data-subagent-tokens>${formatTokens(inputTokens)} in / ${formatTokens(outputTokens)} out</span>
+    <span class="whitespace-nowrap" data-subagent-cost>${renderCost(subagentCost(scope, generations))}</span>
+    <span class="whitespace-nowrap">${messageCount(shown)}</span>
+  </span>`;
+};
+
 const renderGroup = (
   frame: string,
   summary: Rendered,
-  count: string,
+  figures: Rendered,
   open: boolean,
   body: Rendered[],
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<details class="${frame}" data-subagent-group${open ? html` open` : ''}>
-    <summary class="${DISCLOSURE}">
+    <summary class="${DISCLOSURE} flex-wrap">
       ${summary}
-      <span class="ml-auto shrink-0 whitespace-nowrap text-[0.8rem] tabular-nums text-muted">${count}</span>
+      ${figures}
     </summary>
     <div class="${STACK} rounded-b-[7px] border-t border-line bg-bg p-4 pt-3">
       ${body}
@@ -434,10 +490,12 @@ const renderGroup = (
 
 const renderSubagentCall = (
   call: ToolCallEvent,
+  scope: string,
   events: ScopedEvent[],
-  results: ToolResults,
+  context: SubagentContext,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const report = results.get(call);
+  const report = context.results.get(call);
+  const { results } = context;
   const failed = report?.isError === true;
   const task = taskText(call.arguments);
   const { cwd } = argumentFields(call.arguments);
@@ -450,7 +508,7 @@ const renderSubagentCall = (
     ${renderGroup(
       'border-t border-line',
       html`<span class="min-w-0 truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
-      messageCount(shown),
+      renderFigures(scope, events, shown, report, context),
       failed,
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
@@ -466,17 +524,18 @@ const renderSubagentCall = (
 
 const renderSubagent = (
   { scope, call, events }: SubagentGroup,
-  results: ToolResults,
+  context: SubagentContext,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   if (call !== undefined) {
-    return renderSubagentCall(call, events, results);
+    return renderSubagentCall(call, scope, events, context);
   }
+  const { results } = context;
   const shown = withoutToolOnlyPreambles(events);
   return renderGroup(
     `${BLOCK} border-line`,
     html`<span class="${LABEL} whitespace-nowrap">Subagent</span>
       <code class="${SUMMARY_CODE}" title="${scope}">${scope}</code>`,
-    messageCount(shown),
+    renderFigures(scope, events, shown, undefined, context),
     false,
     shown.map((event) => renderEvent(event, results)),
   );
@@ -484,11 +543,14 @@ const renderSubagent = (
 
 const renderTranscript = (
   events: HarnessEvent[],
+  generations: GenerationRecord[],
+  runStatus: RunStatus,
 ): Rendered[] => {
   const results = toolResults(events);
+  const context: SubagentContext = { results, generations, runStatus };
   return withoutToolOnlyPreambles(nestSubagents(events)).map((entry) =>
     entry.type === 'subagent'
-      ? renderSubagent(entry, results)
+      ? renderSubagent(entry, context)
       : renderEvent(entry, results),
   );
 };
@@ -499,6 +561,7 @@ const META_VALUE = 'm-0 min-w-0 break-words tabular-nums';
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
+  generations: GenerationRecord[],
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
@@ -521,7 +584,7 @@ export const renderDetail = (
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
-      : html`<div class="${STACK}">${renderTranscript(events)}</div>`}`;
+      : html`<div class="${STACK}">${renderTranscript(events, generations, run.status)}</div>`}`;
   return layout(run.worker, null, assets, body);
 };
 
