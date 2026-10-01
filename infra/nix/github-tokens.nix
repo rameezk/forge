@@ -113,7 +113,8 @@ testers.runNixOSTest {
         box.succeed("/run/current-system/bin/switch-to-configuration test")
         assert box.succeed("readlink /run/secrets").strip() != generation, "the redeploy did not render a new secrets generation"
         box.succeed("touch /var/lib/forge/redeployed")
-        box.wait_for_file("/var/lib/forge/forge-run-lingering-after.out")
+        box.wait_until_succeeds("test \"$(systemctl show -P ActiveState forge-runner@lingering.service)\" = inactive")
+        assert box.succeed("systemctl show -P Result forge-runner@lingering.service").strip() == "success"
         assert probe("forge-run-lingering-after") == denied, probe("forge-run-lingering-after")
 
     with subtest("no hand-placed plain-text token stays behind after activation"):
