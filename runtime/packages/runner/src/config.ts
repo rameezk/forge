@@ -17,10 +17,20 @@ export interface RepositoryConfig {
   worker?: string;
 }
 
+export interface GitIdentity {
+  name: string;
+  email: string;
+}
+
+export interface DispatchConfig {
+  gitIdentity?: GitIdentity;
+}
+
 export interface RuntimeConfig {
   harnesses: Record<string, HarnessConfig>;
   workers: Record<string, WorkerConfig>;
   repositories?: Record<string, RepositoryConfig>;
+  dispatch?: DispatchConfig;
 }
 
 export const resolveWorker = (

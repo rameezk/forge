@@ -59,6 +59,21 @@ let
     };
   };
 
+  gitIdentityModule = lib.types.submodule {
+    options = {
+      name = lib.mkOption {
+        type = lib.types.str;
+        example = "Forge";
+        description = "Name a dispatched workload's commits carry as their git author and committer.";
+      };
+      email = lib.mkOption {
+        type = lib.types.str;
+        example = "forge@example.com";
+        description = "Email a dispatched workload's commits carry as their git author and committer.";
+      };
+    };
+  };
+
   runtimeConfig = {
     harnesses = lib.mapAttrs (_: h: { inherit (h) command args; }) cfg.harnesses;
     workers = lib.mapAttrs (
@@ -71,6 +86,9 @@ let
     repositories = lib.mapAttrs (
       _: r: { inherit (r) github; } // lib.optionalAttrs (r.worker != null) { inherit (r) worker; }
     ) cfg.repositories;
+  }
+  // lib.optionalAttrs (cfg.dispatch.gitIdentity != null) {
+    dispatch = { inherit (cfg.dispatch) gitIdentity; };
   };
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
@@ -81,6 +99,11 @@ let
   hasDispatch = dispatchedRepositories != { };
 
   hasTicketPlaceholder = prompt: lib.hasInfix "{issue}" prompt || lib.hasInfix "{url}" prompt;
+
+  gitIdentityAssertion = {
+    assertion = !hasDispatch || cfg.dispatch.gitIdentity != null;
+    message = "forge.runtime.dispatch.gitIdentity must be set when a repository declares a worker: dispatched workloads commit as that identity";
+  };
 
   dispatchAssertions = lib.concatLists (
     lib.mapAttrsToList (
@@ -149,6 +172,7 @@ let
     "ripgrep"
     "jq"
     "curl"
+    "gh"
   ];
 in
 {
@@ -197,6 +221,13 @@ in
       default = "${credentialsDir}/github-write.env";
       readOnly = true;
       description = "Path to a restricted file in EnvironmentFile format that sets GITHUB_TOKEN to a fine-grained token with write access on Contents, Pull requests and Issues of the managed repositories. It lives in its own directory outside the run-writable state directory, which no unit can write and which is masked from the scheduled runner, billing and the dashboard. Only hosts with a repository that declares a worker use it: forge-dispatch moves tickets through the `forge:*` labels with it and hands it to the workload as GITHUB_TOKEN, and the frontier sync ensures the `forge:*` labels exist with it. Both read only GITHUB_TOKEN from it, as data, so nothing else in the file reaches their environment.";
+    };
+
+    dispatch.gitIdentity = lib.mkOption {
+      type = lib.types.nullOr gitIdentityModule;
+      default = null;
+      example = lib.literalExpression ''{ name = "Forge"; email = "forge@example.com"; }'';
+      description = "Git author and committer identity of every dispatched workload, set through its environment and never written to a file. Required when any repository declares a worker. Scheduled workloads get no identity.";
     };
 
     frontier.pollInterval = lib.mkOption {
@@ -252,7 +283,7 @@ in
 
   config = lib.mkMerge [
     {
-      assertions = dispatchAssertions;
+      assertions = [ gitIdentityAssertion ] ++ dispatchAssertions;
 
       users.users.${cfg.user} = {
         isSystemUser = true;
