@@ -73,6 +73,10 @@ testers.runNixOSTest {
       github = "rameezk/forge";
       worker = "builder";
     };
+    forge.runtime.dispatch.gitIdentity = {
+      name = "Forge Operator";
+      email = "operator@example.com";
+    };
   };
 
   testScript = ''

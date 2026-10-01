@@ -281,7 +281,16 @@ forge.runtime.repositories.forge = {
   github = "rameezk/forge";
   worker = "builder";
 };
+forge.runtime.dispatch.gitIdentity = {
+  name = "Forge";
+  email = "forge@example.com";
+};
 ```
+
+A host with a repository that declares a worker must also set
+`dispatch.gitIdentity`, or it does not evaluate. Every commit a dispatched
+workload makes carries it as author and committer, while pushes and pull
+requests show as the owner of the GitHub write token.
 
 Label a frontier ticket `forge:ready`, then dispatch it on the box:
 
@@ -292,11 +301,15 @@ just ssh sudo forge-dispatch forge 113
 Forge refuses a ticket that is not on the frontier or not labelled
 `forge:ready`. Otherwise it claims the ticket by replacing `forge:ready` with
 `forge:running`, clones the tip of the repository's default branch into a
-fresh run directory and runs the worker there. The clone is anonymous,
-so the repository must be public. The workload loads the checkout's
-`.claude/skills`, `.agents/skills` and `.pi/skills`, its root `AGENTS.md` (or
-`CLAUDE.md`), and `.pi/SYSTEM.md` and `.pi/APPEND_SYSTEM.md`, and it is told
-that no human will answer. A leading `/<name>` in the prompt runs the
+fresh run directory and runs the worker there. The clone and the workload
+authenticate to `https://github.com` with the write token, through a git
+credential helper set only in their environment, so private repositories
+clone too, and the agent can push and open pull requests with `gh`. Nothing
+is written to the workload's HOME or the checkout's `.git/config`, and
+scheduled workers get no identity, helper or token. The workload loads the
+checkout's `.claude/skills`, `.agents/skills` and `.pi/skills`, its root
+`AGENTS.md` (or `CLAUDE.md`), and `.pi/SYSTEM.md` and `.pi/APPEND_SYSTEM.md`,
+and it is told that no human will answer. A leading `/<name>` in the prompt runs the
 checkout's skill of that name, and the run fails before the harness starts if
 there is none. The Runs page shows the repository and ticket of each
 dispatched run.

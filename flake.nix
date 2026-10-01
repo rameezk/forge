@@ -260,6 +260,7 @@
             && runnerSettings.workers.refiner.reasoningEffort == "high"
             && runnerSettings.harnesses.pi.command == "/run/current-system/sw/bin/pi"
           ) "the generated runtime config must reflect the declared harness and worker";
+          ghInToolset = lib.asserts.assertMsg (lib.elem workerHost.pkgs.gh workerHost.config.forge.runtime.toolset) "the base workload toolset must carry gh, so a dispatched agent can open pull requests with its GITHUB_TOKEN";
           runnerDefaultEffortOmitted =
             lib.asserts.assertMsg (!(runnerSettings.workers.builder ? reasoningEffort))
               "a worker with no reasoning effort must omit it from the config so the harness runs at the provider default";
@@ -409,19 +410,29 @@
           repositoryModule = {
             forge.runtime.repositories.forge.github = "rameezk/forge";
           };
-          dispatchModuleWith = prompt: {
-            forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
-            forge.runtime.workers.builder = {
-              harness = "pi";
-              model = "anthropic/claude-sonnet-4";
-              inherit prompt;
-            };
-            forge.runtime.repositories.forge = {
-              github = "rameezk/forge";
-              worker = "builder";
-            };
+          gitIdentity = {
+            name = "Forge Operator";
+            email = "operator@example.com";
           };
-          dispatchModule = dispatchModuleWith "/work-on {url}";
+          dispatchModuleWith =
+            {
+              prompt ? "/work-on {url}",
+              dispatch ? { inherit gitIdentity; },
+            }:
+            {
+              forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+              forge.runtime.workers.builder = {
+                harness = "pi";
+                model = "anthropic/claude-sonnet-4";
+                inherit prompt;
+              };
+              forge.runtime.repositories.forge = {
+                github = "rameezk/forge";
+                worker = "builder";
+              };
+              forge.runtime.dispatch = dispatch;
+            };
+          dispatchModule = dispatchModuleWith { };
           secretsHost =
             secretsFile: module:
             mkHost {
@@ -429,7 +440,7 @@
               inherit secretsFile;
               modules = [ module ];
             };
-          dispatchHostWith = prompt: secretsHost exampleSecretsFile (dispatchModuleWith prompt);
+          dispatchHostWith = args: secretsHost exampleSecretsFile (dispatchModuleWith args);
           dispatchHost = secretsHost exampleSecretsFile dispatchModule;
           dispatchUnit = dispatchHost.config.systemd.services."forge-dispatch@";
           hasDispatchCommand =
@@ -450,12 +461,31 @@
                 forge.github = "rameezk/forge";
               }
           ) "the generated runtime config must carry a repository's worker only when it declares one";
+          dispatchConfigReflectsGitIdentity = lib.asserts.assertMsg (
+            dispatchHost.config.forge.runtime.settings.dispatch == {
+              inherit gitIdentity;
+            }
+            && !(workerAndRepositoryHost.config.forge.runtime.settings ? dispatch)
+          ) "the generated runtime config must carry the dispatch git identity only when it is set";
+          missingGitIdentityFails =
+            let
+              host = dispatchHostWith { dispatch = { }; };
+            in
+            lib.asserts.assertMsg
+              (
+                !(evaluates host)
+                && lib.any (lib.hasInfix "forge.runtime.dispatch.gitIdentity") (failedAssertions host)
+              )
+              "a repository that declares a worker on a host with no dispatch git identity must fail evaluation";
           dispatchHostEvaluates = lib.asserts.assertMsg (
-            evaluates dispatchHost && evaluates (dispatchHostWith "Build {repo}#{issue}")
+            evaluates dispatchHost
+            && evaluates (dispatchHostWith {
+              prompt = "Build {repo}#{issue}";
+            })
           ) "a repository whose worker prompt holds {url} or {issue} must evaluate";
           placeholderlessWorkerFails =
             let
-              host = dispatchHostWith "build the thing";
+              host = dispatchHostWith { prompt = "build the thing"; };
             in
             lib.asserts.assertMsg (
               !(evaluates host) && lib.any (lib.hasInfix "has no ticket placeholder") (failedAssertions host)
@@ -650,6 +680,7 @@
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
+            assert ghInToolset;
             assert transcriptsProvisioned;
             pkgs.runCommand "runtime-runner" { } ''
               echo "declaring a worker wires a forge-runner@ oneshot invoking forge-run with only the OpenRouter key, from a sops template" > $out
@@ -684,6 +715,8 @@
 
           runtime-dispatch =
             assert dispatchConfigReflectsWorker;
+            assert dispatchConfigReflectsGitIdentity;
+            assert missingGitIdentityFails;
             assert dispatchHostEvaluates;
             assert placeholderlessWorkerFails;
             assert undeclaredWorkerFails;
