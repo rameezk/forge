@@ -481,6 +481,46 @@ test('given a workload whose pi has completed two generations with cache reads a
   );
 });
 
+test('given pi output whose usage counts are too large to read back, negative, fractional or not numbers, when the worker runs, then those counts are recorded as 0, the valid counts still sum, and the dashboard still lists and shows the run', async () => {
+  const output = outputFile(
+    readFileSync(fixture('success.jsonl'), 'utf8')
+      .split('\n')
+      .map((line) =>
+        line.includes('"type":"message_end"') && line.includes('"responseId":"gen-success-1"')
+          ? line.replace(
+              /"usage":\{"input":\d+,"output":\d+,"cacheRead":\d+,"cacheWrite":\d+/,
+              '"usage":{"input":1152921504606846976,"output":-40,"cacheRead":1.5,"cacheWrite":"1000"',
+            )
+          : line,
+      )
+      .join('\n'),
+  );
+
+  const { stateDir, run } = await runWorker({ output });
+
+  assert.deepEqual(
+    storedGenerations(stateDir, run.id).map(({ usage }) => usage),
+    [
+      { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { inputTokens: 100, outputTokens: 25, cacheReadTokens: 1000, cacheWriteTokens: 200 },
+    ],
+  );
+  assert.equal(run.inputTokens, 100);
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    const app = createApp({
+      store,
+      transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
+      css: '',
+      logo: '',
+    });
+    assert.equal((await app.request('/')).status, 200);
+    assert.equal((await app.request(`/runs/${run.id}`)).status, 200);
+  } finally {
+    store.close();
+  }
+});
+
 test('given a recorded run with two parallel subagent calls, when the transcript is written, then each child message carries its subagent scope and the parent messages carry none', async () => {
   const { transcript } = await runWorker({
     output: fixture('subagents.jsonl'),

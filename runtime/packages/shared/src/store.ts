@@ -152,7 +152,10 @@ const NO_GENERATION_ID = 'no generation id';
 const RUN_NEVER_ENDED = 'run never ended, so later generations may be unrecorded';
 
 const generationSum = (column: string): string =>
-  `${column} = COALESCE((SELECT SUM(${column}) FROM generations WHERE run_id = runs.id), ${column})`;
+  `${column} = COALESCE(
+    (SELECT MIN(SUM(${column}), ${Number.MAX_SAFE_INTEGER}) FROM generations WHERE run_id = runs.id),
+    ${column}
+  )`;
 
 const SETTLE_RUN = `
   UPDATE runs SET

@@ -223,6 +223,27 @@ test('given a store file whose runs predate dispatch, when the store is opened, 
   Store.open(path).close();
 });
 
+test('given generations whose token counts are each the largest safe integer, when the run totals are read, then they are held at that integer so the run stays readable', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(sampleRun({ id: 'huge', status: 'running', endTime: null }));
+  const most = Number.MAX_SAFE_INTEGER;
+  for (const generationId of ['gen-a', 'gen-b']) {
+    store.recordGeneration({
+      runId: 'huge',
+      generationId,
+      subagent: null,
+      usage: { inputTokens: most, outputTokens: most, cacheReadTokens: most, cacheWriteTokens: most },
+      createdAt: '2026-09-21T10:01:00.000Z',
+    });
+  }
+
+  const run = store.listRuns()[0];
+  assert.deepEqual(
+    [run?.inputTokens, run?.outputTokens, run?.cacheReadTokens, run?.cacheWriteTokens],
+    [most, most, most, most],
+  );
+});
+
 test('given a store whose generations predate token columns, holding finished workloads with token totals, when it is opened and billing later settles a legacy generation, then it migrates in place and those workloads keep their recorded totals with their cache split unknown', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const old = new DatabaseSync(path);

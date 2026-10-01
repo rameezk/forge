@@ -110,10 +110,10 @@ export const subagentInvocation = (
 });
 
 interface PiUsage {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
+  input: unknown;
+  output: unknown;
+  cacheRead: unknown;
+  cacheWrite: unknown;
 }
 
 interface PiContent {
@@ -156,6 +156,9 @@ const textOf = (content: PiContent[]): string =>
     )
     .join('');
 
+const tokenCount = (count: unknown): number =>
+  Number.isSafeInteger(count) && (count as number) >= 0 ? (count as number) : 0;
+
 const scoped = (subagent: string | undefined): { subagent?: string } =>
   subagent === undefined ? {} : { subagent };
 
@@ -167,10 +170,10 @@ const assistantMessage = (
   role: 'assistant',
   text: textOf(message.content),
   usage: {
-    inputTokens: message.usage.input,
-    outputTokens: message.usage.output,
-    cacheReadTokens: message.usage.cacheRead,
-    cacheWriteTokens: message.usage.cacheWrite,
+    inputTokens: tokenCount(message.usage.input),
+    outputTokens: tokenCount(message.usage.output),
+    cacheReadTokens: tokenCount(message.usage.cacheRead),
+    cacheWriteTokens: tokenCount(message.usage.cacheWrite),
   },
   generationId:
     typeof message.responseId === 'string' && message.responseId.length > 0
