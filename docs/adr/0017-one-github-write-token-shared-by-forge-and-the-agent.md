@@ -14,7 +14,7 @@ Dispatch writes to GitHub. Forge swaps a ticket's `forge:*` labels (ADR-0016), a
 
 ## Decision
 
-We will go with Option 1. The token is separate from the frontier's read-only token and is placed by hand as an EnvironmentFile, like the OpenRouter key. Managed repositories protect their default branch, so a run can open pull requests but never merge them.
+We will go with Option 1. The token is separate from the frontier's read-only token and is placed by hand in a file in EnvironmentFile format, `github-write.env`. That file sits in the run-writable state directory, so systemd never loads it: forge reads only `GITHUB_TOKEN` from it as data and puts that alone in the agent's environment, which keeps ADR-0015's guarantee that nothing a run writes changes what a later run loads. Managed repositories protect their default branch, so a run can open pull requests but never merge them.
 
 ## Consequences
 

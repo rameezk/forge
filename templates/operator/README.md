@@ -182,8 +182,11 @@ this repository on every standup and deploy.
    dispatched agent gets it as `GITHUB_TOKEN`, so the repository's skills can
    push branches and open pull requests. A run can use it for anything it
    allows in every managed repository, so protect each default branch and give
-   the token a short expiry. Place it after **every** standup, into
-   `/var/lib/forge/github-write.env`:
+   the token a short expiry. Scheduled workers, billing and the dashboard
+   cannot read it. Place it after **every** standup, into
+   `/var/lib/forge/github-write.env`. Until it is there, `forge-dispatch`
+   fails with "GitHub write token missing", and each frontier sync still
+   refreshes the Work page but reports the same error and exits non-zero:
 
    ```bash
    printf 'GitHub write token: ' && read -rs token && echo && [ -n "$token" ] &&
@@ -294,14 +297,16 @@ checkout's skill of that name, and the run fails before the harness starts if
 there is none. The Runs page shows the repository and ticket of each
 dispatched run.
 
-When the run ends, forge asks GitHub whether an open pull request closes the
-ticket. If one does, the ticket becomes `forge:done`, however the run ended.
+When the run ends, forge asks GitHub whether an open pull request from a
+branch of the repository itself closes the ticket. Pull requests from forks or
+other repositories do not count. If one does, the ticket becomes `forge:done`, however the run ended.
 Otherwise it becomes `forge:failed`. The Work page shows each ticket's
 dispatch state, and for a failed ticket its reason, linked to its run: the run
 errored, it ended without a pull request (with the agent's final message), the
 skill was not found, or the run was interrupted. Each dispatch moves a ticket
 labelled `forge:running` that no live dispatch is working on to `forge:failed`
-as interrupted. To retry a ticket, label it `forge:ready` again. The labels are
+as interrupted, and moves one whose dispatch already ended to the label of its
+recorded outcome. To retry a ticket, label it `forge:ready` again. The labels are
 the only thing forge writes to a ticket. On a host that dispatches, each
 frontier sync also makes sure every declared repository has the four `forge:*`
 labels, with their fixed descriptions and colours.
