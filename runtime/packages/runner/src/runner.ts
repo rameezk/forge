@@ -81,6 +81,20 @@ export const runWorkload = async (
   let thrown: unknown = null;
 
   try {
+    await transcript.append(
+      policy.record({
+        type: 'message',
+        role: 'user',
+        text: worker.prompt,
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        generationId: null,
+      }),
+    );
     const invocation = invocationFor(worker, await openWorkspace(id));
     for await (const harnessEvent of harness.run(invocation)) {
       const event = policy.record(harnessEvent);

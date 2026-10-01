@@ -228,6 +228,7 @@ const PATH = 'm-0 whitespace-pre-wrap break-words font-mono text-[0.85rem]';
 const CODE = 'm-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-raised px-3 py-2.5 font-mono text-[0.8rem] leading-relaxed text-fg';
 
 const MESSAGE_TONE = new Map([
+  ['prompt', { border: 'border-accent/50', label: 'text-accent-text' }],
   ['report', { border: 'border-fg/35', label: 'text-muted' }],
   ['error', { border: 'border-error', label: 'text-error' }],
 ]);
@@ -265,7 +266,7 @@ const renderProse = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const tone = MESSAGE_TONE.get(kind) ?? DEFAULT_TONE;
   return html`<article class="${BLOCK} ${tone.border} px-4 py-3" data-message="${kind}">
-    <header class="${LABEL} mb-1.5 ${tone.label}">${kind}</header>
+    <header class="${LABEL} mb-1.5 ${tone.label}">${kind === 'prompt' ? 'Prompt' : kind}</header>
     <div class="${MARKDOWN}" data-markdown>${raw(renderMarkdown(text))}</div>
   </article>`;
 };
@@ -583,10 +584,14 @@ const renderTranscript = (
 ): Rendered[] => {
   const results = toolResults(events);
   const context: SubagentContext = { results, generations, runStatus };
+  const first = events[0];
+  const prompt = first?.type === 'message' && first.role === 'user' ? first : undefined;
   return withoutToolOnlyPreambles(nestSubagents(events)).map((entry) =>
     entry.type === 'subagent'
       ? renderSubagent(entry, context)
-      : renderEvent(entry, results),
+      : entry === prompt
+        ? renderProse('prompt', entry.text)
+        : renderEvent(entry, results),
   );
 };
 

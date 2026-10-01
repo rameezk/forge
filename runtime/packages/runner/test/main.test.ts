@@ -528,7 +528,7 @@ test('given a recorded run with two parallel subagent calls, when the transcript
     output: fixture('subagents.jsonl'),
   });
 
-  const messages = parseTranscript(transcript).filter(
+  const messages = parseTranscript(transcript).slice(1).filter(
     (event): event is MessageEvent => event.type === 'message',
   );
   const textsIn = (scope: string | undefined) =>
