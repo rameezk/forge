@@ -258,6 +258,25 @@
               )
               "the runner's EnvironmentFile must be a sops template under /run/secrets, readable only by forge-runtime";
           workerHostInstantiates = builtins.seq workerHost.config.system.build.toplevel.drvPath true;
+          relativeHarnessCommandFails =
+            lib.asserts.assertMsg
+              (
+                !(evaluates (mkHost {
+                  configFile = exampleConfigFile;
+                  secretsFile = exampleSecretsFile;
+                  modules = [
+                    {
+                      forge.runtime.harnesses.pi.command = "pi";
+                      forge.runtime.workers.builder = {
+                        harness = "pi";
+                        model = "anthropic/claude-sonnet-4";
+                        prompt = "build the thing";
+                      };
+                    }
+                  ];
+                }))
+              )
+              "a harness command that is not an absolute path must fail evaluation: the workload sandbox can only run a command resolved to its real path";
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content
             == "OPENROUTER_API_KEY=${workerHost.config.sops.placeholder.openrouter_api_key}\n"
@@ -695,6 +714,7 @@
             assert runnerKeyOnly;
             assert noOpenRouterKeyFileOption;
             assert workerHostInstantiates;
+            assert relativeHarnessCommandFails;
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
