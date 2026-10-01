@@ -2,7 +2,7 @@
   lib,
   stdenv,
   testers,
-  writeShellScript,
+  writeShellScriptBin,
   bash,
   nix,
   util-linux,
@@ -25,7 +25,7 @@ let
     }
   '';
 
-  stubHarness = writeShellScript "stub-harness" ''
+  stubHarness = writeShellScriptBin "stub-harness" ''
     set -u
     attempt() {
       if bash -c "$2" > /dev/null 2>&1; then echo "$1 allowed"; else echo "$1 denied"; fi
@@ -90,7 +90,7 @@ let
     sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
     forge.runtime.secretsFile = secretsFile;
     forge.runtime.package = forge-runner;
-    forge.runtime.harnesses.pi.command = "${stubHarness}";
+    forge.runtime.harnesses.pi.command = lib.getExe stubHarness;
     forge.runtime.workers =
       lib.genAttrs [ "plant" "linger" ] (name: {
         harness = "pi";
