@@ -21,7 +21,7 @@ A named, reusable configuration that binds a harness to a model, a prompt, and a
 The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract - though the runner currently implements only the `pi` harness. Each harness's own CLI and event format belongs to its adapter in the runner, not to operator config (ADR-0008).
 
 **Workload toolset**:
-The command-line tools on a workload's `PATH`. Forge ships a base set, and operators may extend or replace it. It is a convenience, not a limit: the workload sandbox exposes the Nix store and the nix daemon, so a workload can run anything in the store (ADR-0024, ADR-0027).
+The generic command-line tools forge puts on every workload's `PATH`, after its repository's devShell. Forge ships a base set, and operators may extend or replace it. A repository's own stack, a browser included, belongs in its devShell, not here. It is a convenience, not a limit: the workload sandbox exposes the Nix store and the nix daemon, so a workload can run anything in the store (ADR-0024, ADR-0027).
 _Avoid_: base image, tool path
 
 **Run directory**:
