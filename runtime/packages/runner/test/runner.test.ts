@@ -97,6 +97,19 @@ test('given a multi-message run, when it completes, then each assistant generati
   );
 });
 
+test('given an assistant response with no generation id whose whole prompt was read from or written to the cache, when the run ends, then its tokens are recorded and counted in the run totals', async () => {
+  const { store, run } = await runWith([
+    message({ usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 900, cacheWriteTokens: 0 }, generationId: null }),
+    message({ usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 300 }, generationId: null }),
+    result({ status: 'success' }),
+  ]);
+
+  assert.equal(store.listGenerations('run-1').length, 2);
+  assert.equal(run?.cacheReadTokens, 900);
+  assert.equal(run?.cacheWriteTokens, 300);
+  assert.equal(run?.costStatus, 'unconfirmed');
+});
+
 test('given a harness stream that ends in an error result, when it finishes, then the run is error with the error captured and an end time set', async () => {
   const { run } = await runWith([
     message(),

@@ -28,7 +28,7 @@ export interface WorkloadResult {
 const isBillable = (event: MessageEvent): boolean =>
   event.role === 'assistant' &&
   (event.generationId !== null ||
-    event.usage.inputTokens + event.usage.outputTokens > 0);
+    Object.values(event.usage).some((count) => count > 0));
 
 export const runWorkload = async (
   options: RunWorkloadOptions,
