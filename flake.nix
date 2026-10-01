@@ -499,6 +499,20 @@
                 && !(lib.any (lib.hasInfix "FORGE_GITHUB_WRITE_TOKEN_FILE") frontierService.serviceConfig.Environment)
               )
               "on a host that dispatches, the sync service must read the GitHub write-token file as data to ensure the forge labels, while polling with the frontier's read-only token; a host that does not dispatch must not give it the write token";
+          writeTokenHidden =
+            let
+              services = dispatchHost.config.systemd.services;
+              hides =
+                unit: lib.elem "-/var/lib/forge/github-write.env" (unit.serviceConfig.InaccessiblePaths or [ ]);
+            in
+            lib.asserts.assertMsg
+              (
+                hides services."forge-runner@"
+                && hides services.forge-billing
+                && hides services.forge-frontend
+                && lib.elem "-/run/secrets" services.forge-frontend.serviceConfig.InaccessiblePaths
+              )
+              "on a host that dispatches, the GitHub write-token file must be inaccessible to the scheduled runner, billing and the dashboard, which never need it";
           writeTokenSeparate =
             lib.asserts.assertMsg
               (
@@ -638,6 +652,7 @@
             assert dispatchUnitEnvironmentFiles;
             assert frontierSyncEnsuresLabels;
             assert writeTokenSeparate;
+            assert writeTokenHidden;
             assert dispatchCommandInstalled;
             pkgs.runCommand "runtime-dispatch" { } ''
               echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command and the GitHub write token, and a worker without a ticket placeholder fails evaluation" > $out

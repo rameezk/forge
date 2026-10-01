@@ -119,6 +119,8 @@ let
     InaccessiblePaths = map (name: "-${envFile name}") openRouterEnvFiles;
   };
 
+  hideGithubWriteToken = [ "-${cfg.githubWriteTokenFile}" ];
+
   hardening = {
     NoNewPrivileges = true;
     ProtectSystem = "strict";
@@ -289,6 +291,7 @@ in
             "FORGE_STATE_DIR=${cfg.stateDir}"
           ];
           ExecStart = "${cfg.package}/bin/forge-run %i";
+          InaccessiblePaths = hideGithubWriteToken;
         }
         // hardening;
       };
@@ -305,6 +308,7 @@ in
           EnvironmentFile = envFile "forge-billing.env";
           Environment = [ "FORGE_STATE_DIR=${cfg.stateDir}" ];
           ExecStart = "${cfg.package}/bin/forge-billing";
+          InaccessiblePaths = hideGithubWriteToken;
         }
         // hardening;
       };
@@ -419,7 +423,8 @@ in
           InaccessiblePaths = [
             "-/run/secrets"
             "-/run/secrets.d"
-          ];
+          ]
+          ++ hideGithubWriteToken;
         }
         // hardening;
       };
