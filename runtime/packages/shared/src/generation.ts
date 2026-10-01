@@ -11,6 +11,8 @@ export interface NewGeneration {
 export interface GenerationRecord extends Omit<NewGeneration, 'usage'> {
   usage: TokenUsage | null;
   billedCostUsd: number | null;
+  reasoningTokens: number | null;
+  provider: string | null;
   attempts: number;
   lastAttemptAt: string | null;
   lastError: string | null;
@@ -24,6 +26,19 @@ export interface UnsettledGeneration {
   since: string;
 }
 
+export interface NativeUsage {
+  promptTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+}
+
+export interface Billing {
+  costUsd: number;
+  usage: NativeUsage | null;
+  reasoningTokens: number | null;
+  provider: string | null;
+}
+
 export type LookupResult =
-  | { id: number; billedCostUsd: number }
+  | { id: number; billing: Billing }
   | { id: number; error: string; givenUp: boolean };

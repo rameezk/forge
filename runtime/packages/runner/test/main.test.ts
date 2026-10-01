@@ -1118,6 +1118,146 @@ test('given a finished run whose generations OpenRouter answers with not found f
   }
 });
 
+test('given a finished run whose generations carry pi\'s token counts, and OpenRouter returns native counts, a reasoning token count, a provider and a billed cost for the first while the second is not yet available, when the billing service fires and then fires again once both are, then each billed generation takes OpenRouter\'s figures, the unbilled one keeps pi\'s with no provider, and the run totals follow', async () => {
+  const native = {
+    'gen-success-1': {
+      native_tokens_prompt: 1250,
+      native_tokens_cached: 0,
+      native_tokens_completion: 45,
+      native_tokens_reasoning: 12,
+      provider_name: 'Z.AI',
+      total_cost: 0.0125,
+    },
+    'gen-success-2': {
+      native_tokens_prompt: 1400,
+      native_tokens_cached: 1100,
+      native_tokens_completion: 30,
+      native_tokens_reasoning: 0,
+      provider_name: 'Novita',
+      total_cost: 0.0375,
+    },
+  };
+  let available = ['gen-success-1'];
+  const openRouter = await fakeOpenRouter((id) =>
+    available.includes(id)
+      ? { status: 200, body: { data: { id, ...native[id as keyof typeof native] } } }
+      : { status: 404, body: { error: { code: 404 } } },
+  );
+  const figures = (stateDir: string, runId: string) => {
+    const run = storedRun(stateDir, runId);
+    return {
+      generations: storedGenerations(stateDir, runId).map(
+        ({ generationId, usage, reasoningTokens, provider, billedCostUsd }) => ({
+          generationId,
+          usage,
+          reasoningTokens,
+          provider,
+          billedCostUsd,
+        }),
+      ),
+      totals: {
+        inputTokens: run.inputTokens,
+        outputTokens: run.outputTokens,
+        cacheReadTokens: run.cacheReadTokens,
+        cacheWriteTokens: run.cacheWriteTokens,
+      },
+    };
+  };
+  const billedFirst = {
+    generationId: 'gen-success-1',
+    usage: { inputTokens: 250, outputTokens: 45, cacheReadTokens: 0, cacheWriteTokens: 1000 },
+    reasoningTokens: 12,
+    provider: 'Z.AI',
+    billedCostUsd: 0.0125,
+  };
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('success.jsonl') });
+
+    await fire(stateDir, openRouter);
+
+    assert.deepEqual(figures(stateDir, run.id), {
+      generations: [
+        billedFirst,
+        {
+          generationId: 'gen-success-2',
+          usage: { inputTokens: 100, outputTokens: 25, cacheReadTokens: 1000, cacheWriteTokens: 200 },
+          reasoningTokens: null,
+          provider: null,
+          billedCostUsd: null,
+        },
+      ],
+      totals: { inputTokens: 350, outputTokens: 70, cacheReadTokens: 1000, cacheWriteTokens: 1200 },
+    });
+
+    available = ['gen-success-1', 'gen-success-2'];
+    await fire(stateDir, openRouter);
+
+    assert.deepEqual(figures(stateDir, run.id), {
+      generations: [
+        billedFirst,
+        {
+          generationId: 'gen-success-2',
+          usage: { inputTokens: 100, outputTokens: 30, cacheReadTokens: 1100, cacheWriteTokens: 200 },
+          reasoningTokens: 0,
+          provider: 'Novita',
+          billedCostUsd: 0.0375,
+        },
+      ],
+      totals: { inputTokens: 350, outputTokens: 75, cacheReadTokens: 1100, cacheWriteTokens: 1200 },
+    });
+    assert.equal(storedRun(stateDir, run.id).costStatus, 'billed');
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a finished run whose generation OpenRouter bills with native counts that are missing, null, negative, fractional or not numbers, and a provider that is empty or not a string, when the billing service fires, then the generation is billed at its cost and keeps pi\'s counts with no reasoning tokens or provider', async () => {
+  const valid = {
+    native_tokens_prompt: 1400,
+    native_tokens_cached: 1100,
+    native_tokens_completion: 30,
+  };
+  const malformed = [
+    {},
+    { ...valid, native_tokens_cached: null, native_tokens_reasoning: null, provider_name: null },
+    { ...valid, native_tokens_prompt: -1, native_tokens_reasoning: -1, provider_name: '' },
+    { ...valid, native_tokens_completion: 1.5, native_tokens_reasoning: 2.5, provider_name: 7 },
+    { ...valid, native_tokens_prompt: '1400', native_tokens_reasoning: '3', provider_name: ['Novita'] },
+  ];
+  for (const fields of malformed) {
+    const openRouter = await fakeOpenRouter((id) => ({
+      status: 200,
+      body: { data: { id, total_cost: 0.0375, ...(id === 'gen-success-2' ? fields : {}) } },
+    }));
+    try {
+      const { stateDir, run } = await runWorker({ output: fixture('success.jsonl') });
+
+      await fire(stateDir, openRouter);
+
+      const generation = storedGenerations(stateDir, run.id).find(
+        ({ generationId }) => generationId === 'gen-success-2',
+      );
+      assert.deepEqual(
+        {
+          usage: generation?.usage,
+          reasoningTokens: generation?.reasoningTokens,
+          provider: generation?.provider,
+          billedCostUsd: generation?.billedCostUsd,
+        },
+        {
+          usage: { inputTokens: 100, outputTokens: 25, cacheReadTokens: 1000, cacheWriteTokens: 200 },
+          reasoningTokens: null,
+          provider: null,
+          billedCostUsd: 0.0375,
+        },
+        JSON.stringify(fields),
+      );
+    } finally {
+      openRouter.close();
+    }
+  }
+});
+
 test('given recorded pi output of three generations followed by pi dying without a result, when the worker runs and the billing service then fires, then the run is error, its token totals are the sum of those three generations, and each is billed and counted in its cost', async () => {
   const openRouter = await fakeOpenRouter(billed);
   try {

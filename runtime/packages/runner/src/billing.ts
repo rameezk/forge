@@ -39,7 +39,7 @@ const resultOf = (
   attemptedAt: string,
 ): LookupResult => {
   if (lookup.outcome === 'billed') {
-    return { id: generation.id, billedCostUsd: lookup.costUsd };
+    return { id: generation.id, billing: lookup.billing };
   }
   if (lookup.outcome === 'permanent') {
     return { id: generation.id, error: lookup.reason, givenUp: true };

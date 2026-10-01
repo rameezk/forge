@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '@forge/shared';
-import { settleGenerations } from '../src/index.ts';
+import { settleGenerations, type LookupOutcome } from '../src/index.ts';
 
 const NOW = '2026-09-29T12:00:00.000Z';
 
@@ -13,6 +13,11 @@ const NO_USAGE = {
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
 };
+
+const billed = async (costUsd: number): Promise<LookupOutcome> => ({
+  outcome: 'billed',
+  billing: { costUsd, usage: null, reasoningTokens: null, provider: null },
+});
 
 const endedAgo = (ms: number): string =>
   new Date(Date.parse(NOW) - ms).toISOString();
@@ -101,7 +106,7 @@ test('given a run still running whose generations so far are all billed, when th
 
   await settleGenerations({
     store,
-    lookUp: async () => ({ outcome: 'billed', costUsd: 0.25 }),
+    lookUp: async () => billed(0.25),
     now: () => NOW,
     log: () => {},
   });
@@ -128,7 +133,7 @@ test('given a run whose runner was killed so it never ended, when the settle ste
 
   await settleGenerations({
     store,
-    lookUp: async () => ({ outcome: 'billed', costUsd: 0.25 }),
+    lookUp: async () => billed(0.25),
     now: () => NOW,
     log: (line) => log.push(line),
   });
@@ -163,7 +168,7 @@ test('given a run whose runner was killed before any generation, when the settle
 
   await settleGenerations({
     store,
-    lookUp: async () => ({ outcome: 'billed', costUsd: 0.25 }),
+    lookUp: async () => billed(0.25),
     now: () => NOW,
     log: (line) => log.push(line),
   });
@@ -180,7 +185,7 @@ test('given a run given up because it never ended, when its runner later finaliz
   startedRun(store, 'late');
   await settleGenerations({
     store,
-    lookUp: async () => ({ outcome: 'billed', costUsd: 0.25 }),
+    lookUp: async () => billed(0.25),
     now: () => NOW,
     log: () => {},
   });

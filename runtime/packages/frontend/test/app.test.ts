@@ -783,7 +783,7 @@ test('given tool arguments, results and error text with markdown syntax, when th
 const viewWithGenerations = async (
   run: Partial<RunRecord>,
   events: HarnessEvent[],
-  generations: { generationId: string; subagent: string | null; outcome: 'billed' | 'unbilled' | 'given-up'; cost?: number }[],
+  generations: { generationId: string; subagent: string | null; outcome: 'billed' | 'unbilled' | 'given-up'; cost?: number; provider?: string }[],
 ): Promise<string> => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
@@ -796,13 +796,28 @@ const viewWithGenerations = async (
   const lookups: LookupResult[] = [];
   for (const generation of generations) {
     const id = ids.get(generation.generationId)!;
-    if (generation.outcome === 'billed') lookups.push({ id, billedCostUsd: generation.cost ?? 0 });
+    if (generation.outcome === 'billed') lookups.push({ id, billing: { costUsd: generation.cost ?? 0, usage: null, reasoningTokens: null, provider: generation.provider ?? null } });
     if (generation.outcome === 'given-up') lookups.push({ id, error: 'not found', givenUp: true });
   }
   store.recordLookups(lookups, '2026-09-21T10:02:00.000Z');
   const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '' });
   return (await app.request('/runs/run-01')).text();
 };
+
+test('given a workload whose generations were served by two providers, one of them twice, with another generation not yet billed, and a workload with no generation billed yet, when their detail pages are requested, then the first summary lists both providers once each in the order they first served and the second shows them as unknown', async () => {
+  const served = await viewWithGenerations({}, [], [
+    { generationId: 'g1', subagent: null, outcome: 'billed', provider: 'Z.AI' },
+    { generationId: 'g2', subagent: 'call_a', outcome: 'billed', provider: 'Novita' },
+    { generationId: 'g3', subagent: null, outcome: 'billed', provider: 'Z.AI' },
+    { generationId: 'g4', subagent: null, outcome: 'unbilled' },
+  ]);
+  const unbilled = await viewWithGenerations({ status: 'running', endTime: null }, [], [
+    { generationId: 'g1', subagent: null, outcome: 'unbilled' },
+  ]);
+
+  assert.equal(summaryValue(served, 'Providers'), 'Z.AI, Novita');
+  assert.equal(summaryValue(unbilled, 'Providers'), 'unknown');
+});
 
 const child = (subagent: string, inputTokens: number, outputTokens: number): HarnessEvent => ({
   type: 'message', role: 'assistant', text: `${subagent} working`, usage: { inputTokens, outputTokens, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null, subagent,

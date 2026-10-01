@@ -244,7 +244,7 @@ test('given generations whose token counts are each the largest safe integer, wh
   );
 });
 
-test('given a store whose generations predate token columns, holding finished workloads with token totals, when it is opened and billing later settles a legacy generation, then it migrates in place and those workloads keep their recorded totals with their cache split unknown', () => {
+test('given a store whose generations predate token columns, holding finished workloads with token totals, when it is opened and billing later settles a legacy generation with OpenRouter\'s native counts, then it migrates in place, the generation takes its provider, and those workloads keep their recorded totals with their cache split unknown', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const old = new DatabaseSync(path);
   old.exec(`
@@ -292,7 +292,18 @@ test('given a store whose generations predate token columns, holding finished wo
   const store = Store.open(path);
   const [unsettled] = store.unsettledGenerations();
   assert.ok(unsettled);
-  store.recordLookups([{ id: unsettled.id, billedCostUsd: 0.25 }], '2026-09-21T11:02:00.000Z');
+  store.recordLookups(
+    [{
+      id: unsettled.id,
+      billing: {
+        costUsd: 0.25,
+        usage: { promptTokens: 3000, cacheReadTokens: 400, outputTokens: 70 },
+        reasoningTokens: 5,
+        provider: 'Z.AI',
+      },
+    }],
+    '2026-09-21T11:02:00.000Z',
+  );
 
   assert.deepEqual(
     store.listRuns().map(({ id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd }) => ({
@@ -304,6 +315,10 @@ test('given a store whose generations predate token columns, holding finished wo
     ],
   );
   assert.deepEqual(store.listGenerations('billed').map((generation) => generation.usage), [null]);
+  assert.deepEqual(
+    store.listGenerations('settling').map(({ usage, reasoningTokens, provider }) => ({ usage, reasoningTokens, provider })),
+    [{ usage: null, reasoningTokens: 5, provider: 'Z.AI' }],
+  );
   store.close();
   Store.open(path).close();
 });

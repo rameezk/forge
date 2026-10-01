@@ -6,8 +6,10 @@ export type {
   RunTicket,
 } from './run.ts';
 export type {
+  Billing,
   GenerationRecord,
   LookupResult,
+  NativeUsage,
   NewGeneration,
   UnsettledGeneration,
 } from './generation.ts';
