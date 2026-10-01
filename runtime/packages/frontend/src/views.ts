@@ -152,13 +152,14 @@ const renderCacheHitRate = (run: RunRecord): Rendered => {
   return rate === null ? NOT_RECORDED : html`${rate}`;
 };
 
-const renderProviders = (generations: GenerationRecord[]): Rendered => {
+const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rendered => {
   const providers = [
     ...new Set(generations.flatMap(({ provider }) => (provider === null ? [] : [provider]))),
   ];
-  return providers.length === 0
-    ? html`<span class="${PENDING}">unknown</span>`
-    : html`${providers.join(', ')}`;
+  if (providers.length > 0) {
+    return html`${providers.join(', ')}`;
+  }
+  return run.costStatus === 'pending' ? html`<span class="${PENDING}">pending</span>` : NOT_RECORDED;
 };
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
@@ -615,7 +616,7 @@ export const renderDetail = (
       <dt class="${META_TERM}">Cache hit rate</dt>
       <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
       <dt class="${META_TERM}">Providers</dt>
-      <dd class="${META_VALUE}">${renderProviders(generations)}</dd>
+      <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
     </dl>
     ${run.error === null ? '' : html`<p class="${ERROR_CALLOUT} mb-4">${run.error}</p>`}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
