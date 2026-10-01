@@ -141,7 +141,9 @@ let
   ++ map (group: "@${group}") runtimeGroups;
 
   trustedUsers =
-    config.nix.settings.trusted-users ++ lib.toList (config.nix.settings.extra-trusted-users or [ ]);
+    lib.concatMap
+      (entry: lib.filter (name: lib.isString name && name != "") (builtins.split "[[:space:]]+" entry))
+      (config.nix.settings.trusted-users ++ lib.toList (config.nix.settings.extra-trusted-users or [ ]));
   extraOptionsSetTrust = lib.any (
     line: builtins.match "[[:space:]]*(extra-)?trusted-users[[:space:]]*=.*" line != null
   ) (lib.splitString "\n" config.nix.extraOptions);

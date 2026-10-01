@@ -235,6 +235,8 @@
                   (trusting [ "*" ])
                   (trusting [ "@wheel" ] // { users.users.forge-runtime.extraGroups = [ "wheel" ]; })
                   { nix.settings.extra-trusted-users = [ "forge-runtime" ]; }
+                  (trusting [ "root  forge-runtime" ])
+                  { nix.settings.extra-trusted-users = "root @forge-runtime"; }
                   { nix.extraOptions = "trusted-users = root forge-runtime"; }
                   { nix.extraOptions = "extra-trusted-users = @forge-runtime"; }
                 ]
