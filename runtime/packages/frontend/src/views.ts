@@ -214,8 +214,6 @@ const renderText = (
   </article>`;
 };
 
-// Typography's colours mapped to the palette tokens; code blocks and tables scroll in place.
-// Written out in full: Tailwind only generates class names it can read literally.
 const MARKDOWN = [
   'prose prose-sm max-w-none break-words',
   '[--tw-prose-body:var(--color-fg)] [--tw-prose-headings:var(--color-fg)] [--tw-prose-bold:var(--color-fg)]',
@@ -226,7 +224,6 @@ const MARKDOWN = [
   'prose-pre:overflow-x-auto',
 ].join(' ');
 
-// Only agent prose is markdown (ADR-0019); data stays in renderText.
 const renderProse = (
   kind: string,
   text: string,
