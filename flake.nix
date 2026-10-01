@@ -224,8 +224,13 @@
             && unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
             && unit.serviceConfig.RestrictSUIDSGID == true
             && unit.serviceConfig.ProtectKernelTunables == true
-            && unit.serviceConfig.ProtectControlGroups == true;
-          runnerSandboxed = lib.asserts.assertMsg (isHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, and writable only under the state directory";
+            && unit.serviceConfig.ProtectControlGroups == true
+            &&
+              (unit.serviceConfig.InaccessiblePaths or [ ]) == [
+                "/run/secrets"
+                "/run/secrets.d"
+              ];
+          runnerSandboxed = lib.asserts.assertMsg (isHardened runnerUnit) "the runner unit must be sandboxed: no new privileges, protected system and home, private tmp, writable only under the state directory, and blind to every secrets generation, which reaches it only through what systemd reads outside its namespace";
           runnerEnvTemplate = workerHost.config.sops.templates."forge-runner.env";
           runnerKeyFromSops =
             lib.asserts.assertMsg
@@ -236,25 +241,6 @@
                 && runnerEnvTemplate.mode == "0400"
               )
               "the runner's EnvironmentFile must be a sops template under /run/secrets, readable only by forge-runtime";
-          hides = path: unit: lib.elem "-${path}" (unit.serviceConfig.InaccessiblePaths or [ ]);
-          runnerKeyHiddenFromOtherUnits =
-            lib.asserts.assertMsg
-              (
-                hides "/run/secrets" frontendUnit
-                && hides "/run/secrets.d" frontendUnit
-                &&
-                  lib.all
-                    (
-                      template:
-                      hides workerAndRepositoryHost.config.sops.templates.${template}.path
-                        workerAndRepositoryHost.config.systemd.services.forge-frontier-sync
-                    )
-                    [
-                      "forge-runner.env"
-                      "forge-billing.env"
-                    ]
-              )
-              "every secrets generation must be inaccessible to the long-running dashboard, and every OpenRouter key file to the frontier poller";
           workerHostInstantiates = builtins.seq workerHost.config.system.build.toplevel.drvPath true;
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content
@@ -514,7 +500,10 @@
               "the dispatch unit must be a oneshot running forge-dispatch for its instance as the forge-runtime user on the workload toolset";
           dispatchUnitSandboxed = lib.asserts.assertMsg (isHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
           writeTokenTemplate = dispatchHost.config.sops.templates."forge-github-write.env";
-          writeTokenFileVariable = "FORGE_GITHUB_WRITE_TOKEN_FILE=${writeTokenTemplate.path}";
+          readsWriteTokenAsCredential =
+            unit:
+            unit.serviceConfig.LoadCredential == [ "github-write-token:${writeTokenTemplate.path}" ]
+            && lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=%d/github-write-token" unit.serviceConfig.Environment;
           dispatchFrontierToken = dispatchHost.config.sops.templates."forge-github.env".path;
           writeTokenFromSops =
             lib.asserts.assertMsg
@@ -535,19 +524,19 @@
               (
                 dispatchUnit.serviceConfig.EnvironmentFile
                 == dispatchHost.config.sops.templates."forge-runner.env".path
-                && lib.elem writeTokenFileVariable dispatchUnit.serviceConfig.Environment
-                && hides dispatchFrontierToken dispatchUnit
+                && readsWriteTokenAsCredential dispatchUnit
               )
-              "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, read the GitHub write token's sops template as data, and never see the frontier's read-only token";
+              "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, and read the GitHub write token's sops template as data, through its own credential";
           dispatchHostSync = dispatchHost.config.systemd.services.forge-frontier-sync;
           frontierSyncEnsuresLabels =
             lib.asserts.assertMsg
               (
-                lib.elem writeTokenFileVariable dispatchHostSync.serviceConfig.Environment
+                readsWriteTokenAsCredential dispatchHostSync
                 && dispatchHostSync.serviceConfig.EnvironmentFile == dispatchFrontierToken
                 && !(lib.any (lib.hasInfix "FORGE_GITHUB_WRITE_TOKEN_FILE") frontierService.serviceConfig.Environment)
+                && !(frontierService.serviceConfig ? LoadCredential)
               )
-              "on a host that dispatches, the sync service must read the GitHub write token's sops template as data to ensure the forge labels, while polling with the frontier's read-only token; a host that does not dispatch must not give it the write token";
+              "on a host that dispatches, the sync service must read the GitHub write token's sops template as data, through its own credential, to ensure the forge labels, while polling with the frontier's read-only token; a host that does not dispatch must not give it the write token";
           forgeServices =
             host: lib.filterAttrs (name: _: lib.hasPrefix "forge" name) host.config.systemd.services;
           environmentFiles = unit: lib.toList (unit.serviceConfig.EnvironmentFile or [ ]);
@@ -555,19 +544,6 @@
             (unit: !(lib.elem writeTokenTemplate.path (environmentFiles unit)))
             (lib.attrValues (forgeServices dispatchHost))
           ) "no unit may load the GitHub write token as an EnvironmentFile: it is read only as data";
-          tokensHidden =
-            let
-              services = dispatchHost.config.systemd.services;
-            in
-            lib.asserts.assertMsg
-              (
-                lib.all (unit: hides dispatchFrontierToken unit && hides writeTokenTemplate.path unit) [
-                  services."forge-runner@"
-                  services.forge-billing
-                ]
-                && hides "/run/secrets" services.forge-frontend
-              )
-              "the frontier token and the GitHub write token must be inaccessible to the scheduled runner and billing, and every secret to the dashboard";
           noHandPlacedTokens =
             let
               mentionsHandPlacedPath =
@@ -671,7 +647,6 @@
             assert runnerKeyOnly;
             assert noOpenRouterKeyFileOption;
             assert workerHostInstantiates;
-            assert runnerKeyHiddenFromOtherUnits;
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
@@ -719,7 +694,6 @@
             assert frontierSyncEnsuresLabels;
             assert writeTokenFromSops;
             assert writeTokenNeverLoaded;
-            assert tokensHidden;
             assert noHandPlacedTokens;
             assert dispatchCommandInstalled;
             pkgs.runCommand "runtime-dispatch" { } ''

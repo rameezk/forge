@@ -14,7 +14,7 @@ let
   probe =
     name:
     writeShellScriptBin name ''
-      {
+      probe() {
         echo "env=''${GITHUB_TOKEN-unset}"
         for file in ${frontierToken} ${writeToken}; do
           if contents="$(cat "$file" 2>/dev/null)"; then
@@ -23,7 +23,16 @@ let
             echo "denied $(basename "$file")"
           fi
         done
-      } > "/var/lib/forge/${name}''${1:+-$1}.out"
+        if [ -n "''${FORGE_GITHUB_WRITE_TOKEN_FILE-}" ]; then
+          echo "credential $(cat "$FORGE_GITHUB_WRITE_TOKEN_FILE")"
+        fi
+      }
+      out="/var/lib/forge/${name}''${1:+-$1}"
+      probe > "$out.out"
+      if [ "''${1-}" = lingering ]; then
+        until [ -e /var/lib/forge/redeployed ]; do sleep 1; done
+        probe > "$out-after.out"
+      fi
       ${lib.optionalString (name == "forge-frontend") "exec sleep infinity"}
     '';
 
@@ -50,6 +59,7 @@ testers.runNixOSTest {
       install -D -m 0600 ${secretsHostKey} /etc/ssh/ssh_host_ed25519_key
     '';
     system.activationScripts.setupSecrets.deps = [ "hostKey" ];
+    system.switch.enable = true;
     sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
     forge.runtime.secretsFile = secretsFile;
     forge.runtime.package = probeRuntime;
@@ -67,8 +77,8 @@ testers.runNixOSTest {
 
   testScript = ''
     frontier = "env=github_pat_fixture_frontier_not_a_real_token"
-    read_frontier = "read forge-github.env GITHUB_TOKEN=github_pat_fixture_frontier_not_a_real_token"
-    read_write = "read forge-github-write.env GITHUB_TOKEN=github_pat_fixture_write_not_a_real_token"
+    write_credential = "credential GITHUB_TOKEN=github_pat_fixture_write_not_a_real_token"
+    denied = ["env=unset", "denied forge-github.env", "denied forge-github-write.env"]
 
     def probe(name):
         return box.succeed(f"cat /var/lib/forge/{name}.out").splitlines()
@@ -79,23 +89,32 @@ testers.runNixOSTest {
         for path in ["${frontierToken}", "${writeToken}"]:
             assert box.succeed(f"stat -L -c '%U %a' {path}").strip() == "forge-runtime 400", path
 
-    with subtest("frontier sync loads the frontier token and reads the write token as data"):
+    with subtest("frontier sync loads the frontier token and reads the write token as data from its credential"):
         box.succeed("systemctl start forge-frontier-sync.service")
-        assert probe("forge-frontier-sync") == [frontier, read_frontier, read_write], probe("forge-frontier-sync")
+        assert probe("forge-frontier-sync") == [frontier, "denied forge-github.env", "denied forge-github-write.env", write_credential], probe("forge-frontier-sync")
 
     with subtest("forge-frontier list reads the frontier token from its rendered file"):
         box.succeed("sudo -u forge-runtime forge-frontier list")
         assert probe("forge-frontier-list")[0] == frontier, probe("forge-frontier-list")
 
-    with subtest("dispatch reads the write token only as data and never sees the frontier token"):
+    with subtest("dispatch reads the write token only as data from its credential and never sees the frontier token"):
         box.succeed("forge-dispatch forge 148")
-        assert probe("forge-dispatch-forge") == ["env=unset", "denied forge-github.env", read_write], probe("forge-dispatch-forge")
+        assert probe("forge-dispatch-forge") == denied + [write_credential], probe("forge-dispatch-forge")
 
-    with subtest("each token is masked from the units that do not use it"):
+    with subtest("the units that do not use a token cannot read either"):
         box.succeed("systemctl start forge-runner@builder.service forge-billing.service")
-        denied = ["env=unset", "denied forge-github.env", "denied forge-github-write.env"]
         for name in ["forge-run-builder", "forge-billing", "forge-frontend"]:
             assert probe(name) == denied, (name, probe(name))
+
+    with subtest("a scheduled workload running across a redeploy cannot read the new secrets generation"):
+        box.succeed("systemctl start --no-block forge-runner@lingering.service")
+        box.wait_for_file("/var/lib/forge/forge-run-lingering.out")
+        generation = box.succeed("readlink /run/secrets").strip()
+        box.succeed("/run/current-system/bin/switch-to-configuration test")
+        assert box.succeed("readlink /run/secrets").strip() != generation, "the redeploy did not render a new secrets generation"
+        box.succeed("touch /var/lib/forge/redeployed")
+        box.wait_for_file("/var/lib/forge/forge-run-lingering-after.out")
+        assert probe("forge-run-lingering-after") == denied, probe("forge-run-lingering-after")
 
     with subtest("no hand-placed plain-text token stays behind after activation"):
         box.succeed("runuser -u forge-runtime -- sh -c 'echo GITHUB_TOKEN=leftover > /var/lib/forge/github.env'")

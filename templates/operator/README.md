@@ -249,9 +249,10 @@ github_write_token: <your GitHub write token>
 
 A run can use the write token for anything it allows in every managed
 repository, so protect each default branch and give the token a short expiry.
-Each token is masked from the units that never use it, but every unit runs as
-one user, so a scheduled run can read either token through `/proc` from the
-frontier sync or a dispatch, until workloads are confined from each other.
+No forge service can read the decrypted secrets on the box; each gets only
+the tokens it uses, from systemd. Every service runs as one user, though, so a
+scheduled run can read either token through `/proc` from the frontier sync or
+a dispatch, until workloads are confined from each other.
 Treat every workload as able to use them.
 
 To see the frontier live, without waiting for the next poll, run
