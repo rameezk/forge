@@ -650,6 +650,7 @@ const FAILURE_LABEL: Record<DispatchFailure, string> = {
   errored: 'Run errored',
   'no-pull-request': 'No pull request',
   'skill-not-found': 'Skill not found',
+  'devshell-failed': 'devShell failed',
   interrupted: 'Interrupted',
 };
 

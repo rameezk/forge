@@ -35,11 +35,14 @@ import {
   resolveCheckout,
   SkillNotFound,
 } from './checkout.ts';
+import { DevShellFailed, enterDevShell } from './devshell.ts';
 import {
   absolutePath,
   launchWorkload,
   readRuntimeConfig,
+  sandboxOf,
   stateDirOf,
+  systemEnvironment,
   type LaunchResult,
 } from './workload.ts';
 
@@ -74,10 +77,21 @@ const outcomeOf = (
   if (cause instanceof SkillNotFound) {
     return { state: 'failed', reason: 'skill-not-found', detail: run.error };
   }
+  if (cause instanceof DevShellFailed) {
+    return { state: 'failed', reason: 'devshell-failed', detail: run.error };
+  }
   if (run.status === 'error') {
     return { state: 'failed', reason: 'errored', detail: run.error };
   }
   return { state: 'failed', reason: 'no-pull-request', detail: finalMessage };
+};
+
+const nixSystemOf = (env: NodeJS.ProcessEnv): string => {
+  const system = env.FORGE_NIX_SYSTEM;
+  if (system === undefined) {
+    throw new Error('FORGE_NIX_SYSTEM is not set');
+  }
+  return system;
 };
 
 const gitIdentityOf = (config: RuntimeConfig): GitIdentity => {
@@ -157,6 +171,7 @@ const launch = async ({
   runId: string;
 }): Promise<LaunchResult> => {
   const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
+  const nixSystem = nixSystemOf(env);
   const cloneEnv = { ...env, GITHUB_TOKEN: token, ...gitEnv };
   return launchWorkload({
     config,
@@ -168,7 +183,14 @@ const launch = async ({
     runId,
     openWorkspace: async (workDir) => {
       await cloneCheckout(github, workDir, cloneEnv);
-      return { workDir, checkout: resolveCheckout(workDir, loadSkills) };
+      const checkout = resolveCheckout(workDir, loadSkills);
+      const devShell = await enterDevShell({
+        sandbox: sandboxOf(env),
+        system: nixSystem,
+        root: checkout.root,
+        env: systemEnvironment(env),
+      });
+      return { workDir, checkout, ...(devShell === undefined ? {} : { devShell }) };
     },
   });
 };

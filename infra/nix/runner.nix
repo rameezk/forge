@@ -56,7 +56,8 @@ buildNpmPackage {
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
       --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
       ${sandboxFlags} \
-      --set FORGE_PI_PACKAGE "${piPackage}"
+      --set FORGE_PI_PACKAGE "${piPackage}" \
+      --set FORGE_NIX_SYSTEM "${stdenv.hostPlatform.system}"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch-pass" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/pass-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-billing" \

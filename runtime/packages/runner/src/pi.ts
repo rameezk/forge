@@ -15,6 +15,7 @@ import {
   type SubagentUpdate,
 } from '@forge/pi-subagent';
 import { requireSkill } from './checkout.ts';
+import { underDevShell } from './devshell.ts';
 import { spawnSandboxed, type Sandbox } from './sandbox.ts';
 import { tokenCount } from './token-count.ts';
 import {
@@ -359,13 +360,13 @@ export class PiHarness implements Harness {
       args,
       {
         workDir: invocation.workDir,
-        env: {
+        env: underDevShell(invocation.devShell, {
           ...this.#env,
           ...piEnv(this.#agentDir),
           [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
             subagentInvocation(command, invocation),
           ),
-        },
+        }),
       },
     );
 

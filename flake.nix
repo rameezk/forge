@@ -1115,6 +1115,12 @@
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
+          workload-devshell = pkgs.callPackage ./infra/nix/workload-devshell.nix {
+            forge-runner = self.packages.${system}.forge-runner;
+            sopsModule = sops-nix.nixosModules.sops;
+            secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
+          };
           automatic-dispatch = pkgs.callPackage ./infra/nix/automatic-dispatch.nix {
             forge-runner = self.packages.${system}.forge-runner;
             sopsModule = sops-nix.nixosModules.sops;

@@ -32,6 +32,7 @@ interface ChildStart {
   cwd: string;
   pid: number;
   agentDir?: string;
+  path?: string;
 }
 
 type ChildLog =
@@ -70,7 +71,7 @@ const fakeChildPi = (
 import { spawn } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 const log = (entry) => appendFileSync(${JSON.stringify(log)}, JSON.stringify(entry) + '\\n');
-log({ started: { argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, agentDir: process.env.PI_CODING_AGENT_DIR } });
+log({ started: { argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, agentDir: process.env.PI_CODING_AGENT_DIR, path: process.env.PATH } });
 ${child.onTerm === undefined ? '' : TERM_HANDLERS[child.onTerm]}
 process.stdout.write(readFileSync(${JSON.stringify(child.output ?? CHILD_OUTPUT)}, 'utf8'));
 process.stderr.write(${JSON.stringify(child.stderr ?? '')});
@@ -246,26 +247,30 @@ test('given a child invocation from the adapter, when the tool executes a task, 
   assert.equal(call.cwd, realpathSync(cwd));
 });
 
-test('given a parent pi pointed at a read-only agent dir, when the tool executes a task, then the child inherits that agent dir', async () => {
+test('given a parent pi pointed at a read-only agent dir, with a path that leads with its repository\'s devShell, when the tool executes a task, then the child inherits that agent dir and the same path', async () => {
   const child = fakeChildPi();
   const agentDir = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
-  const previous = process.env.PI_CODING_AGENT_DIR;
+  const path = `/nix/store/00000000000000000000000000000000-devshell-stub/bin:${process.env.PATH ?? ''}`;
+  const previous = { agentDir: process.env.PI_CODING_AGENT_DIR, path: process.env.PATH };
   process.env.PI_CODING_AGENT_DIR = agentDir;
+  process.env.PATH = path;
   try {
     await loadExtension(childInvocation(child.path)).call(
       { task: TASK },
       { cwd: runDir() },
     );
   } finally {
-    if (previous === undefined) {
+    process.env.PATH = previous.path;
+    if (previous.agentDir === undefined) {
       delete process.env.PI_CODING_AGENT_DIR;
     } else {
-      process.env.PI_CODING_AGENT_DIR = previous;
+      process.env.PI_CODING_AGENT_DIR = previous.agentDir;
     }
   }
 
   const [call] = child.starts() as [ChildStart];
   assert.equal(call.agentDir, agentDir);
+  assert.equal(call.path, path);
 });
 
 test('given no usable child invocation in the environment, when pi loads the extension, then it refuses to load naming the variable rather than guessing the pi binary', () => {

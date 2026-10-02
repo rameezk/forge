@@ -54,7 +54,7 @@ let
         type = lib.types.nullOr lib.types.str;
         default = null;
         example = "builder";
-        description = "Worker that `forge-dispatch` runs against this repository's tickets, in a fresh clone of its default branch, or null to only poll its frontier. Its prompt is a template filled in for each ticket: `{repo}` becomes the repository's `owner/name`, `{issue}` the ticket's number and `{url}` its URL, and it must hold `{issue}` or `{url}`. A leading `/<name>` runs the checkout's skill of that name, and the dispatch fails if the checkout has none.";
+        description = "Worker that `forge-dispatch` runs against this repository's tickets, in a fresh clone of its default branch, or null to only poll its frontier. Its prompt is a template filled in for each ticket: `{repo}` becomes the repository's `owner/name`, `{issue}` the ticket's number and `{url}` its URL, and it must hold `{issue}` or `{url}`. A leading `/<name>` runs the checkout's skill of that name, and the dispatch fails if the checkout has none. If the checkout has a `flake.nix`, the workload runs in its flake's default devShell for the box's system: its variables apply under forge's own, its path comes ahead of the workload toolset, and the dispatch fails if nix cannot print it.";
       };
     };
   };
@@ -284,7 +284,7 @@ in
       default = map (name: pkgs.${name}) baseToolset ++ [ config.nix.package ];
       defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ] ++ [ config.nix.package ]";
       example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
-      description = "Workload toolset: the packages that make up the runner unit's whole path, so a workload's harness and its subagents can invoke them and nothing else. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
+      description = "Workload toolset: the packages that make up the runner unit's whole path, so a workload's harness and its subagents can invoke them and nothing else. A dispatched workload whose checkout has a flake gets its devShell's path ahead of these. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
     };
 
     harnesses = lib.mkOption {

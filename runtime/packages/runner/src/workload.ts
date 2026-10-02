@@ -5,6 +5,7 @@ import { Store, type RunRecord, type RunTicket } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
 import type { Harness, Worker, Workspace } from './harness.ts';
 import { PiHarness } from './pi.ts';
+import type { Sandbox } from './sandbox.ts';
 import { FileTranscript } from './transcript.ts';
 import { runWorkload } from './runner.ts';
 
@@ -45,11 +46,20 @@ const picked = (
     }),
   );
 
+export const systemEnvironment = (
+  env: NodeJS.ProcessEnv,
+): Record<string, string> => picked(env, SYSTEM_VARIABLES);
+
+export const sandboxOf = (env: NodeJS.ProcessEnv): Sandbox => ({
+  bwrap: absolutePath(env, 'FORGE_BWRAP'),
+  home: absolutePath(env, 'HOME'),
+});
+
 const harnessEnvironment = (
   env: NodeJS.ProcessEnv,
   harnessEnv: Record<string, string>,
 ): Record<string, string> => ({
-  ...picked(env, SYSTEM_VARIABLES),
+  ...systemEnvironment(env),
   ...picked(env, ['OPENROUTER_API_KEY']),
   ...harnessEnv,
 });
@@ -66,15 +76,11 @@ const harnessFor = (
   }
   const extension = absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION');
   const agentDir = absolutePath(env, 'FORGE_PI_AGENT_DIR');
-  const sandbox = {
-    bwrap: absolutePath(env, 'FORGE_BWRAP'),
-    home: absolutePath(env, 'HOME'),
-  };
   return new PiHarness({
     command: harness.command,
     extension,
     agentDir,
-    sandbox,
+    sandbox: sandboxOf(env),
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
     env: harnessEnvironment(env, harnessEnv),
   });

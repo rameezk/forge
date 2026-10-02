@@ -173,8 +173,8 @@ test('given a stored repository whose github is not an owner/name, when the work
   assert.match(forge ?? '', /<span[^>]*>\.\.\/\.\.\/evil<\/span>/);
 });
 
-test('given frontier tickets that forge dispatched, one running, one done, one failed for each reason, one whose dispatch stopped beating, one whose run never started, and one never dispatched, when the work page is requested, then each shows its dispatch state, and a failed one its reason, linked to its run when that run exists', async () => {
-  const numbers = [56, 57, 58, 59, 60, 61, 62, 63, 64];
+test('given frontier tickets that forge dispatched, one running, one done, one failed for each reason including a devShell that failed, one whose dispatch stopped beating, one whose run never started, and one never dispatched, when the work page is requested, then each shows its dispatch state, and a failed one its reason, linked to its run when that run exists', async () => {
+  const numbers = [56, 57, 58, 59, 60, 61, 62, 63, 64, 65];
   const at = '2026-09-30T08:00:00.000Z';
   const forgeTicket = (number: number) => ({
     repository: 'forge',
@@ -226,6 +226,7 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
       store.reconcileDispatch(forgeTicket(61), at);
       dispatched(62, '2026-09-01T09:00:00.000Z');
       store.endDispatch(dispatched(63), { state: 'failed', reason: 'errored', detail: 'could not claim the ticket: GitHub answered 403' }, at);
+      store.endDispatch(dispatched(65), { state: 'failed', reason: 'devshell-failed', detail: "nix print-dev-env exited with code 1: error: undefined variable 'mkShel'" }, at);
     },
   );
 
@@ -245,11 +246,12 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
       ['failed Interrupted', 'failed'],
       ['failed Run errored: could not claim the ticket: GitHub answered 403', 'failed'],
       ['', null],
+      ["failed devShell failed: nix print-dev-env exited with code 1: error: undefined variable &#39;mkShel&#39;", 'failed'],
     ],
   );
   assert.deepEqual(
     rows.map((row) => /<a href="(\/runs\/[^"]*)"/.exec(dispatchCell(row))?.[1] ?? null),
-    ['/runs/run-56', '/runs/run-57', '/runs/run-58', '/runs/run-59', '/runs/run-60', null, '/runs/run-62', null, null],
+    ['/runs/run-56', '/runs/run-57', '/runs/run-58', '/runs/run-59', '/runs/run-60', null, '/runs/run-62', null, null, '/runs/run-65'],
   );
   assert.doesNotMatch(rows[3] ?? '', /<b>REST<\/b>/);
 });
