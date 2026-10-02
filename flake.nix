@@ -602,10 +602,21 @@
                 && isHardened passUnit
                 && passUnit.serviceConfig.RestrictAddressFamilies == [ "AF_UNIX" ]
                 && passUnit.serviceConfig.IPAddressDeny == "any"
+                && passUnit.serviceConfig.PrivateNetwork
+                && passUnit.serviceConfig.PrivateDevices
+                && passUnit.serviceConfig.ProtectKernelModules
+                && passUnit.serviceConfig.ProtectKernelLogs
+                && passUnit.serviceConfig.ProtectClock
+                && passUnit.serviceConfig.ProtectHostname
+                && passUnit.serviceConfig.RestrictNamespaces
+                && passUnit.serviceConfig.LockPersonality
+                && passUnit.serviceConfig.CapabilityBoundingSet == ""
+                && passUnit.serviceConfig.SystemCallArchitectures == "native"
+                && passUnit.serviceConfig.SystemCallFilter == [ "@system-service" ]
                 && !(passUnit.serviceConfig ? EnvironmentFile)
                 && !(passUnit.serviceConfig ? LoadCredential)
               )
-              "the dispatch pass must be a hardened oneshot running forge-dispatch-pass as forge-runtime with systemctl, no network and no secrets";
+              "the dispatch pass must be a hardened oneshot running forge-dispatch-pass as forge-runtime with systemctl, no network, devices, namespaces, capabilities or secrets, and only the system-service calls: it holds the polkit grant to start forge-dispatch units";
           dispatchPolkitRule = dispatchHost.config.security.polkit.extraConfig;
           dispatchPassMayStartOnlyDispatchUnits =
             lib.asserts.assertMsg

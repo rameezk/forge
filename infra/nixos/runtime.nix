@@ -493,6 +493,17 @@ in
           ExecStart = "${cfg.package}/bin/forge-dispatch-pass";
           RestrictAddressFamilies = [ "AF_UNIX" ];
           IPAddressDeny = "any";
+          PrivateNetwork = true;
+          PrivateDevices = true;
+          ProtectKernelModules = true;
+          ProtectKernelLogs = true;
+          ProtectClock = true;
+          ProtectHostname = true;
+          RestrictNamespaces = true;
+          LockPersonality = true;
+          CapabilityBoundingSet = "";
+          SystemCallArchitectures = "native";
+          SystemCallFilter = [ "@system-service" ];
         }
         // hardening;
       };
