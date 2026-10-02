@@ -665,7 +665,7 @@ export const renderDetail = (
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
-      : html`<div class="${STACK}">${renderTranscript(events, generations, run.status)}</div>`}
+      : html`<div class="${STACK}" data-transcript="${events.length}">${renderTranscript(events, generations, run.status)}</div>`}
     ${live ? html`<button type="button" id="new-activity" hidden class="${NEW_ACTIVITY}">↓ New activity</button>` : ''}`;
   return layout(run.worker, null, live, assets, body);
 };

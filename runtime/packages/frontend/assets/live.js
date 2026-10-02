@@ -19,6 +19,8 @@ const scroller = document.scrollingElement;
 
 const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
 
+const transcriptLength = () => Number(document.querySelector('[data-transcript]')?.dataset.transcript ?? 0);
+
 const scrollToBottom = () => scroller.scrollTo({ top: scroller.scrollHeight });
 
 newActivity?.addEventListener('click', scrollToBottom);
@@ -42,7 +44,7 @@ const refresh = async () => {
   }
   document.title = next.title;
   const following = newActivity !== null && atBottom();
-  const height = scroller.scrollHeight;
+  const length = transcriptLength();
   Idiomorph.morph(document.body, next.body, {
     morphStyle: 'innerHTML',
     callbacks: {
@@ -53,7 +55,7 @@ const refresh = async () => {
   });
   if (following) {
     scrollToBottom();
-  } else if (newActivity !== null && scroller.scrollHeight > height) {
+  } else if (newActivity !== null && transcriptLength() > length) {
     newActivity.hidden = false;
   }
 };

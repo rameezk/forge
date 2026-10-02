@@ -323,6 +323,21 @@ test('given a running workload\'s detail page scrolled up, when new transcript e
   await expect(newActivity).toBeHidden();
 });
 
+test('given a running workload\'s detail page scrolled up, when the page grows without a new transcript event, then New activity stays hidden', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(transcribedRun);
+  dashboard.appendEvents('run-01.jsonl', say(longText));
+  await openLive(page, '/runs/run-01');
+  await scrollTo(page, 300);
+
+  dashboard.store.finalizeRun('run-01', { status: 'error', endTime: '2026-09-21T10:03:20.000Z', sessionId: null, error: 'The runner stopped heartbeating.' });
+
+  await expect(page.getByText('The runner stopped heartbeating.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '↓ New activity' })).toBeHidden();
+});
+
 test('given a live detail page showing Live, when the workload\'s cost settles and done arrives, then the indicator disappears and the page stops updating', async ({
   dashboard,
   page,
