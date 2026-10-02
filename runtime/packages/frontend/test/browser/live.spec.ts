@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { RunRecord, Ticket } from '@forge/shared';
+import type { PolledFrontier, RunRecord, Ticket } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
 const runningRun: RunRecord = {
@@ -30,6 +30,13 @@ const ticket: Ticket = {
   createdAt: '2026-09-30T10:00:00Z',
   forgeReady: false,
   blocked: false,
+};
+
+const polledFrontier: PolledFrontier = {
+  repository: 'forge',
+  github: 'rameezk/forge',
+  polledAt: '2026-10-02T08:00:00.000Z',
+  tickets: [ticket],
 };
 
 const openLive = async (page: Page, path: string): Promise<void> => {
@@ -131,12 +138,7 @@ test('given the work page open in a browser, when a frontier poll writes new tic
 }) => {
   await openLive(page, '/work');
 
-  dashboard.store.replaceFrontier({
-    repository: 'forge',
-    github: 'rameezk/forge',
-    polledAt: '2026-10-02T08:00:00.000Z',
-    tickets: [ticket],
-  });
+  dashboard.store.replaceFrontier(polledFrontier);
 
   await expect(page.getByRole('row', { name: /Live runs list and work page/ })).toBeVisible();
   await expectNotReloaded(page);
@@ -176,12 +178,7 @@ test.describe('with JS disabled', () => {
     page,
   }) => {
     dashboard.store.insertRun(runningRun);
-    dashboard.store.replaceFrontier({
-      repository: 'forge',
-      github: 'rameezk/forge',
-      polledAt: '2026-10-02T08:00:00.000Z',
-      tickets: [ticket],
-    });
+    dashboard.store.replaceFrontier(polledFrontier);
 
     await page.goto('/');
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();

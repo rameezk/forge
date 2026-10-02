@@ -172,8 +172,9 @@ test('given each dashboard page, when it is requested, then its title names the 
   }
 });
 
-const scriptSources = (body: string): string[] =>
-  [...body.matchAll(/<script[^>]*>/g)].map(([tag]) => attribute(tag, 'src') ?? '');
+const scriptTags = (body: string): string[] => body.match(/<script[^>]*>/g) ?? [];
+
+const scriptSources = (body: string): string[] => scriptTags(body).map((tag) => attribute(tag, 'src') ?? '');
 
 test('given the runs list and the work page, when they are requested, then they load the morph library and then the live client, each deferred under a content-hashed path, and a run\'s detail page loads no script', async () => {
   const first = appWith({ idiomorph: 'var Idiomorph = 1;', client: 'live();' });
@@ -181,12 +182,11 @@ test('given the runs list and the work page, when they are requested, then they 
 
   for (const page of ['/', '/work']) {
     const body = await (await first.request(page)).text();
-    const tags = body.match(/<script[^>]*>/g) ?? [];
     const sources = scriptSources(body);
     assert.equal(sources.length, 2, `${page} should load two scripts`);
     assert.match(sources[0]!, /^\/assets\/idiomorph-[0-9a-f]{16,}\.js$/);
     assert.match(sources[1]!, /^\/assets\/live-[0-9a-f]{16,}\.js$/);
-    for (const tag of tags) assert.match(tag, /\sdefer(?=[\s>])/, `${page} should defer its scripts`);
+    for (const tag of scriptTags(body)) assert.match(tag, /\sdefer(?=[\s>])/, `${page} should defer its scripts`);
     const others = scriptSources(await (await second.request(page)).text());
     assert.notEqual(others[0], sources[0], 'a different morph library should get a different path');
     assert.notEqual(others[1], sources[1], 'a different client should get a different path');
