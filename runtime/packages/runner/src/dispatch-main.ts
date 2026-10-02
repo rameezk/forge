@@ -35,7 +35,7 @@ import {
   resolveCheckout,
   SkillNotFound,
 } from './checkout.ts';
-import { DevShellFailed, enterDevShell, finalNixError } from './devshell.ts';
+import { DevShellFailed, enterDevShell, nixErrorOf } from './devshell.ts';
 import {
   absolutePath,
   launchWorkload,
@@ -78,7 +78,7 @@ const outcomeOf = (
     return { state: 'failed', reason: 'skill-not-found', detail: run.error };
   }
   if (cause instanceof DevShellFailed) {
-    return { state: 'failed', reason: 'devshell-failed', detail: finalNixError(run.error) };
+    return { state: 'failed', reason: 'devshell-failed', detail: nixErrorOf(run.error) };
   }
   if (run.status === 'error') {
     return { state: 'failed', reason: 'errored', detail: run.error };

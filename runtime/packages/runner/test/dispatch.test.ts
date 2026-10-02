@@ -695,6 +695,42 @@ test('given a checkout whose devShell fails to evaluate, when the ticket is disp
   );
 });
 
+const NIX_BUILD_FAILURE = [
+  "building '/nix/store/00000000000000000000000000000000-broken-tool.drv'...",
+  "error: builder for '/nix/store/00000000000000000000000000000000-broken-tool.drv' failed with exit code 3;",
+  '       last 1 log lines:',
+  '       > boom',
+  '       For full logs, run:',
+  '         nix log /nix/store/00000000000000000000000000000000-broken-tool.drv',
+  "error: 1 dependencies of derivation '/nix/store/00000000000000000000000000000000-devshell-env.drv' failed to build",
+  '',
+].join('\n');
+
+test('given a checkout whose devShell has a dependency that fails to build, when the ticket is dispatched, then the ticket fails with devShell failed and the failing builder as the detail, and the run keeps the whole build output', async () => {
+  const { pi, runs, dispatches } = await journaled(() =>
+    dispatch({
+      origin: originWith({
+        '.claude/skills/work-on/SKILL.md': SKILL,
+        'flake.nix': FLAKE,
+      }),
+      nix: { stderr: NIX_BUILD_FAILURE, exit: 1, stdout: '' },
+      pullRequests: closing('no-pull-request'),
+    }),
+  ).then(({ result }) => result);
+
+  assert.equal(pi, null);
+  assert.equal(runs[0]?.error, `nix print-dev-env exited with code 1: ${NIX_BUILD_FAILURE.trim()}`);
+  assert.deepEqual(
+    dispatches.map(({ reason, detail }) => ({ reason, detail })),
+    [
+      {
+        reason: 'devshell-failed',
+        detail: "error: builder for '/nix/store/00000000000000000000000000000000-broken-tool.drv' failed with exit code 3;",
+      },
+    ],
+  );
+});
+
 test('given nix that exits cleanly without printing a dev environment, when the ticket is dispatched, then pi never starts and the ticket fails with devShell failed as the reason', async () => {
   const { pi, dispatches } = await journaled(() =>
     dispatch({

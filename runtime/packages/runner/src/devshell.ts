@@ -28,11 +28,11 @@ const PRINTED_EXCERPT_CHARS = 200;
 
 export class DevShellFailed extends Error {}
 
-export const finalNixError = (error: string | null): string | null =>
+export const nixErrorOf = (error: string | null): string | null =>
   error
     ?.split('\n')
     .map((line) => line.trim())
-    .findLast((line) => /^error: \S/.test(line)) ?? error;
+    .find((line) => /^error: \S/.test(line)) ?? error;
 
 const collect = (stream: Readable): Promise<string> =>
   new Promise((resolve) => {
