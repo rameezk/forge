@@ -57,6 +57,7 @@ in
       "--advertise-tags=tag:forge"
       "--hostname=${forgeConfig.hostname}"
       "--accept-dns=false"
+      "--netfilter-mode=off"
     ];
   };
 
