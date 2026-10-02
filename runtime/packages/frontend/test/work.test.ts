@@ -84,7 +84,7 @@ test('given a stored frontier across two repositories, when the work page is req
     '#70 Billed cost settles after the run #67 Billed cost settles after the run 2026-09-28',
   ]);
   assert.match(rows[0] ?? '', /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/56"[^>]*>#56<\/a>/);
-  assert.match(rows[0] ?? '', /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/54" target="_blank" rel="noopener noreferrer"[^>]*>#54<\/a> Frontier discovery/);
+  assert.match(rows[0] ?? '', /<span class="tabular-nums"><a href="https:\/\/github\.com\/rameezk\/forge\/issues\/54" target="_blank" rel="noopener noreferrer"[^>]*>#54<\/a><\/span> Frontier discovery/);
   assert.match(rows[0] ?? '', /<time datetime="2026-09-28T10:07:58Z" title="2026-09-28T10:07:58Z"[^>]*>2026-09-28<\/time>/);
 
   assert.match(dotfiles, /<h2[^>]*>dotfiles<\/h2>/);
