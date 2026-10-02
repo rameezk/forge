@@ -37,11 +37,12 @@ depends on the auto-activation.
    ```
 
 3. Set up your tailnet, as [Tailnet setup](#tailnet-setup) describes, and keep
-   the box's OAuth client secret at hand for the next step.
+   both OAuth clients' credentials at hand for the next step.
 
 4. Set up your secrets. They live sops-encrypted in `secrets/`, committed next
    to your config. `.sops.yaml` scopes who can read each file:
-   `secrets/operator.yaml`, your Hetzner Cloud API token, and
+   `secrets/operator.yaml`, your Hetzner Cloud API token and the Tailscale
+   OAuth client that deletes the box's old tailnet device, and
    `secrets/host.yaml`, the box's SSH host key, are for you only, and
    `secrets/runtime.yaml`, the Tailscale OAuth client secret, the OpenRouter
    key and the GitHub tokens, is for you and the box.
@@ -90,7 +91,9 @@ depends on the auto-activation.
 
    5. Create the secrets files, delete the scratch copy of the host key, and
       stage them. `sops edit` opens a new file with example content; replace
-      it with `HCLOUD_TOKEN: <your Hetzner Cloud API token>` in
+      it with `HCLOUD_TOKEN: <your Hetzner Cloud API token>`,
+      `TAILSCALE_OAUTH_CLIENT_ID: <the device-deletion client ID>` and
+      `TAILSCALE_OAUTH_CLIENT_SECRET: <the device-deletion client secret>` in
       `secrets/operator.yaml`, and with
       `tailscale_auth_key: <the box's OAuth client secret>` and
       `openrouter_api_key: <your OpenRouter key>` in `secrets/runtime.yaml`.
@@ -135,6 +138,8 @@ configuration and runs without a prompt.
 
 Each OpenTofu call runs through `sops exec-env` on `secrets/operator.yaml`, so
 your Hetzner token is decrypted only for that call and never sits in your shell.
+Deleting the box's old tailnet device does the same with the device-deletion
+OAuth client, which is kept from OpenTofu and never reaches the box.
 
 Once the box is installed, your tailnet is the only way in: the box accepts SSH
 on `sshPort` over the tailnet only, never from the public internet. Standup
@@ -166,6 +171,12 @@ tailnet.
    to the box, over the tailnet or at its public IP, standup refuses straight
    away and points you to `just deploy`, or to teardown then standup for a fresh
    box. If an install fails part-way, just run standup again.
+
+   Every standup installs onto a clean disk, so the box joins the tailnet as a
+   new device. Before installing, standup deletes any `tag:forge` device
+   already named after your `hostname`, so the new box keeps that name rather
+   than becoming `<hostname>-1`. If the Tailscale API refuses the deletion,
+   standup stops before installing.
 
    After the install, standup waits until it can log in to the box over the
    tailnet, and fails, saying the box did not join the tailnet, if that takes
@@ -203,6 +214,9 @@ tailnet.
    ```bash
    just teardown
    ```
+
+   Once OpenTofu has destroyed the server, teardown deletes the box's device
+   from the tailnet too.
 
 ## Tailnet setup
 
@@ -272,7 +286,26 @@ changes your tailnet's policy or its OAuth clients.
    tailscale_auth_key: <the box's OAuth client secret>
    ```
 
-5. Install Tailscale on your own machine from
+5. Create the OAuth client that deletes the box's old tailnet device. It is
+   yours alone: it stays in `secrets/operator.yaml` and never reaches the box,
+   so the box never holds a credential that can delete devices. On the same
+   Trust credentials page, select **Credential**, then **OAuth** again. Give it
+   the `devices:core` scope with write access and the `tag:forge` tag, which
+   limits it to `tag:forge` devices, then generate it and copy both the client
+   ID and the client secret.
+
+6. Add both to `secrets/operator.yaml`. On a first run, the secrets step of
+   [First run](#first-run) does this when it creates the file. In a repository
+   that already has the file, add them with `sops edit secrets/operator.yaml`
+   and commit. Standup and teardown fail, naming the keys, if they are missing
+   or the Tailscale API rejects them:
+
+   ```yaml
+   TAILSCALE_OAUTH_CLIENT_ID: <the device-deletion client ID>
+   TAILSCALE_OAUTH_CLIENT_SECRET: <the device-deletion client secret>
+   ```
+
+7. Install Tailscale on your own machine from
    [tailscale.com/download](https://tailscale.com/download) and log in to the
    same tailnet as an admin. Once the box is stood up, it appears in the
    admin console's Machines page as `<hostname>`, and the dashboard opens at

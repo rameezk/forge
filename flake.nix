@@ -68,6 +68,7 @@
         [
           pkgs.opentofu
           pkgs.jq
+          pkgs.curl
           pkgs.just
           nixos-anywhere.packages.${system}.default
           pkgs.nixos-rebuild-ng
