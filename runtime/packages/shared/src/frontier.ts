@@ -36,6 +36,7 @@ export const FRONTIER_QUERY = `
           parent {
             number
             title
+            url
           }
         }
       }
@@ -111,6 +112,7 @@ export type Fetch = typeof globalThis.fetch;
 export interface SpecRef {
   number: number;
   title: string;
+  url: string;
 }
 
 export interface Ticket {
@@ -191,7 +193,11 @@ const toTicket = (issue: IssueNode): Ticket => ({
   parent:
     issue.parent === null
       ? null
-      : { number: issue.parent.number, title: issue.parent.title },
+      : {
+          number: issue.parent.number,
+          title: issue.parent.title,
+          url: issue.parent.url,
+        },
   createdAt: issue.createdAt,
   forgeReady: issue.labels.nodes.some((label) => label.name === FORGE_READY),
   blocked: issue.issueDependenciesSummary.blockedBy > 0,

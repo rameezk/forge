@@ -673,7 +673,9 @@ export const renderDetail = (
 const renderSpec = (parent: SpecRef | null): Rendered =>
   parent === null
     ? html`<span class="text-muted">No spec</span>`
-    : html`<span class="tabular-nums text-muted">#${parent.number}</span> ${parent.title}`;
+    : html`<span class="tabular-nums">${isGithubUrl(parent.url)
+        ? externalLink(parent.url, `#${parent.number}`)
+        : html`#${parent.number}`}</span> ${parent.title}`;
 
 const DISPATCH_TONE: Record<DispatchState, string> = {
   running: 'bg-raised text-fg',

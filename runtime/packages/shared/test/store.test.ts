@@ -478,6 +478,48 @@ test('given a store file whose frontier snapshot predates queued tickets, when t
   }
 });
 
+test('given a store file whose frontier snapshot predates spec URLs, when the store is opened, then the stale snapshot is dropped and a ticket with a spec URL can be stored', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  Store.open(path).close();
+  const old = new DatabaseSync(path);
+  old.exec(`
+    DROP TABLE frontier_tickets;
+    CREATE TABLE frontier_tickets (
+      repository    TEXT NOT NULL REFERENCES frontier_repositories (repository) ON DELETE CASCADE,
+      number        INTEGER NOT NULL,
+      title         TEXT NOT NULL,
+      url           TEXT NOT NULL,
+      parent_number INTEGER,
+      parent_title  TEXT,
+      created_at    TEXT NOT NULL,
+      forge_ready   INTEGER NOT NULL,
+      blocked       INTEGER NOT NULL,
+      PRIMARY KEY (repository, number)
+    ) STRICT;
+    INSERT INTO frontier_repositories VALUES ('forge', 'rameezk/forge', '2026-09-29T08:00:00.000Z', NULL, NULL);
+    INSERT INTO frontier_tickets VALUES ('forge', 56, 'Stale', 'https://github.com/rameezk/forge/issues/56', NULL, NULL, '2026-09-28T10:07:58Z', 0, 0);
+  `);
+  old.close();
+
+  const store = Store.open(path);
+  try {
+    assert.deepEqual(store.listFrontier(), []);
+    const specced = {
+      number: 64,
+      title: 'Pinned host key and just ssh',
+      url: 'https://github.com/rameezk/forge/issues/64',
+      parent: { number: 54, title: 'Frontier discovery', url: 'https://github.com/rameezk/forge/issues/54' },
+      createdAt: '2026-09-28T11:32:31Z',
+      forgeReady: true,
+      blocked: true,
+    };
+    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', tickets: [specced] });
+    assert.deepEqual(store.listFrontier()[0]?.tickets, [specced]);
+  } finally {
+    store.close();
+  }
+});
+
 test('given a store file where another process briefly holds a write transaction, when this process writes a run, then the write waits for the other writer and succeeds instead of failing as busy', async () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const store = Store.open(path);

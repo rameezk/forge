@@ -12,7 +12,7 @@ const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
   number: 56,
   title: 'Declared repositories show their frontier on the dashboard',
   url: 'https://github.com/rameezk/forge/issues/56',
-  parent: { number: 54, title: 'Frontier discovery across managed repositories' },
+  parent: { number: 54, title: 'Frontier discovery across managed repositories', url: 'https://github.com/rameezk/forge/issues/54' },
   createdAt: '2026-09-28T10:07:58Z',
   forgeReady: false,
   blocked: false,
@@ -55,7 +55,7 @@ test('given a stored frontier across two repositories, when the work page is req
       github: 'rameezk/forge',
       polledAt: '2026-09-29T08:15:00.000Z',
       tickets: [
-        ticket({ number: 70, title: 'Billed cost settles after the run', url: 'https://github.com/rameezk/forge/issues/70', parent: { number: 67, title: 'Billed cost settles after the run' }, createdAt: '2026-09-28T12:26:54Z' }),
+        ticket({ number: 70, title: 'Billed cost settles after the run', url: 'https://github.com/rameezk/forge/issues/70', parent: { number: 67, title: 'Billed cost settles after the run', url: 'https://github.com/rameezk/forge/issues/67' }, createdAt: '2026-09-28T12:26:54Z' }),
         ticket(),
       ],
     },
@@ -84,11 +84,30 @@ test('given a stored frontier across two repositories, when the work page is req
     '#70 Billed cost settles after the run #67 Billed cost settles after the run 2026-09-28',
   ]);
   assert.match(rows[0] ?? '', /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/56"[^>]*>#56<\/a>/);
+  assert.match(rows[0] ?? '', /<span class="tabular-nums"><a href="https:\/\/github\.com\/rameezk\/forge\/issues\/54" target="_blank" rel="noopener noreferrer"[^>]*>#54<\/a><\/span> Frontier discovery/);
   assert.match(rows[0] ?? '', /<time datetime="2026-09-28T10:07:58Z" title="2026-09-28T10:07:58Z"[^>]*>2026-09-28<\/time>/);
 
   assert.match(dotfiles, /<h2[^>]*>dotfiles<\/h2>/);
   assert.match(dotfiles, /<a href="https:\/\/github\.com\/rameezk\/dotfiles"[^>]*>rameezk\/dotfiles<\/a>/);
   assert.deepEqual(ticketRows(dotfiles).map(textOf), ['#3 Unparented chore No spec 2026-09-01']);
+});
+
+test('given a ticket whose parent spec URL is not a GitHub https link, when the work page is requested, then the spec renders its number and title without a link', async () => {
+  const app = appWith([
+    {
+      repository: 'forge',
+      github: 'rameezk/forge',
+      polledAt: '2026-09-29T08:15:00.000Z',
+      tickets: [ticket({ parent: { number: 54, title: 'Frontier discovery', url: 'javascript:alert(1)' } })],
+    },
+  ]);
+
+  const [forge] = sections(await (await app.request('/work')).text());
+  const [row] = ticketRows(forge ?? '');
+
+  assert.match(textOf(row ?? ''), /#54 Frontier discovery/);
+  assert.doesNotMatch(row ?? '', /#54<\/a>/);
+  assert.doesNotMatch(row ?? '', /javascript:/);
 });
 
 test('given a polled repository with nothing on its frontier, when the work page is requested, then it says so under the repository', async () => {

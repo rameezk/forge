@@ -254,6 +254,7 @@ type TicketRow = {
   url: string;
   parent_number: number | null;
   parent_title: string | null;
+  parent_url: string | null;
   created_at: string;
   forge_ready: number;
   blocked: number;
@@ -275,6 +276,7 @@ const CREATE_FRONTIER = `
     url           TEXT NOT NULL,
     parent_number INTEGER,
     parent_title  TEXT,
+    parent_url    TEXT,
     created_at    TEXT NOT NULL,
     forge_ready   INTEGER NOT NULL,
     blocked       INTEGER NOT NULL,
@@ -346,7 +348,7 @@ const HAS_OUTDATED_FRONTIER = `
   ) OR (
     type = 'table' AND name = 'frontier_tickets'
     AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'blocked'
+      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'parent_url'
     )
   )
 `;
@@ -409,9 +411,9 @@ const ticketFromRow = (row: TicketRow): Ticket => ({
   title: row.title,
   url: row.url,
   parent:
-    row.parent_number === null || row.parent_title === null
+    row.parent_number === null || row.parent_title === null || row.parent_url === null
       ? null
-      : { number: row.parent_number, title: row.parent_title },
+      : { number: row.parent_number, title: row.parent_title, url: row.parent_url },
   createdAt: row.created_at,
   forgeReady: row.forge_ready === 1,
   blocked: row.blocked === 1,
@@ -792,10 +794,10 @@ export class Store {
         .run({ repository });
       const insert = this.#db.prepare(
         `INSERT INTO frontier_tickets (
-          repository, number, title, url, parent_number, parent_title, created_at,
+          repository, number, title, url, parent_number, parent_title, parent_url, created_at,
           forge_ready, blocked
         ) VALUES (
-          $repository, $number, $title, $url, $parent_number, $parent_title, $created_at,
+          $repository, $number, $title, $url, $parent_number, $parent_title, $parent_url, $created_at,
           $forge_ready, $blocked
         )`,
       );
@@ -807,6 +809,7 @@ export class Store {
           url: ticket.url,
           parent_number: ticket.parent?.number ?? null,
           parent_title: ticket.parent?.title ?? null,
+          parent_url: ticket.parent?.url ?? null,
           created_at: ticket.createdAt,
           forge_ready: ticket.forgeReady ? 1 : 0,
           blocked: ticket.blocked ? 1 : 0,

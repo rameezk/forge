@@ -20,7 +20,7 @@ const dashboard = () => {
         number: 56,
         title: 'Declared repositories show their frontier on the dashboard',
         url: TICKET_URL,
-        parent: { number: 54, title: 'Frontier discovery across managed repositories' },
+        parent: { number: 54, title: 'Frontier discovery across managed repositories', url: 'https://github.com/rameezk/forge/issues/54' },
         createdAt: '2026-09-28T10:07:58Z',
         forgeReady: true,
         blocked: false,

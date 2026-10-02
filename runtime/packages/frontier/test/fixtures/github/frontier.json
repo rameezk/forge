@@ -25,7 +25,8 @@
               },
               "parent": {
                 "number": 54,
-                "title": "Frontier discovery across managed repositories"
+                "title": "Frontier discovery across managed repositories",
+                "url": "https://github.com/rameezk/forge/issues/54"
               }
             },
             {
@@ -45,7 +46,8 @@
               },
               "parent": {
                 "number": 54,
-                "title": "Frontier discovery across managed repositories"
+                "title": "Frontier discovery across managed repositories",
+                "url": "https://github.com/rameezk/forge/issues/54"
               }
             },
             {
@@ -65,7 +67,8 @@
               },
               "parent": {
                 "number": 61,
-                "title": "Secrets via sops-nix"
+                "title": "Secrets via sops-nix",
+                "url": "https://github.com/rameezk/forge/issues/61"
               }
             },
             {
@@ -85,7 +88,8 @@
               },
               "parent": {
                 "number": 61,
-                "title": "Secrets via sops-nix"
+                "title": "Secrets via sops-nix",
+                "url": "https://github.com/rameezk/forge/issues/61"
               }
             },
             {
@@ -108,7 +112,8 @@
               },
               "parent": {
                 "number": 61,
-                "title": "Secrets via sops-nix"
+                "title": "Secrets via sops-nix",
+                "url": "https://github.com/rameezk/forge/issues/61"
               }
             },
             {
@@ -131,7 +136,8 @@
               },
               "parent": {
                 "number": 67,
-                "title": "Billed cost settles after the run"
+                "title": "Billed cost settles after the run",
+                "url": "https://github.com/rameezk/forge/issues/67"
               }
             },
             {
@@ -151,7 +157,8 @@
               },
               "parent": {
                 "number": 67,
-                "title": "Billed cost settles after the run"
+                "title": "Billed cost settles after the run",
+                "url": "https://github.com/rameezk/forge/issues/67"
               }
             }
           ]
