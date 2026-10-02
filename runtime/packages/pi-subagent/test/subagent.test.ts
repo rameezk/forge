@@ -260,11 +260,15 @@ test('given a parent pi pointed at a read-only agent dir, with a path that leads
       { cwd: runDir() },
     );
   } finally {
-    process.env.PATH = previous.path;
-    if (previous.agentDir === undefined) {
-      delete process.env.PI_CODING_AGENT_DIR;
-    } else {
-      process.env.PI_CODING_AGENT_DIR = previous.agentDir;
+    for (const [name, value] of [
+      ['PATH', previous.path],
+      ['PI_CODING_AGENT_DIR', previous.agentDir],
+    ] as const) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
     }
   }
 
