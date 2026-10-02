@@ -533,9 +533,9 @@ for devices in "$connected_mybox" "$unknown_mybox"; do
 		echo "FAIL: standup succeeded though a tag:forge device named mybox may still be connected to the tailnet"
 		fail=1
 	elif grep -q "still connected" "$work/standup-connected.log" && grep -q "just deploy" "$work/standup-connected.log" &&
-		grep -q "just teardown' then 'just standup" "$work/standup-connected.log" &&
+		grep -q "standup stopped before installing" "$work/standup-connected.log" &&
 		! grep -q "^tailscale deleted " "$keys/fake.log" && ! grep -q "^nixos-anywhere " "$keys/fake.log"; then
-		echo "ok: standup refused a box whose tailnet device is not known to be offline, though no admin login reached it, pointing to deploy or teardown then standup, and deleted no device and ran no nixos-anywhere"
+		echo "ok: standup refused a box whose tailnet device is not known to be offline, though no admin login reached it, pointing to deploy, and deleted no device and ran no nixos-anywhere"
 	else
 		echo "FAIL: standup did not refuse a tailnet device that may still be connected without deleting it or installing"
 		tail -10 "$work/standup-connected.log"
@@ -671,8 +671,9 @@ echo "==> case: teardown with no server in its OpenTofu state leaves a connected
 if FAKE_NO_SERVER=1 FAKE_DEVICES="$connected_mybox" just_with_fakes teardown >"$work/teardown-no-server.log" 2>&1; then
 	echo "FAIL: teardown succeeded though it destroyed no server and the box's tailnet device is still connected"
 	fail=1
-elif grep -q "still connected" "$work/teardown-no-server.log" && ! grep -q "^tailscale deleted " "$keys/fake.log"; then
-	echo "ok: with no server in its state, teardown refused to delete the still-connected device named mybox"
+elif grep -q "still connected" "$work/teardown-no-server.log" && grep -q "OpenTofu had no server to destroy" "$work/teardown-no-server.log" &&
+	! grep -q "server is destroyed" "$work/teardown-no-server.log" && ! grep -q "^tailscale deleted " "$keys/fake.log"; then
+	echo "ok: with no server in its state, teardown refused to delete the still-connected device named mybox, saying it had no server to destroy"
 else
 	echo "FAIL: teardown with no server in its state did not refuse to delete the still-connected device"
 	tail -10 "$work/teardown-no-server.log"
