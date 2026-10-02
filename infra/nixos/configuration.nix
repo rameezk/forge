@@ -59,6 +59,7 @@ in
       "--accept-dns=false"
       "--netfilter-mode=off"
     ];
+    extraSetFlags = [ "--netfilter-mode=off" ];
   };
 
   networking.firewall.interfaces.${config.services.tailscale.interfaceName}.allowedTCPPorts = [

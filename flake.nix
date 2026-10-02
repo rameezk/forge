@@ -907,6 +907,7 @@
               (
                 sshFirewall.enable
                 && lib.elem "--netfilter-mode=off" tailscale.extraUpFlags
+                && lib.elem "--netfilter-mode=off" tailscale.extraSetFlags
                 && !(publiclyOpen sshPort sshFirewall)
                 && sshFirewall.interfaces.${tailnetInterface}.allowedTCPPorts == [ sshPort ]
                 && sshFirewall.interfaces.${tailnetInterface}.allowedTCPPortRanges == [ ]
@@ -917,7 +918,7 @@
                   name: name == tailnetInterface || !(publiclyOpen sshPort sshFirewall.interfaces.${name})
                 ) (lib.attrNames sshFirewall.interfaces)
               )
-              "sshPort must be open only on the tailscale interface, closed on the public firewall, with nothing else opened on the tailscale interface and the interface not trusted as a whole, and tailscaled must leave netfilter to the enabled NixOS firewall so its own rules cannot accept everything arriving on the tailscale interface";
+              "sshPort must be open only on the tailscale interface, closed on the public firewall, with nothing else opened on the tailscale interface and the interface not trusted as a whole, and tailscaled must leave netfilter to the enabled NixOS firewall from its first login and again on every boot, so its own rules cannot accept everything arriving on the tailscale interface";
           tailnetDirect = lib.asserts.assertMsg (lib.elem 41641 nixos.config.networking.firewall.allowedUDPPorts) "public UDP 41641 must be open, so the operator's devices can connect to the box directly";
         in
         {
