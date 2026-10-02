@@ -1,10 +1,42 @@
 const indicator = document.getElementById('live');
+const newActivity = document.getElementById('new-activity');
+const kept = (node) => node !== indicator && node !== newActivity;
 
 const show = (state, text) => {
   indicator.dataset.state = state;
   indicator.textContent = text;
   indicator.hidden = false;
 };
+
+const toggled = new WeakSet();
+const rendered = new WeakMap();
+
+const rememberRendered = () => {
+  for (const details of document.querySelectorAll('details')) {
+    if (!toggled.has(details)) rendered.set(details, details.open);
+  }
+};
+
+rememberRendered();
+
+const operatorChose = (details) => {
+  if (details.open !== rendered.get(details)) toggled.add(details);
+  return toggled.has(details);
+};
+
+const scroller = document.scrollingElement;
+
+const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
+
+const transcriptLength = () => Number(document.querySelector('[data-transcript]')?.dataset.transcript ?? 0);
+
+const scrollToBottom = () => scroller.scrollTo({ top: scroller.scrollHeight });
+
+newActivity?.addEventListener('click', scrollToBottom);
+
+addEventListener('scroll', () => {
+  if (newActivity !== null && atBottom()) newActivity.hidden = true;
+});
 
 const assetsOf = (page) =>
   [...page.querySelectorAll('link[href^="/assets/"], script[src^="/assets/"]')]
@@ -20,10 +52,22 @@ const refresh = async () => {
     return;
   }
   document.title = next.title;
+  const following = newActivity !== null && atBottom();
+  const length = transcriptLength();
   Idiomorph.morph(document.body, next.body, {
     morphStyle: 'innerHTML',
-    callbacks: { beforeNodeMorphed: (node) => node !== indicator },
+    callbacks: {
+      beforeNodeMorphed: kept,
+      beforeNodeRemoved: kept,
+      beforeAttributeUpdated: (name, node) => !(name === 'open' && operatorChose(node)),
+    },
   });
+  rememberRendered();
+  if (following) {
+    scrollToBottom();
+  } else if (newActivity !== null && transcriptLength() > length) {
+    newActivity.hidden = false;
+  }
 };
 
 let refreshing = false;
@@ -45,13 +89,19 @@ const update = async () => {
   }
 };
 
-const events = new EventSource(`/events?page=${encodeURIComponent(location.pathname)}`);
-events.addEventListener('open', () => show('live', 'Live'));
-events.addEventListener('error', () => {
-  if (events.readyState === EventSource.CLOSED) {
+if (indicator !== null) {
+  const events = new EventSource(`/events?page=${encodeURIComponent(location.pathname)}`);
+  events.addEventListener('open', () => show('live', 'Live'));
+  events.addEventListener('error', () => {
+    if (events.readyState === EventSource.CLOSED) {
+      indicator.hidden = true;
+    } else {
+      show('reconnecting', 'Reconnecting…');
+    }
+  });
+  events.addEventListener('change', update);
+  events.addEventListener('done', () => {
+    events.close();
     indicator.hidden = true;
-  } else {
-    show('reconnecting', 'Reconnecting…');
-  }
-});
-events.addEventListener('change', update);
+  });
+}
