@@ -89,6 +89,43 @@ else
 	fail=1
 fi
 
+echo "==> case: the divergence guard passes on a stood-up box without contacting Hetzner"
+scaffold
+fill_operator_repo
+cat >"$work/infra/opentofu/terraform.tfstate" <<'STATE'
+{
+	"version": 4,
+	"terraform_version": "1.11.0",
+	"serial": 1,
+	"lineage": "00000000-0000-0000-0000-000000000000",
+	"outputs": {},
+	"resources": [
+		{
+			"module": "module.forge",
+			"mode": "managed",
+			"type": "hcloud_server",
+			"name": "this",
+			"provider": "provider[\"registry.opentofu.org/hetznercloud/hcloud\"]",
+			"instances": [
+				{
+					"schema_version": 0,
+					"attributes": {"id": "1", "name": "mybox"},
+					"sensitive_attributes": []
+				}
+			]
+		}
+	],
+	"check_results": null
+}
+STATE
+if FORGE_NIX_FLAGS="${override[*]}" bash "$work/tests/divergence-guard.sh" >"$work/guard-standup.log" 2>&1; then
+	echo "ok: divergence guard passed against state holding a Hetzner server"
+else
+	echo "FAIL: divergence guard failed on a stood-up box"
+	tail -20 "$work/guard-standup.log"
+	fail=1
+fi
+
 echo "==> case: a scaffolded repository carries the standup wrapper"
 scaffold
 if [ -f "$work/justfile" ]; then
