@@ -98,6 +98,7 @@ const streamEvents = async (
   while (id === undefined) {
     if (!(await readBlock())) throw new Error('the event stream ended before it was connected');
   }
+  const connected = queued.shift() ?? null;
   const next = async (): Promise<ServerEvent | null> => {
     while (queued.length === 0) {
       if (!(await readBlock())) return null;
@@ -106,7 +107,7 @@ const streamEvents = async (
   };
   const nextWithin = (checks: number): Promise<ServerEvent | null | 'quiet'> =>
     Promise.race([next(), sleep(checks * CHECK_INTERVAL_MS).then(() => 'quiet' as const)]);
-  return { next, nextWithin, close, lastEventId: () => id! };
+  return { connected, next, nextWithin, close, lastEventId: () => id! };
 };
 
 test('given a client streaming events for the runs list, when a new run is recorded in the store, then the stream emits a change signal', async (t) => {
@@ -135,18 +136,27 @@ test('given a client streaming events for the work page, when a generation is re
   assert.equal(await stream.nextWithin(40), 'quiet');
 });
 
-test('given a client whose stream dropped, when it reconnects after the page changed, then the stream emits a change signal at once, and when it reconnects with the page unchanged, then it does not', async (t) => {
+test('given a client opening a page\'s stream, when it connects, then the stream emits a change signal at once, so the client catches up with any write since it loaded the page', async (t) => {
+  const { app } = dashboard(t);
+
+  const stream = await streamEvents(t, app, '/');
+
+  assert.equal(stream.connected?.event, 'change');
+});
+
+test('given a client whose stream dropped, when it reconnects with the page unchanged, then no change signal is emitted, and when it reconnects after the page changed, then one is emitted at once', async (t) => {
   const { app, writer } = dashboard(t);
   const dropped = await streamEvents(t, app, '/');
   await dropped.close();
 
-  writer.insertRun(sampleRun());
-  const stale = await streamEvents(t, app, '/', dropped.lastEventId());
-  assert.equal((await stale.next())?.event, 'change');
-  await stale.close();
+  const unchanged = await streamEvents(t, app, '/', dropped.lastEventId());
+  assert.equal(unchanged.connected, null);
+  assert.equal(await unchanged.nextWithin(40), 'quiet');
+  await unchanged.close();
 
-  const current = await streamEvents(t, app, '/', stale.lastEventId());
-  assert.equal(await current.nextWithin(40), 'quiet');
+  writer.insertRun(sampleRun());
+  const changed = await streamEvents(t, app, '/', unchanged.lastEventId());
+  assert.equal(changed.connected?.event, 'change');
 });
 
 test('given a page that does not update live, when its events are requested, then they are not found', async (t) => {

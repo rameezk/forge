@@ -74,7 +74,7 @@ export const createApp = ({
       let version = store.dataVersion();
       let sent = await renderedHash(page);
       const seen = c.req.header('Last-Event-ID');
-      if (seen === undefined || seen === sent) {
+      if (seen === sent) {
         await stream.write(`id: ${sent}\n\n`);
       } else {
         await signal(sent);

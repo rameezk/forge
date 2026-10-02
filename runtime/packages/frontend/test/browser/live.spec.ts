@@ -82,6 +82,27 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
   await expectNotReloaded(page);
 });
 
+test('given the runs list loaded before its stream connects, when a run is recorded in between, then the table shows it once the stream connects', async ({
+  dashboard,
+  page,
+}) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/events?*', async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto('/');
+  await expect(page.getByText('No workloads have run yet.')).toBeVisible();
+
+  dashboard.store.insertRun(runningRun);
+  release();
+
+  await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
+});
+
 test('given the work page open in a browser, when a frontier poll writes new tickets, then the page shows them without a reload', async ({
   dashboard,
   page,
