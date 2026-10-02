@@ -667,7 +667,7 @@ test('given a checkout with no flake, when the ticket is dispatched, then nix is
 
 const NIX_ERROR = "error:\n       … while evaluating the attribute 'devShells.x86_64-linux.default'\n\n       error: undefined variable 'mkShel'\n";
 
-test('given a checkout whose devShell fails to evaluate, when the ticket is dispatched, then pi never starts, the run keeps nix\'s error output, and the ticket becomes forge:failed with devShell failed as the reason', async () => {
+test('given a checkout whose devShell fails to evaluate, when the ticket is dispatched, then pi never starts, the run keeps nix\'s error output, and the ticket becomes forge:failed with devShell failed as the reason and nix\'s final error as the detail', async () => {
   const { code, pi, runs, labelWrites, dispatches, journal } = await journaled(() =>
     dispatch({
       origin: originWith({
@@ -691,7 +691,7 @@ test('given a checkout whose devShell fails to evaluate, when the ticket is disp
   );
   assert.deepEqual(
     dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
-    [{ state: 'failed', reason: 'devshell-failed', detail: expected }],
+    [{ state: 'failed', reason: 'devshell-failed', detail: "error: undefined variable 'mkShel'" }],
   );
 });
 
