@@ -34,7 +34,7 @@ const usage = { inputTokens: 5, outputTokens: 5, cacheReadTokens: 0, cacheWriteT
 const appWith = (runs: RunRecord[], dir: string = mkdtempSync(join(tmpdir(), 'forge-transcripts-'))) => {
   const store = Store.open(':memory:');
   for (const run of runs) store.insertRun(run);
-  return createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '' });
+  return createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
 };
 
 test('given several finished runs, when the list is requested, then they render newest-first with a total cost', async () => {
@@ -800,7 +800,7 @@ const viewWithGenerations = async (
     if (generation.outcome === 'given-up') lookups.push({ id, error: 'not found', givenUp: true });
   }
   store.recordLookups(lookups, '2026-09-21T10:02:00.000Z');
-  const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '' });
+  const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
   return (await app.request('/runs/run-01')).text();
 };
 

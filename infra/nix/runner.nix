@@ -28,7 +28,7 @@ buildNpmPackage {
   };
   sourceRoot = "source/runtime";
 
-  npmDepsHash = "sha256-ooEH/ZMc9S+8VB5RiU5+J/yC5nDiiLPQLelbIM48nLA=";
+  npmDepsHash = "sha256-194wuPOvxe0uYXgviQc6KQv+jmRxjP7bJSvQfNFpJQY=";
 
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [ git ];

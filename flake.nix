@@ -1088,7 +1088,7 @@
               }
             ];
           };
-          dashboard-stylesheet = pkgs.callPackage ./infra/nix/dashboard-stylesheet.nix {
+          dashboard-assets = pkgs.callPackage ./infra/nix/dashboard-assets.nix {
             forge-runner = self.packages.${system}.forge-runner;
           };
           pi-cli-contract = pkgs.callPackage ./infra/nix/pi-cli-contract.nix {

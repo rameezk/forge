@@ -937,6 +937,13 @@ export class Store {
     return rows.map(dispatchFromRow);
   }
 
+  dataVersion(): number {
+    const { data_version } = this.#db.prepare('PRAGMA data_version').get() as {
+      data_version: number;
+    };
+    return data_version;
+  }
+
   close(): void {
     this.#db.close();
   }
