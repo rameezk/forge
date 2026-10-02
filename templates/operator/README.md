@@ -283,8 +283,10 @@ changes your tailnet's policy or its OAuth clients.
 4. Add the client secret to `secrets/runtime.yaml` as `tailscale_auth_key`.
    On a first run, the secrets step of [First run](#first-run) does this when
    it creates the file. In a repository that already has the file, add it
-   with `sops edit secrets/runtime.yaml`, commit, and deploy, and the box
-   joins the tailnet. The build fails, naming the key, if it is not there:
+   with `sops edit secrets/runtime.yaml` and commit. A box that is not on the
+   tailnet yet joins it only through `just teardown` then `just standup`,
+   since deploy reaches the box over the tailnet. The build fails, naming the
+   key, if it is not there:
 
    ```yaml
    tailscale_auth_key: <the box's OAuth client secret>
@@ -541,3 +543,59 @@ nix flake check --override-input forge path:/path/to/forge
 the two references in step. To co-develop against a local forge, point the module
 `source` at a local path (`../../path/to/forge/infra/opentofu`) and rerun
 `tofu init`.
+
+## Upgrading forge
+
+Updating the forge input changes the box's NixOS system and your toolchain, but
+not the files this repository was scaffolded with. `justfile`, this README and
+`tests/divergence-guard.sh` are copies of forge's template, so a new forge
+version can need new copies of them, and new secrets.
+
+1. Update the forge input, or lock it to a new commit as
+   [Pinning forge](#pinning-forge) describes, and move the ref in
+   `infra/opentofu/main.tf` with it if you pinned that too:
+
+   ```bash
+   nix flake update forge
+   ```
+
+2. Scaffold the template at the commit you now pin into a scratch directory,
+   and list the files that differ from yours:
+
+   ```bash
+   rev="$(jq -r '.nodes.forge.locked.rev' flake.lock)"
+   template="$(mktemp -d)"
+   nix flake new -t "github:rameezk/forge/${rev}#operator" "$template"
+   diff -rq "$template" . | grep -v '^Only in \.'
+   ```
+
+3. Copy over each file that differs and that you have not changed yourself,
+   such as `justfile`, `README.md` and `tests/divergence-guard.sh`. Merge
+   `flake.nix`, `.sops.yaml` and `infra/opentofu/main.tf` by hand instead,
+   since they hold your workers, recipients and module ref. `config.json`,
+   `known_hosts` and `secrets/` are never in the template.
+
+4. Fetch the OpenTofu module again. `tofu init` keeps the module it fetched
+   first, even when its `source` tracks a branch, and this fetches modules
+   only, leaving your provider lock as it is:
+
+   ```bash
+   tofu -chdir=infra/opentofu get -update
+   ```
+
+5. Add any secret the new README asks for, in the secrets step of
+   [First run](#first-run). A missing runtime secret fails the build on the
+   box, and a missing operator secret fails standup and teardown.
+
+6. Run the divergence guard, then stage and commit:
+
+   ```bash
+   bash tests/divergence-guard.sh
+   git add -A
+   git commit -m "chore: upgrade forge"
+   ```
+
+7. Apply the upgrade with `just deploy`, which keeps the box's state. If the
+   upgrade changed how the box is reached, as the move to the tailnet did, or
+   changed `infra/opentofu`, run `just teardown` then `just standup` instead,
+   which loses the box's state.
