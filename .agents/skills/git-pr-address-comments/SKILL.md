@@ -118,6 +118,9 @@ The author - human or bot - does not change the triage.
 
 For the actionable threads, follow [[work-on]]'s recipe, driving the sibling
 skills rather than reimplementing them. Work one thread's concern at a time.
+Each `[[name]]` here is another skill: when a step hands work to one, load that
+skill and follow its instructions in full before doing the step. Never do the
+step from the summary here.
 
 1. **Fix it test-first, when there is behaviour to test.** A change with a
    testable seam goes through a fresh [[tdd]] cycle - not a patch that skips the
@@ -127,7 +130,7 @@ skills rather than reimplementing them. Work one thread's concern at a time.
 2. **Run the repo's mechanical checks.** Before committing, get the project's
    formatter, linter, and type-checker clean, however this repo runs them.
 3. **Commit the fix.** Record each fix as a focused follow-up commit via
-   [[git-committing]] - Conventional Commits, on the PR's branch.
+   [[git-committing]] on the PR's branch.
 4. **Review, proportionally.** For a behaviour change, put the updated diff
    through [[code-review]] and [[security-review]] and drive the
    review-fix-re-review loop to sign-off, as [[work-on]] does. A trivial fix - a

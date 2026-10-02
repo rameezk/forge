@@ -22,7 +22,7 @@ Resolve the tracker from `.tracker.toml` at the project root (see [[tracker-conf
 
 ## The recipe
 
-Run these in order. Each step is its own skill; drive them, do not reimplement them.
+Run these in order. Each step is its own skill; drive them, do not reimplement them. Each `[[name]]` here is another skill: when a step hands work to one, load that skill and follow its instructions in full before doing the step. Never do the step from the summary here; it says only what this recipe adds.
 
 1. **Read the ticket - and its parent spec.** Read the whole ticket: what it delivers, its blocking edges, whether it is `ready-for-agent` or `ready-for-human`. Then read its parent spec for the two things the ticket leans on but does not repeat: the **agreed seams** and the **out-of-scope** section. Building something the spec explicitly refused is a defect, not initiative. Ground yourself in how the code actually works and speak its language - read `docs/CONTEXT.md` for vocabulary and respect the ADRs in the area you are touching (see [[decision-context]]). ADRs are read-only here: build to them, never edit them. If the ticket cannot be built without contradicting an accepted ADR, or the build reveals that one is wrong, that is a new decision - stop and send the user back to [[refine]] rather than touching the ADR.
 
@@ -30,11 +30,11 @@ Run these in order. Each step is its own skill; drive them, do not reimplement t
 
 2. **Isolate the work.** Create a dedicated worktree with [[git-worktree]], branched off up-to-date default, so the work never lands on the user's current checkout or on stale state. All subsequent edits, tests, and commits happen there.
 
-3. **Build it test-first.** Implement the ticket through [[tdd]]. Its precondition is agreed seams: restate the seams the spec settled and confirm them before the first test; if the spec left them open, settle them with the user here, before any test. Then work the red-green-refactor loop in vertical slices - one behaviour at a time, consolidating each slice as you go. Run single test files as you work and the full suite once at the end; report that final run. Leave feature-wide consolidation and cross-cutting refactors for review, as [[tdd]] says.
+3. **Build it test-first.** Implement the ticket through [[tdd]]. The seams it needs agreed are the ones the parent spec settled; if the spec left them open, settle them with the user before any test. Report the final full-suite run.
 
 4. **Run the repo's mechanical checks.** Before committing, run the project's formatter, linter, and type-checker - however this repo runs them (a Makefile target, a package script, `pre-commit`, the CI lint step) - and get them clean, applying autofixes where offered and fixing the rest by hand. This is the work-on agent's own job, not the reviewers': the two reviews are freed to spend their judgement on design, standards, spec, and security, and [[code-review]] can honestly skip what tooling enforces because that ground is already clean. If a check surfaces a pre-existing failure unrelated to this ticket, fix it too where it is cheap and say so; if it is not cheap, note it rather than leaving it silent.
 
-5. **Commit the reviewable checkpoint.** With the suite green and the checks clean, record the work with [[git-committing]] - focused commits, Conventional Commits, on the worktree's branch. Do not push. Committing first is what gives the reviews a diff to run against: an immutable ref measured against the branch base, not a mutating working tree.
+5. **Commit the reviewable checkpoint.** With the suite green and the checks clean, record the work with [[git-committing]] on the worktree's branch. Do not push. Committing first is what gives the reviews a diff to run against: an immutable ref measured against the branch base, not a mutating working tree.
 
 6. **Review - on the committed diff.** Put the finished change through two independent reviews, run in **separate sub-agents launched in one message** so they go concurrently in isolated contexts, each with fresh eyes on code this session is biased toward: [[code-review]] for standards and spec conformance, and [[security-review]] for vulnerabilities. Each runs as a single sub-agent reporting back here; [[code-review]] folds its own Standards and Spec axes into inline passes rather than spawning them further, since it is nested (its step 4 covers this). Run both against the **branch base** - the worktree branch measured against the up-to-date default it was branched from - and pass that base to each sub-agent as the explicit fixed point, so neither has to ask. Pin the other end too: pass the head as the exact commit SHA (`git rev-parse HEAD` at launch), never a bare `HEAD`. Each review states the range it covered on its first line; record that SHA against the review's result, because step 7 checks it. Both are strictly read-only. Collect both reports, then triage as the orchestrator - and treat this as a **loop, not a single pass**, the way a human change goes back to its reviewers until they sign off:
 
@@ -46,15 +46,7 @@ Repeat until every review comes back clean - no actionable findings left beyond 
 
 7. **Open the PR - only once every review covers the head.** Before opening it, run `git rev-parse HEAD` and check each review in turn. A review covers the head when its last clean pass was at exactly that SHA, or when every commit after that pass provably cannot reach the review's domain, by the same test step 6 uses, and you can name each such commit and why. If any review does not cover the head, go back to step 6 - do not open the PR. This is the check that catches a fix commit landing after the last review: a fix is new code, and an unreviewed fix is an unreviewed change.
 
-   Raise the pull request with [[git-pr]]. Link it to the originating ticket so merging it closes the ticket: on `github`, reference the issue with `Closes #N` in the description. Ground the description in the ticket - what it delivered and how it was verified. Add a `## Reviews` section listing each review's last clean SHA, so the reader can see at a glance that the reviews cover the PR's head:
-
-   ```markdown
-   ## Reviews
-   - code-review: clean at a1b2c3d (HEAD)
-   - security-review: clean at 9f8e7d6. After it: a1b2c3d (README wording only, cannot reach security)
-   ```
-
-   Write only what happened. A SHA here is a claim about which commit a review saw; never write one a review did not report.
+   Raise the pull request with [[git-pr]], using its description format as it stands: its sections, its headings, and nothing of your own. Fill its `## Reviews` section from step 6, and on `github` put `Closes #N` for the originating ticket in its `## Notes` section, so merging the PR closes the ticket.
 
 ## What this skill does not do
 

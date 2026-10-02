@@ -13,6 +13,10 @@ description: Prepare and open a GitHub pull request cleanly and consistently. Us
 Assumes commits are already made via [[git-committing]] and the branch
 follows [[git-branching]]'s naming convention.
 
+Each `[[name]]` here is another skill: when a step hands work to one, load that
+skill and follow its instructions in full before doing the step. Never do the
+step from the summary here.
+
 ## Title format
 
 Match the branch's Conventional Commit style: `<type>(<optional-scope>): <subject>`
@@ -24,7 +28,11 @@ Match the branch's Conventional Commit style: `<type>(<optional-scope>): <subjec
 
 ## Description format
 
-Use these sections. Drop a section only when it genuinely does not apply.
+Use these sections, in this order, with these exact headings. Drop a section
+only when it genuinely does not apply, and add no others: anything that fits
+nowhere else goes in `## Notes`. This is the only PR description format; a
+skill that opens a PR through this one fills these sections rather than
+bringing its own.
 
 ```markdown
 ## What
@@ -42,9 +50,19 @@ Side-by-side screenshots of UI changes, produced by [[before-after]].
 ## Testing
 How it was verified: commands run, tests added, manual checks. State honestly what was and was not tested.
 
+## Reviews
+- code-review: clean at a1b2c3d (HEAD)
+- security-review: clean at 9f8e7d6. After it: a1b2c3d (README wording only, cannot reach security)
+
 ## Notes
-Anything else: follow-ups, trade-offs, risks. Link issues with `Closes #17` when a github issue was implemented.
+Anything else: follow-ups, trade-offs, risks, review findings set aside and why. Link issues with `Closes #17` when a github issue was implemented.
 ```
+
+`## Reviews` applies only when reviews ran on the branch. List each review's
+last clean SHA, and for any commit after it, name the commit and why it cannot
+reach that review's domain, so a reader can see at a glance that the reviews
+cover the PR's head. Write only what happened: a SHA here is a claim about which
+commit a review saw, so never write one a review did not report.
 
 ## Workflow
 
