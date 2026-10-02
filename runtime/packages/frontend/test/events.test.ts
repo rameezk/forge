@@ -197,15 +197,22 @@ for (const [costStatus, lookup] of settlements) {
   });
 }
 
-test('given a client streaming events for a workload that has ended with cost status pending, when a check runs, then the stream stays open', async (t) => {
-  const { app, writer, writeTranscript } = dashboard(t);
-  writer.insertRun(runningRun);
-  writeTranscript('run-01.jsonl');
-  writer.recordGeneration(generation);
-  writer.finalizeRun('run-01', ended);
-  const stream = await streamEvents(t, app, '/runs/run-01');
+const unsettled: [string, (writer: Store) => void][] = [
+  ['is still running', () => {}],
+  ['has ended with cost status pending', (writer) => writer.finalizeRun('run-01', ended)],
+];
 
-  const signal = await stream.nextWithin(40);
+for (const [state, reach] of unsettled) {
+  test(`given a client streaming events for a workload that ${state}, when a check runs, then the stream stays open`, async (t) => {
+    const { app, writer, writeTranscript } = dashboard(t);
+    writer.insertRun(runningRun);
+    writeTranscript('run-01.jsonl');
+    writer.recordGeneration(generation);
+    reach(writer);
+    const stream = await streamEvents(t, app, '/runs/run-01');
 
-  assert.equal(signal, 'quiet');
-});
+    const signal = await stream.nextWithin(40);
+
+    assert.equal(signal, 'quiet');
+  });
+}
