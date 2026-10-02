@@ -41,6 +41,7 @@ let
     paths = map probe [
       "forge-run"
       "forge-dispatch"
+      "forge-dispatch-pass"
       "forge-billing"
       "forge-frontier"
       "forge-frontend"
@@ -107,7 +108,8 @@ testers.runNixOSTest {
 
     with subtest("the units that do not use a token cannot read either"):
         box.succeed("systemctl start forge-runner@builder.service forge-billing.service")
-        for name in ["forge-run-builder", "forge-billing", "forge-frontend"]:
+        box.wait_for_file("/var/lib/forge/forge-dispatch-pass.out")
+        for name in ["forge-run-builder", "forge-billing", "forge-frontend", "forge-dispatch-pass"]:
             assert probe(name) == denied, (name, probe(name))
 
     with subtest("a scheduled workload running across a redeploy cannot read the new secrets generation"):

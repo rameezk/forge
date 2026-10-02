@@ -1,3 +1,8 @@
+export const FORGE_READY = 'forge:ready';
+export const FORGE_RUNNING = 'forge:running';
+export const FORGE_DONE = 'forge:done';
+export const FORGE_FAILED = 'forge:failed';
+
 export const DISPATCH_HEARTBEAT_MS = 20_000;
 
 export const DISPATCH_STALE_MS = 120_000;
@@ -11,6 +16,9 @@ export type DispatchFailure =
   | 'no-pull-request'
   | 'skill-not-found'
   | 'interrupted';
+
+export const ticketKey = (repository: string, number: number): string =>
+  `${repository}#${number}`;
 
 export interface DispatchTicket {
   repository: string;
@@ -28,6 +36,11 @@ export interface DispatchRecord extends DispatchTicket {
   aliveAt: string;
   endedAt: string | null;
 }
+
+export type DispatchStart =
+  | { started: number }
+  | { refused: 'dispatching' }
+  | { refused: 'full'; live: number };
 
 export type DispatchOutcome =
   | { state: 'done' }

@@ -27,7 +27,7 @@ Each token is a Tailwind colour that switches between its light and dark value b
 
 - Raw forge orange (`accent`) is only decoration: the active nav underline, focus rings and the logo. It is never used for text.
 - Links use `accent-text`.
-- Status colours stay separate from the accent. Success is green, error is red, and unconfirmed is a yellow badge. Pending is muted italic, and running is a grey pill.
+- Status colours stay separate from the accent. Success is green, error is red, and unconfirmed is a yellow badge. Pending is muted italic, running is a grey pill, and a queued ticket is a `muted` pill outlined in `line` on the surface.
 - Every text colour passes WCAG AA (4.5:1) against the surface it sits on. The ratios below say which pairings that allows. In dark mode `muted` and `accent-text` fall below AA on `raised`, so `raised` only ever carries `fg` text, and hovered rows turn `bg` rather than `raised`.
 - Every focusable element shows a 2px `accent` outline when focused from the keyboard.
 - Fonts are the native stacks: system UI for text and UI monospace for code.

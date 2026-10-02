@@ -14,6 +14,8 @@ const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
   url: 'https://github.com/rameezk/forge/issues/56',
   parent: { number: 54, title: 'Frontier discovery across managed repositories' },
   createdAt: '2026-09-28T10:07:58Z',
+  forgeReady: false,
+  blocked: false,
   ...overrides,
 });
 
@@ -190,8 +192,9 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
     ],
     (store) => {
       const dispatched = (number: number, startedAt = new Date().toISOString()) => {
-        const id = store.startDispatch(forgeTicket(number), `run-${number}`, startedAt);
-        assert.ok(id !== null);
+        const start = store.startDispatch(forgeTicket(number), `run-${number}`, startedAt, Number.POSITIVE_INFINITY);
+        assert.ok('started' in start);
+        const id = start.started;
         if (number !== 63) {
           store.insertRun({
             id: `run-${number}`,
@@ -249,4 +252,45 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
     ['/runs/run-56', '/runs/run-57', '/runs/run-58', '/runs/run-59', '/runs/run-60', null, '/runs/run-62', null, null],
   );
   assert.doesNotMatch(rows[3] ?? '', /<b>REST<\/b>/);
+});
+
+test('given a repository whose snapshot holds a queued ticket, labelled forge:ready but still blocked, one that failed before it was relabelled forge:ready while blocked, and an unlabelled frontier ticket, when the work page is requested, then both labelled ones show as queued, unlinked, beside the frontier ticket in age order', async () => {
+  const at = '2026-09-30T08:00:00.000Z';
+  const app = appWith(
+    [
+      {
+        repository: 'forge',
+        github: 'rameezk/forge',
+        polledAt: '2026-09-29T08:15:00.000Z',
+        tickets: [
+          ticket({ number: 64, title: 'Pinned host key', url: 'https://github.com/rameezk/forge/issues/64', createdAt: '2026-09-28T11:32:31Z', forgeReady: true, blocked: true }),
+          ticket({ number: 65, title: 'Retried while blocked', url: 'https://github.com/rameezk/forge/issues/65', createdAt: '2026-09-28T11:40:00Z', forgeReady: true, blocked: true }),
+          ticket(),
+        ],
+      },
+    ],
+    (store) => {
+      const start = store.startDispatch(
+        { repository: 'forge', number: 65, url: 'https://github.com/rameezk/forge/issues/65' },
+        'run-65',
+        at,
+        Number.POSITIVE_INFINITY,
+      );
+      assert.ok('started' in start);
+      store.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail: 'Which token?' }, at);
+    },
+  );
+
+  const rows = ticketRows(sections(await (await app.request('/work')).text())[0] ?? '');
+
+  assert.deepEqual(
+    rows.map((row) => [/data-ticket="(\d+)"/.exec(row)?.[1], /data-dispatch="([^"]*)"/.exec(row)?.[1] ?? null]),
+    [
+      ['56', null],
+      ['64', 'queued'],
+      ['65', 'queued'],
+    ],
+  );
+  assert.match(rows[1] ?? '', /<td[^>]*data-dispatch="queued"[^>]*><span[^>]*>queued<\/span><\/td>/);
+  assert.doesNotMatch(rows[2] ?? '', /\/runs\/|Which token/);
 });

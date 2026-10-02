@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   DispatchFailure,
@@ -13,6 +13,7 @@ import type {
   RunStatus,
   RunTicket,
   SpecRef,
+  Ticket,
   ToolCallEvent,
   ToolResultEvent,
 } from '@forge/shared';
@@ -658,7 +659,12 @@ const failureText = ({ reason, detail }: DispatchRecord): string | null => {
   return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
 };
 
-const renderDispatch = (dispatch: DispatchRecord | undefined): Rendered => {
+const QUEUED_TONE = 'text-muted ring-1 ring-line ring-inset';
+
+const renderDispatch = (ticket: Ticket, dispatch: DispatchRecord | undefined): Rendered => {
+  if (ticket.forgeReady && ticket.blocked) {
+    return html`<td class="${TD} min-w-48" data-dispatch="queued"><span class="${PILL} ${QUEUED_TONE}">queued</span></td>`;
+  }
   if (dispatch === undefined) return html`<td class="${TD}"></td>`;
   const badge = html`<span class="${PILL} ${DISPATCH_TONE[dispatch.state]}">${dispatch.state}</span>`;
   const failure = failureText(dispatch);
@@ -668,9 +674,6 @@ const renderDispatch = (dispatch: DispatchRecord | undefined): Rendered => {
       ? ''
       : html`<p class="m-0 mt-1 line-clamp-3 text-xs break-words whitespace-pre-line text-muted" title="${failure}">${failure}</p>`}</td>`;
 };
-
-const ticketKey = (repository: string, number: number): string =>
-  `${repository}#${number}`;
 
 const renderPolled = (polledAt: string | null): Rendered =>
   polledAt === null
@@ -716,7 +719,7 @@ const renderRepository = (
                   <td class="${TD} min-w-48">${ticket.title}</td>
                   <td class="${TD} min-w-48">${renderSpec(ticket.parent)}</td>
                   <td class="${TD}">${renderDate(ticket.createdAt)}</td>
-                  ${renderDispatch(dispatches.get(ticketKey(repository, ticket.number)))}
+                  ${renderDispatch(ticket, dispatches.get(ticketKey(repository, ticket.number)))}
                 </tr>`,
               )}
             </tbody>

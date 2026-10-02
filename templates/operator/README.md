@@ -292,14 +292,29 @@ A host with a repository that declares a worker must also set
 workload makes carries it as author and committer, while pushes and pull
 requests show as the owner of the GitHub write token.
 
-Label a frontier ticket `forge:ready`, then dispatch it on the box:
+Label a ticket `forge:ready` and forge dispatches it by itself. Straight after
+every frontier sync, a dispatch pass starts a `forge-dispatch@` unit for each
+frontier ticket labelled `forge:ready`, oldest first. A ticket labelled
+`forge:ready` that still has open blockers is queued: the Work page shows it as
+queued, and the first sync after its last blocker closes dispatches it. So to
+queue a whole spec, label all of its tickets.
+
+`forge.runtime.dispatch.maxConcurrent`, 1 by default, limits how many
+dispatched workloads run at once across every repository, and tickets from the
+same repository may run in parallel. A ticket over the limit stays
+`forge:ready` until a pass after one of the running workloads finishes. The
+pass may start only `forge-dispatch@` units of repositories that declare a
+worker, which polkit allows the forge-runtime user and nothing else.
+
+To dispatch a ticket straight away rather than waiting for the next sync, run:
 
 ```bash
 just ssh sudo forge-dispatch forge 113
 ```
 
 Forge refuses a ticket that is not on the frontier or not labelled
-`forge:ready`. Otherwise it claims the ticket by replacing `forge:ready` with
+`forge:ready`, and refuses to start a workload beyond `maxConcurrent`, however
+the ticket was dispatched. Otherwise it claims the ticket by replacing `forge:ready` with
 `forge:running`, clones the tip of the repository's default branch into a
 fresh run directory and runs the worker there. The clone and the workload
 authenticate to `https://github.com` with the write token, through a git

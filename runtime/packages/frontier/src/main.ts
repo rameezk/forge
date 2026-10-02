@@ -108,10 +108,12 @@ const describeTicket = (ticket: Ticket): string[] => {
   ];
 };
 
-const describeFrontier = (tickets: Ticket[]): string[] =>
-  tickets.length === 0
+const describeFrontier = (tickets: Ticket[]): string[] => {
+  const frontier = tickets.filter((ticket) => !ticket.blocked);
+  return frontier.length === 0
     ? ['  no tickets on the frontier']
-    : tickets.toSorted(oldestFirst).flatMap(describeTicket);
+    : frontier.toSorted(oldestFirst).flatMap(describeTicket);
+};
 
 const list = async (config: FrontierConfig, poll: Poll): Promise<number> => {
   const groups: string[] = [];

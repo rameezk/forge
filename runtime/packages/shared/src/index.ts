@@ -17,6 +17,7 @@ export type {
   DispatchFailure,
   DispatchOutcome,
   DispatchRecord,
+  DispatchStart,
   DispatchState,
   DispatchTicket,
 } from './dispatch.ts';
@@ -55,18 +56,22 @@ export {
   requestClosingPullRequests,
   requestTicket,
 } from './frontier.ts';
-export { DISPATCH_HEARTBEAT_MS, DISPATCH_STALE_MS } from './dispatch.ts';
+export {
+  DISPATCH_HEARTBEAT_MS,
+  DISPATCH_STALE_MS,
+  FORGE_DONE,
+  FORGE_FAILED,
+  FORGE_READY,
+  FORGE_RUNNING,
+  ticketKey,
+} from './dispatch.ts';
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export { githubWriteToken } from './token.ts';
 export { Store } from './store.ts';
 export { parseTranscript, transcriptLine } from './transcript.ts';
 export {
-  FORGE_DONE,
-  FORGE_FAILED,
-  FORGE_READY,
   FORGE_LABELS,
-  FORGE_RUNNING,
   GITHUB_REST_API,
   ensureLabels,
   relabel,

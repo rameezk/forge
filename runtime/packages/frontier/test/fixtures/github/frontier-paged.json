@@ -13,6 +13,13 @@
               "title": "Frontier sync survives real-world GitHub",
               "url": "https://github.com/rameezk/forge/issues/57",
               "createdAt": "2026-09-28T10:08:01Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  }
+                ]
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },
@@ -26,6 +33,13 @@
               "title": "forge-frontier list shows the frontier on demand",
               "url": "https://github.com/rameezk/forge/issues/58",
               "createdAt": "2026-09-28T10:08:05Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  }
+                ]
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },
@@ -39,6 +53,13 @@
               "title": "Runtime secrets decrypted on the box via sops-nix",
               "url": "https://github.com/rameezk/forge/issues/62",
               "createdAt": "2026-09-28T11:32:23Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  }
+                ]
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },
@@ -66,6 +87,13 @@
               "title": "Hetzner token from sops instead of .env",
               "url": "https://github.com/rameezk/forge/issues/63",
               "createdAt": "2026-09-28T11:32:27Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  }
+                ]
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },
@@ -79,6 +107,13 @@
               "title": "Pinned host key and just ssh",
               "url": "https://github.com/rameezk/forge/issues/64",
               "createdAt": "2026-09-28T11:32:31Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  }
+                ]
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 1
               },
@@ -92,6 +127,13 @@
               "title": "Ship sqlite on the box",
               "url": "https://github.com/rameezk/forge/issues/69",
               "createdAt": "2026-09-28T12:26:51Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  }
+                ]
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },
@@ -119,6 +161,13 @@
               "title": "Billed cost settles after the run",
               "url": "https://github.com/rameezk/forge/issues/70",
               "createdAt": "2026-09-28T12:26:54Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  }
+                ]
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },

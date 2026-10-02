@@ -15,11 +15,13 @@ import {
   Store,
   relabel,
   type DispatchOutcome,
+  type DispatchStart,
   type DispatchTicket,
   type Fetch,
   type TicketState,
 } from '@forge/shared';
 import {
+  maxConcurrentOf,
   resolveWorker,
   type GitIdentity,
   type RepositoryConfig,
@@ -48,6 +50,11 @@ const USAGE = 'usage: forge-dispatch <repository> <issue>';
 const refusal = (ticket: TicketState): string | null =>
   offFrontier(ticket) ??
   (ticket.labels.includes(FORGE_READY) ? null : `it is not labelled ${FORGE_READY}`);
+
+const startRefusal = (start: Exclude<DispatchStart, { started: number }>): string =>
+  start.refused === 'dispatching'
+    ? 'it is already being dispatched'
+    : `${start.live} dispatched ${start.live === 1 ? 'workload is' : 'workloads are'} already running, the most forge.runtime.dispatch.maxConcurrent allows`;
 
 const fillPrompt = (
   template: string,
@@ -205,13 +212,12 @@ export const main = async (
 
     const dispatched = { repository: name, number: ticket.number, url: ticket.url };
     const runId = randomUUID();
-    const dispatchId = store.startDispatch(dispatched, runId, now());
-    if (dispatchId === null) {
-      console.error(
-        `${name}#${ticket.number} is not dispatchable: it is already being dispatched`,
-      );
+    const start = store.startDispatch(dispatched, runId, now(), maxConcurrentOf(config));
+    if ('refused' in start) {
+      console.error(`${name}#${ticket.number} is not dispatchable: ${startRefusal(start)}`);
       return 1;
     }
+    const dispatchId = start.started;
     const heartbeat = setInterval(
       () => store.touchDispatch(dispatchId, now()),
       DISPATCH_HEARTBEAT_MS,
@@ -271,7 +277,7 @@ export const main = async (
         repository.github,
         ticket.number,
         outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,
-        [FORGE_RUNNING],
+        [FORGE_RUNNING, FORGE_READY],
       );
       return launched.run.status === 'error' ? 1 : 0;
     } finally {

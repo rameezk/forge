@@ -95,7 +95,7 @@ const storedFrontier = (stateDir: string) => {
   }
 };
 
-test('given a declared repository whose recorded response holds unblocked and blocked ready-for-agent issues, when sync runs, then the store holds only the unblocked tickets and when the repository was polled', async () => {
+test('given a declared repository whose recorded response holds unblocked ready-for-agent issues and a blocked one labelled forge:ready, when sync runs, then the store holds the unblocked tickets, the blocked one as queued, which are labelled forge:ready, and when the repository was polled', async () => {
   const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
   const github = replaying({ 'rameezk/forge': recorded('frontier') });
 
@@ -116,9 +116,16 @@ test('given a declared repository whose recorded response holds unblocked and bl
       forge.polledAt <= after,
   );
   assert.deepEqual(
-    forge.tickets.map((ticket) => ticket.number),
-    [57, 58, 62, 63, 69, 70],
-    'blocked ticket 64 stays off the frontier',
+    forge.tickets.map(({ number, forgeReady, blocked }) => ({ number, forgeReady, blocked })),
+    [
+      { number: 57, forgeReady: false, blocked: false },
+      { number: 58, forgeReady: false, blocked: false },
+      { number: 62, forgeReady: false, blocked: false },
+      { number: 63, forgeReady: false, blocked: false },
+      { number: 64, forgeReady: true, blocked: true },
+      { number: 69, forgeReady: true, blocked: false },
+      { number: 70, forgeReady: false, blocked: false },
+    ],
   );
   assert.deepEqual(forge.tickets[0], {
     number: 57,
@@ -129,6 +136,8 @@ test('given a declared repository whose recorded response holds unblocked and bl
       title: 'Frontier discovery across managed repositories',
     },
     createdAt: '2026-09-28T10:08:01Z',
+    forgeReady: false,
+    blocked: false,
   });
   assert.deepEqual(
     github.requests.map(({ url, method, authorization, body }) => ({
@@ -223,7 +232,7 @@ test('given a declared repository missing two forge labels and holding one with 
   );
 
   assert.equal(code, 0);
-  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 6);
+  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 7);
   assert.deepEqual(
     github.calls.filter(({ method }) => method !== 'GET'),
     [
@@ -253,12 +262,12 @@ test('given a GitHub write-token file that sets no token, when sync runs, then t
   );
 
   assert.notEqual(code, 0);
-  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 6);
+  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 7);
   assert.deepEqual(github.calls, []);
   assert.deepEqual(stderr, ['forge: could not ensure the forge labels: GitHub write token missing']);
 });
 
-test('given a declared repository whose recorded response spans several pages, when sync runs, then tickets from every page are stored', async () => {
+test('given a declared repository whose recorded response spans several pages, when sync runs, then tickets from every page are stored, and a blocked ticket not labelled forge:ready stays out', async () => {
   const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
   const pages = recorded('frontier-paged');
   const github = replaying({ 'rameezk/forge': pages });
@@ -292,6 +301,8 @@ const staleTicket = (github: string, number: number): Ticket => ({
   url: `https://github.com/${github}/issues/${number}`,
   parent: null,
   createdAt: '2026-09-01T09:00:00Z',
+  forgeReady: false,
+  blocked: false,
 });
 
 test('given two declared repositories with stored snapshots where GitHub now fails for one, when sync runs, then the healthy snapshot is replaced and the failing one keeps its previous tickets and polled time with the error as its last error', async () => {
@@ -327,7 +338,7 @@ test('given two declared repositories with stored snapshots where GitHub now fai
   const [forge, gone] = storedFrontier(stateDir);
   assert.deepEqual(
     forge?.tickets.map((ticket) => ticket.number),
-    [57, 58, 62, 63, 69, 70],
+    [57, 58, 62, 63, 64, 69, 70],
   );
   assert.ok(forge && forge.polledAt !== previousPoll);
   assert.equal(forge.lastError, null);

@@ -79,6 +79,10 @@ _Avoid_: backlog, queue
 Forge picking up a frontier ticket that carries the `forge:ready` label and running a workload against it; the ticket's `forge:*` label tracks the dispatch from claim to outcome (ADR-0016).
 _Avoid_: assignment, scheduling
 
+**Queued**:
+A `ready-for-agent` ticket labelled `forge:ready` that still has open blockers, so it is not yet on the frontier. Forge's frontier snapshot keeps it beside the frontier, the Work page shows it as queued, and the first sync after its last blocker closes dispatches it.
+_Avoid_: pending, waiting
+
 **Operator**:
 A person who stands up and runs their own forge deployment - the reuser of forge, distinct from its author.
 

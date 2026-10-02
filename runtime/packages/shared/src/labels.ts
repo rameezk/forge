@@ -1,11 +1,7 @@
+import { FORGE_DONE, FORGE_FAILED, FORGE_READY, FORGE_RUNNING } from './dispatch.ts';
 import { requireGithubRepository, type Fetch } from './frontier.ts';
 
 export const GITHUB_REST_API = 'https://api.github.com';
-
-export const FORGE_READY = 'forge:ready';
-export const FORGE_RUNNING = 'forge:running';
-export const FORGE_DONE = 'forge:done';
-export const FORGE_FAILED = 'forge:failed';
 
 export interface LabelDefinition {
   name: string;

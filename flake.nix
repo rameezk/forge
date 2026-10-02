@@ -548,12 +548,86 @@
                 forge.github = "rameezk/forge";
               }
           ) "the generated runtime config must carry a repository's worker only when it declares one";
-          dispatchConfigReflectsGitIdentity = lib.asserts.assertMsg (
-            dispatchHost.config.forge.runtime.settings.dispatch == {
+          dispatchConfigReflectsGitIdentity =
+            lib.asserts.assertMsg
+              (
+                dispatchHost.config.forge.runtime.settings.dispatch == {
+                  inherit gitIdentity;
+                  maxConcurrent = 1;
+                }
+                && !(workerAndRepositoryHost.config.forge.runtime.settings ? dispatch)
+              )
+              "the generated runtime config must carry the dispatch git identity and a concurrency limit of 1 by default on a host that dispatches, and no dispatch settings on one that does not";
+          concurrentDispatchHost = dispatchHostWith {
+            dispatch = {
               inherit gitIdentity;
-            }
-            && !(workerAndRepositoryHost.config.forge.runtime.settings ? dispatch)
-          ) "the generated runtime config must carry the dispatch git identity only when it is set";
+              maxConcurrent = 3;
+            };
+          };
+          dispatchConfigReflectsMaxConcurrent =
+            lib.asserts.assertMsg
+              (
+                evaluates concurrentDispatchHost
+                && concurrentDispatchHost.config.forge.runtime.settings.dispatch.maxConcurrent == 3
+                && !(evaluates (dispatchHostWith {
+                  dispatch = {
+                    inherit gitIdentity;
+                    maxConcurrent = 0;
+                  };
+                }))
+              )
+              "a host built with mkHost { modules } that sets dispatch.maxConcurrent must carry it into the runtime config, and a limit below 1 must fail evaluation";
+          passUnit = dispatchHost.config.systemd.services.forge-dispatch-pass;
+          dispatchPassFollowsSync =
+            lib.asserts.assertMsg
+              (
+                lib.elem "forge-dispatch-pass.service" dispatchHostSync.wants
+                && lib.elem "forge-dispatch-pass.service" dispatchHostSync.before
+                && !(lib.elem "forge-dispatch-pass.service" frontierService.wants)
+                && !(workerAndRepositoryHost.config.systemd.services ? forge-dispatch-pass)
+              )
+              "on a host that dispatches, every frontier sync must pull in the dispatch pass and finish before it starts, and a host that does not dispatch must have no pass";
+          dispatchPassStartsUnits =
+            lib.asserts.assertMsg
+              (
+                passUnit.serviceConfig.Type == "oneshot"
+                &&
+                  passUnit.serviceConfig.ExecStart
+                  == "${dispatchHost.config.forge.runtime.package}/bin/forge-dispatch-pass"
+                && passUnit.serviceConfig.User == "forge-runtime"
+                && passUnit.serviceConfig.Group == "forge-runtime"
+                && lib.any (e: lib.hasInfix "FORGE_RUNTIME_CONFIG=" e) passUnit.serviceConfig.Environment
+                && lib.elem "FORGE_STATE_DIR=/var/lib/forge" passUnit.serviceConfig.Environment
+                && lib.elem "FORGE_SYSTEMCTL=${dispatchHost.config.systemd.package}/bin/systemctl" passUnit.serviceConfig.Environment
+                && isHardened passUnit
+                && passUnit.serviceConfig.RestrictAddressFamilies == [ "AF_UNIX" ]
+                && passUnit.serviceConfig.IPAddressDeny == "any"
+                && passUnit.serviceConfig.PrivateNetwork
+                && passUnit.serviceConfig.PrivateDevices
+                && passUnit.serviceConfig.ProtectKernelModules
+                && passUnit.serviceConfig.ProtectKernelLogs
+                && passUnit.serviceConfig.ProtectClock
+                && passUnit.serviceConfig.ProtectHostname
+                && passUnit.serviceConfig.RestrictNamespaces
+                && passUnit.serviceConfig.LockPersonality
+                && passUnit.serviceConfig.CapabilityBoundingSet == ""
+                && passUnit.serviceConfig.SystemCallArchitectures == "native"
+                && passUnit.serviceConfig.SystemCallFilter == [ "@system-service" ]
+                && !(passUnit.serviceConfig ? EnvironmentFile)
+                && !(passUnit.serviceConfig ? LoadCredential)
+              )
+              "the dispatch pass must be a hardened oneshot running forge-dispatch-pass as forge-runtime with systemctl, no network, devices, namespaces, capabilities or secrets, and only the system-service calls: it holds the polkit grant to start forge-dispatch units";
+          dispatchPolkitRule = dispatchHost.config.security.polkit.extraConfig;
+          dispatchPassMayStartOnlyDispatchUnits =
+            lib.asserts.assertMsg
+              (
+                dispatchHost.config.security.polkit.enable
+                && lib.hasInfix ''subject.user == "forge-runtime"'' dispatchPolkitRule
+                && lib.hasInfix ''action.lookup("verb") == "start"'' dispatchPolkitRule
+                && lib.hasInfix ''/^forge-dispatch@(?:forge):[1-9][0-9]*\.service$/'' dispatchPolkitRule
+                && !(lib.hasInfix "forge-runtime" workerAndRepositoryHost.config.security.polkit.extraConfig)
+              )
+              "on a host that dispatches, polkit must let forge-runtime only start forge-dispatch@ units of declared repositories, and a host that does not dispatch must grant it nothing";
           missingGitIdentityFails =
             let
               host = dispatchHostWith { dispatch = { }; };
@@ -815,6 +889,10 @@
           runtime-dispatch =
             assert dispatchConfigReflectsWorker;
             assert dispatchConfigReflectsGitIdentity;
+            assert dispatchConfigReflectsMaxConcurrent;
+            assert dispatchPassFollowsSync;
+            assert dispatchPassStartsUnits;
+            assert dispatchPassMayStartOnlyDispatchUnits;
             assert missingGitIdentityFails;
             assert dispatchHostEvaluates;
             assert placeholderlessWorkerFails;
@@ -829,7 +907,7 @@
             assert noHandPlacedTokens;
             assert dispatchCommandInstalled;
             pkgs.runCommand "runtime-dispatch" { } ''
-              echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command and the GitHub write token from sops, and a worker without a ticket placeholder fails evaluation" > $out
+              echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command, the GitHub write token from sops, and a dispatch pass after every frontier sync that may start only forge-dispatch@ units, bounded by dispatch.maxConcurrent; a worker without a ticket placeholder fails evaluation" > $out
             '';
 
           runtime-billing =
@@ -897,6 +975,12 @@
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
           workload-sandbox = pkgs.callPackage ./infra/nix/workload-sandbox.nix {
+            forge-runner = self.packages.${system}.forge-runner;
+            sopsModule = sops-nix.nixosModules.sops;
+            secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
+          };
+          automatic-dispatch = pkgs.callPackage ./infra/nix/automatic-dispatch.nix {
             forge-runner = self.packages.${system}.forge-runner;
             sopsModule = sops-nix.nixosModules.sops;
             secretsFile = exampleSecretsFile;

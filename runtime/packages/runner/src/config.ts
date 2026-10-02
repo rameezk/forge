@@ -24,7 +24,13 @@ export interface GitIdentity {
 
 export interface DispatchConfig {
   gitIdentity?: GitIdentity;
+  maxConcurrent?: number;
 }
+
+export const DEFAULT_MAX_CONCURRENT = 1;
+
+export const maxConcurrentOf = (config: RuntimeConfig): number =>
+  config.dispatch?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
 
 export interface RuntimeConfig {
   harnesses: Record<string, HarnessConfig>;
