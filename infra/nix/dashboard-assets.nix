@@ -7,10 +7,10 @@
 let
   runtime = "${forge-runner}/lib/forge-runtime";
 in
-runCommand "dashboard-stylesheet"
+runCommand "dashboard-assets"
   {
     nativeBuildInputs = [ curl ];
-    meta.description = "Starts the packaged forge-frontend and checks a page links a content-hashed stylesheet that the dashboard serves as the package's Tailwind build, styling the page's classes, with an immutable cache header, and that the build-only Tailwind toolchain does not ship.";
+    meta.description = "Starts the packaged forge-frontend and checks a page links a content-hashed stylesheet that the dashboard serves as the package's Tailwind build, styling the page's classes, with an immutable cache header, that it loads the packaged idiomorph and live client the same way, and that the build-only Tailwind toolchain does not ship.";
   }
   ''
     fail() { echo "$1"; shift; for file in "$@"; do cat "$file"; done; exit 1; }
@@ -75,5 +75,18 @@ runCommand "dashboard-stylesheet"
     done
     [ "$href" = "/assets/dashboard-$(sha256sum served.css | cut -c1-16).css" ] || fail "the stylesheet path $href does not hash its content"
 
-    echo "the packaged dashboard serves its Tailwind-built stylesheet under a content-hashed, immutable path, without shipping the Tailwind toolchain" > $out
+    script() {
+      name="$1" source="$2"
+      src="$(grep -o "<script src=\"/assets/$name-[^\"]*\" defer>" page.html | sed 's/.*src="//; s/".*//')"
+      [ -n "$src" ] || fail "the Runs page loads no deferred, hashed $name script:" page.html
+      curl -sf -D "$name-headers.txt" "$base$src" -o "$name.js" || fail "the $name script $src is not served"
+      grep -qi '^content-type: text/javascript' "$name-headers.txt" || fail "the $name script is not served as JavaScript:" "$name-headers.txt"
+      grep -qi '^cache-control:.*immutable' "$name-headers.txt" || fail "the $name script is not cached as immutable:" "$name-headers.txt"
+      cmp -s "$name.js" "$source" || fail "the served $name script is not the packaged $source"
+      [ "$src" = "/assets/$name-$(sha256sum "$name.js" | cut -c1-16).js" ] || fail "the $name script path $src does not hash its content"
+    }
+    script idiomorph ${runtime}/node_modules/idiomorph/dist/idiomorph.min.js
+    script live ${runtime}/packages/frontend/assets/live.js
+
+    echo "the packaged dashboard serves its Tailwind-built stylesheet and its live client scripts under content-hashed, immutable paths, without shipping the Tailwind toolchain" > $out
   ''
