@@ -103,6 +103,28 @@ test('given the runs list loaded before its stream connects, when a run is recor
   await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
 });
 
+test('given the runs list open in a browser, when the dashboard starts serving different assets, then the page reloads to pick them up', async ({
+  dashboard,
+  page,
+}) => {
+  await openLive(page, '/');
+  await page.route(
+    '/',
+    async (route) => {
+      if (route.request().resourceType() !== 'fetch') return route.fallback();
+      const response = await route.fetch();
+      const body = (await response.text()).replace(/\/assets\/dashboard-[0-9a-f]+\.css/, '/assets/dashboard-0000000000000000.css');
+      await route.fulfill({ response, body });
+    },
+    { times: 1 },
+  );
+
+  dashboard.store.insertRun(runningRun);
+
+  await expect.poll(() => page.evaluate(() => (globalThis as unknown as { unreloaded?: boolean }).unreloaded)).toBeUndefined();
+  await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
+});
+
 test('given the work page open in a browser, when a frontier poll writes new tickets, then the page shows them without a reload', async ({
   dashboard,
   page,

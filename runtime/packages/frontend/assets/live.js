@@ -6,10 +6,19 @@ const show = (state, text) => {
   indicator.hidden = false;
 };
 
+const assetsOf = (page) =>
+  [...page.querySelectorAll('link[href], script[src]')]
+    .map((element) => element.getAttribute('href') ?? element.getAttribute('src'))
+    .join(' ');
+
 const refresh = async () => {
   const response = await fetch(location.href, { headers: { Accept: 'text/html' }, cache: 'no-store' });
   if (!response.ok) return;
   const next = new DOMParser().parseFromString(await response.text(), 'text/html');
+  if (assetsOf(next) !== assetsOf(document)) {
+    location.reload();
+    return;
+  }
   document.title = next.title;
   Idiomorph.morph(document.body, next.body, {
     morphStyle: 'innerHTML',
