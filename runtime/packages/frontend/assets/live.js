@@ -7,7 +7,7 @@ const show = (state, text) => {
 };
 
 const assetsOf = (page) =>
-  [...page.querySelectorAll('link[href], script[src]')]
+  [...page.querySelectorAll('link[href^="/assets/"], script[src^="/assets/"]')]
     .map((element) => element.getAttribute('href') ?? element.getAttribute('src'))
     .join(' ');
 

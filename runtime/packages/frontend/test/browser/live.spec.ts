@@ -132,6 +132,25 @@ test('given the runs list open in a browser, when the dashboard starts serving d
   await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
 });
 
+test('given the runs list open in a browser with an extension that added its own stylesheet to the page, when a run is recorded, then the table shows it without a reload', async ({
+  dashboard,
+  page,
+}) => {
+  await openLive(page, '/');
+  await page.evaluate(() => {
+    const doc = (globalThis as unknown as { document: { head: { append(node: unknown): void }; createElement(tag: string): { rel: string; href: string } } }).document;
+    const injected = doc.createElement('link');
+    injected.rel = 'stylesheet';
+    injected.href = 'data:text/css,';
+    doc.head.append(injected);
+  });
+
+  dashboard.store.insertRun(runningRun);
+
+  await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
+  await expectNotReloaded(page);
+});
+
 test('given the work page open in a browser, when a frontier poll writes new tickets, then the page shows them without a reload', async ({
   dashboard,
   page,
