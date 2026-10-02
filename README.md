@@ -44,7 +44,7 @@ The operator repository stands the box up with the standup toolchain. On the box
 - a runner runs each workload
 - a billing service settles each run's billed cost
 - a frontier service polls each managed repository's frontier
-- a localhost-only dashboard shows what they record
+- a dashboard, served only on your tailnet, shows what they record
 
 ```mermaid
 flowchart TB
@@ -70,7 +70,7 @@ flowchart TB
     github["<b>GitHub</b><br/>[External system]"]
 
     operator -- "edits" --> oprepo
-    operator -- "views over an SSH tunnel" --> frontend
+    operator -- "views over the tailnet" --> frontend
     oprepo -- "consumes as a flake input" --> library
     oprepo -- "runs" --> toolchain
     toolchain -- "provisions the server" --> hetzner

@@ -1,11 +1,17 @@
 opentofu_dir := "infra/opentofu"
 operator_secrets := "secrets/operator.yaml"
 known_hosts := justfile_directory() / "known_hosts"
+tailnet_join_timeout := "600"
 pinned_host_key := "-o " + quote('UserKnownHostsFile="' + known_hosts + '"') + " -o GlobalKnownHostsFile=/dev/null -o KnownHostsCommand=none -o UpdateHostKeys=no -o StrictHostKeyChecking=yes -o CheckHostIP=no"
 
 standup:
     #!/usr/bin/env bash
     set -euo pipefail
+    join_timeout={{ quote(tailnet_join_timeout) }}
+    if ! [[ "$join_timeout" =~ ^[0-9]+$ ]]; then
+        echo "error: tailnet_join_timeout must be a whole number of seconds, not '${join_timeout}', so standup stopped before creating anything." >&2
+        exit 1
+    fi
     host="$(nix eval --json .#lib.reflect)"
     hostname="$(jq -r '.hostname' <<<"$host")"
     admin_user="$(jq -r '.adminUser' <<<"$host")"
@@ -26,26 +32,34 @@ standup:
         echo "error: OpenTofu applied but reports no server address to install onto." >&2
         exit 1
     fi
-    if {{ quote(just_executable()) }} _connect "$ip" "$hostname" "$ssh_port" "$admin_user" -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR \
-        -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes true </dev/null 2>/dev/null; then
-        echo "error: ${hostname} at ${ip} is already installed, and standup would reformat its disk." >&2
-        echo "  To apply a config change and keep the box's state, run 'just deploy'." >&2
-        echo "  For a fresh box, run 'just teardown' then 'just standup'." >&2
-        exit 1
-    fi
+    logs_in() {
+        {{ quote(just_executable()) }} _connect "$1" "$hostname" "$ssh_port" "$admin_user" -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR \
+            -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes true </dev/null 2>/dev/null
+    }
+    for target in "$hostname" "$ip"; do
+        if logs_in "$target"; then
+            echo "error: ${hostname} is already installed, since an admin login works at ${target}, and standup would reformat its disk." >&2
+            echo "  To apply a config change and keep the box's state, run 'just deploy'." >&2
+            echo "  For a fresh box, run 'just teardown' then 'just standup'." >&2
+            exit 1
+        fi
+    done
     nixos-anywhere --flake ".#${hostname}" --target-host "root@${ip}" --build-on remote --extra-files "$extra_files"
+    deadline=$((SECONDS + 10#$join_timeout))
+    until logs_in "$hostname"; do
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "error: ${hostname} was installed but did not join the tailnet within ${join_timeout} seconds." >&2
+            exit 1
+        fi
+        sleep 5
+    done
 
 deploy:
     #!/usr/bin/env bash
     set -euo pipefail
-    ip="$({{ quote(just_executable()) }} _address)"
-    if [ -z "$ip" ]; then
-        echo "error: no box to deploy to - OpenTofu has no server address. Run 'just standup' to create one." >&2
-        exit 1
-    fi
     host="$(nix eval --json .#lib.reflect)"
     hostname="$(jq -r '.hostname' <<<"$host")"
-    target="$(jq -r '.adminUser' <<<"$host")@${ip}"
+    target="$(jq -r '.adminUser' <<<"$host")@${hostname}"
     NIX_SSHOPTS={{ quote(pinned_host_key) }}" -o HostKeyAlias=${hostname} -p $(jq -r '.sshPort' <<<"$host")" nixos-rebuild switch --flake ".#${hostname}" --target-host "$target" --build-host "$target" --sudo
 
 teardown:
@@ -55,22 +69,17 @@ teardown:
 ssh *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    ip="$({{ quote(just_executable()) }} _address)"
-    if [ -z "$ip" ]; then
-        echo "error: no box to connect to - OpenTofu has no server address. Run 'just standup' to create one." >&2
-        exit 1
-    fi
     host="$(nix eval --json .#lib.reflect)"
     hostname="$(jq -r '.hostname' <<<"$host")"
     admin_user="$(jq -r '.adminUser' <<<"$host")"
     ssh_port="$(jq -r '.sshPort' <<<"$host")"
-    exec {{ quote(just_executable()) }} _connect "$ip" "$hostname" "$ssh_port" "$admin_user" "$@"
+    exec {{ quote(just_executable()) }} _connect "$hostname" "$hostname" "$ssh_port" "$admin_user" "$@"
 
 [positional-arguments]
-_connect $ip $hostname $ssh_port $admin_user *args:
+_connect $target $hostname $ssh_port $admin_user *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    exec ssh {{ pinned_host_key }} -o "HostKeyAlias=${hostname}" -o ControlMaster=no -o ControlPath=none -p "$ssh_port" "${admin_user}@${ip}" "${@:5}"
+    exec ssh {{ pinned_host_key }} -o "HostKeyAlias=${hostname}" -o ControlMaster=no -o ControlPath=none -p "$ssh_port" "${admin_user}@${target}" "${@:5}"
 
 _address:
     #!/usr/bin/env bash

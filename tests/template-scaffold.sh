@@ -134,18 +134,6 @@ else
 	fail=1
 fi
 
-echo "==> case: deploy with no OpenTofu state fails clearly"
-if (cd "$work" && nix develop "${override[@]}" -c just deploy) >"$work/deploy-nostate.log" 2>&1; then
-	echo "FAIL: deploy succeeded with no OpenTofu state"
-	fail=1
-elif grep -qi "no box to deploy to" "$work/deploy-nostate.log"; then
-	echo "ok: deploy with no state exits non-zero, saying there is no box to deploy to"
-else
-	echo "FAIL: deploy failed with no state, but not with a clear no-box message"
-	tail -10 "$work/deploy-nostate.log"
-	fail=1
-fi
-
 echo "==> case: the template consumes forge's toolchain rather than pinning any tool itself"
 if grep -q "forge.lib.operatorToolchain" "$work/flake.nix"; then
 	echo "ok: the operator dev shell consumes forge.lib.operatorToolchain"
@@ -293,6 +281,13 @@ cat >"$fake_bin/ssh" <<'FAKE'
 #!/usr/bin/env bash
 echo "ssh $*" >>"$FAKE_LOG"
 "$REAL_SSH" -F "$HOME/.ssh/config" -G "$@" >"$FAKE_LOG.ssh"
+target="$(awk '$1 == "hostname" { print $2 }' "$FAKE_LOG.ssh")"
+[ -e "$FAKE_LOG.ssh.$target" ] || cp "$FAKE_LOG.ssh" "$FAKE_LOG.ssh.$target"
+case " ${FAKE_REACHABLE:-} " in *" $target "*) exit 0 ;; esac
+if [ "$target" = "$(cat "$FAKE_LOG.joined" 2>/dev/null)" ]; then
+	echo x >>"$FAKE_LOG.probes"
+	[ "$(wc -l <"$FAKE_LOG.probes")" -le "${FAKE_JOIN_AFTER:-0}" ] || exit 0
+fi
 exit 255
 FAKE
 cat >"$fake_bin/nixos-rebuild" <<'FAKE'
@@ -309,6 +304,7 @@ cat >"$fake_bin/nixos-anywhere" <<'FAKE'
 echo "nixos-anywhere HCLOUD_TOKEN=${HCLOUD_TOKEN:-<unset>} $*" >>"$FAKE_LOG"
 while [ $# -gt 0 ]; do
 	if [ "$1" = --extra-files ]; then cp -Rp "$2" "$FAKE_CAPTURE"; fi
+	if [ "$1" = --flake ] && [ -z "${FAKE_NEVER_JOINS:-}" ]; then echo "${2#.#}" >"$FAKE_LOG.joined"; fi
 	shift
 done
 FAKE
@@ -328,7 +324,7 @@ nix_cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 real_ssh="$(PATH="$toolchain_path" command -v ssh)"
 
 just_with_fakes() {
-	rm -rf "$keys/capture" "$keys/fake.log" "$keys/fake.log.ssh"
+	rm -rf "$keys/capture" "$keys/fake.log"*
 	touch "$keys/fake.log"
 	(cd "$work" && env -u HCLOUD_TOKEN HOME="$fake_home" XDG_CACHE_HOME="$nix_cache" \
 		FAKE_LOG="$keys/fake.log" REAL_SSH="$real_ssh" FAKE_CAPTURE="$keys/capture" PATH="$fake_bin:$toolchain_path" just "$@")
@@ -343,11 +339,11 @@ every_tofu_call_holds_the_token() {
 }
 
 pinned_to_repository() {
-	local resolved="$1"
+	local resolved="$1" target="$2"
 	grep -qx "hostkeyalias mybox" "$resolved" &&
 		grep -qx "userknownhostsfile $(cd "$work" && pwd -P)/known_hosts" "$resolved" &&
 		grep -qx "stricthostkeychecking true" "$resolved" &&
-		grep -qx "hostname 203.0.113.10" "$resolved" &&
+		grep -qx "hostname $target" "$resolved" &&
 		grep -qx "user forge" "$resolved" &&
 		grep -qx "port 2222" "$resolved" &&
 		grep -qx "globalknownhostsfile /dev/null" "$resolved" &&
@@ -363,22 +359,22 @@ echo "==> case: just ssh connects to the box pinned to the repository's host key
 scaffold
 fill_operator_repo
 (cd "$work" && nix flake lock "${override[@]}" >/dev/null 2>&1 && git add flake.lock)
-just_with_fakes ssh -N -L 7787:localhost:7787 >"$work/ssh.log" 2>&1 || true
-if [ -f "$keys/fake.log.ssh" ] && pinned_to_repository "$keys/fake.log.ssh" && never_multiplexed "$keys/fake.log.ssh" &&
-	grep -qx "localforward 7787 \[localhost\]:7787" "$keys/fake.log.ssh" && grep -q "^ssh .* -N " "$keys/fake.log"; then
-	echo "ok: just ssh connects as the admin user with the hostname alias, only the repository known_hosts, strict checking and no shared connection, passing extra arguments through"
+just_with_fakes ssh -o ServerAliveInterval=30 uptime >"$work/ssh.log" 2>&1 || true
+if [ -f "$keys/fake.log.ssh" ] && pinned_to_repository "$keys/fake.log.ssh" mybox && never_multiplexed "$keys/fake.log.ssh" &&
+	grep -qx "serveraliveinterval 30" "$keys/fake.log.ssh" && grep -q "^ssh .* uptime$" "$keys/fake.log"; then
+	echo "ok: just ssh connects over the tailnet to the box's hostname as the admin user, with the hostname alias, only the repository known_hosts, strict checking and no shared connection, passing extra arguments through"
 else
-	echo "FAIL: just ssh did not connect pinned to the repository's host key with extra arguments passed through"
+	echo "FAIL: just ssh did not connect over the tailnet pinned to the repository's host key with extra arguments passed through"
 	tail -10 "$work/ssh.log"
-	cat "$keys/fake.log"; grep -iE "hostkeyalias|knownhosts|stricthostkeychecking|^control|^hostname|^user |^port |localforward" "$keys/fake.log.ssh"
+	cat "$keys/fake.log"; grep -iE "hostkeyalias|knownhosts|stricthostkeychecking|^control|^hostname|^user |^port |serveralive" "$keys/fake.log.ssh"
 	fail=1
 fi
 
-echo "==> case: deploy connects to the box pinned to the repository's host key"
-if just_with_fakes deploy >"$work/deploy.log" 2>&1 && pinned_to_repository "$keys/fake.log.ssh"; then
-	echo "ok: every SSH hop deploy makes uses the hostname alias, the repository known_hosts and strict checking"
+echo "==> case: deploy connects to the box over the tailnet pinned to the repository's host key"
+if just_with_fakes deploy >"$work/deploy.log" 2>&1 && pinned_to_repository "$keys/fake.log.ssh" mybox; then
+	echo "ok: every SSH hop deploy makes goes to the box's hostname over the tailnet, with the hostname alias, the repository known_hosts and strict checking"
 else
-	echo "FAIL: deploy's SSH options are not pinned to the repository's host key"
+	echo "FAIL: deploy's SSH hops do not go over the tailnet pinned to the repository's host key"
 	tail -10 "$work/deploy.log"
 	cat "$keys/fake.log"
 	fail=1
@@ -399,25 +395,82 @@ else
 	fail=1
 fi
 
-echo "==> case: standup's already-installed probe is pinned, and only the pre-install connection is not"
-if pinned_to_repository "$keys/fake.log.ssh" && never_multiplexed "$keys/fake.log.ssh" && ! grep "^nixos-anywhere " "$keys/fake.log" | grep -qiE "ssh-option|known_hosts|StrictHostKeyChecking"; then
-	echo "ok: the probe uses the hostname alias, the repository known_hosts and strict checking, and nixos-anywhere keeps its own non-strict defaults"
+echo "==> case: standup's already-installed probes are pinned, and only the pre-install connection is not"
+if pinned_to_repository "$keys/fake.log.ssh.mybox" mybox && never_multiplexed "$keys/fake.log.ssh.mybox" &&
+	pinned_to_repository "$keys/fake.log.ssh.203.0.113.10" 203.0.113.10 && never_multiplexed "$keys/fake.log.ssh.203.0.113.10" &&
+	! grep "^nixos-anywhere " "$keys/fake.log" | grep -qiE "ssh-option|known_hosts|StrictHostKeyChecking"; then
+	echo "ok: the probes over the tailnet and the public IP use the hostname alias, the repository known_hosts and strict checking, and nixos-anywhere keeps its own non-strict defaults"
 else
-	echo "FAIL: standup's probe is not pinned to the repository's host key, or nixos-anywhere was given host key options"
+	echo "FAIL: a standup probe is not pinned to the repository's host key, or nixos-anywhere was given host key options"
 	cat "$keys/fake.log"
 	fail=1
 fi
 
 echo "==> case: standup's probe decides only by connecting, never by a failed lookup"
 rm -f "$keys/output-read"
-if FAKE_OUTPUT_ONCE="$keys/output-read" just_with_fakes standup >"$work/standup-flaky.log" 2>&1 && grep -q "^ssh " "$keys/fake.log"; then
-	echo "ok: the probe connects with the address standup already read"
+if FAKE_OUTPUT_ONCE="$keys/output-read" just_with_fakes standup >"$work/standup-flaky.log" 2>&1 && grep -q "^ssh .* forge@203.0.113.10 " "$keys/fake.log"; then
+	echo "ok: the public IP probe connects with the address standup already read"
 else
 	echo "FAIL: the probe gave up before connecting when a repeated address lookup failed"
 	tail -10 "$work/standup-flaky.log"
 	cat "$keys/fake.log"
 	fail=1
 fi
+
+for installed_at in mybox 203.0.113.10; do
+	echo "==> case: standup refuses a box an admin login already reaches at $installed_at"
+	if FAKE_REACHABLE="$installed_at" just_with_fakes standup >"$work/standup-installed.log" 2>&1; then
+		echo "FAIL: standup succeeded against a box already installed at $installed_at"
+		cat "$keys/fake.log"
+		fail=1
+	elif ! grep -q "just deploy" "$work/standup-installed.log" || ! grep -q "just teardown' then 'just standup" "$work/standup-installed.log"; then
+		echo "FAIL: standup refused a box installed at $installed_at, but without the deploy or teardown then standup guidance"
+		cat "$work/standup-installed.log"
+		fail=1
+	elif grep -q "^nixos-anywhere " "$keys/fake.log"; then
+		echo "FAIL: standup ran nixos-anywhere against a box already installed at $installed_at"
+		fail=1
+	else
+		echo "ok: standup refuses a box installed at $installed_at, pointing to deploy or teardown then standup, and runs no nixos-anywhere"
+	fi
+done
+
+echo "==> case: standup waits until the installed box is reachable over the tailnet"
+if FAKE_JOIN_AFTER=1 just_with_fakes standup >"$work/standup-join.log" 2>&1 &&
+	[ "$(sed -n '/^nixos-anywhere /,$p' "$keys/fake.log" | grep -c "^ssh .* forge@mybox .* true$")" = 2 ]; then
+	echo "ok: after nixos-anywhere, standup keeps trying SSH over the tailnet and succeeds once it connects"
+else
+	echo "FAIL: standup did not wait for SSH over the tailnet to succeed after the install"
+	tail -10 "$work/standup-join.log"
+	cat "$keys/fake.log"
+	fail=1
+fi
+
+echo "==> case: standup fails loudly when the installed box never joins the tailnet"
+if FAKE_NEVER_JOINS=1 just_with_fakes tailnet_join_timeout=1 standup >"$work/standup-no-join.log" 2>&1; then
+	echo "FAIL: standup succeeded though the box never became reachable over the tailnet"
+	fail=1
+elif grep -q "mybox was installed but did not join the tailnet" "$work/standup-no-join.log" && grep -q "^nixos-anywhere " "$keys/fake.log"; then
+	echo "ok: once the wait times out, standup fails saying the installed box did not join the tailnet"
+else
+	echo "FAIL: standup failed, but not by timing out on the tailnet after the install"
+	tail -10 "$work/standup-no-join.log"
+	fail=1
+fi
+
+echo "==> case: standup fails fast, before creating anything, when the tailnet wait is not a whole number of seconds"
+if just_with_fakes tailnet_join_timeout=10m standup >"$work/standup-bad-timeout.log" 2>&1; then
+	echo "FAIL: standup accepted a tailnet wait that is not a whole number of seconds"
+	fail=1
+elif grep -q "tailnet_join_timeout" "$work/standup-bad-timeout.log" && ! grep -q "tofu" "$keys/fake.log"; then
+	echo "ok: standup stopped before OpenTofu, naming tailnet_join_timeout"
+else
+	echo "FAIL: standup did not stop before OpenTofu with an error naming tailnet_join_timeout"
+	tail -10 "$work/standup-bad-timeout.log"
+	cat "$keys/fake.log"
+	fail=1
+fi
+
 just_with_fakes standup >"$work/standup.log" 2>&1
 
 echo "==> case: standup decrypts the Hetzner token for each OpenTofu call from the operator secrets"

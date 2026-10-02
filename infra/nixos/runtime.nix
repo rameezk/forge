@@ -250,7 +250,7 @@ in
     dashboardPort = lib.mkOption {
       type = lib.types.port;
       default = 7787;
-      description = "Localhost TCP port the read-only dashboard binds to; reached over an SSH tunnel, never exposed publicly.";
+      description = "Localhost TCP port the read-only dashboard binds to; reached over the tailnet through tailscale serve, never exposed publicly.";
     };
 
     secretsFile = lib.mkOption {
