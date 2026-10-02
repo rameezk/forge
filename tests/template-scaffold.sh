@@ -314,7 +314,7 @@ FAKE
 cat >"$fake_bin/curl" <<'FAKE'
 #!/usr/bin/env bash
 request="$(cat)"
-echo "curl TAILSCALE_OAUTH_CLIENT_SECRET=${TAILSCALE_OAUTH_CLIENT_SECRET:-<unset>} -- $*" >>"$FAKE_LOG"
+echo "curl HCLOUD_TOKEN=${HCLOUD_TOKEN:-<unset>} TAILSCALE_OAUTH_CLIENT_SECRET=${TAILSCALE_OAUTH_CLIENT_SECRET:-<unset>} -- $*" >>"$FAKE_LOG"
 api=https://api.tailscale.com/api/v2
 method=GET url= previous=
 for arg in "$@"; do
@@ -390,6 +390,10 @@ cat >"$tailnet_devices" <<'JSON'
 	{"nodeId": "nOtherBox", "name": "mybox-1.tail1234.ts.net", "hostname": "mybox", "tags": ["tag:forge"]},
 	{"nodeId": "nLaptop", "name": "laptop.tail1234.ts.net", "hostname": "laptop"}
 ]}
+JSON
+connected_mybox="$keys/connected-devices.json"
+cat >"$connected_mybox" <<'JSON'
+{"devices": [{"nodeId": "nLiveMybox", "name": "mybox.tail1234.ts.net", "hostname": "mybox", "tags": ["tag:forge"], "connectedToControl": true}]}
 JSON
 untagged_mybox="$keys/untagged-devices.json"
 cat >"$untagged_mybox" <<'JSON'
@@ -518,6 +522,20 @@ else
 	fail=1
 fi
 
+echo "==> case: standup refuses, deleting nothing, when the box's tailnet device is still connected"
+if FAKE_DEVICES="$connected_mybox" just_with_fakes standup >"$work/standup-connected.log" 2>&1; then
+	echo "FAIL: standup succeeded though a tag:forge device named mybox is still connected to the tailnet"
+	fail=1
+elif grep -q "still connected" "$work/standup-connected.log" && grep -q "just deploy" "$work/standup-connected.log" &&
+	! grep -q "^tailscale deleted " "$keys/fake.log" && ! grep -q "^nixos-anywhere " "$keys/fake.log"; then
+	echo "ok: standup refused a box whose tailnet device is still connected, though no admin login reached it, pointing to deploy, and deleted no device and ran no nixos-anywhere"
+else
+	echo "FAIL: standup did not refuse a still-connected tailnet device without deleting it or installing"
+	tail -10 "$work/standup-connected.log"
+	cat "$keys/fake.log"
+	fail=1
+fi
+
 echo "==> case: standup stops before installing when the old tailnet device cannot be cleared"
 if FAKE_TAILSCALE_REJECTS=1 just_with_fakes standup >"$work/standup-tailscale-down.log" 2>&1; then
 	echo "FAIL: standup succeeded though the Tailscale API rejected it"
@@ -531,6 +549,24 @@ else
 	cat "$keys/fake.log"
 	fail=1
 fi
+
+echo "==> case: standup stops before installing when the operator secrets lack the device-deletion client"
+jq -n --arg t "$hcloud_token" '{HCLOUD_TOKEN: $t}' | encrypt_secret secrets/operator.yaml
+git -C "$work" add -A
+if just_with_fakes standup >"$work/standup-no-client.log" 2>&1; then
+	echo "FAIL: standup succeeded with no device-deletion client in secrets/operator.yaml"
+	fail=1
+elif grep -q "secrets/operator.yaml" "$work/standup-no-client.log" && grep -q "TAILSCALE_OAUTH_CLIENT_SECRET" "$work/standup-no-client.log" &&
+	! grep -q "^nixos-anywhere " "$keys/fake.log"; then
+	echo "ok: standup stopped before nixos-anywhere, naming the missing Tailscale OAuth client keys in secrets/operator.yaml"
+else
+	echo "FAIL: standup did not stop before installing with an error naming the missing keys in secrets/operator.yaml"
+	tail -10 "$work/standup-no-client.log"
+	cat "$keys/fake.log"
+	fail=1
+fi
+write_operator_secret
+git -C "$work" add -A
 
 echo "==> case: standup waits until the installed box is reachable over the tailnet"
 if FAKE_JOIN_AFTER=1 just_with_fakes standup >"$work/standup-join.log" 2>&1 &&
@@ -568,7 +604,7 @@ else
 	fail=1
 fi
 
-just_with_fakes standup >"$work/standup.log" 2>&1
+FAKE_DEVICES="$tailnet_devices" just_with_fakes standup >"$work/standup.log" 2>&1
 
 echo "==> case: standup decrypts the Hetzner token for each OpenTofu call from the operator secrets"
 if every_tofu_call_holds_the_token "-chdir=infra/opentofu init" "-chdir=infra/opentofu apply" "-chdir=infra/opentofu output"; then
@@ -587,12 +623,12 @@ else
 fi
 
 echo "==> case: the device-deletion credential reaches only the Tailscale API calls"
-if grep -q "^curl TAILSCALE_OAUTH_CLIENT_SECRET=${tailscale_client_secret} " "$keys/fake.log" &&
-	! grep "^curl " "$keys/fake.log" | grep -v "^curl TAILSCALE_OAUTH_CLIENT_SECRET=${tailscale_client_secret} " | grep -q . &&
-	! grep "^curl " "$keys/fake.log" | sed 's/^[^ ]* [^ ]* -- //' | grep -qF "$tailscale_client_secret" &&
+if grep -q "^tailscale deleted " "$keys/fake.log" &&
+	! grep "^curl " "$keys/fake.log" | grep -v "^curl HCLOUD_TOKEN=<unset> TAILSCALE_OAUTH_CLIENT_SECRET=${tailscale_client_secret} " | grep -q . &&
+	! grep "^curl " "$keys/fake.log" | sed 's/^[^ ]* [^ ]* [^ ]* -- //' | grep -qF "$tailscale_client_secret" &&
 	! grep -E "^(tofu|nixos-anywhere) " "$keys/fake.log" | grep -qF "$tailscale_client_secret" &&
 	! grep -rqF "$tailscale_client_secret" "$keys/capture"; then
-	echo "ok: only the Tailscale API calls held the device-deletion secret, off their command line, and OpenTofu, nixos-anywhere and the files handed to the box never saw it"
+	echo "ok: only the Tailscale API calls held the device-deletion secret, off their command line and without the Hetzner token, and OpenTofu, nixos-anywhere and the files handed to the box never saw it"
 else
 	echo "FAIL: the device-deletion secret reached something other than the Tailscale API calls, or their command line"
 	cat "$keys/fake.log"
@@ -611,11 +647,11 @@ else
 fi
 
 echo "==> case: teardown deletes the box's tailnet device once OpenTofu destroys the server"
-if FAKE_DEVICES="$tailnet_devices" just_with_fakes teardown >"$work/teardown-device.log" 2>&1 &&
-	[ "$(grep "^tailscale deleted " "$keys/fake.log")" = "tailscale deleted nOldMybox" ] &&
+if FAKE_DEVICES="$connected_mybox" just_with_fakes teardown >"$work/teardown-device.log" 2>&1 &&
+	[ "$(grep "^tailscale deleted " "$keys/fake.log")" = "tailscale deleted nLiveMybox" ] &&
 	logged_before "^tofu .* -chdir=infra/opentofu destroy" "^tailscale deleted " &&
 	! grep "^tofu " "$keys/fake.log" | grep -qF "$tailscale_client_secret"; then
-	echo "ok: teardown destroyed the server and then deleted the tag:forge device named mybox, keeping the deletion secret from OpenTofu"
+	echo "ok: teardown destroyed the server and then deleted the tag:forge device named mybox, even while it still showed as connected, keeping the deletion secret from OpenTofu"
 else
 	echo "FAIL: teardown did not delete the box's tailnet device after destroying the server"
 	tail -10 "$work/teardown-device.log"

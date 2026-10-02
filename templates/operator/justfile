@@ -45,9 +45,8 @@ standup:
             exit 1
         fi
     done
-    if ! {{ quote(just_executable()) }} _forget_tailnet_device "$hostname"; then
-        echo "error: could not delete the old ${hostname} device from the tailnet, so standup stopped before installing." >&2
-        echo "  Check TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET in {{ operator_secrets }}." >&2
+    if ! {{ quote(just_executable()) }} _forget_tailnet_device "$hostname" refuse; then
+        echo "error: the old ${hostname} device was not deleted from the tailnet, so standup stopped before installing." >&2
         exit 1
     fi
     nixos-anywhere --flake ".#${hostname}" --target-host "root@${ip}" --build-on remote --extra-files "$extra_files"
@@ -73,9 +72,8 @@ teardown:
     set -euo pipefail
     hostname="$(nix eval --raw .#lib.reflect.hostname)"
     sops exec-env --same-process {{ operator_secrets }} '{{ tofu }} destroy'
-    if ! {{ quote(just_executable()) }} _forget_tailnet_device "$hostname"; then
-        echo "error: the server is destroyed, but its ${hostname} device could not be deleted from the tailnet." >&2
-        echo "  Check TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET in {{ operator_secrets }}, then run 'just teardown' again." >&2
+    if ! {{ quote(just_executable()) }} _forget_tailnet_device "$hostname" delete; then
+        echo "error: the server is destroyed, but its ${hostname} device was not deleted from the tailnet. Run 'just teardown' again once that is fixed." >&2
         exit 1
     fi
 
@@ -95,23 +93,34 @@ _connect $target $hostname $ssh_port $admin_user *args:
     set -euo pipefail
     exec ssh {{ pinned_host_key }} -o "HostKeyAlias=${hostname}" -o ControlMaster=no -o ControlPath=none -p "$ssh_port" "${admin_user}@${target}" "${@:5}"
 
-_forget_tailnet_device $hostname:
-    sops exec-env --same-process {{ operator_secrets }} {{ quote(quote(just_executable()) + ' _delete_tailnet_device "$hostname"') }}
+_forget_tailnet_device $hostname $if_connected:
+    sops exec-env --same-process {{ operator_secrets }} {{ quote("env -u HCLOUD_TOKEN " + quote(just_executable()) + ' _delete_tailnet_device "$hostname" "$if_connected"') }}
 
-_delete_tailnet_device $hostname:
+_delete_tailnet_device $hostname $if_connected:
     #!/usr/bin/env bash
     set -euo pipefail
     api=https://api.tailscale.com/api/v2
+    refused() {
+        echo "error: the Tailscale API refused to clear the old ${hostname} device." >&2
+        echo "  Check TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET in {{ operator_secrets }}." >&2
+        exit 1
+    }
     access_token="$(printf '%s' "$TAILSCALE_OAUTH_CLIENT_SECRET" |
         curl -fsS --data-urlencode "client_id=${TAILSCALE_OAUTH_CLIENT_ID}" --data-urlencode client_secret@- "$api/oauth/token" |
-        jq -er '.access_token')"
+        jq -er '.access_token')" || refused
     tailscale_api() {
         printf 'header = "Authorization: Bearer %s"\n' "$access_token" | curl -fsS --config - "$@"
     }
-    devices="$(tailscale_api "$api/tailnet/-/devices")"
-    node_ids="$(jq -r --arg hostname "$hostname" '.devices[] | select(any(.tags[]?; . == "tag:forge") and (.name | split(".")[0]) == $hostname) | .nodeId' <<<"$devices")"
-    for node_id in $node_ids; do
-        tailscale_api -X DELETE "$api/device/${node_id}" >/dev/null
+    devices="$(tailscale_api "$api/tailnet/-/devices" |
+        jq -c --arg hostname "$hostname" '[.devices[] | select(any(.tags[]?; . == "tag:forge") and (.name | split(".")[0]) == $hostname)]')" || refused
+    if [ "$if_connected" = refuse ] && jq -e 'any(.[]; .connectedToControl == true)' <<<"$devices" >/dev/null; then
+        echo "error: the ${hostname} device is still connected to the tailnet, so it may be a running box and was not deleted." >&2
+        echo "  To apply a config change and keep the box's state, run 'just deploy'." >&2
+        echo "  If its old server was just destroyed, wait a minute for the device to go offline, then try again." >&2
+        exit 1
+    fi
+    for node_id in $(jq -r '.[].nodeId' <<<"$devices"); do
+        tailscale_api -X DELETE "$api/device/${node_id}" >/dev/null || refused
         echo "Deleted the old ${hostname} device ${node_id} from the tailnet."
     done
 

@@ -175,8 +175,10 @@ tailnet.
    Every standup installs onto a clean disk, so the box joins the tailnet as a
    new device. Before installing, standup deletes any `tag:forge` device
    already named after your `hostname`, so the new box keeps that name rather
-   than becoming `<hostname>-1`. If the Tailscale API refuses the deletion,
-   standup stops before installing.
+   than becoming `<hostname>-1`. If that device is still connected to the
+   tailnet, it may be your running box, so standup deletes nothing and stops
+   before installing, even when it could not log in to the box. It stops the
+   same way if the Tailscale API refuses the deletion.
 
    After the install, standup waits until it can log in to the box over the
    tailnet, and fails, saying the box did not join the tailnet, if that takes
@@ -291,8 +293,9 @@ changes your tailnet's policy or its OAuth clients.
    so the box never holds a credential that can delete devices. On the same
    Trust credentials page, select **Credential**, then **OAuth** again. Give it
    the `devices:core` scope with write access and the `tag:forge` tag, which
-   limits it to `tag:forge` devices, then generate it and copy both the client
-   ID and the client secret.
+   Tailscale requires for that scope, then generate it and copy both the client
+   ID and the client secret. Forge deletes only a `tag:forge` device named
+   after your `hostname` with it.
 
 6. Add both to `secrets/operator.yaml`. On a first run, the secrets step of
    [First run](#first-run) does this when it creates the file. In a repository
