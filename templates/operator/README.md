@@ -370,12 +370,14 @@ the missing key, if a token your repositories need is not there.
   read the frontier with it.
 - `github_write_token`, needed when a repository declares a worker: a
   separate fine-grained personal access token with read and write access on
-  Contents, Pull requests and Issues. It must cover **every** declared
-  repository, not only those with a worker, because each frontier sync makes
-  sure all of them have the `forge:*` labels. Forge also uses it to move
-  dispatched tickets through those labels, and the dispatched agent gets it
-  as `GITHUB_TOKEN`, so the repository's skills can push branches and open
-  pull requests.
+  Contents, Pull requests, Issues and Workflows. GitHub rejects any push that
+  adds or changes a file under `.github/workflows/` from a token without
+  Workflows, so a run that sets up CI cannot push. It must cover **every**
+  declared repository, not only those with a worker, because each frontier
+  sync makes sure all of them have the `forge:*` labels. Forge also uses it
+  to move dispatched tickets through those labels, and the dispatched agent
+  gets it as `GITHUB_TOKEN`, so the repository's skills can push branches and
+  open pull requests.
 
 ```yaml
 tailscale_auth_key: <the box's OAuth client secret>
@@ -385,7 +387,8 @@ github_write_token: <your GitHub write token>
 ```
 
 A run can use the write token for anything it allows in every managed
-repository, so protect each default branch and give the token a short expiry.
+repository, including changing CI workflows, so protect each default branch
+and give the token a short expiry.
 No forge service can read the decrypted secrets on the box; each gets only
 the tokens it uses, from systemd. A workload's agent runs in a sandbox that
 sees neither the secrets nor any other process, so it holds only what forge
