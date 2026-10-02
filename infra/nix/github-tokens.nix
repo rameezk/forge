@@ -108,6 +108,7 @@ testers.runNixOSTest {
 
     with subtest("the units that do not use a token cannot read either"):
         box.succeed("systemctl start forge-runner@builder.service forge-billing.service")
+        box.wait_for_file("/var/lib/forge/forge-dispatch-pass.out")
         for name in ["forge-run-builder", "forge-billing", "forge-frontend", "forge-dispatch-pass"]:
             assert probe(name) == denied, (name, probe(name))
 

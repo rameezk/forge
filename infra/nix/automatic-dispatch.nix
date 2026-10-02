@@ -92,13 +92,17 @@ testers.runNixOSTest {
   testScript = ''
     as_runtime = "runuser -u forge-runtime -- systemctl --no-ask-password"
 
+    def wait_until_ended(unit):
+        box.wait_until_succeeds(f"test \"$(systemctl show -P ExecMainExitTimestampMonotonic {unit})\" != 0")
+        assert box.succeed(f"systemctl show -P Result {unit}").strip() == "success", unit
+
     box.wait_for_unit("multi-user.target")
 
     with subtest("a frontier sync is followed by a pass that dispatches only the forge:ready frontier ticket, through its forge-dispatch unit"):
         box.succeed("systemctl start forge-frontier-sync.service")
-        box.wait_until_succeeds("test \"$(systemctl show -P Result forge-dispatch@forge:13.service)\" = success")
+        wait_until_ended("forge-dispatch-pass.service")
+        wait_until_ended("forge-dispatch@forge:13.service")
         assert box.succeed("cat /var/lib/forge/dispatched-forge-13").strip() == "forge 13"
-        assert box.succeed("systemctl show -P Result forge-dispatch-pass.service").strip() == "success"
         box.fail("test -e /var/lib/forge/dispatched-forge-14")
         box.fail("test -e /var/lib/forge/dispatched-forge-15")
 
