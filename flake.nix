@@ -817,9 +817,10 @@
               (
                 runnerUnit.serviceConfig.IPAddressDeny == tailnetAddresses
                 && dispatchUnit.serviceConfig.IPAddressDeny == tailnetAddresses
+                && workerHost.config.systemd.services.nix-daemon.serviceConfig.IPAddressDeny == tailnetAddresses
                 && lib.elem "--accept-dns=false" tailscale.extraUpFlags
               )
-              "a workload must not reach the tailnet: the runner and dispatch units deny every tailnet address, and the box keeps its own DNS rather than the tailnet's resolver, so workloads still resolve names";
+              "a workload must not reach the tailnet: the runner and dispatch units, and the nix daemon whose builds a workload can start, deny every tailnet address, and the box keeps its own DNS rather than the tailnet's resolver, so workloads still resolve names";
           tailnetDirect = lib.asserts.assertMsg (lib.elem 41641 nixos.config.networking.firewall.allowedUDPPorts) "public UDP 41641 must be open, so the operator's devices can connect to the box directly";
         in
         {
@@ -839,7 +840,7 @@
             assert tailnetDirect;
             assert workloadsOffTailnet;
             pkgs.runCommand "box-tailnet" { } ''
-              echo "every box joins the tailnet as tag:forge under its config hostname with tailscale_auth_key from the runtime secrets file, with public UDP 41641 open for direct connections" > $out
+              echo "every box joins the tailnet as tag:forge under its config hostname with tailscale_auth_key from the runtime secrets file, with public UDP 41641 open for direct connections, while workloads and the builds they start reach no tailnet address and the box keeps its own DNS" > $out
             '';
 
           runtime-foundation =
