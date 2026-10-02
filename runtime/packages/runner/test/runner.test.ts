@@ -224,8 +224,8 @@ test('given a harness emitting a multi-event stream, when the worker runs, then 
     newId: () => 'run-1',
   });
 
-  assert.deepEqual(seenCounts, [1, 2]);
-  assert.deepEqual(transcripts.events('run-1'), events);
+  assert.deepEqual(seenCounts, [2, 3]);
+  assert.deepEqual(transcripts.events('run-1').slice(1), events);
   assert.equal(transcripts.closed('run-1'), true);
   assert.equal(store.getRun(id)?.transcriptRef, 'run-1.jsonl');
 });
@@ -247,4 +247,29 @@ test('given a worker with no reasoning effort declared, when it runs, then the h
 
   assert.equal(harness.invocations[0]?.reasoningEffort, undefined);
   assert.equal('reasoningEffort' in (harness.invocations[0] ?? {}), false);
+});
+
+test('given a worker whose prompt contains a secret, when it is run, then the first transcript event is the prompt as a user message with the secret redacted', async () => {
+  const store = Store.open(':memory:');
+  const transcripts = arrayTranscripts();
+  await runWorkload({
+    store,
+    harness: fakeHarness([message(), result({ status: 'success' })]),
+    worker: aWorker({ prompt: '/work-on https://example.test/1 sk-or-secret' }),
+    openTranscript: transcripts.open,
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
+    now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
+    newId: () => 'run-1',
+    secrets: ['sk-or-secret'],
+  });
+
+  const [first, second] = transcripts.events('run-1');
+  assert.deepEqual(first, {
+    type: 'message',
+    role: 'user',
+    text: '/work-on https://example.test/1 [redacted]',
+    usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    generationId: null,
+  });
+  assert.equal(second?.type, 'message');
 });

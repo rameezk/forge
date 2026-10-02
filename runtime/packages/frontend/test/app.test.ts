@@ -916,3 +916,26 @@ test('given a running run whose subagent has only billed generations so far, whe
 
   assert.match(textOf(headerOf(subagentCalls(body)[0] ?? '')), /pending/);
 });
+
+test('given a run whose transcript starts with a markdown prompt, when its run page is viewed, then a Prompt card renders first as markdown', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'user', text: 'Please **build** it', usage, generationId: null },
+    { type: 'message', role: 'assistant', text: 'on it', usage, generationId: null },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const transcript = body.slice(body.indexOf('Transcript</h2>'));
+  const first = transcript.match(/<article[^>]*>[\s\S]*?<\/article>/)?.[0] ?? '';
+  assert.match(first, /data-message="prompt"/);
+  assert.match(first, /<header[^>]*>Prompt<\/header>/);
+  assert.match(first, /<strong>build<\/strong>/);
+});
+
+test('given a run recorded without a prompt event, when its run page is viewed, then no prompt card is shown', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'hello', usage, generationId: null },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  assert.doesNotMatch(body, /data-message="prompt"/);
+});

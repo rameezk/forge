@@ -528,7 +528,7 @@ test('given a recorded run with two parallel subagent calls, when the transcript
     output: fixture('subagents.jsonl'),
   });
 
-  const messages = parseTranscript(transcript).filter(
+  const messages = parseTranscript(transcript).slice(1).filter(
     (event): event is MessageEvent => event.type === 'message',
   );
   const textsIn = (scope: string | undefined) =>
@@ -1586,4 +1586,19 @@ test('given a runner whose subagent extension, read-only agent dir, bubblewrap o
     );
     assert.deepEqual(readdirSync(stateDir), ['runtime.json']);
   }
+});
+
+test('given a worker whose prompt contains the OpenRouter key, when it runs against the recorded pi, then the first transcript event is the prompt as a user message with the key redacted', async () => {
+  const { transcript } = await runWorker({
+    output: fixture('success.jsonl'),
+    worker: { prompt: `refine the spec with ${OPENROUTER_KEY}` },
+  });
+
+  const [first] = parseTranscript(transcript);
+  assert.equal(first?.type, 'message');
+  assert.equal(first?.type === 'message' && first.role, 'user');
+  assert.equal(
+    first?.type === 'message' && first.text,
+    'refine the spec with [redacted]',
+  );
 });
