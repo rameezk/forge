@@ -18,9 +18,9 @@ const runOfDetailPage = (page: string): string | undefined => {
   }
 };
 
-interface Watch {
-  version: () => string;
-  finished: () => boolean;
+interface Check {
+  version: string;
+  finished: boolean;
 }
 
 export interface AppOptions {
@@ -81,49 +81,43 @@ export const createApp = ({
       .update(await (await app.request(page)).text())
       .digest('hex');
 
-  const transcriptSize = (runId: string): number | undefined => {
-    const ref = store.getRun(runId)?.transcriptRef ?? null;
-    return ref === null ? undefined : transcripts.size(ref);
-  };
-
-  const watch = (page: string | undefined): Watch | undefined => {
+  const watch = (page: string | undefined): (() => Check) | undefined => {
     if (page === undefined) return undefined;
-    if (NAV_PAGES.has(page)) return { version: () => String(store.dataVersion()), finished: () => false };
+    if (NAV_PAGES.has(page)) return () => ({ version: String(store.dataVersion()), finished: false });
     const runId = runOfDetailPage(page);
     if (runId === undefined || store.getRun(runId) === undefined) return undefined;
-    return {
-      version: () => JSON.stringify([store.dataVersion(), transcriptSize(runId)]),
-      finished: () => {
-        const run = store.getRun(runId);
-        return run !== undefined && isSettled(run);
-      },
+    return () => {
+      const run = store.getRun(runId);
+      const ref = run?.transcriptRef ?? null;
+      return {
+        version: JSON.stringify([store.dataVersion(), ref === null ? undefined : transcripts.size(ref)]),
+        finished: run !== undefined && isSettled(run),
+      };
     };
   };
 
   app.get('/events', (c) => {
     const page = c.req.query('page');
-    const watched = watch(page);
-    if (page === undefined || watched === undefined) return c.notFound();
+    const check = watch(page);
+    if (page === undefined || check === undefined) return c.notFound();
     return streamSSE(c, async (stream) => {
       const signal = () => stream.writeSSE({ event: 'change', data: page });
-      let version = watched.version();
+      let checked = check();
       let sent = await renderedHash(page);
       await signal();
-      for (;;) {
-        if (watched.finished()) {
-          await stream.writeSSE({ event: 'done', data: page });
-          return;
-        }
+      while (!checked.finished) {
         await stream.sleep(checkIntervalMs);
         if (stream.aborted) return;
-        const current = watched.version();
-        if (current === version) continue;
-        version = current;
+        const current = check();
+        const moved = current.version !== checked.version;
+        checked = current;
+        if (!moved) continue;
         const hash = await renderedHash(page);
         if (hash === sent) continue;
         sent = hash;
         await signal();
       }
+      await stream.writeSSE({ event: 'done', data: page });
     });
   });
 

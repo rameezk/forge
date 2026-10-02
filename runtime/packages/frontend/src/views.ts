@@ -638,6 +638,7 @@ export const renderDetail = (
   generations: GenerationRecord[],
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const live = !isSettled(run);
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
     <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
     <dl class="m-0 mb-4 grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[0.9rem]">
@@ -665,8 +666,8 @@ export const renderDetail = (
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
       : html`<div class="${STACK}">${renderTranscript(events, generations, run.status)}</div>`}
-    ${isSettled(run) ? '' : html`<button type="button" id="new-activity" hidden class="${NEW_ACTIVITY}">↓ New activity</button>`}`;
-  return layout(run.worker, null, !isSettled(run), assets, body);
+    ${live ? html`<button type="button" id="new-activity" hidden class="${NEW_ACTIVITY}">↓ New activity</button>` : ''}`;
+  return layout(run.worker, null, live, assets, body);
 };
 
 const renderSpec = (parent: SpecRef | null): Rendered =>
