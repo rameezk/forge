@@ -218,7 +218,9 @@ tailnet.
    ```
 
    Once OpenTofu has destroyed the server, teardown deletes the box's device
-   from the tailnet too.
+   from the tailnet too. If OpenTofu had no server to destroy, teardown leaves
+   the device alone while it is still connected, since it may be a running box
+   that OpenTofu has lost track of.
 
 ## Tailnet setup
 

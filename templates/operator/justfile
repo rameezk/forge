@@ -71,8 +71,12 @@ teardown:
     #!/usr/bin/env bash
     set -euo pipefail
     hostname="$(nix eval --raw .#lib.reflect.hostname)"
+    if_connected=refuse
+    if [ -n "$({{ quote(just_executable()) }} _address)" ]; then
+        if_connected=delete
+    fi
     sops exec-env --same-process {{ operator_secrets }} '{{ tofu }} destroy'
-    if ! {{ quote(just_executable()) }} _forget_tailnet_device "$hostname" delete; then
+    if ! {{ quote(just_executable()) }} _forget_tailnet_device "$hostname" "$if_connected"; then
         echo "error: the server is destroyed, but its ${hostname} device was not deleted from the tailnet. Run 'just teardown' again once that is fixed." >&2
         exit 1
     fi
@@ -101,7 +105,7 @@ _delete_tailnet_device $hostname $if_connected:
     set -euo pipefail
     api=https://api.tailscale.com/api/v2
     refused() {
-        echo "error: the Tailscale API refused to clear the old ${hostname} device." >&2
+        echo "error: the old ${hostname} device could not be cleared through the Tailscale API." >&2
         echo "  Check TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET in {{ operator_secrets }}." >&2
         exit 1
     }
@@ -113,9 +117,10 @@ _delete_tailnet_device $hostname $if_connected:
     }
     devices="$(tailscale_api "$api/tailnet/-/devices" |
         jq -c --arg hostname "$hostname" '[.devices[] | select(any(.tags[]?; . == "tag:forge") and (.name | split(".")[0]) == $hostname)]')" || refused
-    if [ "$if_connected" = refuse ] && jq -e 'any(.[]; .connectedToControl == true)' <<<"$devices" >/dev/null; then
+    if [ "$if_connected" != delete ] && jq -e 'any(.[]; .connectedToControl != false)' <<<"$devices" >/dev/null; then
         echo "error: the ${hostname} device is still connected to the tailnet, so it may be a running box and was not deleted." >&2
         echo "  To apply a config change and keep the box's state, run 'just deploy'." >&2
+        echo "  For a fresh box, run 'just teardown' then 'just standup'." >&2
         echo "  If its old server was just destroyed, wait a minute for the device to go offline, then try again." >&2
         exit 1
     fi

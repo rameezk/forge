@@ -266,6 +266,7 @@ cat >"$fake_bin/tofu" <<'FAKE'
 #!/usr/bin/env bash
 echo "tofu HCLOUD_TOKEN=${HCLOUD_TOKEN:-<unset>} TAILSCALE_OAUTH_CLIENT_SECRET=${TAILSCALE_OAUTH_CLIENT_SECRET:-<unset>} $*" >>"$FAKE_LOG"
 case " $* " in *" output "*)
+	if [ -n "${FAKE_NO_SERVER:-}" ]; then echo '{}'; exit 0; fi
 	if [ -n "${FAKE_OUTPUT_ONCE:-}" ] && [ -e "$FAKE_OUTPUT_ONCE" ]; then exit 1; fi
 	[ -z "${FAKE_OUTPUT_ONCE:-}" ] || touch "$FAKE_OUTPUT_ONCE"
 	echo '{"server_ipv4":{"value":"203.0.113.10"}}'
@@ -386,14 +387,18 @@ pinned_to_repository() {
 tailnet_devices="$keys/devices.json"
 cat >"$tailnet_devices" <<'JSON'
 {"devices": [
-	{"nodeId": "nOldMybox", "name": "mybox.tail1234.ts.net", "hostname": "mybox", "tags": ["tag:forge"]},
-	{"nodeId": "nOtherBox", "name": "mybox-1.tail1234.ts.net", "hostname": "mybox", "tags": ["tag:forge"]},
-	{"nodeId": "nLaptop", "name": "laptop.tail1234.ts.net", "hostname": "laptop"}
+	{"nodeId": "nOldMybox", "name": "mybox.tail1234.ts.net", "hostname": "mybox", "tags": ["tag:forge"], "connectedToControl": false},
+	{"nodeId": "nOtherBox", "name": "mybox-1.tail1234.ts.net", "hostname": "mybox", "tags": ["tag:forge"], "connectedToControl": true},
+	{"nodeId": "nLaptop", "name": "laptop.tail1234.ts.net", "hostname": "laptop", "connectedToControl": true}
 ]}
 JSON
 connected_mybox="$keys/connected-devices.json"
 cat >"$connected_mybox" <<'JSON'
 {"devices": [{"nodeId": "nLiveMybox", "name": "mybox.tail1234.ts.net", "hostname": "mybox", "tags": ["tag:forge"], "connectedToControl": true}]}
+JSON
+unknown_mybox="$keys/unknown-devices.json"
+cat >"$unknown_mybox" <<'JSON'
+{"devices": [{"nodeId": "nUnknownMybox", "name": "mybox.tail1234.ts.net", "hostname": "mybox", "tags": ["tag:forge"]}]}
 JSON
 untagged_mybox="$keys/untagged-devices.json"
 cat >"$untagged_mybox" <<'JSON'
@@ -522,19 +527,22 @@ else
 	fail=1
 fi
 
-echo "==> case: standup refuses, deleting nothing, when the box's tailnet device is still connected"
-if FAKE_DEVICES="$connected_mybox" just_with_fakes standup >"$work/standup-connected.log" 2>&1; then
-	echo "FAIL: standup succeeded though a tag:forge device named mybox is still connected to the tailnet"
-	fail=1
-elif grep -q "still connected" "$work/standup-connected.log" && grep -q "just deploy" "$work/standup-connected.log" &&
-	! grep -q "^tailscale deleted " "$keys/fake.log" && ! grep -q "^nixos-anywhere " "$keys/fake.log"; then
-	echo "ok: standup refused a box whose tailnet device is still connected, though no admin login reached it, pointing to deploy, and deleted no device and ran no nixos-anywhere"
-else
-	echo "FAIL: standup did not refuse a still-connected tailnet device without deleting it or installing"
-	tail -10 "$work/standup-connected.log"
-	cat "$keys/fake.log"
-	fail=1
-fi
+for devices in "$connected_mybox" "$unknown_mybox"; do
+	echo "==> case: standup refuses, deleting nothing, when the box's tailnet device may still be connected ($(basename "$devices"))"
+	if FAKE_DEVICES="$devices" just_with_fakes standup >"$work/standup-connected.log" 2>&1; then
+		echo "FAIL: standup succeeded though a tag:forge device named mybox may still be connected to the tailnet"
+		fail=1
+	elif grep -q "still connected" "$work/standup-connected.log" && grep -q "just deploy" "$work/standup-connected.log" &&
+		grep -q "just teardown' then 'just standup" "$work/standup-connected.log" &&
+		! grep -q "^tailscale deleted " "$keys/fake.log" && ! grep -q "^nixos-anywhere " "$keys/fake.log"; then
+		echo "ok: standup refused a box whose tailnet device is not known to be offline, though no admin login reached it, pointing to deploy or teardown then standup, and deleted no device and ran no nixos-anywhere"
+	else
+		echo "FAIL: standup did not refuse a tailnet device that may still be connected without deleting it or installing"
+		tail -10 "$work/standup-connected.log"
+		cat "$keys/fake.log"
+		fail=1
+	fi
+done
 
 echo "==> case: standup stops before installing when the old tailnet device cannot be cleared"
 if FAKE_TAILSCALE_REJECTS=1 just_with_fakes standup >"$work/standup-tailscale-down.log" 2>&1; then
@@ -655,6 +663,19 @@ if FAKE_DEVICES="$connected_mybox" just_with_fakes teardown >"$work/teardown-dev
 else
 	echo "FAIL: teardown did not delete the box's tailnet device after destroying the server"
 	tail -10 "$work/teardown-device.log"
+	cat "$keys/fake.log"
+	fail=1
+fi
+
+echo "==> case: teardown with no server in its OpenTofu state leaves a connected tailnet device"
+if FAKE_NO_SERVER=1 FAKE_DEVICES="$connected_mybox" just_with_fakes teardown >"$work/teardown-no-server.log" 2>&1; then
+	echo "FAIL: teardown succeeded though it destroyed no server and the box's tailnet device is still connected"
+	fail=1
+elif grep -q "still connected" "$work/teardown-no-server.log" && ! grep -q "^tailscale deleted " "$keys/fake.log"; then
+	echo "ok: with no server in its state, teardown refused to delete the still-connected device named mybox"
+else
+	echo "FAIL: teardown with no server in its state did not refuse to delete the still-connected device"
+	tail -10 "$work/teardown-no-server.log"
 	cat "$keys/fake.log"
 	fail=1
 fi
