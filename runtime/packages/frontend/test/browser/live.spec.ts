@@ -12,6 +12,8 @@ const runningRun: RunRecord = {
   status: 'running',
   costStatus: 'pending',
   costUsd: 0,
+  costEstimated: false,
+  listPrice: null,
   inputTokens: 0,
   outputTokens: 0,
   cacheReadTokens: 0,
@@ -70,6 +72,7 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
     generationId: 'gen-01',
     subagent: null,
     usage: { inputTokens: 4200, outputTokens: 850, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    estimatedCostUsd: null,
     createdAt: '2026-09-21T10:01:00.000Z',
   });
   dashboard.store.finalizeRun('run-01', {

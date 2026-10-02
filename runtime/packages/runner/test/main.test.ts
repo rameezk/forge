@@ -617,6 +617,8 @@ test('given pi reports its own cost for each generation, when the store and the 
         transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
         css: '',
         logo: '',
+        idiomorph: '',
+        client: '',
       });
       for (const page of ['/', `/runs/${run.id}`]) {
         assert.doesNotMatch(await (await app.request(page)).text(), /0\.4242|0\.8484/);
