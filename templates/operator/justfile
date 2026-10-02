@@ -2,6 +2,7 @@ opentofu_dir := "infra/opentofu"
 operator_secrets := "secrets/operator.yaml"
 known_hosts := justfile_directory() / "known_hosts"
 tailnet_join_timeout := "600"
+tofu := "env -u TAILSCALE_OAUTH_CLIENT_ID -u TAILSCALE_OAUTH_CLIENT_SECRET tofu -chdir=" + opentofu_dir
 pinned_host_key := "-o " + quote('UserKnownHostsFile="' + known_hosts + '"') + " -o GlobalKnownHostsFile=/dev/null -o KnownHostsCommand=none -o UpdateHostKeys=no -o StrictHostKeyChecking=yes -o CheckHostIP=no"
 
 standup:
@@ -25,8 +26,8 @@ standup:
         echo "  Check that the file exists and that your age key is one of its recipients." >&2
         exit 1
     fi
-    sops exec-env --same-process {{ operator_secrets }} 'tofu -chdir={{ opentofu_dir }} init -input=false'
-    sops exec-env --same-process {{ operator_secrets }} 'tofu -chdir={{ opentofu_dir }} apply'
+    sops exec-env --same-process {{ operator_secrets }} '{{ tofu }} init -input=false'
+    sops exec-env --same-process {{ operator_secrets }} '{{ tofu }} apply'
     ip="$({{ quote(just_executable()) }} _address)"
     if [ -z "$ip" ]; then
         echo "error: OpenTofu applied but reports no server address to install onto." >&2
@@ -44,6 +45,12 @@ standup:
             exit 1
         fi
     done
+    if ! {{ quote(just_executable()) }} _forget_tailnet_device "$hostname" refuse; then
+        echo "error: the old ${hostname} device was not deleted from the tailnet, so standup stopped before installing." >&2
+        echo "  If the box is installed, run 'just deploy' to apply a config change and keep its state." >&2
+        echo "  If its old server was just destroyed, wait a minute for the device to go offline, then run 'just standup' again." >&2
+        exit 1
+    fi
     nixos-anywhere --flake ".#${hostname}" --target-host "root@${ip}" --build-on remote --extra-files "$extra_files"
     deadline=$((SECONDS + 10#$join_timeout))
     until logs_in "$hostname"; do
@@ -63,7 +70,23 @@ deploy:
     NIX_SSHOPTS={{ quote(pinned_host_key) }}" -o HostKeyAlias=${hostname} -p $(jq -r '.sshPort' <<<"$host")" nixos-rebuild switch --flake ".#${hostname}" --target-host "$target" --build-host "$target" --sudo
 
 teardown:
-    sops exec-env --same-process {{ operator_secrets }} 'tofu -chdir={{ opentofu_dir }} destroy'
+    #!/usr/bin/env bash
+    set -euo pipefail
+    hostname="$(nix eval --raw .#lib.reflect.hostname)"
+    if_connected=refuse
+    if [ -n "$({{ quote(just_executable()) }} _address)" ]; then
+        if_connected=delete
+    fi
+    sops exec-env --same-process {{ operator_secrets }} '{{ tofu }} destroy'
+    if ! {{ quote(just_executable()) }} _forget_tailnet_device "$hostname" "$if_connected"; then
+        if [ "$if_connected" = delete ]; then
+            echo "error: the server is destroyed, but its ${hostname} device was not deleted from the tailnet. Run 'just teardown' again once that is fixed." >&2
+        else
+            echo "error: OpenTofu had no server to destroy, so the ${hostname} device was left on the tailnet." >&2
+            echo "  Check the Hetzner console for a server OpenTofu has lost track of before removing the device by hand." >&2
+        fi
+        exit 1
+    fi
 
 [positional-arguments]
 ssh *args:
@@ -81,7 +104,36 @@ _connect $target $hostname $ssh_port $admin_user *args:
     set -euo pipefail
     exec ssh {{ pinned_host_key }} -o "HostKeyAlias=${hostname}" -o ControlMaster=no -o ControlPath=none -p "$ssh_port" "${admin_user}@${target}" "${@:5}"
 
+_forget_tailnet_device $hostname $if_connected:
+    sops exec-env --same-process {{ operator_secrets }} {{ quote("env -u HCLOUD_TOKEN " + quote(just_executable()) + ' _delete_tailnet_device "$hostname" "$if_connected"') }}
+
+_delete_tailnet_device $hostname $if_connected:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    api=https://api.tailscale.com/api/v2
+    refused() {
+        echo "error: the old ${hostname} device could not be cleared through the Tailscale API." >&2
+        echo "  Check TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET in {{ operator_secrets }}." >&2
+        exit 1
+    }
+    access_token="$(printf '%s' "$TAILSCALE_OAUTH_CLIENT_SECRET" |
+        curl -fsS --data-urlencode "client_id=${TAILSCALE_OAUTH_CLIENT_ID}" --data-urlencode client_secret@- "$api/oauth/token" |
+        jq -er '.access_token')" || refused
+    tailscale_api() {
+        printf 'header = "Authorization: Bearer %s"\n' "$access_token" | curl -fsS --config - "$@"
+    }
+    devices="$(tailscale_api "$api/tailnet/-/devices" |
+        jq -c --arg hostname "$hostname" '[.devices[] | select(any(.tags[]?; . == "tag:forge") and (.name | split(".")[0]) == $hostname)]')" || refused
+    if [ "$if_connected" != delete ] && jq -e 'any(.[]; .connectedToControl != false)' <<<"$devices" >/dev/null; then
+        echo "error: the ${hostname} device is still connected to the tailnet, so it may be a running box and was not deleted." >&2
+        exit 1
+    fi
+    for node_id in $(jq -r '.[].nodeId' <<<"$devices"); do
+        tailscale_api -X DELETE "$api/device/${node_id}" >/dev/null || refused
+        echo "Deleted the old ${hostname} device ${node_id} from the tailnet."
+    done
+
 _address:
     #!/usr/bin/env bash
     set -euo pipefail
-    sops exec-env --same-process {{ operator_secrets }} 'tofu -chdir={{ opentofu_dir }} output -json' | jq -r '.server_ipv4.value // empty'
+    sops exec-env --same-process {{ operator_secrets }} '{{ tofu }} output -json' | jq -r '.server_ipv4.value // empty'
