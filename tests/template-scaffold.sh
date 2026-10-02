@@ -52,7 +52,7 @@ write_host_secret() {
 }
 
 write_runtime_secret() {
-	printf '{"openrouter_api_key": "sk-or-v1-scaffold-test"}' | encrypt_secret secrets/runtime.yaml
+	printf '{"openrouter_api_key": "sk-or-v1-scaffold-test", "tailscale_auth_key": "tskey-client-scaffold-test"}' | encrypt_secret secrets/runtime.yaml
 }
 
 hcloud_token="scaffold-test-hetzner-token"

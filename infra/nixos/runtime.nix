@@ -243,7 +243,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `openrouter_api_key` when any worker is declared, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests and Issues of every managed repository) when a repository declares a worker. No unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch and the frontier sync read only GITHUB_TOKEN, as data.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests and Issues of every managed repository) when a repository declares a worker. No unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch and the frontier sync read only GITHUB_TOKEN, as data.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -499,6 +499,35 @@ in
           IPAddressDeny = "any";
         }
         // hardening;
+      };
+
+      systemd.services.forge-frontend-tailnet = {
+        description = "Serve the Forge dashboard over HTTPS on the tailnet";
+        wantedBy = [ "multi-user.target" ];
+        after = [
+          "tailscaled-autoconnect.service"
+          "forge-frontend.service"
+        ];
+        wants = [
+          "tailscaled-autoconnect.service"
+          "forge-frontend.service"
+        ];
+        serviceConfig = {
+          Type = "exec";
+          ExecStart = "${lib.getExe config.services.tailscale.package} serve --https=443 http://127.0.0.1:${toString cfg.dashboardPort}";
+          Restart = "always";
+          RestartSec = "5s";
+          NoNewPrivileges = true;
+          ProtectSystem = "strict";
+          ProtectHome = true;
+          PrivateTmp = true;
+          InaccessiblePaths = [
+            "/run/secrets"
+            "/run/secrets.d"
+          ];
+          RestrictAddressFamilies = [ "AF_UNIX" ];
+          IPAddressDeny = "any";
+        };
       };
     })
   ];
