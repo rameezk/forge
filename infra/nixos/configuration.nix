@@ -1,4 +1,5 @@
 {
+  config,
   lib,
   modulesPath,
   forgeConfig,
@@ -40,6 +41,23 @@ in
   };
 
   sops.age.sshKeyPaths = [ hostKey ];
+
+  sops.secrets.tailscale_auth_key.sopsFile = config.forge.runtime.secretsFile;
+
+  services.tailscale = {
+    enable = true;
+    openFirewall = true;
+    authKeyFile = config.sops.secrets.tailscale_auth_key.path;
+    authKeyParameters = {
+      preauthorized = true;
+      ephemeral = false;
+    };
+    extraUpFlags = [
+      "--advertise-tags=tag:forge"
+      "--hostname=${forgeConfig.hostname}"
+      "--accept-dns=false"
+    ];
+  };
 
   boot.loader.grub = {
     enable = true;

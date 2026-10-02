@@ -374,9 +374,18 @@
             && frontendUnit.serviceConfig.IPAddressAllow == "localhost"
             && frontendUnit.serviceConfig.IPAddressDeny == "any"
           ) "the dashboard must bind localhost and refuse non-loopback addresses";
-          frontendNoPublicPort = lib.asserts.assertMsg (
-            !(lib.elem dashboardPort workerHost.config.networking.firewall.allowedTCPPorts)
-          ) "the dashboard port must never be opened in the firewall: it is reached only over an SSH tunnel";
+          firewall = workerHost.config.networking.firewall;
+          firewallAllowLists = [ firewall ] ++ lib.attrValues firewall.interfaces;
+          frontendNoPublicPort =
+            lib.asserts.assertMsg
+              (lib.all (
+                allowList:
+                !(lib.elem dashboardPort (allowList.allowedTCPPorts ++ allowList.allowedUDPPorts))
+                && lib.all (range: dashboardPort < range.from || dashboardPort > range.to) (
+                  allowList.allowedTCPPortRanges ++ allowList.allowedUDPPortRanges
+                )
+              ) firewallAllowLists)
+              "the dashboard port must never be opened in any firewall allow-list: it is reached only through tailscale serve";
           frontendIsLockedDown =
             unit:
             isHardened unit
@@ -389,6 +398,55 @@
             && unit.serviceConfig.IPAddressAllow == "localhost"
             && unit.serviceConfig.IPAddressDeny == "any";
           frontendSandboxed = lib.asserts.assertMsg (frontendIsLockedDown frontendUnit) "the dashboard unit must be sandboxed like the runner";
+          servesDashboardOnTailnet =
+            host:
+            let
+              unit = host.config.systemd.services.forge-frontend-tailnet;
+              tailscaleBin = lib.getExe host.config.services.tailscale.package;
+              port = toString host.config.forge.runtime.dashboardPort;
+            in
+            (host.config.systemd.services ? forge-frontend-tailnet)
+            && unit.wantedBy == [ "multi-user.target" ]
+            && lib.all (dependency: lib.elem dependency unit.after && lib.elem dependency unit.wants) [
+              "tailscaled-autoconnect.service"
+              "forge-frontend.service"
+            ]
+            && unit.serviceConfig.ExecStart == "${tailscaleBin} serve --https=443 http://127.0.0.1:${port}"
+            && unit.serviceConfig.Restart == "always"
+            && unit.serviceConfig.NoNewPrivileges == true
+            && unit.serviceConfig.ProtectSystem == "strict"
+            && unit.serviceConfig.ProtectHome == true
+            && unit.serviceConfig.PrivateTmp == true
+            && unit.serviceConfig.RestrictSUIDSGID == true
+            && unit.serviceConfig.ProtectKernelTunables == true
+            && unit.serviceConfig.ProtectControlGroups == true
+            && unit.serviceConfig.CapabilityBoundingSet == ""
+            && !(unit.serviceConfig ? ReadWritePaths)
+            &&
+              unit.serviceConfig.InaccessiblePaths == [
+                "/run/secrets"
+                "/run/secrets.d"
+              ]
+            && unit.serviceConfig.RestrictAddressFamilies == [ "AF_UNIX" ]
+            && unit.serviceConfig.IPAddressDeny == "any";
+          frontendOffTailnetWithoutTailscale =
+            let
+              host = mkHost {
+                configFile = exampleConfigFile;
+                secretsFile = exampleSecretsFile;
+                modules = [
+                  {
+                    services.tailscale.enable = lib.mkForce false;
+                    forge.runtime.repositories.forge.github = "rameezk/forge";
+                  }
+                ];
+              };
+            in
+            lib.asserts.assertMsg (
+              (host.config.systemd.services ? forge-frontend)
+              && !(host.config.systemd.services ? forge-frontend-tailnet)
+            ) "a host without tailscale must run the dashboard without a tailscale serve unit";
+          frontendOnTailnet = lib.asserts.assertMsg (servesDashboardOnTailnet workerHost) "declaring a worker must serve the localhost dashboard over HTTPS on the tailnet through a supervised tailscale serve unit, locked down to talking to tailscaled over its local socket with no capabilities, no writable paths and blind to the secrets";
 
           workerAndRepositoryHost = mkHost {
             configFile = exampleConfigFile;
@@ -490,9 +548,10 @@
               (
                 (repositoryHost.config.systemd.services ? forge-frontend)
                 && frontendIsLockedDown repositoryHost.config.systemd.services.forge-frontend
+                && servesDashboardOnTailnet repositoryHost
                 && !(repositoryHost.config.systemd.services ? "forge-runner@")
               )
-              "declaring repositories without workers must run the dashboard, locked down as before, and no runner";
+              "declaring repositories without workers must run the dashboard, locked down as before and served on the tailnet, and no runner";
 
           repositoryModule = {
             forge.runtime.repositories.forge.github = "rameezk/forge";
@@ -807,6 +866,36 @@
           sqliteInert = lib.asserts.assertMsg (
             !(hasSqlite nixos)
           ) "a host with no workers or repositories must not ship sqlite";
+
+          tailscale = nixos.config.services.tailscale;
+          tailnetJoined =
+            lib.asserts.assertMsg
+              (
+                tailscale.enable
+                && tailscale.authKeyFile == nixos.config.sops.secrets.tailscale_auth_key.path
+                && nixos.config.sops.secrets.tailscale_auth_key.sopsFile == exampleSecretsFile
+                && tailscale.authKeyParameters.preauthorized == true
+                && tailscale.authKeyParameters.ephemeral == false
+                && lib.all (flag: lib.elem flag tailscale.extraUpFlags) [
+                  "--advertise-tags=tag:forge"
+                  "--hostname=${exampleCfg.hostname}"
+                ]
+              )
+              "every box must join the tailnet as a preauthorized, non-ephemeral device tagged tag:forge under its config hostname, authenticating with tailscale_auth_key from the runtime secrets file";
+          tailnetAddresses = [
+            "100.64.0.0/10"
+            "fd7a:115c:a1e0::/48"
+          ];
+          workloadsOffTailnet =
+            lib.asserts.assertMsg
+              (
+                runnerUnit.serviceConfig.IPAddressDeny == tailnetAddresses
+                && dispatchUnit.serviceConfig.IPAddressDeny == tailnetAddresses
+                && workerHost.config.systemd.services.nix-daemon.serviceConfig.IPAddressDeny == tailnetAddresses
+                && lib.elem "--accept-dns=false" tailscale.extraUpFlags
+              )
+              "a workload must not reach the tailnet: the runner and dispatch units, and the nix daemon whose builds a workload can start, deny every tailnet address, and the box keeps its own DNS rather than the tailnet's resolver, so workloads still resolve names";
+          tailnetDirect = lib.asserts.assertMsg (lib.elem 41641 nixos.config.networking.firewall.allowedUDPPorts) "public UDP 41641 must be open, so the operator's devices can connect to the box directly";
         in
         {
           example-reflects-config =
@@ -818,6 +907,14 @@
             assert boxIdentityIsHostKey;
             pkgs.runCommand "example-reflects-config" { } ''
               echo "example host reflects config.example.json; root login disabled; its ed25519 host key is its sops identity" > $out
+            '';
+
+          box-tailnet =
+            assert tailnetJoined;
+            assert tailnetDirect;
+            assert workloadsOffTailnet;
+            pkgs.runCommand "box-tailnet" { } ''
+              echo "every box joins the tailnet as tag:forge under its config hostname with tailscale_auth_key from the runtime secrets file, with public UDP 41641 open for direct connections, while workloads and the builds they start reach no tailnet address and the box keeps its own DNS" > $out
             '';
 
           runtime-foundation =
@@ -865,8 +962,10 @@
             assert frontendLocalhostOnly;
             assert frontendNoPublicPort;
             assert frontendSandboxed;
+            assert frontendOnTailnet;
+            assert frontendOffTailnetWithoutTailscale;
             pkgs.runCommand "runtime-dashboard" { } ''
-              echo "declaring a worker wires an always-on forge-frontend dashboard bound to localhost, opening no public port" > $out
+              echo "declaring a worker wires an always-on forge-frontend dashboard bound to localhost, opening no public port, and served over HTTPS on the tailnet through tailscale serve" > $out
             '';
 
           runtime-frontier =
@@ -948,6 +1047,11 @@
                 name = "dispatch-without-write-token";
                 host = secretsHost ./tests/fixtures/runtime-secrets-without-github-write.yaml dispatchModule;
                 refusedKey = "github_write_token";
+              }
+              {
+                name = "box-without-tailscale-key";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-tailscale.yaml dispatchModule;
+                refusedKey = "tailscale_auth_key";
               }
               {
                 name = "dispatch-with-every-token";

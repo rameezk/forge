@@ -36,12 +36,15 @@ depends on the auto-activation.
    direnv allow
    ```
 
-3. Set up your secrets. They live sops-encrypted in `secrets/`, committed next
+3. Set up your tailnet, as [Tailnet setup](#tailnet-setup) describes, and keep
+   the box's OAuth client secret at hand for the next step.
+
+4. Set up your secrets. They live sops-encrypted in `secrets/`, committed next
    to your config. `.sops.yaml` scopes who can read each file:
    `secrets/operator.yaml`, your Hetzner Cloud API token, and
    `secrets/host.yaml`, the box's SSH host key, are for you only, and
-   `secrets/runtime.yaml`, the OpenRouter key and the GitHub tokens, is for
-   you and the box.
+   `secrets/runtime.yaml`, the Tailscale OAuth client secret, the OpenRouter
+   key and the GitHub tokens, is for you and the box.
 
    1. Create your age key at the sops default location, which is
       `$XDG_CONFIG_HOME/sops/age/keys.txt` when that is set, and otherwise
@@ -89,6 +92,7 @@ depends on the auto-activation.
       stage them. `sops edit` opens a new file with example content; replace
       it with `HCLOUD_TOKEN: <your Hetzner Cloud API token>` in
       `secrets/operator.yaml`, and with
+      `tailscale_auth_key: <the box's OAuth client secret>` and
       `openrouter_api_key: <your OpenRouter key>` in `secrets/runtime.yaml`.
       If you declare managed repositories, also add their GitHub tokens to
       `secrets/runtime.yaml`, as [GitHub tokens](#github-tokens) describes:
@@ -102,12 +106,12 @@ depends on the auto-activation.
       git add -A
       ```
 
-   The build fails if `secrets/runtime.yaml` is missing or lacks a key your
-   workers or repositories need, `.sops.yaml` still holds the placeholder
-   recipients, or `known_hosts` does not pin `secrets/host.pub` under your
-   `hostname`.
+   The build fails if `secrets/runtime.yaml` is missing, lacks
+   `tailscale_auth_key`, or lacks a key your workers or repositories need,
+   `.sops.yaml` still holds the placeholder recipients, or `known_hosts` does
+   not pin `secrets/host.pub` under your `hostname`.
 
-4. Run the divergence guard (no cloud access required):
+5. Run the divergence guard (no cloud access required):
 
    ```bash
    bash tests/divergence-guard.sh
@@ -133,9 +137,11 @@ Each OpenTofu call runs through `sops exec-env` on `secrets/operator.yaml`, so
 your Hetzner token is decrypted only for that call and never sits in your shell.
 
 Box state is the run store, frontier snapshot and transcripts under
-`/var/lib/forge`. Only deploy keeps it. The OpenRouter key and the GitHub
-tokens are not box state: the box decrypts them from this repository on every
-standup and deploy.
+`/var/lib/forge`, and the box's tailnet device under `/var/lib/tailscale`. Only
+deploy keeps it. The Tailscale OAuth client secret, the OpenRouter key and the
+GitHub tokens are not box state: the box decrypts them from this repository on
+every standup and deploy, though it uses the Tailscale secret only to join the
+tailnet.
 
 1. Stand the box up:
 
@@ -184,6 +190,85 @@ standup and deploy.
    ```bash
    just teardown
    ```
+
+## Tailnet setup
+
+Every box joins your [Tailscale](https://tailscale.com) tailnet as a device
+tagged `tag:forge`, named after the `hostname` in `config.json`, and serves the
+dashboard on it at `https://<hostname>.<tailnet>.ts.net`, where `<tailnet>` is
+your tailnet's DNS name from the DNS page of the admin console. You set the
+tailnet up once, by hand, in the
+[Tailscale admin console](https://login.tailscale.com/admin). Forge never
+changes your tailnet's policy or its OAuth clients.
+
+1. Let the tailnet hold `tag:forge` devices and let you reach the dashboard on
+   them. In the policy file on the Access controls page, add a `tagOwners`
+   entry for `tag:forge` and an access rule for port 443, merging them into
+   any `tagOwners` and `grants` you already have:
+
+   ```json
+   {
+     "tagOwners": {
+       "tag:forge": ["autogroup:admin"]
+     },
+     "grants": [
+       {
+         "src": ["autogroup:admin"],
+         "dst": ["tag:forge"],
+         "ip": ["tcp:443"]
+       }
+     ]
+   }
+   ```
+
+   A new tailnet's policy starts with a grant that lets every device reach
+   every other, `{"src": ["*"], "dst": ["*"], "ip": ["*"]}`. Replace it with
+   grants for what your own devices need, so that no grant has a `src` that
+   matches `tag:forge` and only the grant above reaches it. The box runs
+   agents and needs to reach nothing on your tailnet. As a second line, forge
+   stops workloads from reaching tailnet addresses and keeps the box off the
+   tailnet's DNS. With the grant above, only your tailnet's admins reach the
+   dashboard. Anyone you add to its `src` can read every run's prompt,
+   transcript and repository data there.
+
+2. Turn on MagicDNS and HTTPS certificates. On the DNS page, enable MagicDNS
+   if it is off, then select **Enable HTTPS** under HTTPS Certificates. The
+   box gets its certificate on the first visit to the dashboard, so that visit
+   can take a few seconds. Every certificate is published in the public
+   Certificate Transparency logs, so your box's `hostname` and your tailnet's
+   DNS name become public.
+
+3. Create the box's OAuth client. On the
+   [Trust credentials](https://login.tailscale.com/admin/settings/trust-credentials)
+   page, select **Credential**, then **OAuth**. Give it the `auth_keys` scope
+   with write access and the `tag:forge` tag, then generate it and copy the
+   client secret, which starts with `tskey-client-` and is shown only once.
+   The box registers with it as a preauthorized device tagged `tag:forge`
+   that is not ephemeral. The secret does not expire, and neither does the
+   device's key, since the device is tagged.
+
+4. Add the client secret to `secrets/runtime.yaml` as `tailscale_auth_key`.
+   On a first run, the secrets step of [First run](#first-run) does this when
+   it creates the file. In a repository that already has the file, add it
+   with `sops edit secrets/runtime.yaml`, commit, and deploy, and the box
+   joins the tailnet. The build fails, naming the key, if it is not there:
+
+   ```yaml
+   tailscale_auth_key: <the box's OAuth client secret>
+   ```
+
+5. Install Tailscale on your own machine from
+   [tailscale.com/download](https://tailscale.com/download) and log in to the
+   same tailnet as an admin. Once the box is stood up, it appears in the
+   admin console's Machines page as `<hostname>`, and the dashboard opens at
+   `https://<hostname>.<tailnet>.ts.net`.
+
+Once the box has joined, it no longer uses the client secret, so a changed
+`tailscale_auth_key` takes effect only when the box joins again, at the next
+standup. It stays decrypted on the box, so if the box or its host key is ever
+compromised, revoke the OAuth client on the Trust credentials page and create a
+new one. If Tailscale fails on the box, the dashboard is unreachable on the
+tailnet until it recovers.
 
 ## Opening the dashboard
 
@@ -242,6 +327,7 @@ the missing key, if a token your repositories need is not there.
   pull requests.
 
 ```yaml
+tailscale_auth_key: <the box's OAuth client secret>
 openrouter_api_key: <your OpenRouter key>
 github_token: <your read-only GitHub token>
 github_write_token: <your GitHub write token>
