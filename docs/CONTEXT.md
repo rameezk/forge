@@ -44,6 +44,14 @@ _Avoid_: catalog cost
 Forge's own price for a generation OpenRouter has not billed yet: the harness's token counts at OpenRouter's list price for the model, recorded at run start. Replaced by the billed cost once known, and always shown as estimated (ADR-0032).
 _Avoid_: harness cost, pi cost
 
+**Config fingerprint**:
+The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034).
+_Avoid_: version, run config
+
+**Cohort**:
+The workloads sharing one config fingerprint, compared as a group against other cohorts. Workloads recorded before fingerprints existed form the unknown-config cohort (ADR-0034).
+_Avoid_: variant, experiment, arm
+
 **Cost status**:
 How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, including on an interrupted workload, where later generations may be unrecorded (ADR-0031).
 _Avoid_: cost uncertain
