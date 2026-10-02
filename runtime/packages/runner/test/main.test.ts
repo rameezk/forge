@@ -287,6 +287,24 @@ const assertCost = (actual: number | null | undefined, expected: number): void =
   );
 };
 
+const estimateAt = (
+  model: string,
+  [input, output, cacheRead, cacheWrite]: [number, number, number, number],
+): number => {
+  const pricing: Record<string, string | undefined> =
+    LISTED_MODELS.data.find(({ id }) => id === model)?.pricing ?? {};
+  return (
+    input * Number(pricing.prompt) +
+    output * Number(pricing.completion) +
+    cacheRead * Number(pricing.input_cache_read ?? 0) +
+    cacheWrite * Number(pricing.input_cache_write ?? 0)
+  );
+};
+
+const FIRST_ESTIMATE = estimateAt('z-ai/glm-5', [200, 40, 0, 1000]);
+
+const SECOND_ESTIMATE = estimateAt('z-ai/glm-5', [100, 25, 1000, 200]);
+
 const outputFile = (contents: string): string => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-output-')), 'pi.jsonl');
   writeFileSync(path, contents);
@@ -440,16 +458,14 @@ test('given the models endpoint lists the worker\'s model at known prices and pi
   }
 
   assert.ok(live);
-  const first = 200 * 0.000002 + 40 * 0.00001 + 0 * 0.0000002 + 1000 * 0.0000025;
-  const second = 100 * 0.000002 + 25 * 0.00001 + 1000 * 0.0000002 + 200 * 0.0000025;
   const estimates = live.generations.map(({ estimatedCostUsd }) => estimatedCostUsd);
   assert.equal(estimates.length, 2);
-  assertCost(estimates[0], first);
-  assertCost(estimates[1], second);
+  assertCost(estimates[0], FIRST_ESTIMATE);
+  assertCost(estimates[1], SECOND_ESTIMATE);
   assert.deepEqual(live.run.listPrice, { input: 0.000002, output: 0.00001, cacheRead: 0.0000002, cacheWrite: 0.0000025 });
   assert.equal(live.run.costStatus, 'pending');
   assert.equal(live.run.costEstimated, true);
-  assertCost(live.run.costUsd, first + second);
+  assertCost(live.run.costUsd, FIRST_ESTIMATE + SECOND_ESTIMATE);
   assert.equal(openRouter.modelRequests, 1);
 });
 
@@ -463,13 +479,11 @@ test('given a finished workload whose two generations carry estimated costs, whe
       output: fixture('success.jsonl'),
       openRouterBaseUrl: openRouter.baseUrl,
     });
-    const second = 100 * 0.000002 + 25 * 0.00001 + 1000 * 0.0000002 + 200 * 0.0000025;
-
     assert.equal(await fire(stateDir, openRouter), 0);
     const partly = storedRun(stateDir, run.id);
     assert.equal(partly.costStatus, 'pending');
     assert.equal(partly.costEstimated, true);
-    assertCost(partly.costUsd, 0.0125 + second);
+    assertCost(partly.costUsd, 0.0125 + SECOND_ESTIMATE);
     assert.equal(storedGenerations(stateDir, run.id)[0]?.estimatedCostUsd, null);
 
     assert.equal(await fire(stateDir, openRouter), 0);
@@ -489,7 +503,7 @@ test('given a finished workload whose two generations carry estimated costs, whe
   }
 });
 
-test('given the models endpoint lists the worker\'s model with no cache prices, when a generation without cache tokens and one with them complete, then the first has an estimated cost at the listed prices and the second has none rather than a guess', async () => {
+test('given the models endpoint lists the worker\'s model with no cache prices, when a generation without cache tokens and one with them complete, then the first has an estimated cost at the listed prices, the second has none rather than a guess, and the workload is not shown as estimated since its estimate would leave the second out', async () => {
   const output = outputFile(
     readFileSync(fixture('success.jsonl'), 'utf8').replaceAll(
       '"usage":{"input":200,"output":40,"cacheRead":0,"cacheWrite":1000',
@@ -505,10 +519,49 @@ test('given the models endpoint lists the worker\'s model with no cache prices, 
     });
 
     const [first, second] = storedGenerations(stateDir, run.id);
-    assertCost(first?.estimatedCostUsd, 200 * 0.0000006 + 40 * 0.0000022);
+    assertCost(first?.estimatedCostUsd, estimateAt('z-ai/glm-4.6', [200, 40, 0, 0]));
     assert.equal(second?.estimatedCostUsd, null);
+    assert.equal(run.costEstimated, false);
+    assert.equal(run.costUsd, 0);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a listed model and pi output where one response used tokens but carries no generation id, when the workload runs and billing later settles the other, then the response forge gave up on adds no estimate, the workload is estimated only while the other awaits billing, and ends unconfirmed at what was billed', async () => {
+  const openRouter = await fakeOpenRouter(billed, LISTED_MODELS);
+  try {
+    const { stateDir, run } = await journaled(async () =>
+      runWorker({
+        output: withoutGenerationId('success.jsonl', 'gen-success-2'),
+        openRouterBaseUrl: openRouter.baseUrl,
+      }),
+    ).then(({ result }) => result);
+
+    assert.equal(run.costStatus, 'unconfirmed');
     assert.equal(run.costEstimated, true);
-    assertCost(run.costUsd, 200 * 0.0000006 + 40 * 0.0000022);
+    assertCost(run.costUsd, FIRST_ESTIMATE);
+
+    assert.equal(await fire(stateDir, openRouter), 0);
+    const settled = storedRun(stateDir, run.id);
+    assert.equal(settled.costStatus, 'unconfirmed');
+    assert.equal(settled.costEstimated, false);
+    assert.equal(settled.costUsd, 0.0125);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given the models endpoint lists the worker\'s model at a price so large its estimate overflows, when a generation completes, then it has no estimated cost and the workload is not shown as estimated', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [{ id: 'z-ai/glm-5', pricing: { prompt: '1e308', completion: '1e308', input_cache_read: '1e308', input_cache_write: '1e308' } }],
+  });
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('success.jsonl'), openRouterBaseUrl: openRouter.baseUrl });
+
+    assert.deepEqual(storedGenerations(stateDir, run.id).map(({ estimatedCostUsd }) => estimatedCostUsd), [null, null]);
+    assert.equal(run.costEstimated, false);
+    assert.equal(run.costUsd, 0);
   } finally {
     openRouter.close();
   }
@@ -552,9 +605,7 @@ test('given pi reports its own cost for each generation, when the store and the 
   try {
     const { stateDir, run } = await runWorker({ output, openRouterBaseUrl: openRouter.baseUrl });
 
-    const first = 200 * 0.000002 + 40 * 0.00001 + 1000 * 0.0000025;
-    const second = 100 * 0.000002 + 25 * 0.00001 + 1000 * 0.0000002 + 200 * 0.0000025;
-    assertCost(run.costUsd, first + second);
+    assertCost(run.costUsd, FIRST_ESTIMATE + SECOND_ESTIMATE);
     const stored = JSON.stringify(
       withStore(stateDir, (store) => [store.listRuns(), store.listGenerations(run.id)]),
     );

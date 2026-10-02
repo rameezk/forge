@@ -60,17 +60,20 @@ test('given several finished runs, when the list is requested, then they render 
   assert.match(body, /\$0\.6000/, 'total cost tally should sum the runs');
 });
 
+const PENDING_BADGE = /<span[^>]*\sdata-badge="pending"[^>]*\stitle="Billed by OpenRouter so far[^"]*trailing them by a minute or two[^"]*"[^>]*>pending<\/span>/;
+
 const rowFor = (body: string, id: string): string =>
   body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
 
 const statusIn = (fragment: string): string =>
   fragment.match(/<span[^>]*\sdata-status="[^"]*"[^>]*>[^<]*<\/span>/)?.[0] ?? 'missing';
 
-test('given a billed run costing $0.00093252, an unconfirmed run, and a pending run with no estimate, when the list is requested, then each shows its cost status readably and the total adds every run\'s cost followed by how many are pending', async () => {
+test('given a billed run costing $0.00093252, an unconfirmed run, a pending run billed $0.5 so far with no estimate, and a pending run at $0, when the list is requested, then each shows its cost status readably and the total adds every run\'s cost followed by how many are pending', async () => {
   const app = appWith([
     sampleRun({ id: 'billed', worker: 'billed-worker', costStatus: 'billed', costUsd: 0.00093252 }),
     sampleRun({ id: 'unconfirmed', worker: 'unconfirmed-worker', costStatus: 'unconfirmed', costUsd: 0.0125 }),
     sampleRun({ id: 'pending', worker: 'pending-worker', costStatus: 'pending', costUsd: 0.5 }),
+    sampleRun({ id: 'unbilled', worker: 'unbilled-worker', costStatus: 'pending', costUsd: 0 }),
   ]);
 
   const body = await (await app.request('/')).text();
@@ -80,8 +83,11 @@ test('given a billed run costing $0.00093252, an unconfirmed run, and a pending 
   assert.equal(cost('billed'), '$0.000933');
   assert.equal(cost('unconfirmed'), '$0.012500 unconfirmed');
   assert.match(rowFor(body, 'unconfirmed'), /<span[^>]*\sdata-badge="unconfirmed"[^>]*\stitle="[^"]+"[^>]*>unconfirmed<\/span>/);
-  assert.equal(cost('pending'), 'pending');
-  assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.5134 +1 pending');
+  assert.equal(cost('pending'), '$0.500000 pending');
+  assert.match(rowFor(body, 'pending'), PENDING_BADGE);
+  assert.equal(cost('unbilled'), 'pending');
+  assert.doesNotMatch(rowFor(body, 'unbilled'), /data-badge=/);
+  assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.5134 +2 pending');
 });
 
 const ESTIMATED_BADGE = /<span[^>]*\sdata-badge="estimated"[^>]*\stitle="[^"]*estimate at OpenRouter's list price[^"]*replaced as generations are billed[^"]*"[^>]*>estimated<\/span>/;
@@ -158,7 +164,7 @@ test('given only settled runs, when the list is requested, then the total carrie
   assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.3000');
 });
 
-test('given a pending run and an unconfirmed run, when each transcript page is requested, then the first shows its cost as pending and the second its partial billed sum marked unconfirmed', async () => {
+test('given a pending run billed $0.5 so far and an unconfirmed run, when each transcript page is requested, then the first shows its billed cost so far marked pending and the second its partial billed sum marked unconfirmed', async () => {
   const app = appWith([
     sampleRun({ id: 'pending', costStatus: 'pending', costUsd: 0.5, transcriptRef: null }),
     sampleRun({ id: 'unconfirmed', costStatus: 'unconfirmed', costUsd: 0.0125, transcriptRef: null }),
@@ -168,7 +174,9 @@ test('given a pending run and an unconfirmed run, when each transcript page is r
     return body.match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '';
   };
 
-  assert.equal(textOf(await cost('pending')), 'pending');
+  const pending = await cost('pending');
+  assert.equal(textOf(pending), '$0.500000 pending');
+  assert.match(pending, PENDING_BADGE);
   const unconfirmed = await cost('unconfirmed');
   assert.equal(textOf(unconfirmed), '$0.012500 unconfirmed');
   assert.match(unconfirmed, /<span[^>]*\sdata-badge="unconfirmed"[^>]*\stitle="[^"]+"[^>]*>unconfirmed<\/span>/);
@@ -905,10 +913,10 @@ test('given subagents with a successful report, an error report, no report in a 
   assert.equal(await statusOfOnly({ status: 'error' }, []), 'error');
 });
 
-test('given subagents whose generations are all billed, partly unbilled, partly given up, and partly unbilled with an estimate, when the run page is viewed, then their headers show the billed cost, pending, the cost so far with the unconfirmed badge, and the cost with its estimate marked estimated', async () => {
+test('given subagents whose generations are all billed, partly unbilled, partly given up, partly unbilled with an estimate, and unbilled with only some estimated, when the run page is viewed, then their headers show the billed cost, the cost so far marked pending, the cost so far with the unconfirmed badge, the cost with its estimate marked estimated, and only pending', async () => {
   const body = await viewWithGenerations({}, [
-    spawn('call_a'), spawn('call_b'), spawn('call_c'), spawn('call_d'),
-    child('call_a', 1, 1), child('call_b', 1, 1), child('call_c', 1, 1), child('call_d', 1, 1),
+    spawn('call_a'), spawn('call_b'), spawn('call_c'), spawn('call_d'), spawn('call_e'),
+    child('call_a', 1, 1), child('call_b', 1, 1), child('call_c', 1, 1), child('call_d', 1, 1), child('call_e', 1, 1),
     { type: 'result', status: 'success', sessionId: null, error: null },
   ], [
     { generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.1 },
@@ -918,16 +926,21 @@ test('given subagents whose generations are all billed, partly unbilled, partly 
     { generationId: 'g5', subagent: 'call_c', outcome: 'given-up' },
     { generationId: 'g6', subagent: 'call_d', outcome: 'billed', cost: 0.1, estimate: 0.09 },
     { generationId: 'g7', subagent: 'call_d', outcome: 'unbilled', estimate: 0.05 },
+    { generationId: 'g8', subagent: 'call_e', outcome: 'unbilled', estimate: 0.05 },
+    { generationId: 'g9', subagent: 'call_e', outcome: 'unbilled' },
   ]);
 
-  const [a, b, c, d] = subagentCalls(body).map((card) => headerOf(card)) as [string, string, string, string];
+  const [a, b, c, d, e] = subagentCalls(body).map((card) => headerOf(card)) as [string, string, string, string, string];
   assert.match(textOf(a), /\$0\.100000/);
   assert.doesNotMatch(a, /data-badge=|pending/);
-  assert.match(textOf(b), /pending/);
+  assert.match(textOf(b), /\$0\.200000 pending/);
+  assert.match(b, /data-badge="pending"/);
   assert.match(textOf(c), /\$0\.300000/);
   assert.match(c, /data-badge="unconfirmed"/);
   assert.match(textOf(d), /\$0\.150000 estimated/);
   assert.match(d, /data-badge="estimated"/);
+  assert.doesNotMatch(textOf(e), /\$|estimated/);
+  assert.match(textOf(e), /pending/);
 });
 
 test('given a run whose subagent events have no recorded spawning tool call, when its run page is viewed, then that subagent\'s header shows its tokens, status and cost', async () => {

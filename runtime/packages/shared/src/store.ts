@@ -203,6 +203,17 @@ const generationSum = (column: string): string =>
     ${column}
   )`;
 
+const AWAITING_BILLING = `
+  run_id = runs.id AND billed_cost_usd IS NULL AND given_up_at IS NULL
+`;
+
+const FULLY_ESTIMATED = `(
+  EXISTS (SELECT 1 FROM generations WHERE ${AWAITING_BILLING})
+  AND NOT EXISTS (
+    SELECT 1 FROM generations WHERE ${AWAITING_BILLING} AND estimated_cost_usd IS NULL
+  )
+)`;
+
 const SETTLE_RUN = `
   UPDATE runs SET
     ${generationSum('input_tokens')},
@@ -210,13 +221,11 @@ const SETTLE_RUN = `
     ${generationSum('cache_read_tokens')},
     ${generationSum('cache_write_tokens')},
     cost_usd = (
-      SELECT COALESCE(SUM(COALESCE(billed_cost_usd, estimated_cost_usd)), 0)
-      FROM generations WHERE run_id = runs.id
-    ),
-    cost_estimated = EXISTS (
-      SELECT 1 FROM generations
-      WHERE run_id = runs.id AND billed_cost_usd IS NULL AND estimated_cost_usd IS NOT NULL
-    ),
+      SELECT COALESCE(SUM(billed_cost_usd), 0) FROM generations WHERE run_id = runs.id
+    ) + CASE WHEN ${FULLY_ESTIMATED} THEN (
+      SELECT SUM(estimated_cost_usd) FROM generations WHERE ${AWAITING_BILLING}
+    ) ELSE 0 END,
+    cost_estimated = ${FULLY_ESTIMATED},
     cost_status = CASE
       WHEN EXISTS (
         SELECT 1 FROM generations WHERE run_id = runs.id AND given_up_at IS NOT NULL

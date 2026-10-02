@@ -61,7 +61,8 @@ const TABLE = 'w-full border-collapse text-[0.9rem]';
 const TH = 'whitespace-nowrap border-b border-line bg-raised px-3.5 py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-fg';
 const TD = 'border-t border-line px-3.5 py-2.5 align-baseline';
 const ROW = 'hover:bg-bg';
-const NUMERIC = 'text-right tabular-nums whitespace-nowrap';
+const NUMERIC_WRAPPING = 'text-right tabular-nums';
+const NUMERIC = `${NUMERIC_WRAPPING} whitespace-nowrap`;
 const PENDING = 'font-normal italic text-muted';
 const NAV_LINK = 'border-b-2 py-1.5 text-[0.9rem] no-underline';
 const POLLED = 'ml-auto text-sm text-muted';
@@ -120,13 +121,21 @@ const UNCONFIRMED_BADGE = html`<span class="${BADGE} ml-1.5 bg-warning-soft text
 
 const ESTIMATED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="estimated" title="Includes forge's estimate at OpenRouter's list price for generations not yet billed, replaced as generations are billed">estimated</span>`;
 
+const PENDING_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="pending" title="Billed by OpenRouter so far. Rises as the run's generations are billed, trailing them by a minute or two.">pending</span>`;
+
 type Cost = Pick<RunRecord, 'costStatus' | 'costUsd' | 'costEstimated'>;
 
+const costBadge = (run: Cost): Rendered => {
+  if (run.costEstimated) return ESTIMATED_BADGE;
+  return run.costStatus === 'pending' ? PENDING_BADGE : '';
+};
+
 const renderCost = (run: Cost): Rendered => {
-  if (run.costStatus === 'pending' && !run.costEstimated) {
+  if (run.costStatus === 'pending' && !run.costEstimated && run.costUsd === 0) {
     return html`<span class="${PENDING}">pending</span>`;
   }
-  return html`${formatCost(run.costUsd)}${run.costEstimated ? html`<wbr>${ESTIMATED_BADGE}` : ''}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
+  const badge = costBadge(run);
+  return html`${formatCost(run.costUsd)}${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
 };
 
 const PILL = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-['']";
@@ -221,7 +230,7 @@ export const renderList = (
                     <td class="${TD} whitespace-nowrap">${formatDuration(run.startTime, run.endTime)}</td>
                     <td class="${TD}">${renderStatus(run.status)}</td>
                     <td class="${TD} ${NUMERIC}" data-cache-hit>${renderCacheHitRate(run)}</td>
-                    <td class="${TD} text-right tabular-nums" data-cost>${renderCost(run)}</td>
+                    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${renderCost(run)}</td>
                   </tr>`,
                 )}
               </tbody>
@@ -484,15 +493,16 @@ const subagentCost = (
   runStatus: RunStatus,
 ): Cost => {
   const own = generations.filter((generation) => generation.subagent === scope);
-  const costUsd = own.reduce(
-    (sum, generation) =>
-      sum + (generation.billedCostUsd ?? generation.estimatedCostUsd ?? 0),
-    0,
+  const awaiting = own.filter(
+    (generation) => generation.billedCostUsd === null && generation.givenUpAt === null,
   );
-  const costEstimated = own.some(
-    (generation) =>
-      generation.billedCostUsd === null && generation.estimatedCostUsd !== null,
-  );
+  const costEstimated =
+    awaiting.length > 0 &&
+    awaiting.every((generation) => generation.estimatedCostUsd !== null);
+  const billed = own.reduce((sum, generation) => sum + (generation.billedCostUsd ?? 0), 0);
+  const costUsd = costEstimated
+    ? awaiting.reduce((sum, generation) => sum + (generation.estimatedCostUsd ?? 0), billed)
+    : billed;
   if (own.some((generation) => generation.givenUpAt !== null)) {
     return { costStatus: 'unconfirmed', costUsd, costEstimated };
   }

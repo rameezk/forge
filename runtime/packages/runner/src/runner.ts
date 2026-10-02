@@ -39,20 +39,20 @@ const isBillable = (event: MessageEvent): boolean =>
   (event.generationId !== null ||
     Object.values(event.usage).some((count) => count > 0));
 
-const priced = (tokens: number, price: number | null): number | null =>
-  tokens === 0 ? 0 : price === null ? null : tokens * price;
-
 const estimatedCost = (price: ListPrice | null, usage: TokenUsage): number | null => {
   if (price === null) return null;
-  const parts = [
-    priced(usage.inputTokens, price.input),
-    priced(usage.outputTokens, price.output),
-    priced(usage.cacheReadTokens, price.cacheRead),
-    priced(usage.cacheWriteTokens, price.cacheWrite),
-  ];
-  return parts.some((part) => part === null)
-    ? null
-    : parts.reduce<number>((sum, part) => sum + (part as number), 0);
+  let cost = 0;
+  for (const [tokens, perToken] of [
+    [usage.inputTokens, price.input],
+    [usage.outputTokens, price.output],
+    [usage.cacheReadTokens, price.cacheRead],
+    [usage.cacheWriteTokens, price.cacheWrite],
+  ] as const) {
+    if (tokens === 0) continue;
+    if (perToken === null) return null;
+    cost += tokens * perToken;
+  }
+  return Number.isFinite(cost) ? cost : null;
 };
 
 export const runWorkload = async (
