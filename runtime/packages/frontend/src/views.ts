@@ -39,9 +39,10 @@ const NAV: { page: Page; href: string; label: string }[] = [
   { page: 'work', href: '/work', label: 'Work' },
 ];
 
-export const LIVE_PAGES: ReadonlySet<string> = new Set(NAV.map(({ href }) => href));
+export const NAV_PAGES: ReadonlySet<string> = new Set(NAV.map(({ href }) => href));
 
-const isLive = (current: Page | null): boolean => NAV.some(({ page }) => page === current);
+export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
+  run.endTime !== null && run.costStatus !== 'pending';
 
 export interface AssetHrefs {
   stylesheet: string;
@@ -78,6 +79,7 @@ const navLink = (href: string, label: string, current: boolean): HtmlEscapedStri
 
 const renderHeader = (
   current: Page | null,
+  live: boolean,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
@@ -86,13 +88,14 @@ const renderHeader = (
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
       </nav>
-      ${isLive(current) ? html`<span id="live" role="status" data-live hidden class="${LIVE_INDICATOR}"></span>` : ''}
+      ${live ? html`<span id="live" role="status" data-live hidden class="${LIVE_INDICATOR}"></span>` : ''}
     </div>
   </header>`;
 
 const layout = (
   title: string,
   current: Page | null,
+  live: boolean,
   assets: AssetHrefs,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -104,13 +107,11 @@ const layout = (
         <title>${title} | Forge</title>
         <link rel="icon" type="image/svg+xml" href="${assets.logo}" />
         <link rel="stylesheet" href="${assets.stylesheet}" />
-        ${isLive(current)
-          ? html`<script src="${assets.idiomorph}" defer></script>
-              <script src="${assets.client}" defer></script>`
-          : ''}
+        <script src="${assets.idiomorph}" defer></script>
+        <script src="${assets.client}" defer></script>
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}">
-        ${renderHeader(current, assets)}
+        ${renderHeader(current, live, assets)}
         <main class="mx-auto max-w-6xl px-4 py-8">${body}</main>
       </body>
     </html>`;
@@ -242,7 +243,7 @@ export const renderList = (
               </tfoot>
             </table>
           </div>`;
-  return layout('Workloads', 'runs', assets, body);
+  return layout('Workloads', 'runs', true, assets, body);
 };
 
 const BLOCK = 'rounded-lg border bg-surface';
@@ -626,6 +627,8 @@ const renderTranscript = (
   );
 };
 
+const NEW_ACTIVITY = 'fixed bottom-6 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-full border border-line bg-surface px-4 py-1.5 text-sm font-semibold text-fg shadow-md hover:bg-raised';
+
 const META_TERM = 'text-muted';
 const META_VALUE = 'm-0 min-w-0 break-words tabular-nums';
 
@@ -661,8 +664,9 @@ export const renderDetail = (
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
-      : html`<div class="${STACK}">${renderTranscript(events, generations, run.status)}</div>`}`;
-  return layout(run.worker, null, assets, body);
+      : html`<div class="${STACK}">${renderTranscript(events, generations, run.status)}</div>`}
+    ${isSettled(run) ? '' : html`<button type="button" id="new-activity" hidden class="${NEW_ACTIVITY}">↓ New activity</button>`}`;
+  return layout(run.worker, null, !isSettled(run), assets, body);
 };
 
 const renderSpec = (parent: SpecRef | null): Rendered =>
@@ -770,5 +774,5 @@ export const renderWork = (
     ${frontier.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : frontier.map((repository) => renderRepository(repository, byTicket))}`;
-  return layout('Frontier', 'work', assets, body);
+  return layout('Frontier', 'work', true, assets, body);
 };

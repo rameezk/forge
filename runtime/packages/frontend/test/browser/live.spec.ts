@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { PolledFrontier, RunRecord, Ticket } from '@forge/shared';
+import type { HarnessEvent, PolledFrontier, RunRecord, Ticket } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
 const runningRun: RunRecord = {
@@ -51,9 +51,12 @@ const openLive = async (page: Page, path: string): Promise<void> => {
   });
 };
 
+const wasReloaded = async (page: Page): Promise<boolean> =>
+  (await page.evaluate(() => (globalThis as unknown as { unreloaded?: boolean }).unreloaded)) !== true;
+
 const expectNotReloaded = async (page: Page): Promise<void> => {
   await expect(page.getByRole('status')).toHaveText('Live');
-  expect(await page.evaluate(() => (globalThis as unknown as { unreloaded?: boolean }).unreloaded)).toBe(true);
+  expect(await wasReloaded(page)).toBe(false);
 };
 
 test('given the runs list open in a browser, when a run is recorded, changes status, and its cost settles, then the table shows each change without a reload', async ({
@@ -210,14 +213,157 @@ test('given the runs list open in a browser, when its stream drops and the recon
   await expect(page.getByRole('status')).toHaveCount(0);
 });
 
+const NO_USAGE = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
+const say = (text: string): HarnessEvent => ({ type: 'message', role: 'assistant', text, usage: NO_USAGE, generationId: null });
+
+const toolCall = (id: string, path: string): HarnessEvent => ({ type: 'tool_call', id, name: 'read', arguments: { path } });
+
+const toolResult = (id: string, text: string, isError = false): HarnessEvent => ({ type: 'tool_result', id, isError, text });
+
+const longText = Array.from({ length: 80 }, (_, line) => `line ${line + 1}`).join('\n\n');
+
+type Viewport = {
+  scrollTo(x: number, y: number): void;
+  scrollY: number;
+  innerHeight: number;
+  document: { documentElement: { scrollHeight: number } };
+};
+
+const scrollTo = (page: Page, top: number): Promise<void> =>
+  page.evaluate((y) => (globalThis as unknown as Viewport).scrollTo(0, y), top);
+
+const scrollTop = (page: Page): Promise<number> => page.evaluate(() => (globalThis as unknown as Viewport).scrollY);
+
+const distanceFromBottom = (page: Page): Promise<number> =>
+  page.evaluate(() => {
+    const viewport = globalThis as unknown as Viewport;
+    return viewport.document.documentElement.scrollHeight - viewport.scrollY - viewport.innerHeight;
+  });
+
+const transcribedRun: RunRecord = { ...runningRun, transcriptRef: 'run-01.jsonl' };
+
+test('given a detail page with a tool call the operator expanded, when a new transcript event arrives, then that tool call is still expanded and the scroll position is unchanged', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(transcribedRun);
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'message', role: 'user', text: 'Work on #138.', usage: NO_USAGE, generationId: null },
+    toolCall('call-1', 'docs/CONTEXT.md'),
+    toolResult('call-1', longText),
+    say(longText),
+  );
+  await openLive(page, '/runs/run-01');
+  const call = page.locator('[data-tool-call]');
+  await call.locator('summary').click();
+  await expect(call).toHaveAttribute('open', '');
+  await scrollTo(page, 300);
+
+  dashboard.appendEvents('run-01.jsonl', say('Writing the failing test.'));
+
+  await expect(page.getByText('Writing the failing test.')).toBeAttached();
+  await expect(call).toHaveAttribute('open', '');
+  expect(await scrollTop(page)).toBe(300);
+  await expectNotReloaded(page);
+});
+
+test('given a detail page with a tool call awaiting its result that the operator has not toggled, when its result arrives as an error, then the tool call opens', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(transcribedRun);
+  dashboard.appendEvents('run-01.jsonl', toolCall('call-1', 'docs/CONTEXT.md'));
+  await openLive(page, '/runs/run-01');
+  const call = page.locator('[data-tool-call]');
+  await expect(call).not.toHaveAttribute('open');
+
+  dashboard.appendEvents('run-01.jsonl', toolResult('call-1', 'ENOENT: no such file', true));
+
+  await expect(call).toHaveAttribute('open', '');
+  await expect(call.getByText('ENOENT: no such file')).toBeVisible();
+});
+
+test('given a running workload\'s detail page scrolled to the bottom, when new transcript events arrive, then the page stays scrolled to the bottom', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(transcribedRun);
+  dashboard.appendEvents('run-01.jsonl', say(longText));
+  await openLive(page, '/runs/run-01');
+  await scrollTo(page, 1e6);
+  expect(await distanceFromBottom(page)).toBe(0);
+
+  dashboard.appendEvents('run-01.jsonl', say(longText), say('Writing the failing test.'));
+
+  await expect(page.getByText('Writing the failing test.')).toBeAttached();
+  await expect.poll(() => distanceFromBottom(page)).toBe(0);
+});
+
+test('given a running workload\'s detail page scrolled up, when new transcript events arrive, then the view stays put and New activity appears, and activating it scrolls to the bottom', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(transcribedRun);
+  dashboard.appendEvents('run-01.jsonl', say(longText));
+  await openLive(page, '/runs/run-01');
+  await scrollTo(page, 300);
+  const newActivity = page.getByRole('button', { name: '↓ New activity' });
+  await expect(newActivity).toBeHidden();
+
+  dashboard.appendEvents('run-01.jsonl', say(longText), say('Writing the failing test.'));
+
+  await expect(newActivity).toBeVisible();
+  expect(await scrollTop(page)).toBe(300);
+
+  await newActivity.click();
+
+  await expect.poll(() => distanceFromBottom(page)).toBe(0);
+  await expect(newActivity).toBeHidden();
+});
+
+test('given a live detail page showing Live, when the workload\'s cost settles and done arrives, then the indicator disappears and the page stops updating', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(transcribedRun);
+  dashboard.appendEvents('run-01.jsonl', say('Reading the ticket.'));
+  dashboard.store.recordGeneration({
+    runId: 'run-01',
+    generationId: 'gen-01',
+    subagent: null,
+    usage: { inputTokens: 4200, outputTokens: 850, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    estimatedCostUsd: null,
+    createdAt: '2026-09-21T10:01:00.000Z',
+  });
+  dashboard.store.finalizeRun('run-01', { status: 'success', endTime: '2026-09-21T10:03:20.000Z', sessionId: 'sess-abc', error: null });
+  await openLive(page, '/runs/run-01');
+
+  const [unsettled] = dashboard.store.unsettledGenerations();
+  dashboard.store.recordLookups(
+    [{ id: unsettled!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic' } }],
+    '2026-09-21T10:05:00.000Z',
+  );
+
+  await expect(page.getByText('$0.250000')).toBeVisible();
+  await expect(page.getByRole('status')).toHaveCount(0);
+  dashboard.appendEvents('run-01.jsonl', say('Written after the run settled.'));
+  await page.waitForTimeout(4_000);
+  await expect(page.getByText('Written after the run settled.')).toHaveCount(0);
+  await expect(page.getByRole('status')).toHaveCount(0);
+  expect(await wasReloaded(page)).toBe(false);
+});
+
 test.describe('with JS disabled', () => {
   test.use({ javaScriptEnabled: false });
 
-  test('given a browser with JS disabled, when the runs list or the work page is loaded, then it renders fully with no live indicator', async ({
+  test('given a browser with JS disabled, when the runs list, the work page or a running workload\'s detail page is loaded, then it renders fully with no live indicator', async ({
     dashboard,
     page,
   }) => {
-    dashboard.store.insertRun(runningRun);
+    dashboard.store.insertRun(transcribedRun);
+    dashboard.appendEvents('run-01.jsonl', say('Reading the ticket.'));
     dashboard.store.replaceFrontier(polledFrontier);
 
     await page.goto('/');
@@ -229,5 +375,11 @@ test.describe('with JS disabled', () => {
     await expect(page.getByRole('row', { name: /Live runs list and work page/ })).toBeVisible();
     await expect(page.getByRole('status')).toHaveCount(0);
     await expect(page.getByText('Live', { exact: true })).toHaveCount(0);
+
+    await page.goto('/runs/run-01');
+    await expect(page.getByText('Reading the ticket.')).toBeVisible();
+    await expect(page.getByRole('status')).toHaveCount(0);
+    await expect(page.getByText('Live', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '↓ New activity' })).toHaveCount(0);
   });
 });

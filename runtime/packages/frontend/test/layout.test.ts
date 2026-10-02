@@ -178,11 +178,11 @@ const scriptTags = (body: string): string[] => body.match(/<script[^>]*>/g) ?? [
 
 const scriptSources = (body: string): string[] => scriptTags(body).map((tag) => attribute(tag, 'src') ?? '');
 
-test('given the runs list and the work page, when they are requested, then they load the morph library and then the live client, each deferred under a content-hashed path, and a run\'s detail page loads no script', async () => {
+test('given any dashboard page, when it is requested, then it loads the morph library and then the live client, each deferred under a content-hashed path', async () => {
   const first = appWith({ idiomorph: 'var Idiomorph = 1;', client: 'live();' });
   const second = appWith({ idiomorph: 'var Idiomorph = 2;', client: 'live(2);' });
 
-  for (const page of ['/', '/work']) {
+  for (const page of PAGES) {
     const body = await (await first.request(page)).text();
     const sources = scriptSources(body);
     assert.equal(sources.length, 2, `${page} should load two scripts`);
@@ -193,8 +193,6 @@ test('given the runs list and the work page, when they are requested, then they 
     assert.notEqual(others[0], sources[0], 'a different morph library should get a different path');
     assert.notEqual(others[1], sources[1], 'a different client should get a different path');
   }
-
-  assert.deepEqual(scriptSources(await (await first.request('/runs/run-01')).text()), []);
 });
 
 test('given the script paths a page loads, when they are requested, then they return the scripts with an immutable, long-lived cache header', async () => {

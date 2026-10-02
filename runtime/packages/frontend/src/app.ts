@@ -4,7 +4,24 @@ import { streamSSE } from 'hono/streaming';
 import type { Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import type { TranscriptSource } from './transcript.ts';
-import { LIVE_PAGES, renderDetail, renderList, renderWork, type AssetHrefs } from './views.ts';
+import { isSettled, NAV_PAGES, renderDetail, renderList, renderWork, type AssetHrefs } from './views.ts';
+
+const DETAIL_PAGE = /^\/runs\/([^/]+)$/;
+
+const runOfDetailPage = (page: string): string | undefined => {
+  const encoded = DETAIL_PAGE.exec(page)?.[1];
+  if (encoded === undefined) return undefined;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return undefined;
+  }
+};
+
+interface Watch {
+  version: () => string;
+  finished: () => boolean;
+}
 
 export interface AppOptions {
   store: Store;
@@ -64,18 +81,42 @@ export const createApp = ({
       .update(await (await app.request(page)).text())
       .digest('hex');
 
+  const transcriptSize = (runId: string): number | undefined => {
+    const ref = store.getRun(runId)?.transcriptRef ?? null;
+    return ref === null ? undefined : transcripts.size(ref);
+  };
+
+  const watch = (page: string | undefined): Watch | undefined => {
+    if (page === undefined) return undefined;
+    if (NAV_PAGES.has(page)) return { version: () => String(store.dataVersion()), finished: () => false };
+    const runId = runOfDetailPage(page);
+    if (runId === undefined || store.getRun(runId) === undefined) return undefined;
+    return {
+      version: () => JSON.stringify([store.dataVersion(), transcriptSize(runId)]),
+      finished: () => {
+        const run = store.getRun(runId);
+        return run !== undefined && isSettled(run);
+      },
+    };
+  };
+
   app.get('/events', (c) => {
     const page = c.req.query('page');
-    if (page === undefined || !LIVE_PAGES.has(page)) return c.notFound();
+    const watched = watch(page);
+    if (page === undefined || watched === undefined) return c.notFound();
     return streamSSE(c, async (stream) => {
       const signal = () => stream.writeSSE({ event: 'change', data: page });
-      let version = store.dataVersion();
+      let version = watched.version();
       let sent = await renderedHash(page);
       await signal();
       for (;;) {
+        if (watched.finished()) {
+          await stream.writeSSE({ event: 'done', data: page });
+          return;
+        }
         await stream.sleep(checkIntervalMs);
         if (stream.aborted) return;
-        const current = store.dataVersion();
+        const current = watched.version();
         if (current === version) continue;
         version = current;
         const hash = await renderedHash(page);
