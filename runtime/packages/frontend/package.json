@@ -15,7 +15,7 @@
     "build": "tailwindcss -i src/styles.css -o dist/dashboard.css --minify",
     "watch": "tailwindcss -i src/styles.css -o dist/dashboard.css --watch",
     "test": "node --test 'test/**/*.test.ts'",
-    "test:browser": "playwright test"
+    "test:browser": "npm run build && playwright test"
   },
   "devDependencies": {
     "@playwright/test": "1.59.1",

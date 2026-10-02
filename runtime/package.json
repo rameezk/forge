@@ -9,7 +9,7 @@
     "build": "npm run build -w @forge/frontend",
     "typecheck": "tsc",
     "test": "node --test 'packages/*/test/**/*.test.ts'",
-    "test:browser": "npm run build && npm run test:browser -w @forge/frontend"
+    "test:browser": "npm run test:browser -w @forge/frontend"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
