@@ -611,7 +611,7 @@ test('given a checkout whose flake\'s default devShell provides a tool, when the
   assert.equal(pi.env.PATH, `${DEVSHELL_PATH}:${toolset}`);
 });
 
-test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author and pi\'s agent dir, and the build-only variables nix develop leaves out, when the workload starts, then pi sees forge\'s values, its sandbox HOME, and none of the build-only or unexported variables', async () => {
+test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author, pi\'s agent dir, its own locale, and the build-only variables nix develop leaves out, when the workload starts, then pi sees forge\'s deliberate values, the devShell\'s locale over the box\'s, its sandbox HOME, and none of the build-only or unexported variables', async () => {
   const exported = (value: string) => ({ type: 'exported', value });
   const { pi } = await dispatch({
     origin: originWith({
@@ -630,10 +630,13 @@ test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author 
         TMPDIR: exported('/build'),
         SSL_CERT_FILE: exported('/no-cert-file.crt'),
         NIX_BUILD_TOP: exported('/build'),
+        LANG: exported('en_GB.UTF-8'),
+        LOCALE_ARCHIVE: exported('/nix/store/00000000000000000000000000000000-glibc-locales/lib/locale/locale-archive'),
         SHELL_ONLY: { type: 'var', value: 'unexported' },
         ARRAY_ONLY: { type: 'array', value: ['a', 'b'] },
       },
     },
+    env: { LANG: 'C.UTF-8', LOCALE_ARCHIVE: '/run/current-system/sw/lib/locale/locale-archive' },
   });
 
   assert.ok(pi);
@@ -643,6 +646,11 @@ test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author 
   assert.equal(pi.env.GIT_AUTHOR_EMAIL, GIT_IDENTITY.email);
   assert.equal(pi.env.PI_CODING_AGENT_DIR, AGENT_DIR);
   assert.notEqual(pi.env.HOME, '/homeless-shelter');
+  assert.equal(pi.env.LANG, 'en_GB.UTF-8');
+  assert.equal(
+    pi.env.LOCALE_ARCHIVE,
+    '/nix/store/00000000000000000000000000000000-glibc-locales/lib/locale/locale-archive',
+  );
   for (const name of ['TMPDIR', 'SSL_CERT_FILE', 'NIX_BUILD_TOP', 'SHELL_ONLY', 'ARRAY_ONLY']) {
     assert.equal(pi.env[name], undefined, name);
   }

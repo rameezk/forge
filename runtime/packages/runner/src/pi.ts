@@ -149,8 +149,6 @@ interface PiLine {
 
 const FAILED_STOP_REASONS = new Set(['error', 'aborted']);
 
-const STDERR_TAIL_CHARS = 4000;
-
 const textOf = (content: PiContent[]): string =>
   content
     .flatMap((part) =>
@@ -329,6 +327,7 @@ export interface PiHarnessOptions {
   extension: string;
   agentDir: string;
   sandbox: Sandbox;
+  system: Record<string, string>;
   env: Record<string, string>;
   extraArgs?: string[];
 }
@@ -339,6 +338,7 @@ export class PiHarness implements Harness {
   readonly #agentDir: string;
   readonly #sandbox: Sandbox;
   readonly #extraArgs: string[];
+  readonly #system: Record<string, string>;
   readonly #env: Record<string, string>;
 
   constructor(options: PiHarnessOptions) {
@@ -347,6 +347,7 @@ export class PiHarness implements Harness {
     this.#agentDir = options.agentDir;
     this.#sandbox = options.sandbox;
     this.#extraArgs = options.extraArgs ?? [];
+    this.#system = options.system;
     this.#env = options.env;
   }
 
@@ -354,13 +355,14 @@ export class PiHarness implements Harness {
     const stream = new PiStream();
     const command = realCommand(this.#command);
     const args = piArgs(invocation, this.#extension, this.#extraArgs);
-    const { child, stdout, stderr, harnessRan } = spawnSandboxed(
+    const { child, stdout, exited: exit } = spawnSandboxed(
       this.#sandbox,
       command,
       args,
       {
+        name: 'pi',
         workDir: invocation.workDir,
-        env: underDevShell(invocation.devShell, {
+        env: underDevShell(invocation.devShell, this.#system, {
           ...this.#env,
           ...piEnv(this.#agentDir),
           [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
@@ -369,39 +371,6 @@ export class PiHarness implements Harness {
         }),
       },
     );
-
-    let stderrTail = '';
-    stderr.on('data', (chunk: Buffer) => {
-      process.stderr.write(chunk);
-      stderrTail = (stderrTail + chunk.toString()).slice(-STDERR_TAIL_CHARS);
-    });
-
-    const closed = new Promise<Error | { code: number | null; signal: string | null }>(
-      (resolve) => {
-        child.on('error', resolve);
-        child.on('close', (code, signal) => resolve({ code, signal }));
-      },
-    );
-
-    const exit = closed.then(async (closing): Promise<Error | null> => {
-      const reason = stderrTail.trim();
-      if (!(await harnessRan)) {
-        const why = closing instanceof Error ? closing.message : reason;
-        return new Error(`the workload sandbox could not start: ${why}`);
-      }
-      if (closing instanceof Error) {
-        return closing;
-      }
-      const { code, signal } = closing;
-      if (code === 0) {
-        return null;
-      }
-      const how =
-        code === null ? `on signal ${String(signal)}` : `with code ${code}`;
-      return new Error(
-        reason.length === 0 ? `pi exited ${how}` : `pi exited ${how}: ${reason}`,
-      );
-    });
 
     let drained = false;
     try {

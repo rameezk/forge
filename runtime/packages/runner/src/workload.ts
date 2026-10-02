@@ -59,7 +59,6 @@ const harnessEnvironment = (
   env: NodeJS.ProcessEnv,
   harnessEnv: Record<string, string>,
 ): Record<string, string> => ({
-  ...systemEnvironment(env),
   ...picked(env, ['OPENROUTER_API_KEY']),
   ...harnessEnv,
 });
@@ -82,6 +81,7 @@ const harnessFor = (
     agentDir,
     sandbox: sandboxOf(env),
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
+    system: systemEnvironment(env),
     env: harnessEnvironment(env, harnessEnv),
   });
 };

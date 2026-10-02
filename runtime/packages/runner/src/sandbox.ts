@@ -42,11 +42,14 @@ export const sandboxArgs = ({ home }: Sandbox, workDir: string): string[] => [
   String(STATUS_FD),
 ];
 
+const STDERR_TAIL_CHARS = 4000;
+
+export class SandboxUnavailable extends Error {}
+
 export interface SandboxedProcess {
   child: ChildProcess;
   stdout: Readable;
-  stderr: Readable;
-  harnessRan: Promise<boolean>;
+  exited: Promise<Error | null>;
 }
 
 const isExitReport = (line: string): boolean => {
@@ -69,11 +72,51 @@ const reportsExit = (status: Readable): Promise<boolean> =>
     status.on('close', () => resolve(reports.split('\n').some(isExitReport)));
   });
 
+const stderrTail = (stderr: Readable): Promise<string> =>
+  new Promise((resolve) => {
+    let tail = '';
+    stderr.on('data', (chunk: Buffer) => {
+      process.stderr.write(chunk);
+      tail = (tail + chunk.toString()).slice(-STDERR_TAIL_CHARS);
+    });
+    stderr.on('close', () => resolve(tail.trim()));
+  });
+
+const exitOf = async (
+  name: string,
+  child: ChildProcess,
+  ran: Promise<boolean>,
+  tail: Promise<string>,
+): Promise<Error | null> => {
+  const closing = await new Promise<
+    Error | { code: number | null; signal: NodeJS.Signals | null }
+  >((resolve) => {
+    child.on('error', resolve);
+    child.on('close', (code, signal) => resolve({ code, signal }));
+  });
+  if (!(await ran)) {
+    const why = closing instanceof Error ? closing.message : await tail;
+    return new SandboxUnavailable(`the workload sandbox could not start: ${why}`);
+  }
+  if (closing instanceof Error) {
+    return closing;
+  }
+  const { code, signal } = closing;
+  if (code === 0) {
+    return null;
+  }
+  const reason = await tail;
+  const how = code === null ? `on signal ${String(signal)}` : `with code ${code}`;
+  return new Error(
+    reason.length === 0 ? `${name} exited ${how}` : `${name} exited ${how}: ${reason}`,
+  );
+};
+
 export const spawnSandboxed = (
   sandbox: Sandbox,
   command: string,
   args: string[],
-  { workDir, env }: { workDir: string; env: NodeJS.ProcessEnv },
+  { name, workDir, env }: { name: string; workDir: string; env: NodeJS.ProcessEnv },
 ): SandboxedProcess => {
   const child = spawn(
     sandbox.bwrap,
@@ -87,7 +130,11 @@ export const spawnSandboxed = (
   return {
     child,
     stdout: child.stdout as Readable,
-    stderr: child.stderr as Readable,
-    harnessRan: reportsExit(child.stdio[STATUS_FD] as Readable),
+    exited: exitOf(
+      name,
+      child,
+      reportsExit(child.stdio[STATUS_FD] as Readable),
+      stderrTail(child.stderr as Readable),
+    ),
   };
 };
