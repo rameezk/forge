@@ -87,8 +87,11 @@ let
       _: r: { inherit (r) github; } // lib.optionalAttrs (r.worker != null) { inherit (r) worker; }
     ) cfg.repositories;
   }
-  // lib.optionalAttrs (cfg.dispatch.gitIdentity != null) {
-    dispatch = { inherit (cfg.dispatch) gitIdentity; };
+  // lib.optionalAttrs hasDispatch {
+    dispatch = {
+      inherit (cfg.dispatch) maxConcurrent;
+    }
+    // lib.optionalAttrs (cfg.dispatch.gitIdentity != null) { inherit (cfg.dispatch) gitIdentity; };
   };
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
@@ -153,6 +156,8 @@ let
       !(lib.any (name: lib.elem name runtimeTrustNames) trustedUsers) && !extraOptionsSetTrust;
     message = "${cfg.user} must never be a trusted nix user, by name, by group or through a wildcard in nix.settings.trusted-users or nix.settings.extra-trusted-users, and nix.extraOptions must not set either, since evaluation cannot check it there: a trusted user can add unsigned paths and change substituters, so one workload could plant a tool for a later one through the store";
   };
+
+  dispatchUnitPattern = "^forge-dispatch@(?:${lib.concatStringsSep "|" (lib.attrNames dispatchedRepositories)}):[1-9][0-9]*\\.service$";
 
   dispatchInstance = pkgs.writeShellScript "forge-dispatch-instance" ''
     exec ${cfg.package}/bin/forge-dispatch "''${1%:*}" "''${1##*:}"
@@ -232,7 +237,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runtime package providing the forge-run, forge-dispatch, forge-billing, forge-frontier and forge-frontend entry points.";
+      description = "Runtime package providing the forge-run, forge-dispatch, forge-dispatch-pass, forge-billing, forge-frontier and forge-frontend entry points.";
     };
 
     dashboardPort = lib.mkOption {
@@ -251,6 +256,13 @@ in
       default = null;
       example = lib.literalExpression ''{ name = "Forge"; email = "forge@example.com"; }'';
       description = "Git author and committer identity of every dispatched workload, set through its environment and never written to a file. Required when any repository declares a worker. Scheduled workloads get no identity.";
+    };
+
+    dispatch.maxConcurrent = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 1;
+      example = 2;
+      description = "How many dispatched workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch over it is refused.";
     };
 
     frontier.pollInterval = lib.mkOption {
@@ -446,6 +458,44 @@ in
       environment.systemPackages = [
         (pkgs.callPackage ../nix/dispatch-command.nix { })
       ];
+
+      security.polkit.enable = true;
+      security.polkit.extraConfig = ''
+        polkit.addRule(function (action, subject) {
+          if (
+            action.id == "org.freedesktop.systemd1.manage-units" &&
+            subject.user == "${cfg.user}" &&
+            action.lookup("verb") == "start" &&
+            /${dispatchUnitPattern}/.test(action.lookup("unit"))
+          ) {
+            return polkit.Result.YES;
+          }
+        });
+      '';
+
+      systemd.services.forge-frontier-sync = {
+        wants = [ "forge-dispatch-pass.service" ];
+        before = [ "forge-dispatch-pass.service" ];
+      };
+
+      systemd.services.forge-dispatch-pass = {
+        description = "Forge dispatch pass: start a forge-dispatch@ unit for each forge:ready frontier ticket, up to dispatch.maxConcurrent";
+        serviceConfig = {
+          Type = "oneshot";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          Environment = [
+            "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
+            "FORGE_STATE_DIR=${cfg.stateDir}"
+            "FORGE_SYSTEMCTL=${config.systemd.package}/bin/systemctl"
+          ];
+          ExecStart = "${cfg.package}/bin/forge-dispatch-pass";
+          RestrictAddressFamilies = [ "AF_UNIX" ];
+          IPAddressDeny = "any";
+        }
+        // hardening;
+      };
 
       systemd.services."forge-dispatch@" = {
         description = "Forge dispatch of ticket %i";

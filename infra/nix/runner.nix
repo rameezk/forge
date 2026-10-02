@@ -57,6 +57,8 @@ buildNpmPackage {
       --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
       ${sandboxFlags} \
       --set FORGE_PI_PACKAGE "${piPackage}"
+    makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch-pass" \
+      --add-flags "$out/lib/forge-runtime/packages/runner/src/pass-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-billing" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/billing-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontier" \
@@ -69,7 +71,7 @@ buildNpmPackage {
   passthru = { inherit subagentExtension piAgentDir piPackage; };
 
   meta = {
-    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
+    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), starts a dispatch for each forge:ready frontier ticket up to the concurrency limit (forge-dispatch-pass), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
     mainProgram = "forge-run";
     platforms = nodejs.meta.platforms;
   };

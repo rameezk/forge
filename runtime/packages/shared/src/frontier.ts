@@ -1,3 +1,5 @@
+import { FORGE_READY } from './dispatch.ts';
+
 export const GITHUB_GRAPHQL_API = 'https://api.github.com/graphql';
 
 export const FRONTIER_PAGE_SIZE = 100;
@@ -23,6 +25,11 @@ export const FRONTIER_QUERY = `
           title
           url
           createdAt
+          labels(first: 100) {
+            nodes {
+              name
+            }
+          }
           issueDependenciesSummary {
             blockedBy
           }
@@ -112,6 +119,8 @@ export interface Ticket {
   url: string;
   parent: SpecRef | null;
   createdAt: string;
+  forgeReady: boolean;
+  blocked: boolean;
 }
 
 export const oldestFirst = (a: Ticket, b: Ticket): number =>
@@ -139,6 +148,7 @@ interface IssueNode {
   title: string;
   url: string;
   createdAt: string;
+  labels: { nodes: { name: string }[] };
   issueDependenciesSummary: { blockedBy: number };
   parent: SpecRef | null;
 }
@@ -183,6 +193,8 @@ const toTicket = (issue: IssueNode): Ticket => ({
       ? null
       : { number: issue.parent.number, title: issue.parent.title },
   createdAt: issue.createdAt,
+  forgeReady: issue.labels.nodes.some((label) => label.name === FORGE_READY),
+  blocked: issue.issueDependenciesSummary.blockedBy > 0,
 });
 
 const requestGraphql = (
@@ -287,8 +299,8 @@ export const queryFrontier = async (
       }),
     )
   )
-    .filter((issue) => issue.issueDependenciesSummary.blockedBy === 0)
-    .map(toTicket);
+    .map(toTicket)
+    .filter((ticket) => !ticket.blocked || ticket.forgeReady);
 
 export interface LabelledIssue {
   number: number;

@@ -241,6 +241,7 @@ interface Scenario {
   tokenFile?: string | null;
   piOutput?: string;
   gitIdentity?: typeof GIT_IDENTITY | null;
+  maxConcurrent?: number;
   gitConfig?: Record<string, string>;
   env?: Record<string, string>;
 }
@@ -301,10 +302,14 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       repositories: {
         forge: { github: 'rameezk/forge', worker: 'builder' },
       },
-      dispatch:
-        scenario.gitIdentity === null
+      dispatch: {
+        ...(scenario.gitIdentity === null
           ? {}
-          : { gitIdentity: scenario.gitIdentity ?? GIT_IDENTITY },
+          : { gitIdentity: scenario.gitIdentity ?? GIT_IDENTITY }),
+        ...(scenario.maxConcurrent === undefined
+          ? {}
+          : { maxConcurrent: scenario.maxConcurrent }),
+      },
     }),
   );
   const tokenFile = join(stateDir, 'github-write.env');
@@ -598,6 +603,12 @@ const forgeTicket = (number: number) => ({
   url: `https://github.com/rameezk/forge/issues/${number}`,
 });
 
+const startedDispatch = (store: Store, number: number, runId: string, at: string): number => {
+  const start = store.startDispatch(forgeTicket(number), runId, at, Number.POSITIVE_INFINITY);
+  assert.ok('started' in start);
+  return start.started;
+};
+
 const interruptedLabelWrites = (number: number): LabelWrite[] => [
   {
     method: 'POST',
@@ -626,8 +637,8 @@ test('given tickets labelled forge:running, one whose dispatch stopped beating, 
   const { labelWrites, dispatches } = await dispatch({
     running: labelledIssues([114, 115, 123]),
     seed: (store) => {
-      store.startDispatch(forgeTicket(114), 'run-stale', '2026-09-01T09:00:00.000Z');
-      store.startDispatch(forgeTicket(123), 'run-live', new Date().toISOString());
+      startedDispatch(store, 114, 'run-stale', '2026-09-01T09:00:00.000Z');
+      startedDispatch(store, 123, 'run-live', new Date().toISOString());
     },
   });
 
@@ -652,7 +663,7 @@ test('given a live dispatch of the ticket already in the store, when forge-dispa
   const { result, journal } = await journaled(() =>
     dispatch({
       seed: (store) => {
-        store.startDispatch(forgeTicket(113), 'run-live', new Date().toISOString());
+        startedDispatch(store, 113, 'run-live', new Date().toISOString());
       },
     }),
   );
@@ -662,6 +673,46 @@ test('given a live dispatch of the ticket already in the store, when forge-dispa
   assert.deepEqual(result.runs, []);
   assert.deepEqual(result.labelWrites, []);
   assert.match(journal, /forge#113 is not dispatchable: it is already being dispatched/);
+});
+
+test('given maxConcurrent = 1 and a dispatched workload of another ticket still running, when forge-dispatch runs, then it refuses without claiming the ticket or starting a second workload, while a stale dispatch does not count against the limit', async () => {
+  const { result, journal } = await journaled(() =>
+    dispatch({
+      maxConcurrent: 1,
+      seed: (store) => {
+        startedDispatch(store, 123, 'run-live', new Date().toISOString());
+      },
+    }),
+  );
+
+  assert.equal(result.code, 1);
+  assert.equal(result.pi, null);
+  assert.deepEqual(result.runs, []);
+  assert.deepEqual(result.labelWrites.filter(({ path }) => path.includes('/issues/113/')), []);
+  assert.match(
+    journal,
+    /forge#113 is not dispatchable: 1 dispatched workload is already running, the most forge\.runtime\.dispatch\.maxConcurrent allows/,
+  );
+
+  const stale = await dispatch({
+    seed: (store) => {
+      startedDispatch(store, 123, 'run-stale', '2026-09-01T09:00:00.000Z');
+    },
+  });
+  assert.equal(stale.code, 0);
+  assert.notEqual(stale.pi, null);
+});
+
+test('given maxConcurrent = 2 and one dispatched workload still running, when forge-dispatch runs for another ticket, then its workload starts beside the first', async () => {
+  const { code, pi } = await dispatch({
+    maxConcurrent: 2,
+    seed: (store) => {
+      startedDispatch(store, 123, 'run-live', new Date().toISOString());
+    },
+  });
+
+  assert.equal(code, 0);
+  assert.notEqual(pi, null);
 });
 
 test('given GitHub refuses the claim, when forge-dispatch runs, then it fails naming the refusal, starts no workload, and the dispatch fails with the claim as the reason', async () => {
@@ -703,9 +754,8 @@ test('given a ticket still labelled forge:running whose dispatch already ended d
   const { labelWrites, dispatches } = await dispatch({
     running: labelledIssues([114, 115]),
     seed: (store) => {
-      const done = store.startDispatch(forgeTicket(114), 'run-114', at);
-      const failed = store.startDispatch(forgeTicket(115), 'run-115', at);
-      assert.ok(done !== null && failed !== null);
+      const done = startedDispatch(store, 114, 'run-114', at);
+      const failed = startedDispatch(store, 115, 'run-115', at);
       store.endDispatch(done, { state: 'done' }, at);
       store.endDispatch(failed, { state: 'failed', reason: 'errored', detail: 'GitHub answered 502' }, at);
     },

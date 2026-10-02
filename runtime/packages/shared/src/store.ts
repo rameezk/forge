@@ -12,6 +12,7 @@ import {
   type DispatchFailure,
   type DispatchOutcome,
   type DispatchRecord,
+  type DispatchStart,
   type DispatchState,
   type DispatchTicket,
 } from './dispatch.ts';
@@ -208,6 +209,8 @@ type TicketRow = {
   parent_number: number | null;
   parent_title: string | null;
   created_at: string;
+  forge_ready: number;
+  blocked: number;
 };
 
 const CREATE_FRONTIER = `
@@ -227,6 +230,8 @@ const CREATE_FRONTIER = `
     parent_number INTEGER,
     parent_title  TEXT,
     created_at    TEXT NOT NULL,
+    forge_ready   INTEGER NOT NULL,
+    blocked       INTEGER NOT NULL,
     PRIMARY KEY (repository, number)
   ) STRICT;
 `;
@@ -287,10 +292,17 @@ const liveSince = (now: string): string =>
 
 const HAS_OUTDATED_FRONTIER = `
   SELECT 1 FROM sqlite_master
-  WHERE type = 'table' AND name = 'frontier_repositories'
+  WHERE (
+    type = 'table' AND name = 'frontier_repositories'
     AND NOT EXISTS (
       SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'failed_at'
     )
+  ) OR (
+    type = 'table' AND name = 'frontier_tickets'
+    AND NOT EXISTS (
+      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'blocked'
+    )
+  )
 `;
 
 const DROP_FRONTIER = `
@@ -350,6 +362,8 @@ const ticketFromRow = (row: TicketRow): Ticket => ({
       ? null
       : { number: row.parent_number, title: row.parent_title },
   createdAt: row.created_at,
+  forgeReady: row.forge_ready === 1,
+  blocked: row.blocked === 1,
 });
 
 const generationFromRow = (row: GenerationRow): GenerationRecord => ({
@@ -706,9 +720,11 @@ export class Store {
         .run({ repository });
       const insert = this.#db.prepare(
         `INSERT INTO frontier_tickets (
-          repository, number, title, url, parent_number, parent_title, created_at
+          repository, number, title, url, parent_number, parent_title, created_at,
+          forge_ready, blocked
         ) VALUES (
-          $repository, $number, $title, $url, $parent_number, $parent_title, $created_at
+          $repository, $number, $title, $url, $parent_number, $parent_title, $created_at,
+          $forge_ready, $blocked
         )`,
       );
       for (const ticket of tickets) {
@@ -720,6 +736,8 @@ export class Store {
           parent_number: ticket.parent?.number ?? null,
           parent_title: ticket.parent?.title ?? null,
           created_at: ticket.createdAt,
+          forge_ready: ticket.forgeReady ? 1 : 0,
+          blocked: ticket.blocked ? 1 : 0,
         });
       }
     });
@@ -824,21 +842,35 @@ export class Store {
     return row.id;
   }
 
+  #liveDispatches(now: string): number {
+    const { live } = this.#db
+      .prepare(
+        `SELECT COUNT(*) AS live FROM dispatches
+        WHERE state = 'running' AND alive_at >= $live_since`,
+      )
+      .get({ live_since: liveSince(now) }) as { live: number };
+    return live;
+  }
+
   startDispatch(
     ticket: DispatchTicket,
     runId: string,
     startedAt: string,
-  ): number | null {
-    let id: number | null = null;
+    maxConcurrent: number,
+  ): DispatchStart {
+    let start: DispatchStart = { refused: 'dispatching' };
     this.#transaction(() => {
       const latest = this.#latestDispatch(ticket);
-      if (latest?.state === 'running') {
-        if (latest.alive_at >= liveSince(startedAt)) return;
-        this.#interruptStale(latest, startedAt);
+      if (latest?.state === 'running' && latest.alive_at >= liveSince(startedAt)) return;
+      const live = this.#liveDispatches(startedAt);
+      if (live >= maxConcurrent) {
+        start = { refused: 'full', live };
+        return;
       }
-      id = this.#insertDispatch(ticket, runId, 'running', null, startedAt);
+      if (latest?.state === 'running') this.#interruptStale(latest, startedAt);
+      start = { started: this.#insertDispatch(ticket, runId, 'running', null, startedAt) };
     });
-    return id;
+    return start;
   }
 
   reconcileDispatch(
