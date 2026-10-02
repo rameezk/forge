@@ -119,6 +119,9 @@
           default = pkgs.mkShell {
             packages = operatorToolchain system ++ [ pkgs.nodejs ];
             FORGE_PI_PACKAGE = self.packages.${system}.forge-runner.piPackage;
+            PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers-chromium;
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+            PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
           };
         }
       );
@@ -1067,6 +1070,9 @@
           };
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          dashboard-browser-tests = pkgs.callPackage ./infra/nix/dashboard-browser-tests.nix {
+            forge-runner = self.packages.${system}.forge-runner;
+          };
           runtime-toolset = pkgs.callPackage ./infra/nix/runtime-toolset.nix {
             forge-runner = self.packages.${system}.forge-runner;
             sopsModule = sops-nix.nixosModules.sops;

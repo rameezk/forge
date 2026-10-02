@@ -14,9 +14,11 @@
   "scripts": {
     "build": "tailwindcss -i src/styles.css -o dist/dashboard.css --minify",
     "watch": "tailwindcss -i src/styles.css -o dist/dashboard.css --watch",
-    "test": "node --test 'test/**/*.test.ts'"
+    "test": "node --test 'test/**/*.test.ts'",
+    "test:browser": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.59.1",
     "@tailwindcss/cli": "^4.3.3",
     "@tailwindcss/typography": "0.5.20",
     "@types/markdown-it": "14.2.0",
