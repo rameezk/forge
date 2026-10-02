@@ -39,6 +39,10 @@ const NAV: { page: Page; href: string; label: string }[] = [
   { page: 'work', href: '/work', label: 'Work' },
 ];
 
+export const LIVE_PAGES: ReadonlySet<string> = new Set(NAV.map(({ href }) => href));
+
+const isLive = (current: Page | null): boolean => NAV.some(({ page }) => page === current);
+
 export interface AssetHrefs {
   stylesheet: string;
   logo: string;
@@ -74,7 +78,6 @@ const navLink = (href: string, label: string, current: boolean): HtmlEscapedStri
 const renderHeader = (
   current: Page | null,
   assets: AssetHrefs,
-  live: boolean,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
     <div class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-2">
@@ -82,7 +85,7 @@ const renderHeader = (
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
       </nav>
-      ${live ? html`<span id="live" role="status" data-live hidden class="${LIVE_INDICATOR}"></span>` : ''}
+      ${isLive(current) ? html`<span id="live" role="status" data-live hidden class="${LIVE_INDICATOR}"></span>` : ''}
     </div>
   </header>`;
 
@@ -91,7 +94,6 @@ const layout = (
   current: Page | null,
   assets: AssetHrefs,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
-  live: boolean,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<!doctype html>
     <html lang="en" class="scheme-light-dark">
@@ -101,13 +103,13 @@ const layout = (
         <title>${title} | Forge</title>
         <link rel="icon" type="image/svg+xml" href="${assets.logo}" />
         <link rel="stylesheet" href="${assets.stylesheet}" />
-        ${live
+        ${isLive(current)
           ? html`<script src="${assets.idiomorph}" defer></script>
               <script src="${assets.client}" defer></script>`
           : ''}
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}">
-        ${renderHeader(current, assets, live)}
+        ${renderHeader(current, assets)}
         <main class="mx-auto max-w-6xl px-4 py-8">${body}</main>
       </body>
     </html>`;
@@ -231,7 +233,7 @@ export const renderList = (
               </tfoot>
             </table>
           </div>`;
-  return layout('Workloads', 'runs', assets, body, true);
+  return layout('Workloads', 'runs', assets, body);
 };
 
 const BLOCK = 'rounded-lg border bg-surface';
@@ -645,7 +647,7 @@ export const renderDetail = (
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
       : html`<div class="${STACK}">${renderTranscript(events, generations, run.status)}</div>`}`;
-  return layout(run.worker, null, assets, body, false);
+  return layout(run.worker, null, assets, body);
 };
 
 const renderSpec = (parent: SpecRef | null): Rendered =>
@@ -753,5 +755,5 @@ export const renderWork = (
     ${frontier.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : frontier.map((repository) => renderRepository(repository, byTicket))}`;
-  return layout('Frontier', 'work', assets, body, true);
+  return layout('Frontier', 'work', assets, body);
 };

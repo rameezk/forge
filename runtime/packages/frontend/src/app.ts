@@ -4,7 +4,7 @@ import { streamSSE } from 'hono/streaming';
 import type { Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import type { TranscriptSource } from './transcript.ts';
-import { renderDetail, renderList, renderWork, type AssetHrefs } from './views.ts';
+import { LIVE_PAGES, renderDetail, renderList, renderWork, type AssetHrefs } from './views.ts';
 
 export interface AppOptions {
   store: Store;
@@ -15,8 +15,6 @@ export interface AppOptions {
   client: string;
   checkIntervalMs?: number;
 }
-
-const LIVE_PAGES = new Set(['/', '/work']);
 
 export const createApp = ({
   store,
