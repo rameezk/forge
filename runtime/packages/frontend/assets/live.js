@@ -38,5 +38,11 @@ const update = async () => {
 
 const events = new EventSource(`/events?page=${encodeURIComponent(location.pathname)}`);
 events.addEventListener('open', () => show('live', 'Live'));
-events.addEventListener('error', () => show('reconnecting', 'Reconnecting…'));
+events.addEventListener('error', () => {
+  if (events.readyState === EventSource.CLOSED) {
+    indicator.hidden = true;
+  } else {
+    show('reconnecting', 'Reconnecting…');
+  }
+});
 events.addEventListener('change', update);

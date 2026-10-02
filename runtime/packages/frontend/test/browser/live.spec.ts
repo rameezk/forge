@@ -133,6 +133,19 @@ test('given the runs list open in a browser, when the stream is connected, then 
   await expect(indicator).toHaveText('Reconnecting…');
 });
 
+test('given the runs list open in a browser, when its stream drops and the reconnect is refused, then the browser stops retrying and the indicator is gone', async ({
+  dashboard,
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.getByRole('status')).toHaveText('Live');
+  await page.route('**/events?*', (route) => route.fulfill({ status: 502 }));
+
+  await dashboard.stop();
+
+  await expect(page.getByRole('status')).toHaveCount(0);
+});
+
 test.describe('with JS disabled', () => {
   test.use({ javaScriptEnabled: false });
 
