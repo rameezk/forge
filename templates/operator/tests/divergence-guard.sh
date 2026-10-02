@@ -24,7 +24,7 @@ plan_file="$(mktemp)"
 trap 'rm -f "$plan_file"' EXIT
 (
 	cd infra/opentofu
-	tofu plan -input=false -var="hcloud_token=$fake_token" -out="$plan_file" >/dev/null
+	tofu plan -refresh=false -input=false -var="hcloud_token=$fake_token" -out="$plan_file" >/dev/null
 )
 tofu_keys="$(tofu -chdir=infra/opentofu show -json "$plan_file" | jq -cS '.planned_values.outputs.ssh_public_keys.value')"
 
