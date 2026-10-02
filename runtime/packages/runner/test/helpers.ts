@@ -1,9 +1,11 @@
 import { chmodSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import assert from 'node:assert/strict';
 import type {
   HarnessEvent,
   MessageEvent,
   ResultEvent,
+  Store,
 } from '@forge/shared';
 import type {
   Harness,
@@ -213,6 +215,23 @@ export const journaled = async <T>(
   } finally {
     process.stderr.write = write;
   }
+};
+
+export const startedDispatch = (
+  store: Store,
+  repository: string,
+  number: number,
+  runId: string,
+  at: string,
+): number => {
+  const start = store.startDispatch(
+    { repository, number, url: `https://github.com/rameezk/${repository}/issues/${number}` },
+    runId,
+    at,
+    Number.POSITIVE_INFINITY,
+  );
+  assert.ok('started' in start);
+  return start.started;
 };
 
 export const lockedPiPackage = (): string => {

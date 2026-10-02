@@ -17,6 +17,9 @@ export type DispatchFailure =
   | 'skill-not-found'
   | 'interrupted';
 
+export const ticketKey = (repository: string, number: number): string =>
+  `${repository}#${number}`;
+
 export interface DispatchTicket {
   repository: string;
   number: number;

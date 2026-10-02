@@ -17,6 +17,7 @@ import { Store, type DispatchRecord, type RunRecord } from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
 import {
   journaled,
+  startedDispatch,
   PI_CONTRACT,
   lockedPiPackage,
   writeFakeBwrap,
@@ -610,12 +611,6 @@ const forgeTicket = (number: number) => ({
   url: `https://github.com/rameezk/forge/issues/${number}`,
 });
 
-const startedDispatch = (store: Store, number: number, runId: string, at: string): number => {
-  const start = store.startDispatch(forgeTicket(number), runId, at, Number.POSITIVE_INFINITY);
-  assert.ok('started' in start);
-  return start.started;
-};
-
 const interruptedLabelWrites = (number: number): LabelWrite[] => [
   {
     method: 'POST',
@@ -644,8 +639,8 @@ test('given tickets labelled forge:running, one whose dispatch stopped beating, 
   const { labelWrites, dispatches } = await dispatch({
     running: labelledIssues([114, 115, 123]),
     seed: (store) => {
-      startedDispatch(store, 114, 'run-stale', '2026-09-01T09:00:00.000Z');
-      startedDispatch(store, 123, 'run-live', new Date().toISOString());
+      startedDispatch(store, 'forge', 114, 'run-stale', '2026-09-01T09:00:00.000Z');
+      startedDispatch(store, 'forge', 123, 'run-live', new Date().toISOString());
     },
   });
 
@@ -670,7 +665,7 @@ test('given a live dispatch of the ticket already in the store, when forge-dispa
   const { result, journal } = await journaled(() =>
     dispatch({
       seed: (store) => {
-        startedDispatch(store, 113, 'run-live', new Date().toISOString());
+        startedDispatch(store, 'forge', 113, 'run-live', new Date().toISOString());
       },
     }),
   );
@@ -687,7 +682,7 @@ test('given maxConcurrent = 1 and a dispatched workload of another ticket still 
     dispatch({
       maxConcurrent: 1,
       seed: (store) => {
-        startedDispatch(store, 123, 'run-live', new Date().toISOString());
+        startedDispatch(store, 'forge', 123, 'run-live', new Date().toISOString());
       },
     }),
   );
@@ -703,7 +698,7 @@ test('given maxConcurrent = 1 and a dispatched workload of another ticket still 
 
   const stale = await dispatch({
     seed: (store) => {
-      startedDispatch(store, 123, 'run-stale', '2026-09-01T09:00:00.000Z');
+      startedDispatch(store, 'forge', 123, 'run-stale', '2026-09-01T09:00:00.000Z');
     },
   });
   assert.equal(stale.code, 0);
@@ -714,7 +709,7 @@ test('given maxConcurrent = 2 and one dispatched workload still running, when fo
   const { code, pi } = await dispatch({
     maxConcurrent: 2,
     seed: (store) => {
-      startedDispatch(store, 123, 'run-live', new Date().toISOString());
+      startedDispatch(store, 'forge', 123, 'run-live', new Date().toISOString());
     },
   });
 
@@ -761,8 +756,8 @@ test('given a ticket still labelled forge:running whose dispatch already ended d
   const { labelWrites, dispatches } = await dispatch({
     running: labelledIssues([114, 115]),
     seed: (store) => {
-      const done = startedDispatch(store, 114, 'run-114', at);
-      const failed = startedDispatch(store, 115, 'run-115', at);
+      const done = startedDispatch(store, 'forge', 114, 'run-114', at);
+      const failed = startedDispatch(store, 'forge', 115, 'run-115', at);
       store.endDispatch(done, { state: 'done' }, at);
       store.endDispatch(failed, { state: 'failed', reason: 'errored', detail: 'GitHub answered 502' }, at);
     },

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store, type PolledFrontier, type Ticket } from '@forge/shared';
 import { main } from '../src/pass-main.ts';
-import { journaled } from './helpers.ts';
+import { journaled, startedDispatch } from './helpers.ts';
 
 const ticket = (github: string, number: number, overrides: Partial<Ticket> = {}): Ticket => ({
   number,
@@ -99,17 +99,6 @@ test('given a frontier ticket labelled forge:ready, a frontier ticket without it
   assert.match(journal, /forge#113: started forge-dispatch@forge:113\.service/);
 });
 
-const startedDispatch = (store: Store, repository: string, number: number, at: string): number => {
-  const start = store.startDispatch(
-    { repository, number, url: `https://github.com/rameezk/${repository}/issues/${number}` },
-    `run-${number}`,
-    at,
-    Number.POSITIVE_INFINITY,
-  );
-  assert.ok('started' in start);
-  return start.started;
-};
-
 test('given maxConcurrent = 1 and two dispatchable tickets, when the pass runs, then only the older is dispatched and the other waits; while the first runs a later pass dispatches nothing, even though the snapshot predates its claim; and once it finishes the next pass dispatches the other', async () => {
   const forge = (tickets: Ticket[]) => polled('forge', 'rameezk/forge', tickets);
   const dotfiles = polled('dotfiles', 'rameezk/dotfiles', [ticket('rameezk/dotfiles', 5, { createdAt: '2026-09-28T11:00:00Z' })]);
@@ -121,7 +110,7 @@ test('given maxConcurrent = 1 and two dispatchable tickets, when the pass runs, 
 
   const running = await pass({
     frontier: [forge([older]), dotfiles],
-    seed: (store) => startedDispatch(store, 'forge', 113, new Date().toISOString()),
+    seed: (store) => startedDispatch(store, 'forge', 113, 'run-113', new Date().toISOString()),
   });
   assert.deepEqual(running.started, []);
 
@@ -129,7 +118,7 @@ test('given maxConcurrent = 1 and two dispatchable tickets, when the pass runs, 
     frontier: [forge([]), dotfiles],
     seed: (store) => {
       const at = new Date().toISOString();
-      store.endDispatch(startedDispatch(store, 'forge', 113, at), { state: 'done' }, at);
+      store.endDispatch(startedDispatch(store, 'forge', 113, 'run-113', at), { state: 'done' }, at);
     },
   });
   assert.deepEqual(finished.started, ['start --no-block --no-ask-password -- forge-dispatch@dotfiles:5.service']);
@@ -140,8 +129,8 @@ test('given maxConcurrent = 3, a manual dispatch still running, a stale dispatch
     maxConcurrent: 3,
     frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113), ticket('rameezk/forge', 114)])],
     seed: (store) => {
-      startedDispatch(store, 'dotfiles', 9, new Date().toISOString());
-      startedDispatch(store, 'dotfiles', 10, '2026-09-01T09:00:00.000Z');
+      startedDispatch(store, 'dotfiles', 9, 'run-9', new Date().toISOString());
+      startedDispatch(store, 'dotfiles', 10, 'run-10', '2026-09-01T09:00:00.000Z');
     },
   });
 

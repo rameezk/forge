@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { errorMessage, oldestFirst, Store, type Ticket } from '@forge/shared';
+import { errorMessage, oldestFirst, Store, ticketKey, type Ticket } from '@forge/shared';
 import { maxConcurrentOf, type RuntimeConfig } from './config.ts';
 import { absolutePath, readRuntimeConfig, stateDirOf } from './workload.ts';
 
@@ -12,8 +12,6 @@ const USAGE = 'usage: forge-dispatch-pass';
 interface Dispatchable extends Ticket {
   repository: string;
 }
-
-const ticketKey = (repository: string, number: number): string => `${repository}#${number}`;
 
 const declaresWorker = ({ repositories = {} }: RuntimeConfig, name: string): boolean =>
   Object.hasOwn(repositories, name) && repositories[name]?.worker !== undefined;

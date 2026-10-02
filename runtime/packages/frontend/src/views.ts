@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   DispatchFailure,
@@ -674,9 +674,6 @@ const renderDispatch = (ticket: Ticket, dispatch: DispatchRecord | undefined): R
       ? ''
       : html`<p class="m-0 mt-1 line-clamp-3 text-xs break-words whitespace-pre-line text-muted" title="${failure}">${failure}</p>`}</td>`;
 };
-
-const ticketKey = (repository: string, number: number): string =>
-  `${repository}#${number}`;
 
 const renderPolled = (polledAt: string | null): Rendered =>
   polledAt === null

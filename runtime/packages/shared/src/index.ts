@@ -63,6 +63,7 @@ export {
   FORGE_FAILED,
   FORGE_READY,
   FORGE_RUNNING,
+  ticketKey,
 } from './dispatch.ts';
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
