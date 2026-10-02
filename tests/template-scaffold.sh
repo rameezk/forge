@@ -282,7 +282,7 @@ cat >"$fake_bin/ssh" <<'FAKE'
 echo "ssh $*" >>"$FAKE_LOG"
 "$REAL_SSH" -F "$HOME/.ssh/config" -G "$@" >"$FAKE_LOG.ssh"
 target="$(awk '$1 == "hostname" { print $2 }' "$FAKE_LOG.ssh")"
-cp "$FAKE_LOG.ssh" "$FAKE_LOG.ssh.$target"
+[ -e "$FAKE_LOG.ssh.$target" ] || cp "$FAKE_LOG.ssh" "$FAKE_LOG.ssh.$target"
 case " ${FAKE_REACHABLE:-} " in *" $target "*) exit 0 ;; esac
 if [ "$target" = "$(cat "$FAKE_LOG.joined" 2>/dev/null)" ]; then
 	echo x >>"$FAKE_LOG.probes"
@@ -408,15 +408,14 @@ fi
 
 echo "==> case: standup's probe decides only by connecting, never by a failed lookup"
 rm -f "$keys/output-read"
-if FAKE_OUTPUT_ONCE="$keys/output-read" just_with_fakes standup >"$work/standup-flaky.log" 2>&1 && grep -q "^ssh " "$keys/fake.log"; then
-	echo "ok: the probe connects with the address standup already read"
+if FAKE_OUTPUT_ONCE="$keys/output-read" just_with_fakes standup >"$work/standup-flaky.log" 2>&1 && grep -q "^ssh .* forge@203.0.113.10 " "$keys/fake.log"; then
+	echo "ok: the public IP probe connects with the address standup already read"
 else
 	echo "FAIL: the probe gave up before connecting when a repeated address lookup failed"
 	tail -10 "$work/standup-flaky.log"
 	cat "$keys/fake.log"
 	fail=1
 fi
-just_with_fakes standup >"$work/standup.log" 2>&1
 
 for installed_at in mybox 203.0.113.10; do
 	echo "==> case: standup refuses a box an admin login already reaches at $installed_at"
