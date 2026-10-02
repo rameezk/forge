@@ -40,8 +40,10 @@ const polledFrontier: PolledFrontier = {
 };
 
 const openLive = async (page: Page, path: string): Promise<void> => {
+  const caughtUp = page.waitForResponse((response) => response.request().resourceType() === 'fetch');
   await page.goto(path);
   await expect(page.getByRole('status')).toHaveText('Live');
+  await caughtUp;
   await page.evaluate(() => {
     (globalThis as unknown as { unreloaded: boolean }).unreloaded = true;
   });
