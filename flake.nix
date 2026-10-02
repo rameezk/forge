@@ -119,7 +119,7 @@
           default = pkgs.mkShell {
             packages = operatorToolchain system ++ [ pkgs.nodejs ];
             FORGE_PI_PACKAGE = self.packages.${system}.forge-runner.piPackage;
-            PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers-chromium;
+            PLAYWRIGHT_BROWSERS_PATH = pkgs.callPackage ./infra/nix/playwright-browsers.nix { };
             PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
             PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
           };
