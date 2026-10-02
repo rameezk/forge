@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Store, type RunRecord, type RunTicket } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
 import type { Harness, Worker, Workspace } from './harness.ts';
+import { openRouterBaseUrl, openRouterListPrice } from './openrouter.ts';
 import { PiHarness } from './pi.ts';
 import type { Sandbox } from './sandbox.ts';
 import { FileTranscript } from './transcript.ts';
@@ -115,6 +116,7 @@ export const launchWorkload = async ({
 }: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
   const harness = harnessFor(config, worker, env, harnessEnv);
+  const lookUpListPrice = openRouterListPrice(openRouterBaseUrl(env));
 
   const transcriptsDir = join(stateDir, 'transcripts');
   mkdirSync(transcriptsDir, { recursive: true });
@@ -131,6 +133,7 @@ export const launchWorkload = async ({
       openWorkspace: (runId) => openWorkspace(join(workDirs, runId)),
       now: () => new Date().toISOString(),
       newId: () => runId,
+      lookUpListPrice,
       secrets: [env.OPENROUTER_API_KEY ?? '', ...secrets],
       ...(ticket === undefined ? {} : { ticket }),
     });

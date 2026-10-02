@@ -5,6 +5,7 @@ export interface NewGeneration {
   generationId: string | null;
   subagent: string | null;
   usage: TokenUsage;
+  estimatedCostUsd: number | null;
   createdAt: string;
 }
 

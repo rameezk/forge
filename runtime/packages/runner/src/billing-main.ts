@@ -1,18 +1,7 @@
 import { join } from 'node:path';
 import { isHeaderValue, Store } from '@forge/shared';
 import { settleGenerations } from './billing.ts';
-import { OPENROUTER_API, openRouterLookUp } from './openrouter.ts';
-
-const baseUrlOf = (env: NodeJS.ProcessEnv): URL => {
-  const baseUrl = env.OPENROUTER_BASE_URL ?? OPENROUTER_API;
-  const url = URL.parse(baseUrl);
-  if (url === null || !['https:', 'http:'].includes(url.protocol)) {
-    throw new Error(
-      `OPENROUTER_BASE_URL is not an http(s) URL: ${JSON.stringify(baseUrl)}`,
-    );
-  }
-  return url;
-};
+import { openRouterBaseUrl, openRouterLookUp } from './openrouter.ts';
 
 const apiKeyOf = (env: NodeJS.ProcessEnv): string => {
   const apiKey = env.OPENROUTER_API_KEY?.trim();
@@ -30,7 +19,7 @@ export const main = async (env: NodeJS.ProcessEnv): Promise<number> => {
   if (stateDir === undefined) {
     throw new Error('FORGE_STATE_DIR is not set');
   }
-  const lookUp = openRouterLookUp(baseUrlOf(env), apiKeyOf(env));
+  const lookUp = openRouterLookUp(openRouterBaseUrl(env), apiKeyOf(env));
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {

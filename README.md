@@ -105,22 +105,24 @@ sequenceDiagram
     participant O as OpenRouter
     participant B as forge-billing (every minute)
 
-    R->>S: record the run as running, cost pending
+    R->>O: look up the model's list price
+    O-->>R: list price, or none if the lookup fails
+    R->>S: record the run as running with its list price, cost pending
     R->>H: spawn with the worker's model and prompt
     loop each generation
         H->>O: model request
         O-->>H: response and generation id
         H-->>R: JSON event
         R->>T: append the event
-        R->>S: record the generation id
+        R->>S: record the generation id, its tokens and its estimated cost
     end
     H-->>R: exit
-    R->>S: finalize the run with status and tokens
+    R->>S: finalize the run with its status
     loop until every generation is billed, or given up after 24 hours
         B->>S: read unbilled generations
         B->>O: look up what each generation billed
         O-->>B: billed cost, or not indexed yet
-        B->>S: record billed costs and settle the run's cost status
+        B->>S: replace estimates with billed costs and settle the run's cost status
     end
 ```
 

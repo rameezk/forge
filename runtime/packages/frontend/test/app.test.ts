@@ -18,6 +18,8 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   status: 'success',
   costStatus: 'billed',
   costUsd: 0.1234,
+  costEstimated: false,
+  listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
   cacheReadTokens: 0,
@@ -64,7 +66,7 @@ const rowFor = (body: string, id: string): string =>
 const statusIn = (fragment: string): string =>
   fragment.match(/<span[^>]*\sdata-status="[^"]*"[^>]*>[^<]*<\/span>/)?.[0] ?? 'missing';
 
-test('given a billed run costing $0.00093252, an unconfirmed run, and a pending run, when the list is requested, then each shows its cost status readably and the total adds the billed and unconfirmed runs followed by how many are pending', async () => {
+test('given a billed run costing $0.00093252, an unconfirmed run, and a pending run with no estimate, when the list is requested, then each shows its cost status readably and the total adds every run\'s cost followed by how many are pending', async () => {
   const app = appWith([
     sampleRun({ id: 'billed', worker: 'billed-worker', costStatus: 'billed', costUsd: 0.00093252 }),
     sampleRun({ id: 'unconfirmed', worker: 'unconfirmed-worker', costStatus: 'unconfirmed', costUsd: 0.0125 }),
@@ -79,7 +81,36 @@ test('given a billed run costing $0.00093252, an unconfirmed run, and a pending 
   assert.equal(cost('unconfirmed'), '$0.012500 unconfirmed');
   assert.match(rowFor(body, 'unconfirmed'), /<span[^>]*\sdata-badge="unconfirmed"[^>]*\stitle="[^"]+"[^>]*>unconfirmed<\/span>/);
   assert.equal(cost('pending'), 'pending');
-  assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.0134 +1 pending');
+  assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.5134 +1 pending');
+});
+
+const ESTIMATED_BADGE = /<span[^>]*\sdata-badge="estimated"[^>]*\stitle="[^"]*estimate at OpenRouter's list price[^"]*replaced as generations are billed[^"]*"[^>]*>estimated<\/span>/;
+
+test('given one workload fully billed, one with an unbilled generation and one unconfirmed with an unbilled generation, when the runs list and each detail page are requested, then the unbilled ones carry the estimated badge and tooltip and the total includes their estimates with its pending suffix', async () => {
+  const app = appWith([
+    sampleRun({ id: 'billed', costStatus: 'billed', costUsd: 0.2, transcriptRef: null }),
+    sampleRun({ id: 'estimated', status: 'running', endTime: null, costStatus: 'pending', costUsd: 0.05, costEstimated: true, transcriptRef: null }),
+    sampleRun({ id: 'given-up', costStatus: 'unconfirmed', costUsd: 0.01, costEstimated: true, transcriptRef: null }),
+  ]);
+
+  const list = await (await app.request('/')).text();
+  const listed = (id: string): string =>
+    rowFor(list, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
+  const detailed = async (id: string): Promise<string> =>
+    (await (await app.request(`/runs/${id}`)).text()).match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '';
+
+  for (const cost of [listed('estimated'), await detailed('estimated')]) {
+    assert.equal(textOf(cost), '$0.050000 estimated');
+    assert.match(cost, ESTIMATED_BADGE);
+  }
+  for (const cost of [listed('given-up'), await detailed('given-up')]) {
+    assert.equal(textOf(cost), '$0.010000 estimated unconfirmed');
+    assert.match(cost, ESTIMATED_BADGE);
+  }
+  for (const cost of [listed('billed'), await detailed('billed')]) {
+    assert.equal(textOf(cost), '$0.200000');
+  }
+  assert.equal(textOf(list.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.2600 +1 pending');
 });
 
 test('given a successful, a failed and a running run, when the list is requested, then each row shows its own status', async () => {
@@ -783,14 +814,14 @@ test('given tool arguments, results and error text with markdown syntax, when th
 const viewWithGenerations = async (
   run: Partial<RunRecord>,
   events: HarnessEvent[],
-  generations: { generationId: string; subagent: string | null; outcome: 'billed' | 'unbilled' | 'given-up'; cost?: number; provider?: string }[],
+  generations: { generationId: string; subagent: string | null; outcome: 'billed' | 'unbilled' | 'given-up'; cost?: number; estimate?: number; provider?: string }[],
 ): Promise<string> => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
   const store = Store.open(':memory:');
   store.insertRun(sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl', ...run }));
-  for (const { generationId, subagent } of generations) {
-    store.recordGeneration({ runId: 'run-01', generationId, subagent, usage, createdAt: '2026-09-21T10:01:00.000Z' });
+  for (const { generationId, subagent, estimate } of generations) {
+    store.recordGeneration({ runId: 'run-01', generationId, subagent, usage, estimatedCostUsd: estimate ?? null, createdAt: '2026-09-21T10:01:00.000Z' });
   }
   const ids = new Map(store.unsettledGenerations().map((g) => [g.generationId, g.id]));
   const lookups: LookupResult[] = [];
@@ -874,10 +905,10 @@ test('given subagents with a successful report, an error report, no report in a 
   assert.equal(await statusOfOnly({ status: 'error' }, []), 'error');
 });
 
-test('given subagents whose generations are all billed, partly unbilled and partly given up, when the run page is viewed, then their headers show the billed cost, pending, and the cost so far with the unconfirmed badge', async () => {
+test('given subagents whose generations are all billed, partly unbilled, partly given up, and partly unbilled with an estimate, when the run page is viewed, then their headers show the billed cost, pending, the cost so far with the unconfirmed badge, and the cost with its estimate marked estimated', async () => {
   const body = await viewWithGenerations({}, [
-    spawn('call_a'), spawn('call_b'), spawn('call_c'),
-    child('call_a', 1, 1), child('call_b', 1, 1), child('call_c', 1, 1),
+    spawn('call_a'), spawn('call_b'), spawn('call_c'), spawn('call_d'),
+    child('call_a', 1, 1), child('call_b', 1, 1), child('call_c', 1, 1), child('call_d', 1, 1),
     { type: 'result', status: 'success', sessionId: null, error: null },
   ], [
     { generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.1 },
@@ -885,14 +916,18 @@ test('given subagents whose generations are all billed, partly unbilled and part
     { generationId: 'g3', subagent: 'call_b', outcome: 'unbilled' },
     { generationId: 'g4', subagent: 'call_c', outcome: 'billed', cost: 0.3 },
     { generationId: 'g5', subagent: 'call_c', outcome: 'given-up' },
+    { generationId: 'g6', subagent: 'call_d', outcome: 'billed', cost: 0.1, estimate: 0.09 },
+    { generationId: 'g7', subagent: 'call_d', outcome: 'unbilled', estimate: 0.05 },
   ]);
 
-  const [a, b, c] = subagentCalls(body).map((card) => headerOf(card)) as [string, string, string];
+  const [a, b, c, d] = subagentCalls(body).map((card) => headerOf(card)) as [string, string, string, string];
   assert.match(textOf(a), /\$0\.100000/);
   assert.doesNotMatch(a, /data-badge=|pending/);
   assert.match(textOf(b), /pending/);
   assert.match(textOf(c), /\$0\.300000/);
   assert.match(c, /data-badge="unconfirmed"/);
+  assert.match(textOf(d), /\$0\.150000 estimated/);
+  assert.match(d, /data-badge="estimated"/);
 });
 
 test('given a run whose subagent events have no recorded spawning tool call, when its run page is viewed, then that subagent\'s header shows its tokens, status and cost', async () => {

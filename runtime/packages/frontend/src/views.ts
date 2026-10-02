@@ -26,7 +26,7 @@ import {
   formatTokens,
   formatTotal,
   pendingCount,
-  settledCost,
+  totalCost,
 } from './format.ts';
 import { renderMarkdown } from './markdown.ts';
 
@@ -116,17 +116,17 @@ const layout = (
 
 const BADGE = 'shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-[0.05em]';
 
-const UNCONFIRMED_BADGE = html`<span class="${BADGE} ml-1.5 bg-warning-soft text-warning" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this is only what was billed">unconfirmed</span>`;
+const UNCONFIRMED_BADGE = html`<span class="${BADGE} ml-1.5 bg-warning-soft text-warning" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this may not be the whole cost">unconfirmed</span>`;
 
-const renderCost = (run: Pick<RunRecord, 'costStatus' | 'costUsd'>): Rendered => {
-  switch (run.costStatus) {
-    case 'pending':
-      return html`<span class="${PENDING}">pending</span>`;
-    case 'billed':
-      return html`${formatCost(run.costUsd)}`;
-    case 'unconfirmed':
-      return html`${formatCost(run.costUsd)}${UNCONFIRMED_BADGE}`;
+const ESTIMATED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="estimated" title="Includes forge's estimate at OpenRouter's list price for generations not yet billed, replaced as generations are billed">estimated</span>`;
+
+type Cost = Pick<RunRecord, 'costStatus' | 'costUsd' | 'costEstimated'>;
+
+const renderCost = (run: Cost): Rendered => {
+  if (run.costStatus === 'pending' && !run.costEstimated) {
+    return html`<span class="${PENDING}">pending</span>`;
   }
+  return html`${formatCost(run.costUsd)}${run.costEstimated ? html`<wbr>${ESTIMATED_BADGE}` : ''}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
 };
 
 const PILL = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-['']";
@@ -183,7 +183,7 @@ const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rende
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
-  return html`${formatTotal(settledCost(runs))}${pending === 0
+  return html`${formatTotal(totalCost(runs))}${pending === 0
     ? ''
     : html` <span class="${PENDING}">+${pending} pending</span>`}`;
 };
@@ -221,7 +221,7 @@ export const renderList = (
                     <td class="${TD} whitespace-nowrap">${formatDuration(run.startTime, run.endTime)}</td>
                     <td class="${TD}">${renderStatus(run.status)}</td>
                     <td class="${TD} ${NUMERIC}" data-cache-hit>${renderCacheHitRate(run)}</td>
-                    <td class="${TD} ${NUMERIC}" data-cost>${renderCost(run)}</td>
+                    <td class="${TD} text-right tabular-nums" data-cost>${renderCost(run)}</td>
                   </tr>`,
                 )}
               </tbody>
@@ -482,22 +482,27 @@ const subagentCost = (
   scope: string,
   generations: GenerationRecord[],
   runStatus: RunStatus,
-): Pick<RunRecord, 'costStatus' | 'costUsd'> => {
+): Cost => {
   const own = generations.filter((generation) => generation.subagent === scope);
   const costUsd = own.reduce(
-    (sum, generation) => sum + (generation.billedCostUsd ?? 0),
+    (sum, generation) =>
+      sum + (generation.billedCostUsd ?? generation.estimatedCostUsd ?? 0),
     0,
   );
+  const costEstimated = own.some(
+    (generation) =>
+      generation.billedCostUsd === null && generation.estimatedCostUsd !== null,
+  );
   if (own.some((generation) => generation.givenUpAt !== null)) {
-    return { costStatus: 'unconfirmed', costUsd };
+    return { costStatus: 'unconfirmed', costUsd, costEstimated };
   }
   if (
     runStatus === 'running' ||
     own.some((generation) => generation.billedCostUsd === null)
   ) {
-    return { costStatus: 'pending', costUsd };
+    return { costStatus: 'pending', costUsd, costEstimated };
   }
-  return { costStatus: 'billed', costUsd };
+  return { costStatus: 'billed', costUsd, costEstimated };
 };
 
 const renderFigures = (

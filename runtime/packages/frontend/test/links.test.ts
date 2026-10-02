@@ -37,6 +37,8 @@ const dashboard = () => {
     status: 'success',
     costStatus: 'billed',
     costUsd: 0.1234,
+    costEstimated: false,
+    listPrice: null,
     inputTokens: 4200,
     outputTokens: 850,
     cacheReadTokens: 0,

@@ -1,7 +1,21 @@
-import type { Billing, NativeUsage } from '@forge/shared';
+import type { Billing, ListPrice, NativeUsage } from '@forge/shared';
 import { tokenCount } from './token-count.ts';
 
 export const OPENROUTER_API = 'https://openrouter.ai/api/v1';
+
+export const openRouterBaseUrl = (env: NodeJS.ProcessEnv): URL => {
+  const baseUrl = env.OPENROUTER_BASE_URL ?? OPENROUTER_API;
+  const url = URL.parse(baseUrl);
+  if (url === null || !['https:', 'http:'].includes(url.protocol)) {
+    throw new Error(
+      `OPENROUTER_BASE_URL is not an http(s) URL: ${JSON.stringify(baseUrl)}`,
+    );
+  }
+  return url;
+};
+
+const endpoint = (baseUrl: URL, path: string): URL =>
+  new URL(`${baseUrl.href.replace(/\/$/, '')}/${path}`);
 
 const NOT_FOUND = 404;
 
@@ -62,7 +76,7 @@ export const openRouterLookUp =
   (baseUrl: URL, apiKey: string): LookUpGeneration =>
   async (generationId) => {
     try {
-      const url = new URL(`${baseUrl.href.replace(/\/$/, '')}/generation`);
+      const url = endpoint(baseUrl, 'generation');
       url.searchParams.set('id', generationId);
       const response = await fetch(url, {
         headers: { authorization: `Bearer ${apiKey}` },
@@ -85,5 +99,58 @@ export const openRouterLookUp =
         outcome: isNetworkFailure(error) ? 'temporary' : 'permanent',
         reason: failureOf(error),
       };
+    }
+  };
+
+export type ListPriceOutcome = { price: ListPrice } | { reason: string };
+
+export type LookUpListPrice = (model: string) => Promise<ListPriceOutcome>;
+
+interface ModelData {
+  id?: unknown;
+  pricing?: Record<string, unknown>;
+}
+
+const perToken = (value: unknown): number | null => {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const price = Number(value);
+  return Number.isFinite(price) && price >= 0 ? price : null;
+};
+
+const listPriceOf = (pricing: Record<string, unknown>): ListPrice | null => {
+  const input = perToken(pricing.prompt);
+  const output = perToken(pricing.completion);
+  return input === null || output === null
+    ? null
+    : {
+        input,
+        output,
+        cacheRead: perToken(pricing.input_cache_read),
+        cacheWrite: perToken(pricing.input_cache_write),
+      };
+};
+
+export const openRouterListPrice =
+  (baseUrl: URL): LookUpListPrice =>
+  async (model) => {
+    try {
+      const response = await fetch(endpoint(baseUrl, 'models'), {
+        signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        return { reason: `HTTP ${response.status}` };
+      }
+      const body = (await response.json()) as { data?: unknown } | null;
+      const models = Array.isArray(body?.data) ? (body.data as ModelData[]) : [];
+      const listed = models.find((entry) => entry?.id === model);
+      if (listed === undefined) {
+        return { reason: 'the model is not listed' };
+      }
+      const price = listPriceOf(listed.pricing ?? {});
+      return price === null
+        ? { reason: 'the model has no prompt and completion price' }
+        : { price };
+    } catch (error) {
+      return { reason: failureOf(error) };
     }
   };

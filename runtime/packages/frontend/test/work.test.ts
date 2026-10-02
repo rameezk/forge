@@ -208,6 +208,8 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
             status: 'running',
             costStatus: 'pending',
             costUsd: 0,
+            costEstimated: false,
+            listPrice: null,
             inputTokens: 0,
             outputTokens: 0,
             cacheReadTokens: 0,
