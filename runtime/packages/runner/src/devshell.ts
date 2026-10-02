@@ -30,7 +30,8 @@ export class DevShellFailed extends Error {}
 
 export const nixErrorOf = (error: string | null): string | null =>
   error
-    ?.split('\n')
+    ?.replace(/^nix print-dev-env exited [^:]*: /, '')
+    .split('\n')
     .map((line) => line.trim())
     .find((line) => /^error: \S/.test(line)) ?? error;
 
