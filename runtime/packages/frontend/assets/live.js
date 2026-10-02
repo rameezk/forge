@@ -9,11 +9,20 @@ const show = (state, text) => {
 };
 
 const toggled = new WeakSet();
+const rendered = new WeakMap();
 
-document.addEventListener('click', (event) => {
-  const summary = event.target instanceof Element ? event.target.closest('summary') : null;
-  if (summary?.parentElement instanceof HTMLDetailsElement) toggled.add(summary.parentElement);
-});
+const rememberRendered = () => {
+  for (const details of document.querySelectorAll('details')) {
+    if (!toggled.has(details)) rendered.set(details, details.open);
+  }
+};
+
+rememberRendered();
+
+const operatorChose = (details) => {
+  if (details.open !== rendered.get(details)) toggled.add(details);
+  return toggled.has(details);
+};
 
 const scroller = document.scrollingElement;
 
@@ -50,9 +59,10 @@ const refresh = async () => {
     callbacks: {
       beforeNodeMorphed: kept,
       beforeNodeRemoved: kept,
-      beforeAttributeUpdated: (name, node) => !(name === 'open' && toggled.has(node)),
+      beforeAttributeUpdated: (name, node) => !(name === 'open' && operatorChose(node)),
     },
   });
+  rememberRendered();
   if (following) {
     scrollToBottom();
   } else if (newActivity !== null && transcriptLength() > length) {

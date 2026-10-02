@@ -269,6 +269,25 @@ test('given a detail page with a tool call the operator expanded, when a new tra
   await expectNotReloaded(page);
 });
 
+test('given a detail page with a tool call the operator expanded without clicking its summary, as find-in-page does, when a new transcript event arrives, then that tool call is still expanded', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(transcribedRun);
+  dashboard.appendEvents('run-01.jsonl', toolCall('call-1', 'docs/CONTEXT.md'), toolResult('call-1', 'ok'));
+  await openLive(page, '/runs/run-01');
+  const call = page.locator('[data-tool-call]');
+  await call.evaluate((details) => {
+    (details as unknown as { open: boolean }).open = true;
+  });
+  await expect(call).toHaveAttribute('open', '');
+
+  dashboard.appendEvents('run-01.jsonl', say('Writing the failing test.'));
+
+  await expect(page.getByText('Writing the failing test.')).toBeAttached();
+  await expect(call).toHaveAttribute('open', '');
+});
+
 test('given a detail page with a tool call awaiting its result that the operator has not toggled, when its result arrives as an error, then the tool call opens', async ({
   dashboard,
   page,
