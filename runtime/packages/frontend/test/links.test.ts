@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
+import { openingTag, textOf } from './html.ts';
 
 const TICKET_URL = 'https://github.com/rameezk/forge/issues/56';
 
@@ -96,19 +97,19 @@ test('given a run whose assistant message contains a markdown link, when the run
 
 test('given the dashboard, when the runs, work and run pages are requested, then nav links, run links, dispatch badges and the back link open in the same tab', async () => {
   const page = dashboard();
-  const internal = async (path: string): Promise<string[]> =>
-    [...(await page(path)).matchAll(/<a(?=\s)[^>]*\shref="\/[^"]*"[^>]*>/g)].map(([tag]) => tag);
+  const sameSiteAnchors = async (path: string): Promise<string[]> =>
+    [...(await page(path)).matchAll(/<a(?=\s)[^>]*\shref="\/[^"]*"[^>]*>[\s\S]*?<\/a>/g)].map(([anchor]) => anchor);
 
-  const runs = await internal('/');
-  const work = await internal('/work');
-  const run = await internal('/runs/run-01');
+  const runs = await sameSiteAnchors('/');
+  const work = await sameSiteAnchors('/work');
+  const run = await sameSiteAnchors('/runs/run-01');
 
   for (const href of ['/', '/work', '/runs/run-01']) {
-    assert.ok(runs.some((tag) => tag.includes(` href="${href}"`)), `the runs page links ${href}`);
-    assert.ok(work.some((tag) => tag.includes(` href="${href}"`)), `the work page links ${href}`);
+    assert.ok(runs.some((anchor) => openingTag(anchor).includes(` href="${href}"`)), `the runs page links ${href}`);
+    assert.ok(work.some((anchor) => openingTag(anchor).includes(` href="${href}"`)), `the work page links ${href}`);
   }
-  assert.ok(run.some((tag) => tag.includes(' href="/"') && !tag.includes('data-brand') && !tag.includes('aria-current')), 'the run page has its back link');
-  for (const tag of [...runs, ...work, ...run]) {
-    assert.doesNotMatch(tag, /\starget=/);
+  assert.ok(run.some((anchor) => openingTag(anchor).includes(' href="/"') && textOf(anchor) === '&larr; Workloads'), 'the run page has its back link');
+  for (const anchor of [...runs, ...work, ...run]) {
+    assert.doesNotMatch(openingTag(anchor), /\starget=/);
   }
 });
