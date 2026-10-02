@@ -56,58 +56,37 @@ const dashboard = (t: TestContext) => {
 
 type ServerEvent = { event: string; data: string };
 
-const streamEvents = async (
-  t: TestContext,
-  app: ReturnType<typeof createApp>,
-  page: string,
-  lastEventId?: string,
-) => {
-  const res = await app.request(`/events?page=${encodeURIComponent(page)}`, {
-    headers: lastEventId === undefined ? {} : { 'Last-Event-ID': lastEventId },
-  });
+const streamEvents = async (t: TestContext, app: ReturnType<typeof createApp>, page: string) => {
+  const res = await app.request(`/events?page=${encodeURIComponent(page)}`);
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-type') ?? '', /^text\/event-stream\b/);
   const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
-  const close = () => reader.cancel();
-  t.after(close);
+  t.after(() => reader.cancel());
   let buffer = '';
-  let id: string | undefined;
-  const queued: ServerEvent[] = [];
-  const readBlock = async (): Promise<boolean> => {
+  const next = async (): Promise<ServerEvent | null> => {
     let end = buffer.indexOf('\n\n');
     while (end === -1) {
       const { value, done } = await reader.read();
-      if (done) return false;
+      if (done) return null;
       buffer += value;
       end = buffer.indexOf('\n\n');
     }
-    const fields = buffer
-      .slice(0, end)
-      .split('\n')
-      .map((line) => {
-        const colon = line.indexOf(':');
-        return [line.slice(0, colon), line.slice(colon + 1).replace(/^ /, '')] as const;
-      });
+    const fields = new Map(
+      buffer
+        .slice(0, end)
+        .split('\n')
+        .map((line) => {
+          const colon = line.indexOf(':');
+          return [line.slice(0, colon), line.slice(colon + 1).replace(/^ /, '')] as const;
+        }),
+    );
     buffer = buffer.slice(end + 2);
-    const field = (name: string) => fields.find(([key]) => key === name)?.[1];
-    id = field('id') ?? id;
-    const data = field('data');
-    if (data !== undefined) queued.push({ event: field('event') ?? 'message', data });
-    return true;
+    return { event: fields.get('event') ?? 'message', data: fields.get('data') ?? '' };
   };
-  while (id === undefined) {
-    if (!(await readBlock())) throw new Error('the event stream ended before it was connected');
-  }
-  const connected = queued.shift() ?? null;
-  const next = async (): Promise<ServerEvent | null> => {
-    while (queued.length === 0) {
-      if (!(await readBlock())) return null;
-    }
-    return queued.shift()!;
-  };
+  const connected = await next();
   const nextWithin = (checks: number): Promise<ServerEvent | null | 'quiet'> =>
     Promise.race([next(), sleep(checks * CHECK_INTERVAL_MS).then(() => 'quiet' as const)]);
-  return { connected, next, nextWithin, close, lastEventId: () => id! };
+  return { connected, next, nextWithin };
 };
 
 test('given a client streaming events for the runs list, when a new run is recorded in the store, then the stream emits a change signal', async (t) => {
@@ -142,21 +121,6 @@ test('given a client opening a page\'s stream, when it connects, then the stream
   const stream = await streamEvents(t, app, '/');
 
   assert.equal(stream.connected?.event, 'change');
-});
-
-test('given a client whose stream dropped, when it reconnects with the page unchanged, then no change signal is emitted, and when it reconnects after the page changed, then one is emitted at once', async (t) => {
-  const { app, writer } = dashboard(t);
-  const dropped = await streamEvents(t, app, '/');
-  await dropped.close();
-
-  const unchanged = await streamEvents(t, app, '/', dropped.lastEventId());
-  assert.equal(unchanged.connected, null);
-  assert.equal(await unchanged.nextWithin(40), 'quiet');
-  await unchanged.close();
-
-  writer.insertRun(sampleRun());
-  const changed = await streamEvents(t, app, '/', unchanged.lastEventId());
-  assert.equal(changed.connected?.event, 'change');
 });
 
 test('given a page that does not update live, when its events are requested, then they are not found', async (t) => {

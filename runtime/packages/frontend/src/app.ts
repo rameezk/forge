@@ -68,15 +68,10 @@ export const createApp = ({
     const page = c.req.query('page');
     if (page === undefined || !LIVE_PAGES.has(page)) return c.notFound();
     return streamSSE(c, async (stream) => {
-      const signal = (hash: string) => stream.writeSSE({ event: 'change', data: hash, id: hash });
+      const signal = () => stream.writeSSE({ event: 'change', data: page });
       let version = store.dataVersion();
       let sent = await renderedHash(page);
-      const seen = c.req.header('Last-Event-ID');
-      if (seen === sent) {
-        await stream.write(`id: ${sent}\n\n`);
-      } else {
-        await signal(sent);
-      }
+      await signal();
       for (;;) {
         await stream.sleep(checkIntervalMs);
         if (stream.aborted) return;
@@ -86,7 +81,7 @@ export const createApp = ({
         const hash = await renderedHash(page);
         if (hash === sent) continue;
         sent = hash;
-        await signal(hash);
+        await signal();
       }
     });
   });

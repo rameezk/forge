@@ -132,6 +132,22 @@ test('given the runs list open in a browser, when the dashboard starts serving d
   await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
 });
 
+test('given the runs list whose refresh after a change failed, when its stream drops and reconnects, then the table catches up', async ({
+  dashboard,
+  page,
+}) => {
+  await openLive(page, '/');
+  const failed = page.waitForEvent('requestfailed');
+  await page.route('/', (route) => (route.request().resourceType() === 'fetch' ? route.abort() : route.fallback()), { times: 1 });
+
+  dashboard.store.insertRun(runningRun);
+  await failed;
+  await expect(page.getByText('No workloads have run yet.')).toBeVisible();
+  dashboard.dropConnections();
+
+  await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible({ timeout: 10_000 });
+});
+
 test('given the runs list open in a browser with an extension that added its own stylesheet to the page, when a run is recorded, then the table shows it without a reload', async ({
   dashboard,
   page,
