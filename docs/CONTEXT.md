@@ -64,6 +64,10 @@ _Avoid_: crashed, stuck, abandoned
 A child harness run that a workload's agent spawns mid-run to perform a delegated task and report back; it is part of the spawning workload, never a workload of its own (ADR-0009).
 _Avoid_: child workload, sub-workload
 
+**Skill load**:
+A workload's agent taking in one skill within one scope - the workload itself or one subagent - either through the worker's starting `/skill` prompt or by reading the skill's listed `SKILL.md`, counted once per scope however many reads it took. Its coverage is how much of the file those reads spanned, so a load may be partial. A subagent's kind is the skills it loaded (ADR-0037).
+_Avoid_: skill invocation, skill call, skill use
+
 **Managed repository**:
 A repository forge is configured to run workloads against, carrying its own skills that orchestrate the work. Operators declare managed repositories in the runtime config; forge currently supports only those whose tickets are tracked as GitHub issues (ADR-0010).
 
