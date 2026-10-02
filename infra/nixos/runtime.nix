@@ -95,6 +95,7 @@ let
 
   hasWorkers = cfg.workers != { };
   hasRepositories = cfg.repositories != { };
+  hasDashboard = hasWorkers || hasRepositories;
   dispatchedRepositories = lib.filterAttrs (_: r: r.worker != null) cfg.repositories;
   hasDispatch = dispatchedRepositories != { };
 
@@ -474,7 +475,7 @@ in
       };
     })
 
-    (lib.mkIf (hasWorkers || hasRepositories) {
+    (lib.mkIf hasDashboard {
       environment.systemPackages = [ pkgs.sqlite ];
 
       systemd.services.forge-frontend = {
@@ -504,7 +505,9 @@ in
         }
         // hardening;
       };
+    })
 
+    (lib.mkIf (hasDashboard && config.services.tailscale.enable) {
       systemd.services.forge-frontend-tailnet = {
         description = "Serve the Forge dashboard over HTTPS on the tailnet";
         wantedBy = [ "multi-user.target" ];
@@ -521,17 +524,11 @@ in
           ExecStart = "${lib.getExe config.services.tailscale.package} serve --https=443 http://127.0.0.1:${toString cfg.dashboardPort}";
           Restart = "always";
           RestartSec = "5s";
-          NoNewPrivileges = true;
-          ProtectSystem = "strict";
-          ProtectHome = true;
-          PrivateTmp = true;
-          InaccessiblePaths = [
-            "/run/secrets"
-            "/run/secrets.d"
-          ];
+          CapabilityBoundingSet = "";
           RestrictAddressFamilies = [ "AF_UNIX" ];
           IPAddressDeny = "any";
-        };
+        }
+        // removeAttrs hardening [ "ReadWritePaths" ];
       };
     })
   ];

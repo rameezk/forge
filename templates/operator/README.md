@@ -107,9 +107,9 @@ depends on the auto-activation.
       ```
 
    The build fails if `secrets/runtime.yaml` is missing, lacks
-   `tailscale_auth_key`, or lacks a key your workers or repositories need, `.sops.yaml` still holds the placeholder
-   recipients, or `known_hosts` does not pin `secrets/host.pub` under your
-   `hostname`.
+   `tailscale_auth_key`, or lacks a key your workers or repositories need,
+   `.sops.yaml` still holds the placeholder recipients, or `known_hosts` does
+   not pin `secrets/host.pub` under your `hostname`.
 
 5. Run the divergence guard (no cloud access required):
 
@@ -137,9 +137,11 @@ Each OpenTofu call runs through `sops exec-env` on `secrets/operator.yaml`, so
 your Hetzner token is decrypted only for that call and never sits in your shell.
 
 Box state is the run store, frontier snapshot and transcripts under
-`/var/lib/forge`. Only deploy keeps it. The Tailscale OAuth client secret, the
-OpenRouter key and the GitHub tokens are not box state: the box decrypts them from this repository on every
-standup and deploy.
+`/var/lib/forge`, and the box's tailnet device under `/var/lib/tailscale`. Only
+deploy keeps it. The Tailscale OAuth client secret, the OpenRouter key and the
+GitHub tokens are not box state: the box decrypts them from this repository on
+every standup and deploy, though it uses the Tailscale secret only to join the
+tailnet.
 
 1. Stand the box up:
 

@@ -417,6 +417,11 @@
             && unit.serviceConfig.ProtectSystem == "strict"
             && unit.serviceConfig.ProtectHome == true
             && unit.serviceConfig.PrivateTmp == true
+            && unit.serviceConfig.RestrictSUIDSGID == true
+            && unit.serviceConfig.ProtectKernelTunables == true
+            && unit.serviceConfig.ProtectControlGroups == true
+            && unit.serviceConfig.CapabilityBoundingSet == ""
+            && !(unit.serviceConfig ? ReadWritePaths)
             &&
               unit.serviceConfig.InaccessiblePaths == [
                 "/run/secrets"
@@ -424,7 +429,24 @@
               ]
             && unit.serviceConfig.RestrictAddressFamilies == [ "AF_UNIX" ]
             && unit.serviceConfig.IPAddressDeny == "any";
-          frontendOnTailnet = lib.asserts.assertMsg (servesDashboardOnTailnet workerHost) "declaring a worker must serve the localhost dashboard over HTTPS on the tailnet through a supervised tailscale serve unit, locked down to talking to tailscaled over its local socket and blind to the secrets";
+          frontendOffTailnetWithoutTailscale =
+            let
+              host = mkHost {
+                configFile = exampleConfigFile;
+                secretsFile = exampleSecretsFile;
+                modules = [
+                  {
+                    services.tailscale.enable = lib.mkForce false;
+                    forge.runtime.repositories.forge.github = "rameezk/forge";
+                  }
+                ];
+              };
+            in
+            lib.asserts.assertMsg (
+              (host.config.systemd.services ? forge-frontend)
+              && !(host.config.systemd.services ? forge-frontend-tailnet)
+            ) "a host without tailscale must run the dashboard without a tailscale serve unit";
+          frontendOnTailnet = lib.asserts.assertMsg (servesDashboardOnTailnet workerHost) "declaring a worker must serve the localhost dashboard over HTTPS on the tailnet through a supervised tailscale serve unit, locked down to talking to tailscaled over its local socket with no capabilities, no writable paths and blind to the secrets";
 
           workerAndRepositoryHost = mkHost {
             configFile = exampleConfigFile;
@@ -866,6 +888,7 @@
             assert frontendNoPublicPort;
             assert frontendSandboxed;
             assert frontendOnTailnet;
+            assert frontendOffTailnetWithoutTailscale;
             pkgs.runCommand "runtime-dashboard" { } ''
               echo "declaring a worker wires an always-on forge-frontend dashboard bound to localhost, opening no public port, and served over HTTPS on the tailnet through tailscale serve" > $out
             '';
