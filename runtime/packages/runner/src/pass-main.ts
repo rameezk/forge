@@ -25,7 +25,7 @@ const dispatchable = (
 ): Dispatchable[] =>
   store
     .listFrontier()
-    .filter(({ repository }) => declaresWorker(config, repository))
+    .filter(({ repository, lastError }) => lastError === null && declaresWorker(config, repository))
     .flatMap(({ repository, tickets }) =>
       tickets
         .filter(

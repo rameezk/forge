@@ -30,9 +30,10 @@ interface Scenario {
   maxConcurrent?: number;
   seed?: (store: Store) => void;
   failingUnit?: string;
+  failedPolls?: string[];
 }
 
-const pass = async ({ frontier, maxConcurrent, seed, failingUnit }: Scenario) => {
+const pass = async ({ frontier, maxConcurrent, seed, failingUnit, failedPolls = [] }: Scenario) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-pass-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -59,6 +60,9 @@ const pass = async ({ frontier, maxConcurrent, seed, failingUnit }: Scenario) =>
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     for (const repository of frontier) store.replaceFrontier(repository);
+    for (const repository of failedPolls) {
+      store.recordFrontierError({ repository, github: `rameezk/${repository}`, message: 'GitHub answered 502', failedAt: '2026-09-29T08:05:00.000Z' });
+    }
     seed?.(store);
   } finally {
     store.close();
@@ -161,4 +165,17 @@ test('given systemd refuses to start one of two dispatchable tickets, when the p
   ]);
   assert.match(journal, /forge#113: could not start forge-dispatch@forge:113\.service: Command failed/);
   assert.match(journal, /forge#114: started forge-dispatch@forge:114\.service/);
+});
+
+test('given maxConcurrent = 1 and an older forge:ready ticket in a repository whose last poll failed, when the pass runs, then its stale snapshot is passed over and the newer ticket from a freshly polled repository is dispatched', async () => {
+  const { started } = await pass({
+    maxConcurrent: 1,
+    frontier: [
+      polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113, { createdAt: '2026-09-28T10:00:00Z' })]),
+      polled('dotfiles', 'rameezk/dotfiles', [ticket('rameezk/dotfiles', 5, { createdAt: '2026-09-28T11:00:00Z' })]),
+    ],
+    failedPolls: ['forge'],
+  });
+
+  assert.deepEqual(started, ['start --no-block --no-ask-password -- forge-dispatch@dotfiles:5.service']);
 });
