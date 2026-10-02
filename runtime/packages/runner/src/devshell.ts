@@ -26,11 +26,15 @@ const IGNORED_VARIABLES = new Set([
 
 const PRINTED_EXCERPT_CHARS = 200;
 
+const PRINT_DEV_ENV = 'nix print-dev-env';
+
+const EXIT_PREFIX = new RegExp(`^${PRINT_DEV_ENV} exited [^:]*: `);
+
 export class DevShellFailed extends Error {}
 
 export const nixErrorOf = (error: string | null): string | null =>
   error
-    ?.replace(/^nix print-dev-env exited [^:]*: /, '')
+    ?.replace(EXIT_PREFIX, '')
     .split('\n')
     .map((line) => line.trim())
     .find((line) => /^error: \S/.test(line)) ?? error;
@@ -53,7 +57,7 @@ const variablesOf = (printed: string): Record<string, { type: string; value: unk
     }
   } catch {}
   throw new DevShellFailed(
-    `nix print-dev-env printed no dev environment: ${printed.slice(0, PRINTED_EXCERPT_CHARS)}`,
+    `${PRINT_DEV_ENV} printed no dev environment: ${printed.slice(0, PRINTED_EXCERPT_CHARS)}`,
   );
 };
 
@@ -84,7 +88,7 @@ export const enterDevShell = async ({
     sandbox,
     'nix',
     ['print-dev-env', '--json', '--no-write-lock-file', `.#.devShells.${system}.default`],
-    { name: 'nix print-dev-env', workDir: root, env },
+    { name: PRINT_DEV_ENV, workDir: root, env },
   );
   const printed = collect(stdout);
   const failure = await exited;

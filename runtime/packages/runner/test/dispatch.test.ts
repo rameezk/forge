@@ -673,7 +673,7 @@ const NIX_ERROR = [
   '',
 ].join('\n');
 
-test('given a checkout whose devShell fails to evaluate, when the ticket is dispatched, then pi never starts, the run keeps nix\'s error output, and the ticket becomes forge:failed with devShell failed as the reason and nix\'s final error as the detail', async () => {
+test('given a checkout whose devShell fails to evaluate, when the ticket is dispatched, then pi never starts, the run keeps nix\'s error output, and the ticket becomes forge:failed with devShell failed as the reason and nix\'s error as the detail', async () => {
   const { code, pi, runs, labelWrites, dispatches, journal } = await journaled(() =>
     dispatch({
       origin: originWith({
