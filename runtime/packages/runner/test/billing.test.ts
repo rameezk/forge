@@ -37,6 +37,8 @@ const startedRun = (
     status: 'running',
     costStatus: 'pending',
     costUsd: 0,
+    costEstimated: false,
+    listPrice: null,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -52,6 +54,7 @@ const startedRun = (
       generationId: `gen-${id}`,
       subagent: null,
       usage: NO_USAGE,
+      estimatedCostUsd: null,
       createdAt: generatedAt,
     });
   }
@@ -127,6 +130,7 @@ test('given a run whose runner was killed so it never ended, when the settle ste
     generationId: 'gen-recent-late',
     subagent: null,
     usage: NO_USAGE,
+    estimatedCostUsd: null,
     createdAt: endedAgo(DAY_MS - 1000),
   });
   const log: string[] = [];

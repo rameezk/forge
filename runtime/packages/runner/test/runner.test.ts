@@ -10,6 +10,7 @@ import {
   message,
   result,
   throwingHarness,
+  unlisted,
 } from './helpers.ts';
 
 const runWith = async (
@@ -33,6 +34,7 @@ const runWith = async (
       '2026-09-21T10:00:05.000Z',
     ]),
     newId: () => 'run-1',
+    lookUpListPrice: unlisted,
   });
   return { store, harness, transcripts, run: store.getRun(id) };
 };
@@ -55,6 +57,7 @@ test('given a declared worker and a harness that ends normally, when it runs on 
       '2026-09-21T10:00:05.000Z',
     ]),
     newId: () => 'run-1',
+    lookUpListPrice: unlisted,
   });
 
   const run = store.getRun(id);
@@ -132,6 +135,7 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
+    lookUpListPrice: unlisted,
   });
 
   const run = store.getRun(id);
@@ -155,6 +159,7 @@ test('given a harness that throws with a secret in its message, when the run is 
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
+    lookUpListPrice: unlisted,
     secrets: ['sk-or-secret'],
   });
 
@@ -188,6 +193,7 @@ test('given a worker whose harness has begun but not finished, when the store is
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
+    lookUpListPrice: unlisted,
   });
 
   assert.equal(midRun?.status, 'running');
@@ -222,6 +228,7 @@ test('given a harness emitting a multi-event stream, when the worker runs, then 
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
+    lookUpListPrice: unlisted,
   });
 
   assert.deepEqual(seenCounts, [2, 3]);
@@ -260,6 +267,7 @@ test('given a worker whose prompt contains a secret, when it is run, then the fi
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
+    lookUpListPrice: unlisted,
     secrets: ['sk-or-secret'],
   });
 

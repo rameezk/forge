@@ -21,6 +21,8 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   status: 'success',
   costStatus: 'billed',
   costUsd: 0.1234,
+  costEstimated: false,
+  listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
   cacheReadTokens: 0,
@@ -109,6 +111,7 @@ test('given a client streaming events for the work page, when a generation is re
     generationId: 'gen-01',
     subagent: null,
     usage: { inputTokens: 5, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    estimatedCostUsd: null,
     createdAt: '2026-09-21T10:01:00.000Z',
   });
 

@@ -19,6 +19,8 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   status: 'success',
   costStatus: 'billed',
   costUsd: 0.1234,
+  costEstimated: false,
+  listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
   cacheReadTokens: 3100,
@@ -53,6 +55,8 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     endTime: null,
     costStatus: 'pending',
     costUsd: 0,
+    costEstimated: false,
+    listPrice: null,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -99,6 +103,8 @@ test('given a run recorded at start, when it is finalized, then result fields ar
       status: 'running',
       endTime: null,
       costUsd: 0,
+      costEstimated: false,
+      listPrice: null,
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 0,
@@ -126,6 +132,8 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     status: 'success',
     costStatus: 'billed',
     costUsd: 0,
+    costEstimated: false,
+    listPrice: null,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -233,6 +241,7 @@ test('given generations whose token counts are each the largest safe integer, wh
       generationId,
       subagent: null,
       usage: { inputTokens: most, outputTokens: most, cacheReadTokens: most, cacheWriteTokens: most },
+      estimatedCostUsd: null,
       createdAt: '2026-09-21T10:01:00.000Z',
     });
   }
@@ -244,7 +253,7 @@ test('given generations whose token counts are each the largest safe integer, wh
   );
 });
 
-test('given a store whose generations predate token columns, holding finished workloads with token totals, when it is opened and billing later settles a legacy generation with OpenRouter\'s native counts, then it migrates in place, the generation takes its provider, and those workloads keep their recorded totals with their cache split unknown', () => {
+test('given a store whose generations predate token columns, holding finished workloads with token totals, when it is opened and billing later settles a legacy generation with OpenRouter\'s native counts, then it migrates in place, the generation takes its provider, and those workloads keep their recorded totals with their cache split unknown and no list price or estimate', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const old = new DatabaseSync(path);
   old.exec(`
@@ -306,15 +315,18 @@ test('given a store whose generations predate token columns, holding finished wo
   );
 
   assert.deepEqual(
-    store.listRuns().map(({ id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd }) => ({
-      id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd,
+    store.listRuns().map(({ id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, costEstimated, listPrice }) => ({
+      id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, costEstimated, listPrice,
     })),
     [
-      { id: 'settling', inputTokens: 2500, outputTokens: 65, cacheReadTokens: null, cacheWriteTokens: null, costUsd: 0.25 },
-      { id: 'billed', inputTokens: 1200, outputTokens: 40, cacheReadTokens: null, cacheWriteTokens: null, costUsd: 0.5 },
+      { id: 'settling', inputTokens: 2500, outputTokens: 65, cacheReadTokens: null, cacheWriteTokens: null, costUsd: 0.25, costEstimated: false, listPrice: null },
+      { id: 'billed', inputTokens: 1200, outputTokens: 40, cacheReadTokens: null, cacheWriteTokens: null, costUsd: 0.5, costEstimated: false, listPrice: null },
     ],
   );
-  assert.deepEqual(store.listGenerations('billed').map((generation) => generation.usage), [null]);
+  assert.deepEqual(
+    store.listGenerations('billed').map(({ usage, estimatedCostUsd }) => ({ usage, estimatedCostUsd })),
+    [{ usage: null, estimatedCostUsd: null }],
+  );
   assert.deepEqual(
     store.listGenerations('settling').map(({ usage, reasoningTokens, provider }) => ({ usage, reasoningTokens, provider })),
     [{ usage: null, reasoningTokens: 5, provider: 'Z.AI' }],

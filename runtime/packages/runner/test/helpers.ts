@@ -1,4 +1,6 @@
 import { chmodSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import type {
@@ -10,6 +12,7 @@ import type {
 import type {
   Harness,
   HarnessInvocation,
+  LookUpListPrice,
   TranscriptWriter,
   Worker,
 } from '../src/index.ts';
@@ -23,6 +26,10 @@ export const message = (
   usage: { inputTokens: 100, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 },
   generationId: 'gen-1',
   ...overrides,
+});
+
+export const unlisted: LookUpListPrice = async () => ({
+  reason: 'the model is not listed',
 });
 
 export const result = (
@@ -240,4 +247,108 @@ export const lockedPiPackage = (): string => {
     throw new Error('FORGE_PI_PACKAGE is not set to the locked pi package');
   }
   return piPackage;
+};
+
+export type GenerationStats = (
+  id: string,
+  attempt: number,
+) => { status: number; body?: unknown; delayMs?: number } | 'hang' | 'reset';
+
+export const billedAt =
+  (costs: Record<string, number>): GenerationStats =>
+  (id) => {
+    const cost = costs[id];
+    return cost === undefined
+      ? { status: 404, body: { error: { code: 404 } } }
+      : { status: 200, body: { data: { id, total_cost: cost } } };
+  };
+
+export interface Lookup {
+  id: string | null;
+  authorization: string | undefined;
+  inFlight: number;
+}
+
+export interface FakeOpenRouter {
+  baseUrl: string;
+  lookups: Lookup[];
+  modelRequests: number;
+  close: () => void;
+}
+
+const LISTED_PRICE = {
+  prompt: '0.000002',
+  completion: '0.00001',
+  input_cache_read: '0.0000002',
+  input_cache_write: '0.0000025',
+};
+
+export const LISTED_MODELS = {
+  data: [
+    { id: 'z-ai/glm-4.6', pricing: { prompt: '0.0000006', completion: '0.0000022' } },
+    { id: 'z-ai/glm-5', pricing: LISTED_PRICE },
+  ],
+};
+
+export const fakeOpenRouter = async (
+  generations: GenerationStats,
+  models: unknown = null,
+): Promise<FakeOpenRouter> => {
+  const lookups: Lookup[] = [];
+  const attempts = new Map<string, number>();
+  let inFlight = 0;
+  const fake = { modelRequests: 0 };
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? '/', 'http://fake');
+    if (url.pathname === '/api/v1/models') {
+      fake.modelRequests += 1;
+      response.writeHead(models === null ? 404 : 200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(models ?? { error: { code: 404 } }));
+      return;
+    }
+    const id = url.searchParams.get('id');
+    inFlight += 1;
+    response.on('close', () => {
+      inFlight -= 1;
+    });
+    lookups.push({
+      id,
+      authorization: request.headers.authorization,
+      inFlight,
+    });
+    const reply =
+      url.pathname === '/api/v1/generation' && id !== null
+        ? generations(id, (attempts.get(id) ?? 0) + 1)
+        : { status: 404 };
+    if (id !== null) {
+      attempts.set(id, (attempts.get(id) ?? 0) + 1);
+    }
+    if (reply === 'hang') {
+      return;
+    }
+    if (reply === 'reset') {
+      request.socket.destroy();
+      return;
+    }
+    const { status, body, delayMs = 0 } = reply;
+    setTimeout(() => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(
+        typeof body === 'string' ? body : JSON.stringify(body ?? ''),
+      );
+    }, delayMs);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    baseUrl: `http://127.0.0.1:${port}/api/v1`,
+    lookups,
+    get modelRequests() {
+      return fake.modelRequests;
+    },
+    close: () => {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
 };

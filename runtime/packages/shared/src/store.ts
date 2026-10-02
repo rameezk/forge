@@ -34,6 +34,11 @@ type RunRow = {
   status: string;
   cost_status: string;
   cost_usd: number;
+  cost_estimated: number;
+  input_price: number | null;
+  output_price: number | null;
+  cache_read_price: number | null;
+  cache_write_price: number | null;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number | null;
@@ -66,7 +71,12 @@ const CREATE_RUNS = `
     ticket_number  INTEGER,
     ticket_url     TEXT,
     cache_read_tokens  INTEGER,
-    cache_write_tokens INTEGER
+    cache_write_tokens INTEGER,
+    cost_estimated     INTEGER NOT NULL DEFAULT 0,
+    input_price        REAL,
+    output_price       REAL,
+    cache_read_price   REAL,
+    cache_write_price  REAL
   ) STRICT;
 `;
 
@@ -89,6 +99,18 @@ const ADD_RUN_CACHE_TOKENS = `
   ALTER TABLE runs ADD COLUMN cache_write_tokens INTEGER;
 `;
 
+const HAS_RUN_ESTIMATE = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'cost_estimated'
+`;
+
+const ADD_RUN_ESTIMATE = `
+  ALTER TABLE runs ADD COLUMN cost_estimated INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE runs ADD COLUMN input_price REAL;
+  ALTER TABLE runs ADD COLUMN output_price REAL;
+  ALTER TABLE runs ADD COLUMN cache_read_price REAL;
+  ALTER TABLE runs ADD COLUMN cache_write_price REAL;
+`;
+
 const BUSY_TIMEOUT_MS = 5000;
 
 type GenerationRow = {
@@ -101,6 +123,7 @@ type GenerationRow = {
   cache_write_tokens: number | null;
   reasoning_tokens: number | null;
   provider: string | null;
+  estimated_cost_usd: number | null;
   billed_cost_usd: number | null;
   attempts: number;
   last_attempt_at: string | null;
@@ -134,6 +157,7 @@ const CREATE_GENERATIONS = `
     cache_write_tokens INTEGER,
     reasoning_tokens   INTEGER,
     provider           TEXT,
+    estimated_cost_usd REAL,
     UNIQUE (run_id, generation_id)
   ) STRICT;
 
@@ -161,6 +185,14 @@ const ADD_GENERATION_BILLING = `
   ALTER TABLE generations ADD COLUMN provider TEXT;
 `;
 
+const HAS_GENERATION_ESTIMATE = `
+  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'estimated_cost_usd'
+`;
+
+const ADD_GENERATION_ESTIMATE = `
+  ALTER TABLE generations ADD COLUMN estimated_cost_usd REAL;
+`;
+
 const NO_GENERATION_ID = 'no generation id';
 
 const RUN_NEVER_ENDED = 'run never ended, so later generations may be unrecorded';
@@ -171,6 +203,17 @@ const generationSum = (column: string): string =>
     ${column}
   )`;
 
+const AWAITING_BILLING = `
+  run_id = runs.id AND billed_cost_usd IS NULL AND given_up_at IS NULL
+`;
+
+const FULLY_ESTIMATED = `(
+  EXISTS (SELECT 1 FROM generations WHERE ${AWAITING_BILLING})
+  AND NOT EXISTS (
+    SELECT 1 FROM generations WHERE ${AWAITING_BILLING} AND estimated_cost_usd IS NULL
+  )
+)`;
+
 const SETTLE_RUN = `
   UPDATE runs SET
     ${generationSum('input_tokens')},
@@ -179,7 +222,10 @@ const SETTLE_RUN = `
     ${generationSum('cache_write_tokens')},
     cost_usd = (
       SELECT COALESCE(SUM(billed_cost_usd), 0) FROM generations WHERE run_id = runs.id
-    ),
+    ) + CASE WHEN ${FULLY_ESTIMATED} THEN (
+      SELECT SUM(estimated_cost_usd) FROM generations WHERE ${AWAITING_BILLING}
+    ) ELSE 0 END,
+    cost_estimated = ${FULLY_ESTIMATED},
     cost_status = CASE
       WHEN EXISTS (
         SELECT 1 FROM generations WHERE run_id = runs.id AND given_up_at IS NOT NULL
@@ -341,6 +387,11 @@ const toRow = (run: RunRecord): RunRow => ({
   status: run.status,
   cost_status: run.costStatus,
   cost_usd: run.costUsd,
+  cost_estimated: run.costEstimated ? 1 : 0,
+  input_price: run.listPrice?.input ?? null,
+  output_price: run.listPrice?.output ?? null,
+  cache_read_price: run.listPrice?.cacheRead ?? null,
+  cache_write_price: run.listPrice?.cacheWrite ?? null,
   input_tokens: run.inputTokens,
   output_tokens: run.outputTokens,
   cache_read_tokens: run.cacheReadTokens,
@@ -382,6 +433,7 @@ const generationFromRow = (row: GenerationRow): GenerationRecord => ({
           cacheReadTokens: row.cache_read_tokens,
           cacheWriteTokens: row.cache_write_tokens,
         },
+  estimatedCostUsd: row.estimated_cost_usd,
   billedCostUsd: row.billed_cost_usd,
   reasoningTokens: row.reasoning_tokens,
   provider: row.provider,
@@ -402,6 +454,16 @@ const fromRow = (row: RunRow): RunRecord => ({
   status: row.status as RunStatus,
   costStatus: row.cost_status as CostStatus,
   costUsd: row.cost_usd,
+  costEstimated: row.cost_estimated === 1,
+  listPrice:
+    row.input_price === null || row.output_price === null
+      ? null
+      : {
+          input: row.input_price,
+          output: row.output_price,
+          cacheRead: row.cache_read_price,
+          cacheWrite: row.cache_write_price,
+        },
   inputTokens: row.input_tokens,
   outputTokens: row.output_tokens,
   cacheReadTokens: row.cache_read_tokens,
@@ -427,9 +489,11 @@ export class Store {
     db.exec(CREATE_RUNS);
     this.#addColumnsOnce(HAS_RUN_TICKET, ADD_RUN_TICKET);
     this.#addColumnsOnce(HAS_RUN_CACHE_TOKENS, ADD_RUN_CACHE_TOKENS);
+    this.#addColumnsOnce(HAS_RUN_ESTIMATE, ADD_RUN_ESTIMATE);
     db.exec(CREATE_GENERATIONS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
+    this.#addColumnsOnce(HAS_GENERATION_ESTIMATE, ADD_GENERATION_ESTIMATE);
     if (this.#hasOutdatedFrontier()) {
       this.#migrateOutdatedFrontier();
     }
@@ -507,13 +571,17 @@ export class Store {
       .prepare(
         `INSERT INTO runs (
           id, worker, harness, model, start_time, end_time, status,
-          cost_status, cost_usd, input_tokens, output_tokens,
+          cost_status, cost_usd, cost_estimated,
+          input_price, output_price, cache_read_price, cache_write_price,
+          input_tokens, output_tokens,
           cache_read_tokens, cache_write_tokens,
           transcript_ref, session_id, error,
           repository, ticket_number, ticket_url
         ) VALUES (
           $id, $worker, $harness, $model, $start_time, $end_time, $status,
-          $cost_status, $cost_usd, $input_tokens, $output_tokens,
+          $cost_status, $cost_usd, $cost_estimated,
+          $input_price, $output_price, $cache_read_price, $cache_write_price,
+          $input_tokens, $output_tokens,
           $cache_read_tokens, $cache_write_tokens,
           $transcript_ref, $session_id, $error,
           $repository, $ticket_number, $ticket_url
@@ -552,11 +620,11 @@ export class Store {
           `INSERT INTO generations (
             run_id, generation_id, subagent,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-            last_error, given_up_at, created_at
+            estimated_cost_usd, last_error, given_up_at, created_at
           ) VALUES (
             $run_id, $generation_id, $subagent,
             $input_tokens, $output_tokens, $cache_read_tokens, $cache_write_tokens,
-            $last_error, $given_up_at, $created_at
+            $estimated_cost_usd, $last_error, $given_up_at, $created_at
           )
           ON CONFLICT (run_id, generation_id) DO NOTHING`,
         )
@@ -568,6 +636,7 @@ export class Store {
           output_tokens: generation.usage.outputTokens,
           cache_read_tokens: generation.usage.cacheReadTokens,
           cache_write_tokens: generation.usage.cacheWriteTokens,
+          estimated_cost_usd: generation.estimatedCostUsd,
           last_error: unnamed ? NO_GENERATION_ID : null,
           given_up_at: unnamed ? generation.createdAt : null,
           created_at: generation.createdAt,
@@ -607,6 +676,9 @@ export class Store {
           attempts = attempts + 1,
           last_attempt_at = $attempted_at,
           billed_cost_usd = $billed_cost_usd,
+          estimated_cost_usd = CASE
+            WHEN $billed_cost_usd IS NULL THEN estimated_cost_usd
+          END,
           reasoning_tokens = $reasoning_tokens,
           provider = $provider,
           last_error = $last_error,

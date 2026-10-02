@@ -10,8 +10,6 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, sep } from 'node:path';
 import {
@@ -24,12 +22,17 @@ import {
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import type { WorkerConfig } from '../src/index.ts';
 import {
+  billedAt,
+  fakeOpenRouter,
   journaled,
+  LISTED_MODELS,
   LOCKDOWN,
   PI_CONTRACT,
   writeFakeBwrap,
   writeFakePi,
   type BwrapCall,
+  type GenerationStats,
+  type Lookup,
 } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { main } from '../src/main.ts';
@@ -45,20 +48,6 @@ const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 const OPERATOR_EXTRAS = ['--skill', '/opt/forge/skills/review'];
 
 const RUNNER_HOME = '/var/empty';
-
-type GenerationStats = (
-  id: string,
-  attempt: number,
-) => { status: number; body?: unknown; delayMs?: number } | 'hang' | 'reset';
-
-const billedAt =
-  (costs: Record<string, number>): GenerationStats =>
-  (id) => {
-    const cost = costs[id];
-    return cost === undefined
-      ? { status: 404, body: { error: { code: 404 } } }
-      : { status: 200, body: { data: { id, total_cost: cost } } };
-  };
 
 const BILLED_BY_ID = {
   'gen-success-1': 0.0125,
@@ -78,70 +67,6 @@ const BILLED_BY_ID = {
 const billed = billedAt(BILLED_BY_ID);
 
 const OPENROUTER_KEY = 'sk-or-test';
-
-interface Lookup {
-  id: string | null;
-  authorization: string | undefined;
-  inFlight: number;
-}
-
-interface FakeOpenRouter {
-  baseUrl: string;
-  lookups: Lookup[];
-  close: () => void;
-}
-
-const fakeOpenRouter = async (
-  generations: GenerationStats,
-): Promise<FakeOpenRouter> => {
-  const lookups: Lookup[] = [];
-  const attempts = new Map<string, number>();
-  let inFlight = 0;
-  const server = createServer((request, response) => {
-    const url = new URL(request.url ?? '/', 'http://fake');
-    const id = url.searchParams.get('id');
-    inFlight += 1;
-    response.on('close', () => {
-      inFlight -= 1;
-    });
-    lookups.push({
-      id,
-      authorization: request.headers.authorization,
-      inFlight,
-    });
-    const reply =
-      url.pathname === '/api/v1/generation' && id !== null
-        ? generations(id, (attempts.get(id) ?? 0) + 1)
-        : { status: 404 };
-    if (id !== null) {
-      attempts.set(id, (attempts.get(id) ?? 0) + 1);
-    }
-    if (reply === 'hang') {
-      return;
-    }
-    if (reply === 'reset') {
-      request.socket.destroy();
-      return;
-    }
-    const { status, body, delayMs = 0 } = reply;
-    setTimeout(() => {
-      response.writeHead(status, { 'content-type': 'application/json' });
-      response.end(
-        typeof body === 'string' ? body : JSON.stringify(body ?? ''),
-      );
-    }, delayMs);
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    baseUrl: `http://127.0.0.1:${port}/api/v1`,
-    lookups,
-    close: () => {
-      server.closeAllConnections();
-      server.close();
-    },
-  };
-};
 
 interface Scenario {
   output: string;
@@ -267,21 +192,26 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     }),
   );
 
-  const running = main(['refiner'], {
-    ...(scenario.openRouterBaseUrl === undefined
-      ? {}
-      : { OPENROUTER_BASE_URL: scenario.openRouterBaseUrl }),
-    OPENROUTER_API_KEY: scenario.openRouterKey ?? OPENROUTER_KEY,
-    HOME: RUNNER_HOME,
-    FORGE_RUNTIME_CONFIG: configPath,
-    FORGE_STATE_DIR: stateDir,
-    FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
-    FORGE_PI_AGENT_DIR: AGENT_DIR,
-    FORGE_BWRAP: fakeBwrap,
-    ...scenario.env,
-  });
-  await scenario.whileRunning?.(stateDir);
-  const code = await running;
+  const unlisted =
+    scenario.openRouterBaseUrl === undefined ? await fakeOpenRouter(billedAt({})) : null;
+  let code: number;
+  try {
+    const running = main(['refiner'], {
+      OPENROUTER_BASE_URL: scenario.openRouterBaseUrl ?? unlisted?.baseUrl,
+      OPENROUTER_API_KEY: scenario.openRouterKey ?? OPENROUTER_KEY,
+      HOME: RUNNER_HOME,
+      FORGE_RUNTIME_CONFIG: configPath,
+      FORGE_STATE_DIR: stateDir,
+      FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
+      FORGE_PI_AGENT_DIR: AGENT_DIR,
+      FORGE_BWRAP: fakeBwrap,
+      ...scenario.env,
+    });
+    await scenario.whileRunning?.(stateDir);
+    code = await running;
+  } finally {
+    unlisted?.close();
+  }
 
   const transcripts = readdirSync(join(stateDir, 'transcripts'));
   assert.equal(transcripts.length, 1);
@@ -349,6 +279,31 @@ const generationsRecorded = async (
   }
   assert.fail(`the run did not record ${count} generations within 5 seconds`);
 };
+
+const assertCost = (actual: number | null | undefined, expected: number): void => {
+  assert.ok(
+    typeof actual === 'number' && Math.abs(actual - expected) < 1e-12,
+    `expected a cost of ${expected}, got ${actual}`,
+  );
+};
+
+const estimateAt = (
+  model: string,
+  [input, output, cacheRead, cacheWrite]: [number, number, number, number],
+): number => {
+  const pricing: Record<string, string | undefined> =
+    LISTED_MODELS.data.find(({ id }) => id === model)?.pricing ?? {};
+  return (
+    input * Number(pricing.prompt) +
+    output * Number(pricing.completion) +
+    cacheRead * Number(pricing.input_cache_read ?? 0) +
+    cacheWrite * Number(pricing.input_cache_write ?? 0)
+  );
+};
+
+const FIRST_ESTIMATE = estimateAt('z-ai/glm-5', [200, 40, 0, 1000]);
+
+const SECOND_ESTIMATE = estimateAt('z-ai/glm-5', [100, 25, 1000, 200]);
 
 const outputFile = (contents: string): string => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-output-')), 'pi.jsonl');
@@ -483,6 +438,197 @@ test('given a workload whose pi has completed two generations with cache reads a
     },
     { inputTokens: 300, outputTokens: 65, cacheReadTokens: 1000, cacheWriteTokens: 1200 },
   );
+});
+
+test('given the models endpoint lists the worker\'s model at known prices and pi has completed two generations with known token counts, when the store is read before billing runs, then the workload records the list price, each generation\'s estimated cost is its tokens at those prices, and the workload is shown as estimated at their sum', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), LISTED_MODELS);
+  let live: { run: RunRecord; generations: GenerationRecord[] } | undefined;
+  try {
+    await runWorker({
+      output: cutBefore('success.jsonl', 'agent_end'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      lingerMs: 1000,
+      whileRunning: async (stateDir) => {
+        const run = await generationsRecorded(stateDir, 2);
+        live = { run: storedRun(stateDir, run.id), generations: storedGenerations(stateDir, run.id) };
+      },
+    });
+  } finally {
+    openRouter.close();
+  }
+
+  assert.ok(live);
+  const estimates = live.generations.map(({ estimatedCostUsd }) => estimatedCostUsd);
+  assert.equal(estimates.length, 2);
+  assertCost(estimates[0], FIRST_ESTIMATE);
+  assertCost(estimates[1], SECOND_ESTIMATE);
+  assert.deepEqual(live.run.listPrice, { input: 0.000002, output: 0.00001, cacheRead: 0.0000002, cacheWrite: 0.0000025 });
+  assert.equal(live.run.costStatus, 'pending');
+  assert.equal(live.run.costEstimated, true);
+  assertCost(live.run.costUsd, FIRST_ESTIMATE + SECOND_ESTIMATE);
+  assert.equal(openRouter.modelRequests, 1);
+});
+
+test('given a finished workload whose two generations carry estimated costs, when billing settles the first and later the second, then each billed generation\'s cost is its billed cost with no estimate left, and the workload stays estimated until every generation is billed', async () => {
+  const openRouter = await fakeOpenRouter(
+    (id, attempt) => (id === 'gen-success-2' && attempt === 1 ? { status: 404 } : billed(id, attempt)),
+    LISTED_MODELS,
+  );
+  try {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+    });
+    assert.equal(await fire(stateDir, openRouter), 0);
+    const partly = storedRun(stateDir, run.id);
+    assert.equal(partly.costStatus, 'pending');
+    assert.equal(partly.costEstimated, true);
+    assertCost(partly.costUsd, 0.0125 + SECOND_ESTIMATE);
+    assert.equal(storedGenerations(stateDir, run.id)[0]?.estimatedCostUsd, null);
+
+    assert.equal(await fire(stateDir, openRouter), 0);
+    const settled = storedRun(stateDir, run.id);
+    assert.equal(settled.costStatus, 'billed');
+    assert.equal(settled.costEstimated, false);
+    assert.equal(settled.costUsd, 0.0125 + 0.0375);
+    assert.deepEqual(
+      storedGenerations(stateDir, run.id).map(({ estimatedCostUsd, billedCostUsd }) => ({ estimatedCostUsd, billedCostUsd })),
+      [
+        { estimatedCostUsd: null, billedCostUsd: 0.0125 },
+        { estimatedCostUsd: null, billedCostUsd: 0.0375 },
+      ],
+    );
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given the models endpoint lists the worker\'s model with no cache prices, when a generation without cache tokens and one with them complete, then the first has an estimated cost at the listed prices, the second has none rather than a guess, and the workload is not shown as estimated since its estimate would leave the second out', async () => {
+  const output = outputFile(
+    readFileSync(fixture('success.jsonl'), 'utf8').replaceAll(
+      '"usage":{"input":200,"output":40,"cacheRead":0,"cacheWrite":1000',
+      '"usage":{"input":200,"output":40,"cacheRead":0,"cacheWrite":0',
+    ),
+  );
+  const openRouter = await fakeOpenRouter(billedAt({}), LISTED_MODELS);
+  try {
+    const { stateDir, run } = await runWorker({
+      output,
+      openRouterBaseUrl: openRouter.baseUrl,
+      worker: { model: 'z-ai/glm-4.6' },
+    });
+
+    const [first, second] = storedGenerations(stateDir, run.id);
+    assertCost(first?.estimatedCostUsd, estimateAt('z-ai/glm-4.6', [200, 40, 0, 0]));
+    assert.equal(second?.estimatedCostUsd, null);
+    assert.equal(run.costEstimated, false);
+    assert.equal(run.costUsd, 0);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a listed model and pi output where one response used tokens but carries no generation id, when the workload runs and billing later settles the other, then the response forge gave up on adds no estimate, the workload is estimated only while the other awaits billing, and ends unconfirmed at what was billed', async () => {
+  const openRouter = await fakeOpenRouter(billed, LISTED_MODELS);
+  try {
+    const { stateDir, run } = await journaled(async () =>
+      runWorker({
+        output: withoutGenerationId('success.jsonl', 'gen-success-2'),
+        openRouterBaseUrl: openRouter.baseUrl,
+      }),
+    ).then(({ result }) => result);
+
+    assert.equal(run.costStatus, 'unconfirmed');
+    assert.equal(run.costEstimated, true);
+    assertCost(run.costUsd, FIRST_ESTIMATE);
+
+    assert.equal(await fire(stateDir, openRouter), 0);
+    const settled = storedRun(stateDir, run.id);
+    assert.equal(settled.costStatus, 'unconfirmed');
+    assert.equal(settled.costEstimated, false);
+    assert.equal(settled.costUsd, 0.0125);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given the models endpoint lists the worker\'s model at a price so large its estimate overflows, when a generation completes, then it has no estimated cost and the workload is not shown as estimated', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [{ id: 'z-ai/glm-5', pricing: { prompt: '1e308', completion: '1e308', input_cache_read: '1e308', input_cache_write: '1e308' } }],
+  });
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('success.jsonl'), openRouterBaseUrl: openRouter.baseUrl });
+
+    assert.deepEqual(storedGenerations(stateDir, run.id).map(({ estimatedCostUsd }) => estimatedCostUsd), [null, null]);
+    assert.equal(run.costEstimated, false);
+    assert.equal(run.costUsd, 0);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given the models endpoint is unavailable, or lists other models but not the worker\'s, when the workload runs and its generations complete, then it still succeeds, its generations have tokens but no estimated cost, and the journal says why', async () => {
+  for (const [models, reason] of [
+    [null, /HTTP 404/],
+    [{ data: [{ id: 'z-ai/glm-4.6', pricing: { prompt: '0.0000006', completion: '0.0000022' } }] }, /not listed/],
+  ] as const) {
+    const openRouter = await fakeOpenRouter(billedAt({}), models);
+    try {
+      const { result, journal } = await journaled(() =>
+        runWorker({ output: fixture('success.jsonl'), openRouterBaseUrl: openRouter.baseUrl }),
+      );
+
+      assert.equal(result.code, 0);
+      assert.equal(result.run.status, 'success');
+      assert.equal(result.run.listPrice, null);
+      assert.equal(result.run.costEstimated, false);
+      assert.equal(result.run.costUsd, 0);
+      const generations = storedGenerations(result.stateDir, result.run.id);
+      assert.equal(generations.length, 2);
+      for (const generation of generations) {
+        assert.notEqual(generation.usage, null);
+        assert.equal(generation.estimatedCostUsd, null);
+      }
+      assert.match(journal, /could not look up OpenRouter's list price for z-ai\/glm-5/);
+      assert.match(journal, reason);
+    } finally {
+      openRouter.close();
+    }
+  }
+});
+
+test('given pi reports its own cost for each generation, when the store and the dashboard are read before billing, then the workload\'s cost is forge\'s estimate and pi\'s figure appears in neither', async () => {
+  const output = outputFile(
+    readFileSync(fixture('success.jsonl'), 'utf8').replace(/"total":[0-9.e-]+/g, '"total":0.4242'),
+  );
+  const openRouter = await fakeOpenRouter(billedAt({}), LISTED_MODELS);
+  try {
+    const { stateDir, run } = await runWorker({ output, openRouterBaseUrl: openRouter.baseUrl });
+
+    assertCost(run.costUsd, FIRST_ESTIMATE + SECOND_ESTIMATE);
+    const stored = JSON.stringify(
+      withStore(stateDir, (store) => [store.listRuns(), store.listGenerations(run.id)]),
+    );
+    assert.doesNotMatch(stored, /0\.4242|0\.8484/);
+    const store = Store.open(join(stateDir, 'forge.db'));
+    try {
+      const app = createApp({
+        store,
+        transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
+        css: '',
+        logo: '',
+        idiomorph: '',
+        client: '',
+      });
+      for (const page of ['/', `/runs/${run.id}`]) {
+        assert.doesNotMatch(await (await app.request(page)).text(), /0\.4242|0\.8484/);
+      }
+    } finally {
+      store.close();
+    }
+  } finally {
+    openRouter.close();
+  }
 });
 
 test('given pi output whose usage counts are too large to read back, negative, fractional or not numbers, when the worker runs, then those counts are recorded as 0, the valid counts still sum, and the dashboard still lists and shows the run', async () => {

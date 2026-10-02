@@ -8,6 +8,14 @@ export interface RunTicket {
   url: string;
 }
 
+/** OpenRouter's list price for a model, in USD per token. */
+export interface ListPrice {
+  input: number;
+  output: number;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+}
+
 export interface RunRecord {
   id: string;
   worker: string;
@@ -18,6 +26,8 @@ export interface RunRecord {
   status: RunStatus;
   costStatus: CostStatus;
   costUsd: number;
+  costEstimated: boolean;
+  listPrice: ListPrice | null;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number | null;

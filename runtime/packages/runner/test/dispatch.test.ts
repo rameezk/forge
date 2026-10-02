@@ -16,6 +16,8 @@ import { pathToFileURL } from 'node:url';
 import { Store, type DispatchRecord, type RunRecord } from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
 import {
+  billedAt,
+  fakeOpenRouter,
   journaled,
   startedDispatch,
   PI_CONTRACT,
@@ -387,6 +389,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
   }
 
   let failure: unknown = null;
+  const openRouter = await fakeOpenRouter(billedAt({}));
   const code = await main(
     [scenario.repository ?? 'forge', String(scenario.issue ?? 113)],
     {
@@ -409,6 +412,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
+      OPENROUTER_BASE_URL: openRouter.baseUrl,
       ...gitConfigOf({
         [`url.${pathToFileURL(origin.path).href}.insteadOf`]:
           'https://github.com/rameezk/forge.git',
@@ -417,11 +421,13 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       ...scenario.env,
     },
     github.fetch,
-  ).catch((error: unknown) => {
-    if (scenario.failing !== true) throw error;
-    failure = error;
-    return 1;
-  });
+  )
+    .catch((error: unknown) => {
+      if (scenario.failing !== true) throw error;
+      failure = error;
+      return 1;
+    })
+    .finally(openRouter.close);
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {

@@ -1,10 +1,18 @@
-import type { MessageEvent, RunStatus, RunTicket, Store } from '@forge/shared';
+import type {
+  ListPrice,
+  MessageEvent,
+  RunStatus,
+  RunTicket,
+  Store,
+  TokenUsage,
+} from '@forge/shared';
 import {
   invocationFor,
   type Harness,
   type Worker,
   type Workspace,
 } from './harness.ts';
+import type { LookUpListPrice } from './openrouter.ts';
 import { transcriptPolicy, type TranscriptWriter } from './transcript.ts';
 
 export interface RunWorkloadOptions {
@@ -15,6 +23,7 @@ export interface RunWorkloadOptions {
   openWorkspace: (runId: string) => Workspace | Promise<Workspace>;
   now: () => string;
   newId: () => string;
+  lookUpListPrice: LookUpListPrice;
   secrets?: string[];
   ticket?: RunTicket;
 }
@@ -30,6 +39,22 @@ const isBillable = (event: MessageEvent): boolean =>
   (event.generationId !== null ||
     Object.values(event.usage).some((count) => count > 0));
 
+const estimatedCost = (price: ListPrice | null, usage: TokenUsage): number | null => {
+  if (price === null) return null;
+  let cost = 0;
+  for (const [tokens, perToken] of [
+    [usage.inputTokens, price.input],
+    [usage.outputTokens, price.output],
+    [usage.cacheReadTokens, price.cacheRead],
+    [usage.cacheWriteTokens, price.cacheWrite],
+  ] as const) {
+    if (tokens === 0) continue;
+    if (perToken === null) return null;
+    cost += tokens * perToken;
+  }
+  return Number.isFinite(cost) ? cost : null;
+};
+
 export const runWorkload = async (
   options: RunWorkloadOptions,
 ): Promise<WorkloadResult> => {
@@ -37,6 +62,14 @@ export const runWorkload = async (
     options;
   const policy = transcriptPolicy(options.secrets ?? []);
   const id = newId();
+  const startTime = now();
+  const listed = await options.lookUpListPrice(worker.model);
+  if ('reason' in listed) {
+    process.stderr.write(
+      `run ${id}: could not look up OpenRouter's list price for ${worker.model} (${listed.reason}), so its unbilled generations show no estimated cost\n`,
+    );
+  }
+  const listPrice = 'price' in listed ? listed.price : null;
   const transcript = openTranscript(id);
 
   store.insertRun({
@@ -44,11 +77,13 @@ export const runWorkload = async (
     worker: worker.name,
     harness: worker.harness,
     model: worker.model,
-    startTime: now(),
+    startTime,
     endTime: null,
     status: 'running',
     costStatus: 'pending',
     costUsd: 0,
+    costEstimated: false,
+    listPrice,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -70,6 +105,7 @@ export const runWorkload = async (
       generationId: event.generationId,
       subagent: event.subagent ?? null,
       usage: event.usage,
+      estimatedCostUsd: estimatedCost(listPrice, event.usage),
       createdAt: now(),
     });
   };

@@ -10,8 +10,18 @@ export type {
 export { resolveWorker } from './config.ts';
 export type { RunWorkloadOptions } from './runner.ts';
 export { runWorkload } from './runner.ts';
-export type { LookupOutcome, LookUpGeneration } from './openrouter.ts';
-export { OPENROUTER_API, openRouterLookUp } from './openrouter.ts';
+export type {
+  ListPriceOutcome,
+  LookupOutcome,
+  LookUpGeneration,
+  LookUpListPrice,
+} from './openrouter.ts';
+export {
+  OPENROUTER_API,
+  openRouterBaseUrl,
+  openRouterListPrice,
+  openRouterLookUp,
+} from './openrouter.ts';
 export type { SettleOptions } from './billing.ts';
 export { settleGenerations } from './billing.ts';
 export type { PiHarnessOptions } from './pi.ts';
