@@ -1629,7 +1629,8 @@ test('given recorded pi output where a failed attempt is retried and then succee
 
   assert.equal(code, 0);
   assert.equal(run.status, 'success');
-  assert.equal(run.inputTokens, 900 + 900);
+  assert.equal(run.inputTokens, 900 + 400);
+  assert.equal(run.cacheReadTokens, 300);
   assert.equal(run.outputTokens, 3 + 8);
   assert.equal(run.costUsd, 0.002 + 0.004);
   assert.equal(run.costStatus, 'billed');
