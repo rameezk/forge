@@ -1,4 +1,5 @@
 import type { HarnessEvent } from '@forge/shared';
+import type { DevShell } from './devshell.ts';
 
 export interface Checkout {
   root: string;
@@ -18,6 +19,7 @@ export const UNATTENDED_INSTRUCTION = [
 export interface Workspace {
   workDir: string;
   checkout?: Checkout;
+  devShell?: DevShell;
 }
 
 export interface HarnessInvocation extends Workspace {

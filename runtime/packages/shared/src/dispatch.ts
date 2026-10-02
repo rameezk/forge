@@ -15,6 +15,7 @@ export type DispatchFailure =
   | 'errored'
   | 'no-pull-request'
   | 'skill-not-found'
+  | 'devshell-failed'
   | 'interrupted';
 
 export const ticketKey = (repository: string, number: number): string =>

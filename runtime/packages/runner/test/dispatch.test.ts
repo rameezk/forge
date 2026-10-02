@@ -245,7 +245,50 @@ interface Scenario {
   maxConcurrent?: number;
   gitConfig?: Record<string, string>;
   env?: Record<string, string>;
+  nix?: FakeNix;
+  bwrapFailure?: string;
 }
+
+interface FakeNix {
+  variables?: Record<string, { type: string; value: unknown }>;
+  stdout?: string;
+  stderr?: string;
+  exit?: number;
+}
+
+interface NixCall {
+  argv: string[];
+  cwd: string;
+  env: Record<string, string>;
+}
+
+const DEVSHELL_PATH = '/nix/store/00000000000000000000000000000000-devshell-stub/bin';
+
+const DEVSHELL_VARIABLES = {
+  PATH: { type: 'exported', value: DEVSHELL_PATH },
+  DEVSHELL_TOOL: { type: 'exported', value: 'devshell-stub' },
+};
+
+const writeFakeNix = (dir: string, record: string, nix: FakeNix): string => {
+  const bin = join(dir, 'fake-nix-bin');
+  mkdirSync(bin);
+  const stdout =
+    nix.stdout ??
+    JSON.stringify({ variables: nix.variables ?? DEVSHELL_VARIABLES, bashFunctions: {} });
+  writeFileSync(
+    join(bin, 'nix'),
+    `#!${process.execPath}
+import { appendFileSync, writeFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env: process.env }) + '\\n');
+process.stdout.write(${JSON.stringify(stdout)});
+process.stderr.write(${JSON.stringify(nix.stderr ?? '')});
+process.exitCode = ${nix.exit ?? 0};
+if (process.env.FAKE_BWRAP_STATUS_FD) process.on('exit', (code) => writeFileSync(Number(process.env.FAKE_BWRAP_STATUS_FD), JSON.stringify({ 'exit-code': code }) + '\\n'));
+`,
+    { mode: 0o755 },
+  );
+  return bin;
+};
 
 interface PiCall {
   argv: string[];
@@ -266,6 +309,7 @@ interface Outcome {
   dispatches: DispatchRecord[];
   pi: PiCall | null;
   bwrap: BwrapCall | null;
+  nix: NixCall[];
   requests: GraphqlRequest[];
   labelWrites: LabelWrite[];
 }
@@ -288,6 +332,8 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-dispatch-'));
   const record = join(stateDir, 'pi-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
+  const nixRecord = join(stateDir, 'nix-calls.jsonl');
+  const nixBin = writeFakeNix(stateDir, nixRecord, scenario.nix ?? {});
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
     configPath,
@@ -344,8 +390,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
   const code = await main(
     [scenario.repository ?? 'forge', String(scenario.issue ?? 113)],
     {
-      PATH: process.env.PATH,
+      PATH: `${nixBin}:${process.env.PATH}`,
       HOME: stateDir,
+      FORGE_NIX_SYSTEM: 'x86_64-linux',
       FORGE_RUNTIME_CONFIG: configPath,
       FORGE_STATE_DIR: stateDir,
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
@@ -357,6 +404,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
           FAKE_PI_RECORD: record,
           FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
         },
+        ...(scenario.bwrapFailure === undefined ? {} : { failure: scenario.bwrapFailure }),
       }),
       FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
@@ -395,6 +443,12 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       bwrap: existsSync(bwrapRecord)
         ? (JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall)
         : null,
+      nix: existsSync(nixRecord)
+        ? readFileSync(nixRecord, 'utf8')
+            .split('\n')
+            .filter((line) => line.length > 0)
+            .map((line) => JSON.parse(line) as NixCall)
+        : [],
       requests: github.requests,
       labelWrites: github.labelWrites,
     };
@@ -524,6 +578,202 @@ test('given a frontier ticket labelled forge:ready, when it is dispatched, then 
       piStarted: false,
     },
   ]);
+});
+
+const FLAKE = '{ outputs = { self }: { }; }\n';
+
+test('given a checkout whose flake\'s default devShell provides a tool, when the ticket is dispatched, then the runner asks nix for that devShell inside the workload sandbox, from the checkout root and without forge\'s credentials, and pi starts with the devShell\'s variables and its path ahead of the workload toolset', async () => {
+  const { pi, nix } = await dispatch({
+    origin: originWith({
+      '.claude/skills/work-on/SKILL.md': SKILL,
+      'flake.nix': FLAKE,
+    }),
+  });
+
+  assert.ok(pi);
+  const [call, ...others] = nix;
+  assert.deepEqual(others, []);
+  assert.ok(call);
+  assert.deepEqual(call.argv, [
+    'print-dev-env',
+    '--json',
+    '--no-write-lock-file',
+    '.#.devShells.x86_64-linux.default',
+  ]);
+  assert.equal(realpathSync(call.cwd), realpathSync(pi.cwd));
+  assert.equal(call.env.FAKE_BWRAP_STATUS_FD, '3');
+  for (const name of ['GITHUB_TOKEN', 'OPENROUTER_API_KEY', 'GIT_CONFIG_COUNT', 'GIT_AUTHOR_NAME']) {
+    assert.equal(call.env[name], undefined, name);
+  }
+  assert.equal(pi.env.DEVSHELL_TOOL, 'devshell-stub');
+  const toolset = call.env.PATH;
+  assert.ok(toolset);
+  assert.equal(pi.env.PATH, `${DEVSHELL_PATH}:${toolset}`);
+});
+
+test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author, pi\'s agent dir, its own locale, and the build-only variables nix develop leaves out, when the workload starts, then pi sees forge\'s deliberate values, the devShell\'s locale over the box\'s, its sandbox HOME, and none of the build-only or unexported variables', async () => {
+  const exported = (value: string) => ({ type: 'exported', value });
+  const { pi } = await dispatch({
+    origin: originWith({
+      '.claude/skills/work-on/SKILL.md': SKILL,
+      'flake.nix': FLAKE,
+    }),
+    nix: {
+      variables: {
+        ...DEVSHELL_VARIABLES,
+        GITHUB_TOKEN: exported('github_pat_from_the_devshell'),
+        OPENROUTER_API_KEY: exported('sk-or-from-the-devshell'),
+        GIT_AUTHOR_NAME: exported('Devshell Author'),
+        GIT_AUTHOR_EMAIL: exported('devshell@example.com'),
+        PI_CODING_AGENT_DIR: exported('/nix/store/00000000000000000000000000000000-planted'),
+        HOME: exported('/homeless-shelter'),
+        TMPDIR: exported('/build'),
+        SSL_CERT_FILE: exported('/no-cert-file.crt'),
+        NIX_BUILD_TOP: exported('/build'),
+        LANG: exported('en_GB.UTF-8'),
+        LOCALE_ARCHIVE: exported('/nix/store/00000000000000000000000000000000-glibc-locales/lib/locale/locale-archive'),
+        SHELL_ONLY: { type: 'var', value: 'unexported' },
+        ARRAY_ONLY: { type: 'array', value: ['a', 'b'] },
+      },
+    },
+    env: { LANG: 'C.UTF-8', LOCALE_ARCHIVE: '/run/current-system/sw/lib/locale/locale-archive' },
+  });
+
+  assert.ok(pi);
+  assert.equal(pi.env.GITHUB_TOKEN, GITHUB_TOKEN);
+  assert.equal(pi.env.OPENROUTER_API_KEY, 'sk-or-test');
+  assert.equal(pi.env.GIT_AUTHOR_NAME, GIT_IDENTITY.name);
+  assert.equal(pi.env.GIT_AUTHOR_EMAIL, GIT_IDENTITY.email);
+  assert.equal(pi.env.PI_CODING_AGENT_DIR, AGENT_DIR);
+  assert.notEqual(pi.env.HOME, '/homeless-shelter');
+  assert.equal(pi.env.LANG, 'en_GB.UTF-8');
+  assert.equal(
+    pi.env.LOCALE_ARCHIVE,
+    '/nix/store/00000000000000000000000000000000-glibc-locales/lib/locale/locale-archive',
+  );
+  for (const name of ['TMPDIR', 'SSL_CERT_FILE', 'NIX_BUILD_TOP', 'SHELL_ONLY', 'ARRAY_ONLY']) {
+    assert.equal(pi.env[name], undefined, name);
+  }
+});
+
+test('given a checkout with no flake, when the ticket is dispatched, then nix is never asked for a devShell and pi starts with only the workload toolset on its path', async () => {
+  const { pi, nix, bwrap } = await dispatch();
+
+  assert.ok(pi);
+  assert.deepEqual(nix, []);
+  assert.equal(pi.env.PATH, bwrap?.env.PATH);
+  assert.equal(pi.env.DEVSHELL_TOOL, undefined);
+});
+
+const NIX_ERROR = [
+  "error: undefined variable 'mkShel'",
+  '       at /nix/store/00000000000000000000000000000000-source/flake.nix:1:60:',
+  "            1| { outputs = { self }: { devShells.x86_64-linux.default = mkShel { }; }; }",
+  '             |                                                            ^',
+  '',
+].join('\n');
+
+test('given a checkout whose devShell fails to evaluate, when the ticket is dispatched, then pi never starts, the run keeps nix\'s error output, and the ticket becomes forge:failed with devShell failed as the reason and nix\'s error as the detail', async () => {
+  const { code, pi, runs, labelWrites, dispatches, journal } = await journaled(() =>
+    dispatch({
+      origin: originWith({
+        '.claude/skills/work-on/SKILL.md': SKILL,
+        'flake.nix': FLAKE,
+      }),
+      nix: { stderr: NIX_ERROR, exit: 1, stdout: '' },
+      pullRequests: closing('no-pull-request'),
+    }),
+  ).then(({ result, journal }) => ({ ...result, journal }));
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  const expected = `nix print-dev-env exited with code 1: ${NIX_ERROR.trim()}`;
+  assert.equal(runs[0]?.status, 'error');
+  assert.equal(runs[0]?.error, expected);
+  assert.ok(journal.includes(NIX_ERROR), journal);
+  assert.deepEqual(
+    labelWrites.slice(2),
+    finalLabelWrites('forge:failed').map((write) => ({ ...write, piStarted: false })),
+  );
+  assert.deepEqual(
+    dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'devshell-failed', detail: "error: undefined variable 'mkShel'" }],
+  );
+});
+
+const NIX_BUILD_FAILURE = [
+  "building '/nix/store/00000000000000000000000000000000-broken-tool.drv'...",
+  "error: builder for '/nix/store/00000000000000000000000000000000-broken-tool.drv' failed with exit code 3;",
+  '       last 1 log lines:',
+  '       > boom',
+  '       For full logs, run:',
+  '         nix log /nix/store/00000000000000000000000000000000-broken-tool.drv',
+  "error: 1 dependencies of derivation '/nix/store/00000000000000000000000000000000-devshell-env.drv' failed to build",
+  '',
+].join('\n');
+
+test('given a checkout whose devShell has a dependency that fails to build, when the ticket is dispatched, then the ticket fails with devShell failed and the failing builder as the detail, and the run keeps the whole build output', async () => {
+  const { pi, runs, dispatches } = await journaled(() =>
+    dispatch({
+      origin: originWith({
+        '.claude/skills/work-on/SKILL.md': SKILL,
+        'flake.nix': FLAKE,
+      }),
+      nix: { stderr: NIX_BUILD_FAILURE, exit: 1, stdout: '' },
+      pullRequests: closing('no-pull-request'),
+    }),
+  ).then(({ result }) => result);
+
+  assert.equal(pi, null);
+  assert.equal(runs[0]?.error, `nix print-dev-env exited with code 1: ${NIX_BUILD_FAILURE.trim()}`);
+  assert.deepEqual(
+    dispatches.map(({ reason, detail }) => ({ reason, detail })),
+    [
+      {
+        reason: 'devshell-failed',
+        detail: "error: builder for '/nix/store/00000000000000000000000000000000-broken-tool.drv' failed with exit code 3;",
+      },
+    ],
+  );
+});
+
+test('given nix that exits cleanly without printing a dev environment, when the ticket is dispatched, then pi never starts and the ticket fails with devShell failed as the reason', async () => {
+  const { pi, dispatches } = await journaled(() =>
+    dispatch({
+      origin: originWith({
+        '.claude/skills/work-on/SKILL.md': SKILL,
+        'flake.nix': FLAKE,
+      }),
+      nix: { stdout: 'warning: not json' },
+      pullRequests: closing('no-pull-request'),
+    }),
+  ).then(({ result }) => result);
+
+  assert.equal(pi, null);
+  assert.equal(dispatches[0]?.reason, 'devshell-failed');
+  assert.match(dispatches[0]?.detail ?? '', /^nix print-dev-env printed no dev environment: /);
+});
+
+test('given a checkout with a flake and a workload sandbox that cannot start, when the ticket is dispatched, then nix never runs unconfined, pi never starts, and the ticket fails because the run errored', async () => {
+  const { pi, nix, runs, dispatches } = await journaled(() =>
+    dispatch({
+      origin: originWith({
+        '.claude/skills/work-on/SKILL.md': SKILL,
+        'flake.nix': FLAKE,
+      }),
+      bwrapFailure: 'bwrap: setting up uid map: Permission denied',
+      pullRequests: closing('no-pull-request'),
+    }),
+  ).then(({ result }) => result);
+
+  assert.equal(pi, null);
+  assert.deepEqual(nix, []);
+  const expected = 'the workload sandbox could not start: bwrap: setting up uid map: Permission denied';
+  assert.equal(runs[0]?.error, expected);
+  assert.deepEqual(
+    dispatches.map(({ reason, detail }) => ({ reason, detail })),
+    [{ reason: 'errored', detail: expected }],
+  );
 });
 
 const finalLabelWrites = (label: string): LabelWrite[] => [
