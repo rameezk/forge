@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HarnessEvent, MessageEvent } from '@forge/shared';
+import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { PiHarness } from '../src/index.ts';
 import {
   bash,
@@ -32,10 +33,16 @@ interface Served {
   usage: Usage;
 }
 
+interface Requested {
+  tools?: { function: { name: string } }[];
+}
+
 const recording = (
   respond: Respond,
   served: Served[],
+  requested: Requested[],
 ): Respond => (call, res, request) => {
+  requested.push(request as Requested);
   const write = res.write.bind(res) as (chunk: string) => boolean;
   res.write = ((chunk: string) => {
     const frame = /^data: (\{.*\})\n\n$/.exec(chunk)?.[1];
@@ -95,9 +102,10 @@ exit $code
 const runRealPi = async (
   respond: Respond,
   served: Served[],
+  requested: Requested[],
   onTheWire: (respond: Respond) => Respond = (inner) => inner,
 ): Promise<HarnessEvent[]> => {
-  const server = await serve(onTheWire(recording(respond, served)));
+  const server = await serve(onTheWire(recording(respond, served, requested)));
   const { port } = server.address() as AddressInfo;
   const root = mkdtempSync(join(tmpdir(), 'forge-real-pi-'));
   const agentDir = join(root, 'agent');
@@ -175,8 +183,12 @@ test(
   { skip },
   async () => {
     const served: Served[] = [];
-    const events = await runRealPi(replies, served);
+    const requested: Requested[] = [];
+    const events = await runRealPi(replies, served, requested);
 
+    assert.ok(
+      requested[0]?.tools?.some((tool) => tool.function.name === SUBAGENT_TOOL),
+    );
     assert.equal(served.length, 2);
     assertParsedAsServed(events, served);
     const end = events.at(-1);
@@ -190,12 +202,14 @@ test(
   { skip },
   async () => {
     const served: Served[] = [];
-    const events = await runRealPi(replies, served, unreadCacheDetail);
+    const events = await runRealPi(replies, served, [], unreadCacheDetail);
 
     assert.equal(served.length, 2);
     assert.throws(
       () => assertParsedAsServed(events, served),
-      assert.AssertionError,
+      (error: unknown) =>
+        error instanceof assert.AssertionError &&
+        /cacheReadTokens|cacheWriteTokens/.test(error.message),
     );
   },
 );

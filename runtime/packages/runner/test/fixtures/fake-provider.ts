@@ -320,4 +320,3 @@ export const serve = async (
   await once(server, 'listening');
   return server;
 };
-
