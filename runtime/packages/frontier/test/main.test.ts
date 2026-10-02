@@ -134,6 +134,7 @@ test('given a declared repository whose recorded response holds unblocked ready-
     parent: {
       number: 54,
       title: 'Frontier discovery across managed repositories',
+      url: 'https://github.com/rameezk/forge/issues/54',
     },
     createdAt: '2026-09-28T10:08:01Z',
     forgeReady: false,
@@ -644,7 +645,7 @@ test('given GitHub text carrying terminal control characters, when list runs, th
         title:
           '\u001b]0;pwned\u0007Frontier\u001b[2J sync\nforged line\u202e\u2066\u200b\u2028',
         url: 'https://github.com/rameezk/forge/issues/57\u001b[8m',
-        parent: { number: 54, title: '\u009b31mFrontier discovery\r' },
+        parent: { number: 54, title: '\u009b31mFrontier discovery\r', url: 'https://github.com/rameezk/forge/issues/54' },
       },
     ]),
   });

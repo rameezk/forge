@@ -28,7 +28,7 @@ const ticket: Ticket = {
   number: 137,
   title: 'Live runs list and work page',
   url: 'https://github.com/rameezk/forge/issues/137',
-  parent: { number: 135, title: 'Live dashboard updates' },
+  parent: { number: 135, title: 'Live dashboard updates', url: 'https://github.com/rameezk/forge/issues/135' },
   createdAt: '2026-09-30T10:00:00Z',
   forgeReady: false,
   blocked: false,
