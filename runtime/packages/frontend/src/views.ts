@@ -60,6 +60,9 @@ const PENDING = 'font-normal italic text-muted';
 const NAV_LINK = 'border-b-2 py-1.5 text-[0.9rem] no-underline';
 const POLLED = 'ml-auto text-sm text-muted';
 
+const externalLink = (href: string, label: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<a href="${href}" target="_blank" rel="noopener noreferrer" class="${LINK}">${label}</a>`;
+
 const navLink = (href: string, label: string, current: boolean): HtmlEscapedString | Promise<HtmlEscapedString> =>
   current
     ? html`<a href="${href}" aria-current="page" class="${NAV_LINK} border-accent font-semibold text-fg">${label}</a>`
@@ -135,7 +138,7 @@ const renderRunTicket = (ticket: RunTicket | null): Rendered =>
   ticket === null
     ? ''
     : html`<span class="text-muted">${ticket.repository}</span> ${isGithubUrl(ticket.url)
-        ? html`<a href="${ticket.url}" class="${LINK}">#${ticket.number}</a>`
+        ? externalLink(ticket.url, `#${ticket.number}`)
         : html`#${ticket.number}`}`;
 
 const NOT_RECORDED = html`<span class="${PENDING}">not recorded</span>`;
@@ -689,7 +692,7 @@ const renderRepository = (
     <header class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
       <h2 class="${SECTION_TITLE}">${repository}</h2>
       ${isGithubRepository(github)
-        ? html`<a href="https://github.com/${github}" class="${LINK}">${github}</a>`
+        ? externalLink(`https://github.com/${github}`, github)
         : html`<span class="text-muted">${github}</span>`}
       ${renderPolled(polledAt)}
     </header>
@@ -715,7 +718,7 @@ const renderRepository = (
               ${tickets.map(
                 (ticket) => html`<tr class="${ROW}" data-ticket="${ticket.number}">
                   <td class="${TD} whitespace-nowrap tabular-nums">${isGithubUrl(ticket.url)
-                    ? html`<a href="${ticket.url}" class="${LINK}">#${ticket.number}</a>`
+                    ? externalLink(ticket.url, `#${ticket.number}`)
                     : html`#${ticket.number}`}</td>
                   <td class="${TD} min-w-48">${ticket.title}</td>
                   <td class="${TD} min-w-48">${renderSpec(ticket.parent)}</td>

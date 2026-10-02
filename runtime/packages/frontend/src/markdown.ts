@@ -25,6 +25,7 @@ md.inline.ruler.at('image', (state, silent) => {
 
 md.renderer.rules.link_open = (tokens, index, options, _env, self) => {
   const token = tokens[index]!;
+  token.attrSet('target', '_blank');
   token.attrSet('rel', 'noopener noreferrer nofollow');
   return self.renderToken(tokens, index, options);
 };
