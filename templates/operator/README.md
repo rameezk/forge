@@ -139,9 +139,10 @@ your Hetzner token is decrypted only for that call and never sits in your shell.
 Once the box is installed, your tailnet is the only way in: the box accepts SSH
 on `sshPort` over the tailnet only, never from the public internet. Standup
 installs over the box's public IP, since the box is not on the tailnet until
-its installed system runs. Every other command reaches the box by its
-`hostname` on the tailnet, so your machine must be logged in to the tailnet
-with MagicDNS on, as [Tailnet setup](#tailnet-setup) describes.
+its installed system runs, and then reaches the box by its `hostname` on the
+tailnet, as `just ssh` and `just deploy` always do. So your machine must be
+logged in to the tailnet with MagicDNS on before you run any of them, as
+[Tailnet setup](#tailnet-setup) describes.
 
 Box state is the run store, frontier snapshot and transcripts under
 `/var/lib/forge`, and the box's tailnet device under `/var/lib/tailscale`. Only
