@@ -8,7 +8,17 @@ import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { readStylesheet } from '../src/assets.ts';
 import { openingTag, textOf } from './html.ts';
 
-const appWith = ({ css = '', logo = '' }: { css?: string; logo?: string }) => {
+const appWith = ({
+  css = '',
+  logo = '',
+  idiomorph = '',
+  client = '',
+}: {
+  css?: string;
+  logo?: string;
+  idiomorph?: string;
+  client?: string;
+}) => {
   const store = Store.open(':memory:');
   store.insertRun({
     id: 'run-01',
@@ -34,6 +44,8 @@ const appWith = ({ css = '', logo = '' }: { css?: string; logo?: string }) => {
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),
     css,
     logo,
+    idiomorph,
+    client,
   });
 };
 
@@ -158,4 +170,43 @@ test('given each dashboard page, when it is requested, then its title names the 
     const body = await (await app.request(page)).text();
     assert.equal(textOf(body.match(/<title>[\s\S]*?<\/title>/)?.[0] ?? ''), titles[page], `${page} should be titled ${titles[page]}`);
   }
+});
+
+const scriptSources = (body: string): string[] =>
+  [...body.matchAll(/<script[^>]*>/g)].map(([tag]) => attribute(tag, 'src') ?? '');
+
+test('given the runs list and the work page, when they are requested, then they load the morph library and then the live client, each deferred under a content-hashed path, and a run\'s detail page loads no script', async () => {
+  const first = appWith({ idiomorph: 'var Idiomorph = 1;', client: 'live();' });
+  const second = appWith({ idiomorph: 'var Idiomorph = 2;', client: 'live(2);' });
+
+  for (const page of ['/', '/work']) {
+    const body = await (await first.request(page)).text();
+    const tags = body.match(/<script[^>]*>/g) ?? [];
+    const sources = scriptSources(body);
+    assert.equal(sources.length, 2, `${page} should load two scripts`);
+    assert.match(sources[0]!, /^\/assets\/idiomorph-[0-9a-f]{16,}\.js$/);
+    assert.match(sources[1]!, /^\/assets\/live-[0-9a-f]{16,}\.js$/);
+    for (const tag of tags) assert.match(tag, /\sdefer(?=[\s>])/, `${page} should defer its scripts`);
+    const others = scriptSources(await (await second.request(page)).text());
+    assert.notEqual(others[0], sources[0], 'a different morph library should get a different path');
+    assert.notEqual(others[1], sources[1], 'a different client should get a different path');
+  }
+
+  assert.deepEqual(scriptSources(await (await first.request('/runs/run-01')).text()), []);
+});
+
+test('given the script paths a page loads, when they are requested, then they return the scripts with an immutable, long-lived cache header', async () => {
+  const scripts = { idiomorph: 'var Idiomorph = 1;', client: 'live();' };
+  const app = appWith(scripts);
+  const [idiomorph, client] = scriptSources(await (await app.request('/')).text());
+
+  for (const [path, body] of [[idiomorph!, scripts.idiomorph], [client!, scripts.client]] as const) {
+    const res = await app.request(path);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') ?? '', /^text\/javascript\b/);
+    const cacheControl = (res.headers.get('cache-control') ?? '').split(/,\s*/);
+    assert.ok(cacheControl.includes('immutable'), `${path} should be cached as immutable`);
+    assert.equal(await res.text(), body);
+  }
+  assert.equal((await app.request('/assets/live-0000000000000000.js')).status, 404);
 });

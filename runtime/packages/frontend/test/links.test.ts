@@ -65,7 +65,7 @@ const dashboard = () => {
       generationId: null,
     }) + '\n',
   );
-  const app = createApp({ store, transcripts: new FileTranscriptSource(transcripts), css: '', logo: '' });
+  const app = createApp({ store, transcripts: new FileTranscriptSource(transcripts), css: '', logo: '', idiomorph: '', client: '' });
   return async (path: string): Promise<string> => (await app.request(path)).text();
 };
 

@@ -417,6 +417,8 @@ const dashboardCost = async (stateDir: string): Promise<string> => {
       transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
       css: '',
       logo: '',
+      idiomorph: '',
+      client: '',
     });
     const body = await (await app.request('/')).text();
     return (body.match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>([\s\S]*?)<\/td>/)?.[1] ?? '')
@@ -515,6 +517,8 @@ test('given pi output whose usage counts are too large to read back, negative, f
       transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
       css: '',
       logo: '',
+      idiomorph: '',
+      client: '',
     });
     assert.equal((await app.request('/')).status, 200);
     assert.equal((await app.request(`/runs/${run.id}`)).status, 200);
