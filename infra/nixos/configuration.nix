@@ -28,6 +28,7 @@ in
   services.openssh = {
     enable = true;
     ports = [ forgeConfig.sshPort ];
+    openFirewall = false;
     settings = {
       PasswordAuthentication = false;
       PermitRootLogin = "no";
@@ -58,6 +59,10 @@ in
       "--accept-dns=false"
     ];
   };
+
+  networking.firewall.interfaces.${config.services.tailscale.interfaceName}.allowedTCPPorts = [
+    forgeConfig.sshPort
+  ];
 
   boot.loader.grub = {
     enable = true;

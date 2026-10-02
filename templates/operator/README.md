@@ -136,6 +136,13 @@ configuration and runs without a prompt.
 Each OpenTofu call runs through `sops exec-env` on `secrets/operator.yaml`, so
 your Hetzner token is decrypted only for that call and never sits in your shell.
 
+Once the box is installed, your tailnet is the only way in: the box accepts SSH
+on `sshPort` over the tailnet only, never from the public internet. Standup
+installs over the box's public IP, since the box is not on the tailnet until
+its installed system runs. Every other command reaches the box by its
+`hostname` on the tailnet, so your machine must be logged in to the tailnet
+with MagicDNS on, as [Tailnet setup](#tailnet-setup) describes.
+
 Box state is the run store, frontier snapshot and transcripts under
 `/var/lib/forge`, and the box's tailnet device under `/var/lib/tailscale`. Only
 deploy keeps it. The Tailscale OAuth client secret, the OpenRouter key and the
@@ -155,9 +162,14 @@ tailnet.
    anything.
 
    Standup only ever creates a fresh box. If your admin user can already log in
-   to the box, standup refuses straight away and points you to `just deploy`, or
-   to teardown then standup for a fresh box. If an install fails part-way, just
-   run standup again.
+   to the box, over the tailnet or at its public IP, standup refuses straight
+   away and points you to `just deploy`, or to teardown then standup for a fresh
+   box. If an install fails part-way, just run standup again.
+
+   After the install, standup waits until it can log in to the box over the
+   tailnet, and fails, saying the box did not join the tailnet, if that takes
+   longer than ten minutes. To wait a different number of seconds, pass it as
+   `just tailnet_join_timeout=900 standup`.
 
 2. Verify it by hand - confirm the box is reachable over SSH with your
    configured key:
@@ -166,13 +178,13 @@ tailnet.
    just ssh
    ```
 
-   `just ssh` fills in the box's address, SSH port and admin user, checks the
-   box against the host key in `known_hosts`, and passes any extra arguments
-   on to `ssh`.
+   `just ssh` connects to the box by its `hostname` over the tailnet, fills in
+   its SSH port and admin user, checks the box against the host key in
+   `known_hosts`, and passes any extra arguments on to `ssh`.
 
 3. Deploy config changes, such as a new or edited worker in `flake.nix`. Deploy
-   reads the box address from OpenTofu, then runs `nixos-rebuild switch` on the
-   box as your admin user, building on the box. It keeps the box's state, and it
+   runs `nixos-rebuild switch` on the box over the tailnet as your admin user,
+   building on the box. It keeps the box's state, and it
    changes only NixOS: it never runs `tofu apply`, so infrastructure changes
    such as `serverType` or `location` still need teardown then standup. The flake
    sees only git-tracked files, so stage a change before deploying it:
@@ -182,8 +194,8 @@ tailnet.
    just deploy
    ```
 
-   A deploy that breaks SSH has no automatic rollback; recover it from the
-   Hetzner console.
+   A deploy that breaks SSH or Tailscale has no automatic rollback; recover it
+   from the Hetzner console.
 
 4. Tear the box down when you are done. This loses the box's state:
 
@@ -201,10 +213,12 @@ tailnet up once, by hand, in the
 [Tailscale admin console](https://login.tailscale.com/admin). Forge never
 changes your tailnet's policy or its OAuth clients.
 
-1. Let the tailnet hold `tag:forge` devices and let you reach the dashboard on
-   them. In the policy file on the Access controls page, add a `tagOwners`
-   entry for `tag:forge` and an access rule for port 443, merging them into
-   any `tagOwners` and `grants` you already have:
+1. Let the tailnet hold `tag:forge` devices and let you reach SSH and the
+   dashboard on them. In the policy file on the Access controls page, add a
+   `tagOwners` entry for `tag:forge` and an access rule for your `sshPort` and
+   port 443, merging them into any `tagOwners` and `grants` you already have.
+   The rule below uses the default `sshPort` of 22; if you changed it, use
+   yours:
 
    ```json
    {
@@ -215,7 +229,7 @@ changes your tailnet's policy or its OAuth clients.
        {
          "src": ["autogroup:admin"],
          "dst": ["tag:forge"],
-         "ip": ["tcp:443"]
+         "ip": ["tcp:22", "tcp:443"]
        }
      ]
    }
@@ -228,8 +242,8 @@ changes your tailnet's policy or its OAuth clients.
    agents and needs to reach nothing on your tailnet. As a second line, forge
    stops workloads from reaching tailnet addresses and keeps the box off the
    tailnet's DNS. With the grant above, only your tailnet's admins reach the
-   dashboard. Anyone you add to its `src` can read every run's prompt,
-   transcript and repository data there.
+   box's SSH and dashboard. Anyone you add to its `src` can read every run's
+   prompt, transcript and repository data on the dashboard.
 
 2. Turn on MagicDNS and HTTPS certificates. On the DNS page, enable MagicDNS
    if it is off, then select **Enable HTTPS** under HTTPS Certificates. The
@@ -267,17 +281,13 @@ Once the box has joined, it no longer uses the client secret, so a changed
 `tailscale_auth_key` takes effect only when the box joins again, at the next
 standup. It stays decrypted on the box, so if the box or its host key is ever
 compromised, revoke the OAuth client on the Trust credentials page and create a
-new one. If Tailscale fails on the box, the dashboard is unreachable on the
-tailnet until it recovers.
+new one. If Tailscale fails on the box, neither SSH nor the dashboard is
+reachable until it recovers, and the only way in is the Hetzner console.
 
 ## Opening the dashboard
 
-The dashboard listens only on the box's localhost. Open it over an SSH tunnel,
-then browse to `http://localhost:7787`:
-
-```bash
-just ssh -N -L 7787:localhost:7787
-```
+Browse to `https://<hostname>.<tailnet>.ts.net` from a machine on your tailnet,
+as [Tailnet setup](#tailnet-setup) describes.
 
 ## Rotating a runtime secret
 
