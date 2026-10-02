@@ -540,9 +540,16 @@ const finalLabelWrites = (label: string): LabelWrite[] => [
     body: null,
     piStarted: true,
   },
+  {
+    method: 'DELETE',
+    path: '/repos/rameezk/forge/issues/113/labels/forge%3Aready',
+    authorization: `bearer ${GITHUB_TOKEN}`,
+    body: null,
+    piStarted: true,
+  },
 ];
 
-test('given a run after which an open pull request closes the ticket, when the run ends, whether it succeeded or errored, then the ticket becomes forge:done', async () => {
+test('given a run after which an open pull request closes the ticket, when the run ends, whether it succeeded or errored, then the ticket becomes forge:done, losing any forge:ready the run set so no later pass dispatches it again', async () => {
   for (const piOutput of [PI_OUTPUT, PROVIDER_ERROR]) {
     const { labelWrites, runs } = await dispatch({ piOutput });
 

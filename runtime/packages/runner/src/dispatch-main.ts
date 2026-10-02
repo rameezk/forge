@@ -277,7 +277,7 @@ export const main = async (
         repository.github,
         ticket.number,
         outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,
-        [FORGE_RUNNING],
+        [FORGE_RUNNING, FORGE_READY],
       );
       return launched.run.status === 'error' ? 1 : 0;
     } finally {
