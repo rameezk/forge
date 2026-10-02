@@ -55,6 +55,7 @@ in
     extraUpFlags = [
       "--advertise-tags=tag:forge"
       "--hostname=${forgeConfig.hostname}"
+      "--accept-dns=false"
     ];
   };
 

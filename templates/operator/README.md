@@ -219,8 +219,15 @@ changes your tailnet's policy or its OAuth clients.
    }
    ```
 
-   This lets your tailnet's admins reach the dashboard and nobody else. Widen
-   `src` to the users or groups who should see it too.
+   A new tailnet's policy starts with a grant that lets every device reach
+   every other, `{"src": ["*"], "dst": ["*"], "ip": ["*"]}`. Replace it with
+   grants for what your own devices need, so that no grant has a `src` that
+   matches `tag:forge` and only the grant above reaches it. The box runs
+   agents and needs to reach nothing on your tailnet. As a second line, forge
+   stops workloads from reaching tailnet addresses and keeps the box off the
+   tailnet's DNS. With the grant above, only your tailnet's admins reach the
+   dashboard. Anyone you add to its `src` can read every run's prompt,
+   transcript and repository data there.
 
 2. Turn on MagicDNS and HTTPS certificates. On the DNS page, enable MagicDNS
    if it is off, then select **Enable HTTPS** under HTTPS Certificates. The
@@ -256,7 +263,9 @@ changes your tailnet's policy or its OAuth clients.
 
 Once the box has joined, it no longer uses the client secret, so a changed
 `tailscale_auth_key` takes effect only when the box joins again, at the next
-standup. If Tailscale fails on the box, the dashboard is unreachable on the
+standup. It stays decrypted on the box, so if the box or its host key is ever
+compromised, revoke the OAuth client on the Trust credentials page and create a
+new one. If Tailscale fails on the box, the dashboard is unreachable on the
 tailnet until it recovers.
 
 ## Opening the dashboard
