@@ -54,6 +54,7 @@ Every spec becomes at least one ticket. Agents and humans build only from ticket
    - A ticket is on the **frontier** when its status is not `done` and every ticket it is blocked by is `done`.
    - This skill never marks a ticket `done` - that is the dispatch step's job - and never modifies the parent spec.
    - Ticket bodies avoid file paths and code snippets; they go stale fast. The exception is a snippet that pins a decision more precisely than prose can (a schema, a type shape, a state machine); inline just the decision-rich part.
+   - Ticket bodies say what to verify, not which tool verifies it. Ask for visual checks through [[before-after]], never by naming Puppeteer, Playwright or another browser tool - the skill picks a tool that runs where the ticket is built.
    - NEVER add agent attribution, a generated-by credit, or a session link to a ticket's title or body.
 
    How a ticket's identity, status, and edges are physically recorded is tracker-specific. Follow the mechanics for the configured tracker: [`publish-local.md`](publish-local.md) for `local`, [`publish-github.md`](publish-github.md) for `github`.
