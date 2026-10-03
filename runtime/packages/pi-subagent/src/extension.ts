@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   childArgs,
+  type JsonValue,
   SUBAGENT_INVOCATION_ENV,
   SUBAGENT_TOOL,
   type SubagentDetails,
@@ -13,7 +14,7 @@ import {
   type SubagentUsage,
 } from './contract.ts';
 
-export interface ToolResult<T> {
+export interface ToolResult<T extends JsonValue> {
   content: { type: 'text'; text: string }[];
   details: T;
 }
@@ -292,11 +293,12 @@ const runChild = async (
       input: child.stdout,
       crlfDelay: Infinity,
     })) {
-      const event = parseJson<ChildEvent>(line);
-      if (event === null) {
+      const parsed = parseJson<JsonValue>(line);
+      if (parsed === null) {
         continue;
       }
-      onUpdate?.({ content: [], details: { event } });
+      onUpdate?.({ content: [], details: { event: parsed } });
+      const event = parsed as ChildEvent;
       if (event.type === 'message_end' && event.message?.role === 'assistant') {
         responses.push(responseOf(event.message));
         last = event.message;

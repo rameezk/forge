@@ -17,23 +17,31 @@ export const childArgs = (
   `Task: ${task}`,
 ];
 
-export interface SubagentUsage {
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
+export type SubagentUsage = {
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
-}
+};
 
-export interface SubagentResponse {
+export type SubagentResponse = {
   responseId?: string;
   usage: SubagentUsage;
-}
+};
 
-export interface SubagentDetails {
+export type SubagentDetails = {
   responses: SubagentResponse[];
   error?: string;
-}
+};
 
-export interface SubagentUpdate {
-  event: unknown;
-}
+export type SubagentUpdate = {
+  event: JsonValue;
+};

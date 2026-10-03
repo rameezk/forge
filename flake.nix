@@ -34,6 +34,7 @@
       loadConfig = import ./infra/lib/load-config.nix;
 
       runnerOverlay = final: _prev: {
+        pi-coding-agent = final.callPackage ./infra/nix/pi-coding-agent.nix { };
         forge-runner = final.callPackage ./infra/nix/runner.nix { };
       };
 
@@ -97,7 +98,10 @@
         in
         {
           forge-shared = pkgs.callPackage ./infra/nix/shared.nix { };
-          forge-runner = pkgs.callPackage ./infra/nix/runner.nix { };
+          pi-coding-agent = pkgs.callPackage ./infra/nix/pi-coding-agent.nix { };
+          forge-runner = pkgs.callPackage ./infra/nix/runner.nix {
+            inherit (self.packages.${system}) pi-coding-agent;
+          };
         }
       );
 
@@ -214,6 +218,14 @@
                 && nixos.config.nix.gc.options == "--delete-older-than 14d"
               )
               "the nix store must be garbage collected weekly, deleting anything older than 14 days, to match the age-out of run directories";
+          hostPi = nixos.pkgs.pi-coding-agent;
+          hostPiIsForgePi =
+            lib.asserts.assertMsg
+              (
+                lib.elem ./infra/nix/pi-read-only-agent-dir.patch (hostPi.patches or [ ])
+                && nixos.pkgs.forge-runner.piPackage == "${hostPi}/lib/node_modules/pi-monorepo"
+              )
+              "a host's pkgs.pi-coding-agent, which operators install as the pi harness, must be the pi forge pins and patches to read credentials without writing its agent dir (ADR-0040), and the runner must load skills from that same pi";
           nixInToolset = lib.asserts.assertMsg (lib.elem nixos.config.nix.package nixos.config.forge.runtime.toolset) "the base workload toolset must carry the box's nix, so a workload can use nix through the daemon";
           trustingHost =
             module:
@@ -979,6 +991,7 @@
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
+            assert hostPiIsForgePi;
             assert ghInToolset;
             assert transcriptsProvisioned;
             pkgs.runCommand "runtime-runner" { } ''
@@ -1092,7 +1105,7 @@
             forge-runner = self.packages.${system}.forge-runner;
           };
           pi-cli-contract = pkgs.callPackage ./infra/nix/pi-cli-contract.nix {
-            forge-runner = self.packages.${system}.forge-runner;
+            inherit (self.packages.${system}) forge-runner pi-coding-agent;
           };
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

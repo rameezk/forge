@@ -464,7 +464,10 @@ is written to the workload's HOME or the checkout's `.git/config`, and
 scheduled workers get no identity, helper or token. The workload loads the
 checkout's `.claude/skills`, `.agents/skills` and `.pi/skills`, its root
 `AGENTS.md` (or `CLAUDE.md`), and `.pi/SYSTEM.md` and `.pi/APPEND_SYSTEM.md`,
-and it is told that no human will answer. A leading `/<name>` in the prompt runs the
+and it is told that no human will answer. pi never trusts the checkout, so the
+rest of its pi config, `.pi/settings.json`, `.pi/mcp.json`, `.pi/extensions`,
+`.pi/prompts` and `.pi/themes`, is not loaded, and the run output warns about
+each one the checkout has. A leading `/<name>` in the prompt runs the
 checkout's skill of that name, and the run fails before the harness starts if
 there is none. The Runs page shows the repository and ticket of each
 dispatched run.
@@ -499,6 +502,11 @@ before the sandbox starts, so a command under `/run/current-system/sw/bin`
 works. Any path in the harness's extra `args` must be in the Nix store, since
 the sandbox sees nothing else of the box. If the sandbox cannot start, the
 workload fails with that reason, and the harness never runs unconfined.
+
+On a host built with `forge.lib.mkHost`, `pkgs.pi-coding-agent` is the pi
+forge pins, 1.0.0, patched so that it never writes its agent dir. Install that
+one as the `pi` harness, as the template's example does, since the runner
+passes it flags and loads skills the way that version expects.
 
 ### Nix in a workload
 

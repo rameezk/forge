@@ -1,5 +1,5 @@
 No API key found for openrouter.
 
 Use /login to log into a provider via OAuth or API key. See:
-  /nix/store/5psln0bm1ah7pmzfc13b9cb75xq5c1fy-pi-coding-agent-0.75.4/lib/node_modules/pi-monorepo/docs/providers.md
-  /nix/store/5psln0bm1ah7pmzfc13b9cb75xq5c1fy-pi-coding-agent-0.75.4/lib/node_modules/pi-monorepo/docs/models.md
+  /nix/store/d96rv7fmfnp84yj9lh5jfa637jqxi8ga-pi-coding-agent-1.0.0/lib/node_modules/pi-monorepo/docs/providers.md
+  /nix/store/d96rv7fmfnp84yj9lh5jfa637jqxi8ga-pi-coding-agent-1.0.0/lib/node_modules/pi-monorepo/docs/models.md
