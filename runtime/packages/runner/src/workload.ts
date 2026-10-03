@@ -74,11 +74,17 @@ const harnessFor = (
   if (harness === undefined || worker.harness !== 'pi') {
     throw new Error(`unsupported harness '${worker.harness}'`);
   }
-  const extension = absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION');
+  const extensions = {
+    subagent: absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION'),
+    modelDefaultReasoning: absolutePath(
+      env,
+      'FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION',
+    ),
+  };
   const agentDir = absolutePath(env, 'FORGE_PI_AGENT_DIR');
   return new PiHarness({
     command: harness.command,
-    extension,
+    extensions,
     agentDir,
     sandbox: sandboxOf(env),
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),

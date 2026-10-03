@@ -16,7 +16,7 @@ import type { HarnessEvent, MessageEvent } from '@forge/shared';
 import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { PiHarness } from '../src/index.ts';
 import { loadPiSkills, resolveCheckout } from '../src/checkout.ts';
-import type { HarnessInvocation } from '../src/harness.ts';
+import { withEffort, type HarnessInvocation } from '../src/harness.ts';
 import {
   alphaChild,
   bash,
@@ -24,14 +24,14 @@ import {
   mentions,
   serve,
   sse,
+  SUBAGENTS_PROMPT,
   textReply,
   toolCallReply,
   usage,
   type Respond,
   type Usage,
 } from './fixtures/fake-provider.ts';
-
-const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
+import { PI_EXTENSIONS } from './helpers.ts';
 
 const piPackage = process.env.FORGE_PI_PACKAGE;
 const skip =
@@ -47,6 +47,7 @@ interface Served {
 interface Requested {
   messages: { role: string; content: unknown }[];
   tools?: { function: { name: string } }[];
+  reasoning?: { effort?: string };
 }
 
 const recording = (
@@ -128,6 +129,7 @@ interface RealPiOptions {
   requested?: Requested[];
   onTheWire?: (respond: Respond) => Respond;
   workload?: Workload;
+  effort?: Pick<HarnessInvocation, 'reasoningEffort'>;
 }
 
 const runRealPi = async (
@@ -137,6 +139,7 @@ const runRealPi = async (
     requested = [],
     onTheWire = (inner) => inner,
     workload = echoForge,
+    effort = withEffort('high'),
   }: RealPiOptions = {},
 ): Promise<RealPiRun> => {
   const server = await serve(onTheWire(recording(respond, served, requested)));
@@ -160,7 +163,7 @@ const runRealPi = async (
   chmodSync(bwrap, 0o755);
   const harness = new PiHarness({
     command: join(piPackage as string, '..', '..', '..', 'bin', 'pi'),
-    extension: EXTENSION,
+    extensions: PI_EXTENSIONS,
     agentDir,
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
@@ -171,7 +174,7 @@ const runRealPi = async (
     for await (const event of harness.run({
       model: 'z-ai/glm-5',
       workDir,
-      reasoningEffort: 'high',
+      ...effort,
       ...(await workload(workDir)),
     })) {
       events.push(event);
@@ -331,3 +334,53 @@ test(
     assert.deepEqual(agentDir, ['models.json']);
   },
 );
+
+const delegateTwo: Workload = () =>
+  Promise.resolve({ prompt: SUBAGENTS_PROMPT });
+
+const reasoningByAgent = (
+  requested: Requested[],
+): Record<string, unknown[]> => {
+  const by: Record<string, unknown[]> = {};
+  for (const request of requested) {
+    (by[mentions(request, 'You are a sub-agent') ? 'child' : 'parent'] ??=
+      []).push(request.reasoning);
+  }
+  return by;
+};
+
+for (const { given, effort, then, reasoning } of [
+  {
+    given: 'no reasoning effort',
+    effort: withEffort(undefined),
+    then: 'no request from the parent or the child has a reasoning field',
+    reasoning: undefined,
+  },
+  {
+    given: 'reasoning effort high',
+    effort: withEffort('high'),
+    then: 'every request from the parent and the child carries reasoning effort high',
+    reasoning: { effort: 'high' },
+  },
+]) {
+  test(
+    `given a worker with ${given} whose model calls the subagent tool, when its workload runs against the locked pi, then ${then}`,
+    { skip },
+    async () => {
+      const requested: Requested[] = [];
+      await runRealPi(
+        delegating(alphaChild, 'Both sub-agents reported back.'),
+        {
+          requested,
+          workload: delegateTwo,
+          effort,
+        },
+      );
+
+      assert.deepEqual(reasoningByAgent(requested), {
+        parent: [reasoning, reasoning],
+        child: [reasoning, reasoning, reasoning],
+      });
+    },
+  );
+}

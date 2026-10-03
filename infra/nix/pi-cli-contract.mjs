@@ -2,7 +2,18 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const [adapter, extension, pi, agentDir, piPackage] = process.argv.slice(2);
+const [
+  adapter,
+  subagentExtension,
+  modelDefaultReasoningExtension,
+  pi,
+  agentDir,
+  piPackage,
+] = process.argv.slice(2);
+const extensions = {
+  subagent: subagentExtension,
+  modelDefaultReasoning: modelDefaultReasoningExtension,
+};
 const { piArgs, piEnv, subagentInvocation } = await import(adapter);
 const { loadPiSkills, resolveCheckout } = await import(
   join(dirname(adapter), 'checkout.ts')
@@ -13,7 +24,7 @@ const { default: REASONING_EFFORTS } = await import(
   { with: { type: 'json' } }
 );
 const { SUBAGENT_INVOCATION_ENV, childArgs } = await import(
-  join(extension, 'index.ts')
+  join(subagentExtension, 'index.ts')
 );
 
 const skill = (name) =>
@@ -35,7 +46,7 @@ const invocations = [
     reasoningEffort,
   })),
   () => ({ model: 'z-ai/glm-5', prompt: 'contract check', workDir: '.' }),
-  (workDir) => {
+  ...[{ reasoningEffort: 'high' }, {}].map((effort) => (workDir) => {
     for (const [path, contents] of Object.entries(checkoutFiles)) {
       mkdirSync(dirname(join(workDir, path)), { recursive: true });
       writeFileSync(join(workDir, path), contents);
@@ -44,10 +55,10 @@ const invocations = [
       model: 'z-ai/glm-5',
       prompt: '/prompted-skill contract check',
       workDir,
-      reasoningEffort: 'high',
+      ...effort,
       checkout: resolveCheckout(workDir, loadSkills),
     };
-  },
+  }),
 ];
 
 const plant = () => {
@@ -144,8 +155,8 @@ let failed = false;
 for (const invocationIn of invocations) {
   const parent = plant();
   const invocation = invocationIn(parent.workDir);
-  const child = subagentInvocation(pi, invocation);
-  const parentAccepted = accepts(parent, piArgs(invocation, extension), {
+  const child = subagentInvocation(pi, invocation, extensions);
+  const parentAccepted = accepts(parent, piArgs(invocation, extensions), {
     [SUBAGENT_INVOCATION_ENV]: JSON.stringify(child),
   });
   const childAccepted = accepts(

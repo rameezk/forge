@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { childArgs, SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
 import type { HarnessInvocation } from '../../src/harness.ts';
 import { piArgs, subagentInvocation } from '../../src/pi.ts';
+import { PI_EXTENSIONS } from '../helpers.ts';
 import {
   childScenarios,
   serve,
@@ -14,15 +15,6 @@ import {
   scenarios,
   type Respond,
 } from './fake-provider.ts';
-
-const EXTENSION = join(
-  dirname(import.meta.filename),
-  '..',
-  '..',
-  '..',
-  'pi-subagent',
-  'src',
-);
 
 const INVOCATION: HarnessInvocation = {
   model: 'z-ai/glm-5',
@@ -50,7 +42,7 @@ const runPi = async (
       PATH: process.env.PATH ?? '',
       HOME: home,
       [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
-        subagentInvocation(pi, INVOCATION),
+        subagentInvocation(pi, INVOCATION, PI_EXTENSIONS),
       ),
       ...(key === undefined ? {} : { OPENROUTER_API_KEY: key }),
     },
@@ -90,7 +82,10 @@ const record = async (
     await recordRun(
       pi,
       respond,
-      childArgs(subagentInvocation(pi, INVOCATION), SUBAGENT_TASKS.alpha),
+      childArgs(
+        subagentInvocation(pi, INVOCATION, PI_EXTENSIONS),
+        SUBAGENT_TASKS.alpha,
+      ),
       join(childOutDir, `${name}.jsonl`),
     );
   }
@@ -102,7 +97,7 @@ const record = async (
     await recordRun(
       pi,
       respond,
-      piArgs({ ...INVOCATION, prompt }, EXTENSION),
+      piArgs({ ...INVOCATION, prompt }, PI_EXTENSIONS),
       join(outDir, `${name}.jsonl`),
     );
   }
@@ -110,7 +105,7 @@ const record = async (
     pi,
     'http://127.0.0.1:9/v1',
     undefined,
-    piArgs(INVOCATION, EXTENSION),
+    piArgs(INVOCATION, PI_EXTENSIONS),
   );
   writeFileSync(join(outDir, 'preflight.jsonl'), preflight.stdout);
   writeFileSync(join(outDir, 'preflight.stderr'), preflight.stderr);
@@ -124,5 +119,5 @@ if (pi === undefined) {
 await record(
   pi,
   join(dirname(import.meta.filename), 'pi'),
-  join(EXTENSION, '..', 'test', 'fixtures'),
+  join(PI_EXTENSIONS.subagent, '..', 'test', 'fixtures'),
 );

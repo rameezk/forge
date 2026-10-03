@@ -13,6 +13,7 @@ import type {
   Harness,
   HarnessInvocation,
   LookUpListPrice,
+  PiExtensions,
   TranscriptWriter,
   Worker,
 } from '../src/index.ts';
@@ -196,6 +197,13 @@ export const LOCKDOWN = [
   '--no-context-files',
   '--no-approve',
 ];
+
+const PACKAGES = join(import.meta.dirname, '..', '..');
+
+export const PI_EXTENSIONS: PiExtensions = {
+  subagent: join(PACKAGES, 'pi-subagent', 'src'),
+  modelDefaultReasoning: join(PACKAGES, 'pi-model-default-reasoning', 'src'),
+};
 
 export const PI_CONTRACT = [
   '--mode',

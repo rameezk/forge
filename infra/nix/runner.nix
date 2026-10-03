@@ -11,6 +11,7 @@
 }:
 let
   subagentExtension = "lib/forge-runtime/packages/pi-subagent/src";
+  modelDefaultReasoningExtension = "lib/forge-runtime/packages/pi-model-default-reasoning/src";
   sandboxFlags = lib.optionalString stdenv.hostPlatform.isLinux "--set FORGE_BWRAP ${lib.getExe bubblewrap}";
   piAgentDir = runCommand "pi-agent-dir" { } "mkdir $out";
   piPackage = "${pi-coding-agent}/lib/node_modules/pi-monorepo";
@@ -28,7 +29,7 @@ buildNpmPackage {
   };
   sourceRoot = "source/runtime";
 
-  npmDepsHash = "sha256-194wuPOvxe0uYXgviQc6KQv+jmRxjP7bJSvQfNFpJQY=";
+  npmDepsHash = "sha256-3hVLH+vWxaUZI+8nbsosnNuraS/y74QhZjSEzzyWLe8=";
 
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [ git ];
@@ -49,11 +50,13 @@ buildNpmPackage {
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-run" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
+      --set FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION "$out/${modelDefaultReasoningExtension}" \
       --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
       ${sandboxFlags}
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/dispatch-main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
+      --set FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION "$out/${modelDefaultReasoningExtension}" \
       --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
       ${sandboxFlags} \
       --set FORGE_PI_PACKAGE "${piPackage}" \
@@ -69,7 +72,14 @@ buildNpmPackage {
     runHook postInstall
   '';
 
-  passthru = { inherit subagentExtension piAgentDir piPackage; };
+  passthru = {
+    inherit
+      subagentExtension
+      modelDefaultReasoningExtension
+      piAgentDir
+      piPackage
+      ;
+  };
 
   meta = {
     description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), starts a dispatch for each forge:ready frontier ticket up to the concurrency limit (forge-dispatch-pass), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";

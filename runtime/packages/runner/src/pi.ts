@@ -49,7 +49,23 @@ const checkoutArgs = (checkout: Checkout): string[] => [
   ...appended(UNATTENDED_INSTRUCTION),
 ];
 
-const contractArgs = (invocation: HarnessInvocation): string[] => [
+export interface PiExtensions {
+  subagent: string;
+  modelDefaultReasoning: string;
+}
+
+const reasoningArgs = (
+  invocation: HarnessInvocation,
+  extensions: PiExtensions,
+): string[] =>
+  invocation.reasoningEffort === undefined
+    ? ['-e', extensions.modelDefaultReasoning]
+    : ['--thinking', invocation.reasoningEffort];
+
+const contractArgs = (
+  invocation: HarnessInvocation,
+  extensions: PiExtensions,
+): string[] => [
   '--mode',
   'json',
   '--no-session',
@@ -64,9 +80,7 @@ const contractArgs = (invocation: HarnessInvocation): string[] => [
   'openrouter',
   '--model',
   invocation.model,
-  ...(invocation.reasoningEffort === undefined
-    ? []
-    : ['--thinking', invocation.reasoningEffort]),
+  ...reasoningArgs(invocation, extensions),
   ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout)),
 ];
 
@@ -114,12 +128,12 @@ const piPrompt = ({ prompt, checkout }: HarnessInvocation): string => {
 
 export const piArgs = (
   invocation: HarnessInvocation,
-  extension: string,
+  extensions: PiExtensions,
   extraArgs: string[] = [],
 ): string[] => [
-  ...contractArgs(invocation),
+  ...contractArgs(invocation, extensions),
   '-e',
-  extension,
+  extensions.subagent,
   ...extraArgs,
   piPrompt(invocation),
 ];
@@ -137,8 +151,9 @@ const SUBAGENT_SYSTEM_PROMPT = [
 export const subagentInvocation = (
   command: string,
   invocation: HarnessInvocation,
+  extensions: PiExtensions,
 ): SubagentInvocation => ({
-  argv: [command, ...contractArgs(invocation)],
+  argv: [command, ...contractArgs(invocation, extensions)],
   systemPrompt: SUBAGENT_SYSTEM_PROMPT,
 });
 
@@ -355,7 +370,7 @@ const realCommand = (command: string): string => {
 
 export interface PiHarnessOptions {
   command: string;
-  extension: string;
+  extensions: PiExtensions;
   agentDir: string;
   sandbox: Sandbox;
   system: Record<string, string>;
@@ -365,7 +380,7 @@ export interface PiHarnessOptions {
 
 export class PiHarness implements Harness {
   readonly #command: string;
-  readonly #extension: string;
+  readonly #extensions: PiExtensions;
   readonly #agentDir: string;
   readonly #sandbox: Sandbox;
   readonly #extraArgs: string[];
@@ -374,7 +389,7 @@ export class PiHarness implements Harness {
 
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
-    this.#extension = options.extension;
+    this.#extensions = options.extensions;
     this.#agentDir = options.agentDir;
     this.#sandbox = options.sandbox;
     this.#extraArgs = options.extraArgs ?? [];
@@ -386,7 +401,7 @@ export class PiHarness implements Harness {
     const stream = new PiStream();
     const command = realCommand(this.#command);
     warnUnloadedProjectConfig(invocation.checkout);
-    const args = piArgs(invocation, this.#extension, this.#extraArgs);
+    const args = piArgs(invocation, this.#extensions, this.#extraArgs);
     const { child, stdout, exited: exit } = spawnSandboxed(
       this.#sandbox,
       command,
@@ -398,7 +413,7 @@ export class PiHarness implements Harness {
           ...this.#env,
           ...piEnv(this.#agentDir),
           [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
-            subagentInvocation(command, invocation),
+            subagentInvocation(command, invocation, this.#extensions),
           ),
         }),
       },
