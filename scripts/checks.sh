@@ -12,13 +12,21 @@ selection="$2"
 system="$3"
 
 drvs="$(nix eval --json "$flake#checks.$system" --apply 'builtins.mapAttrs (_: check: check.drvPath)')"
+mapfile -t drv_paths < <(jq -r '.[]' <<<"$drvs")
 
-selected="$(jq -r '.[]' <<<"$drvs" | xargs nix derivation show | jq -c --argjson checks "$drvs" --arg selection "$selection" '
+if [ ${#drv_paths[@]} -eq 0 ]; then
+	exit 0
+fi
+
+selected="$(nix derivation show "${drv_paths[@]}" | jq -c --argjson checks "$drvs" --arg selection "$selection" '
 	(.derivations // .) as $derivations
 	| $checks
 	| to_entries[]
-	| ($derivations[.value | ltrimstr("/nix/store/")] // $derivations[.value]) as $derivation
-	| select($derivation.env.requiredSystemFeatures // "" | split(" ") | any(. == "kvm" or . == "nixos-test") == ($selection == "vm"))
+	| ($derivations[.value | ltrimstr("/nix/store/")] // $derivations[.value] // error("nix derivation show did not describe the check \(.key)")) as $derivation
+	| ($derivation.structuredAttrs.requiredSystemFeatures
+		// ($derivation.env.__json // "{}" | fromjson | .requiredSystemFeatures)
+		// ($derivation.env.requiredSystemFeatures // "" | split(" "))) as $features
+	| select(($features | any(. == "kvm" or . == "nixos-test")) == ($selection == "vm"))
 ')"
 
 if [ "$command" = list ]; then

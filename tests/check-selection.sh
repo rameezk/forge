@@ -6,18 +6,22 @@ checks="$forge/scripts/checks.sh"
 scratch="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$scratch"' EXIT
 system="$(nix eval --raw --impure --expr builtins.currentSystem)"
+linux=x86_64-linux
 
 fail=0
 
 write_flake() {
+	local for_system="$1"
+	shift
 	{
 		cat <<EOF
 {
   outputs = _: {
-    checks.$system = let
-      derivationOf = script: name: features: derivation ({ inherit name; system = "$system"; builder = "/bin/sh"; args = [ "-c" script ]; } // (if features == [ ] then { } else { requiredSystemFeatures = features; }));
+    checks.$for_system = let
+      derivationOf = script: name: features: derivation ({ inherit name; system = "$for_system"; builder = "/bin/sh"; args = [ "-c" script ]; } // (if features == [ ] then { } else { requiredSystemFeatures = features; }));
       check = derivationOf "echo > \$out";
       broken = derivationOf "exit 1";
+      structured = name: features: derivation { inherit name; system = "$for_system"; builder = "/bin/sh"; args = [ "-c" "echo > \$out" ]; __structuredAttrs = true; requiredSystemFeatures = features; };
     in {
 EOF
 		printf '      %s\n' "$@"
@@ -27,7 +31,7 @@ EOF
 
 assert_set() {
 	local description="$1" selection="$2" expected="$3" actual
-	if ! actual="$(FORGE_FLAKE="path:$scratch" "$checks" list "$selection" "$system" | sort | paste -sd ' ' -)"; then
+	if ! actual="$(FORGE_FLAKE="path:$scratch" "$checks" list "$selection" "$linux" | sort | paste -sd ' ' -)"; then
 		echo "FAIL: $description: the selection failed"
 		fail=1
 	elif [ "$actual" = "$expected" ]; then
@@ -57,21 +61,31 @@ fixture=(
 	'vm = check "vm-test-run-vm" [ "kvm" "nixos-test" ];'
 )
 
-write_flake "${fixture[@]}"
+write_flake "$linux" "${fixture[@]}"
 
 assert_set "the VM set is exactly the checks requiring kvm or nixos-test" vm "kvm-only nixos-test-only vm"
 assert_set "the check-no-vm set is every other check" no-vm "parallel unit"
 
-write_flake "${fixture[@]}" 'added-vm = check "vm-test-run-added-vm" [ "kvm" "nixos-test" ];'
+write_flake "$linux" "${fixture[@]}" 'added-vm = check "vm-test-run-added-vm" [ "kvm" "nixos-test" ];'
 
 assert_set "a newly added VM test joins the VM set" vm "added-vm kvm-only nixos-test-only vm"
 assert_set "a newly added VM test stays out of the check-no-vm set" no-vm "parallel unit"
 
-write_flake 'unit = check "unit" [ ];' 'vm = broken "vm-test-run-vm" [ "kvm" "nixos-test" ];'
+write_flake "$linux" 'unit = structured "unit" [ ];' 'vm = structured "vm-test-run-vm" [ "kvm" "nixos-test" ];'
+
+assert_set "a VM test with structured attributes joins the VM set" vm "vm"
+assert_set "a check with structured attributes joins the check-no-vm set" no-vm "unit"
+
+write_flake "$linux"
+
+assert_set "a system without checks has an empty VM set" vm ""
+assert_set "a system without checks has an empty check-no-vm set" no-vm ""
+
+write_flake "$system" 'unit = check "unit" [ ];' 'vm = broken "vm-test-run-vm" [ "kvm" "nixos-test" ];'
 
 assert_build "building the check-no-vm set never attempts a VM test" no-vm pass
 
-write_flake 'unit = broken "unit" [ ];' 'vm = check "vm-test-run-vm" [ "kvm" "nixos-test" ];'
+write_flake "$system" 'unit = broken "unit" [ ];' 'vm = check "vm-test-run-vm" [ "kvm" "nixos-test" ];'
 
 assert_build "building the check-no-vm set builds every other check" no-vm fail
 
