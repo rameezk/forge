@@ -136,6 +136,19 @@ nix flake init -t github:rameezk/forge
 
 Then follow the scaffolded repository's [README](templates/operator/README.md) to generate secrets, stand up the box, deploy workers and open the dashboard.
 
+## Develop
+
+### Run the checks
+
+`make check` runs every check, the NixOS VM tests included. The VM tests need a Linux machine with KVM:
+
+- On Linux, `make check` runs them natively and needs `/dev/kvm`.
+- On a Mac, `make check` also builds them for `aarch64-linux` on a Linux builder. The builder must expose KVM and advertise the `kvm,nixos-test,big-parallel,benchmark` system features. Without one reachable, `make check` fails with Nix's error and a one-line hint rather than skipping the VM tests.
+
+`make check-no-vm` runs everything `make check` runs except the VM tests, for machines without KVM such as the box. The VM tests are then left to CI.
+
+A VM test is any check whose required system features include `kvm` or `nixos-test`, so a new one is picked up with no other edit. `scripts/checks.sh list vm <system>` lists them, and `scripts/checks.sh list no-vm <system>` lists the rest.
+
 ## Learn more
 
 - [`docs/CONTEXT.md`](docs/CONTEXT.md) - the shared language
