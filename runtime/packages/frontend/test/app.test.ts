@@ -271,6 +271,35 @@ test('given a run with a captured transcript, when its detail is requested, then
   assert.match(body, /here is the refined spec/);
 });
 
+test('given a workload with raw events, when its detail page is requested and the download is followed, then the raw events are served as a json lines download', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  const rawEvents = '{"type":"session","id":"sess-abc"}\n{"type":"agent_start"}\n';
+  writeFileSync(join(dir, 'run-01.events.jsonl'), rawEvents);
+  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: null })], dir);
+
+  const page = await (await app.request('/runs/run-01')).text();
+  const link = page.match(/<a[^>]*\sdata-download="raw-events"[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
+  const href = link.match(/\shref="([^"]+)"/)?.[1];
+  assert.ok(href, 'the run page should link to its raw events');
+  assert.equal(textOf(link), 'Raw events');
+  const download = await app.request(href);
+
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('content-type'), 'application/x-ndjson; charset=utf-8');
+  assert.equal(download.headers.get('content-disposition'), 'attachment; filename="run-01.events.jsonl"');
+  assert.equal(await download.text(), rawEvents);
+});
+
+test('given a workload recorded before raw events were kept, when its detail page is requested, then it offers no downloads and its raw events are not found', async () => {
+  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: null })]);
+
+  const page = await (await app.request('/runs/run-01')).text();
+  const download = await app.request('/runs/run-01/raw-events');
+
+  assert.doesNotMatch(page, /Downloads|data-download=/);
+  assert.equal(download.status, 404);
+});
+
 test('given a successful run and a failed run, when each run page is requested, then its header status and the closing transcript line are status badges styled like the run list', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const transcript = (status: 'success' | 'error', error: string | null): string =>

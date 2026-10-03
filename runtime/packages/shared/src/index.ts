@@ -70,7 +70,7 @@ export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export { githubWriteToken } from './token.ts';
 export { Store } from './store.ts';
-export { parseTranscript, transcriptLine } from './transcript.ts';
+export { parseTranscript, rawEventsRef, transcriptLine } from './transcript.ts';
 export {
   FORGE_LABELS,
   GITHUB_REST_API,

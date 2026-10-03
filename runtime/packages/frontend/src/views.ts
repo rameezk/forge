@@ -632,10 +632,15 @@ const NEW_ACTIVITY = 'fixed bottom-6 left-1/2 z-10 -translate-x-1/2 cursor-point
 const META_TERM = 'text-muted';
 const META_VALUE = 'm-0 min-w-0 break-words tabular-nums';
 
+const renderDownloads = (run: RunRecord): Rendered =>
+  html`<dt class="${META_TERM}">Downloads</dt>
+      <dd class="${META_VALUE}"><a href="/runs/${encodeURIComponent(run.id)}/raw-events" download class="${LINK}" data-download="raw-events">Raw events</a></dd>`;
+
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
   generations: GenerationRecord[],
+  hasRawEvents: boolean,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
@@ -660,6 +665,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
       <dt class="${META_TERM}">Providers</dt>
       <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
+      ${hasRawEvents ? renderDownloads(run) : ''}
     </dl>
     ${run.error === null ? '' : html`<p class="${ERROR_CALLOUT} mb-4">${run.error}</p>`}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>

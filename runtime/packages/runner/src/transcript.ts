@@ -1,7 +1,7 @@
 import { closeSync, openSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@forge/shared';
-import { transcriptLine } from '@forge/shared';
+import { rawEventsRef, transcriptLine } from '@forge/shared';
 
 const TOOL_PAYLOAD_CAP_CHARS = 32 * 1024;
 
@@ -15,6 +15,7 @@ const capped = (text: string): string =>
 export interface TranscriptPolicy {
   record(event: HarnessEvent): HarnessEvent;
   redact(text: string): string;
+  redactValue(value: unknown): unknown;
 }
 
 export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
@@ -62,13 +63,38 @@ export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
           : { ...event, error: redact(event.error) };
     }
   };
-  return { record, redact };
+  return { record, redact, redactValue };
 };
 
 export interface TranscriptWriter {
   readonly ref: string;
   append(event: HarnessEvent): void | Promise<void>;
   close(): void | Promise<void>;
+}
+
+export interface RawEventsWriter {
+  append(event: unknown): void;
+  close(): void;
+}
+
+export class FileRawEvents implements RawEventsWriter {
+  readonly #fd: number;
+
+  private constructor(fd: number) {
+    this.#fd = fd;
+  }
+
+  static open(dir: string, runId: string): FileRawEvents {
+    return new FileRawEvents(openSync(join(dir, rawEventsRef(runId)), 'a'));
+  }
+
+  append(event: unknown): void {
+    writeSync(this.#fd, `${JSON.stringify(event)}\n`);
+  }
+
+  close(): void {
+    closeSync(this.#fd);
+  }
 }
 
 export class FileTranscript implements TranscriptWriter {

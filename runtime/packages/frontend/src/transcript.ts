@@ -1,11 +1,13 @@
-import { readFileSync, statSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
+import { Readable } from 'node:stream';
 import { parseTranscript } from '@forge/shared';
 import type { HarnessEvent } from '@forge/shared';
 
 export interface TranscriptSource {
   read(ref: string): HarnessEvent[];
   size(ref: string): number | undefined;
+  stream(ref: string): ReadableStream<Uint8Array>;
 }
 
 export class FileTranscriptSource implements TranscriptSource {
@@ -21,6 +23,10 @@ export class FileTranscriptSource implements TranscriptSource {
 
   size(ref: string): number | undefined {
     return statSync(this.#path(ref), { throwIfNoEntry: false })?.size;
+  }
+
+  stream(ref: string): ReadableStream<Uint8Array> {
+    return Readable.toWeb(createReadStream(this.#path(ref))) as ReadableStream<Uint8Array>;
   }
 
   #path(ref: string): string {
