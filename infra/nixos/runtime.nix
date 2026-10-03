@@ -36,7 +36,17 @@ let
         description = "Prompt the worker runs on. It must not start with `-` or `@`, which the harness would parse as an option or a file; the runner rejects such a worker.";
       };
       reasoningEffort = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
+        type = lib.types.nullOr (
+          lib.types.enum [
+            "off"
+            "minimal"
+            "low"
+            "medium"
+            "high"
+            "xhigh"
+            "max"
+          ]
+        );
         default = null;
         description = "Reasoning effort, or null to run at the provider default.";
       };

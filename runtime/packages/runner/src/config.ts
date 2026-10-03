@@ -1,4 +1,9 @@
-import { withEffort, type Worker } from './harness.ts';
+import {
+  REASONING_EFFORTS,
+  withEffort,
+  type ReasoningEffort,
+  type Worker,
+} from './harness.ts';
 
 export interface HarnessConfig {
   command: string;
@@ -39,6 +44,9 @@ export interface RuntimeConfig {
   dispatch?: DispatchConfig;
 }
 
+const isReasoningEffort = (effort: string): effort is ReasoningEffort =>
+  (REASONING_EFFORTS as readonly string[]).includes(effort);
+
 export const resolveWorker = (
   config: RuntimeConfig,
   name: string,
@@ -60,11 +68,17 @@ export const resolveWorker = (
       `worker '${name}' prompt must not start with '-' or '@': the harness would parse it as an option or a file`,
     );
   }
+  const { reasoningEffort } = worker;
+  if (reasoningEffort !== undefined && !isReasoningEffort(reasoningEffort)) {
+    throw new Error(
+      `worker '${name}' reasoning effort '${reasoningEffort}' must be one of ${REASONING_EFFORTS.join(', ')}`,
+    );
+  }
   return {
     name,
     harness: worker.harness,
     model: worker.model,
     prompt: worker.prompt,
-    ...withEffort(worker.reasoningEffort),
+    ...withEffort(reasoningEffort),
   };
 };

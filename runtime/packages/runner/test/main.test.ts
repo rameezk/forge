@@ -954,7 +954,7 @@ test('given workers with and without a reasoning effort and a harness with opera
 
   const withEffort = await runWorker({
     output,
-    worker: { reasoningEffort: 'high' },
+    worker: { reasoningEffort: 'max' },
     harnessArgs: OPERATOR_EXTRAS,
   });
   const withoutEffort = await runWorker({
@@ -965,7 +965,7 @@ test('given workers with and without a reasoning effort and a harness with opera
   assert.deepEqual(withEffort.pi.argv, [
     ...PI_CONTRACT,
     '--thinking',
-    'high',
+    'max',
     '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,

@@ -37,6 +37,19 @@ test('given a worker with no reasoning effort, when it is resolved, then reasoni
   assert.equal('reasoningEffort' in worker, false);
 });
 
+test('given a worker whose reasoning effort is outside the allowed levels, when it is resolved, then it throws naming the worker and every allowed level', () => {
+  const typo: RuntimeConfig = {
+    harnesses: { pi: { command: 'pi' } },
+    workers: {
+      typo: { harness: 'pi', model: 'm', prompt: 'p', reasoningEffort: 'hgih' },
+    },
+  };
+  assert.throws(
+    () => resolveWorker(typo, 'typo'),
+    /worker 'typo' reasoning effort 'hgih' must be one of off, minimal, low, medium, high, xhigh, max/,
+  );
+});
+
 test('given a config, when an unknown worker is resolved, then it throws naming the worker', () => {
   assert.throws(() => resolveWorker(config, 'ghost'), /ghost/);
 });

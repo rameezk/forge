@@ -8,6 +8,9 @@ const { loadPiSkills, resolveCheckout } = await import(
   join(dirname(adapter), 'checkout.ts')
 );
 const loadSkills = await loadPiSkills(piPackage);
+const { REASONING_EFFORTS } = await import(
+  join(dirname(adapter), 'harness.ts')
+);
 const { SUBAGENT_INVOCATION_ENV, childArgs } = await import(
   join(extension, 'index.ts')
 );
@@ -24,12 +27,12 @@ const checkoutFiles = {
 };
 
 const invocations = [
-  () => ({
+  ...REASONING_EFFORTS.map((reasoningEffort) => () => ({
     model: 'z-ai/glm-5',
     prompt: 'contract check',
     workDir: '.',
-    reasoningEffort: 'high',
-  }),
+    reasoningEffort,
+  })),
   () => ({ model: 'z-ai/glm-5', prompt: 'contract check', workDir: '.' }),
   (workDir) => {
     for (const [path, contents] of Object.entries(checkoutFiles)) {
@@ -118,7 +121,10 @@ const accepts = (planted, argv, env) => {
       ...env,
     },
   });
-  const rejected = /Unknown option|Failed to load extension/i.test(stderr);
+  const rejected =
+    /Unknown option|Failed to load extension|Invalid thinking level/i.test(
+      stderr,
+    );
   const reachedPreflight = stderr.includes('No API key found for openrouter.');
   const loaded = readdirSync(planted.markers);
   if (rejected || !reachedPreflight || loaded.length > 0) {

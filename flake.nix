@@ -276,7 +276,7 @@
                   harness = "pi";
                   model = "anthropic/claude-opus-4";
                   prompt = "refine the spec";
-                  reasoningEffort = "high";
+                  reasoningEffort = "max";
                 };
                 forge.runtime.workers.builder = {
                   harness = "pi";
@@ -345,6 +345,37 @@
                 }))
               )
               "a harness command that is not an absolute path must fail evaluation: the workload sandbox can only run a command resolved to its real path";
+          reasoningEffortType =
+            (workerHost.options.forge.runtime.workers.type.getSubOptions [ ]).reasoningEffort.type;
+          invalidEffortFails =
+            lib.asserts.assertMsg
+              (
+                !(evaluates (mkHost {
+                  configFile = exampleConfigFile;
+                  secretsFile = exampleSecretsFile;
+                  modules = [
+                    {
+                      forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+                      forge.runtime.workers.builder = {
+                        harness = "pi";
+                        model = "anthropic/claude-sonnet-4";
+                        prompt = "build the thing";
+                        reasoningEffort = "hgih";
+                      };
+                    }
+                  ];
+                }))
+                && lib.all (level: lib.hasInfix ''"${level}"'' reasoningEffortType.description) [
+                  "off"
+                  "minimal"
+                  "low"
+                  "medium"
+                  "high"
+                  "xhigh"
+                  "max"
+                ]
+              )
+              "a worker whose reasoning effort is outside off, minimal, low, medium, high, xhigh and max must fail evaluation with an error naming those levels, instead of pi warning and running at medium";
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content
             == "OPENROUTER_API_KEY=${workerHost.config.sops.placeholder.openrouter_api_key}\n"
@@ -360,7 +391,7 @@
           runnerConfigReflectsWorker = lib.asserts.assertMsg (
             runnerSettings.workers.refiner.harness == "pi"
             && runnerSettings.workers.refiner.model == "anthropic/claude-opus-4"
-            && runnerSettings.workers.refiner.reasoningEffort == "high"
+            && runnerSettings.workers.refiner.reasoningEffort == "max"
             && runnerSettings.harnesses.pi.command == "/run/current-system/sw/bin/pi"
           ) "the generated runtime config must reflect the declared harness and worker";
           ghInToolset = lib.asserts.assertMsg (lib.elem workerHost.pkgs.gh workerHost.config.forge.runtime.toolset) "the base workload toolset must carry gh, so a dispatched agent can open pull requests with its GITHUB_TOKEN";
@@ -988,6 +1019,7 @@
             assert noOpenRouterKeyFileOption;
             assert workerHostInstantiates;
             assert relativeHarnessCommandFails;
+            assert invalidEffortFails;
             assert runnerEnvWired;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
