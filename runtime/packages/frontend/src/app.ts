@@ -84,9 +84,9 @@ export const createApp = ({
     return c.html(renderDetail(run, events, store.listGenerations(run.id), downloadsOf(run), assets));
   });
 
-  const serveDownload = (path: string, refOf: (run: RunRecord) => string | null): void => {
+  const serveDownload = (path: `/runs/:id/${string}`, refOf: (run: RunRecord) => string | null): void => {
     app.get(path, (c) => {
-      const run = store.getRun(c.req.param('id') ?? '');
+      const run = store.getRun(c.req.param('id'));
       const ref = run === undefined ? null : refOf(run);
       if (!downloadable(ref)) return c.notFound();
       return c.body(transcripts.stream(ref), 200, {
