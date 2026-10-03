@@ -569,11 +569,11 @@ export class PiHarness implements Harness {
       },
     );
 
-    let recordFailure: { error: unknown } | null = null;
-    const recorded = recordLines(requestRecord, sinks.requestRecord).catch(
+    const recordFailure = recordLines(requestRecord, sinks.requestRecord).then(
+      () => null,
       (error: unknown) => {
-        recordFailure = { error };
         child.kill('SIGKILL');
+        return { error };
       },
     );
     let drained = false;
@@ -595,11 +595,12 @@ export class PiHarness implements Harness {
         child.kill('SIGKILL');
         await exit;
       }
-      await recorded;
+      await recordFailure;
     }
 
-    if (recordFailure !== null) {
-      throw (recordFailure as { error: unknown }).error;
+    const failure = await recordFailure;
+    if (failure !== null) {
+      throw failure.error;
     }
     yield stream.result(await exit);
   }

@@ -41,20 +41,18 @@ export class FileTranscriptSource implements TranscriptSource {
     const fd = openSync(path, 'r');
     try {
       const chunk = Buffer.alloc(SCAN_CHUNK_BYTES);
-      let pending = Buffer.alloc(0);
-      for (;;) {
-        const read = readSync(fd, chunk, 0, chunk.length, null);
-        const buffered = Buffer.concat([pending, chunk.subarray(0, read)]);
-        let start = 0;
-        for (let end = buffered.indexOf(NEWLINE); end !== -1; end = buffered.indexOf(NEWLINE, start)) {
-          const parsed = parsedLine(buffered.toString('utf8', start, end));
-          start = end + 1;
+      let parts: Buffer[] = [];
+      for (let read = readSync(fd, chunk); read > 0; read = readSync(fd, chunk)) {
+        let piece = chunk.subarray(0, read);
+        for (let end = piece.indexOf(NEWLINE); end !== -1; end = piece.indexOf(NEWLINE)) {
+          const parsed = parsedLine(Buffer.concat([...parts, piece.subarray(0, end)]).toString('utf8'));
+          parts = [];
           if (parsed !== undefined && !visit(parsed)) return;
+          piece = piece.subarray(end + 1);
         }
-        pending = buffered.subarray(start);
-        if (read === 0) break;
+        parts.push(Buffer.from(piece));
       }
-      const last = parsedLine(pending.toString('utf8'));
+      const last = parsedLine(Buffer.concat(parts).toString('utf8'));
       if (last !== undefined) visit(last);
     } finally {
       closeSync(fd);
