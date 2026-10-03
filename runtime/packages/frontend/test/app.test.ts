@@ -290,15 +290,22 @@ test('given a workload with raw events, when its detail page is requested and th
   assert.equal(await download.text(), rawEvents);
 });
 
-test('given a workload recorded before raw events were kept, when its detail page is requested, then it offers no downloads and its raw events are not found', async () => {
-  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: null })]);
+for (const [given, rawEvents] of [
+  ['recorded before raw events were kept', undefined],
+  ['that failed before pi emitted any event', ''],
+] as const) {
+  test(`given a workload ${given}, when its detail page is requested, then it offers no downloads and its raw events are not found`, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+    if (rawEvents !== undefined) writeFileSync(join(dir, 'run-01.events.jsonl'), rawEvents);
+    const app = appWith([sampleRun({ id: 'run-01', transcriptRef: null })], dir);
 
-  const page = await (await app.request('/runs/run-01')).text();
-  const download = await app.request('/runs/run-01/raw-events');
+    const page = await (await app.request('/runs/run-01')).text();
+    const download = await app.request('/runs/run-01/raw-events');
 
-  assert.doesNotMatch(page, /Downloads|data-download=/);
-  assert.equal(download.status, 404);
-});
+    assert.doesNotMatch(page, /Downloads|data-download=/);
+    assert.equal(download.status, 404);
+  });
+}
 
 test('given a successful run and a failed run, when each run page is requested, then its header status and the closing transcript line are status badges styled like the run list', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));

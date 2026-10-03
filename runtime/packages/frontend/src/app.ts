@@ -68,20 +68,22 @@ export const createApp = ({
     c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), assets)),
   );
 
+  const hasRawEvents = (runId: string): boolean =>
+    (transcripts.size(rawEventsRef(runId)) ?? 0) > 0;
+
   app.get('/runs/:id', (c) => {
     const run = store.getRun(c.req.param('id'));
     if (run === undefined) return c.notFound();
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
-    const hasRawEvents = transcripts.size(rawEventsRef(run.id)) !== undefined;
-    return c.html(renderDetail(run, events, store.listGenerations(run.id), hasRawEvents, assets));
+    return c.html(renderDetail(run, events, store.listGenerations(run.id), hasRawEvents(run.id), assets));
   });
 
   app.get('/runs/:id/raw-events', (c) => {
     const run = store.getRun(c.req.param('id'));
     if (run === undefined) return c.notFound();
+    if (!hasRawEvents(run.id)) return c.notFound();
     const ref = rawEventsRef(run.id);
-    if (transcripts.size(ref) === undefined) return c.notFound();
     return c.body(transcripts.stream(ref), 200, {
       'Content-Type': 'application/x-ndjson; charset=utf-8',
       'Content-Disposition': `attachment; filename="${ref}"`,
