@@ -31,17 +31,8 @@ import {
   type Respond,
   type Usage,
 } from './fixtures/fake-provider.ts';
+import { PI_EXTENSIONS } from './helpers.ts';
 
-const EXTENSIONS = {
-  subagent: join(import.meta.dirname, '..', '..', 'pi-subagent', 'src'),
-  modelDefaultReasoning: join(
-    import.meta.dirname,
-    '..',
-    '..',
-    'pi-model-default-reasoning',
-    'src',
-  ),
-};
 
 const piPackage = process.env.FORGE_PI_PACKAGE;
 const skip =
@@ -139,7 +130,7 @@ interface RealPiOptions {
   requested?: Requested[];
   onTheWire?: (respond: Respond) => Respond;
   workload?: Workload;
-  effort?: string | null;
+  effort?: Pick<HarnessInvocation, 'reasoningEffort'>;
 }
 
 const runRealPi = async (
@@ -149,7 +140,7 @@ const runRealPi = async (
     requested = [],
     onTheWire = (inner) => inner,
     workload = echoForge,
-    effort = 'high',
+    effort = withEffort('high'),
   }: RealPiOptions = {},
 ): Promise<RealPiRun> => {
   const server = await serve(onTheWire(recording(respond, served, requested)));
@@ -173,7 +164,7 @@ const runRealPi = async (
   chmodSync(bwrap, 0o755);
   const harness = new PiHarness({
     command: join(piPackage as string, '..', '..', '..', 'bin', 'pi'),
-    extensions: EXTENSIONS,
+    extensions: PI_EXTENSIONS,
     agentDir,
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
@@ -184,7 +175,7 @@ const runRealPi = async (
     for await (const event of harness.run({
       model: 'z-ai/glm-5',
       workDir,
-      ...withEffort(effort ?? undefined),
+      ...effort,
       ...(await workload(workDir)),
     })) {
       events.push(event);
@@ -362,13 +353,13 @@ const reasoningByAgent = (
 for (const { given, effort, then, reasoning } of [
   {
     given: 'no reasoning effort',
-    effort: null,
+    effort: withEffort(undefined),
     then: 'no request from the parent or the child has a reasoning field',
     reasoning: undefined,
   },
   {
     given: 'reasoning effort high',
-    effort: 'high',
+    effort: withEffort('high'),
     then: 'every request from the parent and the child carries reasoning effort high',
     reasoning: { effort: 'high' },
   },

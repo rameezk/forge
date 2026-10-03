@@ -26,8 +26,8 @@ import {
   fakeOpenRouter,
   journaled,
   LISTED_MODELS,
-  LOCKDOWN,
   PI_CONTRACT,
+  PI_EXTENSIONS,
   writeFakeBwrap,
   writeFakePi,
   type BwrapCall,
@@ -41,15 +41,8 @@ const FIXTURES = join(import.meta.dirname, 'fixtures', 'pi');
 
 const fixture = (name: string): string => join(FIXTURES, name);
 
-const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
-
-const REASONING_EXTENSION = join(
-  import.meta.dirname,
-  '..',
-  '..',
-  'pi-model-default-reasoning',
-  'src',
-);
+const { subagent: EXTENSION, modelDefaultReasoning: REASONING_EXTENSION } =
+  PI_EXTENSIONS;
 
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
@@ -1011,25 +1004,19 @@ test('given workers with and without a reasoning effort and a harness with opera
     };
   const withEffortChild = childOf(withEffort);
   const withoutEffortChild = childOf(withoutEffort);
-  const [binary] = withEffortChild.argv;
-  const parentFlags = (outcome: Outcome) =>
-    outcome.pi.argv.slice(0, outcome.pi.argv.indexOf(EXTENSION) - 1);
-  assert.match(binary ?? '', /fake-pi\.mjs$/);
-  assert.deepEqual(withEffortChild.argv, [binary, ...parentFlags(withEffort)]);
-  assert.deepEqual(
-    withoutEffortChild.argv.slice(1),
-    parentFlags(withoutEffort),
-  );
   for (const child of [withEffortChild, withoutEffortChild]) {
-    assert.ok(LOCKDOWN.every((flag) => child.argv.includes(flag)));
+    assert.match(child.argv[0] ?? '', /fake-pi\.mjs$/);
   }
-  assert.ok(withEffortChild.argv.includes('--thinking'));
-  assert.ok(!withEffortChild.argv.includes(REASONING_EXTENSION));
-  assert.ok(!withoutEffortChild.argv.includes('--thinking'));
-  assert.ok(withoutEffortChild.argv.includes(REASONING_EXTENSION));
-  for (const child of [withEffortChild, withoutEffortChild]) {
-    assert.ok(!child.argv.includes(EXTENSION));
-  }
+  assert.deepEqual(withEffortChild.argv.slice(1), [
+    ...PI_CONTRACT,
+    '--thinking',
+    'high',
+  ]);
+  assert.deepEqual(withoutEffortChild.argv.slice(1), [
+    ...PI_CONTRACT,
+    '-e',
+    REASONING_EXTENSION,
+  ]);
   assert.match(withEffortChild.systemPrompt, /sub-agent/);
   assert.match(withEffortChild.systemPrompt, /returned verbatim/);
   assert.match(withEffortChild.systemPrompt, /cannot spawn sub-agents/);

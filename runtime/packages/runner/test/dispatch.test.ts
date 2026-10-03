@@ -15,12 +15,14 @@ import { dirname, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, type DispatchRecord, type RunRecord } from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
+import { UNATTENDED_INSTRUCTION } from '../src/harness.ts';
 import {
   billedAt,
   fakeOpenRouter,
   journaled,
   startedDispatch,
   PI_CONTRACT,
+  PI_EXTENSIONS,
   lockedPiPackage,
   writeFakeBwrap,
   writeFakePi,
@@ -33,15 +35,8 @@ const PI_OUTPUT = join(import.meta.dirname, 'fixtures', 'pi', 'success.jsonl');
 
 const PROVIDER_ERROR = join(import.meta.dirname, 'fixtures', 'pi', 'provider-error.jsonl');
 
-const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
-
-const REASONING_EXTENSION = join(
-  import.meta.dirname,
-  '..',
-  '..',
-  'pi-model-default-reasoning',
-  'src',
-);
+const { subagent: EXTENSION, modelDefaultReasoning: REASONING_EXTENSION } =
+  PI_EXTENSIONS;
 
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
@@ -1136,8 +1131,6 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
 
   assert.ok(pi);
   const root = realpathSync(pi.cwd);
-  const unattended = pi.argv[pi.argv.indexOf(EXTENSION) - 2] ?? '';
-  assert.match(unattended, /no human will answer/);
   const flags = [
     ...PI_CONTRACT,
     '-e',
@@ -1150,7 +1143,7 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
     join(root, '.pi', 'SYSTEM.md'),
     ...projectInstructions(join(root, 'AGENTS.md')),
     '--append-system-prompt',
-    unattended,
+    UNATTENDED_INSTRUCTION,
   ];
   assert.deepEqual(pi.argv, [
     ...flags,
@@ -1172,16 +1165,20 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
 
   assert.ok(pi);
   const root = realpathSync(pi.cwd);
-  const flags = pi.argv.slice(
-    PI_CONTRACT.length + 2,
-    pi.argv.indexOf(EXTENSION) - 3,
-  );
-  assert.deepEqual(flags, [
+  assert.deepEqual(pi.argv, [
+    ...PI_CONTRACT,
+    '-e',
+    REASONING_EXTENSION,
     '--skill',
     join(root, '.agents', 'skills'),
     '--append-system-prompt',
     join(root, '.pi', 'APPEND_SYSTEM.md'),
     ...projectInstructions(join(root, 'CLAUDE.md')),
+    '--append-system-prompt',
+    UNATTENDED_INSTRUCTION,
+    '-e',
+    EXTENSION,
+    `/skill:work-on ${TICKET_URL}`,
   ]);
 });
 
