@@ -1179,18 +1179,18 @@ const notLoaded = (journal: string): string[] =>
 test('given a checkout root with .pi/settings.json and .pi/extensions beside .pi/skills and .pi/SYSTEM.md, or with .pi/mcp.json, .pi/prompts and .pi/themes, when the workload starts, then the run output warns that each of those project pi files is not loaded, names nothing else, and the run proceeds', async () => {
   const runs = [];
   for (const files of [
-      {
-        '.pi/settings.json': '{}\n',
-        '.pi/extensions/local.ts': 'export default function () {}\n',
-        '.pi/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
-        '.pi/SYSTEM.md': 'System prompt\n',
-      },
-      {
-        '.pi/mcp.json': '{}\n',
-        '.pi/prompts/review.md': 'Review it.\n',
-        '.pi/themes/dark.json': '{}\n',
-        '.pi/APPEND_SYSTEM.md': 'Appended\n',
-      },
+    {
+      '.pi/settings.json': '{}\n',
+      '.pi/extensions/local.ts': 'export default function () {}\n',
+      '.pi/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
+      '.pi/SYSTEM.md': 'System prompt\n',
+    },
+    {
+      '.pi/mcp.json': '{}\n',
+      '.pi/prompts/review.md': 'Review it.\n',
+      '.pi/themes/dark.json': '{}\n',
+      '.pi/APPEND_SYSTEM.md': 'Appended\n',
+    },
   ]) {
     runs.push(
       await journaled(() =>

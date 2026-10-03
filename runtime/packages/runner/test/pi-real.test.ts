@@ -311,8 +311,11 @@ test(
     });
     assert.deepEqual(
       events
-        .filter((event) => event.type === 'tool_result' && event.subagent === undefined)
-        .map((event) => event.type === 'tool_result' && [event.id, event.isError])
+        .flatMap((event) =>
+          event.type === 'tool_result' && event.subagent === undefined
+            ? [[event.id, event.isError]]
+            : [],
+        )
         .sort(),
       [
         ['call_alpha', false],
