@@ -1,9 +1,5 @@
-import {
-  REASONING_EFFORTS,
-  withEffort,
-  type ReasoningEffort,
-  type Worker,
-} from './harness.ts';
+import { withEffort, type Worker } from './harness.ts';
+import REASONING_EFFORTS from './reasoning-efforts.json' with { type: 'json' };
 
 export interface HarnessConfig {
   command: string;
@@ -44,9 +40,6 @@ export interface RuntimeConfig {
   dispatch?: DispatchConfig;
 }
 
-const isReasoningEffort = (effort: string): effort is ReasoningEffort =>
-  (REASONING_EFFORTS as readonly string[]).includes(effort);
-
 export const resolveWorker = (
   config: RuntimeConfig,
   name: string,
@@ -69,7 +62,10 @@ export const resolveWorker = (
     );
   }
   const { reasoningEffort } = worker;
-  if (reasoningEffort !== undefined && !isReasoningEffort(reasoningEffort)) {
+  if (
+    reasoningEffort !== undefined &&
+    !REASONING_EFFORTS.includes(reasoningEffort)
+  ) {
     throw new Error(
       `worker '${name}' reasoning effort '${reasoningEffort}' must be one of ${REASONING_EFFORTS.join(', ')}`,
     );

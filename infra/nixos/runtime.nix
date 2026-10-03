@@ -37,15 +37,7 @@ let
       };
       reasoningEffort = lib.mkOption {
         type = lib.types.nullOr (
-          lib.types.enum [
-            "off"
-            "minimal"
-            "low"
-            "medium"
-            "high"
-            "xhigh"
-            "max"
-          ]
+          lib.types.enum (lib.importJSON ../../runtime/packages/runner/src/reasoning-efforts.json)
         );
         default = null;
         description = "Reasoning effort, or null to run at the provider default.";

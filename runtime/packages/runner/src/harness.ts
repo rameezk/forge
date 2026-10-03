@@ -22,22 +22,10 @@ export interface Workspace {
   devShell?: DevShell;
 }
 
-export const REASONING_EFFORTS = [
-  'off',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-] as const;
-
-export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
-
 export interface HarnessInvocation extends Workspace {
   model: string;
   prompt: string;
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: string;
 }
 
 export interface Harness {
@@ -49,12 +37,12 @@ export interface Worker {
   harness: string;
   model: string;
   prompt: string;
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: string;
 }
 
 export const withEffort = (
-  effort: ReasoningEffort | undefined,
-): { reasoningEffort?: ReasoningEffort } =>
+  effort: string | undefined,
+): { reasoningEffort?: string } =>
   effort === undefined ? {} : { reasoningEffort: effort };
 
 export const invocationFor = (
