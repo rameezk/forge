@@ -1,4 +1,5 @@
 import { withEffort, type Worker } from './harness.ts';
+import REASONING_EFFORTS from './reasoning-efforts.json' with { type: 'json' };
 
 export interface HarnessConfig {
   command: string;
@@ -60,11 +61,20 @@ export const resolveWorker = (
       `worker '${name}' prompt must not start with '-' or '@': the harness would parse it as an option or a file`,
     );
   }
+  const { reasoningEffort } = worker;
+  if (
+    reasoningEffort !== undefined &&
+    !REASONING_EFFORTS.includes(reasoningEffort)
+  ) {
+    throw new Error(
+      `worker '${name}' reasoning effort '${reasoningEffort}' must be one of ${REASONING_EFFORTS.join(', ')}`,
+    );
+  }
   return {
     name,
     harness: worker.harness,
     model: worker.model,
     prompt: worker.prompt,
-    ...withEffort(worker.reasoningEffort),
+    ...withEffort(reasoningEffort),
   };
 };
