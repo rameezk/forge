@@ -364,11 +364,9 @@ const renderMessage = (
 
 const renderReport = (
   report: ToolResultEvent,
-  message: ScopedEvent | undefined,
+  message: MessageEvent | undefined,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  message?.type === 'message'
-    ? renderMessage('report', { ...message, text: report.text })
-    : renderProse('report', report.text);
+  message === undefined ? renderProse('report', report.text) : renderMessage('report', message);
 
 const SUMMARY_KEYS = ['command', 'path', 'pattern', 'task'];
 
@@ -568,15 +566,14 @@ const messageCount = (events: ScopedEvent[]): string => {
   return `${messages} ${messages === 1 ? 'message' : 'messages'}`;
 };
 
-const reportMessageIndex = (
+const reportMessage = (
   events: ScopedEvent[],
   report: ToolResultEvent | undefined,
-): number => {
-  const last = events.findLastIndex(
-    (event) => event.type === 'message' && event.role === 'assistant',
+): MessageEvent | undefined => {
+  const last = events.findLast(
+    (event): event is MessageEvent => event.type === 'message' && event.role === 'assistant',
   );
-  const message = events[last];
-  return message?.type === 'message' && message.text === report?.text ? last : -1;
+  return last !== undefined && last.text === report?.text ? last : undefined;
 };
 
 const argumentFields = (args: unknown): Record<string, unknown> =>
@@ -681,7 +678,7 @@ const renderSubagentCall = (
   const task = taskText(call.arguments);
   const { cwd } = argumentFields(call.arguments);
   const shown = withoutToolOnlyPreambles(events);
-  const reported = reportMessageIndex(shown, report);
+  const reported = reportMessage(shown, report);
   return html`<section class="${BLOCK} ${failed ? 'border-error' : 'border-line'}" data-subagent-call${failed ? html` data-failed` : ''}>
     <header class="flex items-center gap-2.5 px-4 py-2.5">
       ${toolName(call.name, failed)}
@@ -695,10 +692,10 @@ const renderSubagentCall = (
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
         (typeof argumentFields(call.arguments).task === 'string' ? renderProse : renderText)('task', task),
-        ...shown.filter((_, index) => index !== reported).map((event) => renderEvent(event, results)),
+        ...shown.filter((event) => event !== reported).map((event) => renderEvent(event, results)),
         report === undefined
           ? html`<p class="${EMPTY}">No report recorded.</p>`
-          : failed ? renderText('error', report.text) : renderReport(report, shown[reported]),
+          : failed ? renderText('error', report.text) : renderReport(report, reported),
       ],
     )}
   </section>`;
