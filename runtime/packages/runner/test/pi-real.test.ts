@@ -33,7 +33,6 @@ import {
 } from './fixtures/fake-provider.ts';
 import { PI_EXTENSIONS } from './helpers.ts';
 
-
 const piPackage = process.env.FORGE_PI_PACKAGE;
 const skip =
   piPackage === undefined

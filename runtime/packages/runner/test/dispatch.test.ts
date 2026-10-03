@@ -1130,6 +1130,7 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
   });
 
   assert.ok(pi);
+  assert.match(UNATTENDED_INSTRUCTION, /no human will answer/);
   const root = realpathSync(pi.cwd);
   const flags = [
     ...PI_CONTRACT,
