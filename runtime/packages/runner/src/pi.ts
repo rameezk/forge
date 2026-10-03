@@ -489,7 +489,7 @@ const recordLines = async (
     const parsed: unknown = parseLine(line);
     if (typeof parsed !== 'object' || parsed === null) {
       process.stderr.write(
-        `pi wrote a request record line that is not a JSON object: ${line.slice(0, NON_JSON_EXCERPT_CHARS)}\n`,
+        `pi wrote a ${line.length}-character request record line that is not a JSON object, so it was dropped\n`,
       );
       continue;
     }
@@ -569,7 +569,13 @@ export class PiHarness implements Harness {
       },
     );
 
-    const recorded = recordLines(requestRecord, sinks.requestRecord);
+    let recordFailure: { error: unknown } | null = null;
+    const recorded = recordLines(requestRecord, sinks.requestRecord).catch(
+      (error: unknown) => {
+        recordFailure = { error };
+        child.kill('SIGKILL');
+      },
+    );
     let drained = false;
     try {
       const lines = createInterface({
@@ -589,9 +595,12 @@ export class PiHarness implements Harness {
         child.kill('SIGKILL');
         await exit;
       }
+      await recorded;
     }
 
-    await recorded;
+    if (recordFailure !== null) {
+      throw (recordFailure as { error: unknown }).error;
+    }
     yield stream.result(await exit);
   }
 }

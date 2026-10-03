@@ -50,20 +50,24 @@ const systemReferenceOf = (body: Fields): string | undefined => {
   return hashOf(message);
 };
 
-export const workloadContext = (record: unknown[]): WorkloadContext => {
+export const workloadContext = (
+  scan: (visit: (record: unknown) => boolean) => void,
+): WorkloadContext => {
   const systemPrompts = new Map<string, unknown>();
   const toolLists = new Map<string, unknown[]>();
   let body: Fields | undefined;
-  for (const line of record) {
-    if (!isFields(line) || typeof line.type !== 'string') continue;
+  scan((line) => {
+    if (!isFields(line) || typeof line.type !== 'string') return true;
     if (line.type === 'system_prompt' && typeof line.hash === 'string') {
       systemPrompts.set(line.hash, line.value);
     } else if (line.type === 'tools' && typeof line.hash === 'string' && Array.isArray(line.tools)) {
       toolLists.set(line.hash, line.tools);
-    } else if (line.type === 'request' && line.subagent === undefined && body === undefined && isFields(line.body)) {
+    } else if (line.type === 'request' && line.subagent === undefined && isFields(line.body)) {
       body = line.body;
+      return false;
     }
-  }
+    return true;
+  });
   if (body === undefined) return { systemPrompt: null, tools: null };
   const systemHash = systemReferenceOf(body);
   const systemPrompt = systemHash === undefined ? undefined : systemPrompts.get(systemHash);

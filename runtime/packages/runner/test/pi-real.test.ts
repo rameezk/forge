@@ -656,3 +656,31 @@ test(
     );
   },
 );
+
+test(
+  'given the locked pi with the forge extension and the fake provider on a chat completions model, when a workload makes several calls, then each entry references its system message and tools by definitions holding them exactly as sent, and hashes every other message as sent',
+  { skip },
+  async () => {
+    const requested: Requested[] = [];
+    const { requestRecord } = await runRealPi(replies, { requested });
+    const entries = recordedRequests(requestRecord);
+    const { systemPrompts, tools } = definitionsIn(requestRecord);
+
+    assert.equal(requested.length, 2);
+    assert.equal(ofType(requestRecord, 'system_prompt').length, 1);
+    assert.equal(ofType(requestRecord, 'tools').length, 1);
+    assert.deepEqual(
+      entries.map(({ body: { messages, tools: toolsRef, ...settings } }) => ({
+        ...settings,
+        messages: messages.map(({ role, hash }) => systemPrompts.get(hash) ?? { role, hash }),
+        tools: tools.get(toolsRef?.hash ?? ''),
+      })),
+      requested.map(({ messages, ...settings }) => ({
+        ...settings,
+        messages: messages.map((message) =>
+          message.role === 'system' ? message : { role: message.role, hash: hashOf(message) },
+        ),
+      })),
+    );
+  },
+);

@@ -314,11 +314,11 @@ interface Child {
   args: string[];
   cwd: string;
   recordFd: number;
-  scope: string;
+  subagent: string;
 }
 
 const runChild = async (
-  { command, args, cwd, recordFd, scope }: Child,
+  { command, args, cwd, recordFd, subagent }: Child,
   signal: AbortSignal | undefined,
   onUpdate: ((partial: ToolResult<SubagentUpdate>) => void) | undefined,
 ): Promise<ToolResult<SubagentDetails>> => {
@@ -329,7 +329,7 @@ const runChild = async (
   const forwarded = forwardRecord(
     child.stdio[recordFd] as Readable,
     recordFd,
-    scope,
+    subagent,
   );
   let stderrTail = '';
   const stderr = child.stderr as Readable;
@@ -430,7 +430,7 @@ export default function subagentExtension(pi: ExtensionApi): void {
             args: childArgs(invocation, task),
             cwd: workDir,
             recordFd: invocation.requestRecordFd,
-            scope: toolCallId,
+            subagent: toolCallId,
           },
           signal,
           onUpdate,

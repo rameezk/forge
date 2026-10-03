@@ -1240,3 +1240,20 @@ test('given a workload with a request record, when its detail page is requested,
   assert.equal(download.headers.get('content-disposition'), 'attachment; filename="run-01.requests.jsonl"');
   assert.equal(await download.text(), jsonLinesOf(REQUEST_RECORD));
 });
+
+test('given a request record whose system prompt is far longer than one read of the file, when the detail page is requested, then the whole system prompt is shown', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  const systemPrompt = `${'Follow the rules. '.repeat(12_000)}The end.`;
+  writeFileSync(
+    join(dir, 'run-01.requests.jsonl'),
+    jsonLinesOf([
+      { type: 'system_prompt', hash: 'h-system', value: [{ type: 'text', text: systemPrompt }] },
+      { type: 'request', body: { system: { hash: 'h-system' }, messages: [] }, cacheMarkers: [] },
+    ]),
+  );
+  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: null })], dir);
+
+  const page = await (await app.request('/runs/run-01')).text();
+
+  assert.equal(textOf(systemPromptSection(page).match(/<pre[^>]*>[\s\S]*?<\/pre>/)?.[0] ?? ''), systemPrompt);
+});

@@ -83,7 +83,7 @@ export const createApp = ({
     if (run === undefined) return c.notFound();
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
-    const context = workloadContext(transcripts.records(requestRecordRef(run.id)));
+    const context = workloadContext((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
     return c.html(renderDetail(run, events, context, store.listGenerations(run.id), downloadsOf(run), assets));
   });
 

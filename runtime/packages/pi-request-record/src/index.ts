@@ -33,8 +33,9 @@ const writeLine = (fd: number, line: string): void => {
 };
 
 const recordFd = (env: NodeJS.ProcessEnv): number => {
-  const fd = Number(env[REQUEST_RECORD_FD_ENV]);
-  if (!Number.isInteger(fd) || fd < 0) {
+  const value = env[REQUEST_RECORD_FD_ENV];
+  const fd = value === undefined || value.trim() === '' ? Number.NaN : Number(value);
+  if (!Number.isInteger(fd) || fd <= 2) {
     throw new Error(
       `${REQUEST_RECORD_FD_ENV} must name the file descriptor the request record is written to`,
     );
