@@ -464,14 +464,11 @@ test('given recorded pi output whose assistant turns think before and after thei
   );
 });
 
-test('given recorded pi output whose first response failed with a provider error and whose retry thought about it, both carrying the OpenRouter key, when the transcript is read, then the failed message keeps its stop reason and its error, the retry its thinking, each with the key redacted', async () => {
+test('given recorded pi output where pi retried a response that failed, with the OpenRouter key in the provider error and in the retry\'s thinking, when the transcript is read, then the failed message with its stop reason and error, the retry with its attempt, attempts allowed, delay and error, and the recovered message with its thinking follow each other, the key redacted throughout', async () => {
   const { transcript } = await runWorker({
     output: outputFile(
       readFileSync(fixture('retry.jsonl'), 'utf8')
-        .replaceAll(
-          '"errorMessage":"Provider returned error"',
-          `"errorMessage":"Provider returned error for ${OPENROUTER_KEY}"`,
-        )
+        .replaceAll('Provider returned error', `Provider returned error for ${OPENROUTER_KEY}`)
         .replaceAll(
           '"thinking":"The first attempt failed, so I will answer directly."',
           `"thinking":"The first attempt failed for ${OPENROUTER_KEY}."`,
@@ -479,44 +476,20 @@ test('given recorded pi output whose first response failed with a provider error
     ),
   });
 
-  const messages = parseTranscript(transcript).filter(
-    (event): event is MessageEvent => event.type === 'message' && event.role === 'assistant',
-  );
+  const events = parseTranscript(transcript).filter((event) => event.type !== 'result');
   assert.deepEqual(
-    messages.map(({ text, thinking, stopReason, error }) => ({ text, thinking, stopReason, error })),
+    events.slice(1).map((event) =>
+      event.type === 'message'
+        ? { text: event.text, thinking: event.thinking, stopReason: event.stopReason, error: event.error }
+        : event,
+    ),
     [
       { text: 'Starting', thinking: undefined, stopReason: 'error', error: 'Provider returned error for [redacted]' },
+      { type: 'retry', attempt: 1, maxAttempts: 3, delayMs: 2000, error: 'Provider returned error for [redacted]' },
       { text: 'Recovered and finished.', thinking: 'The first attempt failed for [redacted].', stopReason: 'stop', error: undefined },
     ],
   );
   assert.doesNotMatch(transcript, new RegExp(OPENROUTER_KEY));
-});
-
-test('given recorded pi output where pi retried a response that failed with the OpenRouter key in its error, when the transcript is read, then a retry with its attempt, attempts allowed, delay and redacted error sits between the failed message and the recovered one', async () => {
-  const { transcript } = await runWorker({
-    output: outputFile(
-      readFileSync(fixture('retry.jsonl'), 'utf8').replaceAll(
-        'Provider returned error',
-        `Provider returned error for ${OPENROUTER_KEY}`,
-      ),
-    ),
-  });
-
-  const events = parseTranscript(transcript).filter((event) => event.type !== 'result');
-  assert.deepEqual(
-    events.slice(1).map((event) => (event.type === 'message' ? event.text : event)),
-    [
-      'Starting',
-      {
-        type: 'retry',
-        attempt: 1,
-        maxAttempts: 3,
-        delayMs: 2000,
-        error: 'Provider returned error for [redacted]',
-      },
-      'Recovered and finished.',
-    ],
-  );
 });
 
 test('given recorded pi output where pi compacted its context after a tool call, with the OpenRouter key in the summary, when the transcript is read, then a compaction with its reason, tokens before and after and redacted summary sits between the tool result and the next message', async () => {
@@ -605,6 +578,22 @@ test('given recorded pi output where a subagent retried a response and compacted
     ['retry', 'call_alpha'],
     ['compaction', 'call_alpha'],
   ]);
+});
+
+test('given pi output whose stop reason and compaction reason carry the OpenRouter key, when the transcript is read, then both are redacted', async () => {
+  const { transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('compaction.jsonl'), 'utf8')
+        .replaceAll('"stopReason":"toolUse"', `"stopReason":"toolUse ${OPENROUTER_KEY}"`)
+        .replaceAll('"reason":"threshold"', `"reason":"threshold ${OPENROUTER_KEY}"`),
+    ),
+  });
+
+  const events = parseTranscript(transcript);
+  const stopReasons = events.flatMap((event) => (event.type === 'message' && event.stopReason !== undefined ? [event.stopReason] : []));
+  const reasons = events.flatMap((event) => (event.type === 'compaction' ? [event.reason] : []));
+  assert.deepEqual(stopReasons, ['toolUse [redacted]', 'stop']);
+  assert.deepEqual(reasons, ['threshold [redacted]']);
 });
 
 test('given pi output whose assistant messages carry a time out of range or not a number and a stop reason that is not a string, when the worker runs, then the run succeeds and those messages are recorded without them', async () => {

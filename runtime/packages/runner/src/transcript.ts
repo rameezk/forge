@@ -44,13 +44,6 @@ export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
   };
   const record = (event: HarnessEvent): HarnessEvent => {
     switch (event.type) {
-      case 'message':
-        return {
-          ...event,
-          text: redact(event.text),
-          ...(event.thinking === undefined ? {} : { thinking: redact(event.thinking) }),
-          ...(event.error === undefined ? {} : { error: redact(event.error) }),
-        };
       case 'tool_call': {
         const redacted = redactValue(event.arguments);
         const json = JSON.stringify(redacted) ?? '';
@@ -62,17 +55,8 @@ export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
       }
       case 'tool_result':
         return { ...event, text: capped(redact(event.text)) };
-      case 'compaction':
-        return {
-          ...event,
-          summary: event.summary === null ? null : redact(event.summary),
-          error: event.error === null ? null : redact(event.error),
-        };
-      case 'retry':
-      case 'result':
-        return event.error === null
-          ? event
-          : { ...event, error: redact(event.error) };
+      default:
+        return redactValue(event) as HarnessEvent;
     }
   };
   return { record, redact, redactValue };
