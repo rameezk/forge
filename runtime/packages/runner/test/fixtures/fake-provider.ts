@@ -286,6 +286,30 @@ export const scenarios: Record<string, Scenario> = {
             ),
           ),
   },
+  compaction: {
+    respond: (call, res, request) =>
+      sse(
+        res,
+        mentions(request, 'context summarization assistant')
+          ? textReply(
+              'gen-compaction-summary',
+              '## Goal\nRun echo forge and report what it printed.',
+              usage(3000, 0, 20),
+            )
+          : call === 1
+            ? toolCallReply(
+                'gen-compaction-1',
+                'Let me look.',
+                [bash('echo forge')],
+                usage(190000, 0, 30),
+              )
+            : textReply(
+                'gen-compaction-2',
+                'The command printed forge.',
+                usage(2000, 0, 10),
+              ),
+      ),
+  },
   subagents: {
     respond: delegating(alphaChild, 'Both sub-agents reported back.'),
     prompt: SUBAGENTS_PROMPT,

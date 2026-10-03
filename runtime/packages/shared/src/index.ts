@@ -23,9 +23,11 @@ export type {
   DispatchTicket,
 } from './dispatch.ts';
 export type {
+  CompactionEvent,
   HarnessEvent,
   MessageEvent,
   ResultEvent,
+  RetryEvent,
   TokenUsage,
   ToolCallEvent,
   ToolResultEvent,

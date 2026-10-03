@@ -3,8 +3,10 @@ import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   errorMessage,
+  type CompactionEvent,
   type HarnessEvent,
   type MessageEvent,
+  type RetryEvent,
   type ToolCallEvent,
   type ToolResultEvent,
 } from '@forge/shared';
@@ -168,6 +170,7 @@ interface PiUsage {
 interface PiContent {
   type: string;
   text?: string;
+  thinking?: string;
   id?: unknown;
   name?: unknown;
   arguments?: unknown;
@@ -180,6 +183,17 @@ interface PiMessage {
   stopReason: string;
   errorMessage?: string;
   responseId?: unknown;
+  timestamp?: unknown;
+}
+
+interface PiToolResult {
+  content?: PiContent[];
+}
+
+interface PiCompactionResult {
+  summary?: unknown;
+  tokensBefore?: unknown;
+  estimatedTokensAfter?: unknown;
 }
 
 interface PiLine {
@@ -187,10 +201,16 @@ interface PiLine {
   id?: string;
   message?: PiMessage;
   willRetry?: boolean;
+  attempt?: unknown;
+  maxAttempts?: unknown;
+  delayMs?: unknown;
+  errorMessage?: unknown;
+  reason?: unknown;
+  aborted?: unknown;
+  result?: PiToolResult & PiCompactionResult;
   toolName?: string;
   toolCallId?: string;
   isError?: boolean;
-  result?: { content?: PiContent[] };
   partialResult?: { details?: Partial<SubagentUpdate> };
 }
 
@@ -203,28 +223,55 @@ const textOf = (content: PiContent[]): string =>
     )
     .join('');
 
+const thinkingOf = (content: PiContent[]): { thinking?: string } => {
+  const thinking = content
+    .flatMap((part) =>
+      part.type === 'thinking' && part.thinking !== undefined && part.thinking !== ''
+        ? [part.thinking]
+        : [],
+    )
+    .join('\n\n');
+  return thinking === '' ? {} : { thinking };
+};
+
+const timestampOf = (time: unknown): { timestamp?: string } => {
+  const date = new Date(typeof time === 'number' ? time : Number.NaN);
+  return Number.isNaN(date.getTime()) ? {} : { timestamp: date.toISOString() };
+};
+
+const nonEmpty = (value: unknown): string | null =>
+  typeof value === 'string' && value !== '' ? value : null;
+
 const scoped = (subagent: string | undefined): { subagent?: string } =>
   subagent === undefined ? {} : { subagent };
 
 const assistantMessage = (
   message: PiMessage,
   subagent: string | undefined,
-): MessageEvent => ({
-  type: 'message',
-  role: 'assistant',
-  text: textOf(message.content),
-  usage: {
-    inputTokens: tokenCount(message.usage.input) ?? 0,
-    outputTokens: tokenCount(message.usage.output) ?? 0,
-    cacheReadTokens: tokenCount(message.usage.cacheRead) ?? 0,
-    cacheWriteTokens: tokenCount(message.usage.cacheWrite) ?? 0,
-  },
-  generationId:
-    typeof message.responseId === 'string' && message.responseId.length > 0
-      ? message.responseId
-      : null,
-  ...scoped(subagent),
-});
+): MessageEvent => {
+  const stopReason = nonEmpty(message.stopReason);
+  const error = nonEmpty(message.errorMessage);
+  return {
+    type: 'message',
+    role: 'assistant',
+    text: textOf(message.content),
+    ...thinkingOf(message.content),
+    ...timestampOf(message.timestamp),
+    ...(stopReason === null ? {} : { stopReason }),
+    ...(error === null ? {} : { error }),
+    usage: {
+      inputTokens: tokenCount(message.usage.input) ?? 0,
+      outputTokens: tokenCount(message.usage.output) ?? 0,
+      cacheReadTokens: tokenCount(message.usage.cacheRead) ?? 0,
+      cacheWriteTokens: tokenCount(message.usage.cacheWrite) ?? 0,
+    },
+    generationId:
+      typeof message.responseId === 'string' && message.responseId.length > 0
+        ? message.responseId
+        : null,
+    ...scoped(subagent),
+  };
+};
 
 const toolCalls = (
   message: PiMessage,
@@ -261,6 +308,33 @@ const toolResult = (
           ...scoped(subagent),
         },
       ];
+
+const retry = (event: PiLine, subagent: string | undefined): RetryEvent => ({
+  type: 'retry',
+  attempt: tokenCount(event.attempt),
+  maxAttempts: tokenCount(event.maxAttempts),
+  delayMs: tokenCount(event.delayMs),
+  error: nonEmpty(event.errorMessage),
+  ...scoped(subagent),
+});
+
+const compactionError = (event: PiLine): string | null =>
+  event.aborted === true
+    ? 'compaction was aborted'
+    : nonEmpty(event.errorMessage);
+
+const compaction = (
+  event: PiLine,
+  subagent: string | undefined,
+): CompactionEvent => ({
+  type: 'compaction',
+  reason: nonEmpty(event.reason),
+  tokensBefore: tokenCount(event.result?.tokensBefore),
+  tokensAfter: tokenCount(event.result?.estimatedTokensAfter),
+  summary: nonEmpty(event.result?.summary),
+  error: compactionError(event),
+  ...scoped(subagent),
+});
 
 const NON_JSON_EXCERPT_CHARS = 200;
 
@@ -323,6 +397,10 @@ class PiStream {
         return toolResult(event, undefined);
       case 'tool_execution_update':
         return this.#subagentEvent(event);
+      case 'auto_retry_start':
+        return [retry(event, undefined)];
+      case 'compaction_end':
+        return [compaction(event, undefined)];
       case 'agent_start':
         this.#ended = false;
         return [];
@@ -343,13 +421,20 @@ class PiStream {
     if (child === undefined || event.toolCallId === undefined) {
       return [];
     }
-    if (child.type === 'tool_execution_end') {
-      return toolResult(child, event.toolCallId);
+    switch (child.type) {
+      case 'tool_execution_end':
+        return toolResult(child, event.toolCallId);
+      case 'auto_retry_start':
+        return [retry(child, event.toolCallId)];
+      case 'compaction_end':
+        return [compaction(child, event.toolCallId)];
+      case 'message_end':
+        return child.message?.role === 'assistant'
+          ? this.#assistant(child.message, event.toolCallId)
+          : [];
+      default:
+        return [];
     }
-    if (child.type !== 'message_end' || child.message?.role !== 'assistant') {
-      return [];
-    }
-    return this.#assistant(child.message, event.toolCallId);
   }
 
   result(exitFailure: Error | null): HarnessEvent {

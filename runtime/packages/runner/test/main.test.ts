@@ -420,6 +420,216 @@ test('given recorded pi output of a successful multi-message run with tool, turn
   assert.match(transcript, /The command printed forge\. All done\./);
 });
 
+test('given recorded pi output whose assistant turns think before and after their text, when the transcript is read, then the prompt carries the run start as its time, and each assistant message its time, its thinking, its stop reason and its cache-split usage', async () => {
+  const { run, transcript } = await runWorker({ output: fixture('success.jsonl') });
+
+  const messages = parseTranscript(transcript).filter(
+    (event): event is MessageEvent => event.type === 'message',
+  );
+  assert.deepEqual(
+    messages.map(({ role, text, thinking, timestamp, stopReason, usage }) => ({
+      role,
+      text,
+      thinking,
+      timestamp,
+      stopReason,
+      usage,
+    })),
+    [
+      {
+        role: 'user',
+        text: 'refine the spec',
+        thinking: undefined,
+        timestamp: run.startTime,
+        stopReason: undefined,
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
+      {
+        role: 'assistant',
+        text: 'Let me look.',
+        thinking: 'I should run the command and read what it prints.',
+        timestamp: '2026-10-03T11:30:58.077Z',
+        stopReason: 'toolUse',
+        usage: { inputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 1000 },
+      },
+      {
+        role: 'assistant',
+        text: 'The command printed forge. All done.',
+        thinking: 'The output is forge, so I can report it.',
+        timestamp: '2026-10-03T11:30:58.102Z',
+        stopReason: 'stop',
+        usage: { inputTokens: 100, outputTokens: 25, cacheReadTokens: 1000, cacheWriteTokens: 200 },
+      },
+    ],
+  );
+});
+
+test('given recorded pi output whose first response failed with a provider error and whose retry thought about it, both carrying the OpenRouter key, when the transcript is read, then the failed message keeps its stop reason and its error, the retry its thinking, each with the key redacted', async () => {
+  const { transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('retry.jsonl'), 'utf8')
+        .replaceAll(
+          '"errorMessage":"Provider returned error"',
+          `"errorMessage":"Provider returned error for ${OPENROUTER_KEY}"`,
+        )
+        .replaceAll(
+          '"thinking":"The first attempt failed, so I will answer directly."',
+          `"thinking":"The first attempt failed for ${OPENROUTER_KEY}."`,
+        ),
+    ),
+  });
+
+  const messages = parseTranscript(transcript).filter(
+    (event): event is MessageEvent => event.type === 'message' && event.role === 'assistant',
+  );
+  assert.deepEqual(
+    messages.map(({ text, thinking, stopReason, error }) => ({ text, thinking, stopReason, error })),
+    [
+      { text: 'Starting', thinking: undefined, stopReason: 'error', error: 'Provider returned error for [redacted]' },
+      { text: 'Recovered and finished.', thinking: 'The first attempt failed for [redacted].', stopReason: 'stop', error: undefined },
+    ],
+  );
+  assert.doesNotMatch(transcript, new RegExp(OPENROUTER_KEY));
+});
+
+test('given recorded pi output where pi retried a response that failed with the OpenRouter key in its error, when the transcript is read, then a retry with its attempt, attempts allowed, delay and redacted error sits between the failed message and the recovered one', async () => {
+  const { transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('retry.jsonl'), 'utf8').replaceAll(
+        'Provider returned error',
+        `Provider returned error for ${OPENROUTER_KEY}`,
+      ),
+    ),
+  });
+
+  const events = parseTranscript(transcript).filter((event) => event.type !== 'result');
+  assert.deepEqual(
+    events.slice(1).map((event) => (event.type === 'message' ? event.text : event)),
+    [
+      'Starting',
+      {
+        type: 'retry',
+        attempt: 1,
+        maxAttempts: 3,
+        delayMs: 2000,
+        error: 'Provider returned error for [redacted]',
+      },
+      'Recovered and finished.',
+    ],
+  );
+});
+
+test('given recorded pi output where pi compacted its context after a tool call, with the OpenRouter key in the summary, when the transcript is read, then a compaction with its reason, tokens before and after and redacted summary sits between the tool result and the next message', async () => {
+  const { transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('compaction.jsonl'), 'utf8').replaceAll(
+        'No prior history.',
+        `No prior history for ${OPENROUTER_KEY}.`,
+      ),
+    ),
+  });
+
+  const events = parseTranscript(transcript).filter((event) => event.type !== 'result');
+  assert.deepEqual(
+    events.slice(1).map((event) => (event.type === 'message' ? event.text : event.type === 'compaction' ? event : event.type)),
+    [
+      'Let me look.',
+      'tool_call',
+      'tool_result',
+      {
+        type: 'compaction',
+        reason: 'threshold',
+        tokensBefore: 190032,
+        tokensAfter: 1694,
+        summary: 'No prior history for [redacted].\n\n---\n\n**Turn Context (split turn):**\n\n## GoalRun echo forge and report what it printed.',
+        error: null,
+      },
+      'The command printed forge.',
+    ],
+  );
+});
+
+for (const [given, end, error] of [
+  ['was aborted', { aborted: true }, 'compaction was aborted'],
+  ['failed with the OpenRouter key in its error', { aborted: false, errorMessage: `summary failed for ${OPENROUTER_KEY}` }, 'summary failed for [redacted]'],
+] as const) {
+  test(`given recorded pi output where a compaction ${given}, when the transcript is read, then the compaction carries no summary and says why`, async () => {
+    const { transcript } = await runWorker({
+      output: outputFile(
+        readFileSync(fixture('compaction.jsonl'), 'utf8')
+          .split('\n')
+          .map((line) =>
+            line.startsWith('{"type":"compaction_end"')
+              ? JSON.stringify({ type: 'compaction_end', reason: 'overflow', willRetry: false, ...end })
+              : line,
+          )
+          .join('\n'),
+      ),
+    });
+
+    const compaction = parseTranscript(transcript).find((event) => event.type === 'compaction');
+    assert.deepEqual(compaction, {
+      type: 'compaction',
+      reason: 'overflow',
+      tokensBefore: null,
+      tokensAfter: null,
+      summary: null,
+      error,
+    });
+  });
+}
+
+test('given recorded pi output where a subagent retried a response and compacted its context, when the transcript is read, then that retry and compaction carry the subagent scope', async () => {
+  const childEvent = (name: string, type: string): string =>
+    readFileSync(fixture(name), 'utf8')
+      .split('\n')
+      .find((line) => line.startsWith(`{"type":"${type}"`)) ?? assert.fail(`${name} has no ${type}`);
+  const wrapped = (event: string): string =>
+    `{"type":"tool_execution_update","toolCallId":"call_alpha","toolName":"subagent","args":{"task":"Run echo alpha and report what it printed."},"partialResult":{"content":[],"details":{"event":${event}}}}`;
+  const lines = readFileSync(fixture('subagents.jsonl'), 'utf8').split('\n');
+  const started = lines.findIndex((line) => line === wrapped('{"type":"agent_start"}'));
+  assert.ok(started > 0);
+  lines.splice(
+    started + 1,
+    0,
+    wrapped(childEvent('retry.jsonl', 'auto_retry_start')),
+    wrapped(childEvent('compaction.jsonl', 'compaction_end')),
+  );
+
+  const { transcript } = await runWorker({ output: outputFile(lines.join('\n')) });
+
+  const scoped = parseTranscript(transcript).flatMap((event) =>
+    event.type === 'retry' || event.type === 'compaction' ? [[event.type, event.subagent]] : [],
+  );
+  assert.deepEqual(scoped, [
+    ['retry', 'call_alpha'],
+    ['compaction', 'call_alpha'],
+  ]);
+});
+
+test('given pi output whose assistant messages carry a time out of range or not a number and a stop reason that is not a string, when the worker runs, then the run succeeds and those messages are recorded without them', async () => {
+  const { run, transcript } = await runWorker({
+    output: outputFile(
+      readFileSync(fixture('success.jsonl'), 'utf8')
+        .replaceAll('"timestamp":1791027058077', '"timestamp":1e20')
+        .replaceAll('"timestamp":1791027058102', '"timestamp":"soon"')
+        .replaceAll('"stopReason":"toolUse"', '"stopReason":7'),
+    ),
+  });
+
+  assert.equal(run.status, 'success');
+  const assistant = parseTranscript(transcript).filter(
+    (event): event is MessageEvent => event.type === 'message' && event.role === 'assistant',
+  );
+  assert.deepEqual(
+    assistant.map(({ text, timestamp, stopReason }) => ({ text, timestamp, stopReason })),
+    [
+      { text: 'Let me look.', timestamp: undefined, stopReason: undefined },
+      { text: 'The command printed forge. All done.', timestamp: undefined, stopReason: 'stop' },
+    ],
+  );
+});
+
 test('given a workload whose pi has completed two generations with cache reads and writes, when the store is read before the workload ends, then each generation carries its four token counts from pi and the workload totals are their sum', async () => {
   let live: { run: RunRecord; generations: GenerationRecord[] } | undefined;
 

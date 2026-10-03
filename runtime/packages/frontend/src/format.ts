@@ -11,6 +11,11 @@ export const formatStarted = (iso: string): string => {
     : `${new Date(time).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
 };
 
+export const formatTime = (iso: string): string => {
+  const time = Date.parse(iso);
+  return Number.isNaN(time) ? iso : new Date(time).toISOString().slice(11, 19);
+};
+
 export const formatDate = (iso: string): string => {
   const time = Date.parse(iso);
   return Number.isNaN(time) ? iso : new Date(time).toISOString().slice(0, 10);

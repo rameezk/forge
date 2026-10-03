@@ -1024,3 +1024,150 @@ test('given a run recorded without a prompt event, when its run page is viewed, 
 
   assert.doesNotMatch(body, /data-message="prompt"/);
 });
+
+const messageCards = (body: string): string[] =>
+  body.slice(body.indexOf('Transcript</h2>')).match(/<article[^>]*\sdata-message="[^"]*"[\s\S]*?<\/article>/g) ?? [];
+
+const metaOf = (card: string): string => card.match(/<span[^>]*\sdata-message-meta[^>]*>[\s\S]*?<\/span>\s*<\/header>/)?.[0] ?? '';
+
+test('given a transcript whose prompt and assistant messages carry their times and stop reasons, when the run page is viewed, then the prompt shows its time and each assistant message its time and stop reason, with the full time as a tooltip', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'user', text: 'run echo forge', timestamp: '2026-10-03T11:30:57.948Z', usage, generationId: null },
+    { type: 'message', role: 'assistant', text: 'Let me look.', timestamp: '2026-10-03T11:30:58.077Z', stopReason: 'toolUse', usage, generationId: 'gen-1' },
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
+    { type: 'message', role: 'assistant', text: 'It printed forge.', timestamp: '2026-10-03T11:30:58.102Z', stopReason: 'stop', usage, generationId: 'gen-2' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [prompt, first, second] = messageCards(body) as [string, string, string];
+  assert.match(prompt, /data-message="prompt"/);
+  assert.equal(textOf(metaOf(prompt)), '11:30:57');
+  assert.equal(textOf(metaOf(first)), '11:30:58 · toolUse');
+  assert.equal(textOf(metaOf(second)), '11:30:58 · stop');
+  assert.match(metaOf(first), /<time datetime="2026-10-03T11:30:58\.077Z" title="2026-10-03T11:30:58\.077Z"[^>]*>/);
+});
+
+const thinkingOf = (card: string): string => detailsBlocks(card, /<details[^>]*\sdata-thinking[\s>]/g)[0] ?? '';
+
+test('given an assistant turn with both text and thinking, when the run page is viewed, then the text renders as markdown and the thinking stays collapsed under it with no preview', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'Let me **look**.', thinking: 'I should run the command.\nThen read what it prints.', usage, generationId: 'gen-1' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = messageCards(body) as [string];
+  const thinking = thinkingOf(card);
+  assert.ok(thinking, 'the turn should have a thinking disclosure');
+  assert.ok(card.indexOf('<strong>look</strong>') < card.indexOf(thinking), 'the thinking sits under the text');
+  assert.doesNotMatch(openingTag(thinking), /\sopen[\s>]/);
+  assert.equal(textOf(thinking.match(/<summary[\s\S]*?<\/summary>/)?.[0] ?? ''), 'Thinking');
+  assert.match(thinking, /I should run the command\.\nThen read what it prints\./);
+  assert.doesNotMatch(card, /data-thinking-preview/);
+});
+
+test('given an assistant turn with thinking but no text, followed by a tool call, when the run page is viewed, then the turn shows the first line of its thinking as a muted preview that expands to the full thinking', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'user', text: 'run echo forge', usage, generationId: null },
+    { type: 'message', role: 'assistant', text: '', thinking: '\nI will run the command first.\nThen I will read what it prints.', stopReason: 'toolUse', usage, generationId: 'gen-1' },
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [, card] = messageCards(body) as [string, string];
+  assert.match(card, /data-message="assistant"/);
+  assert.doesNotMatch(card, /data-markdown/);
+  const thinking = thinkingOf(card);
+  assert.match(openingTag(thinking), /\sdata-thinking-preview[\s>]/);
+  assert.doesNotMatch(openingTag(thinking), /\sopen[\s>]/);
+  const preview = thinking.match(/<span[^>]*\sdata-thinking-first-line[^>]*>[\s\S]*?<\/span>/)?.[0] ?? '';
+  assert.equal(textOf(preview), 'I will run the command first.');
+  assert.match(openingTag(preview), /\btext-muted\b/);
+  assert.match(thinking, /<pre[^>]*>\nI will run the command first\.\nThen I will read what it prints\.<\/pre>/);
+  assert.ok(body.indexOf(card) < body.indexOf(toolCards(body)[0] ?? ''), 'the preview sits before the tool call it led to');
+});
+
+test('given assistant turns that ended in an error, one with partial text and one with none before a tool call, when the run page is viewed, then each shows its error verbatim under its text', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'Starting', stopReason: 'error', error: 'Provider returned **error**', usage, generationId: 'gen-1' },
+    { type: 'message', role: 'assistant', text: '', stopReason: 'error', error: 'Request timed out', usage, generationId: 'gen-2' },
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
+    { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'Request timed out' },
+  ]);
+
+  const [partial, empty] = messageCards(body) as [string, string];
+  const errorOf = (card: string): string => card.match(/<p[^>]*\sdata-message-error[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
+  assert.equal(textOf(errorOf(partial)), 'Provider returned **error**');
+  assert.ok(partial.indexOf('Starting') < partial.indexOf(errorOf(partial)), 'the error sits under the text');
+  assert.equal(textOf(errorOf(empty)), 'Request timed out');
+  assert.match(openingTag(errorOf(empty)), /\btext-error\b/);
+});
+
+test('given a transcript where pi retried a failed response, compacted its context once and failed to compact once, and a subagent retried too, when the run page is viewed, then each retry and compaction appears where it happened and a compaction expands to its summary verbatim', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'Starting', stopReason: 'error', error: 'Provider returned error', usage, generationId: 'gen-1' },
+    { type: 'retry', attempt: 1, maxAttempts: 3, delayMs: 2000, error: 'Provider returned error' },
+    { type: 'message', role: 'assistant', text: 'Recovered.', usage, generationId: 'gen-2' },
+    { type: 'compaction', reason: 'threshold', tokensBefore: 190032, tokensAfter: 1694, summary: '## Goal\nRun **echo** forge.', error: null },
+    { type: 'message', role: 'assistant', text: 'Still going.', usage, generationId: 'gen-3' },
+    { type: 'compaction', reason: 'overflow', tokensBefore: null, tokensAfter: null, summary: null, error: 'compaction was aborted' },
+    { type: 'retry', attempt: 2, maxAttempts: 3, delayMs: 500, error: null, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'Child done.', usage, generationId: 'gen-4', subagent: 'call_alpha' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const transcript = body.slice(body.indexOf('Transcript</h2>'));
+  const retries = transcript.match(/<p[^>]*\sdata-event="retry"[^>]*>[\s\S]*?<\/p>/g) ?? [];
+  const compactions = detailsBlocks(transcript, /<details[^>]*\sdata-event="compaction"[\s>]/g);
+  const failedCompaction = transcript.match(/<p[^>]*\sdata-event="compaction"[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
+  assert.deepEqual(retries.map(textOf), [
+    'Retry 1 of 3 in 2s: Provider returned error',
+    'Retry 2 of 3 in 0.5s',
+  ]);
+  assert.equal(compactions.length, 1);
+  const [compacted] = compactions as [string];
+  assert.equal(textOf(compacted.match(/<summary[\s\S]*?<\/summary>/)?.[0] ?? ''), 'Compacted context (threshold): 190,032 → 1,694 tokens');
+  assert.doesNotMatch(openingTag(compacted), /\sopen[\s>]/);
+  assert.match(compacted, /<pre[^>]*>## Goal\nRun \*\*echo\*\* forge\.<\/pre>/);
+  assert.equal(textOf(failedCompaction), 'Compaction failed (overflow): compaction was aborted');
+  const order = ['Starting', retries[0], 'Recovered.', compacted, 'Still going.', failedCompaction].map((part) => transcript.indexOf(part ?? ''));
+  assert.deepEqual(order, [...order].sort((a, b) => a - b), 'each appears where it happened');
+  const [group] = subagentGroups(transcript) as [string];
+  assert.ok(group.includes(retries[1] ?? 'missing'), 'the subagent retry renders inside its group');
+});
+
+test('given a workload with a transcript and no raw events, when its detail page is requested and the transcript download is followed, then the normalized transcript is served as a json lines download', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  const transcript = [
+    { type: 'message', role: 'user', text: 'refine the spec', usage, generationId: null },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ].map((event) => `${JSON.stringify(event)}\n`).join('');
+  writeFileSync(join(dir, 'run-01.jsonl'), transcript);
+  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl' })], dir);
+
+  const page = await (await app.request('/runs/run-01')).text();
+  const links = page.match(/<a[^>]*\sdata-download="[^"]*"[^>]*>[\s\S]*?<\/a>/g) ?? [];
+  assert.deepEqual(links.map(textOf), ['Transcript']);
+  const href = (links[0] ?? '').match(/\shref="([^"]+)"/)?.[1];
+  assert.ok(href, 'the run page should link to its transcript');
+  const download = await app.request(href);
+
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('content-type'), 'application/x-ndjson; charset=utf-8');
+  assert.equal(download.headers.get('content-disposition'), 'attachment; filename="run-01.jsonl"');
+  assert.equal(download.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(await download.text(), transcript);
+});
+
+test('given a workload with a transcript and raw events, when its detail page is requested, then it offers the transcript download next to the raw events', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  writeFileSync(join(dir, 'run-01.jsonl'), `${JSON.stringify({ type: 'result', status: 'success', sessionId: null, error: null })}\n`);
+  writeFileSync(join(dir, 'run-01.events.jsonl'), '{"type":"agent_start"}\n');
+  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl' })], dir);
+
+  const page = await (await app.request('/runs/run-01')).text();
+
+  const links = page.match(/<a[^>]*\sdata-download="[^"]*"[^>]*>[\s\S]*?<\/a>/g) ?? [];
+  assert.deepEqual(links.map(textOf), ['Transcript', 'Raw events']);
+});

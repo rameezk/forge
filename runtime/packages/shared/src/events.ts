@@ -9,6 +9,10 @@ export interface MessageEvent {
   type: 'message';
   role: 'assistant' | 'user' | 'system' | 'tool';
   text: string;
+  thinking?: string;
+  timestamp?: string;
+  stopReason?: string;
+  error?: string;
   usage: TokenUsage;
   generationId: string | null;
   subagent?: string;
@@ -30,6 +34,25 @@ export interface ToolResultEvent {
   subagent?: string;
 }
 
+export interface RetryEvent {
+  type: 'retry';
+  attempt: number | null;
+  maxAttempts: number | null;
+  delayMs: number | null;
+  error: string | null;
+  subagent?: string;
+}
+
+export interface CompactionEvent {
+  type: 'compaction';
+  reason: string | null;
+  tokensBefore: number | null;
+  tokensAfter: number | null;
+  summary: string | null;
+  error: string | null;
+  subagent?: string;
+}
+
 export interface ResultEvent {
   type: 'result';
   status: 'success' | 'error';
@@ -38,4 +61,9 @@ export interface ResultEvent {
 }
 
 export type HarnessEvent =
-  MessageEvent | ToolCallEvent | ToolResultEvent | ResultEvent;
+  | MessageEvent
+  | ToolCallEvent
+  | ToolResultEvent
+  | RetryEvent
+  | CompactionEvent
+  | ResultEvent;
