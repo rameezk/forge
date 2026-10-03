@@ -1,16 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { HarnessEvent, MessageEvent } from '@forge/shared';
 import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { PiHarness } from '../src/index.ts';
+import { loadPiSkills, resolveCheckout } from '../src/checkout.ts';
+import type { HarnessInvocation } from '../src/harness.ts';
 import {
+  alphaChild,
   bash,
+  delegating,
+  mentions,
   serve,
   sse,
   textReply,
@@ -34,6 +45,7 @@ interface Served {
 }
 
 interface Requested {
+  messages: { role: string; content: unknown }[];
   tools?: { function: { name: string } }[];
 }
 
@@ -99,12 +111,34 @@ printf '{"exit-code": %s}\\n' "$code" >&3
 exit $code
 `;
 
+type Workload = (
+  workDir: string,
+) => Promise<Pick<HarnessInvocation, 'prompt' | 'checkout'>>;
+
+const echoForge: Workload = () =>
+  Promise.resolve({ prompt: 'Run echo forge, then say what it printed.' });
+
+interface RealPiRun {
+  events: HarnessEvent[];
+  agentDir: string[];
+}
+
+interface RealPiOptions {
+  served?: Served[];
+  requested?: Requested[];
+  onTheWire?: (respond: Respond) => Respond;
+  workload?: Workload;
+}
+
 const runRealPi = async (
   respond: Respond,
-  served: Served[],
-  requested: Requested[],
-  onTheWire: (respond: Respond) => Respond = (inner) => inner,
-): Promise<HarnessEvent[]> => {
+  {
+    served = [],
+    requested = [],
+    onTheWire = (inner) => inner,
+    workload = echoForge,
+  }: RealPiOptions = {},
+): Promise<RealPiRun> => {
   const server = await serve(onTheWire(recording(respond, served, requested)));
   const { port } = server.address() as AddressInfo;
   const root = mkdtempSync(join(tmpdir(), 'forge-real-pi-'));
@@ -120,6 +154,7 @@ const runRealPi = async (
       providers: { openrouter: { baseUrl: `http://127.0.0.1:${port}/v1` } },
     }),
   );
+  chmodSync(agentDir, 0o555);
   const bwrap = join(root, 'passthrough-bwrap');
   writeFileSync(bwrap, passthrough);
   chmodSync(bwrap, 0o755);
@@ -135,9 +170,9 @@ const runRealPi = async (
   try {
     for await (const event of harness.run({
       model: 'z-ai/glm-5',
-      prompt: 'Run echo forge, then say what it printed.',
       workDir,
       reasoningEffort: 'high',
+      ...(await workload(workDir)),
     })) {
       events.push(event);
     }
@@ -145,7 +180,7 @@ const runRealPi = async (
     server.close();
     await once(server, 'close');
   }
-  return events;
+  return { events, agentDir: readdirSync(agentDir) };
 };
 
 const assistantMessages = (events: HarnessEvent[]): MessageEvent[] =>
@@ -184,7 +219,7 @@ test(
   async () => {
     const served: Served[] = [];
     const requested: Requested[] = [];
-    const events = await runRealPi(replies, served, requested);
+    const { events } = await runRealPi(replies, { served, requested });
 
     assert.ok(
       requested[0]?.tools?.some((tool) => tool.function.name === SUBAGENT_TOOL),
@@ -202,7 +237,10 @@ test(
   { skip },
   async () => {
     const served: Served[] = [];
-    const events = await runRealPi(replies, served, [], unreadCacheDetail);
+    const { events } = await runRealPi(replies, {
+      served,
+      onTheWire: unreadCacheDetail,
+    });
 
     assert.equal(served.length, 2);
     assert.throws(
@@ -211,5 +249,82 @@ test(
         error instanceof assert.AssertionError &&
         /cacheReadTokens|cacheWriteTokens/.test(error.message),
     );
+  },
+);
+
+const SYSTEM_PROMPT = 'You are the checkout system prompt for the real pi test.';
+
+const PROJECT_INSTRUCTIONS = 'Follow the checkout project instructions.';
+
+const SKILL_BODY = 'Delegate the work to two sub-agents and summarise them.';
+
+const checkoutFiles: Record<string, string> = {
+  '.pi/skills/delegate/SKILL.md': `---\nname: delegate\ndescription: Delegates work to sub-agents.\n---\n\n${SKILL_BODY}\n`,
+  '.pi/SYSTEM.md': `${SYSTEM_PROMPT}\n`,
+  '.pi/settings.json': JSON.stringify({ defaultThinkingLevel: 'off' }),
+  'AGENTS.md': `${PROJECT_INSTRUCTIONS}\n`,
+};
+
+const delegateSkill: Workload = async (workDir) => {
+  for (const [path, contents] of Object.entries(checkoutFiles)) {
+    mkdirSync(dirname(join(workDir, path)), { recursive: true });
+    writeFileSync(join(workDir, path), contents);
+  }
+  return {
+    prompt: '/delegate both tasks',
+    checkout: resolveCheckout(
+      workDir,
+      await loadPiSkills(piPackage as string),
+    ),
+  };
+};
+
+const generationsBy = (
+  events: HarnessEvent[],
+): Record<string, (string | null)[]> => {
+  const by: Record<string, (string | null)[]> = {};
+  for (const { subagent, generationId } of assistantMessages(events)) {
+    (by[subagent ?? 'parent'] ??= []).push(generationId);
+  }
+  return by;
+};
+
+test(
+  'given the locked pi on a read-only agent dir and a checkout with skills, a system prompt, project instructions and its own pi settings, when a workload runs a skill command that spawns subagents, then the skill and system prompt reach the provider, each subagent runs and its generations come back scoped to its tool call, and pi writes nothing to its agent dir',
+  { skip },
+  async () => {
+    const requested: Requested[] = [];
+    const { events, agentDir } = await runRealPi(
+      delegating(alphaChild, 'Both sub-agents reported back.'),
+      { requested, workload: delegateSkill },
+    );
+
+    const [first] = requested;
+    assert.ok(first);
+    for (const text of [SYSTEM_PROMPT, PROJECT_INSTRUCTIONS, SKILL_BODY]) {
+      assert.ok(mentions(first, text), `the first request lacks: ${text}`);
+    }
+    assert.deepEqual(generationsBy(events), {
+      parent: ['gen-subagents-1', 'gen-subagents-2'],
+      call_alpha: ['gen-child-alpha-1', 'gen-child-alpha-2'],
+      call_beta: ['gen-child-beta-1'],
+    });
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === 'tool_result' && event.subagent === undefined)
+        .map((event) => event.type === 'tool_result' && [event.id, event.isError])
+        .sort(),
+      [
+        ['call_alpha', false],
+        ['call_beta', false],
+      ],
+    );
+    assert.deepEqual(events.at(-1), {
+      ...events.at(-1),
+      type: 'result',
+      status: 'success',
+      error: null,
+    });
+    assert.deepEqual(agentDir, ['models.json']);
   },
 );

@@ -1171,6 +1171,55 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
   ]);
 });
 
+const notLoaded = (journal: string): string[] =>
+  [...journal.matchAll(/the checkout's (\S+) is not loaded by forge/g)].map(
+    ([, path]) => path ?? '',
+  );
+
+test('given a checkout root with .pi/settings.json and .pi/extensions beside .pi/skills and .pi/SYSTEM.md, or with .pi/mcp.json, .pi/prompts and .pi/themes, when the workload starts, then the run output warns that each of those project pi files is not loaded, names nothing else, and the run proceeds', async () => {
+  const runs = [];
+  for (const files of [
+      {
+        '.pi/settings.json': '{}\n',
+        '.pi/extensions/local.ts': 'export default function () {}\n',
+        '.pi/skills/review/SKILL.md': SKILL.replace('work-on', 'review'),
+        '.pi/SYSTEM.md': 'System prompt\n',
+      },
+      {
+        '.pi/mcp.json': '{}\n',
+        '.pi/prompts/review.md': 'Review it.\n',
+        '.pi/themes/dark.json': '{}\n',
+        '.pi/APPEND_SYSTEM.md': 'Appended\n',
+      },
+  ]) {
+    runs.push(
+      await journaled(() =>
+        dispatch({
+          origin: originWith({
+            '.claude/skills/work-on/SKILL.md': SKILL,
+            ...files,
+          }),
+        }),
+      ),
+    );
+  }
+
+  assert.deepEqual(
+    runs.map(({ journal }) => notLoaded(journal)),
+    [
+      ['.pi/settings.json', '.pi/extensions'],
+      ['.pi/mcp.json', '.pi/prompts', '.pi/themes'],
+    ],
+  );
+  assert.deepEqual(
+    runs.map(({ result }) => [result.code, result.pi?.argv.at(-1)]),
+    [
+      [0, `/skill:work-on ${TICKET_URL}`],
+      [0, `/skill:work-on ${TICKET_URL}`],
+    ],
+  );
+});
+
 test('given a worker prompt /work-on {url} and a checkout with no work-on skill, when forge-dispatch runs, then pi never starts, the run records that the skill was not found, and the ticket becomes forge:failed with skill not found as the reason', async () => {
   const { code, runs, pi, labelWrites, dispatches } = await journaled(() =>
     dispatch({
@@ -1422,18 +1471,15 @@ test('given a checkout whose work-on skill appears in two skill directories thro
   }
 });
 
-test('given a skill whose frontmatter name is a number, when forge-dispatch runs a prompt naming its directory, then pi never starts and the skill is not found, as pi names it by the number', async () => {
-  const { pi, runs } = await journaled(() =>
-    dispatch({
-      origin: originWith({
-        '.claude/skills/123/SKILL.md': '---\nname: 123\ndescription: Numbered.\n---\n',
-      }),
-      prompt: '/123 {url}',
+test('given a skill whose frontmatter name is a number, when forge-dispatch runs a prompt naming its directory, then pi starts with that skill command, as pi names it by its directory', async () => {
+  const { pi } = await dispatch({
+    origin: originWith({
+      '.claude/skills/123/SKILL.md': '---\nname: 123\ndescription: Numbered.\n---\n',
     }),
-  ).then(({ result }) => result);
+    prompt: '/123 {url}',
+  });
 
-  assert.equal(pi, null);
-  assert.equal(runs[0]?.error, "skill '123' not found in the checkout");
+  assert.equal(pi?.argv.at(-1), `/skill:123 ${TICKET_URL}`);
 });
 
 test('given a checkout with a link under a skill directory that resolves outside the checkout, directly or through a directory elsewhere in the checkout, when forge-dispatch runs, then pi never starts and the run names the link', async () => {

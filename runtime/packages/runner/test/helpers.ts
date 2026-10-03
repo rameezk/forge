@@ -194,6 +194,7 @@ export const LOCKDOWN = [
   '--no-prompt-templates',
   '--no-themes',
   '--no-context-files',
+  '--no-approve',
 ];
 
 export const PI_CONTRACT = [

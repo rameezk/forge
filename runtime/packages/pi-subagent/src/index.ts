@@ -1,4 +1,5 @@
 export type {
+  JsonValue,
   SubagentDetails,
   SubagentInvocation,
   SubagentResponse,

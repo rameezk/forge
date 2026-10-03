@@ -1,5 +1,5 @@
-import { realpathSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { lstatSync, realpathSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   errorMessage,
@@ -58,6 +58,7 @@ const contractArgs = (invocation: HarnessInvocation): string[] => [
   '--no-prompt-templates',
   '--no-themes',
   '--no-context-files',
+  '--no-approve',
   '--offline',
   '--provider',
   'openrouter',
@@ -68,6 +69,36 @@ const contractArgs = (invocation: HarnessInvocation): string[] => [
     : ['--thinking', invocation.reasoningEffort]),
   ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout)),
 ];
+
+const UNTRUSTED_PROJECT_CONFIG = [
+  '.pi/settings.json',
+  '.pi/mcp.json',
+  '.pi/extensions',
+  '.pi/prompts',
+  '.pi/themes',
+];
+
+const present = (path: string): boolean => {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const warnUnloadedProjectConfig = (checkout: Checkout | undefined): void => {
+  if (checkout === undefined) {
+    return;
+  }
+  for (const path of UNTRUSTED_PROJECT_CONFIG) {
+    if (present(join(checkout.root, path))) {
+      process.stderr.write(
+        `the checkout's ${path} is not loaded by forge, as pi runs without trusting the project\n`,
+      );
+    }
+  }
+};
 
 const SKILL_COMMAND = /^\/([^ ]+)([\s\S]*)$/;
 
@@ -354,6 +385,7 @@ export class PiHarness implements Harness {
   async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
     const stream = new PiStream();
     const command = realCommand(this.#command);
+    warnUnloadedProjectConfig(invocation.checkout);
     const args = piArgs(invocation, this.#extension, this.#extraArgs);
     const { child, stdout, exited: exit } = spawnSandboxed(
       this.#sandbox,

@@ -325,7 +325,7 @@ test('given a child that reports a provider error in-stream and exits 0, when th
   assert.equal(result.isError, true);
   assert.match(
     result.content.map((part) => part.text).join(''),
-    /400 z-ai\/glm-5 is not a valid model ID/,
+    /400: \{"code":400,"message":"z-ai\/glm-5 is not a valid model ID"\}/,
   );
   assert.deepEqual((result.details as SubagentDetails).responses, [
     {

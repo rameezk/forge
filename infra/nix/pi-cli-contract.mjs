@@ -58,6 +58,7 @@ const plant = () => {
     markers,
     join(homeAgent, 'extensions'),
     join(workDir, '.pi', 'extensions'),
+    join(workDir, '.pi', 'skills', 'planted-skill'),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -69,11 +70,24 @@ const plant = () => {
     join(workDir, '.pi', 'extensions', 'planted.ts'),
     markerExtension('project-extension'),
   );
+  writeFileSync(
+    join(workDir, '.pi', 'skills', 'planted-skill', 'SKILL.md'),
+    skill('planted-skill'),
+  );
   const settingsExtension = join(root, 'settings-extension.ts');
   writeFileSync(settingsExtension, markerExtension('settings-extension'));
   writeFileSync(
     join(homeAgent, 'settings.json'),
     JSON.stringify({ extensions: [settingsExtension] }),
+  );
+  const projectSettingsExtension = join(root, 'project-settings-extension.ts');
+  writeFileSync(
+    projectSettingsExtension,
+    markerExtension('project-settings-extension'),
+  );
+  writeFileSync(
+    join(workDir, '.pi', 'settings.json'),
+    JSON.stringify({ extensions: [projectSettingsExtension] }),
   );
   writeFileSync(
     join(homeAgent, 'models.json'),

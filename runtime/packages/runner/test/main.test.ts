@@ -1643,7 +1643,10 @@ test('given recorded pi output ending in a provider error with no generation and
 
   assert.equal(code, 1);
   assert.equal(run.status, 'error');
-  assert.equal(run.error, '400 z-ai/glm-5 is not a valid model ID');
+  assert.equal(
+    run.error,
+    '400: {"code":400,"message":"z-ai/glm-5 is not a valid model ID"}',
+  );
   assert.equal(run.costUsd, 0);
   assert.equal(run.costStatus, 'billed');
 });
