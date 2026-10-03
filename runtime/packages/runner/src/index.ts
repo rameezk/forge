@@ -24,7 +24,7 @@ export {
 } from './openrouter.ts';
 export type { SettleOptions } from './billing.ts';
 export { settleGenerations } from './billing.ts';
-export type { PiHarnessOptions } from './pi.ts';
+export type { PiExtensions, PiHarnessOptions } from './pi.ts';
 export {
   PiHarness,
   piArgs,

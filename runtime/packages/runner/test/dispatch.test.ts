@@ -35,6 +35,14 @@ const PROVIDER_ERROR = join(import.meta.dirname, 'fixtures', 'pi', 'provider-err
 
 const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
 
+const REASONING_EXTENSION = join(
+  import.meta.dirname,
+  '..',
+  '..',
+  'pi-model-default-reasoning',
+  'src',
+);
+
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
 const GITHUB_TOKEN = 'github_pat_test';
@@ -399,6 +407,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_RUNTIME_CONFIG: configPath,
       FORGE_STATE_DIR: stateDir,
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
+      FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
       FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
       FORGE_BWRAP: writeFakeBwrap(stateDir, {
@@ -1127,10 +1136,12 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
 
   assert.ok(pi);
   const root = realpathSync(pi.cwd);
-  const unattended = pi.argv[pi.argv.indexOf('-e') - 1] ?? '';
+  const unattended = pi.argv[pi.argv.indexOf(EXTENSION) - 2] ?? '';
   assert.match(unattended, /no human will answer/);
   const flags = [
     ...PI_CONTRACT,
+    '-e',
+    REASONING_EXTENSION,
     '--skill',
     join(root, '.claude', 'skills'),
     '--skill',
@@ -1161,7 +1172,10 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
 
   assert.ok(pi);
   const root = realpathSync(pi.cwd);
-  const flags = pi.argv.slice(PI_CONTRACT.length, pi.argv.indexOf('-e') - 2);
+  const flags = pi.argv.slice(
+    PI_CONTRACT.length + 2,
+    pi.argv.indexOf(EXTENSION) - 3,
+  );
   assert.deepEqual(flags, [
     '--skill',
     join(root, '.agents', 'skills'),

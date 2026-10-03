@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { childArgs, SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
 import type { HarnessInvocation } from '../../src/harness.ts';
-import { piArgs, subagentInvocation } from '../../src/pi.ts';
+import { piArgs, subagentInvocation, type PiExtensions } from '../../src/pi.ts';
 import {
   childScenarios,
   serve,
@@ -15,14 +15,12 @@ import {
   type Respond,
 } from './fake-provider.ts';
 
-const EXTENSION = join(
-  dirname(import.meta.filename),
-  '..',
-  '..',
-  '..',
-  'pi-subagent',
-  'src',
-);
+const PACKAGES = join(dirname(import.meta.filename), '..', '..', '..');
+
+const EXTENSIONS: PiExtensions = {
+  subagent: join(PACKAGES, 'pi-subagent', 'src'),
+  modelDefaultReasoning: join(PACKAGES, 'pi-model-default-reasoning', 'src'),
+};
 
 const INVOCATION: HarnessInvocation = {
   model: 'z-ai/glm-5',
@@ -50,7 +48,7 @@ const runPi = async (
       PATH: process.env.PATH ?? '',
       HOME: home,
       [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
-        subagentInvocation(pi, INVOCATION),
+        subagentInvocation(pi, INVOCATION, EXTENSIONS),
       ),
       ...(key === undefined ? {} : { OPENROUTER_API_KEY: key }),
     },
@@ -90,7 +88,10 @@ const record = async (
     await recordRun(
       pi,
       respond,
-      childArgs(subagentInvocation(pi, INVOCATION), SUBAGENT_TASKS.alpha),
+      childArgs(
+        subagentInvocation(pi, INVOCATION, EXTENSIONS),
+        SUBAGENT_TASKS.alpha,
+      ),
       join(childOutDir, `${name}.jsonl`),
     );
   }
@@ -102,7 +103,7 @@ const record = async (
     await recordRun(
       pi,
       respond,
-      piArgs({ ...INVOCATION, prompt }, EXTENSION),
+      piArgs({ ...INVOCATION, prompt }, EXTENSIONS),
       join(outDir, `${name}.jsonl`),
     );
   }
@@ -110,7 +111,7 @@ const record = async (
     pi,
     'http://127.0.0.1:9/v1',
     undefined,
-    piArgs(INVOCATION, EXTENSION),
+    piArgs(INVOCATION, EXTENSIONS),
   );
   writeFileSync(join(outDir, 'preflight.jsonl'), preflight.stdout);
   writeFileSync(join(outDir, 'preflight.stderr'), preflight.stderr);
@@ -124,5 +125,5 @@ if (pi === undefined) {
 await record(
   pi,
   join(dirname(import.meta.filename), 'pi'),
-  join(EXTENSION, '..', 'test', 'fixtures'),
+  join(EXTENSIONS.subagent, '..', 'test', 'fixtures'),
 );

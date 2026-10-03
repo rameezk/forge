@@ -43,6 +43,14 @@ const fixture = (name: string): string => join(FIXTURES, name);
 
 const EXTENSION = join(import.meta.dirname, '..', '..', 'pi-subagent', 'src');
 
+const REASONING_EXTENSION = join(
+  import.meta.dirname,
+  '..',
+  '..',
+  'pi-model-default-reasoning',
+  'src',
+);
+
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
 const OPERATOR_EXTRAS = ['--skill', '/opt/forge/skills/review'];
@@ -203,6 +211,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       FORGE_RUNTIME_CONFIG: configPath,
       FORGE_STATE_DIR: stateDir,
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
+      FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
       FORGE_BWRAP: fakeBwrap,
       ...scenario.env,
@@ -949,7 +958,7 @@ test('given a recorded run whose subagent calls bash, when the transcript is wri
   assert.equal(toolEvents.length, 6);
 });
 
-test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, lockdown, offline, openrouter contract with the plain model, a thinking level only when declared, the subagent extension, the extras, and the prompt last', async () => {
+test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then pi receives the json, no-session, lockdown, offline, openrouter contract with the plain model, a thinking level when declared and the model default reasoning extension otherwise, the subagent extension, the extras, and the prompt last', async () => {
   const output = fixture('success.jsonl');
 
   const withEffort = await runWorker({
@@ -974,13 +983,15 @@ test('given workers with and without a reasoning effort and a harness with opera
   assert.deepEqual(withoutEffort.pi.argv, [
     ...PI_CONTRACT,
     '-e',
+    REASONING_EXTENSION,
+    '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,
     'refine the spec',
   ]);
 });
 
-test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then the subagent extension is handed the pi binary with the parent contract including its lockdown flags, provider, model and thinking level, never the extension, the extras or the prompt, and a sub-agent system prompt', async () => {
+test('given workers with and without a reasoning effort and a harness with operator extras, when each runs, then the subagent extension is handed the pi binary with the parent contract including its lockdown flags, provider, model and either its thinking level or the model default reasoning extension, never the subagent extension, the extras or the prompt, and a sub-agent system prompt', async () => {
   const output = fixture('success.jsonl');
 
   const withEffort = await runWorker({
@@ -1002,7 +1013,7 @@ test('given workers with and without a reasoning effort and a harness with opera
   const withoutEffortChild = childOf(withoutEffort);
   const [binary] = withEffortChild.argv;
   const parentFlags = (outcome: Outcome) =>
-    outcome.pi.argv.slice(0, outcome.pi.argv.indexOf('-e'));
+    outcome.pi.argv.slice(0, outcome.pi.argv.indexOf(EXTENSION) - 1);
   assert.match(binary ?? '', /fake-pi\.mjs$/);
   assert.deepEqual(withEffortChild.argv, [binary, ...parentFlags(withEffort)]);
   assert.deepEqual(
@@ -1013,8 +1024,12 @@ test('given workers with and without a reasoning effort and a harness with opera
     assert.ok(LOCKDOWN.every((flag) => child.argv.includes(flag)));
   }
   assert.ok(withEffortChild.argv.includes('--thinking'));
+  assert.ok(!withEffortChild.argv.includes(REASONING_EXTENSION));
   assert.ok(!withoutEffortChild.argv.includes('--thinking'));
-  assert.ok(!withEffortChild.argv.includes('-e'));
+  assert.ok(withoutEffortChild.argv.includes(REASONING_EXTENSION));
+  for (const child of [withEffortChild, withoutEffortChild]) {
+    assert.ok(!child.argv.includes(EXTENSION));
+  }
   assert.match(withEffortChild.systemPrompt, /sub-agent/);
   assert.match(withEffortChild.systemPrompt, /returned verbatim/);
   assert.match(withEffortChild.systemPrompt, /cannot spawn sub-agents/);
@@ -1703,9 +1718,10 @@ test('given a billing service with no OpenRouter key, a key that is not a valid 
   }
 });
 
-test('given a runner whose subagent extension, read-only agent dir, bubblewrap or HOME is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
+test('given a runner whose subagent extension, model default reasoning extension, read-only agent dir, bubblewrap or HOME is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
   const valid = {
     FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
+    FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
     FORGE_PI_AGENT_DIR: AGENT_DIR,
     FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap',
     HOME: RUNNER_HOME,
