@@ -1,7 +1,7 @@
 import { closeSync, openSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@forge/shared';
-import { rawEventsRef, transcriptLine } from '@forge/shared';
+import { rawEventsRef } from '@forge/shared';
 
 const TOOL_PAYLOAD_CAP_CHARS = 32 * 1024;
 
@@ -77,42 +77,25 @@ export interface RawEventsWriter {
   close(): void;
 }
 
-export class FileRawEvents implements RawEventsWriter {
-  readonly #fd: number;
-
-  private constructor(fd: number) {
-    this.#fd = fd;
-  }
-
-  static open(dir: string, runId: string): FileRawEvents {
-    return new FileRawEvents(openSync(join(dir, rawEventsRef(runId)), 'a'));
-  }
-
-  append(event: unknown): void {
-    writeSync(this.#fd, `${JSON.stringify(event)}\n`);
-  }
-
-  close(): void {
-    closeSync(this.#fd);
-  }
-}
-
-export class FileTranscript implements TranscriptWriter {
+export class JsonLinesFile implements TranscriptWriter, RawEventsWriter {
   readonly ref: string;
   readonly #fd: number;
 
-  private constructor(ref: string, fd: number) {
+  private constructor(dir: string, ref: string) {
     this.ref = ref;
-    this.#fd = fd;
+    this.#fd = openSync(join(dir, ref), 'a');
   }
 
-  static open(dir: string, runId: string): FileTranscript {
-    const ref = `${runId}.jsonl`;
-    return new FileTranscript(ref, openSync(join(dir, ref), 'a'));
+  static transcript(dir: string, runId: string): JsonLinesFile {
+    return new JsonLinesFile(dir, `${runId}.jsonl`);
   }
 
-  append(event: HarnessEvent): void {
-    writeSync(this.#fd, transcriptLine(event));
+  static rawEvents(dir: string, runId: string): JsonLinesFile {
+    return new JsonLinesFile(dir, rawEventsRef(runId));
+  }
+
+  append(value: unknown): void {
+    writeSync(this.#fd, `${JSON.stringify(value)}\n`);
   }
 
   close(): void {

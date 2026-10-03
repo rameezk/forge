@@ -6,7 +6,7 @@ export type {
 } from './harness.ts';
 export { invocationFor, withEffort } from './harness.ts';
 export type { RawEventsWriter, TranscriptWriter } from './transcript.ts';
-export { FileRawEvents, FileTranscript } from './transcript.ts';
+export { JsonLinesFile } from './transcript.ts';
 export type {
   HarnessConfig,
   RuntimeConfig,

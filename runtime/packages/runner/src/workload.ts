@@ -7,7 +7,7 @@ import type { Harness, Worker, Workspace } from './harness.ts';
 import { openRouterBaseUrl, openRouterListPrice } from './openrouter.ts';
 import { PiHarness } from './pi.ts';
 import type { Sandbox } from './sandbox.ts';
-import { FileRawEvents, FileTranscript } from './transcript.ts';
+import { JsonLinesFile } from './transcript.ts';
 import { runWorkload } from './runner.ts';
 
 export const absolutePath = (env: NodeJS.ProcessEnv, name: string): string => {
@@ -135,8 +135,8 @@ export const launchWorkload = async ({
       store,
       harness,
       worker,
-      openTranscript: (runId) => FileTranscript.open(transcriptsDir, runId),
-      openRawEvents: (runId) => FileRawEvents.open(transcriptsDir, runId),
+      openTranscript: (runId) => JsonLinesFile.transcript(transcriptsDir, runId),
+      openRawEvents: (runId) => JsonLinesFile.rawEvents(transcriptsDir, runId),
       openWorkspace: (runId) => openWorkspace(join(workDirs, runId)),
       now: () => new Date().toISOString(),
       newId: () => runId,

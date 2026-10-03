@@ -343,10 +343,10 @@ class PiStream {
     if (child === undefined || event.toolCallId === undefined) {
       return [];
     }
-    if (child?.type === 'tool_execution_end') {
+    if (child.type === 'tool_execution_end') {
       return toolResult(child, event.toolCallId);
     }
-    if (child?.type !== 'message_end' || child.message?.role !== 'assistant') {
+    if (child.type !== 'message_end' || child.message?.role !== 'assistant') {
       return [];
     }
     return this.#assistant(child.message, event.toolCallId);

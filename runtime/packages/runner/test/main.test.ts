@@ -11,9 +11,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import {
   parseTranscript,
+  rawEventsRef,
   Store,
   type GenerationRecord,
   type MessageEvent,
@@ -68,8 +69,6 @@ const BILLED_BY_ID = {
 const billed = billedAt(BILLED_BY_ID);
 
 const OPENROUTER_KEY = 'sk-or-test';
-
-const RAW_EVENTS_SUFFIX = '.events.jsonl';
 
 const jsonLines = (contents: string): Record<string, unknown>[] =>
   contents
@@ -224,11 +223,9 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     unlisted?.close();
   }
 
-  const transcripts = readdirSync(join(stateDir, 'transcripts')).filter(
-    (file) => !file.endsWith(RAW_EVENTS_SUFFIX),
-  );
-  assert.equal(transcripts.length, 1);
-  const runId = basename(transcripts[0] as string, '.jsonl');
+  const runs = withStore(stateDir, (store) => store.listRuns());
+  assert.equal(runs.length, 1);
+  const runId = (runs[0] as RunRecord).id;
 
   return {
     code,
@@ -241,7 +238,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     get rawEvents() {
       return jsonLines(
         readFileSync(
-          join(stateDir, 'transcripts', `${runId}${RAW_EVENTS_SUFFIX}`),
+          join(stateDir, 'transcripts', rawEventsRef(runId)),
           'utf8',
         ),
       );
@@ -843,18 +840,12 @@ test('given a pi stream with streaming deltas, a retry, thinking and a tool resu
 });
 
 test('given a workload whose agent spawned two subagents, when the workload ends, then its raw events hold every event of the parent and each child but their streaming deltas', async () => {
-  const events = jsonLines(readFileSync(fixture('subagents.jsonl'), 'utf8'));
-  const isChildDelta = (event: Record<string, unknown>): boolean =>
-    event.type === 'tool_execution_update' &&
-    (event as { partialResult?: { details?: { event?: { type?: string } } } })
-      .partialResult?.details?.event?.type === 'message_update';
+  const lines = readFileSync(fixture('subagents.jsonl'), 'utf8').split('\n');
+  const kept = lines.filter((line) => !line.includes('"type":"message_update"'));
 
   const { rawEvents } = await runWorker({ output: fixture('subagents.jsonl') });
 
-  assert.deepEqual(
-    rawEvents,
-    withoutDeltas(events).filter((event) => !isChildDelta(event)),
-  );
+  assert.deepEqual(rawEvents, jsonLines(kept.join('\n')));
 });
 
 const rawEventsOnceWritten = async (
@@ -867,7 +858,7 @@ const rawEventsOnceWritten = async (
     const path =
       run === undefined
         ? undefined
-        : join(stateDir, 'transcripts', `${run.id}${RAW_EVENTS_SUFFIX}`);
+        : join(stateDir, 'transcripts', rawEventsRef(run.id));
     const rawEvents =
       path !== undefined && existsSync(path)
         ? jsonLines(readFileSync(path, 'utf8'))
