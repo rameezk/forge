@@ -277,10 +277,10 @@ const subagentEventOf = (event: PiLine): PiLine | undefined =>
     ? (event.partialResult?.details?.event as PiLine | undefined)
     : undefined;
 
-const isStreamingDelta = (event: PiLine): boolean =>
-  event.type === 'message_update' ||
-  (event.type === 'tool_execution_update' &&
-    subagentEventOf(event)?.type === 'message_update');
+const isStreamed = (event: PiLine | undefined): boolean =>
+  event?.type === 'message_update' ||
+  (event?.type === 'tool_execution_update' &&
+    event.toolName !== SUBAGENT_TOOL);
 
 class PiStream {
   readonly #rawEvents: RawEventSink;
@@ -306,7 +306,7 @@ class PiStream {
       this.#malformed = `pi emitted non-JSON output: ${line.slice(0, NON_JSON_EXCERPT_CHARS)}`;
       return [];
     }
-    if (!isStreamingDelta(event)) {
+    if (!isStreamed(event) && !isStreamed(subagentEventOf(event))) {
       this.#rawEvents(event);
     }
     switch (event.type) {

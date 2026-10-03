@@ -810,8 +810,16 @@ test('given an agent whose tool arguments, tool output and reply contain the Ope
 const outputOf = (events: unknown[]): string =>
   outputFile(events.map((event) => `${JSON.stringify(event)}\n`).join(''));
 
-const withoutDeltas = (events: Record<string, unknown>[]): Record<string, unknown>[] =>
-  events.filter((event) => event.type !== 'message_update');
+const isStreamed = (event: Record<string, unknown> | undefined): boolean =>
+  event?.type === 'message_update' ||
+  (event?.type === 'tool_execution_update' && event.toolName !== 'subagent');
+
+const forwardedBy = (event: Record<string, unknown>): Record<string, unknown> | undefined =>
+  (event as { partialResult?: { details?: { event?: Record<string, unknown> } } })
+    .partialResult?.details?.event;
+
+const withoutStreaming = (events: Record<string, unknown>[]): Record<string, unknown>[] =>
+  events.filter((event) => !isStreamed(event) && !isStreamed(forwardedBy(event)));
 
 const bashResult = (text: string) => ({
   type: 'tool_execution_end',
@@ -821,7 +829,7 @@ const bashResult = (text: string) => ({
   isError: false,
 });
 
-test('given a pi stream with streaming deltas, a retry, thinking and a tool result over the transcript cap holding the OpenRouter key, when the workload ends, then its raw events hold every event but the streaming deltas, with the key redacted and the tool result kept whole', async () => {
+test('given a pi stream with streaming deltas, a retry, thinking and a tool result over the transcript cap holding the OpenRouter key, when the workload ends, then its raw events hold every event but the streaming deltas and tool progress, with the key redacted and the tool result kept whole', async () => {
   const output = (key: string): string =>
     `OPENROUTER_API_KEY=${key}\n${'a'.repeat(40 * 1024)}`;
   const events = jsonLines(readFileSync(fixture('retry.jsonl'), 'utf8'));
@@ -836,16 +844,16 @@ test('given a pi stream with streaming deltas, a retry, thinking and a tool resu
     output: outputOf(withResult(output(OPENROUTER_KEY))),
   });
 
-  assert.deepEqual(rawEvents, withoutDeltas(withResult(output('[redacted]'))));
+  assert.deepEqual(rawEvents, withoutStreaming(withResult(output('[redacted]'))));
 });
 
-test('given a workload whose agent spawned two subagents, when the workload ends, then its raw events hold every event of the parent and each child but their streaming deltas', async () => {
-  const lines = readFileSync(fixture('subagents.jsonl'), 'utf8').split('\n');
-  const kept = lines.filter((line) => !line.includes('"type":"message_update"'));
+test('given a workload whose agent spawned two subagents that ran a tool, when the workload ends, then its raw events hold every event of the parent and each child but their streaming deltas and tool progress', async () => {
+  const events = jsonLines(readFileSync(fixture('subagents.jsonl'), 'utf8'));
 
   const { rawEvents } = await runWorker({ output: fixture('subagents.jsonl') });
 
-  assert.deepEqual(rawEvents, jsonLines(kept.join('\n')));
+  assert.equal(events.length - rawEvents.length, 16 + 17 + 2);
+  assert.deepEqual(rawEvents, withoutStreaming(events));
 });
 
 const rawEventsOnceWritten = async (
@@ -871,9 +879,9 @@ const rawEventsOnceWritten = async (
   assert.fail(`the run did not write ${count} raw events within 5 seconds`);
 };
 
-test('given a workload whose pi dies mid-run, when its raw events are read while pi is still alive and after it has died, then they hold every event pi emitted up to that point but the streaming deltas', async () => {
+test('given a workload whose pi dies mid-run, when its raw events are read while pi is still alive and after it has died, then they hold every event pi emitted up to that point but the streaming deltas and tool progress', async () => {
   const output = cutBefore('success.jsonl', 'agent_end');
-  const emitted = withoutDeltas(jsonLines(readFileSync(output, 'utf8')));
+  const emitted = withoutStreaming(jsonLines(readFileSync(output, 'utf8')));
   let live: { run: RunRecord; rawEvents: Record<string, unknown>[] } | undefined;
 
   const { run, rawEvents } = await runWorker({
