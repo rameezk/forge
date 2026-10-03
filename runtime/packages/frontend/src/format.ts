@@ -13,7 +13,7 @@ export const formatStarted = (iso: string): string => {
 
 export const formatTime = (iso: string): string => {
   const time = Date.parse(iso);
-  return Number.isNaN(time) ? iso : new Date(time).toISOString().slice(11, 19);
+  return Number.isNaN(time) ? iso : `${new Date(time).toISOString().slice(11, 19)} UTC`;
 };
 
 export const formatDate = (iso: string): string => {
