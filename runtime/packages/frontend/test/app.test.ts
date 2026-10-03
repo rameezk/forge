@@ -1171,3 +1171,19 @@ test('given a workload with a transcript and raw events, when its detail page is
   const links = page.match(/<a[^>]*\sdata-download="[^"]*"[^>]*>[\s\S]*?<\/a>/g) ?? [];
   assert.deepEqual(links.map(textOf), ['Transcript', 'Raw events']);
 });
+
+test('given a subagent whose final message is its report and carries thinking, a time and a stop reason, when its group is viewed, then the report shows that time, stop reason and thinking', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
+    { type: 'message', role: 'assistant', text: 'Alpha report.', thinking: 'I should just say alpha.', timestamp: '2026-10-03T11:32:30.000Z', stopReason: 'stop', usage, generationId: 'gen-1', subagent: 'call_alpha' },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'Alpha report.' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [group] = subagentGroups(body) as [string];
+  const reports = group.match(/<article[^>]*\sdata-message="report"[\s\S]*?<\/article>/g) ?? [];
+  assert.equal(reports.length, 1);
+  const [report] = reports as [string];
+  assert.equal(textOf(metaOf(report)), '11:32:30 · stop');
+  assert.match(thinkingOf(report), /I should just say alpha\./);
+});
