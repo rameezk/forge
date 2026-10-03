@@ -46,7 +46,7 @@ const invocations = [
     reasoningEffort,
   })),
   () => ({ model: 'z-ai/glm-5', prompt: 'contract check', workDir: '.' }),
-  (workDir) => {
+  ...[{ reasoningEffort: 'high' }, {}].map((effort) => (workDir) => {
     for (const [path, contents] of Object.entries(checkoutFiles)) {
       mkdirSync(dirname(join(workDir, path)), { recursive: true });
       writeFileSync(join(workDir, path), contents);
@@ -55,10 +55,10 @@ const invocations = [
       model: 'z-ai/glm-5',
       prompt: '/prompted-skill contract check',
       workDir,
-      reasoningEffort: 'high',
+      ...effort,
       checkout: resolveCheckout(workDir, loadSkills),
     };
-  },
+  }),
 ];
 
 const plant = () => {
