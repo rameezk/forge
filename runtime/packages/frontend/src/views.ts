@@ -7,8 +7,11 @@ import type {
   DispatchState,
   GenerationRecord,
   HarnessEvent,
+  CompactionEvent,
   MessageEvent,
   RepositoryFrontier,
+  ResultEvent,
+  RetryEvent,
   RunRecord,
   RunStatus,
   RunTicket,
@@ -23,6 +26,7 @@ import {
   formatDate,
   formatDuration,
   formatStarted,
+  formatTime,
   formatTokens,
   formatTotal,
   pendingCount,
@@ -286,16 +290,83 @@ const MARKDOWN = [
   '[&_blockquote_p]:before:content-none [&_blockquote_p]:after:content-none',
 ].join(' ');
 
-const renderProse = (
+const renderCard = (
   kind: string,
-  text: string,
+  meta: Rendered,
+  body: Rendered,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const tone = MESSAGE_TONE.get(kind) ?? DEFAULT_TONE;
   return html`<article class="${BLOCK} ${tone.border} px-4 py-3" data-message="${kind}">
-    <header class="${LABEL} mb-1.5 ${tone.label}">${kind === 'prompt' ? 'Prompt' : kind}</header>
-    <div class="${MARKDOWN}" data-markdown>${raw(renderMarkdown(text))}</div>
+    <header class="${LABEL} mb-1.5 flex items-baseline gap-3 ${tone.label}">${kind === 'prompt' ? 'Prompt' : kind}${meta}</header>
+    ${body}
   </article>`;
 };
+
+const renderMarkdownBody = (text: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<div class="${MARKDOWN}" data-markdown>${raw(renderMarkdown(text))}</div>`;
+
+const renderProse = (
+  kind: string,
+  text: string,
+): HtmlEscapedString | Promise<HtmlEscapedString> => renderCard(kind, '', renderMarkdownBody(text));
+
+const MESSAGE_META = 'ml-auto shrink-0 whitespace-nowrap text-xs font-normal normal-case tracking-normal text-muted tabular-nums';
+
+const renderMessageMeta = ({ timestamp, stopReason }: MessageEvent): Rendered => {
+  if (timestamp === undefined && stopReason === undefined) return '';
+  const parts = [
+    timestamp === undefined ? '' : html`<time datetime="${timestamp}" title="${timestamp}">${formatTime(timestamp)}</time>`,
+    stopReason === undefined ? '' : html`<span data-stop-reason>${stopReason}</span>`,
+  ].filter((part) => part !== '');
+  return html`<span class="${MESSAGE_META}" data-message-meta>${parts.map((part, index) => (index === 0 ? part : html` · ${part}`))}</span>`;
+};
+
+const INLINE_DISCLOSURE = `cursor-pointer list-none items-center gap-1.5 rounded-sm text-xs text-muted hover:text-fg [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.6rem] before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90`;
+
+const THINKING = 'm-0 mt-1.5 whitespace-pre-wrap break-words border-l-2 border-line pl-3 font-sans text-[0.85rem] text-muted';
+
+const renderThinking = (thinking: string | undefined): Rendered =>
+  thinking === undefined
+    ? ''
+    : html`<details class="mt-2" data-thinking>
+        <summary class="${INLINE_DISCLOSURE} inline-flex font-semibold">Thinking</summary>
+        <pre class="${THINKING}">${thinking}</pre>
+      </details>`;
+
+const firstLine = (text: string): string =>
+  text.split('\n').map((line) => line.trim()).find((line) => line !== '') ?? '';
+
+const renderThinkingPreview = (thinking: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<details class="group/thinking" data-thinking data-thinking-preview>
+    <summary class="${INLINE_DISCLOSURE} flex w-full"><span class="min-w-0 truncate italic text-muted group-open/thinking:hidden" data-thinking-first-line>${firstLine(thinking)}</span><span class="hidden font-semibold group-open/thinking:inline">Thinking</span></summary>
+    <pre class="${THINKING}">${thinking}</pre>
+  </details>`;
+
+const renderMessageError = (error: string | undefined): Rendered =>
+  error === undefined
+    ? ''
+    : html`<p class="${ERROR_CALLOUT} mt-2 whitespace-pre-wrap text-[0.9rem]" data-message-error>${error}</p>`;
+
+const isThinkingOnly = (event: MessageEvent): event is MessageEvent & { thinking: string } =>
+  event.text === '' && event.thinking !== undefined;
+
+const messageBody = (event: MessageEvent): Rendered => {
+  if (isThinkingOnly(event)) return renderThinkingPreview(event.thinking);
+  if (event.text === '' && event.error !== undefined) return '';
+  return html`${renderMarkdownBody(event.text)}${renderThinking(event.thinking)}`;
+};
+
+const renderMessage = (
+  kind: string,
+  event: MessageEvent,
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  renderCard(kind, renderMessageMeta(event), html`${messageBody(event)}${renderMessageError(event.error)}`);
+
+const renderReport = (
+  report: ToolResultEvent,
+  message: MessageEvent | undefined,
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  message === undefined ? renderProse('report', report.text) : renderMessage('report', message);
 
 const SUMMARY_KEYS = ['command', 'path', 'pattern', 'task'];
 
@@ -372,17 +443,57 @@ const renderToolCall = (
   </details>`;
 };
 
+const EVENT_NOTE = 'm-0 border-l-2 py-0.5 pl-3 text-[0.85rem] break-words';
+
+const formatDelay = (ms: number): string => `${ms / 1000}s`;
+
+const retryLabel = ({ attempt, maxAttempts }: RetryEvent): string => {
+  if (attempt === null) return 'Retry';
+  return maxAttempts === null ? `Retry ${attempt}` : `Retry ${attempt} of ${maxAttempts}`;
+};
+
+const renderRetry = (event: RetryEvent): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<p class="${EVENT_NOTE} border-warning text-warning" data-event="retry">${retryLabel(event)}${event.delayMs === null
+    ? ''
+    : ` in ${formatDelay(event.delayMs)}`}${event.error === null ? '' : `: ${event.error}`}</p>`;
+
+const compactedTokens = ({ tokensBefore, tokensAfter }: CompactionEvent): string => {
+  if (tokensBefore === null) return '';
+  return tokensAfter === null
+    ? `: from ${formatTokens(tokensBefore)} tokens`
+    : `: ${formatTokens(tokensBefore)} → ${formatTokens(tokensAfter)} tokens`;
+};
+
+const renderCompaction = (event: CompactionEvent): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const reason = event.reason === null ? '' : ` (${event.reason})`;
+  if (event.error !== null) {
+    return html`<p class="${EVENT_NOTE} border-error text-error" data-event="compaction">Compaction failed${reason}: ${event.error}</p>`;
+  }
+  const label = `Compacted context${reason}${compactedTokens(event)}`;
+  if (event.summary === null) {
+    return html`<p class="${EVENT_NOTE} border-line text-muted" data-event="compaction">${label}</p>`;
+  }
+  return html`<details class="${BLOCK} border-line" data-event="compaction">
+    <summary class="${DISCLOSURE} text-[0.85rem] text-muted">${label}</summary>
+    <div class="border-t border-line px-4 pt-3 pb-4"><pre class="${PROSE} text-[0.85rem]">${event.summary}</pre></div>
+  </details>`;
+};
+
 const renderEvent = (
   event: HarnessEvent,
   results: ToolResults,
 ): Rendered => {
   switch (event.type) {
     case 'message':
-      return renderProse(event.role, event.text);
+      return renderMessage(event.role, event);
     case 'tool_call':
       return renderToolCall(event, results.get(event));
     case 'tool_result':
       return '';
+    case 'retry':
+      return renderRetry(event);
+    case 'compaction':
+      return renderCompaction(event);
     case 'result':
       return html`<article class="${BLOCK} ${event.status === 'error' ? 'border-error' : 'border-line'} flex items-baseline gap-2.5 px-4 py-3" data-message="result">${renderStatus(event.status)}${event.error === null
         ? ''
@@ -397,7 +508,7 @@ interface SubagentGroup {
   events: ScopedEvent[];
 }
 
-type ScopedEvent = MessageEvent | ToolCallEvent | ToolResultEvent;
+type ScopedEvent = Exclude<HarnessEvent, ResultEvent>;
 
 type TranscriptEntry = HarnessEvent | SubagentGroup;
 
@@ -412,6 +523,8 @@ const isToolOnlyPreamble = (
   entry.type === 'message' &&
   entry.role === 'assistant' &&
   entry.text.length === 0 &&
+  entry.thinking === undefined &&
+  entry.error === undefined &&
   isToolCall(next);
 
 const withoutToolOnlyPreambles = <T extends TranscriptEntry>(entries: T[]): T[] =>
@@ -453,17 +566,14 @@ const messageCount = (events: ScopedEvent[]): string => {
   return `${messages} ${messages === 1 ? 'message' : 'messages'}`;
 };
 
-const withoutReportMessage = (
+const reportMessage = (
   events: ScopedEvent[],
   report: ToolResultEvent | undefined,
-): ScopedEvent[] => {
-  const last = events.findLastIndex(
-    (event) => event.type === 'message' && event.role === 'assistant',
+): MessageEvent | undefined => {
+  const last = events.findLast(
+    (event): event is MessageEvent => event.type === 'message' && event.role === 'assistant',
   );
-  const message = events[last];
-  return message?.type === 'message' && message.text === report?.text
-    ? events.filter((_, index) => index !== last)
-    : events;
+  return last !== undefined && last.text === report?.text ? last : undefined;
 };
 
 const argumentFields = (args: unknown): Record<string, unknown> =>
@@ -568,6 +678,7 @@ const renderSubagentCall = (
   const task = taskText(call.arguments);
   const { cwd } = argumentFields(call.arguments);
   const shown = withoutToolOnlyPreambles(events);
+  const reported = reportMessage(shown, report);
   return html`<section class="${BLOCK} ${failed ? 'border-error' : 'border-line'}" data-subagent-call${failed ? html` data-failed` : ''}>
     <header class="flex items-center gap-2.5 px-4 py-2.5">
       ${toolName(call.name, failed)}
@@ -581,10 +692,10 @@ const renderSubagentCall = (
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
         (typeof argumentFields(call.arguments).task === 'string' ? renderProse : renderText)('task', task),
-        ...withoutReportMessage(shown, report).map((event) => renderEvent(event, results)),
+        ...shown.filter((event) => event !== reported).map((event) => renderEvent(event, results)),
         report === undefined
           ? html`<p class="${EMPTY}">No report recorded.</p>`
-          : failed ? renderText('error', report.text) : renderProse('report', report.text),
+          : failed ? renderText('error', report.text) : renderReport(report, reported),
       ],
     )}
   </section>`;
@@ -622,7 +733,7 @@ const renderTranscript = (
     entry.type === 'subagent'
       ? renderSubagent(entry, context)
       : entry === prompt
-        ? renderProse('prompt', entry.text)
+        ? renderMessage('prompt', entry)
         : renderEvent(entry, results),
   );
 };
@@ -632,15 +743,31 @@ const NEW_ACTIVITY = 'fixed bottom-6 left-1/2 z-10 -translate-x-1/2 cursor-point
 const META_TERM = 'text-muted';
 const META_VALUE = 'm-0 min-w-0 break-words tabular-nums';
 
-const renderDownloads = (run: RunRecord): Rendered =>
-  html`<dt class="${META_TERM}">Downloads</dt>
-      <dd class="${META_VALUE}"><a href="/runs/${encodeURIComponent(run.id)}/raw-events" download class="${LINK}" data-download="raw-events">Raw events</a></dd>`;
+export interface Downloads {
+  transcript: boolean;
+  rawEvents: boolean;
+}
+
+const DOWNLOADS: { key: keyof Downloads; path: string; label: string }[] = [
+  { key: 'transcript', path: 'transcript', label: 'Transcript' },
+  { key: 'rawEvents', path: 'raw-events', label: 'Raw events' },
+];
+
+const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
+  const offered = DOWNLOADS.filter(({ key }) => downloads[key]);
+  if (offered.length === 0) return '';
+  return html`<dt class="${META_TERM}">Downloads</dt>
+      <dd class="${META_VALUE} flex flex-wrap gap-x-4 gap-y-1">${offered.map(
+        ({ path, label }) =>
+          html`<a href="/runs/${encodeURIComponent(run.id)}/${path}" download class="${LINK}" data-download="${path}">${label}</a>`,
+      )}</dd>`;
+};
 
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
   generations: GenerationRecord[],
-  hasRawEvents: boolean,
+  downloads: Downloads,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
@@ -665,7 +792,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
       <dt class="${META_TERM}">Providers</dt>
       <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
-      ${hasRawEvents ? renderDownloads(run) : ''}
+      ${renderDownloads(run, downloads)}
     </dl>
     ${run.error === null ? '' : html`<p class="${ERROR_CALLOUT} mb-4">${run.error}</p>`}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>

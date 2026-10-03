@@ -128,6 +128,7 @@ export const runWorkload = async (
         type: 'message',
         role: 'user',
         text: worker.prompt,
+        timestamp: startTime,
         usage: {
           inputTokens: 0,
           outputTokens: 0,

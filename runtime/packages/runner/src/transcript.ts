@@ -15,7 +15,7 @@ const capped = (text: string): string =>
 export interface TranscriptPolicy {
   record(event: HarnessEvent): HarnessEvent;
   redact(text: string): string;
-  redactValue(value: unknown): unknown;
+  redactValue<T>(value: T): T;
 }
 
 export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
@@ -25,27 +25,27 @@ export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
       (redacted, secret) => redacted.replaceAll(secret, REDACTED),
       text,
     );
-  const redactValue = (value: unknown): unknown => {
+  const redactUnknown = (value: unknown): unknown => {
     if (typeof value === 'string') {
       return redact(value);
     }
     if (Array.isArray(value)) {
-      return value.map(redactValue);
+      return value.map(redactUnknown);
     }
     if (typeof value === 'object' && value !== null) {
       return Object.fromEntries(
         Object.entries(value).map(([key, field]) => [
           redact(key),
-          redactValue(field),
+          redactUnknown(field),
         ]),
       );
     }
     return value;
   };
+  const redactValue = <T>(value: T): T => redactUnknown(value) as T;
+
   const record = (event: HarnessEvent): HarnessEvent => {
     switch (event.type) {
-      case 'message':
-        return { ...event, text: redact(event.text) };
       case 'tool_call': {
         const redacted = redactValue(event.arguments);
         const json = JSON.stringify(redacted) ?? '';
@@ -57,10 +57,8 @@ export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
       }
       case 'tool_result':
         return { ...event, text: capped(redact(event.text)) };
-      case 'result':
-        return event.error === null
-          ? event
-          : { ...event, error: redact(event.error) };
+      default:
+        return redactValue(event);
     }
   };
   return { record, redact, redactValue };

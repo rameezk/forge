@@ -284,6 +284,7 @@ test('given a worker whose prompt contains a secret, when it is run, then the fi
     type: 'message',
     role: 'user',
     text: '/work-on https://example.test/1 [redacted]',
+    timestamp: '2026-09-21T10:00:00.000Z',
     usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
     generationId: null,
   });

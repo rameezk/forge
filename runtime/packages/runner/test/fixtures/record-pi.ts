@@ -36,6 +36,10 @@ const runPi = async (
     join(home, '.pi', 'agent', 'models.json'),
     JSON.stringify({ providers: { openrouter: { baseUrl } } }),
   );
+  writeFileSync(
+    join(home, '.pi', 'agent', 'settings.json'),
+    JSON.stringify({ compaction: { keepRecentTokens: 1 } }),
+  );
   const child = spawn(pi, args, {
     cwd: work,
     env: {
