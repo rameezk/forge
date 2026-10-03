@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { rawEventsRef, type RunRecord, type Store } from '@forge/shared';
+import { rawEventsRef, requestRecordRef, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
+import { workloadContext } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
 import { isSettled, NAV_PAGES, renderDetail, renderList, renderWork, type AssetHrefs, type Downloads } from './views.ts';
 
@@ -74,6 +75,7 @@ export const createApp = ({
   const downloadsOf = (run: RunRecord): Downloads => ({
     transcript: downloadable(run.transcriptRef),
     rawEvents: downloadable(rawEventsRef(run.id)),
+    requestRecord: downloadable(requestRecordRef(run.id)),
   });
 
   app.get('/runs/:id', (c) => {
@@ -81,7 +83,8 @@ export const createApp = ({
     if (run === undefined) return c.notFound();
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
-    return c.html(renderDetail(run, events, store.listGenerations(run.id), downloadsOf(run), assets));
+    const context = workloadContext((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
+    return c.html(renderDetail(run, events, context, store.listGenerations(run.id), downloadsOf(run), assets));
   });
 
   const serveDownload = (path: `/runs/:id/${string}`, refOf: (run: RunRecord) => string | null): void => {
@@ -99,6 +102,7 @@ export const createApp = ({
 
   serveDownload('/runs/:id/transcript', (run) => run.transcriptRef);
   serveDownload('/runs/:id/raw-events', (run) => rawEventsRef(run.id));
+  serveDownload('/runs/:id/request-record', (run) => requestRecordRef(run.id));
 
   const renderedHash = async (page: string): Promise<string> =>
     createHash('sha256')

@@ -12,6 +12,7 @@
 let
   subagentExtension = "lib/forge-runtime/packages/pi-subagent/src";
   modelDefaultReasoningExtension = "lib/forge-runtime/packages/pi-model-default-reasoning/src";
+  requestRecordExtension = "lib/forge-runtime/packages/pi-request-record/src";
   sandboxFlags = lib.optionalString stdenv.hostPlatform.isLinux "--set FORGE_BWRAP ${lib.getExe bubblewrap}";
   piAgentDir = runCommand "pi-agent-dir" { } "mkdir $out";
   piPackage = "${pi-coding-agent}/lib/node_modules/pi-monorepo";
@@ -29,7 +30,7 @@ buildNpmPackage {
   };
   sourceRoot = "source/runtime";
 
-  npmDepsHash = "sha256-3hVLH+vWxaUZI+8nbsosnNuraS/y74QhZjSEzzyWLe8=";
+  npmDepsHash = "sha256-mmjr/ZF7jDCashHuvHrnNQgpLIkMxhdJnaHSGLG/Rx8=";
 
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [ git ];
@@ -51,12 +52,14 @@ buildNpmPackage {
       --add-flags "$out/lib/forge-runtime/packages/runner/src/main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
       --set FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION "$out/${modelDefaultReasoningExtension}" \
+      --set FORGE_PI_REQUEST_RECORD_EXTENSION "$out/${requestRecordExtension}" \
       --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
       ${sandboxFlags}
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/dispatch-main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
       --set FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION "$out/${modelDefaultReasoningExtension}" \
+      --set FORGE_PI_REQUEST_RECORD_EXTENSION "$out/${requestRecordExtension}" \
       --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
       ${sandboxFlags} \
       --set FORGE_PI_PACKAGE "${piPackage}" \
@@ -76,6 +79,7 @@ buildNpmPackage {
     inherit
       subagentExtension
       modelDefaultReasoningExtension
+      requestRecordExtension
       piAgentDir
       piPackage
       ;

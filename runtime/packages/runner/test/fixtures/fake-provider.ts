@@ -1,6 +1,7 @@
 import { once } from 'node:events';
 import {
   createServer,
+  type IncomingHttpHeaders,
   type IncomingMessage,
   type ServerResponse,
 } from 'node:http';
@@ -13,6 +14,7 @@ export type Respond = (
   call: number,
   res: ServerResponse,
   request: ChatRequest,
+  headers: IncomingHttpHeaders,
 ) => void;
 
 export interface Usage {
@@ -184,12 +186,12 @@ export const providerRejection = (res: ServerResponse): void => {
   );
 };
 
-export const failingAlphaChild: Respond = (call, res, request) => {
+export const failingAlphaChild: Respond = (call, res, request, headers) => {
   if (sentToolResults(request)) {
     providerRejection(res);
     return;
   }
-  alphaChild(call, res, request);
+  alphaChild(call, res, request, headers);
 };
 
 export const betaChild: Respond = (_call, res) =>
@@ -200,12 +202,13 @@ export const betaChild: Respond = (_call, res) =>
 
 export const delegating =
   (alpha: Respond, finalText: string): Respond =>
-  (call, res, request) => {
+  (call, res, request, headers) => {
     if (mentions(request, 'You are a sub-agent')) {
       (mentions(request, SUBAGENT_TASKS.alpha) ? alpha : betaChild)(
         call,
         res,
         request,
+        headers,
       );
       return;
     }
@@ -337,10 +340,97 @@ export const serve = async (
     req.on('data', (data: Buffer) => (body += data.toString()));
     req.on('end', () => {
       calls += 1;
-      respond(calls, res, JSON.parse(body) as ChatRequest);
+      respond(calls, res, JSON.parse(body) as ChatRequest, req.headers);
     });
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   return server;
 };
+
+export interface AnthropicUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+}
+
+export interface AnthropicToolUse {
+  id: string;
+  name: string;
+  input: Record<string, string>;
+}
+
+export interface AnthropicTurn {
+  thinking?: string;
+  text?: string;
+  toolUses?: AnthropicToolUse[];
+}
+
+const anthropicBlocks = ({ thinking, text, toolUses = [] }: AnthropicTurn): unknown[][] => [
+  ...(thinking === undefined
+    ? []
+    : [[
+        { type: 'thinking', thinking: '', signature: '' },
+        { type: 'thinking_delta', thinking },
+        { type: 'signature_delta', signature: `signed:${thinking}` },
+      ]]),
+  ...(text === undefined
+    ? []
+    : [[{ type: 'text', text: '' }, { type: 'text_delta', text }]]),
+  ...toolUses.map(({ id, name, input }) => [
+    { type: 'tool_use', id, name, input: {} },
+    { type: 'input_json_delta', partial_json: JSON.stringify(input) },
+  ]),
+];
+
+export const anthropicReply = (
+  id: string,
+  turn: AnthropicTurn,
+  usage: AnthropicUsage,
+): unknown[] => [
+  {
+    type: 'message_start',
+    message: {
+      id,
+      type: 'message',
+      role: 'assistant',
+      model: 'anthropic/claude-opus-4.5',
+      content: [],
+      stop_reason: null,
+      usage: { ...usage, output_tokens: 1 },
+    },
+  },
+  ...anthropicBlocks(turn).flatMap(([start, ...deltas], index) => [
+    { type: 'content_block_start', index, content_block: start },
+    ...deltas.map((delta) => ({ type: 'content_block_delta', index, delta })),
+    { type: 'content_block_stop', index },
+  ]),
+  {
+    type: 'message_delta',
+    delta: { stop_reason: (turn.toolUses ?? []).length > 0 ? 'tool_use' : 'end_turn' },
+    usage: { output_tokens: usage.output_tokens },
+  },
+  { type: 'message_stop' },
+];
+
+export const anthropicSse = (res: ServerResponse, events: unknown[]): void => {
+  res.writeHead(200, { 'content-type': 'text/event-stream' });
+  for (const event of events) {
+    const { type } = event as { type: string };
+    res.write(`event: ${type}\ndata: ${JSON.stringify(event)}\n\n`);
+  }
+  res.end();
+};
+
+export const anthropicUsage = (
+  input: number,
+  cacheRead: number,
+  cacheWrite: number,
+  output: number,
+): AnthropicUsage => ({
+  input_tokens: input,
+  output_tokens: output,
+  cache_read_input_tokens: cacheRead,
+  cache_creation_input_tokens: cacheWrite,
+});

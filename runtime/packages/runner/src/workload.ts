@@ -80,6 +80,7 @@ const harnessFor = (
       env,
       'FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION',
     ),
+    requestRecord: absolutePath(env, 'FORGE_PI_REQUEST_RECORD_EXTENSION'),
   };
   const agentDir = absolutePath(env, 'FORGE_PI_AGENT_DIR');
   return new PiHarness({
@@ -137,6 +138,8 @@ export const launchWorkload = async ({
       worker,
       openTranscript: (runId) => JsonLinesFile.transcript(transcriptsDir, runId),
       openRawEvents: (runId) => JsonLinesFile.rawEvents(transcriptsDir, runId),
+      openRequestRecord: (runId) =>
+        JsonLinesFile.requestRecord(transcriptsDir, runId),
       openWorkspace: (runId) => openWorkspace(join(workDirs, runId)),
       now: () => new Date().toISOString(),
       newId: () => runId,

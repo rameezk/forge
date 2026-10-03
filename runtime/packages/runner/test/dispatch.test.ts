@@ -35,8 +35,11 @@ const PI_OUTPUT = join(import.meta.dirname, 'fixtures', 'pi', 'success.jsonl');
 
 const PROVIDER_ERROR = join(import.meta.dirname, 'fixtures', 'pi', 'provider-error.jsonl');
 
-const { subagent: EXTENSION, modelDefaultReasoning: REASONING_EXTENSION } =
-  PI_EXTENSIONS;
+const {
+  subagent: EXTENSION,
+  modelDefaultReasoning: REASONING_EXTENSION,
+  requestRecord: REQUEST_RECORD_EXTENSION,
+} = PI_EXTENSIONS;
 
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
@@ -403,6 +406,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_STATE_DIR: stateDir,
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
+      FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
       FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
       FORGE_BWRAP: writeFakeBwrap(stateDir, {
@@ -1136,6 +1140,8 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
     ...PI_CONTRACT,
     '-e',
     REASONING_EXTENSION,
+    '-e',
+    REQUEST_RECORD_EXTENSION,
     '--skill',
     join(root, '.claude', 'skills'),
     '--skill',
@@ -1170,6 +1176,8 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
     ...PI_CONTRACT,
     '-e',
     REASONING_EXTENSION,
+    '-e',
+    REQUEST_RECORD_EXTENSION,
     '--skill',
     join(root, '.agents', 'skills'),
     '--append-system-prompt',
@@ -1342,6 +1350,7 @@ test('given a runner whose own environment holds its git config, the write-token
 
   assert.ok(bwrap);
   assert.deepEqual(Object.keys(bwrap.env).sort(), [
+    'FORGE_PI_REQUEST_RECORD_FD',
     'FORGE_PI_SUBAGENT_INVOCATION',
     'GITHUB_TOKEN',
     'GIT_AUTHOR_EMAIL',

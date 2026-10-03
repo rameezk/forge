@@ -1187,3 +1187,73 @@ test('given a subagent whose final message is its report and carries thinking, a
   assert.equal(textOf(metaOf(report)), '11:32:30 UTC · stop');
   assert.match(thinkingOf(report), /I should just say alpha\./);
 });
+
+const jsonLinesOf = (lines: unknown[]): string => lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+
+const REQUEST_RECORD = [
+  { type: 'system_prompt', hash: 'h-system', value: [{ type: 'text', text: 'You are an expert coding assistant.\n\n<rules>\n- Be concise\n</rules>' }] },
+  {
+    type: 'tools',
+    hash: 'h-tools',
+    tools: [
+      { name: 'bash', description: 'Execute a bash command.', input_schema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
+      { name: 'subagent', description: 'Delegate a task to a sub-agent.', input_schema: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'] } },
+    ],
+  },
+  { type: 'request', body: { model: 'anthropic/claude-opus-4.5', system: { hash: 'h-system' }, messages: [{ role: 'user', hash: 'h-user' }], tools: { hash: 'h-tools' } }, cacheMarkers: [] },
+  { type: 'system_prompt', hash: 'h-child-system', value: [{ type: 'text', text: 'You are a sub-agent working alone.' }] },
+  { type: 'request', subagent: 'call_alpha', body: { model: 'anthropic/claude-opus-4.5', system: { hash: 'h-child-system' }, messages: [{ role: 'user', hash: 'h-task' }] }, cacheMarkers: [] },
+];
+
+const systemPromptSection = (body: string): string => detailsBlocks(body, /<details[^>]*\sdata-system-prompt[\s>]/g)[0] ?? '';
+const toolsSection = (body: string): string => detailsBlocks(body, /<details[^>]*\sdata-tools[\s>]/g)[0] ?? '';
+
+test('given a workload with a request record, when its detail page is requested, then the workload\'s system prompt and its tool list are collapsed sections, its subagent\'s system prompt is not among them, and the record can be downloaded', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  writeFileSync(join(dir, 'run-01.requests.jsonl'), jsonLinesOf(REQUEST_RECORD));
+  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: null })], dir);
+
+  const page = await (await app.request('/runs/run-01')).text();
+
+  const systemPrompt = systemPromptSection(page);
+  assert.ok(systemPrompt, 'the page should have a system prompt section');
+  assert.doesNotMatch(openingTag(systemPrompt), /\sopen[\s>]/);
+  assert.equal(textOf(systemPrompt.match(/<summary[\s\S]*?<\/summary>/)?.[0] ?? ''), 'System prompt');
+  assert.match(systemPrompt, /You are an expert coding assistant\.\n\n&lt;rules&gt;\n- Be concise\n&lt;\/rules&gt;/);
+  const tools = toolsSection(page);
+  assert.ok(tools, 'the page should have a tools section');
+  assert.doesNotMatch(openingTag(tools), /\sopen[\s>]/);
+  assert.equal(textOf(tools.match(/<summary[\s\S]*?<\/summary>/)?.[0] ?? ''), 'Tools 2');
+  assert.deepEqual(
+    (tools.match(/<[^>]*\sdata-tool-name[^>]*>[\s\S]*?<\/[a-z]+>/g) ?? []).map(textOf),
+    ['bash', 'subagent'],
+  );
+  assert.match(tools, /Execute a bash command\./);
+  assert.match(tools, /&quot;command&quot;/);
+  assert.doesNotMatch(page, /You are a sub-agent working alone\./);
+  const link = page.match(/<a[^>]*\sdata-download="request-record"[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
+  const href = link.match(/\shref="([^"]+)"/)?.[1];
+  assert.ok(href, 'the run page should link to its request record');
+  assert.equal(textOf(link), 'Request record');
+  const download = await app.request(href);
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get('content-disposition'), 'attachment; filename="run-01.requests.jsonl"');
+  assert.equal(await download.text(), jsonLinesOf(REQUEST_RECORD));
+});
+
+test('given a request record whose system prompt is far longer than one read of the file, when the detail page is requested, then the whole system prompt is shown', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  const systemPrompt = `${'Follow the rules. '.repeat(12_000)}The end.`;
+  writeFileSync(
+    join(dir, 'run-01.requests.jsonl'),
+    jsonLinesOf([
+      { type: 'system_prompt', hash: 'h-system', value: [{ type: 'text', text: systemPrompt }] },
+      { type: 'request', body: { system: { hash: 'h-system' }, messages: [] }, cacheMarkers: [] },
+    ]),
+  );
+  const app = appWith([sampleRun({ id: 'run-01', transcriptRef: null })], dir);
+
+  const page = await (await app.request('/runs/run-01')).text();
+
+  assert.equal(textOf(systemPromptSection(page).match(/<pre[^>]*>[\s\S]*?<\/pre>/)?.[0] ?? ''), systemPrompt);
+});

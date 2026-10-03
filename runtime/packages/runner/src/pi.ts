@@ -1,6 +1,7 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
+import type { Readable } from 'node:stream';
 import {
   errorMessage,
   type CompactionEvent,
@@ -16,16 +17,23 @@ import {
   type SubagentInvocation,
   type SubagentUpdate,
 } from '@forge/pi-subagent';
+import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { requireSkill } from './checkout.ts';
 import { underDevShell } from './devshell.ts';
-import { spawnSandboxed, type Sandbox } from './sandbox.ts';
+import {
+  REQUEST_RECORD_FD,
+  spawnSandboxed,
+  type Sandbox,
+} from './sandbox.ts';
 import { tokenCount } from './token-count.ts';
 import {
   UNATTENDED_INSTRUCTION,
   type Checkout,
   type Harness,
   type HarnessInvocation,
+  type HarnessSinks,
   type RawEventSink,
+  type RequestRecordSink,
 } from './harness.ts';
 
 const appended = (prompt: string): string[] => ['--append-system-prompt', prompt];
@@ -55,6 +63,7 @@ const checkoutArgs = (checkout: Checkout): string[] => [
 export interface PiExtensions {
   subagent: string;
   modelDefaultReasoning: string;
+  requestRecord: string;
 }
 
 const reasoningArgs = (
@@ -84,6 +93,8 @@ const contractArgs = (
   '--model',
   invocation.model,
   ...reasoningArgs(invocation, extensions),
+  '-e',
+  extensions.requestRecord,
   ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout)),
 ];
 
@@ -143,6 +154,7 @@ export const piArgs = (
 
 export const piEnv = (agentDir: string): NodeJS.ProcessEnv => ({
   PI_CODING_AGENT_DIR: agentDir,
+  [REQUEST_RECORD_FD_ENV]: String(REQUEST_RECORD_FD),
 });
 
 const SUBAGENT_SYSTEM_PROMPT = [
@@ -158,6 +170,7 @@ export const subagentInvocation = (
 ): SubagentInvocation => ({
   argv: [command, ...contractArgs(invocation, extensions)],
   systemPrompt: SUBAGENT_SYSTEM_PROMPT,
+  requestRecordFd: REQUEST_RECORD_FD,
 });
 
 interface PiUsage {
@@ -459,6 +472,36 @@ class PiStream {
   }
 }
 
+const definitionHash = (line: unknown): string | null => {
+  const { type, hash } = line as { type?: unknown; hash?: unknown };
+  return (type === 'system_prompt' || type === 'tools') && typeof hash === 'string'
+    ? hash
+    : null;
+};
+
+const recordLines = async (
+  record: Readable,
+  sink: RequestRecordSink,
+): Promise<void> => {
+  const defined = new Set<string>();
+  for await (const line of createInterface({ input: record, crlfDelay: Infinity })) {
+    if (line.trim().length === 0) continue;
+    const parsed: unknown = parseLine(line);
+    if (typeof parsed !== 'object' || parsed === null) {
+      process.stderr.write(
+        `pi wrote a ${line.length}-character request record line that is not a JSON object, so it was dropped\n`,
+      );
+      continue;
+    }
+    const hash = definitionHash(parsed);
+    if (hash !== null) {
+      if (defined.has(hash)) continue;
+      defined.add(hash);
+    }
+    sink(parsed);
+  }
+};
+
 const realCommand = (command: string): string => {
   const unresolved = (reason: string): Error =>
     new Error(`the harness command ${command} cannot be resolved: ${reason}`);
@@ -503,13 +546,13 @@ export class PiHarness implements Harness {
 
   async *run(
     invocation: HarnessInvocation,
-    rawEvents: RawEventSink,
+    sinks: HarnessSinks,
   ): AsyncIterable<HarnessEvent> {
-    const stream = new PiStream(rawEvents);
+    const stream = new PiStream(sinks.rawEvent);
     const command = realCommand(this.#command);
     warnUnloadedProjectConfig(invocation.checkout);
     const args = piArgs(invocation, this.#extensions, this.#extraArgs);
-    const { child, stdout, exited: exit } = spawnSandboxed(
+    const { child, stdout, requestRecord, exited: exit } = spawnSandboxed(
       this.#sandbox,
       command,
       args,
@@ -526,6 +569,13 @@ export class PiHarness implements Harness {
       },
     );
 
+    const recordFailure = recordLines(requestRecord, sinks.requestRecord).then(
+      () => null,
+      (error: unknown) => {
+        child.kill('SIGKILL');
+        return { error };
+      },
+    );
     let drained = false;
     try {
       const lines = createInterface({
@@ -545,8 +595,13 @@ export class PiHarness implements Harness {
         child.kill('SIGKILL');
         await exit;
       }
+      await recordFailure;
     }
 
+    const failure = await recordFailure;
+    if (failure !== null) {
+      throw failure.error;
+    }
     yield stream.result(await exit);
   }
 }

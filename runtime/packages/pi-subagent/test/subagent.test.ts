@@ -4,6 +4,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   realpathSync,
   symlinkSync,
@@ -167,6 +168,11 @@ const loadExtension = (invocation: SubagentInvocation): LoadedExtension => {
 const loadTool = (invocation: SubagentInvocation): SubagentTool =>
   loadExtension(invocation).tool;
 
+const REQUEST_RECORD_FD = openSync(
+  join(mkdtempSync(join(tmpdir(), 'forge-request-record-')), 'requests.jsonl'),
+  'a',
+);
+
 const childInvocation = (binary: string): SubagentInvocation => ({
   argv: [
     binary,
@@ -182,6 +188,7 @@ const childInvocation = (binary: string): SubagentInvocation => ({
     'high',
   ],
   systemPrompt: 'You are a sub-agent.',
+  requestRecordFd: REQUEST_RECORD_FD,
 });
 
 const runDir = (): string => mkdtempSync(join(tmpdir(), 'forge-run-'));
@@ -281,8 +288,10 @@ test('given no usable child invocation in the environment, when pi loads the ext
   for (const value of [
     undefined,
     'pi --mode json',
-    '{"argv":[],"systemPrompt":"x"}',
-    '{"argv":["pi"]}',
+    '{"argv":[],"systemPrompt":"x","requestRecordFd":4}',
+    '{"argv":["pi"],"requestRecordFd":4}',
+    '{"argv":["pi"],"systemPrompt":"x"}',
+    '{"argv":["pi"],"systemPrompt":"x","requestRecordFd":2}',
   ]) {
     if (value === undefined) {
       delete process.env[SUBAGENT_INVOCATION_ENV];
