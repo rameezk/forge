@@ -70,6 +70,7 @@ let
         chmod +x flake/hello
         nix --offline run "path:$PWD/flake" > nix.out 2>&1
         nix store info >> nix.out 2>&1
+        echo '{"type":"request","body":{"probe":"crossed the sandbox"},"cacheMarkers":[]}' >&"$FORGE_PI_REQUEST_RECORD_FD"
         ;;
     esac
     echo '{"type":"agent_start"}'
@@ -192,6 +193,7 @@ testers.runNixOSTest {
     with subtest("the harness receives only deliberate credentials"):
         names = set(box.succeed(f"cat {run_dir}/env.out").split())
         deliberate = {
+            "FORGE_PI_REQUEST_RECORD_FD",
             "FORGE_PI_SUBAGENT_INVOCATION",
             "HOME",
             "LANG",
@@ -203,6 +205,12 @@ testers.runNixOSTest {
         }
         shell = {"OLDPWD", "PWD", "SHLVL", "_"}
         assert names <= deliberate | shell, names - deliberate - shell
+
+    with subtest("the harness's request record leaves the sandbox into the state directory, not its run directory"):
+        run_id = run_dir.rsplit("/", 1)[1]
+        record = box.succeed(f"cat /var/lib/forge/transcripts/{run_id}.requests.jsonl")
+        assert "crossed the sandbox" in record, record
+        box.fail(f"ls {run_dir} | grep -q requests")
 
     with subtest("the agent can nix run a flake from its path, through the daemon socket"):
         out = box.succeed(f"cat {run_dir}/nix.out")

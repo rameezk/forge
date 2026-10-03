@@ -8,6 +8,8 @@ export interface Sandbox {
 
 const STATUS_FD = 3;
 
+export const REQUEST_RECORD_FD = 4;
+
 const readOnly = (path: string): string[] => ['--ro-bind', path, path];
 
 export const sandboxArgs = ({ home }: Sandbox, workDir: string): string[] => [
@@ -49,6 +51,7 @@ export class SandboxUnavailable extends Error {}
 export interface SandboxedProcess {
   child: ChildProcess;
   stdout: Readable;
+  requestRecord: Readable;
   exited: Promise<Error | null>;
 }
 
@@ -124,12 +127,13 @@ export const spawnSandboxed = (
     {
       cwd: workDir,
       env: { ...env, HOME: sandbox.home },
-      stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
     },
   );
   return {
     child,
     stdout: child.stdout as Readable,
+    requestRecord: child.stdio[REQUEST_RECORD_FD] as Readable,
     exited: exitOf(
       name,
       child,

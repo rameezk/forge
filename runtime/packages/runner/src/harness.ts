@@ -30,10 +30,17 @@ export interface HarnessInvocation extends Workspace {
 
 export type RawEventSink = (event: unknown) => void;
 
+export type RequestRecordSink = (line: unknown) => void;
+
+export interface HarnessSinks {
+  rawEvent: RawEventSink;
+  requestRecord: RequestRecordSink;
+}
+
 export interface Harness {
   run(
     invocation: HarnessInvocation,
-    rawEvents: RawEventSink,
+    sinks: HarnessSinks,
   ): AsyncIterable<HarnessEvent>;
 }
 

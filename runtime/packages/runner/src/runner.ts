@@ -15,7 +15,7 @@ import {
 import type { LookUpListPrice } from './openrouter.ts';
 import {
   transcriptPolicy,
-  type RawEventsWriter,
+  type JsonLinesWriter,
   type TranscriptWriter,
 } from './transcript.ts';
 
@@ -24,7 +24,8 @@ export interface RunWorkloadOptions {
   harness: Harness;
   worker: Worker;
   openTranscript: (runId: string) => TranscriptWriter;
-  openRawEvents: (runId: string) => RawEventsWriter;
+  openRawEvents: (runId: string) => JsonLinesWriter;
+  openRequestRecord: (runId: string) => JsonLinesWriter;
   openWorkspace: (runId: string) => Workspace | Promise<Workspace>;
   now: () => string;
   newId: () => string;
@@ -77,6 +78,7 @@ export const runWorkload = async (
   const listPrice = 'price' in listed ? listed.price : null;
   const transcript = openTranscript(id);
   const rawEvents = options.openRawEvents(id);
+  const requestRecord = options.openRequestRecord(id);
 
   store.insertRun({
     id,
@@ -139,10 +141,15 @@ export const runWorkload = async (
       }),
     );
     const invocation = invocationFor(worker, await openWorkspace(id));
-    const keepRaw = (event: unknown): void => {
-      rawEvents.append(policy.redactValue(event));
+    const sinks = {
+      rawEvent: (event: unknown): void => {
+        rawEvents.append(policy.redactValue(event));
+      },
+      requestRecord: (line: unknown): void => {
+        requestRecord.append(policy.redactValue(line));
+      },
     };
-    for await (const harnessEvent of harness.run(invocation, keepRaw)) {
+    for await (const harnessEvent of harness.run(invocation, sinks)) {
       const event = policy.record(harnessEvent);
       await transcript.append(event);
       if (event.type === 'message') {
@@ -171,6 +178,7 @@ export const runWorkload = async (
   } finally {
     await transcript.close();
     rawEvents.close();
+    requestRecord.close();
   }
 
   store.finalizeRun(id, {

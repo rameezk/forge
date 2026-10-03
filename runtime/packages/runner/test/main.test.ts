@@ -15,6 +15,7 @@ import { dirname, join, sep } from 'node:path';
 import {
   parseTranscript,
   rawEventsRef,
+  requestRecordRef,
   Store,
   type GenerationRecord,
   type MessageEvent,
@@ -42,8 +43,11 @@ const FIXTURES = join(import.meta.dirname, 'fixtures', 'pi');
 
 const fixture = (name: string): string => join(FIXTURES, name);
 
-const { subagent: EXTENSION, modelDefaultReasoning: REASONING_EXTENSION } =
-  PI_EXTENSIONS;
+const {
+  subagent: EXTENSION,
+  modelDefaultReasoning: REASONING_EXTENSION,
+  requestRecord: REQUEST_RECORD_EXTENSION,
+} = PI_EXTENSIONS;
 
 const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
 
@@ -78,6 +82,7 @@ const jsonLines = (contents: string): Record<string, unknown>[] =>
 
 interface Scenario {
   output: string;
+  requests?: string;
   openRouterBaseUrl?: string;
   openRouterKey?: string;
   worker?: Partial<WorkerConfig>;
@@ -97,6 +102,7 @@ interface Outcome {
   run: RunRecord;
   transcript: string;
   rawEvents: Record<string, unknown>[];
+  requestRecord: Record<string, unknown>[];
   bwrap: BwrapCall;
   piStarted: boolean;
   pi: {
@@ -163,6 +169,9 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       FAKE_PI_RECORD: record,
       FAKE_PI_OUTPUT: scenario.output,
       FAKE_PI_EXIT: String(scenario.exit ?? 0),
+      ...(scenario.requests === undefined
+        ? {}
+        : { FAKE_PI_REQUESTS: scenario.requests }),
       ...(scenario.stderr === undefined
         ? {}
         : { FAKE_PI_STDERR: scenario.stderr }),
@@ -213,6 +222,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       FORGE_STATE_DIR: stateDir,
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
+      FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
       FORGE_PI_AGENT_DIR: AGENT_DIR,
       FORGE_BWRAP: fakeBwrap,
       ...scenario.env,
@@ -239,6 +249,14 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       return jsonLines(
         readFileSync(
           join(stateDir, 'transcripts', rawEventsRef(runId)),
+          'utf8',
+        ),
+      );
+    },
+    get requestRecord() {
+      return jsonLines(
+        readFileSync(
+          join(stateDir, 'transcripts', requestRecordRef(runId)),
           'utf8',
         ),
       );
@@ -1099,6 +1117,33 @@ test('given a workload whose pi dies mid-run, when its raw events are read while
   assert.deepEqual(rawEvents, emitted);
 });
 
+const filesUnder = (dir: string): string[] =>
+  readdirSync(dir, { recursive: true, encoding: 'utf8' });
+
+test('given a workload whose pi records its requests with the OpenRouter key in its system prompt, when the workload ends, then its request record sits next to its transcript in the state directory, not in its run directory, with the key redacted', async () => {
+  const record = (key: string): Record<string, unknown>[] => [
+    { type: 'system_prompt', hash: 'h-system', value: [{ type: 'text', text: `The key is ${key}.` }] },
+    { type: 'tools', hash: 'h-tools', tools: [{ name: 'bash', description: 'Run a command.' }] },
+    {
+      type: 'request',
+      body: { model: 'z-ai/glm-5', system: { hash: 'h-system' }, messages: [{ role: 'user', hash: 'h-user' }], tools: { hash: 'h-tools' } },
+      cacheMarkers: [{ path: ['system', 0], value: { type: 'ephemeral' } }],
+    },
+  ];
+
+  const { stateDir, run, requestRecord } = await runWorker({
+    output: fixture('success.jsonl'),
+    requests: outputOf(record(OPENROUTER_KEY)),
+  });
+
+  assert.deepEqual(requestRecord, record('[redacted]'));
+  assert.ok(existsSync(join(stateDir, 'transcripts', `${run.id}.jsonl`)));
+  assert.deepEqual(
+    filesUnder(join(stateDir, 'work', run.id)).filter((path) => path.includes('requests')),
+    [],
+  );
+});
+
 test('given pi failing with the OpenRouter key in its stderr, when the worker runs, then the recorded run error and transcript carry the reason with the key redacted', async () => {
   const stderr = outputFile(`boom: rejected key ${OPENROUTER_KEY}\n`);
   const { run, transcript } = await journaled(() =>
@@ -1277,6 +1322,8 @@ test('given workers with and without a reasoning effort and a harness with opera
     '--thinking',
     'max',
     '-e',
+    REQUEST_RECORD_EXTENSION,
+    '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,
     'refine the spec',
@@ -1285,6 +1332,8 @@ test('given workers with and without a reasoning effort and a harness with opera
     ...PI_CONTRACT,
     '-e',
     REASONING_EXTENSION,
+    '-e',
+    REQUEST_RECORD_EXTENSION,
     '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,
@@ -1319,11 +1368,15 @@ test('given workers with and without a reasoning effort and a harness with opera
     ...PI_CONTRACT,
     '--thinking',
     'high',
+    '-e',
+    REQUEST_RECORD_EXTENSION,
   ]);
   assert.deepEqual(withoutEffortChild.argv.slice(1), [
     ...PI_CONTRACT,
     '-e',
     REASONING_EXTENSION,
+    '-e',
+    REQUEST_RECORD_EXTENSION,
   ]);
   assert.match(withEffortChild.systemPrompt, /sub-agent/);
   assert.match(withEffortChild.systemPrompt, /returned verbatim/);
@@ -1442,6 +1495,7 @@ test('given a runner whose own environment holds more than the harness needs, wh
   });
 
   assert.deepEqual(Object.keys(bwrap.env).sort(), [
+    'FORGE_PI_REQUEST_RECORD_FD',
     'FORGE_PI_SUBAGENT_INVOCATION',
     'HOME',
     'LANG',
@@ -2013,10 +2067,11 @@ test('given a billing service with no OpenRouter key, a key that is not a valid 
   }
 });
 
-test('given a runner whose subagent extension, model default reasoning extension, read-only agent dir, bubblewrap or HOME is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
+test('given a runner whose subagent extension, model default reasoning extension, request record extension, read-only agent dir, bubblewrap or HOME is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
   const valid = {
     FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
     FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
+    FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
     FORGE_PI_AGENT_DIR: AGENT_DIR,
     FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap',
     HOME: RUNNER_HOME,

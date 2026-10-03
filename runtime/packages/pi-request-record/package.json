@@ -1,0 +1,8 @@
+{
+  "name": "@forge/pi-request-record",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

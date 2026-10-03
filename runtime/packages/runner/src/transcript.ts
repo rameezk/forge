@@ -1,7 +1,7 @@
 import { closeSync, openSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@forge/shared';
-import { rawEventsRef } from '@forge/shared';
+import { rawEventsRef, requestRecordRef } from '@forge/shared';
 
 const TOOL_PAYLOAD_CAP_CHARS = 32 * 1024;
 
@@ -70,12 +70,12 @@ export interface TranscriptWriter {
   close(): void | Promise<void>;
 }
 
-export interface RawEventsWriter {
-  append(event: unknown): void;
+export interface JsonLinesWriter {
+  append(value: unknown): void;
   close(): void;
 }
 
-export class JsonLinesFile implements TranscriptWriter, RawEventsWriter {
+export class JsonLinesFile implements TranscriptWriter, JsonLinesWriter {
   readonly ref: string;
   readonly #fd: number;
 
@@ -90,6 +90,10 @@ export class JsonLinesFile implements TranscriptWriter, RawEventsWriter {
 
   static rawEvents(dir: string, runId: string): JsonLinesFile {
     return new JsonLinesFile(dir, rawEventsRef(runId));
+  }
+
+  static requestRecord(dir: string, runId: string): JsonLinesFile {
+    return new JsonLinesFile(dir, requestRecordRef(runId));
   }
 
   append(value: unknown): void {

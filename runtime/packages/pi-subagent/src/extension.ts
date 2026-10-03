@@ -1,7 +1,9 @@
-import { spawn } from 'node:child_process';
+import { spawn, type StdioOptions } from 'node:child_process';
+import { writeSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
+import type { Readable } from 'node:stream';
 import {
   childArgs,
   type JsonValue,
@@ -95,17 +97,24 @@ const readInvocation = (env: NodeJS.ProcessEnv): SubagentInvocation => {
     env[SUBAGENT_INVOCATION_ENV] ?? '',
   );
   const argv = invocation?.argv;
+  const requestRecordFd = invocation?.requestRecordFd;
   if (
     !Array.isArray(argv) ||
     argv.length === 0 ||
     !argv.every((arg) => typeof arg === 'string') ||
-    typeof invocation?.systemPrompt !== 'string'
+    typeof invocation?.systemPrompt !== 'string' ||
+    !Number.isInteger(requestRecordFd) ||
+    (requestRecordFd as number) <= 2
   ) {
     throw new Error(
-      `${SUBAGENT_INVOCATION_ENV} must hold the child pi invocation as {argv, systemPrompt}`,
+      `${SUBAGENT_INVOCATION_ENV} must hold the child pi invocation as {argv, systemPrompt, requestRecordFd}`,
     );
   }
-  return { argv, systemPrompt: invocation.systemPrompt };
+  return {
+    argv,
+    systemPrompt: invocation.systemPrompt,
+    requestRecordFd: requestRecordFd as number,
+  };
 };
 
 const textOf = (message: ChildMessage): string =>
@@ -256,19 +265,75 @@ const exitFailure = (
     : `sub-agent pi exited ${how}: ${reason}`;
 };
 
+const childStdio = (recordFd: number): StdioOptions => [
+  'ignore',
+  'pipe',
+  'pipe',
+  ...Array<'ignore'>(recordFd - 3).fill('ignore'),
+  'pipe',
+];
+
+const writeLine = (fd: number, line: string): void => {
+  const bytes = Buffer.from(`${line}\n`);
+  let written = 0;
+  while (written < bytes.length) {
+    written += writeSync(fd, bytes, written);
+  }
+};
+
+const scopedRecordLine = (line: string, subagent: string): string => {
+  const parsed = parseJson<unknown>(line);
+  return typeof parsed === 'object' &&
+    parsed !== null &&
+    (parsed as { type?: unknown }).type === 'request'
+    ? JSON.stringify({ ...parsed, subagent })
+    : line;
+};
+
+const forwardRecord = async (
+  record: Readable,
+  recordFd: number,
+  subagent: string,
+): Promise<void> => {
+  let broken = false;
+  for await (const line of createInterface({ input: record, crlfDelay: Infinity })) {
+    if (broken || line.trim().length === 0) continue;
+    try {
+      writeLine(recordFd, scopedRecordLine(line, subagent));
+    } catch (error) {
+      broken = true;
+      process.stderr.write(
+        `sub-agent ${subagent}'s request record could not be forwarded: ${(error as Error).message}\n`,
+      );
+    }
+  }
+};
+
+interface Child {
+  command: string;
+  args: string[];
+  cwd: string;
+  recordFd: number;
+  scope: string;
+}
+
 const runChild = async (
-  command: string,
-  args: string[],
-  cwd: string,
+  { command, args, cwd, recordFd, scope }: Child,
   signal: AbortSignal | undefined,
   onUpdate: ((partial: ToolResult<SubagentUpdate>) => void) | undefined,
 ): Promise<ToolResult<SubagentDetails>> => {
   const child = spawn(command, args, {
     cwd,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: childStdio(recordFd),
   });
+  const forwarded = forwardRecord(
+    child.stdio[recordFd] as Readable,
+    recordFd,
+    scope,
+  );
   let stderrTail = '';
-  child.stderr.on('data', (chunk: Buffer) => {
+  const stderr = child.stderr as Readable;
+  stderr.on('data', (chunk: Buffer) => {
     process.stderr.write(chunk);
     stderrTail = (stderrTail + chunk.toString()).slice(-STDERR_TAIL_CHARS);
   });
@@ -290,7 +355,7 @@ const runChild = async (
   let ended = false;
   try {
     for await (const line of createInterface({
-      input: child.stdout,
+      input: child.stdout as Readable,
       crlfDelay: Infinity,
     })) {
       const parsed = parseJson<JsonValue>(line);
@@ -310,6 +375,7 @@ const runChild = async (
       }
     }
     const exit = await exited;
+    await forwarded;
     const failure =
       signal?.aborted === true ? ABORTED : (exit ?? streamFailure(ended, last));
     if (failure !== null) {
@@ -351,7 +417,7 @@ export default function subagentExtension(pi: ExtensionApi): void {
       required: ['task'],
       additionalProperties: false,
     },
-    async execute(_toolCallId, { task, cwd }, signal, onUpdate, ctx) {
+    async execute(toolCallId, { task, cwd }, signal, onUpdate, ctx) {
       const workDir =
         cwd === undefined ? ctx.cwd : await confinedWorkDir(ctx.cwd, cwd);
       if (typeof workDir !== 'string') {
@@ -359,9 +425,13 @@ export default function subagentExtension(pi: ExtensionApi): void {
       }
       const result = await inSlot(signal, () =>
         runChild(
-          command,
-          childArgs(invocation, task),
-          workDir,
+          {
+            command,
+            args: childArgs(invocation, task),
+            cwd: workDir,
+            recordFd: invocation.requestRecordFd,
+            scope: toolCallId,
+          },
           signal,
           onUpdate,
         ),

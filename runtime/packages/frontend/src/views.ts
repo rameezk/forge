@@ -33,6 +33,7 @@ import {
   totalCost,
 } from './format.ts';
 import { renderMarkdown } from './markdown.ts';
+import type { ToolDefinition, WorkloadContext } from './request-record.ts';
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
@@ -746,12 +747,49 @@ const META_VALUE = 'm-0 min-w-0 break-words tabular-nums';
 export interface Downloads {
   transcript: boolean;
   rawEvents: boolean;
+  requestRecord: boolean;
 }
 
 const DOWNLOADS: { key: keyof Downloads; path: string; label: string }[] = [
   { key: 'transcript', path: 'transcript', label: 'Transcript' },
   { key: 'rawEvents', path: 'raw-events', label: 'Raw events' },
+  { key: 'requestRecord', path: 'request-record', label: 'Request record' },
 ];
+
+const CONTEXT_BODY = 'rounded-b-[7px] border-t border-line bg-bg p-4 pt-3';
+
+const renderSystemPrompt = (systemPrompt: string | null): Rendered =>
+  systemPrompt === null
+    ? ''
+    : html`<details class="${BLOCK} border-line" data-system-prompt>
+        <summary class="${DISCLOSURE}"><span class="${LABEL}">System prompt</span></summary>
+        <div class="${CONTEXT_BODY}"><pre class="${PROSE} text-[0.9rem]">${systemPrompt}</pre></div>
+      </details>`;
+
+const renderToolDefinition = ({ name, description, parameters }: ToolDefinition): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<li class="${STACK} gap-1.5 border-t border-line pt-3 first:border-t-0 first:pt-0" data-tool>
+    <code class="font-mono text-[0.85rem] font-semibold" data-tool-name>${name}</code>
+    ${description === '' ? '' : html`<pre class="${PROSE} text-[0.9rem]">${description}</pre>`}
+    ${parameters === null
+      ? ''
+      : html`<details>
+          <summary class="${INLINE_DISCLOSURE} inline-flex font-semibold">Parameters</summary>
+          <pre class="${CODE} mt-1.5">${JSON.stringify(parameters, null, 2)}</pre>
+        </details>`}
+  </li>`;
+
+const renderTools = (tools: ToolDefinition[] | null): Rendered =>
+  tools === null
+    ? ''
+    : html`<details class="${BLOCK} border-line" data-tools>
+        <summary class="${DISCLOSURE}"><span class="${LABEL}">Tools</span><span class="text-xs tabular-nums text-muted" data-tool-count>${tools.length}</span></summary>
+        <ul class="m-0 ${STACK} list-none ${CONTEXT_BODY}">${tools.map(renderToolDefinition)}</ul>
+      </details>`;
+
+const renderContext = ({ systemPrompt, tools }: WorkloadContext): Rendered =>
+  systemPrompt === null && tools === null
+    ? ''
+    : html`<div class="${STACK} mb-4" data-context>${renderSystemPrompt(systemPrompt)}${renderTools(tools)}</div>`;
 
 const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
   const offered = DOWNLOADS.filter(({ key }) => downloads[key]);
@@ -766,6 +804,7 @@ const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
+  context: WorkloadContext,
   generations: GenerationRecord[],
   downloads: Downloads,
   assets: AssetHrefs,
@@ -795,6 +834,7 @@ export const renderDetail = (
       ${renderDownloads(run, downloads)}
     </dl>
     ${run.error === null ? '' : html`<p class="${ERROR_CALLOUT} mb-4">${run.error}</p>`}
+    ${renderContext(context)}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`

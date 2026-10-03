@@ -6,6 +6,7 @@ import type { HarnessEvent } from '@forge/shared';
 
 export interface TranscriptSource {
   read(ref: string): HarnessEvent[];
+  records(ref: string): unknown[];
   size(ref: string): number | undefined;
   stream(ref: string): ReadableStream<Uint8Array>;
 }
@@ -19,6 +20,21 @@ export class FileTranscriptSource implements TranscriptSource {
 
   read(ref: string): HarnessEvent[] {
     return parseTranscript(readFileSync(this.#path(ref), 'utf8'));
+  }
+
+  records(ref: string): unknown[] {
+    const path = this.#path(ref);
+    if (statSync(path, { throwIfNoEntry: false }) === undefined) return [];
+    return readFileSync(path, 'utf8')
+      .split('\n')
+      .flatMap((line) => {
+        if (line.trim() === '') return [];
+        try {
+          return [JSON.parse(line) as unknown];
+        } catch {
+          return [];
+        }
+      });
   }
 
   size(ref: string): number | undefined {

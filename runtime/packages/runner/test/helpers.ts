@@ -14,7 +14,7 @@ import type {
   HarnessInvocation,
   LookUpListPrice,
   PiExtensions,
-  RawEventsWriter,
+  JsonLinesWriter,
   TranscriptWriter,
   Worker,
 } from '../src/index.ts';
@@ -115,7 +115,7 @@ export const arrayTranscripts = (): ArrayTranscripts => {
   };
 };
 
-export const discardRawEvents = (): RawEventsWriter => ({
+export const discardLines = (): JsonLinesWriter => ({
   append: () => {},
   close: () => {},
 });
@@ -134,6 +134,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const env = process.env;
 writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR, githubToken: env.GITHUB_TOKEN, nodeOptions: env.NODE_OPTIONS, env }));
 process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
+if (env.FAKE_PI_REQUESTS) writeFileSync(Number(env.FORGE_PI_REQUEST_RECORD_FD), readFileSync(env.FAKE_PI_REQUESTS, 'utf8'));
 if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
 process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
 if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
@@ -209,6 +210,7 @@ const PACKAGES = join(import.meta.dirname, '..', '..');
 export const PI_EXTENSIONS: PiExtensions = {
   subagent: join(PACKAGES, 'pi-subagent', 'src'),
   modelDefaultReasoning: join(PACKAGES, 'pi-model-default-reasoning', 'src'),
+  requestRecord: join(PACKAGES, 'pi-request-record', 'src'),
 };
 
 export const PI_CONTRACT = [

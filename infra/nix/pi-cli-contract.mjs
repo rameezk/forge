@@ -6,6 +6,7 @@ const [
   adapter,
   subagentExtension,
   modelDefaultReasoningExtension,
+  requestRecordExtension,
   pi,
   agentDir,
   piPackage,
@@ -13,6 +14,7 @@ const [
 const extensions = {
   subagent: subagentExtension,
   modelDefaultReasoning: modelDefaultReasoningExtension,
+  requestRecord: requestRecordExtension,
 };
 const { piArgs, piEnv, subagentInvocation } = await import(adapter);
 const { loadPiSkills, resolveCheckout } = await import(

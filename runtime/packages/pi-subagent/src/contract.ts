@@ -5,6 +5,7 @@ export const SUBAGENT_INVOCATION_ENV = 'FORGE_PI_SUBAGENT_INVOCATION';
 export interface SubagentInvocation {
   argv: string[];
   systemPrompt: string;
+  requestRecordFd: number;
 }
 
 export const childArgs = (
