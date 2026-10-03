@@ -14,6 +14,7 @@ import type {
   HarnessInvocation,
   LookUpListPrice,
   PiExtensions,
+  RawEventsWriter,
   TranscriptWriter,
   Worker,
 } from '../src/index.ts';
@@ -113,6 +114,11 @@ export const arrayTranscripts = (): ArrayTranscripts => {
     closed: (runId: string) => closedRefs.has(runId),
   };
 };
+
+export const discardRawEvents = (): RawEventsWriter => ({
+  append: () => {},
+  close: () => {},
+});
 
 export const fixedClock = (times: string[]): (() => string) => {
   let index = 0;

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@forge/shared';
-import { FileTranscript } from '../src/index.ts';
+import { JsonLinesFile } from '../src/index.ts';
 import { message, result } from './helpers.ts';
 
 const readLines = (path: string): HarnessEvent[] =>
@@ -15,7 +15,7 @@ const readLines = (path: string): HarnessEvent[] =>
 
 test('given a transcripts directory, when events are appended, then the ref names a per-run jsonl file that accumulates one event per line', () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcript-'));
-  const transcript = FileTranscript.open(dir, 'run-77');
+  const transcript = JsonLinesFile.transcript(dir, 'run-77');
   const events = [message({ text: 'a' }), message({ text: 'b' }), result()];
 
   assert.equal(transcript.ref, 'run-77.jsonl');
@@ -30,7 +30,7 @@ test('given a transcripts directory, when events are appended, then the ref name
 
 test('given an open transcript, when an event is appended, then it is flushed to disk before the run ends', () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcript-'));
-  const transcript = FileTranscript.open(dir, 'run-live');
+  const transcript = JsonLinesFile.transcript(dir, 'run-live');
 
   transcript.append(message({ text: 'first' }));
 

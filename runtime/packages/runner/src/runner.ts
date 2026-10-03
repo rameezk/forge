@@ -13,13 +13,18 @@ import {
   type Workspace,
 } from './harness.ts';
 import type { LookUpListPrice } from './openrouter.ts';
-import { transcriptPolicy, type TranscriptWriter } from './transcript.ts';
+import {
+  transcriptPolicy,
+  type RawEventsWriter,
+  type TranscriptWriter,
+} from './transcript.ts';
 
 export interface RunWorkloadOptions {
   store: Store;
   harness: Harness;
   worker: Worker;
   openTranscript: (runId: string) => TranscriptWriter;
+  openRawEvents: (runId: string) => RawEventsWriter;
   openWorkspace: (runId: string) => Workspace | Promise<Workspace>;
   now: () => string;
   newId: () => string;
@@ -71,6 +76,7 @@ export const runWorkload = async (
   }
   const listPrice = 'price' in listed ? listed.price : null;
   const transcript = openTranscript(id);
+  const rawEvents = options.openRawEvents(id);
 
   store.insertRun({
     id,
@@ -132,7 +138,10 @@ export const runWorkload = async (
       }),
     );
     const invocation = invocationFor(worker, await openWorkspace(id));
-    for await (const harnessEvent of harness.run(invocation)) {
+    const keepRaw = (event: unknown): void => {
+      rawEvents.append(policy.redactValue(event));
+    };
+    for await (const harnessEvent of harness.run(invocation, keepRaw)) {
       const event = policy.record(harnessEvent);
       await transcript.append(event);
       if (event.type === 'message') {
@@ -160,6 +169,7 @@ export const runWorkload = async (
     );
   } finally {
     await transcript.close();
+    rawEvents.close();
   }
 
   store.finalizeRun(id, {

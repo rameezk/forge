@@ -1,7 +1,7 @@
 import { closeSync, openSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@forge/shared';
-import { transcriptLine } from '@forge/shared';
+import { rawEventsRef } from '@forge/shared';
 
 const TOOL_PAYLOAD_CAP_CHARS = 32 * 1024;
 
@@ -15,6 +15,7 @@ const capped = (text: string): string =>
 export interface TranscriptPolicy {
   record(event: HarnessEvent): HarnessEvent;
   redact(text: string): string;
+  redactValue(value: unknown): unknown;
 }
 
 export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
@@ -62,7 +63,7 @@ export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
           : { ...event, error: redact(event.error) };
     }
   };
-  return { record, redact };
+  return { record, redact, redactValue };
 };
 
 export interface TranscriptWriter {
@@ -71,22 +72,30 @@ export interface TranscriptWriter {
   close(): void | Promise<void>;
 }
 
-export class FileTranscript implements TranscriptWriter {
+export interface RawEventsWriter {
+  append(event: unknown): void;
+  close(): void;
+}
+
+export class JsonLinesFile implements TranscriptWriter, RawEventsWriter {
   readonly ref: string;
   readonly #fd: number;
 
-  private constructor(ref: string, fd: number) {
+  private constructor(dir: string, ref: string) {
     this.ref = ref;
-    this.#fd = fd;
+    this.#fd = openSync(join(dir, ref), 'a');
   }
 
-  static open(dir: string, runId: string): FileTranscript {
-    const ref = `${runId}.jsonl`;
-    return new FileTranscript(ref, openSync(join(dir, ref), 'a'));
+  static transcript(dir: string, runId: string): JsonLinesFile {
+    return new JsonLinesFile(dir, `${runId}.jsonl`);
   }
 
-  append(event: HarnessEvent): void {
-    writeSync(this.#fd, transcriptLine(event));
+  static rawEvents(dir: string, runId: string): JsonLinesFile {
+    return new JsonLinesFile(dir, rawEventsRef(runId));
+  }
+
+  append(value: unknown): void {
+    writeSync(this.#fd, `${JSON.stringify(value)}\n`);
   }
 
   close(): void {

@@ -171,12 +171,15 @@ const runRealPi = async (
   });
   const events: HarnessEvent[] = [];
   try {
-    for await (const event of harness.run({
-      model: 'z-ai/glm-5',
-      workDir,
-      ...effort,
-      ...(await workload(workDir)),
-    })) {
+    for await (const event of harness.run(
+      {
+        model: 'z-ai/glm-5',
+        workDir,
+        ...effort,
+        ...(await workload(workDir)),
+      },
+      () => {},
+    )) {
       events.push(event);
     }
   } finally {

@@ -11,9 +11,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import {
   parseTranscript,
+  rawEventsRef,
   Store,
   type GenerationRecord,
   type MessageEvent,
@@ -69,6 +70,12 @@ const billed = billedAt(BILLED_BY_ID);
 
 const OPENROUTER_KEY = 'sk-or-test';
 
+const jsonLines = (contents: string): Record<string, unknown>[] =>
+  contents
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
 interface Scenario {
   output: string;
   openRouterBaseUrl?: string;
@@ -89,6 +96,7 @@ interface Outcome {
   stateDir: string;
   run: RunRecord;
   transcript: string;
+  rawEvents: Record<string, unknown>[];
   bwrap: BwrapCall;
   piStarted: boolean;
   pi: {
@@ -215,9 +223,9 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     unlisted?.close();
   }
 
-  const transcripts = readdirSync(join(stateDir, 'transcripts'));
-  assert.equal(transcripts.length, 1);
-  const runId = basename(transcripts[0] as string, '.jsonl');
+  const runs = withStore(stateDir, (store) => store.listRuns());
+  assert.equal(runs.length, 1);
+  const runId = (runs[0] as RunRecord).id;
 
   return {
     code,
@@ -227,6 +235,14 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       join(stateDir, 'transcripts', `${runId}.jsonl`),
       'utf8',
     ),
+    get rawEvents() {
+      return jsonLines(
+        readFileSync(
+          join(stateDir, 'transcripts', rawEventsRef(runId)),
+          'utf8',
+        ),
+      );
+    },
     get bwrap() {
       return JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall;
     },
@@ -789,6 +805,99 @@ test('given an agent whose tool arguments, tool output and reply contain the Ope
         event.type === 'message' && event.text === 'The key is [redacted].',
     ),
   );
+});
+
+const outputOf = (events: unknown[]): string =>
+  outputFile(events.map((event) => `${JSON.stringify(event)}\n`).join(''));
+
+const isStreamed = (event: Record<string, unknown> | undefined): boolean =>
+  event?.type === 'message_update' ||
+  (event?.type === 'tool_execution_update' && event.toolName !== 'subagent');
+
+const forwardedBy = (event: Record<string, unknown>): Record<string, unknown> | undefined =>
+  (event as { partialResult?: { details?: { event?: Record<string, unknown> } } })
+    .partialResult?.details?.event;
+
+const withoutStreaming = (events: Record<string, unknown>[]): Record<string, unknown>[] =>
+  events.filter((event) => !isStreamed(event) && !isStreamed(forwardedBy(event)));
+
+const bashResult = (text: string) => ({
+  type: 'tool_execution_end',
+  toolCallId: 'call_1',
+  toolName: 'bash',
+  result: { content: [{ type: 'text', text }] },
+  isError: false,
+});
+
+test('given a pi stream with streaming deltas, a retry, thinking and a tool result over the transcript cap holding the OpenRouter key, when the workload ends, then its raw events hold every event but the streaming deltas and tool progress, with the key redacted and the tool result kept whole', async () => {
+  const output = (key: string): string =>
+    `OPENROUTER_API_KEY=${key}\n${'a'.repeat(40 * 1024)}`;
+  const events = jsonLines(readFileSync(fixture('retry.jsonl'), 'utf8'));
+  const end = events.findLastIndex((event) => event.type === 'agent_end');
+  const withResult = (text: string): Record<string, unknown>[] => [
+    ...events.slice(0, end),
+    bashResult(text),
+    ...events.slice(end),
+  ];
+
+  const { rawEvents } = await runWorker({
+    output: outputOf(withResult(output(OPENROUTER_KEY))),
+  });
+
+  assert.deepEqual(rawEvents, withoutStreaming(withResult(output('[redacted]'))));
+});
+
+test('given a workload whose agent spawned two subagents that ran a tool, when the workload ends, then its raw events hold every event of the parent and each child but their streaming deltas and tool progress', async () => {
+  const events = jsonLines(readFileSync(fixture('subagents.jsonl'), 'utf8'));
+
+  const { rawEvents } = await runWorker({ output: fixture('subagents.jsonl') });
+
+  assert.equal(events.length - rawEvents.length, 16 + 17 + 2);
+  assert.deepEqual(rawEvents, withoutStreaming(events));
+});
+
+const rawEventsOnceWritten = async (
+  stateDir: string,
+  count: number,
+): Promise<{ run: RunRecord; rawEvents: Record<string, unknown>[] }> => {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const run = withStore(stateDir, (store) => store.listRuns()[0]);
+    const path =
+      run === undefined
+        ? undefined
+        : join(stateDir, 'transcripts', rawEventsRef(run.id));
+    const rawEvents =
+      path !== undefined && existsSync(path)
+        ? jsonLines(readFileSync(path, 'utf8'))
+        : [];
+    if (run !== undefined && rawEvents.length >= count) {
+      return { run, rawEvents };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail(`the run did not write ${count} raw events within 5 seconds`);
+};
+
+test('given a workload whose pi dies mid-run, when its raw events are read while pi is still alive and after it has died, then they hold every event pi emitted up to that point but the streaming deltas and tool progress', async () => {
+  const output = cutBefore('success.jsonl', 'agent_end');
+  const emitted = withoutStreaming(jsonLines(readFileSync(output, 'utf8')));
+  let live: { run: RunRecord; rawEvents: Record<string, unknown>[] } | undefined;
+
+  const { run, rawEvents } = await runWorker({
+    output,
+    exit: 137,
+    lingerMs: 1000,
+    whileRunning: async (stateDir) => {
+      live = await rawEventsOnceWritten(stateDir, emitted.length);
+    },
+  });
+
+  assert.ok(live);
+  assert.equal(live.run.endTime, null);
+  assert.deepEqual(live.rawEvents, emitted);
+  assert.equal(run.status, 'error');
+  assert.deepEqual(rawEvents, emitted);
 });
 
 test('given pi failing with the OpenRouter key in its stderr, when the worker runs, then the recorded run error and transcript carry the reason with the key redacted', async () => {

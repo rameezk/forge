@@ -28,8 +28,13 @@ export interface HarnessInvocation extends Workspace {
   reasoningEffort?: string;
 }
 
+export type RawEventSink = (event: unknown) => void;
+
 export interface Harness {
-  run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent>;
+  run(
+    invocation: HarnessInvocation,
+    rawEvents: RawEventSink,
+  ): AsyncIterable<HarnessEvent>;
 }
 
 export interface Worker {

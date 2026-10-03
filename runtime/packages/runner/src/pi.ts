@@ -23,6 +23,7 @@ import {
   type Checkout,
   type Harness,
   type HarnessInvocation,
+  type RawEventSink,
 } from './harness.ts';
 
 const appended = (prompt: string): string[] => ['--append-system-prompt', prompt];
@@ -271,11 +272,26 @@ const parseLine = (line: string): PiLine | null => {
   }
 };
 
+const subagentEventOf = (event: PiLine): PiLine | undefined =>
+  event.toolName === SUBAGENT_TOOL
+    ? (event.partialResult?.details?.event as PiLine | undefined)
+    : undefined;
+
+const isStreamed = (event: PiLine | undefined): boolean =>
+  event?.type === 'message_update' ||
+  (event?.type === 'tool_execution_update' &&
+    event.toolName !== SUBAGENT_TOOL);
+
 class PiStream {
+  readonly #rawEvents: RawEventSink;
   #sessionId: string | null = null;
   #ended = false;
   #lastAssistant: PiMessage | null = null;
   #malformed: string | null = null;
+
+  constructor(rawEvents: RawEventSink) {
+    this.#rawEvents = rawEvents;
+  }
 
   get malformed(): boolean {
     return this.#malformed !== null;
@@ -289,6 +305,9 @@ class PiStream {
     if (event === null) {
       this.#malformed = `pi emitted non-JSON output: ${line.slice(0, NON_JSON_EXCERPT_CHARS)}`;
       return [];
+    }
+    if (!isStreamed(event) && !isStreamed(subagentEventOf(event))) {
+      this.#rawEvents(event);
     }
     switch (event.type) {
       case 'session':
@@ -320,14 +339,14 @@ class PiStream {
   }
 
   #subagentEvent(event: PiLine): HarnessEvent[] {
-    if (event.toolName !== SUBAGENT_TOOL || event.toolCallId === undefined) {
+    const child = subagentEventOf(event);
+    if (child === undefined || event.toolCallId === undefined) {
       return [];
     }
-    const child = event.partialResult?.details?.event as PiLine | undefined;
-    if (child?.type === 'tool_execution_end') {
+    if (child.type === 'tool_execution_end') {
       return toolResult(child, event.toolCallId);
     }
-    if (child?.type !== 'message_end' || child.message?.role !== 'assistant') {
+    if (child.type !== 'message_end' || child.message?.role !== 'assistant') {
       return [];
     }
     return this.#assistant(child.message, event.toolCallId);
@@ -397,8 +416,11 @@ export class PiHarness implements Harness {
     this.#env = options.env;
   }
 
-  async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
-    const stream = new PiStream();
+  async *run(
+    invocation: HarnessInvocation,
+    rawEvents: RawEventSink,
+  ): AsyncIterable<HarnessEvent> {
+    const stream = new PiStream(rawEvents);
     const command = realCommand(this.#command);
     warnUnloadedProjectConfig(invocation.checkout);
     const args = piArgs(invocation, this.#extensions, this.#extraArgs);
