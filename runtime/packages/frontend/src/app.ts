@@ -87,6 +87,7 @@ export const createApp = ({
     return c.body(transcripts.stream(ref), 200, {
       'Content-Type': 'application/x-ndjson; charset=utf-8',
       'Content-Disposition': `attachment; filename="${ref}"`,
+      'X-Content-Type-Options': 'nosniff',
     });
   });
 

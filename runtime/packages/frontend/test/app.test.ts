@@ -287,6 +287,7 @@ test('given a workload with raw events, when its detail page is requested and th
   assert.equal(download.status, 200);
   assert.equal(download.headers.get('content-type'), 'application/x-ndjson; charset=utf-8');
   assert.equal(download.headers.get('content-disposition'), 'attachment; filename="run-01.events.jsonl"');
+  assert.equal(download.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(await download.text(), rawEvents);
 });
 
