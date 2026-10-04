@@ -535,10 +535,15 @@ that reaches it does not stop: the kernel kills its largest process, in
 practice the command that ran away, and the agent sees that command exit with
 137 and is told to choose a narrower check. The box has no swap.
 
+The limit is per workload. Workloads running at once, up to
+`dispatch.maxConcurrent` dispatches plus any scheduled ones, can together use
+more than it, and builds the nix daemon runs for a workload are outside it, so
+either can still exhaust the box.
+
 Size the box for the checks your managed repositories run. A check that
 evaluates or builds Nix, such as `nix flake check`, can need more memory than
-a cx23's 4 GB, so give a box that manages such a repository a larger
-`serverType`.
+a cx23's 3.7 GB usable, so use a cx33 or larger for a box that manages such a
+repository.
 
 ## Inspecting the run store
 
