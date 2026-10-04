@@ -940,20 +940,16 @@
               imports = [ dispatchModule ];
               forge.runtime.workload.memoryMax = memoryMax;
             };
-          memoryBound =
-            unit: memoryMax:
-            unit.serviceConfig.MemoryMax == memoryMax && unit.serviceConfig.OOMPolicy == "continue";
-          workloadMemoryBounded =
-            lib.asserts.assertMsg (memoryBound runnerUnit "80%" && memoryBound dispatchUnit "80%")
-              "the runner and dispatch units must cap a workload at 80% of the box's memory by default, and carry on when the kernel OOM-kills one of its processes, so the agent sees the command fail rather than the whole workload stopping";
-          workloadMemoryConfigurable =
-            let
-              host = memoryHost "6G";
-            in
-            lib.asserts.assertMsg (
-              memoryBound host.config.systemd.services."forge-runner@" "6G"
-              && memoryBound host.config.systemd.services."forge-dispatch@" "6G"
-            ) "forge.runtime.workload.memoryMax must set the runner and dispatch units' memory cap";
+          workloadMemoryBound =
+            host: memoryMax:
+            lib.all
+              (unit: unit.serviceConfig.MemoryMax == memoryMax && unit.serviceConfig.OOMPolicy == "continue")
+              [
+                host.config.systemd.services."forge-runner@"
+                host.config.systemd.services."forge-dispatch@"
+              ];
+          workloadMemoryBounded = lib.asserts.assertMsg (workloadMemoryBound dispatchHost "80%") "the runner and dispatch units must cap a workload at 80% of the box's memory by default, and carry on when the kernel OOM-kills one of its processes, so the agent sees the command fail rather than the whole workload stopping";
+          workloadMemoryConfigurable = lib.asserts.assertMsg (workloadMemoryBound (memoryHost "6G") "6G") "forge.runtime.workload.memoryMax must set the runner and dispatch units' memory cap";
           malformedMemoryMaxFails =
             lib.asserts.assertMsg
               (
@@ -961,16 +957,25 @@
                   "6GB"
                   "6 G"
                   "eighty"
+                  "150%"
+                  "50.125%"
+                  "0"
+                  "0%"
+                  "0G"
                 ]
                 && lib.all (memoryMax: evaluates (memoryHost memoryMax)) [
                   "6G"
                   "1.5G"
                   "6442450944"
                   "50%"
+                  "12.5%"
+                  "50.55%"
+                  "0.5G"
+                  "100%"
                   "infinity"
                 ]
               )
-              "a forge.runtime.workload.memoryMax that systemd would not read as a size, a percentage or infinity must fail evaluation, rather than systemd ignoring it and leaving the workload unbounded";
+              "a forge.runtime.workload.memoryMax that systemd would not read as a non-zero size, a percentage up to 100% or infinity must fail evaluation, rather than systemd ignoring it and leaving the workload unbounded";
           sshFirewall = nixos.config.networking.firewall;
           sshPort = exampleCfg.sshPort;
           tailnetInterface = tailscale.interfaceName;
