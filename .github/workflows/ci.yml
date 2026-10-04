@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check-no-vm:
+    runs-on: ubuntu-latest
+    environment: &cachix-environment
+      name: ${{ github.event_name == 'push' && 'cachix' || '' }}
+      deployment: false
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - &install-nix
+        uses: DeterminateSystems/determinate-nix-action@4d65ea9cab522b6d9f29a170aed23ededc1b27af
+      - &use-cachix
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866
+        with:
+          name: rameezk-forge
+          authToken: ${{ github.event_name == 'push' && secrets.CACHIX_AUTH_TOKEN || '' }}
+          skipPush: ${{ github.event_name != 'push' }}
+      - run: nix develop --command make check-no-vm
+
+  vm-tests:
+    runs-on: ubuntu-latest
+    environment: *cachix-environment
+    outputs:
+      tests: ${{ steps.list.outputs.tests }}
+    steps:
+      - *checkout
+      - *install-nix
+      - *use-cachix
+      - id: list
+        run: |
+          tests="$(nix develop --command scripts/checks.sh list vm x86_64-linux | jq --raw-input --null-input --compact-output '[inputs]')"
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+
+  vm-test:
+    needs: vm-tests
+    runs-on: ubuntu-latest
+    environment: *cachix-environment
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ${{ fromJSON(needs.vm-tests.outputs.tests) }}
+    steps:
+      - *checkout
+      - *install-nix
+      - *use-cachix
+      - run: nix build --print-build-logs --no-link ".#checks.x86_64-linux.$TEST"
+        env:
+          TEST: ${{ matrix.test }}
+
+  ci:
+    if: always()
+    needs:
+      - check-no-vm
+      - vm-tests
+      - vm-test
+    runs-on: ubuntu-latest
+    steps:
+      - run: jq --exit-status 'all(.[]; .result == "success")' <<<"$NEEDS"
+        env:
+          NEEDS: ${{ toJSON(needs) }}

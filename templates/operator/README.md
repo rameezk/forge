@@ -377,7 +377,9 @@ the missing key, if a token your repositories need is not there.
   sync makes sure all of them have the `forge:*` labels. Forge also uses it
   to move dispatched tickets through those labels, and the dispatched agent
   gets it as `GITHUB_TOKEN`, so the repository's skills can push branches and
-  open pull requests.
+  open pull requests. It also needs read-only access on Checks and Actions,
+  so the agent can watch a pull request's required checks and read the logs
+  of the ones that fail.
 
 ```yaml
 tailscale_auth_key: <the box's OAuth client secret>
