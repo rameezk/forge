@@ -20,6 +20,9 @@ concurrency:
 jobs:
   check-no-vm:
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'push' && 'cachix' || '' }}
+      deployment: false
     steps:
       - &checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -37,6 +40,9 @@ jobs:
 
   vm-tests:
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'push' && 'cachix' || '' }}
+      deployment: false
     outputs:
       tests: ${{ steps.list.outputs.tests }}
     steps:
@@ -51,6 +57,9 @@ jobs:
   vm-test:
     needs: vm-tests
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'push' && 'cachix' || '' }}
+      deployment: false
     strategy:
       fail-fast: false
       matrix:
