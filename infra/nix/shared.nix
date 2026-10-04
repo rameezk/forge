@@ -8,7 +8,7 @@ buildNpmPackage {
 
   src = ../../runtime;
 
-  npmDepsHash = "sha256-3hVLH+vWxaUZI+8nbsosnNuraS/y74QhZjSEzzyWLe8=";
+  npmDepsHash = "sha256-mmjr/ZF7jDCashHuvHrnNQgpLIkMxhdJnaHSGLG/Rx8=";
 
   dontNpmBuild = true;
 
