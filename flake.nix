@@ -989,7 +989,7 @@
             assert sandboxSupported;
             assert runtimeHomeEmpty;
             pkgs.runCommand "runtime-foundation" { } ''
-              echo "forge.runtime composed and inert; forge-runtime user with an empty home and /var/lib/forge state dir provisioned; user namespaces allowed for the workload sandbox; hand-placed GitHub token files removed" > $out
+              echo "forge.runtime composed and inert; forge-runtime user with an empty home and /var/lib/forge state dir provisioned; user namespaces allowed for the workload sandbox" > $out
             '';
 
           runtime-nix =

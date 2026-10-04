@@ -122,6 +122,5 @@ testers.runNixOSTest {
         box.succeed("touch /var/lib/forge/redeployed")
         wait_until_oneshot_succeeded(box, "forge-runner@lingering.service", before_lingering)
         assert probe("forge-run-lingering-after") == denied, probe("forge-run-lingering-after")
-
   '';
 }
