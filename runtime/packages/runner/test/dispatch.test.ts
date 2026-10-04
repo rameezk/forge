@@ -1191,6 +1191,21 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
   ]);
 });
 
+test('given a dispatch, when the workload starts, then pi is told that a command killed with exit 137 most likely hit the workload memory limit, and to choose a narrower check rather than retry it', async () => {
+  const { pi } = await dispatch({
+    origin: originWith({ '.claude/skills/work-on/SKILL.md': SKILL }),
+  });
+
+  assert.ok(pi);
+  const appended = pi.argv.filter(
+    (_, index) => pi.argv[index - 1] === '--append-system-prompt',
+  );
+  assert.match(
+    appended.at(-1) ?? '',
+    /exit 137 most likely hit the workload memory limit.*narrower check rather than retrying it/,
+  );
+});
+
 const notLoaded = (journal: string): string[] =>
   [...journal.matchAll(/the checkout's (\S+) is not loaded by forge/g)].map(
     ([, path]) => path ?? '',

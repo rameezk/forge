@@ -526,6 +526,20 @@ or `nix.settings.extra-trusted-users`, by name, by one of its groups or through
 `*`, does not evaluate, and neither does one that sets either setting in
 `nix.extraOptions`. A nix.conf file included from elsewhere is not checked.
 
+### Workload memory
+
+A workload, with its harness, its subagents and every command they run, may
+use at most `forge.runtime.workload.memoryMax` of memory, 80% of the box's by
+default. Set it to a size such as `"6G"` or another percentage. A workload
+that reaches it does not stop: the kernel kills its largest process, in
+practice the command that ran away, and the agent sees that command exit with
+137 and is told to choose a narrower check. The box has no swap.
+
+Size the box for the checks your managed repositories run. A check that
+evaluates or builds Nix, such as `nix flake check`, can need more memory than
+a cx23's 4 GB, so give a box that manages such a repository a larger
+`serverType`.
+
 ## Inspecting the run store
 
 Runs, their generations and billed cost live in the SQLite store

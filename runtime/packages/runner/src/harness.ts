@@ -14,6 +14,7 @@ export const UNATTENDED_INSTRUCTION = [
   'You are running unattended: no human will answer questions or confirm anything while you work.',
   'Where a skill asks you to confirm something the ticket or its spec already settles, proceed without asking.',
   'Otherwise stop, and end with the question you need answered.',
+  'A command killed with exit 137 most likely hit the workload memory limit, so choose a narrower check rather than retrying it.',
 ].join(' ');
 
 export interface Workspace {

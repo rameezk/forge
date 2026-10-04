@@ -934,6 +934,43 @@
                 && lib.elem "--accept-dns=false" tailscale.extraUpFlags
               )
               "a workload must not reach the tailnet: the runner and dispatch units, and the nix daemon whose builds a workload can start, deny every tailnet address, and the box keeps its own DNS rather than the tailnet's resolver, so workloads still resolve names";
+          memoryHost =
+            memoryMax:
+            secretsHost exampleSecretsFile {
+              imports = [ dispatchModule ];
+              forge.runtime.workload.memoryMax = memoryMax;
+            };
+          memoryBound =
+            unit: memoryMax:
+            unit.serviceConfig.MemoryMax == memoryMax && unit.serviceConfig.OOMPolicy == "continue";
+          workloadMemoryBounded =
+            lib.asserts.assertMsg (memoryBound runnerUnit "80%" && memoryBound dispatchUnit "80%")
+              "the runner and dispatch units must cap a workload at 80% of the box's memory by default, and carry on when the kernel OOM-kills one of its processes, so the agent sees the command fail rather than the whole workload stopping";
+          workloadMemoryConfigurable =
+            let
+              host = memoryHost "6G";
+            in
+            lib.asserts.assertMsg (
+              memoryBound host.config.systemd.services."forge-runner@" "6G"
+              && memoryBound host.config.systemd.services."forge-dispatch@" "6G"
+            ) "forge.runtime.workload.memoryMax must set the runner and dispatch units' memory cap";
+          malformedMemoryMaxFails =
+            lib.asserts.assertMsg
+              (
+                lib.all (memoryMax: !(evaluates (memoryHost memoryMax))) [
+                  "6GB"
+                  "6 G"
+                  "eighty"
+                ]
+                && lib.all (memoryMax: evaluates (memoryHost memoryMax)) [
+                  "6G"
+                  "1.5G"
+                  "6442450944"
+                  "50%"
+                  "infinity"
+                ]
+              )
+              "a forge.runtime.workload.memoryMax that systemd would not read as a size, a percentage or infinity must fail evaluation, rather than systemd ignoring it and leaving the workload unbounded";
           sshFirewall = nixos.config.networking.firewall;
           sshPort = exampleCfg.sshPort;
           tailnetInterface = tailscale.interfaceName;
@@ -1072,6 +1109,14 @@
             assert dispatchCommandInstalled;
             pkgs.runCommand "runtime-dispatch" { } ''
               echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command, the GitHub write token from sops, and a dispatch pass after every frontier sync that may start only forge-dispatch@ units, bounded by dispatch.maxConcurrent; a worker without a ticket placeholder fails evaluation" > $out
+            '';
+
+          runtime-workload-memory =
+            assert workloadMemoryBounded;
+            assert workloadMemoryConfigurable;
+            assert malformedMemoryMaxFails;
+            pkgs.runCommand "runtime-workload-memory" { } ''
+              echo "the runner and dispatch units cap a workload's memory at forge.runtime.workload.memoryMax, 80% of the box by default, and carry on past a kernel OOM kill" > $out
             '';
 
           runtime-billing =
