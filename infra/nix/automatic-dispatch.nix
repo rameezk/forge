@@ -49,6 +49,9 @@ let
       (writeShellScriptBin "forge-frontend" ''
         exec sleep infinity
       '')
+      (writeShellScriptBin "forge-billing" ''
+        exit 0
+      '')
       (runCommand "forge-dispatch-pass" { } ''
         mkdir -p $out/bin
         ln -s ${forge-runner}/bin/forge-dispatch-pass $out/bin/forge-dispatch-pass
@@ -124,6 +127,11 @@ testers.runNixOSTest {
         assert box.succeed("cat /var/lib/forge/dispatched-forge-13").strip() == "forge 13"
         box.fail("test -e /var/lib/forge/dispatched-forge-14")
         box.fail("test -e /var/lib/forge/dispatched-forge-15")
+
+    with subtest("billing runs without failing in a box that declares a worker"):
+        before_billing = cursor(box)
+        box.succeed("systemctl start --no-block forge-billing.service")
+        wait_until_oneshot_succeeded(box, "forge-billing.service", before_billing)
 
     with subtest("forge-runtime may start a forge-dispatch unit of a repository that declares a worker, and nothing else"):
         box.succeed(f"{as_runtime} start forge-dispatch@forge:7.service")
