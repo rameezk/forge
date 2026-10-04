@@ -123,12 +123,5 @@ testers.runNixOSTest {
         assert box.succeed("systemctl show -P Result forge-runner@lingering.service").strip() == "success"
         assert probe("forge-run-lingering-after") == denied, probe("forge-run-lingering-after")
 
-    with subtest("no hand-placed plain-text token stays behind after activation"):
-        box.succeed("runuser -u forge-runtime -- sh -c 'echo GITHUB_TOKEN=leftover > /var/lib/forge/github.env'")
-        box.succeed("install -d -o forge-runtime -g forge-runtime -m 0700 /var/lib/forge-credentials")
-        box.succeed("runuser -u forge-runtime -- sh -c 'echo GITHUB_TOKEN=leftover > /var/lib/forge-credentials/github-write.env'")
-        box.succeed("/run/current-system/bin/switch-to-configuration test")
-        box.fail("test -e /var/lib/forge/github.env")
-        box.fail("test -e /var/lib/forge-credentials")
   '';
 }

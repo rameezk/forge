@@ -360,8 +360,6 @@ in
         "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/transcripts 0750 ${cfg.user} ${cfg.user} - -"
         "d ${cfg.stateDir}/work 0750 ${cfg.user} ${cfg.user} 14d -"
-        "r ${cfg.stateDir}/github.env - - - - -"
-        "R /var/lib/forge-credentials - - - - -"
       ];
     }
 
