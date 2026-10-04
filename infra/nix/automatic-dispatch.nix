@@ -89,19 +89,38 @@ testers.runNixOSTest {
     };
   };
 
-  testScript = ''
+  testScript = builtins.readFile ./oneshot.py + ''
     as_runtime = "runuser -u forge-runtime -- systemctl --no-ask-password"
-
-    def wait_until_ended(unit):
-        box.wait_until_succeeds(f"test \"$(systemctl show -P ExecMainExitTimestampMonotonic {unit})\" != 0")
-        assert box.succeed(f"systemctl show -P Result {unit}").strip() == "success", unit
 
     box.wait_for_unit("multi-user.target")
 
+    with subtest("a oneshot that ended before the cursor is never reported as succeeded"):
+        before_run = cursor(box)
+        box.succeed("systemd-run --unit=oneshot-ended --service-type=oneshot true")
+        wait_until_oneshot_succeeded(box, "oneshot-ended.service", before_run)
+        after_run = cursor(box)
+        try:
+            wait_until_oneshot_succeeded(box, "oneshot-ended.service", after_run, timeout=10)
+        except Exception as error:
+            assert "timed out" in str(error), error
+        else:
+            raise AssertionError("oneshot-ended.service was reported as succeeded after the cursor")
+
+    with subtest("a oneshot that fails is reported at once with its failure"):
+        before_run = cursor(box)
+        box.fail("systemd-run --unit=oneshot-fails --service-type=oneshot false")
+        try:
+            wait_until_oneshot_succeeded(box, "oneshot-fails.service", before_run, timeout=30)
+        except Exception as error:
+            assert "Failed with result 'exit-code'" in str(error), error
+        else:
+            raise AssertionError("oneshot-fails.service was reported as succeeded")
+
     with subtest("a frontier sync is followed by a pass that dispatches only the forge:ready frontier ticket, through its forge-dispatch unit"):
+        before_sync = cursor(box)
         box.succeed("systemctl start forge-frontier-sync.service")
-        wait_until_ended("forge-dispatch-pass.service")
-        wait_until_ended("forge-dispatch@forge:13.service")
+        wait_until_oneshot_succeeded(box, "forge-dispatch-pass.service", before_sync)
+        wait_until_oneshot_succeeded(box, "forge-dispatch@forge:13.service", before_sync)
         assert box.succeed("cat /var/lib/forge/dispatched-forge-13").strip() == "forge 13"
         box.fail("test -e /var/lib/forge/dispatched-forge-14")
         box.fail("test -e /var/lib/forge/dispatched-forge-15")
