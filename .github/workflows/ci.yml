@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check-no-vm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: cachix/cachix-action@v17
+        with:
+          name: rameezk-forge
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      - run: nix develop --command make check-no-vm
+
+  vm-tests:
+    runs-on: ubuntu-latest
+    outputs:
+      tests: ${{ steps.list.outputs.tests }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: cachix/cachix-action@v17
+        with:
+          name: rameezk-forge
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      - id: list
+        run: |
+          tests="$(nix develop --command scripts/checks.sh list vm x86_64-linux | jq --raw-input --null-input --compact-output '[inputs]')"
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+
+  vm-test:
+    needs: vm-tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ${{ fromJSON(needs.vm-tests.outputs.tests) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: cachix/cachix-action@v17
+        with:
+          name: rameezk-forge
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      - run: nix build --print-build-logs --no-link ".#checks.x86_64-linux.$TEST"
+        env:
+          TEST: ${{ matrix.test }}
+
+  ci:
+    if: always()
+    needs:
+      - check-no-vm
+      - vm-tests
+      - vm-test
+    runs-on: ubuntu-latest
+    steps:
+      - run: jq --exit-status 'all(.[]; .result == "success")' <<<"$NEEDS"
+        env:
+          NEEDS: ${{ toJSON(needs) }}

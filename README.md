@@ -149,6 +149,12 @@ Then follow the scaffolded repository's [README](templates/operator/README.md) t
 
 A VM test is any check whose required system features include `kvm` or `nixos-test`, so a new one is picked up with no other edit. `scripts/checks.sh list vm <system>` lists them, and `scripts/checks.sh list no-vm <system>` lists the rest.
 
+### CI
+
+Every pull request and every push to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on Linux runners with KVM. One job runs `make check-no-vm`, and a matrix runs one job per VM test for `x86_64-linux`, listed by `scripts/checks.sh list vm x86_64-linux`. A final `ci` job fails if any other job failed or was skipped, so it is the only check a ruleset on `main` needs to require.
+
+Every run pulls from the public Cachix cache [`rameezk-forge`](https://rameezk-forge.cachix.org). Every run except a pull request from a fork also pushes what it built, authenticated by the repository secret `CACHIX_AUTH_TOKEN`, a Cachix auth token with write access to the cache. Paths already on `cache.nixos.org` are not pushed, because the cache lists `cache.nixos.org` as an upstream.
+
 ## Learn more
 
 - [`docs/CONTEXT.md`](docs/CONTEXT.md) - the shared language

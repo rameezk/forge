@@ -30,6 +30,8 @@
   rather than skipping them when it cannot reach a Linux builder.
 - On a machine without KVM, run `make check-no-vm` and rely on CI for the VM
   tests. Do not call a change to anything they cover done until they pass.
+- A change is not done until the required checks on its pull request are
+  green.
 
 ## Writing
 
