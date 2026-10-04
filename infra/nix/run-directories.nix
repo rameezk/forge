@@ -16,6 +16,7 @@ testers.runNixOSTest {
         box.succeed(f"runuser -u forge-runtime -- sh -c 'echo report > /var/lib/forge/work/{run}/{name}'")
 
     box.wait_for_unit("multi-user.target")
+    box.succeed("false")
 
     with subtest("old run directories age out and recent ones remain whole"):
         write_run("run-old", "report.md")
