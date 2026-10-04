@@ -1122,7 +1122,7 @@ const projectInstructions = (path: string): string[] => [
 const childArgv = (pi: PiCall): string[] =>
   (JSON.parse(pi.subagentInvocation ?? 'null') as { argv: string[] }).argv;
 
-test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.md and .pi/SYSTEM.md and no .agents/skills, when the workload starts, then pi and the subagent invocation get the two skill paths, the system prompt file, AGENTS.md framed as project instructions, and the unattended instruction, and nothing for what does not exist', async () => {
+test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.md and .pi/SYSTEM.md and no .agents/skills, when the workload starts, then pi and the subagent invocation get the two skill paths, the system prompt file, AGENTS.md framed as project instructions, and the unattended instruction, which explains exit 137, and nothing for what does not exist', async () => {
   const { pi } = await dispatch({
     origin: originWith({
       '.claude/skills/work-on/SKILL.md': SKILL,
@@ -1135,6 +1135,10 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
 
   assert.ok(pi);
   assert.match(UNATTENDED_INSTRUCTION, /no human will answer/);
+  assert.match(
+    UNATTENDED_INSTRUCTION,
+    /exit 137 most likely hit the workload memory limit.*narrower check rather than retrying it/,
+  );
   const root = realpathSync(pi.cwd);
   const flags = [
     ...PI_CONTRACT,
@@ -1189,21 +1193,6 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
     EXTENSION,
     `/skill:work-on ${TICKET_URL}`,
   ]);
-});
-
-test('given a dispatch, when the workload starts, then pi is told that a command killed with exit 137 most likely hit the workload memory limit, and to choose a narrower check rather than retry it', async () => {
-  const { pi } = await dispatch({
-    origin: originWith({ '.claude/skills/work-on/SKILL.md': SKILL }),
-  });
-
-  assert.ok(pi);
-  const appended = pi.argv.filter(
-    (_, index) => pi.argv[index - 1] === '--append-system-prompt',
-  );
-  assert.match(
-    appended.at(-1) ?? '',
-    /exit 137 most likely hit the workload memory limit.*narrower check rather than retrying it/,
-  );
 });
 
 const notLoaded = (journal: string): string[] =>
