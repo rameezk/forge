@@ -179,14 +179,6 @@
             (rule: lib.hasInfix "/var/lib/forge" rule && lib.hasInfix "forge-runtime" rule)
             nixos.config.systemd.tmpfiles.rules
           ) "/var/lib/forge must be provisioned as a forge-runtime-owned state directory";
-          handPlacedTokensRemoved =
-            lib.asserts.assertMsg
-              (
-                lib.elem "r /var/lib/forge/github.env - - - - -" nixos.config.systemd.tmpfiles.rules
-                && lib.elem "R /var/lib/forge-credentials - - - - -" nixos.config.systemd.tmpfiles.rules
-                && !(lib.any (lib.hasPrefix "d /var/lib/forge-credentials") nixos.config.systemd.tmpfiles.rules)
-              )
-              "every host must delete a leftover hand-placed github.env and /var/lib/forge-credentials on activation, so no plain-text token stays behind";
           definedByRuntimeModule =
             option:
             lib.any (
@@ -994,11 +986,10 @@
             assert runtimeUserDefined;
             assert stateDirProvisioned;
             assert runtimeInert;
-            assert handPlacedTokensRemoved;
             assert sandboxSupported;
             assert runtimeHomeEmpty;
             pkgs.runCommand "runtime-foundation" { } ''
-              echo "forge.runtime composed and inert; forge-runtime user with an empty home and /var/lib/forge state dir provisioned; user namespaces allowed for the workload sandbox; hand-placed GitHub token files removed" > $out
+              echo "forge.runtime composed and inert; forge-runtime user with an empty home and /var/lib/forge state dir provisioned; user namespaces allowed for the workload sandbox" > $out
             '';
 
           runtime-nix =

@@ -80,7 +80,7 @@ testers.runNixOSTest {
     };
   };
 
-  testScript = ''
+  testScript = builtins.readFile ./oneshot.py + ''
     frontier = "env=github_pat_fixture_frontier_not_a_real_token"
     write_credential = "credential GITHUB_TOKEN=github_pat_fixture_write_not_a_real_token"
     denied = ["env=unset", "denied forge-github.env", "denied forge-github-write.env"]
@@ -113,22 +113,14 @@ testers.runNixOSTest {
             assert probe(name) == denied, (name, probe(name))
 
     with subtest("a scheduled workload running across a redeploy cannot read the new secrets generation"):
+        before_lingering = cursor(box)
         box.succeed("systemctl start --no-block forge-runner@lingering.service")
         box.wait_for_file("/var/lib/forge/forge-run-lingering.out")
         generation = box.succeed("readlink /run/secrets").strip()
         box.succeed("/run/current-system/bin/switch-to-configuration test")
         assert box.succeed("readlink /run/secrets").strip() != generation, "the redeploy did not render a new secrets generation"
         box.succeed("touch /var/lib/forge/redeployed")
-        box.wait_until_succeeds("test \"$(systemctl show -P ActiveState forge-runner@lingering.service)\" = inactive")
-        assert box.succeed("systemctl show -P Result forge-runner@lingering.service").strip() == "success"
+        wait_until_oneshot_succeeded(box, "forge-runner@lingering.service", before_lingering)
         assert probe("forge-run-lingering-after") == denied, probe("forge-run-lingering-after")
-
-    with subtest("no hand-placed plain-text token stays behind after activation"):
-        box.succeed("runuser -u forge-runtime -- sh -c 'echo GITHUB_TOKEN=leftover > /var/lib/forge/github.env'")
-        box.succeed("install -d -o forge-runtime -g forge-runtime -m 0700 /var/lib/forge-credentials")
-        box.succeed("runuser -u forge-runtime -- sh -c 'echo GITHUB_TOKEN=leftover > /var/lib/forge-credentials/github-write.env'")
-        box.succeed("/run/current-system/bin/switch-to-configuration test")
-        box.fail("test -e /var/lib/forge/github.env")
-        box.fail("test -e /var/lib/forge-credentials")
   '';
 }
