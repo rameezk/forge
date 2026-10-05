@@ -232,6 +232,33 @@ else
 	fail=1
 fi
 
+echo "==> case: the commented example stays valid and shows a dispatchable worker and repository"
+scaffold
+fill_operator_repo
+example="$(awk '/forge:example-end/ { f = 0 } f { print } /forge:example-begin/ { f = 1 }' "$work/flake.nix" | perl -pe 's/^\s*# ?//')"
+if [ -z "$example" ]; then
+	echo "FAIL: the scaffolded flake marks no commented example block with forge:example-begin and forge:example-end"
+	fail=1
+else
+	printf '%s\n' "$example" >"$work/example.nix"
+	EXAMPLE_FILE="$work/example.nix" perl -0pi -e 'BEGIN { open my $f, "<", $ENV{EXAMPLE_FILE}; $e = <$f>; chomp $e; $e =~ s/^\s+//; } s/host = forge\.lib\.mkHost \{ inherit configFile secretsFile; \};/$e/' "$work/flake.nix"
+	git -C "$work" add -A
+	settings="$(cd "$work" && nix eval --json "${override[@]}" ".#nixosConfigurations.mybox.config.forge.runtime.settings" 2>"$work/example.log" || true)"
+	worker="$(printf '%s' "$settings" | jq -r '[.repositories[].worker] | first // empty' 2>/dev/null || true)"
+	prompt="$(printf '%s' "$settings" | jq -r --arg w "$worker" '.workers[$w].prompt // empty' 2>/dev/null || true)"
+	model="$(printf '%s' "$settings" | jq -r --arg w "$worker" '.workers[$w].model // empty' 2>/dev/null || true)"
+	if
+		(cd "$work" && nix flake check "${override[@]}") >"$work/example-check.log" 2>&1 &&
+			[ -n "$worker" ] && [ "$model" = "anthropic/claude-sonnet-5.5" ] && printf '%s' "$prompt" | grep -qF '{url}'
+	then
+		echo "ok: the uncommented example passes nix flake check, naming a worker whose prompt takes {url}"
+	else
+		echo "FAIL: the uncommented example does not pass nix flake check as a dispatchable worker and repository"
+		tail -20 "$work/example.log" "$work/example-check.log"
+		fail=1
+	fi
+fi
+
 echo "==> case: the scaffold ships placeholder sops recipients and no encrypted files"
 scaffold
 if grep -q "REPLACE_WITH_OPERATOR_AGE_PUBLIC_KEY" "$work/.sops.yaml" && grep -q "REPLACE_WITH_BOX_AGE_RECIPIENT" "$work/.sops.yaml"; then
