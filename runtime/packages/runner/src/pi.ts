@@ -576,6 +576,11 @@ export class PiHarness implements Harness {
         return { error };
       },
     );
+    const killOnStop = (): void => {
+      child.kill('SIGKILL');
+    };
+    if (sinks.stop.aborted) killOnStop();
+    sinks.stop.addEventListener('abort', killOnStop, { once: true });
     let drained = false;
     try {
       const lines = createInterface({
@@ -591,6 +596,7 @@ export class PiHarness implements Harness {
       }
       drained = !stream.malformed;
     } finally {
+      sinks.stop.removeEventListener('abort', killOnStop);
       if (!drained) {
         child.kill('SIGKILL');
         await exit;

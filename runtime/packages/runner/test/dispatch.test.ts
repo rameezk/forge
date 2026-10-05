@@ -260,6 +260,8 @@ interface Scenario {
   env?: Record<string, string>;
   nix?: FakeNix;
   bwrapFailure?: string;
+  timeoutSeconds?: number;
+  piLingerMs?: number;
 }
 
 interface FakeNix {
@@ -357,6 +359,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
           harness: 'pi',
           model: 'z-ai/glm-5',
           prompt: scenario.prompt ?? '/work-on {url}',
+          ...(scenario.timeoutSeconds === undefined
+            ? {}
+            : { timeoutSeconds: scenario.timeoutSeconds }),
         },
       },
       repositories: {
@@ -420,6 +425,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         harnessEnv: {
           FAKE_PI_RECORD: record,
           FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
+          ...(scenario.piLingerMs === undefined
+            ? {}
+            : { FAKE_PI_LINGER_MS: String(scenario.piLingerMs) }),
         },
         ...(scenario.bwrapFailure === undefined ? {} : { failure: scenario.bwrapFailure }),
       }),
@@ -873,6 +881,27 @@ test('given a run that ends with a question and leaves no open pull request from
       pullRequests,
     );
   }
+});
+
+test('given a dispatched workload whose pi keeps running past the worker\'s timeout, when forge-dispatch runs, then the run ends exceeded, the dispatch fails with reason exceeded naming the timeout, the ticket becomes forge:failed, and nothing but the label is written to it', async () => {
+  const { code, runs, dispatches, labelWrites } = await dispatch({
+    piOutput: piOutputEnding('still working'),
+    piLingerMs: 10_000,
+    timeoutSeconds: 1,
+    pullRequests: closing('no-pull-request'),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(runs[0]?.status, 'exceeded');
+  assert.equal(runs[0]?.exceededLimit, 'timeout');
+  assert.deepEqual(
+    dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'exceeded', detail: 'timeout' }],
+  );
+  assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'));
+  assert.ok(
+    labelWrites.every(({ path }) => path.startsWith('/repos/rameezk/forge/issues/113/labels')),
+  );
 });
 
 const forgeTicket = (number: number) => ({

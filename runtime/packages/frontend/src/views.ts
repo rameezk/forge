@@ -25,6 +25,7 @@ import {
   formatCost,
   formatDate,
   formatDuration,
+  formatSpan,
   formatStarted,
   formatTime,
   formatTokens,
@@ -154,6 +155,7 @@ const STATUS_TONE: Record<RunStatus, string> = {
   error: 'bg-error-soft text-error',
   running: 'bg-raised text-fg',
   interrupted: 'bg-warning-soft text-warning',
+  exceeded: 'bg-warning-soft text-warning',
 };
 
 const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -277,10 +279,22 @@ const summaryEffort = (run: Pick<RunRecord, 'reasoningEffort'>, sent: (string | 
     ? 'varied'
     : configuredEffort(run);
 
-const renderDuration = ({ startTime, endTime }: Pick<RunRecord, 'startTime' | 'endTime'>): Rendered =>
+type Timed = Pick<RunRecord, 'startTime' | 'endTime' | 'harnessStartTime' | 'timeoutSeconds'>;
+
+const renderDuration = ({ startTime, endTime, harnessStartTime, timeoutSeconds }: Timed): Rendered =>
   endTime === null
-    ? html`<span data-elapsed-since="${startTime}">running</span>`
+    ? html`<span data-elapsed-since="${harnessStartTime ?? startTime}"${timeoutSeconds === null
+        ? ''
+        : html` data-elapsed-limit="${formatSpan(timeoutSeconds)}"`}>running</span>`
     : html`${formatDuration(startTime, endTime)}`;
+
+const renderExceeded = (run: RunRecord): Rendered => {
+  if (run.status !== 'exceeded' || run.exceededLimit !== 'timeout' || run.timeoutSeconds === null || run.endTime === null) {
+    return '';
+  }
+  const stoppedAfter = (Date.parse(run.endTime) - Date.parse(run.harnessStartTime ?? run.startTime)) / 1000;
+  return html`<p class="${WARNING_CALLOUT} mb-4" data-exceeded>Stopped after ${formatSpan(stoppedAfter)} of a ${formatSpan(run.timeoutSeconds)} timeout</p>`;
+};
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
@@ -898,6 +912,7 @@ export const renderDetail = (
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
+  const stopped = renderExceeded(run);
   const calls = generations.filter(isCall);
   const efforts = sentEfforts(calls, recordedEfforts);
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
@@ -925,7 +940,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
       ${renderDownloads(run, downloads)}
     </dl>
-    ${run.error === null ? '' : html`<p class="${run.status === 'interrupted' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
+    ${stopped !== '' ? stopped : run.error === null ? '' : html`<p class="${run.status === 'interrupted' || run.status === 'exceeded' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
     ${renderContext(context)}
     ${renderCalls(calls, efforts)}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
@@ -955,11 +970,13 @@ const FAILURE_LABEL: Record<DispatchFailure, string> = {
   'skill-not-found': 'Skill not found',
   'devshell-failed': 'devShell failed',
   interrupted: 'Interrupted',
+  exceeded: 'Exceeded',
 };
 
 const failureText = ({ reason, detail }: DispatchRecord): string | null => {
   if (reason === null) return null;
   const label = FAILURE_LABEL[reason];
+  if (reason === 'exceeded') return detail === null ? label : `${label} ${detail}`;
   return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
 };
 

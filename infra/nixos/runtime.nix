@@ -7,6 +7,55 @@
 let
   cfg = config.forge.runtime;
 
+  timeSpanUnits = {
+    s = 1;
+    sec = 1;
+    second = 1;
+    seconds = 1;
+    m = 60;
+    min = 60;
+    minute = 60;
+    minutes = 60;
+    h = 3600;
+    hr = 3600;
+    hour = 3600;
+    hours = 3600;
+    d = 86400;
+    day = 86400;
+    days = 86400;
+    w = 604800;
+    week = 604800;
+    weeks = 604800;
+  };
+  timeSpanPart = "([0-9]+)[[:space:]]*([a-z]+)";
+  timeSpanParts =
+    value:
+    if builtins.match "[[:space:]]*([0-9]+)[[:space:]]*" value != null then
+      [
+        [
+          (lib.head (builtins.match "[[:space:]]*([0-9]+)[[:space:]]*" value))
+          "s"
+        ]
+      ]
+    else if builtins.match "[[:space:]]*(${timeSpanPart}[[:space:]]*)+" value != null then
+      lib.filter builtins.isList (builtins.split timeSpanPart value)
+    else
+      [ ];
+  timeSpanSeconds =
+    value:
+    lib.foldl' (total: part: total + lib.toInt (lib.elemAt part 0) * timeSpanUnits.${lib.elemAt part 1}) 0 (
+      timeSpanParts value
+    );
+  isTimeSpan =
+    value:
+    let
+      parts = timeSpanParts value;
+    in
+    parts != [ ] && lib.all (part: timeSpanUnits ? ${lib.elemAt part 1}) parts && timeSpanSeconds value > 0;
+  timeSpan = lib.types.addCheck lib.types.str isTimeSpan // {
+    description = "systemd time span of whole seconds, minutes, hours, days or weeks, such as \"2h\" or \"1h 30min\"";
+  };
+
   harnessModule = lib.types.submodule {
     options = {
       command = lib.mkOption {
@@ -41,6 +90,13 @@ let
         );
         default = null;
         description = "Reasoning effort, or null to run at the provider default.";
+      };
+      timeout = lib.mkOption {
+        type = lib.types.nullOr timeSpan;
+        default = cfg.workload.timeout;
+        defaultText = lib.literalExpression "config.forge.runtime.workload.timeout";
+        example = "30min";
+        description = "Longest this worker's workload may run, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"2h\"`, or null for unlimited. It counts from the harness's start, so checkout and devShell setup do not use it, and a workload that passes it is hard-stopped, its subagents included, and ends as exceeded. Defaults to `forge.runtime.workload.timeout`.";
       };
     };
   };
@@ -82,6 +138,7 @@ let
       _: w:
       {
         inherit (w) harness model prompt;
+        timeoutSeconds = if w.timeout == null then null else timeSpanSeconds w.timeout;
       }
       // lib.optionalAttrs (w.reasoningEffort != null) { inherit (w) reasoningEffort; }
     ) cfg.workers;
@@ -294,6 +351,13 @@ in
       default = "80%";
       example = "6G";
       description = "Memory a single workload may use, harness, subagents and every command they run included, as a systemd `MemoryMax=` value: a size such as `6G`, or a percentage of the box's physical memory. A workload that goes over it has its largest process, in practice the runaway command, killed by the kernel, and carries on: the agent sees that command exit with 137. The limit is per workload, so workloads running at once can together use more, and builds the nix daemon runs for a workload fall outside it.";
+    };
+
+    workload.timeout = lib.mkOption {
+      type = lib.types.nullOr timeSpan;
+      default = "2h";
+      example = "30min";
+      description = "Longest a workload may run unless its worker overrides it, as a systemd time span of whole seconds, minutes, hours, days or weeks, or null for unlimited. It counts from the harness's start. A workload that passes it is hard-stopped, its subagents included, and ends as exceeded; a dispatched one fails its dispatch and its ticket becomes `forge:failed`, with nothing posted to it.";
     };
 
     toolset = lib.mkOption {

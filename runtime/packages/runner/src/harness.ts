@@ -36,6 +36,7 @@ export type RequestRecordSink = (line: unknown) => void;
 export interface HarnessSinks {
   rawEvent: RawEventSink;
   requestRecord: RequestRecordSink;
+  stop: AbortSignal;
 }
 
 export interface Harness {
@@ -51,6 +52,7 @@ export interface Worker {
   model: string;
   prompt: string;
   reasoningEffort?: string;
+  timeoutSeconds?: number | null;
 }
 
 export const withEffort = (

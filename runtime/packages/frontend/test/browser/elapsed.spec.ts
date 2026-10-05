@@ -27,6 +27,9 @@ const runningRun: RunRecord = {
   error: null,
   ticket: null,
   aliveAt: null,
+  harnessStartTime: null,
+  timeoutSeconds: null,
+  exceededLimit: null,
 };
 
 const minutesAfterStart = (minutes: number): Date => new Date(Date.parse(START) + minutes * 60_000);
@@ -125,4 +128,26 @@ test('given running workloads at several elapsed times, when the browser counts 
       formatDuration(startedAt(seconds), now.toISOString()),
     );
   }
+});
+
+test('given a running workload with a 2 hour timeout whose harness started 45 minutes ago, when its run renders and time passes, then its elapsed time reads against the timeout, counted from the harness start, on the runs table and the run page', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun({
+    ...runningRun,
+    timeoutSeconds: 7200,
+    harnessStartTime: '2026-09-21T10:10:00.000Z',
+  });
+  await openAt(page, minutesAfterStart(55), '/');
+  const listed = page.getByRole('row', { name: /builder/ }).locator('[data-duration]');
+  await expect(listed).toHaveText('45m / 2h');
+
+  await page.clock.fastForward(5_000);
+  await expect(listed).toHaveText('45m / 2h');
+  await page.clock.fastForward(76 * 60_000);
+  await expect(listed).toHaveText('2h 1m / 2h');
+
+  await page.goto('/runs/run-01');
+  await expect(page.locator('[data-duration]')).toHaveText('2h 1m / 2h');
 });

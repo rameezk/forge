@@ -36,6 +36,7 @@ test('given a request record sink that fails to write, when pi records a request
     for await (const _event of harness.run(
       { model: 'z-ai/glm-5', prompt: 'refine', workDir: dir },
       {
+        stop: new AbortController().signal,
         rawEvent: () => {},
         requestRecord: () => {
           throw new Error('no space left on device');

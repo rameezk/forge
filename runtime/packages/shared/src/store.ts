@@ -24,6 +24,7 @@ import type {
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import type {
   CostStatus,
+  ExceededLimit,
   InterruptedRun,
   RunRecord,
   RunResult,
@@ -57,6 +58,9 @@ type RunRow = {
   ticket_number: number | null;
   ticket_url: string | null;
   alive_at: string | null;
+  harness_start_time: string | null;
+  timeout_seconds: number | null;
+  exceeded_limit: string | null;
 };
 
 const CREATE_RUNS = `
@@ -86,7 +90,10 @@ const CREATE_RUNS = `
     cache_read_price   REAL,
     cache_write_price  REAL,
     reasoning_effort   TEXT,
-    alive_at           TEXT
+    alive_at           TEXT,
+    harness_start_time TEXT,
+    timeout_seconds    INTEGER,
+    exceeded_limit     TEXT
   ) STRICT;
 `;
 
@@ -135,6 +142,16 @@ const HAS_RUN_HEARTBEAT = `
 
 const ADD_RUN_HEARTBEAT = `
   ALTER TABLE runs ADD COLUMN alive_at TEXT;
+`;
+
+const HAS_RUN_LIMITS = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'exceeded_limit'
+`;
+
+const ADD_RUN_LIMITS = `
+  ALTER TABLE runs ADD COLUMN harness_start_time TEXT;
+  ALTER TABLE runs ADD COLUMN timeout_seconds INTEGER;
+  ALTER TABLE runs ADD COLUMN exceeded_limit TEXT;
 `;
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -445,6 +462,9 @@ const toRow = (run: RunRecord): RunRow => ({
   ticket_number: run.ticket?.number ?? null,
   ticket_url: run.ticket?.url ?? null,
   alive_at: run.aliveAt,
+  harness_start_time: run.harnessStartTime,
+  timeout_seconds: run.timeoutSeconds,
+  exceeded_limit: run.exceededLimit,
 });
 
 const ticketFromRow = (row: TicketRow): Ticket => ({
@@ -521,6 +541,9 @@ const fromRow = (row: RunRow): RunRecord => ({
       ? null
       : { repository: row.repository, number: row.ticket_number, url: row.ticket_url },
   aliveAt: row.alive_at,
+  harnessStartTime: row.harness_start_time,
+  timeoutSeconds: row.timeout_seconds,
+  exceededLimit: row.exceeded_limit as ExceededLimit | null,
 });
 
 export class Store {
@@ -538,6 +561,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_ESTIMATE, ADD_RUN_ESTIMATE);
     this.#addColumnsOnce(HAS_RUN_EFFORT, ADD_RUN_EFFORT);
     this.#addColumnsOnce(HAS_RUN_HEARTBEAT, ADD_RUN_HEARTBEAT);
+    this.#addColumnsOnce(HAS_RUN_LIMITS, ADD_RUN_LIMITS);
     db.exec(CREATE_GENERATIONS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
@@ -625,7 +649,8 @@ export class Store {
           input_tokens, output_tokens,
           cache_read_tokens, cache_write_tokens,
           transcript_ref, session_id, error,
-          repository, ticket_number, ticket_url, alive_at
+          repository, ticket_number, ticket_url, alive_at,
+          harness_start_time, timeout_seconds, exceeded_limit
         ) VALUES (
           $id, $worker, $harness, $model, $reasoning_effort, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $cost_estimated,
@@ -633,7 +658,8 @@ export class Store {
           $input_tokens, $output_tokens,
           $cache_read_tokens, $cache_write_tokens,
           $transcript_ref, $session_id, $error,
-          $repository, $ticket_number, $ticket_url, $alive_at
+          $repository, $ticket_number, $ticket_url, $alive_at,
+          $harness_start_time, $timeout_seconds, $exceeded_limit
         )`,
       )
       .run(row);
@@ -647,7 +673,8 @@ export class Store {
             end_time = $end_time,
             status = $status,
             session_id = $session_id,
-            error = $error
+            error = $error,
+            exceeded_limit = $exceeded_limit
           WHERE id = $id`,
         )
         .run({
@@ -656,9 +683,16 @@ export class Store {
           status: result.status,
           session_id: result.sessionId,
           error: result.error,
+          exceeded_limit: result.exceededLimit ?? null,
         });
       this.#settleRun(id);
     });
+  }
+
+  markHarnessStarted(id: string, at: string): void {
+    this.#db
+      .prepare(`UPDATE runs SET harness_start_time = $at WHERE id = $id`)
+      .run({ id, at });
   }
 
   touchRun(id: string, now: string): void {

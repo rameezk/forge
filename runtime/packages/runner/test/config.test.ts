@@ -29,7 +29,22 @@ test('given a config, when a declared worker is resolved, then it carries its na
     model: 'anthropic/claude-opus-4',
     prompt: 'refine',
     reasoningEffort: 'high',
+    timeoutSeconds: null,
   });
+});
+
+test('given workers with a timeout in seconds, with none, and with null, when they are resolved, then the timeout is carried, and absent and null both mean unlimited', () => {
+  const timed: RuntimeConfig = {
+    harnesses: { pi: { command: 'pi' } },
+    workers: {
+      capped: { harness: 'pi', model: 'm', prompt: 'p', timeoutSeconds: 7200 },
+      open: { harness: 'pi', model: 'm', prompt: 'p', timeoutSeconds: null },
+      unset: { harness: 'pi', model: 'm', prompt: 'p' },
+    },
+  };
+  assert.equal(resolveWorker(timed, 'capped').timeoutSeconds, 7200);
+  assert.equal(resolveWorker(timed, 'open').timeoutSeconds, null);
+  assert.equal(resolveWorker(timed, 'unset').timeoutSeconds, null);
 });
 
 test('given a worker with no reasoning effort, when it is resolved, then reasoningEffort is absent', () => {

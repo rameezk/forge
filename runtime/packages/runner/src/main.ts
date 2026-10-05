@@ -21,7 +21,7 @@ export const main = async (
       return { workDir };
     },
   });
-  return run.status === 'error' ? 1 : 0;
+  return run.status === 'error' || run.status === 'exceeded' ? 1 : 0;
 };
 
 if (import.meta.filename === process.argv[1]) {

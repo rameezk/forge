@@ -1,6 +1,7 @@
 import {
   errorMessage,
   startHeartbeat,
+  type ExceededLimit,
   type ListPrice,
   type MessageEvent,
   type RunStatus,
@@ -104,6 +105,9 @@ export const runWorkload = async (
     error: null,
     ticket: options.ticket ?? null,
     aliveAt: null,
+    harnessStartTime: null,
+    timeoutSeconds: worker.timeoutSeconds ?? null,
+    exceededLimit: null,
   });
   const stopHeartbeat = startHeartbeat(
     () => store.touchRun(id, now()),
@@ -134,6 +138,9 @@ export const runWorkload = async (
   let error: string | null = 'harness stream ended without a result';
   let finalMessage: string | null = null;
   let thrown: unknown = null;
+  let exceeded: ExceededLimit | null = null;
+  const stop = new AbortController();
+  let stopTimeout = (): void => {};
 
   try {
     await transcript.append(
@@ -153,6 +160,7 @@ export const runWorkload = async (
     );
     const invocation = invocationFor(worker, await openWorkspace(id));
     const sinks = {
+      stop: stop.signal,
       rawEvent: (event: unknown): void => {
         rawEvents.append(policy.redactValue(event));
       },
@@ -160,6 +168,14 @@ export const runWorkload = async (
         requestRecord.append(policy.redactValue(line));
       },
     };
+    store.markHarnessStarted(id, now());
+    if (worker.timeoutSeconds != null) {
+      const timer = setTimeout(() => {
+        exceeded = 'timeout';
+        stop.abort();
+      }, worker.timeoutSeconds * 1000);
+      stopTimeout = () => clearTimeout(timer);
+    }
     for await (const harnessEvent of harness.run(invocation, sinks)) {
       const event = policy.record(harnessEvent);
       await transcript.append(event);
@@ -187,10 +203,16 @@ export const runWorkload = async (
       cause instanceof Error ? cause.message : String(cause),
     );
   } finally {
+    stopTimeout();
     stopHeartbeat();
     await transcript.close();
     rawEvents.close();
     requestRecord.close();
+  }
+
+  if (exceeded !== null) {
+    status = 'exceeded';
+    error = `the workload was stopped after its ${exceeded} was exceeded`;
   }
 
   store.finalizeRun(id, {
@@ -198,6 +220,7 @@ export const runWorkload = async (
     status,
     sessionId,
     error,
+    ...(exceeded === null ? {} : { exceededLimit: exceeded }),
   });
 
   return { id, finalMessage, cause: thrown };

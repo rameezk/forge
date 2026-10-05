@@ -33,6 +33,9 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   error: null,
   ticket: null,
   aliveAt: null,
+  harnessStartTime: null,
+  timeoutSeconds: null,
+  exceededLimit: null,
   ...overrides,
 });
 

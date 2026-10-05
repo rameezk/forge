@@ -976,6 +976,75 @@
                 ]
               )
               "a forge.runtime.workload.memoryMax that systemd would not read as a non-zero size, a percentage up to 100% or infinity must fail evaluation, rather than systemd ignoring it and leaving the workload unbounded";
+          timeoutModule =
+            {
+              workload ? null,
+              capped ? "45min",
+            }:
+            {
+              imports = [ dispatchModule ];
+              forge.runtime.workers.capped = {
+                harness = "pi";
+                model = "anthropic/claude-sonnet-4";
+                prompt = "build the thing";
+                timeout = capped;
+              };
+              forge.runtime.workers.unlimited = {
+                harness = "pi";
+                model = "anthropic/claude-sonnet-4";
+                prompt = "build the thing";
+                timeout = null;
+              };
+              forge.runtime.workload.timeout = lib.mkIf (workload != null) workload.timeout;
+            };
+          timeoutsOf =
+            host:
+            lib.mapAttrs (_: worker: worker.timeoutSeconds) host.config.forge.runtime.settings.workers;
+          timeoutDefaultsToTwoHours = lib.asserts.assertMsg (
+            timeoutsOf (secretsHost exampleSecretsFile (timeoutModule { })) == {
+              builder = 7200;
+              capped = 2700;
+              unlimited = null;
+            }
+          ) "the runtime config must carry a worker's timeout in seconds: 2 hours when nothing is set, a worker's own override, and null for an unlimited worker";
+          timeoutGlobalDefaultConfigurable = lib.asserts.assertMsg (
+            timeoutsOf (secretsHost exampleSecretsFile (timeoutModule { workload.timeout = "90min"; })) == {
+              builder = 5400;
+              capped = 2700;
+              unlimited = null;
+            }
+            && timeoutsOf (secretsHost exampleSecretsFile (timeoutModule { workload.timeout = null; })) == {
+              builder = null;
+              capped = 2700;
+              unlimited = null;
+            }
+          ) "forge.runtime.workload.timeout must set the default of every worker that does not override it, and null must make that default unlimited";
+          malformedTimeoutFails =
+            lib.asserts.assertMsg
+              (
+                lib.all (timeout: !(evaluates (secretsHost exampleSecretsFile (timeoutModule { capped = timeout; })))) [
+                  ""
+                  "soon"
+                  "2 fortnights"
+                  "-1h"
+                  "0"
+                  "0s"
+                  "h"
+                  "1h30"
+                  "1.5h"
+                  "infinity"
+                ]
+                && lib.all (timeout: evaluates (secretsHost exampleSecretsFile (timeoutModule { capped = timeout; }))) [
+                  "2h"
+                  "90min"
+                  "1h 30min"
+                  "45 minutes"
+                  "3600"
+                  "1d"
+                  "30s"
+                ]
+              )
+              "a worker timeout that is not a positive systemd time span of whole seconds, minutes, hours, days or weeks must fail evaluation, rather than reaching the runner as something it cannot enforce";
           sshFirewall = nixos.config.networking.firewall;
           sshPort = exampleCfg.sshPort;
           tailnetInterface = tailscale.interfaceName;
@@ -1122,6 +1191,14 @@
             assert malformedMemoryMaxFails;
             pkgs.runCommand "runtime-workload-memory" { } ''
               echo "the runner and dispatch units cap a workload's memory at forge.runtime.workload.memoryMax, 80% of the box by default, and carry on past a kernel OOM kill" > $out
+            '';
+
+          runtime-workload-timeout =
+            assert timeoutDefaultsToTwoHours;
+            assert timeoutGlobalDefaultConfigurable;
+            assert malformedTimeoutFails;
+            pkgs.runCommand "runtime-workload-timeout" { } ''
+              echo "a worker's timeout reaches the runner in seconds: 2 hours by default, forge.runtime.workload.timeout as the global default, a per-worker override, null for unlimited, and a malformed timeout fails evaluation" > $out
             '';
 
           runtime-billing =

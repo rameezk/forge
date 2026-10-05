@@ -50,6 +50,19 @@ const formatElapsed = (milliseconds: number): string => {
   return minutes === 0 ? `${seconds}s` : `${minutes}m ${seconds}s`;
 };
 
+export const formatSpan = (totalSeconds: number): string => {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  const parts = [
+    hours > 0 ? `${hours}h` : '',
+    minutes > 0 ? `${minutes}m` : '',
+    hours === 0 && rest > 0 ? `${rest}s` : '',
+  ].filter((part) => part !== '');
+  return parts.length === 0 ? '0s' : parts.join(' ');
+};
+
 export const formatDuration = (
   startTime: string,
   endTime: string | null,

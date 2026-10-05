@@ -49,6 +49,9 @@ const dashboard = () => {
     error: null,
     ticket: { repository: 'forge', number: 56, url: TICKET_URL },
     aliveAt: null,
+    harnessStartTime: null,
+    timeoutSeconds: null,
+    exceededLimit: null,
   });
   const dispatch = store.startDispatch(
     { repository: 'forge', number: 56, url: TICKET_URL },

@@ -42,6 +42,9 @@ const appWith = ({
     error: null,
     ticket: null,
     aliveAt: null,
+    harnessStartTime: null,
+    timeoutSeconds: null,
+    exceededLimit: null,
   });
   return createApp({
     store,

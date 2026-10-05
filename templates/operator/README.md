@@ -480,7 +480,8 @@ forks or other repositories. If one does, the ticket becomes `forge:done`,
 however the run ended. Otherwise it becomes `forge:failed`. The Work page shows each ticket's
 dispatch state, and for a failed ticket its reason, linked to its run: the run
 errored, it ended without a pull request (with the agent's final message), the
-skill was not found, or the run was interrupted. Each dispatch moves a ticket
+skill was not found, the run was interrupted, or it was stopped for exceeding
+its timeout. Each dispatch moves a ticket
 labelled `forge:running` that no live dispatch is working on to `forge:failed`
 as interrupted, and moves one whose dispatch already ended to the label of its
 recorded outcome. To retry a ticket, label it `forge:ready` again. The labels are
@@ -544,6 +545,29 @@ Size the box for the checks your managed repositories run. A check that
 evaluates or builds Nix, such as `nix flake check`, can need more memory than
 a cx23's 3.7 GB usable, so use a cx33 or larger for a box that manages such a
 repository.
+
+### Workload timeout
+
+A workload may run for at most `forge.runtime.workload.timeout`, 2 hours by
+default, a systemd time span of whole seconds, minutes, hours, days or weeks
+such as `"90min"` or `"1h 30min"`. A worker overrides it with its own
+`timeout`, and `null` means unlimited, either as the default or for one worker.
+A malformed timeout does not evaluate. There is no per-repository timeout, and
+it applies to scheduled and dispatched workloads alike.
+
+The timeout counts from the harness's start, so checkout and devShell setup
+do not use it. When it passes, forge kills the workload's sandbox at once,
+the harness and every subagent with it, and ends the run as `exceeded`,
+recording the timeout it ran under. Whatever the agent had not pushed is lost,
+and the agent is neither warned nor told its timeout. The runner exits as for
+a failure, and nothing retries the workload.
+
+A dispatched workload that ends exceeded fails its dispatch with the reason
+`exceeded`, labels the ticket `forge:failed`, and posts nothing to it. The
+dashboard shows an amber `exceeded` pill with a callout such as "Stopped after
+2h of a 2h timeout", and the Work page reads "Exceeded timeout". A running
+workload's elapsed time ticks against its timeout, such as "45m / 2h", counted
+from the harness's start.
 
 ## Inspecting the run store
 

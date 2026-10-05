@@ -239,6 +239,9 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
             error: null,
             ticket: forgeTicket(number),
             aliveAt: null,
+            harnessStartTime: null,
+            timeoutSeconds: null,
+            exceededLimit: null,
           });
         }
         return id;
