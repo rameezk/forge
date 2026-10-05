@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { RunRecord } from '@forge/shared';
+import { formatDuration } from '../../src/format.ts';
 import { expect, test } from './dashboard.ts';
 
 const START = '2026-09-21T10:00:00.000Z';
@@ -104,4 +105,24 @@ test('given a running dispatch and a finished one, when the work page renders an
   await page.clock.runFor(60_000);
   await expect(running).toHaveText('2h 16m');
   await expect(finished).toHaveText('2h 15m');
+});
+
+test('given running workloads at several elapsed times, when the browser counts them, then each reads exactly as the server renders the same duration', async ({
+  dashboard,
+  page,
+}) => {
+  const now = minutesAfterStart(200);
+  const elapsedSeconds = [0, 59, 60, 3599, 3600, 8140, 90_000];
+  const startedAt = (seconds: number): string => new Date(now.getTime() - seconds * 1000).toISOString();
+  for (const seconds of elapsedSeconds) {
+    dashboard.store.insertRun({ ...runningRun, id: `run-${seconds}`, worker: `worker-${seconds}s`, startTime: startedAt(seconds) });
+  }
+
+  await openAt(page, now, '/');
+
+  for (const seconds of elapsedSeconds) {
+    await expect(page.getByRole('row', { name: new RegExp(`worker-${seconds}s `) }).locator('[data-duration]')).toHaveText(
+      formatDuration(startedAt(seconds), now.toISOString()),
+    );
+  }
 });

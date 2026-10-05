@@ -41,7 +41,7 @@ export const cacheHitRate = (
   return promptTokens === 0 ? 'n/a' : percentage.format(run.cacheReadTokens / promptTokens);
 };
 
-export const formatElapsed = (milliseconds: number): string => {
+const formatElapsed = (milliseconds: number): string => {
   const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
