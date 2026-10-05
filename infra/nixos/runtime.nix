@@ -148,7 +148,7 @@ let
       _: r: { inherit (r) github; } // lib.optionalAttrs (r.worker != null) { inherit (r) worker; }
     ) cfg.repositories;
   }
-  // lib.optionalAttrs hasDispatch {
+  // lib.optionalAttrs (hasDispatch || cfg.dispatch.gitIdentity != null) {
     dispatch = {
       inherit (cfg.dispatch) maxConcurrent;
     }

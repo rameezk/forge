@@ -656,6 +656,14 @@
                 && !(workerAndRepositoryHost.config.forge.runtime.settings ? dispatch)
               )
               "the generated runtime config must carry the dispatch git identity and a concurrency limit of 1 by default on a host that dispatches, and no dispatch settings on one that does not";
+          identityWithoutWorkerHost = secretsHost exampleSecretsFile {
+            forge.runtime.repositories.forge.github = "rameezk/forge";
+            forge.runtime.dispatch.gitIdentity = gitIdentity;
+          };
+          dispatchConfigKeepsGitIdentityWithoutWorker =
+            lib.asserts.assertMsg
+              (identityWithoutWorkerHost.config.forge.runtime.settings.dispatch.gitIdentity == gitIdentity)
+              "the generated runtime config must keep the dispatch git identity when no repository declares a worker, so the frontier sync can still count rework on pull requests dispatched earlier";
           concurrentDispatchHost = dispatchHostWith {
             dispatch = {
               inherit gitIdentity;
@@ -1168,6 +1176,7 @@
           runtime-dispatch =
             assert dispatchConfigReflectsWorker;
             assert dispatchConfigReflectsGitIdentity;
+            assert dispatchConfigKeepsGitIdentityWithoutWorker;
             assert dispatchConfigReflectsMaxConcurrent;
             assert dispatchPassFollowsSync;
             assert dispatchPassStartsUnits;
