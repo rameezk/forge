@@ -10,7 +10,8 @@ import {
   type SkillCatalog,
   type Store,
   type TokenUsage,
-  skillLoadOf,
+  promptSkillLoad,
+  readSkillLoad,
 } from '@forge/shared';
 import {
   invocationFor,
@@ -146,9 +147,11 @@ export const runWorkload = async (
   };
 
   let catalog: SkillCatalog | null = null;
-  const recordSkillLoad = (event: HarnessEvent, isPrompt: boolean): void => {
-    const load =
-      catalog === null ? null : skillLoadOf(event, catalog, isPrompt);
+  const recordSkillLoad = (
+    event: HarnessEvent,
+    detect: typeof readSkillLoad,
+  ): void => {
+    const load = catalog === null ? null : detect(event, catalog);
     if (load !== null) {
       store.recordSkillLoad({ ...load, runId: id, loadedAt: now() });
     }
@@ -185,7 +188,7 @@ export const runWorkload = async (
     await transcript.append(promptEvent);
     const workspace = await openWorkspace(id);
     catalog = workspace.checkout ?? null;
-    recordSkillLoad(promptEvent, true);
+    recordSkillLoad(promptEvent, promptSkillLoad);
     const invocation = invocationFor(worker, workspace, agentDir);
     const sinks = {
       stop: stop.signal,
@@ -207,7 +210,7 @@ export const runWorkload = async (
     for await (const harnessEvent of harness.run(invocation, sinks)) {
       const event = policy.record(harnessEvent);
       await transcript.append(event);
-      recordSkillLoad(event, false);
+      recordSkillLoad(event, readSkillLoad);
       if (event.type === 'message') {
         if (isBillable(event)) {
           recordGeneration(event);

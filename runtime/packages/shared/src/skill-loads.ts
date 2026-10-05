@@ -31,21 +31,26 @@ const skillOfFile = (catalog: SkillCatalog, path: string): string | null => {
   return null;
 };
 
-export const skillLoadOf = (
+const scopeOf = (event: HarnessEvent): string | null =>
+  event.type === 'result' ? null : (event.subagent ?? null);
+
+export const promptSkillLoad = (
   event: HarnessEvent,
   catalog: SkillCatalog,
-  isPrompt: boolean,
 ): SkillLoad | null => {
-  const subagent = event.type === 'result' ? null : (event.subagent ?? null);
-  if (isPrompt) {
-    if (event.type !== 'message' || event.role !== 'user') {
-      return null;
-    }
-    const name = SKILL_COMMAND.exec(event.text)?.[1];
-    return name !== undefined && catalog.skills.has(name)
-      ? { skill: name, source: 'prompt', subagent }
-      : null;
+  if (event.type !== 'message' || event.role !== 'user') {
+    return null;
   }
+  const name = SKILL_COMMAND.exec(event.text)?.[1];
+  return name !== undefined && catalog.skills.has(name)
+    ? { skill: name, source: 'prompt', subagent: scopeOf(event) }
+    : null;
+};
+
+export const readSkillLoad = (
+  event: HarnessEvent,
+  catalog: SkillCatalog,
+): SkillLoad | null => {
   if (event.type !== 'tool_call' || event.name !== 'read') {
     return null;
   }
@@ -54,5 +59,5 @@ export const skillLoadOf = (
     return null;
   }
   const skill = skillOfFile(catalog, path);
-  return skill === null ? null : { skill, source: 'read', subagent };
+  return skill === null ? null : { skill, source: 'read', subagent: scopeOf(event) };
 };

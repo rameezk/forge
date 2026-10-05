@@ -73,7 +73,7 @@ export type {
   SkillLoad,
   SkillSource,
 } from './skill-loads.ts';
-export { skillLoadOf } from './skill-loads.ts';
+export { promptSkillLoad, readSkillLoad } from './skill-loads.ts';
 export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';
 export {
   FORGE_DONE,
