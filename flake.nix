@@ -59,7 +59,7 @@
             ./infra/nixos/runtime.nix
             { nixpkgs.overlays = [ runnerOverlay ]; }
             { _module.args.forgeConfig = cfg; }
-            { _module.args.forgeGitSha = forgeGitSha; }
+            { forge.runtime.gitSha = forgeGitSha; }
             { forge.runtime.secretsFile = secretsFile; }
           ]
           ++ modules;

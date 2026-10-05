@@ -2,13 +2,12 @@
   lib,
   config,
   pkgs,
-  forgeGitSha ? null,
   ...
 }:
 let
   cfg = config.forge.runtime;
 
-  forgeGitShaVariable = lib.optional (forgeGitSha != null) "FORGE_GIT_SHA=${forgeGitSha}";
+  forgeGitShaVariable = lib.optional (cfg.gitSha != null) "FORGE_GIT_SHA=${cfg.gitSha}";
 
   timeSpanUnits = {
     s = 1;
@@ -337,6 +336,12 @@ in
       default = "forge-runtime";
       readOnly = true;
       description = "Dedicated service user that owns the runtime state and runs the runner.";
+    };
+
+    gitSha = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "The git revision of forge this host was built from, set for the runner and dispatch units as FORGE_GIT_SHA so each workload records it beside its config fingerprint. Null leaves the variable unset and workloads record no revision.";
     };
 
     stateDir = lib.mkOption {
