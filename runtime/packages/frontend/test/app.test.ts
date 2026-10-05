@@ -13,6 +13,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   worker: 'refiner',
   harness: 'pi',
   model: 'anthropic/claude-opus-4',
+  reasoningEffort: null,
   startTime: '2026-09-21T10:00:00.000Z',
   endTime: '2026-09-21T10:03:20.000Z',
   status: 'success',
@@ -890,7 +891,7 @@ const viewWithGenerations = async (
   const lookups: LookupResult[] = [];
   for (const generation of generations) {
     const id = ids.get(generation.generationId)!;
-    if (generation.outcome === 'billed') lookups.push({ id, billing: { costUsd: generation.cost ?? 0, usage: null, reasoningTokens: null, provider: generation.provider ?? null } });
+    if (generation.outcome === 'billed') lookups.push({ id, billing: { costUsd: generation.cost ?? 0, usage: null, reasoningTokens: null, provider: generation.provider ?? null, model: null } });
     if (generation.outcome === 'given-up') lookups.push({ id, error: 'not found', givenUp: true });
   }
   store.recordLookups(lookups, '2026-09-21T10:02:00.000Z');

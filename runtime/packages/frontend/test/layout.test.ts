@@ -25,6 +25,7 @@ const appWith = ({
     worker: 'refiner',
     harness: 'pi',
     model: 'anthropic/claude-opus-4',
+    reasoningEffort: null,
     startTime: '2026-09-21T10:00:00.000Z',
     endTime: '2026-09-21T10:03:20.000Z',
     status: 'success',

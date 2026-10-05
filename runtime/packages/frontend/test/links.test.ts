@@ -32,6 +32,7 @@ const dashboard = () => {
     worker: 'builder',
     harness: 'pi',
     model: 'z-ai/glm-5',
+    reasoningEffort: null,
     startTime: '2026-09-29T09:00:00.000Z',
     endTime: '2026-09-29T09:03:20.000Z',
     status: 'success',

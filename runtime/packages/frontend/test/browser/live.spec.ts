@@ -7,6 +7,7 @@ const runningRun: RunRecord = {
   worker: 'refiner',
   harness: 'pi',
   model: 'anthropic/claude-opus-4',
+  reasoningEffort: null,
   startTime: '2026-09-21T10:00:00.000Z',
   endTime: null,
   status: 'running',
@@ -90,7 +91,7 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
 
   const [unsettled] = dashboard.store.unsettledGenerations();
   dashboard.store.recordLookups(
-    [{ id: unsettled!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic' } }],
+    [{ id: unsettled!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic', model: null } }],
     '2026-09-21T10:05:00.000Z',
   );
   await expect(row.locator('[data-cost]')).toHaveText('$0.250000');
@@ -379,11 +380,11 @@ test('given a live detail page showing Live, when the workload\'s cost settles a
 
   const [unsettled] = dashboard.store.unsettledGenerations();
   dashboard.store.recordLookups(
-    [{ id: unsettled!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic' } }],
+    [{ id: unsettled!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic', model: null } }],
     '2026-09-21T10:05:00.000Z',
   );
 
-  await expect(page.getByText('$0.250000')).toBeVisible();
+  await expect(page.getByText('$0.250000', { exact: true })).toBeVisible();
   await expect(page.getByRole('status')).toHaveCount(0);
   dashboard.appendEvents('run-01.jsonl', say('Written after the run settled.'));
   await page.waitForTimeout(4_000);
@@ -419,4 +420,44 @@ test.describe('with JS disabled', () => {
     await expect(page.getByText('Live', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '↓ New activity' })).toHaveCount(0);
   });
+});
+
+test('given a running workload\'s detail page open in a browser, when its generations complete and are then billed, then the per-call table gains each row, flags a cache miss, and fills in provider, served model and billed cost without a reload', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(runningRun);
+  await openLive(page, '/runs/run-01');
+  await expect(page.locator('[data-calls]')).toHaveCount(0);
+  const record = (generationId: string, cacheReadTokens: number, cacheWriteTokens: number, estimatedCostUsd: number) =>
+    dashboard.store.recordGeneration({
+      runId: 'run-01',
+      generationId,
+      subagent: null,
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens, cacheWriteTokens },
+      estimatedCostUsd,
+      createdAt: '2026-09-21T10:01:00.000Z',
+    });
+
+  record('gen-01', 0, 1000, 0.01);
+  const rows = page.locator('[data-calls] tr[data-call]');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first().locator('[data-cost]')).toContainText('estimated');
+
+  record('gen-02', 0, 1010, 0.02);
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toHaveAttribute('data-cache-miss', '');
+  await expect(rows.first()).not.toHaveAttribute('data-cache-miss', '');
+
+  const [first] = dashboard.store.unsettledGenerations();
+  dashboard.store.recordLookups(
+    [{ id: first!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: 7, provider: 'Novita', model: 'z-ai/glm-5.1' } }],
+    '2026-09-21T10:05:00.000Z',
+  );
+  await expect(rows.first().locator('[data-provider]')).toHaveText('Novita');
+  await expect(rows.first().locator('[data-served-model]')).toHaveText('z-ai/glm-5.1');
+  await expect(rows.first().locator('[data-reasoning]')).toHaveText('7');
+  await expect(rows.first().locator('[data-cost]')).toContainText('billed');
+
+  await expectNotReloaded(page);
 });

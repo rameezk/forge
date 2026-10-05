@@ -16,7 +16,7 @@ const NO_USAGE = {
 
 const billed = async (costUsd: number): Promise<LookupOutcome> => ({
   outcome: 'billed',
-  billing: { costUsd, usage: null, reasoningTokens: null, provider: null },
+  billing: { costUsd, usage: null, reasoningTokens: null, provider: null, model: null },
 });
 
 const endedAgo = (ms: number): string =>
@@ -38,6 +38,7 @@ const startedRun = (
     worker: 'refiner',
     harness: 'pi',
     model: 'z-ai/glm-5',
+    reasoningEffort: null,
     startTime,
     endTime: null,
     status: 'running',

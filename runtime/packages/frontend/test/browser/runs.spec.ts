@@ -6,6 +6,7 @@ const recordedRun: RunRecord = {
   worker: 'refiner',
   harness: 'pi',
   model: 'anthropic/claude-opus-4',
+  reasoningEffort: null,
   startTime: '2026-09-21T10:00:00.000Z',
   endTime: '2026-09-21T10:03:20.000Z',
   status: 'success',
@@ -66,4 +67,28 @@ test.describe('with JS disabled', () => {
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
     await expect(page.getByRole('row', { name: /Total/ })).toContainText('$0.1234');
   });
+});
+
+test('given a workload whose calls are billed, estimated and flagged as cache misses with long served model names, when its detail page is opened on a desktop screen, then every cost badge shows without the per-call table scrolling sideways', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, reasoningEffort: 'high', model: 'anthropic/claude-opus-5.5' });
+  const usage = (cacheReadTokens: number, cacheWriteTokens: number) => ({ inputTokens: 120, outputTokens: 450, cacheReadTokens, cacheWriteTokens });
+  [usage(0, 20000), usage(20000, 800), usage(0, 20800)].forEach((tokens, index) =>
+    dashboard.store.recordGeneration({ runId: 'run-01', generationId: `gen-0${index}`, subagent: null, usage: tokens, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
+  );
+  const [first] = dashboard.store.unsettledGenerations();
+  dashboard.store.recordLookups(
+    [{ id: first!.id, billing: { costUsd: 0.1021, usage: null, reasoningTokens: 812, provider: 'Google Vertex', model: 'anthropic/claude-opus-5.5-20260921' } }],
+    '2026-09-21T10:30:00.000Z',
+  );
+
+  await page.goto('/runs/run-01');
+
+  await expect(page.locator('[data-calls] [data-badge="billed"]')).toHaveCount(1);
+  await expect(page.locator('[data-calls] [data-badge="estimated"]')).toHaveCount(2);
+  await expect(page.locator('[data-calls] [data-badge="cache-miss"]')).toHaveCount(1);
+  const card = page.locator('[data-calls]');
+  expect(await card.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });

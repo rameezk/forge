@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { rawEventsRef, requestRecordRef, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
-import { workloadContext } from './request-record.ts';
+import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
 import { isSettled, NAV_PAGES, renderDetail, renderList, renderWork, type AssetHrefs, type Downloads } from './views.ts';
 
@@ -83,8 +83,8 @@ export const createApp = ({
     if (run === undefined) return c.notFound();
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
-    const context = workloadContext((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, context, store.listGenerations(run.id), downloadsOf(run), assets));
+    const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
+    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), downloadsOf(run), assets));
   });
 
   const serveDownload = (path: `/runs/:id/${string}`, refOf: (run: RunRecord) => string | null): void => {

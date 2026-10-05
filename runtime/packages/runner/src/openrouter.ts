@@ -51,6 +51,7 @@ interface GenerationData {
   native_tokens_completion?: unknown;
   native_tokens_reasoning?: unknown;
   provider_name?: unknown;
+  model?: unknown;
 }
 
 const usageOf = (data: GenerationData): NativeUsage | null => {
@@ -70,6 +71,8 @@ const billingOf = (data: GenerationData, costUsd: number): Billing => ({
     typeof data.provider_name === 'string' && data.provider_name !== ''
       ? data.provider_name
       : null,
+  model:
+    typeof data.model === 'string' && data.model !== '' ? data.model : null,
 });
 
 export const openRouterLookUp =

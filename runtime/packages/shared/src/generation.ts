@@ -14,6 +14,7 @@ export interface GenerationRecord extends Omit<NewGeneration, 'usage'> {
   billedCostUsd: number | null;
   reasoningTokens: number | null;
   provider: string | null;
+  servedModel: string | null;
   attempts: number;
   lastAttemptAt: string | null;
   lastError: string | null;
@@ -38,6 +39,7 @@ export interface Billing {
   usage: NativeUsage | null;
   reasoningTokens: number | null;
   provider: string | null;
+  model: string | null;
 }
 
 export type LookupResult =

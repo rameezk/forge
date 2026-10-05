@@ -35,6 +35,7 @@ type RunRow = {
   worker: string;
   harness: string;
   model: string;
+  reasoning_effort: string | null;
   start_time: string;
   end_time: string | null;
   status: string;
@@ -84,6 +85,7 @@ const CREATE_RUNS = `
     output_price       REAL,
     cache_read_price   REAL,
     cache_write_price  REAL,
+    reasoning_effort   TEXT,
     alive_at           TEXT
   ) STRICT;
 `;
@@ -119,6 +121,14 @@ const ADD_RUN_ESTIMATE = `
   ALTER TABLE runs ADD COLUMN cache_write_price REAL;
 `;
 
+const HAS_RUN_EFFORT = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'reasoning_effort'
+`;
+
+const ADD_RUN_EFFORT = `
+  ALTER TABLE runs ADD COLUMN reasoning_effort TEXT;
+`;
+
 const HAS_RUN_HEARTBEAT = `
   SELECT 1 FROM pragma_table_info('runs') WHERE name = 'alive_at'
 `;
@@ -139,6 +149,7 @@ type GenerationRow = {
   cache_write_tokens: number | null;
   reasoning_tokens: number | null;
   provider: string | null;
+  served_model: string | null;
   estimated_cost_usd: number | null;
   billed_cost_usd: number | null;
   attempts: number;
@@ -174,6 +185,7 @@ const CREATE_GENERATIONS = `
     reasoning_tokens   INTEGER,
     provider           TEXT,
     estimated_cost_usd REAL,
+    served_model       TEXT,
     UNIQUE (run_id, generation_id)
   ) STRICT;
 
@@ -207,6 +219,14 @@ const HAS_GENERATION_ESTIMATE = `
 
 const ADD_GENERATION_ESTIMATE = `
   ALTER TABLE generations ADD COLUMN estimated_cost_usd REAL;
+`;
+
+const HAS_GENERATION_SERVED_MODEL = `
+  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'served_model'
+`;
+
+const ADD_GENERATION_SERVED_MODEL = `
+  ALTER TABLE generations ADD COLUMN served_model TEXT;
 `;
 
 const NO_GENERATION_ID = 'no generation id';
@@ -403,6 +423,7 @@ const toRow = (run: RunRecord): RunRow => ({
   worker: run.worker,
   harness: run.harness,
   model: run.model,
+  reasoning_effort: run.reasoningEffort,
   start_time: run.startTime,
   end_time: run.endTime,
   status: run.status,
@@ -459,6 +480,7 @@ const generationFromRow = (row: GenerationRow): GenerationRecord => ({
   billedCostUsd: row.billed_cost_usd,
   reasoningTokens: row.reasoning_tokens,
   provider: row.provider,
+  servedModel: row.served_model,
   attempts: row.attempts,
   lastAttemptAt: row.last_attempt_at,
   lastError: row.last_error,
@@ -471,6 +493,7 @@ const fromRow = (row: RunRow): RunRecord => ({
   worker: row.worker,
   harness: row.harness,
   model: row.model,
+  reasoningEffort: row.reasoning_effort,
   startTime: row.start_time,
   endTime: row.end_time,
   status: row.status as RunStatus,
@@ -513,11 +536,13 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_TICKET, ADD_RUN_TICKET);
     this.#addColumnsOnce(HAS_RUN_CACHE_TOKENS, ADD_RUN_CACHE_TOKENS);
     this.#addColumnsOnce(HAS_RUN_ESTIMATE, ADD_RUN_ESTIMATE);
+    this.#addColumnsOnce(HAS_RUN_EFFORT, ADD_RUN_EFFORT);
     this.#addColumnsOnce(HAS_RUN_HEARTBEAT, ADD_RUN_HEARTBEAT);
     db.exec(CREATE_GENERATIONS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
     this.#addColumnsOnce(HAS_GENERATION_ESTIMATE, ADD_GENERATION_ESTIMATE);
+    this.#addColumnsOnce(HAS_GENERATION_SERVED_MODEL, ADD_GENERATION_SERVED_MODEL);
     if (this.#hasOutdatedFrontier()) {
       this.#migrateOutdatedFrontier();
     }
@@ -594,7 +619,7 @@ export class Store {
     this.#db
       .prepare(
         `INSERT INTO runs (
-          id, worker, harness, model, start_time, end_time, status,
+          id, worker, harness, model, reasoning_effort, start_time, end_time, status,
           cost_status, cost_usd, cost_estimated,
           input_price, output_price, cache_read_price, cache_write_price,
           input_tokens, output_tokens,
@@ -602,7 +627,7 @@ export class Store {
           transcript_ref, session_id, error,
           repository, ticket_number, ticket_url, alive_at
         ) VALUES (
-          $id, $worker, $harness, $model, $start_time, $end_time, $status,
+          $id, $worker, $harness, $model, $reasoning_effort, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $cost_estimated,
           $input_price, $output_price, $cache_read_price, $cache_write_price,
           $input_tokens, $output_tokens,
@@ -711,6 +736,7 @@ export class Store {
           END,
           reasoning_tokens = $reasoning_tokens,
           provider = $provider,
+          served_model = $served_model,
           last_error = $last_error,
           given_up_at = $given_up_at
         WHERE id = $id AND billed_cost_usd IS NULL AND given_up_at IS NULL
@@ -732,6 +758,7 @@ export class Store {
           billed_cost_usd: billing?.costUsd ?? null,
           reasoning_tokens: billing?.reasoningTokens ?? null,
           provider: billing?.provider ?? null,
+          served_model: billing?.model ?? null,
           last_error: 'error' in result ? result.error : null,
           given_up_at: 'givenUp' in result && result.givenUp ? attemptedAt : null,
         }) as { run_id: string } | undefined;

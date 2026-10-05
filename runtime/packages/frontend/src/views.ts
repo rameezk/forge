@@ -32,8 +32,9 @@ import {
   pendingCount,
   totalCost,
 } from './format.ts';
+import { cacheMisses, isCall, promptTokens } from './calls.ts';
 import { renderMarkdown } from './markdown.ts';
-import type { ToolDefinition, WorkloadContext } from './request-record.ts';
+import { DEFAULT_EFFORT, type CallEfforts, type RequestRecordView, type ToolDefinition, type WorkloadContext } from './request-record.ts';
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
@@ -161,6 +162,9 @@ const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscape
 const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatStarted(iso)}</time>`;
 
+const renderClock = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<time datetime="${iso}" title="${iso}">${formatTime(iso)}</time>`;
+
 const renderDate = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatDate(iso)}</time>`;
 
@@ -199,6 +203,80 @@ const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rende
   return settling ? html`<span class="${PENDING}">pending</span>` : NOT_RECORDED;
 };
 
+const BILLED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="billed" title="The cost OpenRouter billed for this generation">billed</span>`;
+
+const callCost = ({ billedCostUsd, estimatedCostUsd }: GenerationRecord): Rendered => {
+  if (billedCostUsd !== null) return html`${formatCost(billedCostUsd)}<wbr>${BILLED_BADGE}`;
+  if (estimatedCostUsd !== null) return html`${formatCost(estimatedCostUsd)}<wbr>${ESTIMATED_BADGE}`;
+  return html`<span class="${PENDING}">pending</span>`;
+};
+
+const optionalTokens = (count: number | null): string => (count === null ? '' : formatTokens(count));
+
+const CACHE_MISS_BADGE = html`<span class="${BADGE} mr-1.5 bg-warning-soft text-warning" data-badge="cache-miss" title="This call's cache read fell well below the previous call's prompt size, so most of its prompt was not served from the cache">miss</span>`;
+
+const renderCall = (
+  generation: GenerationRecord,
+  miss: boolean,
+  effort: string | undefined,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const { usage } = generation;
+  return html`<tr class="${miss ? 'bg-warning-soft' : ROW}" data-call${miss ? html` data-cache-miss` : ''}>
+    <td class="${TD} whitespace-nowrap" data-time>${renderClock(generation.createdAt)}</td>
+    <td class="${TD} whitespace-nowrap" data-provider>${generation.provider ?? ''}</td>
+    <td class="${TD} wrap-anywhere" data-served-model>${generation.servedModel ?? ''}</td>
+    <td class="${TD} whitespace-nowrap" data-effort>${effort ?? ''}</td>
+    <td class="${TD} ${NUMERIC}" data-prompt>${usage === null ? '' : formatTokens(promptTokens(usage))}</td>
+    <td class="${TD} ${NUMERIC}" data-cache-read>${miss ? CACHE_MISS_BADGE : ''}${usage === null ? '' : formatTokens(usage.cacheReadTokens)}</td>
+    <td class="${TD} ${NUMERIC}" data-cache-write>${usage === null ? '' : formatTokens(usage.cacheWriteTokens)}</td>
+    <td class="${TD} ${NUMERIC}" data-output>${usage === null ? '' : formatTokens(usage.outputTokens)}</td>
+    <td class="${TD} ${NUMERIC}" data-reasoning>${optionalTokens(generation.reasoningTokens)}</td>
+    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${callCost(generation)}</td>
+  </tr>`;
+};
+
+const sentEfforts = (calls: GenerationRecord[], efforts: CallEfforts): (string | undefined)[] => {
+  const seen = new Map<string | null, number>();
+  return calls.map(({ subagent }) => {
+    const index = seen.get(subagent) ?? 0;
+    seen.set(subagent, index + 1);
+    return efforts.get(subagent)?.[index];
+  });
+};
+
+const renderCalls = (calls: GenerationRecord[], efforts: (string | undefined)[]): Rendered => {
+  if (calls.length === 0) return '';
+  const misses = cacheMisses(calls);
+  return html`<h2 class="${SECTION_TITLE} mt-8 mb-3">Calls</h2>
+    <div class="${CARD}" data-calls>
+      <table class="${TABLE}">
+        <thead>
+          <tr>
+            <th class="${TH}">Time</th>
+            <th class="${TH}">Provider</th>
+            <th class="${TH}">Served model</th>
+            <th class="${TH}">Effort</th>
+            <th class="${TH} text-right">Prompt</th>
+            <th class="${TH} text-right">Cache read</th>
+            <th class="${TH} text-right">Cache write</th>
+            <th class="${TH} text-right">Output</th>
+            <th class="${TH} text-right">Reasoning</th>
+            <th class="${TH} text-right">Cost</th>
+          </tr>
+        </thead>
+        <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index]))}</tbody>
+      </table>
+    </div>`;
+};
+
+const configuredEffort = (run: Pick<RunRecord, 'reasoningEffort'>): string =>
+  run.reasoningEffort ?? DEFAULT_EFFORT;
+
+const summaryEffort = (run: Pick<RunRecord, 'reasoningEffort'>, sent: (string | undefined)[]): string =>
+  sent.some((effort) => effort !== undefined && effort !== configuredEffort(run))
+    ? 'varied'
+    : configuredEffort(run);
+
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
   return html`${formatTotal(totalCost(runs))}${pending === 0
@@ -222,6 +300,7 @@ export const renderList = (
                   <th class="${TH}">Worker</th>
                   <th class="${TH}">Ticket</th>
                   <th class="${TH}">Model</th>
+                  <th class="${TH}">Effort</th>
                   <th class="${TH}">Started</th>
                   <th class="${TH}">Duration</th>
                   <th class="${TH}">Status</th>
@@ -234,7 +313,8 @@ export const renderList = (
                   (run) => html`<tr class="${ROW}" data-run="${run.id}">
                     <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK}">${run.worker}</a></td>
                     <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderRunTicket(run.ticket)}</td>
-                    <td class="${TD} whitespace-nowrap text-muted">${run.model}</td>
+                    <td class="${TD} wrap-anywhere text-muted">${run.model}</td>
+                    <td class="${TD} whitespace-nowrap" data-effort>${configuredEffort(run)}</td>
                     <td class="${TD}">${renderTimestamp(run.startTime)}</td>
                     <td class="${TD} whitespace-nowrap">${formatDuration(run.startTime, run.endTime)}</td>
                     <td class="${TD}">${renderStatus(run.status)}</td>
@@ -245,7 +325,7 @@ export const renderList = (
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="7" class="${TD} font-semibold">Total</td>
+                  <td colspan="8" class="${TD} font-semibold">Total</td>
                   <td class="${TD} ${NUMERIC} font-semibold">${renderTotal(runs)}</td>
                 </tr>
               </tfoot>
@@ -807,17 +887,21 @@ const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
-  context: WorkloadContext,
+  { context, efforts: recordedEfforts }: RequestRecordView,
   generations: GenerationRecord[],
   downloads: Downloads,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
+  const calls = generations.filter(isCall);
+  const efforts = sentEfforts(calls, recordedEfforts);
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
     <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
     <dl class="m-0 mb-4 grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[0.9rem]">
       <dt class="${META_TERM}">Model</dt>
       <dd class="${META_VALUE}">${run.model}</dd>
+      <dt class="${META_TERM}">Reasoning effort</dt>
+      <dd class="${META_VALUE}">${summaryEffort(run, efforts)}</dd>
       <dt class="${META_TERM}">Status</dt>
       <dd class="${META_VALUE}">${renderStatus(run.status)}</dd>
       <dt class="${META_TERM}">Started</dt>
@@ -838,6 +922,7 @@ export const renderDetail = (
     </dl>
     ${run.error === null ? '' : html`<p class="${run.status === 'interrupted' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
     ${renderContext(context)}
+    ${renderCalls(calls, efforts)}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`

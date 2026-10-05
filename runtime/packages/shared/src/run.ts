@@ -21,6 +21,7 @@ export interface RunRecord {
   worker: string;
   harness: string;
   model: string;
+  reasoningEffort: string | null;
   startTime: string;
   endTime: string | null;
   status: RunStatus;
