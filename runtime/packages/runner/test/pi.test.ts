@@ -15,7 +15,6 @@ test('given a request record sink that fails to write, when pi records a request
   const harness = new PiHarness({
     command: writeFakePi(dir),
     extensions: PI_EXTENSIONS,
-    agentDir: dir,
     sandbox: {
       bwrap: writeFakeBwrap(dir, {
         record: join(dir, 'bwrap-call.json'),
@@ -34,7 +33,7 @@ test('given a request record sink that fails to write, when pi records a request
 
   await assert.rejects(async () => {
     for await (const _event of harness.run(
-      { model: 'z-ai/glm-5', prompt: 'refine', workDir: dir },
+      { model: 'z-ai/glm-5', prompt: 'refine', workDir: dir, agentDir: dir },
       {
         rawEvent: () => {},
         requestRecord: () => {

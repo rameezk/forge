@@ -24,6 +24,7 @@ export interface Workspace {
 }
 
 export interface HarnessInvocation extends Workspace {
+  agentDir: string;
   model: string;
   prompt: string;
   reasoningEffort?: string;
@@ -61,7 +62,9 @@ export const withEffort = (
 export const invocationFor = (
   worker: Worker,
   workspace: Workspace,
+  agentDir: string,
 ): HarnessInvocation => ({
+  agentDir,
   model: worker.model,
   prompt: worker.prompt,
   ...workspace,

@@ -12,7 +12,8 @@ import type {
 import type {
   Harness,
   HarnessInvocation,
-  LookUpListPrice,
+  LookUpModel,
+  OpenAgentDir,
   PiExtensions,
   JsonLinesWriter,
   TranscriptWriter,
@@ -30,9 +31,11 @@ export const message = (
   ...overrides,
 });
 
-export const unlisted: LookUpListPrice = async () => ({
+export const unlisted: LookUpModel = async () => ({
   reason: 'the model is not listed',
 });
+
+export const plainAgentDir: OpenAgentDir = (runId) => `/agent/${runId}`;
 
 export const result = (
   overrides: Partial<Omit<ResultEvent, 'type'>> = {},
@@ -130,9 +133,10 @@ export const fixedClock = (times: string[]): (() => string) => {
 };
 
 const FAKE_PI = `#!${process.execPath}
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 const env = process.env;
-writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR, githubToken: env.GITHUB_TOKEN, nodeOptions: env.NODE_OPTIONS, env }));
+const modelsPath = env.PI_CODING_AGENT_DIR + '/models.json';
+writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ modelsJson: existsSync(modelsPath) ? readFileSync(modelsPath, 'utf8') : null, argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR, githubToken: env.GITHUB_TOKEN, nodeOptions: env.NODE_OPTIONS, env }));
 process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
 if (env.FAKE_PI_REQUESTS) writeFileSync(Number(env.FORGE_PI_REQUEST_RECORD_FD), readFileSync(env.FAKE_PI_REQUESTS, 'utf8'));
 if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));

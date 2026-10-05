@@ -518,7 +518,6 @@ const realCommand = (command: string): string => {
 export interface PiHarnessOptions {
   command: string;
   extensions: PiExtensions;
-  agentDir: string;
   sandbox: Sandbox;
   system: Record<string, string>;
   env: Record<string, string>;
@@ -528,7 +527,6 @@ export interface PiHarnessOptions {
 export class PiHarness implements Harness {
   readonly #command: string;
   readonly #extensions: PiExtensions;
-  readonly #agentDir: string;
   readonly #sandbox: Sandbox;
   readonly #extraArgs: string[];
   readonly #system: Record<string, string>;
@@ -537,7 +535,6 @@ export class PiHarness implements Harness {
   constructor(options: PiHarnessOptions) {
     this.#command = options.command;
     this.#extensions = options.extensions;
-    this.#agentDir = options.agentDir;
     this.#sandbox = options.sandbox;
     this.#extraArgs = options.extraArgs ?? [];
     this.#system = options.system;
@@ -559,9 +556,10 @@ export class PiHarness implements Harness {
       {
         name: 'pi',
         workDir: invocation.workDir,
+        agentDir: invocation.agentDir,
         env: underDevShell(invocation.devShell, this.#system, {
           ...this.#env,
-          ...piEnv(this.#agentDir),
+          ...piEnv(invocation.agentDir),
           [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
             subagentInvocation(command, invocation, this.#extensions),
           ),

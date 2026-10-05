@@ -49,8 +49,6 @@ const {
   requestRecord: REQUEST_RECORD_EXTENSION,
 } = PI_EXTENSIONS;
 
-const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
-
 const OPERATOR_EXTRAS = ['--skill', '/opt/forge/skills/review'];
 
 const RUNNER_HOME = '/var/empty';
@@ -111,6 +109,7 @@ interface Outcome {
     pid: number;
     subagentInvocation: string | undefined;
     agentDir: string | undefined;
+    modelsJson: string | null;
     env: Record<string, string>;
   };
 }
@@ -223,7 +222,6 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
       FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
-      FORGE_PI_AGENT_DIR: AGENT_DIR,
       FORGE_BWRAP: fakeBwrap,
       ...scenario.env,
     });
@@ -802,7 +800,7 @@ test('given the models endpoint lists the worker\'s model at a price so large it
   }
 });
 
-test('given the models endpoint is unavailable, or lists other models but not the worker\'s, when the workload runs and its generations complete, then it still succeeds, its generations have tokens but no estimated cost, and the journal says why', async () => {
+test('given the models endpoint is unavailable, or lists other models but not the worker\'s, when the workload runs and its generations complete, then it still succeeds, its generations have tokens but no estimated cost, pi starts with an agent dir that has no models.json, and the journal says why', async () => {
   for (const [models, reason] of [
     [null, /HTTP 404/],
     [{ data: [{ id: 'z-ai/glm-4.6', pricing: { prompt: '0.0000006', completion: '0.0000022' } }] }, /not listed/],
@@ -824,7 +822,9 @@ test('given the models endpoint is unavailable, or lists other models but not th
         assert.notEqual(generation.usage, null);
         assert.equal(generation.estimatedCostUsd, null);
       }
-      assert.match(journal, /could not look up OpenRouter's list price for z-ai\/glm-5/);
+      assert.match(journal, /could not look up OpenRouter's models entry for z-ai\/glm-5/);
+      assert.ok(result.pi.agentDir);
+      assert.equal(result.pi.modelsJson, null);
       assert.match(journal, reason);
     } finally {
       openRouter.close();
@@ -1383,13 +1383,92 @@ test('given workers with and without a reasoning effort and a harness with opera
   assert.match(withEffortChild.systemPrompt, /cannot spawn sub-agents/);
 });
 
-test('given a wrapper that supplies a read-only agent dir and an environment already pointing pi at the writable default, when the worker runs, then pi is spawned with its agent dir set to the supplied one', async () => {
-  const { pi } = await runWorker({
+test('given an environment already pointing pi at the writable default, when the worker runs, then pi is spawned with its agent dir set to the run\'s own dir under the state directory', async () => {
+  const { pi, run, stateDir } = await runWorker({
     output: fixture('success.jsonl'),
     env: { PI_CODING_AGENT_DIR: '/var/lib/forge/.pi/agent' },
   });
 
-  assert.equal(pi.agentDir, AGENT_DIR);
+  assert.equal(pi.agentDir, join(stateDir, 'agent', run.id));
+});
+
+test('given the models endpoint lists the worker\'s model with a context window, an output limit, reasoning support and prices, when the workload starts, then pi starts with an agent dir whose models.json declares that model with those values, and the sandbox binds the dir read-only', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [
+      {
+        id: 'z-ai/glm-5',
+        context_length: 202752,
+        top_provider: { max_completion_tokens: 131072 },
+        supported_parameters: ['tools', 'reasoning'],
+        pricing: { prompt: '0.000002', completion: '0.00001', input_cache_read: '0.0000002', input_cache_write: '0.0000025' },
+      },
+    ],
+  });
+  try {
+    const { pi, bwrap } = await runWorker({ output: fixture('success.jsonl'), openRouterBaseUrl: openRouter.baseUrl });
+
+    assert.ok(pi.agentDir);
+    assert.deepEqual(JSON.parse(pi.modelsJson ?? 'null'), {
+      providers: {
+        openrouter: {
+          models: [
+            {
+              id: 'z-ai/glm-5',
+              reasoning: true,
+              contextWindow: 202752,
+              maxTokens: 131072,
+              cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+            },
+          ],
+        },
+      },
+    });
+    const bind = bwrap.argv.findIndex((arg, at) => arg === '--ro-bind' && bwrap.argv[at + 1] === pi.agentDir);
+    assert.notEqual(bind, -1);
+    assert.equal(bwrap.argv[bind + 2], pi.agentDir);
+    assert.ok(bind < bwrap.argv.indexOf('--remount-ro'));
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given the models endpoint lists the worker\'s model without an output limit, without reasoning and at a price too large to scale, when the workload starts, then models.json declares only the context window and that the model does not reason', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [
+      {
+        id: 'z-ai/glm-5',
+        context_length: 202752,
+        supported_parameters: ['tools'],
+        pricing: { prompt: '1e308', completion: '1e308' },
+      },
+    ],
+  });
+  try {
+    const { pi } = await runWorker({ output: fixture('success.jsonl'), openRouterBaseUrl: openRouter.baseUrl });
+
+    assert.deepEqual(JSON.parse(pi.modelsJson ?? 'null'), {
+      providers: { openrouter: { models: [{ id: 'z-ai/glm-5', reasoning: false, contextWindow: 202752 }] } },
+    });
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given the models endpoint lists the worker\'s model with a context length that is not a number, such as a command string, when the workload starts, then no models.json is written, the journal says so, and the run proceeds', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [{ id: 'z-ai/glm-5', context_length: '!touch /tmp/planted', pricing: { prompt: '0.000002', completion: '0.00001' } }],
+  });
+  try {
+    const { result, journal } = await journaled(() =>
+      runWorker({ output: fixture('success.jsonl'), openRouterBaseUrl: openRouter.baseUrl }),
+    );
+
+    assert.equal(result.code, 0);
+    assert.equal(result.pi.modelsJson, null);
+    assert.match(journal, /lists no context window for z-ai\/glm-5/);
+  } finally {
+    openRouter.close();
+  }
 });
 
 test('given any worker, when it runs, then pi works in a fresh per-run directory under the state directory, never the state directory itself', async () => {
@@ -1403,12 +1482,13 @@ test('given any worker, when it runs, then pi works in a fresh per-run directory
   assert.match(pi.cwd, new RegExp(`${run.id}$`));
 });
 
-test('given a workload about to start, when the runner launches its harness, then pi runs inside bubblewrap with the nix store, the daemon socket and the system files read-only, its run directory read-write at its real path, fresh /dev, /proc, /tmp and HOME, its own pid, ipc and uts namespaces, no nested user namespaces, and nothing else from the box', async () => {
+test('given a workload about to start, when the runner launches its harness, then pi runs inside bubblewrap with the nix store, the daemon socket and the system files read-only, its own agent dir read-only, its run directory read-write at its real path, fresh /dev, /proc, /tmp and HOME, its own pid, ipc and uts namespaces, no nested user namespaces, and nothing else from the box', async () => {
   const { bwrap, pi, run, stateDir } = await runWorker({
     output: fixture('success.jsonl'),
   });
 
   const workDir = join(stateDir, 'work', run.id);
+  const agentDir = join(stateDir, 'agent', run.id);
   const separator = bwrap.argv.indexOf('--');
   assert.deepEqual(bwrap.argv.slice(0, separator), [
     '--unshare-user',
@@ -1427,6 +1507,7 @@ test('given a workload about to start, when the runner launches its harness, the
     '--proc', '/proc',
     '--tmpfs', '/tmp',
     '--tmpfs', RUNNER_HOME,
+    '--ro-bind', agentDir, agentDir,
     '--bind', workDir, workDir,
     '--remount-ro', '/',
     '--chdir', workDir,
@@ -2090,12 +2171,11 @@ test('given a billing service with no OpenRouter key, a key that is not a valid 
   }
 });
 
-test('given a runner whose subagent extension, model default reasoning extension, request record extension, read-only agent dir, bubblewrap or HOME is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
+test('given a runner whose subagent extension, model default reasoning extension, request record extension, bubblewrap or HOME is missing, empty, or relative, when a pi worker runs, then the runner refuses naming the variable before starting pi', async () => {
   const valid = {
     FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
     FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
     FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
-    FORGE_PI_AGENT_DIR: AGENT_DIR,
     FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap',
     HOME: RUNNER_HOME,
   };

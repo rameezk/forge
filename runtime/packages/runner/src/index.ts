@@ -15,19 +15,22 @@ export type {
   WorkerConfig,
 } from './config.ts';
 export { resolveWorker } from './config.ts';
+export type { OpenAgentDir } from './agent-dir.ts';
+export { agentDirsIn, piModelsJson } from './agent-dir.ts';
 export type { RunWorkloadOptions } from './runner.ts';
 export { runWorkload } from './runner.ts';
 export type {
-  ListPriceOutcome,
+  ListedModel,
   LookupOutcome,
   LookUpGeneration,
-  LookUpListPrice,
+  LookUpModel,
+  ModelOutcome,
 } from './openrouter.ts';
 export {
   OPENROUTER_API,
   openRouterBaseUrl,
-  openRouterListPrice,
   openRouterLookUp,
+  openRouterModel,
 } from './openrouter.ts';
 export type { SettleOptions } from './billing.ts';
 export { settleGenerations } from './billing.ts';

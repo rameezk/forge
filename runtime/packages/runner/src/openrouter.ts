@@ -105,12 +105,22 @@ export const openRouterLookUp =
     }
   };
 
-export type ListPriceOutcome = { price: ListPrice } | { reason: string };
+export interface ListedModel {
+  price: ListPrice;
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+  reasoning: boolean;
+}
 
-export type LookUpListPrice = (model: string) => Promise<ListPriceOutcome>;
+export type ModelOutcome = { model: ListedModel } | { reason: string };
+
+export type LookUpModel = (model: string) => Promise<ModelOutcome>;
 
 interface ModelData {
   id?: unknown;
+  context_length?: unknown;
+  top_provider?: { max_completion_tokens?: unknown } | null;
+  supported_parameters?: unknown;
   pricing?: Record<string, unknown>;
 }
 
@@ -133,8 +143,16 @@ const listPriceOf = (pricing: Record<string, unknown>): ListPrice | null => {
       };
 };
 
-export const openRouterListPrice =
-  (baseUrl: URL): LookUpListPrice =>
+const limitOf = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+
+const supportsReasoning = (parameters: unknown): boolean =>
+  Array.isArray(parameters) && parameters.includes('reasoning');
+
+export const openRouterModel =
+  (baseUrl: URL): LookUpModel =>
   async (model) => {
     try {
       const response = await fetch(endpoint(baseUrl, 'models'), {
@@ -152,7 +170,14 @@ export const openRouterListPrice =
       const price = listPriceOf(listed.pricing ?? {});
       return price === null
         ? { reason: 'the model has no prompt and completion price' }
-        : { price };
+        : {
+            model: {
+              price,
+              contextWindow: limitOf(listed.context_length),
+              maxOutputTokens: limitOf(listed.top_provider?.max_completion_tokens),
+              reasoning: supportsReasoning(listed.supported_parameters),
+            },
+          };
     } catch (error) {
       return { reason: failureOf(error) };
     }
