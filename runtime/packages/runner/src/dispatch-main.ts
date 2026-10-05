@@ -6,7 +6,7 @@ import {
   FORGE_FAILED,
   FORGE_READY,
   FORGE_RUNNING,
-  hasOpenClosingPullRequest,
+  findOpenClosingPullRequest,
   labelExists,
   githubWriteToken,
   offFrontier,
@@ -17,6 +17,7 @@ import {
   startHeartbeat,
   type DispatchOutcome,
   type DispatchStart,
+  type PullRequestRef,
   type DispatchTicket,
   type Fetch,
   type TicketState,
@@ -80,13 +81,13 @@ const fillPrompt = (
     .replaceAll('{url}', ticket.url);
 
 const outcomeOf = (
-  pullRequestOpen: boolean,
+  pullRequest: PullRequestRef | null,
   { run, finalMessage, cause }: LaunchResult,
 ): DispatchOutcome => {
   if (run.status === 'exceeded') {
     return { state: 'failed', reason: 'exceeded', detail: run.exceededLimit };
   }
-  if (pullRequestOpen) return { state: 'done' };
+  if (pullRequest !== null) return { state: 'done', pullRequest };
   if (cause instanceof SkillNotFound) {
     return { state: 'failed', reason: 'skill-not-found', detail: run.error };
   }
@@ -289,9 +290,9 @@ export const main = async (
         return failAs('could not start the workload', error);
       }
 
-      let pullRequestOpen: boolean;
+      let pullRequest: PullRequestRef | null;
       try {
-        pullRequestOpen = await hasOpenClosingPullRequest(
+        pullRequest = await findOpenClosingPullRequest(
           fetch,
           token,
           repository.github,
@@ -301,7 +302,7 @@ export const main = async (
         return failAs('could not check for a pull request', error);
       }
 
-      const outcome = outcomeOf(pullRequestOpen, launched);
+      const outcome = outcomeOf(pullRequest, launched);
       store.endDispatch(dispatchId, outcome, now());
       await relabel(
         fetch,

@@ -7,14 +7,19 @@ import {
   isHeaderValue,
   oldestFirst,
   queryFrontier,
+  queryPullRequest,
+  reworkOf,
   settleRunningTickets,
   Store,
   type Fetch,
+  type PullRequestSnapshot,
   type Ticket,
 } from '@forge/shared';
 import type { FrontierConfig } from './config.ts';
 
 type Poll = (github: string) => Promise<Ticket[]>;
+
+type PullRequestPoll = (github: string, number: number) => Promise<PullRequestSnapshot>;
 
 const readConfig = (env: NodeJS.ProcessEnv): FrontierConfig => {
   const configPath = env.FORGE_RUNTIME_CONFIG;
@@ -24,16 +29,51 @@ const readConfig = (env: NodeJS.ProcessEnv): FrontierConfig => {
   return JSON.parse(readFileSync(configPath, 'utf8')) as FrontierConfig;
 };
 
-const failing =
-  (message: string): Poll =>
-  () =>
-    Promise.reject(new Error(message));
+const failing = (message: string) => () => Promise.reject(new Error(message));
+
+const readToken = (env: NodeJS.ProcessEnv): string | Error => {
+  const token = env.GITHUB_TOKEN?.trim() ?? '';
+  if (token === '') return new Error('GitHub token missing');
+  if (!isHeaderValue(token)) return new Error('GitHub token malformed');
+  return token;
+};
 
 const polling = (env: NodeJS.ProcessEnv, fetch: Fetch): Poll => {
-  const token = env.GITHUB_TOKEN?.trim() ?? '';
-  if (token === '') return failing('GitHub token missing');
-  if (!isHeaderValue(token)) return failing('GitHub token malformed');
-  return (github) => queryFrontier(fetch, token, github);
+  const token = readToken(env);
+  return token instanceof Error
+    ? failing(token.message)
+    : (github) => queryFrontier(fetch, token, github);
+};
+
+const pullRequestPolling = (env: NodeJS.ProcessEnv, fetch: Fetch): PullRequestPoll => {
+  const token = readToken(env);
+  return token instanceof Error
+    ? failing(token.message)
+    : (github, number) => queryPullRequest(fetch, token, github, number);
+};
+
+const refreshPullRequests = async (
+  store: Store,
+  name: string,
+  github: string,
+  forgeEmail: string,
+  pullRequest: PullRequestPoll,
+): Promise<boolean> => {
+  let refreshed = true;
+  for (const { id, number } of store.unsettledPullRequests(name)) {
+    try {
+      const { state, settledAt, commitAuthors } = await pullRequest(github, number);
+      store.recordPullRequest(id, {
+        state,
+        settledAt,
+        rework: reworkOf(commitAuthors, forgeEmail),
+      });
+    } catch (error) {
+      console.error(`${name}: could not refresh pull request #${number}: ${errorMessage(error)}`);
+      refreshed = false;
+    }
+  }
+  return refreshed;
 };
 
 interface GithubWrites {
@@ -62,6 +102,7 @@ const sync = async (
   config: FrontierConfig,
   env: NodeJS.ProcessEnv,
   poll: Poll,
+  pullRequest: PullRequestPoll,
   writes: GithubWrites | null,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
@@ -91,6 +132,14 @@ const sync = async (
           message,
           failedAt: new Date().toISOString(),
         });
+        failed = true;
+      }
+      const forgeEmail = config.dispatch?.gitIdentity?.email;
+      if (
+        worker !== undefined &&
+        forgeEmail !== undefined &&
+        !(await refreshPullRequests(store, name, github, forgeEmail, pullRequest))
+      ) {
         failed = true;
       }
       if (writes === null) continue;
@@ -162,7 +211,7 @@ export const main = async (
   const config = readConfig(env);
   const poll = polling(env, fetch);
   return command === 'sync'
-    ? sync(config, env, poll, githubWrites(env, fetch))
+    ? sync(config, env, poll, pullRequestPolling(env, fetch), githubWrites(env, fetch))
     : list(config, poll);
 };
 

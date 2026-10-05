@@ -1,4 +1,4 @@
-import { FORGE_READY } from './dispatch.ts';
+import { FORGE_READY, type PullRequestRef, type PullRequestState } from './dispatch.ts';
 
 export const GITHUB_GRAPHQL_API = 'https://api.github.com/graphql';
 
@@ -95,10 +95,36 @@ const CLOSING_PULL_REQUESTS_QUERY = `
         closedByPullRequestsReferences(first: 100, includeClosedPrs: false) {
           nodes {
             number
+            url
             state
             isCrossRepository
             repository {
               nameWithOwner
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const PULL_REQUEST_QUERY = `
+  query PullRequest($owner: String!, $name: String!, $number: Int!, $after: String) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        state
+        mergedAt
+        closedAt
+        commits(first: 100, after: $after) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          nodes {
+            commit {
+              author {
+                email
+              }
             }
           }
         }
@@ -182,6 +208,13 @@ export const isGithubUrl = (url: string): boolean =>
 const ticketUrl = (url: string): string => {
   if (!isGithubUrl(url)) {
     throw new Error(`GitHub returned an unexpected issue URL '${url}'`);
+  }
+  return url;
+};
+
+const pullRequestUrl = (url: string): string => {
+  if (!isGithubUrl(url)) {
+    throw new Error(`GitHub returned an unexpected pull request URL '${url}'`);
   }
   return url;
 };
@@ -395,6 +428,8 @@ interface ClosingPullRequestsResponse {
       issue: {
         closedByPullRequestsReferences: {
           nodes: {
+            number: number;
+            url: string;
             state: string;
             isCrossRepository: boolean;
             repository: { nameWithOwner: string };
@@ -406,12 +441,12 @@ interface ClosingPullRequestsResponse {
   errors?: { message: string }[];
 }
 
-export const hasOpenClosingPullRequest = async (
+export const findOpenClosingPullRequest = async (
   fetch: Fetch,
   token: string,
   github: string,
   number: number,
-): Promise<boolean> => {
+): Promise<PullRequestRef | null> => {
   const response = await requestClosingPullRequests(fetch, token, github, number);
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
@@ -427,13 +462,111 @@ export const hasOpenClosingPullRequest = async (
       `GitHub found no pull requests closing ${github}#${number}: ${reason}`,
     );
   }
-  return issue.closedByPullRequestsReferences.nodes.some(
-    (pullRequest) =>
-      pullRequest.state === 'OPEN' &&
-      !pullRequest.isCrossRepository &&
-      pullRequest.repository.nameWithOwner.toLowerCase() === github.toLowerCase(),
+  const pullRequest = issue.closedByPullRequestsReferences.nodes.find(
+    (node) =>
+      node.state === 'OPEN' &&
+      !node.isCrossRepository &&
+      node.repository.nameWithOwner.toLowerCase() === github.toLowerCase(),
   );
+  return pullRequest === undefined
+    ? null
+    : { number: pullRequest.number, url: pullRequestUrl(pullRequest.url) };
 };
+
+export interface PullRequestSnapshot {
+  state: PullRequestState;
+  settledAt: string | null;
+  commitAuthors: (string | null)[];
+}
+
+interface PullRequestNode {
+  state: string;
+  mergedAt: string | null;
+  closedAt: string | null;
+  commits: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: { commit: { author: { email: string | null } | null } }[];
+  };
+}
+
+interface PullRequestResponse {
+  data?: { repository: { pullRequest: PullRequestNode | null } | null };
+  errors?: { message: string }[];
+}
+
+export const requestPullRequest = (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  after: string | null,
+): Promise<Response> =>
+  requestGraphql(fetch, token, PULL_REQUEST_QUERY, github, { number, after });
+
+const queryPullRequestPage = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  after: string | null,
+): Promise<PullRequestNode> => {
+  const response = await requestPullRequest(fetch, token, github, number, after);
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
+  }
+  const { data, errors } = (await response.json()) as PullRequestResponse;
+  const pullRequest = data?.repository?.pullRequest;
+  if (pullRequest === undefined || pullRequest === null) {
+    const reason =
+      errors === undefined || errors.length === 0
+        ? 'no such pull request'
+        : errors.map((error) => error.message).join('; ');
+    throw new Error(`GitHub found no pull request ${github}#${number}: ${reason}`);
+  }
+  return pullRequest;
+};
+
+const PULL_REQUEST_STATES: Record<string, PullRequestState> = {
+  OPEN: 'open',
+  MERGED: 'merged',
+  CLOSED: 'closed',
+};
+
+export const queryPullRequest = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+): Promise<PullRequestSnapshot> => {
+  const commitAuthors: (string | null)[] = [];
+  const cursors = new Set<string>();
+  let after: string | null = null;
+  let first: PullRequestNode | null = null;
+  do {
+    const page: PullRequestNode = await queryPullRequestPage(fetch, token, github, number, after);
+    first ??= page;
+    commitAuthors.push(...page.commits.nodes.map(({ commit }) => commit.author?.email ?? null));
+    after = page.commits.pageInfo.hasNextPage ? page.commits.pageInfo.endCursor : null;
+    if (after !== null && cursors.has(after)) {
+      throw new Error(`GitHub paging did not advance for ${github}#${number}`);
+    }
+    if (after !== null) cursors.add(after);
+  } while (after !== null);
+  const state = Object.hasOwn(PULL_REQUEST_STATES, first.state)
+    ? PULL_REQUEST_STATES[first.state]
+    : undefined;
+  if (state === undefined) {
+    throw new Error(`GitHub reported ${github}#${number} in an unknown state '${first.state}'`);
+  }
+  return {
+    state,
+    settledAt: state === 'merged' ? first.mergedAt : state === 'closed' ? first.closedAt : null,
+    commitAuthors,
+  };
+};
+
+export const reworkOf = (commitAuthors: (string | null)[], forgeEmail: string): number =>
+  commitAuthors.filter((email) => email?.toLowerCase() !== forgeEmail.toLowerCase()).length;
 
 export const offFrontier = (ticket: TicketState): string | null => {
   if (!ticket.open) return 'it is closed';

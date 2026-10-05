@@ -9,6 +9,8 @@ import type {
   HarnessEvent,
   CompactionEvent,
   MessageEvent,
+  PullRequestRecord,
+  PullRequestState,
   RepositoryFrontier,
   ResultEvent,
   RetryEvent,
@@ -893,6 +895,22 @@ const renderContext = ({ systemPrompt, tools }: WorkloadContext): Rendered =>
     ? ''
     : html`<div class="${STACK} mb-4" data-context>${renderSystemPrompt(systemPrompt)}${renderTools(tools)}</div>`;
 
+const PULL_REQUEST_TONE: Record<PullRequestState, string> = {
+  open: 'bg-raised text-fg',
+  merged: 'bg-success-soft text-success',
+  closed: 'bg-warning-soft text-warning',
+};
+
+const renderPullRequest = (pullRequest: PullRequestRecord | null): Rendered =>
+  pullRequest === null
+    ? ''
+    : html`<dt class="${META_TERM}">Pull request</dt>
+      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" data-pull-request>${isGithubUrl(pullRequest.url)
+        ? externalLink(pullRequest.url, `#${pullRequest.number}`)
+        : html`#${pullRequest.number}`}<span class="${PILL} ${PULL_REQUEST_TONE[pullRequest.state]}" data-pull-request-state="${pullRequest.state}">${pullRequest.state}</span>${pullRequest.rework === null
+        ? ''
+        : html`<span>rework ${pullRequest.rework}</span>`}</dd>`;
+
 const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
   const offered = DOWNLOADS.filter(({ key }) => downloads[key]);
   if (offered.length === 0) return '';
@@ -908,6 +926,7 @@ export const renderDetail = (
   events: HarnessEvent[],
   { context, efforts: recordedEfforts }: RequestRecordView,
   generations: GenerationRecord[],
+  pullRequest: PullRequestRecord | null,
   downloads: Downloads,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
@@ -938,6 +957,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
       <dt class="${META_TERM}">Providers</dt>
       <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
+      ${renderPullRequest(pullRequest)}
       ${renderDownloads(run, downloads)}
     </dl>
     ${stopped !== '' ? stopped : run.error === null ? '' : html`<p class="${run.status === 'interrupted' || run.status === 'exceeded' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
