@@ -31,6 +31,7 @@ let
     forge.runtime.secretsFile = secretsFile;
     forge.runtime.package = forge-runner;
     forge.runtime.harnesses.pi.command = "${stubHarness probe}";
+    forge.runtime.workload.maxCost = null;
     forge.runtime.workers.probe = {
       harness = "pi";
       model = "stub/toolset";
