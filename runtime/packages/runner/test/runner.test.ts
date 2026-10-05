@@ -334,3 +334,36 @@ test('given a run whose harness is still working, when 20 seconds pass at a time
   assert.deepEqual(heartbeats, ['2026-09-21T10:00:20.000Z', '2026-09-21T10:00:40.000Z']);
   assert.equal(store.getRun('run-1')?.aliveAt, '2026-09-21T10:00:40.000Z');
 });
+
+test('given a run whose heartbeat write fails, when its 20 seconds pass, then the failure is logged and the run carries on to finish', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const store = Store.open(':memory:');
+  t.mock.method(store, 'touchRun', () => {
+    throw new Error('database is locked');
+  });
+  const stderr: string[] = [];
+  t.mock.method(process.stderr, 'write', (line: string) => {
+    stderr.push(line);
+    return true;
+  });
+  const harness = fakeHarness(
+    [message({ generationId: 'gen-a' }), result({ status: 'success' })],
+    { beforeEach: (index) => { if (index === 1) t.mock.timers.tick(20_000); } },
+  );
+
+  await runWorkload({
+    store,
+    harness,
+    worker: aWorker(),
+    openTranscript: arrayTranscripts().open,
+    openRawEvents: discardLines,
+    openRequestRecord: discardLines,
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
+    now: fixedClock(['2026-09-21T10:00:00.000Z']),
+    newId: () => 'run-1',
+    lookUpListPrice: unlisted,
+  });
+
+  assert.equal(store.getRun('run-1')?.status, 'success');
+  assert.ok(stderr.includes('run run-1: could not refresh its heartbeat: database is locked\n'), stderr.join(''));
+});

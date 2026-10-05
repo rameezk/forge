@@ -59,7 +59,7 @@ export {
   requestClosingPullRequests,
   requestTicket,
 } from './frontier.ts';
-export { HEARTBEAT_MS, STALE_AFTER_MS } from './heartbeat.ts';
+export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';
 export {
   FORGE_DONE,
   FORGE_FAILED,

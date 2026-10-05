@@ -8,12 +8,12 @@ import {
   FORGE_RUNNING,
   hasOpenClosingPullRequest,
   githubWriteToken,
-  HEARTBEAT_MS,
   offFrontier,
   queryTicket,
   Store,
   relabel,
   settleRunningTickets,
+  startHeartbeat,
   type DispatchOutcome,
   type DispatchStart,
   type DispatchTicket,
@@ -230,9 +230,12 @@ export const main = async (
       return 1;
     }
     const dispatchId = start.started;
-    const heartbeat = setInterval(
+    const stopHeartbeat = startHeartbeat(
       () => store.touchDispatch(dispatchId, now()),
-      HEARTBEAT_MS,
+      (error) =>
+        console.error(
+          `${name}#${ticket.number}: could not refresh its dispatch heartbeat: ${errorMessage(error)}`,
+        ),
     );
     try {
       const failAs = (stage: string, error: unknown): never => {
@@ -293,7 +296,7 @@ export const main = async (
       );
       return launched.run.status === 'error' ? 1 : 0;
     } finally {
-      clearInterval(heartbeat);
+      stopHeartbeat();
     }
   } finally {
     store.close();
