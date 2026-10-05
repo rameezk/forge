@@ -1130,7 +1130,7 @@
               };
             in
             lib.asserts.assertMsg (
-              runtimeMaxSecOf host "forge-dispatch@" == null
+              host.config.systemd.services ? "forge-dispatch@" && runtimeMaxSecOf host "forge-dispatch@" == null
             ) "a dispatching worker whose timeout is null must leave the dispatch units with no runtime limit";
           sshFirewall = nixos.config.networking.firewall;
           sshPort = exampleCfg.sshPort;
