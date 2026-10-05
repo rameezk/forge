@@ -93,6 +93,22 @@ export const relabel = async (
   }
 };
 
+export const labelExists = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  name: string,
+): Promise<boolean> => {
+  const existing = await requestRest(fetch, token, 'GET', github, labelPath(name));
+  if (existing.status === 404) {
+    return false;
+  }
+  if (!existing.ok) {
+    throw new Error(`GitHub answered ${existing.status} reading ${name} in ${github}`);
+  }
+  return true;
+};
+
 const ensureLabel = async (
   fetch: Fetch,
   token: string,

@@ -82,5 +82,6 @@ export {
   FORGE_LABELS,
   GITHUB_REST_API,
   ensureLabels,
+  labelExists,
   relabel,
 } from './labels.ts';
