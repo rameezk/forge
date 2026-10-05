@@ -14,8 +14,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, type DispatchRecord, type RunRecord } from '@forge/shared';
+import { createApp, FileTranscriptSource } from '@forge/frontend';
 import { main } from '../src/dispatch-main.ts';
 import { UNATTENDED_INSTRUCTION } from '../src/harness.ts';
+import { REVIEWING_PROMPT, SKILL_FILES } from './fixtures/fake-provider.ts';
 import {
   billedAt,
   fakeOpenRouter,
@@ -1744,4 +1746,68 @@ test('given a checkout whose .claude/skills links to .agents/skills, which links
     pi?.argv.filter((arg, i) => pi.argv[i - 1] === '--skill').map((path) => relative(pi.cwd, path)),
     ['.claude/skills'],
   );
+});
+
+const runPage = async (stateDir: string, runId: string): Promise<string> => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    const app = createApp({
+      store,
+      transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
+      css: '',
+      logo: '',
+      idiomorph: '',
+      client: '',
+    });
+    const response = await app.request(`/runs/${runId}`);
+    assert.equal(response.status, 200);
+    return await response.text();
+  } finally {
+    store.close();
+  }
+};
+
+const skillsOf = (page: string): [string, string][] =>
+  [...page.matchAll(/<li[^>]*data-skill="([^"]+)"[^>]*>[\s\S]*?data-skill-where[^>]*>([^<]*)</g)].map(
+    ([, name = '', where = '']) => [name, where.trim()],
+  );
+
+test('given a worker whose prompt starts /work-on, when the run finishes, then its run page lists work-on in the Skills section as loaded from the prompt', async () => {
+  const { stateDir, runs } = await dispatch();
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.deepEqual(skillsOf(page), [['work-on', 'prompt']]);
+});
+
+const SKILL_LOADS = join(import.meta.dirname, 'fixtures', 'pi', 'skill-loads.jsonl');
+
+const skillLoadsRun = (): Promise<Outcome> =>
+  dispatch({
+    origin: originWith(SKILL_FILES),
+    prompt: REVIEWING_PROMPT,
+    piOutput: SKILL_LOADS,
+  });
+
+test('given a parent that reads the same SKILL.md twice, then a file the skill references, and cats a SKILL.md through bash, when the run page is opened, then the skill shows one parent load and nothing else is a load', async () => {
+  const { stateDir, runs } = await skillLoadsRun();
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.equal(skillsOf(page).find(([name]) => name === 'work-on')?.[1], 'parent');
+  assert.deepEqual(
+    skillsOf(page).map(([name]) => name),
+    ['code-review', 'security-review', 'work-on'],
+  );
+});
+
+test('given review subagents that read code-review once and a skill whose directory is not its frontmatter name in two separate subagents, when the run page is opened, then each skill shows the subagents that loaded it under its frontmatter name', async () => {
+  const { stateDir, runs } = await skillLoadsRun();
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.deepEqual(skillsOf(page).slice(0, 2), [
+    ['code-review', '1 subagent'],
+    ['security-review', '2 subagents'],
+  ]);
 });
