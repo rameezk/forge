@@ -58,6 +58,8 @@ let
           attempt "write etc" "touch /etc/planted"
           attempt "write store" "touch /nix/store/planted"
           attempt "write state dir" "touch /var/lib/forge/planted"
+          attempt "read agent dir" "test -d \"\$PI_CODING_AGENT_DIR\""
+          attempt "write agent dir" "touch \"\$PI_CODING_AGENT_DIR/planted\""
           attempt "find planted gitconfig" "test -e $HOME/.gitconfig"
           attempt "find planted tmp" "test -e /tmp/planted"
           attempt "write home" "touch $HOME/scratch"
@@ -199,6 +201,11 @@ testers.runNixOSTest {
             assert seen[name] == "denied", (name, seen)
         box.fail("test -e /var/lib/forge/planted")
         box.fail("test -e /etc/planted")
+
+    with subtest("the harness sees its own per-run agent dir and cannot write to it"):
+        assert seen["read agent dir"] == "allowed", seen
+        assert seen["write agent dir"] == "denied", seen
+        box.fail("ls /var/lib/forge/agent/*/planted")
 
     with subtest("nothing planted in HOME or /tmp survives into a later workload"):
         assert seen["find planted gitconfig"] == "denied", seen

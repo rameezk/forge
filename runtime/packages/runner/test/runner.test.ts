@@ -11,7 +11,7 @@ import {
   message,
   result,
   throwingHarness,
-  unlisted,
+  withoutModelEntry,
 } from './helpers.ts';
 
 const runWith = async (
@@ -37,7 +37,7 @@ const runWith = async (
       '2026-09-21T10:00:05.000Z',
     ]),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
   });
   return { store, harness, transcripts, run: store.getRun(id) };
 };
@@ -62,7 +62,7 @@ test('given a declared worker and a harness that ends normally, when it runs on 
       '2026-09-21T10:00:05.000Z',
     ]),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
   });
 
   const run = store.getRun(id);
@@ -142,7 +142,7 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
   });
 
   const run = store.getRun(id);
@@ -168,7 +168,7 @@ test('given a harness that throws with a secret in its message, when the run is 
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
     secrets: ['sk-or-secret'],
   });
 
@@ -204,7 +204,7 @@ test('given a worker whose harness has begun but not finished, when the store is
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
   });
 
   assert.equal(midRun?.status, 'running');
@@ -241,7 +241,7 @@ test('given a harness emitting a multi-event stream, when the worker runs, then 
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
   });
 
   assert.deepEqual(seenCounts, [2, 3]);
@@ -292,7 +292,7 @@ test('given a worker whose prompt contains a secret, when it is run, then the fi
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
     secrets: ['sk-or-secret'],
   });
 
@@ -336,7 +336,7 @@ test('given a run whose harness is still working, when 20 seconds pass at a time
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: () => clock,
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
   });
   clock = '2026-09-21T10:01:00.000Z';
   t.mock.timers.tick(60_000);
@@ -371,7 +371,7 @@ test('given a run whose heartbeat write fails, when its 20 seconds pass, then th
     openWorkspace: () => ({ workDir: '/work/run-1' }),
     now: fixedClock(['2026-09-21T10:00:00.000Z']),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
   });
 
   assert.equal(store.getRun('run-1')?.status, 'success');

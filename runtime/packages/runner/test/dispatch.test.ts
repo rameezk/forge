@@ -41,8 +41,6 @@ const {
   requestRecord: REQUEST_RECORD_EXTENSION,
 } = PI_EXTENSIONS;
 
-const AGENT_DIR = '/nix/store/00000000000000000000000000000000-pi-agent-dir';
-
 const GITHUB_TOKEN = 'github_pat_test';
 
 const TICKET_URL = 'https://github.com/rameezk/forge/issues/113';
@@ -413,7 +411,6 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
       FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
-      FORGE_PI_AGENT_DIR: AGENT_DIR,
       FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
       FORGE_BWRAP: writeFakeBwrap(stateDir, {
         record: bwrapRecord,
@@ -664,7 +661,7 @@ test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author,
   assert.equal(pi.env.OPENROUTER_API_KEY, 'sk-or-test');
   assert.equal(pi.env.GIT_AUTHOR_NAME, GIT_IDENTITY.name);
   assert.equal(pi.env.GIT_AUTHOR_EMAIL, GIT_IDENTITY.email);
-  assert.equal(pi.env.PI_CODING_AGENT_DIR, AGENT_DIR);
+  assert.match(pi.env.PI_CODING_AGENT_DIR ?? '', /\/agent\/[0-9a-f-]{36}$/);
   assert.notEqual(pi.env.HOME, '/homeless-shelter');
   assert.equal(pi.env.LANG, 'en_GB.UTF-8');
   assert.equal(

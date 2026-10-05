@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { Store, type RunRecord, type RunTicket } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
 import type { Harness, Worker, Workspace } from './harness.ts';
-import { openRouterBaseUrl, openRouterListPrice } from './openrouter.ts';
+import { agentDirsIn } from './agent-dir.ts';
+import { openRouterBaseUrl, openRouterModel } from './openrouter.ts';
 import { PiHarness } from './pi.ts';
 import type { Sandbox } from './sandbox.ts';
 import { JsonLinesFile } from './transcript.ts';
@@ -82,11 +83,9 @@ const harnessFor = (
     ),
     requestRecord: absolutePath(env, 'FORGE_PI_REQUEST_RECORD_EXTENSION'),
   };
-  const agentDir = absolutePath(env, 'FORGE_PI_AGENT_DIR');
   return new PiHarness({
     command: harness.command,
     extensions,
-    agentDir,
     sandbox: sandboxOf(env),
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
     system: systemEnvironment(env),
@@ -123,7 +122,7 @@ export const launchWorkload = async ({
 }: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
   const harness = harnessFor(config, worker, env, harnessEnv);
-  const lookUpListPrice = openRouterListPrice(openRouterBaseUrl(env));
+  const lookUpModel = openRouterModel(openRouterBaseUrl(env));
 
   const transcriptsDir = join(stateDir, 'transcripts');
   mkdirSync(transcriptsDir, { recursive: true });
@@ -143,7 +142,8 @@ export const launchWorkload = async ({
       openWorkspace: (runId) => openWorkspace(join(workDirs, runId)),
       now: () => new Date().toISOString(),
       newId: () => runId,
-      lookUpListPrice,
+      lookUpModel,
+      openAgentDir: agentDirsIn(join(stateDir, 'agent')),
       secrets: [env.OPENROUTER_API_KEY ?? '', ...secrets],
       ...(ticket === undefined ? {} : { ticket }),
     });

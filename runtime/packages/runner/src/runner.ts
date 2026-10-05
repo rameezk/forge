@@ -14,7 +14,8 @@ import {
   type Worker,
   type Workspace,
 } from './harness.ts';
-import type { LookUpListPrice } from './openrouter.ts';
+import type { OpenAgentDir } from './agent-dir.ts';
+import type { LookUpModel } from './openrouter.ts';
 import {
   transcriptPolicy,
   type JsonLinesWriter,
@@ -31,7 +32,8 @@ export interface RunWorkloadOptions {
   openWorkspace: (runId: string) => Workspace | Promise<Workspace>;
   now: () => string;
   newId: () => string;
-  lookUpListPrice: LookUpListPrice;
+  lookUpModel: LookUpModel;
+  openAgentDir: OpenAgentDir;
   secrets?: string[];
   ticket?: RunTicket;
 }
@@ -71,13 +73,19 @@ export const runWorkload = async (
   const policy = transcriptPolicy(options.secrets ?? []);
   const id = newId();
   const startTime = now();
-  const listed = await options.lookUpListPrice(worker.model);
-  if ('reason' in listed) {
+  const outcome = await options.lookUpModel(worker.model);
+  const listed = 'model' in outcome ? outcome.model : null;
+  if ('reason' in outcome) {
     process.stderr.write(
-      `run ${id}: could not look up OpenRouter's list price for ${worker.model} (${listed.reason}), so its unbilled generations show no estimated cost\n`,
+      `run ${id}: could not look up OpenRouter's models entry for ${worker.model} (${outcome.reason}), so its unbilled generations show no estimated cost and pi starts without knowing the model\n`,
+    );
+  } else if (outcome.model.contextWindow === null) {
+    process.stderr.write(
+      `run ${id}: OpenRouter lists no context window for ${worker.model}, so pi starts without knowing the model\n`,
     );
   }
-  const listPrice = 'price' in listed ? listed.price : null;
+  const listPrice = listed?.price ?? null;
+  const agentDir = options.openAgentDir(id, worker.model, listed);
   const transcript = openTranscript(id);
   const rawEvents = options.openRawEvents(id);
   const requestRecord = options.openRequestRecord(id);
@@ -151,7 +159,11 @@ export const runWorkload = async (
         generationId: null,
       }),
     );
-    const invocation = invocationFor(worker, await openWorkspace(id));
+    const invocation = invocationFor(
+      worker,
+      await openWorkspace(id),
+      agentDir,
+    );
     const sinks = {
       rawEvent: (event: unknown): void => {
         rawEvents.append(policy.redactValue(event));

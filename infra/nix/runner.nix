@@ -6,7 +6,6 @@
   makeWrapper,
   nodejs,
   pi-coding-agent,
-  runCommand,
   stdenv,
 }:
 let
@@ -14,7 +13,6 @@ let
   modelDefaultReasoningExtension = "lib/forge-runtime/packages/pi-model-default-reasoning/src";
   requestRecordExtension = "lib/forge-runtime/packages/pi-request-record/src";
   sandboxFlags = lib.optionalString stdenv.hostPlatform.isLinux "--set FORGE_BWRAP ${lib.getExe bubblewrap}";
-  piAgentDir = runCommand "pi-agent-dir" { } "mkdir $out";
   piPackage = "${pi-coding-agent}/lib/node_modules/pi-monorepo";
 in
 buildNpmPackage {
@@ -53,14 +51,12 @@ buildNpmPackage {
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
       --set FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION "$out/${modelDefaultReasoningExtension}" \
       --set FORGE_PI_REQUEST_RECORD_EXTENSION "$out/${requestRecordExtension}" \
-      --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
       ${sandboxFlags}
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/dispatch-main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
       --set FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION "$out/${modelDefaultReasoningExtension}" \
       --set FORGE_PI_REQUEST_RECORD_EXTENSION "$out/${requestRecordExtension}" \
-      --set FORGE_PI_AGENT_DIR "${piAgentDir}" \
       ${sandboxFlags} \
       --set FORGE_PI_PACKAGE "${piPackage}" \
       --set FORGE_NIX_SYSTEM "${stdenv.hostPlatform.system}"
@@ -80,7 +76,6 @@ buildNpmPackage {
       subagentExtension
       modelDefaultReasoningExtension
       requestRecordExtension
-      piAgentDir
       piPackage
       ;
   };

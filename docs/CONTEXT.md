@@ -33,7 +33,7 @@ The per-workload working directory a harness runs in, kept after the run as an a
 _Avoid_: workdir, sandbox
 
 **Workload sandbox**:
-The bubblewrap sandbox a workload's harness and its subagents run in: the Nix store and system files read-only, the run directory read-write, a throwaway `/tmp` and HOME, and no view of the state directory, the secrets or any other process. The harness holds only the credentials the runner deliberately puts in its environment (ADR-0024).
+The bubblewrap sandbox a workload's harness and its subagents run in: the Nix store and system files read-only, the run directory read-write, a throwaway `/tmp` and HOME, and no view of the state directory (bar the run's pi agent dir, read-only), the secrets or any other process. The harness holds only the credentials the runner deliberately puts in its environment (ADR-0024).
 _Avoid_: container, jail
 
 **Generation**:

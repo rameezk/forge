@@ -176,7 +176,6 @@ const runRealPi = async (
   const harness = new PiHarness({
     command: join(piPackage as string, '..', '..', '..', 'bin', 'pi'),
     extensions: PI_EXTENSIONS,
-    agentDir,
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
     env: { OPENROUTER_API_KEY: 'sk-fake' },
@@ -189,6 +188,7 @@ const runRealPi = async (
       {
         model,
         workDir,
+        agentDir,
         ...effort,
         ...(await workload(workDir)),
       },

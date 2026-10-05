@@ -12,7 +12,11 @@ export const REQUEST_RECORD_FD = 4;
 
 const readOnly = (path: string): string[] => ['--ro-bind', path, path];
 
-export const sandboxArgs = ({ home }: Sandbox, workDir: string): string[] => [
+export const sandboxArgs = (
+  { home }: Sandbox,
+  workDir: string,
+  agentDir?: string,
+): string[] => [
   '--unshare-user',
   '--disable-userns',
   '--unshare-pid',
@@ -33,6 +37,7 @@ export const sandboxArgs = ({ home }: Sandbox, workDir: string): string[] => [
   '/tmp',
   '--tmpfs',
   home,
+  ...(agentDir === undefined ? [] : readOnly(agentDir)),
   '--bind',
   workDir,
   workDir,
@@ -119,11 +124,21 @@ export const spawnSandboxed = (
   sandbox: Sandbox,
   command: string,
   args: string[],
-  { name, workDir, env }: { name: string; workDir: string; env: NodeJS.ProcessEnv },
+  {
+    name,
+    workDir,
+    agentDir,
+    env,
+  }: {
+    name: string;
+    workDir: string;
+    agentDir?: string;
+    env: NodeJS.ProcessEnv;
+  },
 ): SandboxedProcess => {
   const child = spawn(
     sandbox.bwrap,
-    [...sandboxArgs(sandbox, workDir), '--', command, ...args],
+    [...sandboxArgs(sandbox, workDir, agentDir), '--', command, ...args],
     {
       cwd: workDir,
       env: { ...env, HOME: sandbox.home },
