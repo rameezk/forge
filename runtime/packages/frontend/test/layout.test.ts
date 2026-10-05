@@ -41,6 +41,7 @@ const appWith = ({
     sessionId: 'sess-abc',
     error: null,
     ticket: null,
+    aliveAt: null,
   });
   return createApp({
     store,

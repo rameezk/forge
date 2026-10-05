@@ -22,6 +22,7 @@ const recordedRun: RunRecord = {
   sessionId: 'sess-abc',
   error: null,
   ticket: null,
+  aliveAt: null,
 };
 
 test('given a dashboard serving a real store with one recorded run, when the runs list is opened, then the run is visible', async ({

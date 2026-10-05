@@ -23,6 +23,7 @@ const runningRun: RunRecord = {
   sessionId: null,
   error: null,
   ticket: null,
+  aliveAt: null,
 };
 
 const ticket: Ticket = {
@@ -135,9 +136,11 @@ test('given the runs list open in a browser, when the dashboard starts serving d
     { times: 1 },
   );
 
+  const reloaded = page.waitForEvent('load');
   dashboard.store.insertRun(runningRun);
+  await reloaded;
 
-  await expect.poll(() => page.evaluate(() => (globalThis as unknown as { unreloaded?: boolean }).unreloaded)).toBeUndefined();
+  expect(await wasReloaded(page)).toBe(true);
   await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
 });
 

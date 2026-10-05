@@ -59,9 +59,8 @@ export {
   requestClosingPullRequests,
   requestTicket,
 } from './frontier.ts';
+export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';
 export {
-  DISPATCH_HEARTBEAT_MS,
-  DISPATCH_STALE_MS,
   FORGE_DONE,
   FORGE_FAILED,
   FORGE_READY,
@@ -78,6 +77,7 @@ export {
   requestRecordRef,
   transcriptLine,
 } from './transcript.ts';
+export { settleRunningTickets, type SettleRunningOptions } from './settle.ts';
 export {
   FORGE_LABELS,
   GITHUB_REST_API,

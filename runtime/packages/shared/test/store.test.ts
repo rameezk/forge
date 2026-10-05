@@ -30,6 +30,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   sessionId: 'sess-abc',
   error: null,
   ticket: null,
+  aliveAt: '2026-09-21T10:03:00.000Z',
   ...overrides,
 });
 
@@ -65,6 +66,7 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     transcriptRef: null,
     sessionId: null,
     error: null,
+    aliveAt: null,
   });
 
   store.insertRun(run);
@@ -113,6 +115,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
       transcriptRef: 'run-final.jsonl',
       sessionId: null,
       error: null,
+      aliveAt: null,
     }),
   );
 
@@ -144,6 +147,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     sessionId: 'sess-final',
     error: null,
     ticket: null,
+    aliveAt: null,
   });
 });
 
@@ -229,6 +233,54 @@ test('given a store file whose runs predate dispatch, when the store is opened, 
 
   assert.equal(store.getRun('by-hand')?.ticket, null);
   assert.deepEqual(store.getRun('dispatched'), dispatched);
+  store.close();
+  Store.open(path).close();
+});
+
+test('given a store file whose runs predate heartbeats, holding a run left running, when the store is opened, then that run reads back with no heartbeat and a run with one round-trips', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE runs (
+      id             TEXT PRIMARY KEY,
+      worker         TEXT NOT NULL,
+      harness        TEXT NOT NULL,
+      model          TEXT NOT NULL,
+      start_time     TEXT NOT NULL,
+      end_time       TEXT,
+      status         TEXT NOT NULL,
+      cost_status    TEXT NOT NULL,
+      cost_usd       REAL NOT NULL,
+      input_tokens   INTEGER NOT NULL,
+      output_tokens  INTEGER NOT NULL,
+      transcript_ref TEXT,
+      session_id     TEXT,
+      error          TEXT,
+      repository     TEXT,
+      ticket_number  INTEGER,
+      ticket_url     TEXT,
+      cache_read_tokens  INTEGER,
+      cache_write_tokens INTEGER,
+      cost_estimated     INTEGER NOT NULL DEFAULT 0,
+      input_price        REAL,
+      output_price       REAL,
+      cache_read_price   REAL,
+      cache_write_price  REAL
+    ) STRICT;
+    INSERT INTO runs (
+      id, worker, harness, model, start_time, end_time, status,
+      cost_status, cost_usd, input_tokens, output_tokens
+    ) VALUES
+      ('stuck', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T10:00:00.000Z', NULL, 'running', 'pending', 0, 0, 0);
+  `);
+  old.close();
+  const beating = sampleRun({ id: 'beating', startTime: '2026-09-21T11:00:00.000Z' });
+
+  const store = Store.open(path);
+  store.insertRun(beating);
+
+  assert.equal(store.getRun('stuck')?.aliveAt, null);
+  assert.deepEqual(store.getRun('beating'), beating);
   store.close();
   Store.open(path).close();
 });

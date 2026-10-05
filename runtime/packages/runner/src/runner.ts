@@ -1,10 +1,12 @@
-import type {
-  ListPrice,
-  MessageEvent,
-  RunStatus,
-  RunTicket,
-  Store,
-  TokenUsage,
+import {
+  errorMessage,
+  startHeartbeat,
+  type ListPrice,
+  type MessageEvent,
+  type RunStatus,
+  type RunTicket,
+  type Store,
+  type TokenUsage,
 } from '@forge/shared';
 import {
   invocationFor,
@@ -101,7 +103,15 @@ export const runWorkload = async (
     sessionId: null,
     error: null,
     ticket: options.ticket ?? null,
+    aliveAt: null,
   });
+  const stopHeartbeat = startHeartbeat(
+    () => store.touchRun(id, now()),
+    (error) =>
+      process.stderr.write(
+        `run ${id}: could not refresh its heartbeat: ${errorMessage(error)}\n`,
+      ),
+  );
 
   const recordGeneration = (event: MessageEvent): void => {
     if (event.generationId === null) {
@@ -177,6 +187,7 @@ export const runWorkload = async (
       cause instanceof Error ? cause.message : String(cause),
     );
   } finally {
+    stopHeartbeat();
     await transcript.close();
     rawEvents.close();
     requestRecord.close();

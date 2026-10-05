@@ -29,6 +29,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   sessionId: null,
   error: null,
   ticket: null,
+  aliveAt: null,
   ...overrides,
 });
 
