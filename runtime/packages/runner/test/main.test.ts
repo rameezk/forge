@@ -1725,6 +1725,29 @@ test('given a finished run whose generations carry pi\'s token counts, and OpenR
   }
 });
 
+test('given a finished run whose first generation OpenRouter bills as served by a model other than the worker\'s, and a second it has not billed, when the billing service fires, then the first records the serving model and the second records none', async () => {
+  const openRouter = await fakeOpenRouter((id) =>
+    id === 'gen-success-1'
+      ? { status: 200, body: { data: { id, total_cost: 0.0125, model: 'z-ai/glm-5.1' } } }
+      : { status: 404, body: { error: { code: 404 } } },
+  );
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('success.jsonl') });
+
+    await fire(stateDir, openRouter);
+
+    assert.deepEqual(
+      storedGenerations(stateDir, run.id).map(({ generationId, servedModel }) => ({ generationId, servedModel })),
+      [
+        { generationId: 'gen-success-1', servedModel: 'z-ai/glm-5.1' },
+        { generationId: 'gen-success-2', servedModel: null },
+      ],
+    );
+  } finally {
+    openRouter.close();
+  }
+});
+
 test('given a finished run whose generation OpenRouter bills with native counts that are missing, null, negative, fractional or not numbers, and a provider that is empty or not a string, when the billing service fires, then the generation is billed at its cost and keeps pi\'s counts with no reasoning tokens or provider', async () => {
   const valid = {
     native_tokens_prompt: 1400,

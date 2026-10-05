@@ -85,6 +85,7 @@ export const runWorkload = async (
     worker: worker.name,
     harness: worker.harness,
     model: worker.model,
+    reasoningEffort: worker.reasoningEffort ?? null,
     startTime,
     endTime: null,
     status: 'running',

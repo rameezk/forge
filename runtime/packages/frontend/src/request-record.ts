@@ -78,3 +78,27 @@ export const workloadContext = (
     tools: tools === undefined ? null : tools.map(toolOf),
   };
 };
+
+export const DEFAULT_EFFORT = 'default';
+
+export type CallEfforts = ReadonlyMap<string | null, readonly string[]>;
+
+const effortSentIn = (body: Fields): string => {
+  const { reasoning } = body;
+  const effort = isFields(reasoning) ? reasoning.effort : undefined;
+  if (typeof effort !== 'string' || effort === '') return DEFAULT_EFFORT;
+  return effort === 'none' ? 'off' : effort;
+};
+
+export const callEfforts = (
+  scan: (visit: (record: unknown) => boolean) => void,
+): CallEfforts => {
+  const efforts = new Map<string | null, string[]>();
+  scan((line) => {
+    if (!isFields(line) || line.type !== 'request' || !isFields(line.body)) return true;
+    const scope = typeof line.subagent === 'string' ? line.subagent : null;
+    efforts.set(scope, [...(efforts.get(scope) ?? []), effortSentIn(line.body)]);
+    return true;
+  });
+  return efforts;
+};

@@ -222,6 +222,7 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
             worker: 'builder',
             harness: 'pi',
             model: 'z-ai/glm-5',
+            reasoningEffort: null,
             startTime: startedAt,
             endTime: null,
             status: 'running',

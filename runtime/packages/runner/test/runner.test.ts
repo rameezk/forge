@@ -259,6 +259,16 @@ test('given a worker declared with a reasoning effort, when it runs, then the ha
   assert.equal(harness.invocations[0]?.reasoningEffort, 'high');
 });
 
+test('given one worker declared with a reasoning effort and one without, when each runs, then the run records the configured effort or none', async () => {
+  const configured = await runWith([message(), result({ status: 'success' })], {
+    worker: { reasoningEffort: 'high' },
+  });
+  const unset = await runWith([message(), result({ status: 'success' })]);
+
+  assert.equal(configured.run?.reasoningEffort, 'high');
+  assert.equal(unset.run?.reasoningEffort, null);
+});
+
 test('given a worker with no reasoning effort declared, when it runs, then the harness is invoked at the provider default with no effort set', async () => {
   const { harness } = await runWith([
     message(),

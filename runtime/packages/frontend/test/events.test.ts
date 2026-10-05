@@ -16,6 +16,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   worker: 'refiner',
   harness: 'pi',
   model: 'anthropic/claude-opus-4',
+  reasoningEffort: null,
   startTime: '2026-09-21T10:00:00.000Z',
   endTime: '2026-09-21T10:03:20.000Z',
   status: 'success',
@@ -174,7 +175,7 @@ const generation = {
 const ended = { status: 'success', endTime: '2026-09-21T10:03:20.000Z', sessionId: 'sess-abc', error: null } as const;
 
 const settlements: [string, (id: number) => LookupResult][] = [
-  ['billed', (id) => ({ id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic' } })],
+  ['billed', (id) => ({ id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic', model: null } })],
   ['unconfirmed', (id) => ({ id, error: 'not found', givenUp: true })],
 ];
 
