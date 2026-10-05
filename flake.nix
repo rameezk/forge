@@ -33,6 +33,8 @@
 
       loadConfig = import ./infra/lib/load-config.nix;
 
+      forgeGitSha = self.rev or self.dirtyRev or null;
+
       runnerOverlay = final: _prev: {
         pi-coding-agent = final.callPackage ./infra/nix/pi-coding-agent.nix { };
         forge-runner = final.callPackage ./infra/nix/runner.nix { };
@@ -57,7 +59,7 @@
             ./infra/nixos/runtime.nix
             { nixpkgs.overlays = [ runnerOverlay ]; }
             { _module.args.forgeConfig = cfg; }
-            { _module.args.forgeGitSha = self.rev or self.dirtyRev or null; }
+            { _module.args.forgeGitSha = forgeGitSha; }
             { forge.runtime.secretsFile = secretsFile; }
           ]
           ++ modules;
@@ -382,7 +384,7 @@
             && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") runnerUnit.serviceConfig.Environment
           ) "the runner unit must point at the generated config and the state directory";
           runnerKnowsForgeGitSha = lib.asserts.assertMsg (
-            lib.elem "FORGE_GIT_SHA=${self.rev or self.dirtyRev or ""}" runnerUnit.serviceConfig.Environment
+            forgeGitSha == null || lib.elem "FORGE_GIT_SHA=${forgeGitSha}" runnerUnit.serviceConfig.Environment
           ) "the runner unit must carry the forge git sha the host was built from, for the workload's fingerprint";
           runnerConfigReflectsWorker = lib.asserts.assertMsg (
             runnerSettings.workers.refiner.harness == "pi"
@@ -792,7 +794,7 @@
               )
               "the dispatch unit must be a oneshot running forge-dispatch for its instance as the forge-runtime user on the workload toolset";
           dispatchUnitKnowsForgeGitSha = lib.asserts.assertMsg (
-            lib.elem "FORGE_GIT_SHA=${self.rev or self.dirtyRev or ""}" dispatchUnit.serviceConfig.Environment
+            forgeGitSha == null || lib.elem "FORGE_GIT_SHA=${forgeGitSha}" dispatchUnit.serviceConfig.Environment
           ) "the dispatch unit must carry the forge git sha the host was built from, for the workload's fingerprint";
           dispatchUnitSandboxed = lib.asserts.assertMsg (isWorkloadHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
           writeTokenTemplate = dispatchHost.config.sops.templates."forge-github-write.env";
