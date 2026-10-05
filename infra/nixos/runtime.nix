@@ -55,7 +55,7 @@ let
     parts != [ ] && lib.all (part: timeSpanUnits ? ${lib.elemAt part 1}) parts && timeSpanSeconds value > 0
     && timeSpanSeconds value <= maxTimeSpanSeconds;
   timeSpan = lib.types.addCheck lib.types.str isTimeSpan // {
-    description = "systemd time span of whole seconds, minutes, hours, days or weeks, at most 24 days, such as \"2h\" or \"1h 30min\"";
+    description = "systemd time span of whole seconds, minutes, hours, days or weeks, at most 2147483 seconds, just under 25 days, such as \"2h\" or \"1h 30min\"";
   };
 
   harnessModule = lib.types.submodule {

@@ -551,7 +551,7 @@ repository.
 
 A workload may run for at most `forge.runtime.workload.timeout`, 2 hours by
 default, a systemd time span of whole seconds, minutes, hours, days or weeks
-such as `"90min"` or `"1h 30min"`, at most 24 days. A worker overrides it with its own
+such as `"90min"` or `"1h 30min"`, at most 2147483 seconds, just under 25 days. A worker overrides it with its own
 `timeout`, and `null` means unlimited, either as the default or for one worker.
 A malformed timeout does not evaluate. There is no per-repository timeout, and
 it applies to scheduled and dispatched workloads alike.
