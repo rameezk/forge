@@ -1071,8 +1071,15 @@
               }) repositories;
               forge.runtime.dispatch = { inherit gitIdentity; };
             };
-          runtimeMaxSecOf =
-            host: unit: (host.config.systemd.services.${unit}.serviceConfig or { }).RuntimeMaxSec or null;
+          startTimeoutOf =
+            host: unit: (host.config.systemd.services.${unit}.serviceConfig or { }).TimeoutStartSec or null;
+          scheduledBackstopOf =
+            host: name:
+            let
+              dropIn = host.config.environment.etc."systemd/system/forge-runner@${name}.service.d/backstop.conf" or null;
+            in
+            if dropIn == null then null else dropIn.text;
+          backstopText = seconds: "[Service]\nTimeoutStartSec=${toString seconds}\n";
           scheduledBackstopIsTimeoutPlusThirtyMinutes =
             let
               host = backstopHost {
@@ -1083,8 +1090,18 @@
               };
             in
             lib.asserts.assertMsg (
-              runtimeMaxSecOf host "forge-runner@hour" == 5400 && runtimeMaxSecOf host "forge-runner@default" == 9000
+              scheduledBackstopOf host "hour" == backstopText 5400
+              && scheduledBackstopOf host "default" == backstopText 9000
             ) "a scheduled worker's runner unit must stop 30 minutes past its own worker's timeout: 90 minutes for a 1 hour timeout and 150 for the 2 hour default";
+          scheduledBackstopLeavesTheUnitsEnvironmentAlone =
+            let
+              host = backstopHost {
+                workers.hour.timeout = "1h";
+              };
+            in
+            lib.asserts.assertMsg (
+              !(host.config.systemd.units ? "forge-runner@hour.service")
+            ) "a scheduled worker's backstop must be a bare drop-in: declaring the instance as a NixOS service would give it NixOS's default PATH over the template's workload toolset";
           unlimitedScheduledWorkerHasNoBackstop =
             let
               host = backstopHost {
@@ -1095,10 +1112,8 @@
               };
             in
             lib.asserts.assertMsg (
-              runtimeMaxSecOf host "forge-runner@forever" == null && runtimeMaxSecOf host "forge-runner@hour" == 5400
-              && host.config.systemd.units ? "forge-runner@hour.service"
-              && !(host.config.systemd.units ? "forge-runner@forever.service")
-            ) "a scheduled worker whose timeout is null must have no runtime limit on its runner unit";
+              scheduledBackstopOf host "forever" == null && scheduledBackstopOf host "hour" == backstopText 5400
+            ) "a scheduled worker whose timeout is null must have no start timeout on its runner unit";
           dispatchBackstopIsLongestTimeoutPlusThirtyMinutes =
             let
               host = backstopHost {
@@ -1114,7 +1129,7 @@
               };
             in
             lib.asserts.assertMsg (
-              runtimeMaxSecOf host "forge-dispatch@" == 12600
+              startTimeoutOf host "forge-dispatch@" == 12600
             ) "every dispatch unit must share one backstop: the longest timeout of any dispatching worker plus 30 minutes, and a worker no repository dispatches must not count";
           unlimitedDispatchingWorkerRemovesDispatchBackstop =
             let
@@ -1130,8 +1145,8 @@
               };
             in
             lib.asserts.assertMsg (
-              host.config.systemd.services ? "forge-dispatch@" && runtimeMaxSecOf host "forge-dispatch@" == null
-            ) "a dispatching worker whose timeout is null must leave the dispatch units with no runtime limit";
+              host.config.systemd.services ? "forge-dispatch@" && startTimeoutOf host "forge-dispatch@" == null
+            ) "a dispatching worker whose timeout is null must leave the dispatch units with no start timeout";
           sshFirewall = nixos.config.networking.firewall;
           sshPort = exampleCfg.sshPort;
           tailnetInterface = tailscale.interfaceName;
@@ -1290,11 +1305,12 @@
 
           runtime-workload-backstop =
             assert scheduledBackstopIsTimeoutPlusThirtyMinutes;
+            assert scheduledBackstopLeavesTheUnitsEnvironmentAlone;
             assert unlimitedScheduledWorkerHasNoBackstop;
             assert dispatchBackstopIsLongestTimeoutPlusThirtyMinutes;
             assert unlimitedDispatchingWorkerRemovesDispatchBackstop;
             pkgs.runCommand "runtime-workload-backstop" { } ''
-              echo "a scheduled worker's runner unit stops 30 minutes past its own timeout, every dispatch unit shares the longest dispatching timeout plus 30 minutes, and a null timeout leaves its units with no runtime limit" > $out
+              echo "a scheduled worker's runner unit stops 30 minutes past its own timeout, every dispatch unit shares the longest dispatching timeout plus 30 minutes, and a null timeout leaves its units with no start timeout" > $out
             '';
 
           runtime-billing =

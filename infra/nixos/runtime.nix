@@ -165,12 +165,11 @@ let
 
   backstopMarginSeconds = 30 * 60;
   backstopSeconds = w: if w.timeout == null then null else timeSpanSeconds w.timeout + backstopMarginSeconds;
-  runtimeMax = seconds: lib.optionalAttrs (seconds != null) { RuntimeMaxSec = seconds; };
+  startTimeout = seconds: lib.optionalAttrs (seconds != null) { TimeoutStartSec = seconds; };
   scheduledBackstops = lib.mapAttrs' (
     name: w:
-    lib.nameValuePair "forge-runner@${name}" {
-      overrideStrategy = "asDropin";
-      serviceConfig = runtimeMax (backstopSeconds w);
+    lib.nameValuePair "systemd/system/forge-runner@${name}.service.d/backstop.conf" {
+      text = "[Service]\nTimeoutStartSec=${toString (backstopSeconds w)}\n";
     }
   ) (lib.filterAttrs (_: w: w.timeout != null) cfg.workers);
   dispatchingBackstops = map (r: backstopSeconds cfg.workers.${r.worker}) (
@@ -464,7 +463,7 @@ in
       ];
     }
 
-    { systemd.services = scheduledBackstops; }
+    { environment.etc = scheduledBackstops; }
 
     (lib.mkIf hasWorkers {
       sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
@@ -639,7 +638,7 @@ in
           ];
           ExecStart = "${dispatchInstance} %i";
         }
-        // runtimeMax dispatchBackstop
+        // startTimeout dispatchBackstop
         // workloadMemory
         // writeTokenCredential
         // workloadHardening;
