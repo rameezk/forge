@@ -18,7 +18,26 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      markdown-only: ${{ steps.decide.outputs.markdown-only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: decide
+        run: |
+          markdown_only="$(scripts/markdown-only.sh "$BASE" "$HEAD")"
+          echo "markdown-only=$markdown_only" >> "$GITHUB_OUTPUT"
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+
   check-no-vm:
+    needs: changes
+    if: needs.changes.outputs.markdown-only != 'true'
     runs-on: ubuntu-latest
     environment: &cachix-environment
       name: ${{ github.event_name == 'push' && 'cachix' || '' }}
@@ -39,6 +58,8 @@ jobs:
       - run: nix develop --command make check-no-vm
 
   vm-tests:
+    needs: changes
+    if: needs.changes.outputs.markdown-only != 'true'
     runs-on: ubuntu-latest
     environment: *cachix-environment
     outputs:
@@ -71,11 +92,17 @@ jobs:
   ci:
     if: always()
     needs:
+      - changes
       - check-no-vm
       - vm-tests
       - vm-test
     runs-on: ubuntu-latest
     steps:
-      - run: jq --exit-status 'all(.[]; .result == "success")' <<<"$NEEDS"
+      - run: |
+          jq --exit-status --arg markdown_only "$MARKDOWN_ONLY" '
+            .changes.result == "success"
+            and all(.[]; .result == "success" or ($markdown_only == "true" and .result == "skipped"))
+          ' <<<"$NEEDS"
         env:
           NEEDS: ${{ toJSON(needs) }}
+          MARKDOWN_ONLY: ${{ needs.changes.outputs.markdown-only }}
