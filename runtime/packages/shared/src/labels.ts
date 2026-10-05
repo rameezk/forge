@@ -93,21 +93,33 @@ export const relabel = async (
   }
 };
 
+interface ExistingLabel {
+  color: string;
+  description: string | null;
+}
+
+const readLabel = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  name: string,
+): Promise<ExistingLabel | null> => {
+  const existing = await requestRest(fetch, token, 'GET', github, labelPath(name));
+  if (existing.status === 404) {
+    return null;
+  }
+  if (!existing.ok) {
+    throw new Error(`GitHub answered ${existing.status} reading ${name} in ${github}`);
+  }
+  return (await existing.json()) as ExistingLabel;
+};
+
 export const labelExists = async (
   fetch: Fetch,
   token: string,
   github: string,
   name: string,
-): Promise<boolean> => {
-  const existing = await requestRest(fetch, token, 'GET', github, labelPath(name));
-  if (existing.status === 404) {
-    return false;
-  }
-  if (!existing.ok) {
-    throw new Error(`GitHub answered ${existing.status} reading ${name} in ${github}`);
-  }
-  return true;
-};
+): Promise<boolean> => (await readLabel(fetch, token, github, name)) !== null;
 
 const ensureLabel = async (
   fetch: Fetch,
@@ -115,8 +127,8 @@ const ensureLabel = async (
   github: string,
   { name, color, description }: LabelDefinition,
 ): Promise<void> => {
-  const existing = await requestRest(fetch, token, 'GET', github, labelPath(name));
-  if (existing.status === 404) {
+  const label = await readLabel(fetch, token, github, name);
+  if (label === null) {
     const created = await requestRest(fetch, token, 'POST', github, '/labels', {
       name,
       color,
@@ -127,10 +139,6 @@ const ensureLabel = async (
     }
     return;
   }
-  if (!existing.ok) {
-    throw new Error(`GitHub answered ${existing.status} reading ${name} in ${github}`);
-  }
-  const label = (await existing.json()) as { color: string; description: string | null };
   if (label.color.toLowerCase() === color && label.description === description) {
     return;
   }
