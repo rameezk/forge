@@ -1,15 +1,15 @@
 ---
 name: git-pr-address-comments
-description: Address the unresolved review comments on a GitHub PR end-to-end - fetch every open thread, fix what each asks through a test-first loop, then reply. Use when the user asks to "address the PR comments" / "handle review feedback" on a pull request.
+description: Address the unresolved review comments on a GitHub PR end-to-end - fetch every open thread, fix what each asks through a test-first loop, push, see the required checks go green, then reply. Use when the user asks to "address the PR comments" / "handle review feedback" on a pull request.
 disable-model-invocation: true
 ---
 
 # Git PR Address Comments
 
 Take a PR that already exists and work its unresolved review comments to done:
-fetch every open thread, fix what each one asks for test-first, commit the fixes,
-then reply. This operates on an open PR - it does not raise one (that was
-[[git-pr]]) and it does not merge one.
+fetch every open thread, fix what each one asks for test-first, commit and push
+the fixes, see the required checks go green, then reply. This operates on an
+open PR - it does not raise one (that was [[git-pr]]) and it does not merge one.
 
 Replying is where this skill stops - it does not resolve threads. Resolving a
 thread is the reviewer's call, made once they are satisfied with the reply; the
@@ -137,10 +137,50 @@ step from the summary here.
    typo, a rename, a one-line correction - does not need both reviews; use
    judgement and say what you ran.
 
+## Push
+
+Push the follow-up commits to the PR branch:
+
+```bash
+git push
+```
+
+## Wait for the required checks - and fix what goes red
+
+The push is not the finish line: the repo's CI is the run that covers what this
+machine could not. Wait for the PR's required checks on the pushed head exactly
+as [[work-on]]'s *Wait for the required checks* step does - learn which checks
+are required from the base branch's rules, poll until every one has registered
+on the new head (a "no checks reported" answer is never a result), then watch
+them until they settle with `gh pr checks --watch --required`. If one never
+appears, find out why and report it rather than calling the checks green.
+
+When a required check fails, read its log, then fix the cause through the same
+*Address end-to-end* loop a thread goes through: test-first when there is
+behaviour to test, mechanical checks clean, a focused follow-up commit, and a
+proportional review of what the fix changed. Push, and watch again, until every
+required check is green. A CI fix answers no thread, so it gets no reply of its
+own. If the checks cannot be read at all - a token without access to them, say -
+say so in the report rather than claiming they passed.
+
+## Bring the PR's `## Reviews` section up to date
+
+If the PR description has a `## Reviews` section, the follow-up commits have
+made it describe an older head. Once the checks are green, edit it with
+`gh pr edit <number> --body-file <file>` so it covers the pushed head by
+[[git-pr]]'s rules: each review's last clean SHA, and for every commit after it,
+the commit and why it cannot reach that review's domain. A commit you cannot
+name that way for some review means that review has to run on it first - go
+back to *Address end-to-end*'s review step, then push and wait for the checks
+again. Change only that section; the rest of the description is the author's.
+If the PR has no `## Reviews` section, do not add one.
+
 ## Reply
 
-For each **review thread**, once its concern is handled, reply - and stop there.
-Do not resolve the thread; leave that to the reviewer.
+For each **review thread**, reply only now - once its fix is pushed, the
+required checks are green, and the PR description is current - so the reviewer
+is notified about a commit they can see on a PR that is ready to look at. Then
+stop there. Do not resolve the thread; leave that to the reviewer.
 
 Reply with what was done (name the fix commit), or - for a declined note - why
 not. Reply to the thread by replying to its first comment's `databaseId`:
@@ -153,14 +193,6 @@ gh api --method POST \
 
 For top-level **conversation comments**, reply with `gh pr comment <number>
 --body '...'`.
-
-## Push
-
-Push the follow-up commits to the PR branch:
-
-```bash
-git push
-```
 
 The skill stops here. It does not merge the PR and does not change any ticket's
 status - that belongs to merge (see [[work-on]]).
@@ -181,7 +213,8 @@ status - that belongs to merge (see [[work-on]]).
 
 Done when every unresolved thread has been either addressed - fix committed,
 pushed, replied - or explicitly declined with a reply, any conversation comments
-have been answered, the repo's checks are clean, and the reviews that ran came
-back signed off. Threads are left open for the reviewer to resolve. Report the
-PR URL, each comment's disposition, the fix commit SHAs, and the final test and
-check results.
+have been answered, the repo's checks are clean, the reviews that ran came
+back signed off, the PR's required checks are green on the pushed head, and any
+`## Reviews` section covers that head. Threads are left open for the reviewer
+to resolve. Report the PR URL, each comment's disposition, the fix commit SHAs,
+the final test and check results, and the required checks' final state.
