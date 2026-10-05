@@ -41,19 +41,20 @@ export const cacheHitRate = (
   return promptTokens === 0 ? 'n/a' : percentage.format(run.cacheReadTokens / promptTokens);
 };
 
-export const formatDuration = (
-  startTime: string,
-  endTime: string | null,
-): string => {
-  if (endTime === null) return 'running';
-  const totalSeconds = Math.max(
-    0,
-    Math.round((Date.parse(endTime) - Date.parse(startTime)) / 1000),
-  );
-  const minutes = Math.floor(totalSeconds / 60);
+export const formatElapsed = (milliseconds: number): string => {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
   const seconds = totalSeconds % 60;
   return minutes === 0 ? `${seconds}s` : `${minutes}m ${seconds}s`;
 };
+
+export const formatDuration = (
+  startTime: string,
+  endTime: string | null,
+): string =>
+  endTime === null ? 'running' : formatElapsed(Date.parse(endTime) - Date.parse(startTime));
 
 const isPending = (run: RunRecord): boolean => run.costStatus === 'pending';
 

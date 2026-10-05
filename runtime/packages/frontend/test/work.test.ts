@@ -260,7 +260,7 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
   const dispatchCell = (row: string): string =>
     row.match(/<td[^>]*\sdata-dispatch(?:="[^"]*")?[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
   assert.deepEqual(
-    rows.map((row) => [textOf(dispatchCell(row)), /data-dispatch="([^"]*)"/.exec(row)?.[1] ?? null]),
+    rows.map((row) => [textOf(dispatchCell(row).replace(/<span[^>]*\sdata-dispatch-elapsed[^>]*>[^<]*<\/span>/, '')), /data-dispatch="([^"]*)"/.exec(row)?.[1] ?? null]),
     [
       ['running', 'running'],
       ['done', 'done'],
@@ -320,4 +320,42 @@ test('given a repository whose snapshot holds a queued ticket, labelled forge:re
   );
   assert.match(rows[1] ?? '', /<td[^>]*data-dispatch="queued"[^>]*><span[^>]*>queued<\/span><\/td>/);
   assert.doesNotMatch(rows[2] ?? '', /\/runs\/|Which token/);
+});
+
+test('given a running dispatch, a done one that ran 2 hours 15 minutes, a failed one before its run began and a ticket never dispatched, when the work page is requested, then the running one carries its start for the browser to count from, the finished ones show their fixed duration and the rest show none', async () => {
+  const forgeTicket = (number: number) => ({
+    repository: 'forge',
+    number,
+    url: `https://github.com/rameezk/forge/issues/${number}`,
+  });
+  const app = appWith(
+    [
+      {
+        repository: 'forge',
+        github: 'rameezk/forge',
+        polledAt: '2026-09-29T08:15:00.000Z',
+        tickets: [56, 57, 58, 59].map((number) => ticket({ number, title: `Ticket ${number}`, url: forgeTicket(number).url, parent: null })),
+      },
+    ],
+    (store) => {
+      const dispatched = (number: number) => {
+        const start = store.startDispatch(forgeTicket(number), `run-${number}`, '2026-09-30T08:00:00.000Z', Number.POSITIVE_INFINITY);
+        assert.ok('started' in start);
+        return start.started;
+      };
+      dispatched(56);
+      store.endDispatch(dispatched(57), { state: 'done' }, '2026-09-30T10:15:40.000Z');
+      store.endDispatch(dispatched(58), { state: 'failed', reason: 'errored', detail: null }, '2026-09-30T08:00:07.000Z');
+    },
+  );
+
+  const rows = ticketRows(sections(await (await app.request('/work')).text())[0] ?? '');
+  const elapsed = (row: string): string | null =>
+    /<[^>]*\sdata-dispatch-elapsed[^>]*>[\s\S]*?<\/[^>]*>/.exec(row)?.[0] ?? null;
+
+  assert.match(elapsed(rows[0] ?? '') ?? '', /\sdata-elapsed-since="2026-09-30T08:00:00.000Z"/);
+  assert.equal(textOf(elapsed(rows[1] ?? '') ?? ''), '2h 15m');
+  assert.doesNotMatch(elapsed(rows[1] ?? '') ?? '', /data-elapsed-since/);
+  assert.equal(textOf(elapsed(rows[2] ?? '') ?? ''), '7s');
+  assert.equal(elapsed(rows[3] ?? ''), null);
 });

@@ -277,6 +277,11 @@ const summaryEffort = (run: Pick<RunRecord, 'reasoningEffort'>, sent: (string | 
     ? 'varied'
     : configuredEffort(run);
 
+const renderDuration = ({ startTime, endTime }: Pick<RunRecord, 'startTime' | 'endTime'>): Rendered =>
+  endTime === null
+    ? html`<span data-elapsed-since="${startTime}">running</span>`
+    : html`${formatDuration(startTime, endTime)}`;
+
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
   return html`${formatTotal(totalCost(runs))}${pending === 0
@@ -316,7 +321,7 @@ export const renderList = (
                     <td class="${TD} wrap-anywhere text-muted">${run.model}</td>
                     <td class="${TD} whitespace-nowrap" data-effort>${configuredEffort(run)}</td>
                     <td class="${TD}">${renderTimestamp(run.startTime)}</td>
-                    <td class="${TD} whitespace-nowrap">${formatDuration(run.startTime, run.endTime)}</td>
+                    <td class="${TD} whitespace-nowrap" data-duration>${renderDuration(run)}</td>
                     <td class="${TD}">${renderStatus(run.status)}</td>
                     <td class="${TD} ${NUMERIC}" data-cache-hit>${renderCacheHitRate(run)}</td>
                     <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${renderCost(run)}</td>
@@ -907,7 +912,7 @@ export const renderDetail = (
       <dt class="${META_TERM}">Started</dt>
       <dd class="${META_VALUE}">${renderTimestamp(run.startTime)}</dd>
       <dt class="${META_TERM}">Duration</dt>
-      <dd class="${META_VALUE}">${formatDuration(run.startTime, run.endTime)}</dd>
+      <dd class="${META_VALUE}" data-duration>${renderDuration(run)}</dd>
       <dt class="${META_TERM}">Cost</dt>
       <dd class="${META_VALUE}">${renderCost(run)}</dd>
       <dt class="${META_TERM}">Tokens</dt>
@@ -958,7 +963,14 @@ const failureText = ({ reason, detail }: DispatchRecord): string | null => {
   return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
 };
 
+const DISPATCH_ELAPSED = 'ml-1.5 text-xs tabular-nums text-muted';
+
 const QUEUED_TONE = 'text-muted ring-1 ring-line ring-inset';
+
+const renderDispatchElapsed = ({ startedAt, endedAt }: DispatchRecord): Rendered =>
+  endedAt === null
+    ? html` <span class="${DISPATCH_ELAPSED}" data-dispatch-elapsed data-elapsed-since="${startedAt}"></span>`
+    : html` <span class="${DISPATCH_ELAPSED}" data-dispatch-elapsed>${formatDuration(startedAt, endedAt)}</span>`;
 
 const renderDispatch = (ticket: Ticket, dispatch: DispatchRecord | undefined): Rendered => {
   if (ticket.forgeReady && ticket.blocked) {
@@ -969,7 +981,7 @@ const renderDispatch = (ticket: Ticket, dispatch: DispatchRecord | undefined): R
   const failure = failureText(dispatch);
   return html`<td class="${TD} min-w-48" data-dispatch="${dispatch.state}">${dispatch.runId === null
       ? badge
-      : html`<a href="/runs/${encodeURIComponent(dispatch.runId)}" class="rounded-full no-underline hover:opacity-80">${badge}</a>`}${failure === null
+      : html`<a href="/runs/${encodeURIComponent(dispatch.runId)}" class="rounded-full no-underline hover:opacity-80">${badge}</a>`}${renderDispatchElapsed(dispatch)}${failure === null
       ? ''
       : html`<p class="m-0 mt-1 line-clamp-3 text-xs break-words whitespace-pre-line text-muted" title="${failure}">${failure}</p>`}</td>`;
 };
