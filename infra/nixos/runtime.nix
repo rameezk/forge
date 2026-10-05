@@ -98,7 +98,7 @@ let
         default = cfg.workload.timeout;
         defaultText = lib.literalExpression "config.forge.runtime.workload.timeout";
         example = "30min";
-        description = "Longest this worker's workload may run, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"2h\"`, or null for unlimited. It counts from the harness's start, so checkout and devShell setup do not use it, and a workload that passes it is hard-stopped, its subagents included, and ends as exceeded. Defaults to `forge.runtime.workload.timeout`.";
+        description = "Longest this worker's workload may run, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"2h\"`, or null for unlimited. It counts from the harness's start, so checkout and devShell setup do not use it, and a workload that passes it is hard-stopped, its subagents included, and ends as exceeded. A scheduled run's systemd unit also stops 30 minutes past it, as a backstop for a runner that hangs, and the run then ends interrupted; dispatched workloads share one backstop from the longest timeout of any dispatching worker, and none when any of them is unlimited. Defaults to `forge.runtime.workload.timeout`.";
       };
     };
   };
@@ -162,6 +162,25 @@ let
   hasDashboard = hasWorkers || hasRepositories;
   dispatchedRepositories = lib.filterAttrs (_: r: r.worker != null) cfg.repositories;
   hasDispatch = dispatchedRepositories != { };
+
+  backstopMarginSeconds = 30 * 60;
+  backstopSeconds = w: if w.timeout == null then null else timeSpanSeconds w.timeout + backstopMarginSeconds;
+  runtimeMax = seconds: lib.optionalAttrs (seconds != null) { RuntimeMaxSec = seconds; };
+  scheduledBackstops = lib.mapAttrs' (
+    name: w:
+    lib.nameValuePair "forge-runner@${name}" {
+      overrideStrategy = "asDropin";
+      serviceConfig = runtimeMax (backstopSeconds w);
+    }
+  ) (lib.filterAttrs (_: w: w.timeout != null) cfg.workers);
+  dispatchingBackstops = map (r: backstopSeconds cfg.workers.${r.worker}) (
+    lib.attrValues dispatchedRepositories
+  );
+  dispatchBackstop =
+    if lib.elem null dispatchingBackstops || dispatchingBackstops == [ ] then
+      null
+    else
+      lib.foldl' lib.max 0 dispatchingBackstops;
 
   hasTicketPlaceholder = prompt: lib.hasInfix "{issue}" prompt || lib.hasInfix "{url}" prompt;
 
@@ -445,6 +464,8 @@ in
       ];
     }
 
+    { systemd.services = scheduledBackstops; }
+
     (lib.mkIf hasWorkers {
       sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
       sops.templates = lib.genAttrs openRouterEnvFiles (
@@ -618,6 +639,7 @@ in
           ];
           ExecStart = "${dispatchInstance} %i";
         }
+        // runtimeMax dispatchBackstop
         // workloadMemory
         // writeTokenCredential
         // workloadHardening;
