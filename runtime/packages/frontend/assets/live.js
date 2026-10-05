@@ -8,6 +8,25 @@ const show = (state, text) => {
   indicator.hidden = false;
 };
 
+const formatElapsed = (milliseconds) => {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  const seconds = totalSeconds % 60;
+  return minutes === 0 ? `${seconds}s` : `${minutes}m ${seconds}s`;
+};
+
+const tick = () => {
+  const now = Date.now();
+  for (const element of document.querySelectorAll('[data-elapsed-since]')) {
+    element.textContent = formatElapsed(now - Date.parse(element.dataset.elapsedSince));
+  }
+};
+
+tick();
+setInterval(tick, 1000);
+
 const toggled = new WeakSet();
 const rendered = new WeakMap();
 
@@ -63,6 +82,7 @@ const refresh = async () => {
     },
   });
   rememberRendered();
+  tick();
   if (following) {
     scrollToBottom();
   } else if (newActivity !== null && transcriptLength() > length) {
