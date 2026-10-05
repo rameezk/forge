@@ -26,10 +26,11 @@
   not directly related to the task.
 - Hold the same standard for lint errors, test failures, and flaky tests: fix
   them when you see them, even if your change did not cause them.
-- The NixOS VM tests are part of "tests pass". `make check` runs them, and fails
-  rather than skipping them when it cannot reach a Linux builder.
-- On a machine without KVM, run `make check-no-vm` and rely on CI for the VM
-  tests. Do not call a change to anything they cover done until they pass.
+- The NixOS VM tests are part of "tests pass", and CI runs them. Locally,
+  run `make check-no-vm` and leave the VM tests to CI.
+- When a VM test fails in CI, start from its log. Run only that test locally,
+  with `nix build .#checks.<system>.<test>`, if the log does not explain the
+  failure.
 - A change is not done until the required checks on its pull request are
   green.
 
