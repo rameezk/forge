@@ -75,7 +75,6 @@ jobs:
 
   vm-test:
     needs: vm-tests
-    if: needs.changes.outputs.markdown-only != 'true'
     runs-on: ubuntu-latest
     environment: *cachix-environment
     strategy:
