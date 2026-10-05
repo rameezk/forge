@@ -398,7 +398,7 @@ test('given a worker with a one-second timeout whose workspace takes longer than
     },
     now: fixedClock(clock),
     newId: () => 'run-1',
-    lookUpListPrice: unlisted,
+    ...withoutModelEntry,
   });
 
   const run = store.getRun('run-1');
