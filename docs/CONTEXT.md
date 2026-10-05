@@ -64,6 +64,14 @@ _Avoid_: cost uncertain
 The end state of a workload whose runner stopped heartbeating before finishing it, for example because its unit was killed; distinct from `error`, where the harness itself ended the workload with an error (ADR-0031).
 _Avoid_: crashed, stuck, abandoned
 
+**Budget**:
+The most a workload may spend in USD, its subagents included, measured as billed cost where known and estimated cost otherwise; set per worker over a global default (ADR-0045).
+_Avoid_: cost cap, spend limit
+
+**Exceeded**:
+The end state of a workload forge stopped because it crossed its cost budget or its timeout, recording which one; distinct from `error` and `interrupted` (ADR-0044).
+_Avoid_: timed out, over budget, killed
+
 **Subagent**:
 A child harness run that a workload's agent spawns mid-run to perform a delegated task and report back; it is part of the spawning workload, never a workload of its own (ADR-0009).
 _Avoid_: child workload, sub-workload
