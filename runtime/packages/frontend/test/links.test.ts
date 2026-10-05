@@ -51,6 +51,7 @@ const dashboard = () => {
     aliveAt: null,
     harnessStartTime: null,
     timeoutSeconds: null,
+    maxCostUsd: null,
     exceededLimit: null,
   });
   const dispatch = store.startDispatch(

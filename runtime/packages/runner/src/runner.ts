@@ -115,6 +115,7 @@ export const runWorkload = async (
     aliveAt: null,
     harnessStartTime: null,
     timeoutSeconds: worker.timeoutSeconds ?? null,
+    maxCostUsd: worker.maxCostUsd ?? null,
     exceededLimit: null,
   });
   const stopHeartbeat = startHeartbeat(
@@ -151,6 +152,11 @@ export const runWorkload = async (
   let stopTimeout = (): void => {};
 
   try {
+    if (worker.maxCostUsd != null && 'reason' in outcome) {
+      throw new Error(
+        `worker ${worker.name} has a budget of ${worker.maxCostUsd} USD but ${worker.model} could not be priced (${outcome.reason}), so the workload was refused before it started`,
+      );
+    }
     await transcript.append(
       policy.record({
         type: 'message',
@@ -194,6 +200,14 @@ export const runWorkload = async (
       if (event.type === 'message') {
         if (isBillable(event)) {
           recordGeneration(event);
+          if (exceeded === null && worker.maxCostUsd != null) {
+            const spend = store.workloadSpend(id);
+            if (spend.unpriced || spend.costUsd > worker.maxCostUsd) {
+              exceeded = 'budget';
+              stop.abort();
+              break;
+            }
+          }
         }
         if (
           event.role === 'assistant' &&

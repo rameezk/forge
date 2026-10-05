@@ -33,6 +33,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   aliveAt: '2026-09-21T10:03:00.000Z',
   harnessStartTime: null,
   timeoutSeconds: null,
+  maxCostUsd: null,
   exceededLimit: null,
   ...overrides,
 });
@@ -72,6 +73,7 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     aliveAt: null,
     harnessStartTime: null,
     timeoutSeconds: null,
+    maxCostUsd: null,
     exceededLimit: null,
   });
 
@@ -124,6 +126,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
       aliveAt: null,
       harnessStartTime: null,
       timeoutSeconds: null,
+      maxCostUsd: null,
       exceededLimit: null,
     }),
   );
@@ -159,6 +162,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     aliveAt: null,
     harnessStartTime: null,
     timeoutSeconds: null,
+    maxCostUsd: null,
     exceededLimit: null,
   });
 });
@@ -638,7 +642,7 @@ test('given a run recorded under a timeout, when it is finalized as exceeded on 
   store.close();
 });
 
-test('given a store file whose runs predate limits, holding a finished run, when the store is opened, then that run reads back with no timeout, harness start or exceeded limit and a run with them round-trips', () => {
+test('given a store file whose runs predate limits, holding a finished run, when the store is opened, then that run reads back with no timeout, budget, harness start or exceeded limit and a run with them round-trips', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const old = new DatabaseSync(path);
   old.exec(`
@@ -682,6 +686,7 @@ test('given a store file whose runs predate limits, holding a finished run, when
     status: 'exceeded',
     harnessStartTime: '2026-09-21T11:00:10.000Z',
     timeoutSeconds: 60,
+    maxCostUsd: 5,
     exceededLimit: 'timeout',
   });
 
@@ -691,6 +696,7 @@ test('given a store file whose runs predate limits, holding a finished run, when
   const past = store.getRun('past');
   assert.equal(past?.harnessStartTime, null);
   assert.equal(past?.timeoutSeconds, null);
+  assert.equal(past?.maxCostUsd, null);
   assert.equal(past?.exceededLimit, null);
   assert.deepEqual(store.getRun('limited'), limited);
   store.close();

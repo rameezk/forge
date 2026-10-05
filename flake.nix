@@ -1155,6 +1155,65 @@
             lib.asserts.assertMsg (
               host.config.systemd.services ? "forge-dispatch@" && startTimeoutOf host "forge-dispatch@" == null
             ) "a dispatching worker whose timeout is null must leave the dispatch units with no start timeout";
+          budgetModule =
+            {
+              workload ? null,
+              capped ? 2.5,
+            }:
+            {
+              imports = [ dispatchModule ];
+              forge.runtime.workers.capped = {
+                harness = "pi";
+                model = "anthropic/claude-sonnet-4";
+                prompt = "build the thing";
+                maxCost = capped;
+              };
+              forge.runtime.workers.unlimited = {
+                harness = "pi";
+                model = "anthropic/claude-sonnet-4";
+                prompt = "build the thing";
+                maxCost = null;
+              };
+              forge.runtime.workload.maxCost = lib.mkIf (workload != null) workload.maxCost;
+            };
+          budgetsOf =
+            host:
+            lib.mapAttrs (_: worker: worker.maxCostUsd) host.config.forge.runtime.settings.workers;
+          budgetDefaultsToFiveDollars = lib.asserts.assertMsg (
+            budgetsOf (secretsHost exampleSecretsFile (budgetModule { })) == {
+              builder = 5;
+              capped = 2.5;
+              unlimited = null;
+            }
+          ) "the runtime config must carry a worker's budget in USD: 5 when nothing is set, a worker's own override, and null for an unlimited worker";
+          budgetGlobalDefaultConfigurable = lib.asserts.assertMsg (
+            budgetsOf (secretsHost exampleSecretsFile (budgetModule { workload.maxCost = 12; })) == {
+              builder = 12;
+              capped = 2.5;
+              unlimited = null;
+            }
+            && budgetsOf (secretsHost exampleSecretsFile (budgetModule { workload.maxCost = null; })) == {
+              builder = null;
+              capped = 2.5;
+              unlimited = null;
+            }
+          ) "forge.runtime.workload.maxCost must set the default of every worker that does not override it, and null must make that default unlimited";
+          nonPositiveBudgetFails =
+            lib.asserts.assertMsg
+              (
+                lib.all (budget: !(evaluates (secretsHost exampleSecretsFile (budgetModule { capped = budget; })))) [
+                  0
+                  (-1)
+                  (-0.5)
+                  "5"
+                ]
+                && lib.all (budget: evaluates (secretsHost exampleSecretsFile (budgetModule { capped = budget; }))) [
+                  0.01
+                  5
+                  100
+                ]
+              )
+              "a worker budget that is not a positive number of USD must fail evaluation, rather than reaching the runner as a limit it cannot enforce";
           sshFirewall = nixos.config.networking.firewall;
           sshPort = exampleCfg.sshPort;
           tailnetInterface = tailscale.interfaceName;
@@ -1320,6 +1379,14 @@
             assert unlimitedDispatchingWorkerRemovesDispatchBackstop;
             pkgs.runCommand "runtime-workload-backstop" { } ''
               echo "a scheduled worker's runner unit stops 30 minutes past its own timeout, every dispatch unit shares the longest dispatching timeout plus 30 minutes, and a null timeout leaves its units with no start timeout" > $out
+            '';
+
+          runtime-workload-budget =
+            assert budgetDefaultsToFiveDollars;
+            assert budgetGlobalDefaultConfigurable;
+            assert nonPositiveBudgetFails;
+            pkgs.runCommand "runtime-workload-budget" { } ''
+              echo "a worker's budget reaches the runner in USD: 5 by default, forge.runtime.workload.maxCost as the global default, a per-worker override, null for unlimited, and a budget that is not positive fails evaluation" > $out
             '';
 
           runtime-billing =

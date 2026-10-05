@@ -60,6 +60,7 @@ type RunRow = {
   alive_at: string | null;
   harness_start_time: string | null;
   timeout_seconds: number | null;
+  max_cost_usd: number | null;
   exceeded_limit: string | null;
 };
 
@@ -93,7 +94,8 @@ const CREATE_RUNS = `
     alive_at           TEXT,
     harness_start_time TEXT,
     timeout_seconds    INTEGER,
-    exceeded_limit     TEXT
+    exceeded_limit     TEXT,
+    max_cost_usd       REAL
   ) STRICT;
 `;
 
@@ -152,6 +154,14 @@ const ADD_RUN_LIMITS = `
   ALTER TABLE runs ADD COLUMN harness_start_time TEXT;
   ALTER TABLE runs ADD COLUMN timeout_seconds INTEGER;
   ALTER TABLE runs ADD COLUMN exceeded_limit TEXT;
+`;
+
+const HAS_RUN_BUDGET = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'max_cost_usd'
+`;
+
+const ADD_RUN_BUDGET = `
+  ALTER TABLE runs ADD COLUMN max_cost_usd REAL;
 `;
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -464,6 +474,7 @@ const toRow = (run: RunRecord): RunRow => ({
   alive_at: run.aliveAt,
   harness_start_time: run.harnessStartTime,
   timeout_seconds: run.timeoutSeconds,
+  max_cost_usd: run.maxCostUsd,
   exceeded_limit: run.exceededLimit,
 });
 
@@ -543,8 +554,14 @@ const fromRow = (row: RunRow): RunRecord => ({
   aliveAt: row.alive_at,
   harnessStartTime: row.harness_start_time,
   timeoutSeconds: row.timeout_seconds,
+  maxCostUsd: row.max_cost_usd,
   exceededLimit: row.exceeded_limit as ExceededLimit | null,
 });
+
+export interface WorkloadSpend {
+  costUsd: number;
+  unpriced: boolean;
+}
 
 export class Store {
   readonly #db: DatabaseSync;
@@ -562,6 +579,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_EFFORT, ADD_RUN_EFFORT);
     this.#addColumnsOnce(HAS_RUN_HEARTBEAT, ADD_RUN_HEARTBEAT);
     this.#addColumnsOnce(HAS_RUN_LIMITS, ADD_RUN_LIMITS);
+    this.#addColumnsOnce(HAS_RUN_BUDGET, ADD_RUN_BUDGET);
     db.exec(CREATE_GENERATIONS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
@@ -650,7 +668,7 @@ export class Store {
           cache_read_tokens, cache_write_tokens,
           transcript_ref, session_id, error,
           repository, ticket_number, ticket_url, alive_at,
-          harness_start_time, timeout_seconds, exceeded_limit
+          harness_start_time, timeout_seconds, exceeded_limit, max_cost_usd
         ) VALUES (
           $id, $worker, $harness, $model, $reasoning_effort, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $cost_estimated,
@@ -659,7 +677,7 @@ export class Store {
           $cache_read_tokens, $cache_write_tokens,
           $transcript_ref, $session_id, $error,
           $repository, $ticket_number, $ticket_url, $alive_at,
-          $harness_start_time, $timeout_seconds, $exceeded_limit
+          $harness_start_time, $timeout_seconds, $exceeded_limit, $max_cost_usd
         )`,
       )
       .run(row);
@@ -732,6 +750,18 @@ export class Store {
         });
       this.#settleRun(generation.runId);
     });
+  }
+
+  workloadSpend(runId: string): WorkloadSpend {
+    const row = this.#db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(COALESCE(billed_cost_usd, estimated_cost_usd)), 0) AS cost_usd,
+          COALESCE(MAX(billed_cost_usd IS NULL AND estimated_cost_usd IS NULL), 0) AS unpriced
+        FROM generations WHERE run_id = $run_id`,
+      )
+      .get({ run_id: runId }) as { cost_usd: number; unpriced: number };
+    return { costUsd: row.cost_usd, unpriced: row.unpriced === 1 };
   }
 
   listGenerations(runId: string): GenerationRecord[] {

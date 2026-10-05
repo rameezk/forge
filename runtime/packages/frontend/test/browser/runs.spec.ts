@@ -25,6 +25,7 @@ const recordedRun: RunRecord = {
   aliveAt: null,
   harnessStartTime: null,
   timeoutSeconds: null,
+  maxCostUsd: null,
   exceededLimit: null,
 };
 

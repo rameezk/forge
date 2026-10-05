@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '@forge/shared';
-import { runWorkload } from '../src/index.ts';
+import { runWorkload, type LookUpModel } from '../src/index.ts';
 import {
   aWorker,
   arrayTranscripts,
@@ -417,3 +417,59 @@ test('given a worker with no timeout and a harness that outlasts a short wait, w
   assert.equal(run?.status, 'success');
   assert.equal(run?.timeoutSeconds, null);
 });
+
+const pricedModel: LookUpModel = async () => ({
+  model: {
+    price: { input: 0.000002, output: 0.00001, cacheRead: null, cacheWrite: null },
+    contextWindow: null,
+    maxOutputTokens: null,
+    reasoning: false,
+  },
+});
+
+for (const { name, billedFirst, budget, outcome } of [
+  { name: 'dearer than its estimate', billedFirst: 0.001, budget: 0.0015, outcome: 'exceeded' },
+  { name: 'cheaper than its estimate', billedFirst: 0.0001, budget: 0.001, outcome: 'success' },
+] as const) {
+  test(`given a budget and a first generation estimated at 0.0006 USD whose billed cost arrives ${name} before the second, also estimated at 0.0006, when the second is recorded, then the billed cost counts and the run ends ${outcome}`, async () => {
+    const store = Store.open(':memory:');
+
+    await runWorkload({
+      store,
+      harness: fakeHarness(
+        [
+          message({ generationId: 'gen-1' }),
+          message({ generationId: 'gen-2' }),
+          result({ status: 'success' }),
+        ],
+        {
+          beforeEach: (index) => {
+            if (index !== 1) return;
+            const [first] = store.unsettledGenerations();
+            assert.ok(first);
+            store.recordLookups(
+              [
+                {
+                  id: first.id,
+                  billing: { costUsd: billedFirst, usage: null, reasoningTokens: null, provider: null, model: null },
+                },
+              ],
+              '2026-09-21T10:00:03.000Z',
+            );
+          },
+        },
+      ),
+      worker: aWorker({ maxCostUsd: budget }),
+      openTranscript: arrayTranscripts().open,
+      openRawEvents: discardLines,
+      openRequestRecord: discardLines,
+      openWorkspace: () => ({ workDir: '/work/run-1' }),
+      now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
+      newId: () => 'run-1',
+      ...withoutModelEntry,
+      lookUpModel: pricedModel,
+    });
+
+    assert.equal(store.getRun('run-1')?.status, outcome);
+  });
+}

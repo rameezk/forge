@@ -71,7 +71,7 @@ export {
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export { githubWriteToken } from './token.ts';
-export { Store } from './store.ts';
+export { Store, type WorkloadSpend } from './store.ts';
 export {
   parseTranscript,
   rawEventsRef,

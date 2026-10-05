@@ -241,6 +241,7 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
             aliveAt: null,
             harnessStartTime: null,
             timeoutSeconds: null,
+            maxCostUsd: null,
             exceededLimit: null,
           });
         }

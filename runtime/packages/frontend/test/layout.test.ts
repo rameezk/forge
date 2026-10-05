@@ -44,6 +44,7 @@ const appWith = ({
     aliveAt: null,
     harnessStartTime: null,
     timeoutSeconds: null,
+    maxCostUsd: null,
     exceededLimit: null,
   });
   return createApp({

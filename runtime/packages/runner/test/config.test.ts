@@ -30,6 +30,7 @@ test('given a config, when a declared worker is resolved, then it carries its na
     prompt: 'refine',
     reasoningEffort: 'high',
     timeoutSeconds: null,
+    maxCostUsd: null,
   });
 });
 
@@ -45,6 +46,20 @@ test('given workers with a timeout in seconds, with none, and with null, when th
   assert.equal(resolveWorker(timed, 'capped').timeoutSeconds, 7200);
   assert.equal(resolveWorker(timed, 'open').timeoutSeconds, null);
   assert.equal(resolveWorker(timed, 'unset').timeoutSeconds, null);
+});
+
+test('given workers with a budget in USD, with none, and with null, when they are resolved, then the budget is carried, and absent and null both mean unlimited', () => {
+  const budgeted: RuntimeConfig = {
+    harnesses: { pi: { command: 'pi' } },
+    workers: {
+      capped: { harness: 'pi', model: 'm', prompt: 'p', maxCostUsd: 2.5 },
+      open: { harness: 'pi', model: 'm', prompt: 'p', maxCostUsd: null },
+      unset: { harness: 'pi', model: 'm', prompt: 'p' },
+    },
+  };
+  assert.equal(resolveWorker(budgeted, 'capped').maxCostUsd, 2.5);
+  assert.equal(resolveWorker(budgeted, 'open').maxCostUsd, null);
+  assert.equal(resolveWorker(budgeted, 'unset').maxCostUsd, null);
 });
 
 test('given a worker with no reasoning effort, when it is resolved, then reasoningEffort is absent', () => {

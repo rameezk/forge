@@ -47,6 +47,7 @@ export interface RunRecord {
   aliveAt: string | null;
   harnessStartTime: string | null;
   timeoutSeconds: number | null;
+  maxCostUsd: number | null;
   exceededLimit: ExceededLimit | null;
 }
 
