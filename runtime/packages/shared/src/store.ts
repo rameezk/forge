@@ -21,6 +21,7 @@ import type {
   NewGeneration,
   UnsettledGeneration,
 } from './generation.ts';
+import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import type {
   CostStatus,
@@ -93,7 +94,11 @@ const CREATE_RUNS = `
     alive_at           TEXT,
     harness_start_time TEXT,
     timeout_seconds    INTEGER,
-    exceeded_limit     TEXT
+    exceeded_limit     TEXT,
+    fingerprint        TEXT,
+    fingerprint_hash   TEXT,
+    forge_git_sha      TEXT,
+    base_commit        TEXT
   ) STRICT;
 `;
 
@@ -152,6 +157,17 @@ const ADD_RUN_LIMITS = `
   ALTER TABLE runs ADD COLUMN harness_start_time TEXT;
   ALTER TABLE runs ADD COLUMN timeout_seconds INTEGER;
   ALTER TABLE runs ADD COLUMN exceeded_limit TEXT;
+`;
+
+const HAS_RUN_FINGERPRINT = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'fingerprint'
+`;
+
+const ADD_RUN_FINGERPRINT = `
+  ALTER TABLE runs ADD COLUMN fingerprint TEXT;
+  ALTER TABLE runs ADD COLUMN fingerprint_hash TEXT;
+  ALTER TABLE runs ADD COLUMN forge_git_sha TEXT;
+  ALTER TABLE runs ADD COLUMN base_commit TEXT;
 `;
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -562,6 +578,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_EFFORT, ADD_RUN_EFFORT);
     this.#addColumnsOnce(HAS_RUN_HEARTBEAT, ADD_RUN_HEARTBEAT);
     this.#addColumnsOnce(HAS_RUN_LIMITS, ADD_RUN_LIMITS);
+    this.#addColumnsOnce(HAS_RUN_FINGERPRINT, ADD_RUN_FINGERPRINT);
     db.exec(CREATE_GENERATIONS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
@@ -687,6 +704,49 @@ export class Store {
         });
       this.#settleRun(id);
     });
+  }
+
+  recordFingerprint(id: string, recorded: RunFingerprint): void {
+    this.#db
+      .prepare(
+        `UPDATE runs SET
+          fingerprint = $fingerprint,
+          fingerprint_hash = $hash,
+          forge_git_sha = $forge_git_sha,
+          base_commit = $base_commit
+        WHERE id = $id AND fingerprint IS NULL`,
+      )
+      .run({
+        id,
+        fingerprint: JSON.stringify(recorded.fingerprint),
+        hash: recorded.hash,
+        forge_git_sha: recorded.forgeGitSha,
+        base_commit: recorded.baseCommit,
+      });
+  }
+
+  getFingerprint(id: string): RunFingerprint | null {
+    const row = this.#db
+      .prepare(
+        `SELECT fingerprint, fingerprint_hash, forge_git_sha, base_commit
+        FROM runs WHERE id = $id AND fingerprint IS NOT NULL`,
+      )
+      .get({ id }) as
+      | {
+          fingerprint: string;
+          fingerprint_hash: string;
+          forge_git_sha: string | null;
+          base_commit: string | null;
+        }
+      | undefined;
+    return row === undefined
+      ? null
+      : {
+          fingerprint: JSON.parse(row.fingerprint) as ConfigFingerprint,
+          hash: row.fingerprint_hash,
+          forgeGitSha: row.forge_git_sha,
+          baseCommit: row.base_commit,
+        };
   }
 
   markHarnessStarted(id: string, at: string): void {

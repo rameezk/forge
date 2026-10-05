@@ -6,8 +6,12 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { once } from 'node:events';
 import { Worker } from 'node:worker_threads';
-import { Store } from '../src/index.ts';
-import type { RunRecord } from '../src/index.ts';
+import { fingerprintHash, Store } from '../src/index.ts';
+import type {
+  ConfigFingerprint,
+  RunFingerprint,
+  RunRecord,
+} from '../src/index.ts';
 
 const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   id: 'run-01',
@@ -693,6 +697,74 @@ test('given a store file whose runs predate limits, holding a finished run, when
   assert.equal(past?.timeoutSeconds, null);
   assert.equal(past?.exceededLimit, null);
   assert.deepEqual(store.getRun('limited'), limited);
+  store.close();
+  Store.open(path).close();
+});
+
+const aRunFingerprint = (overrides: Partial<RunFingerprint> = {}): RunFingerprint => {
+  const fingerprint: ConfigFingerprint = {
+    model: 'z-ai/glm-5',
+    reasoningEffort: null,
+    harnessArgs: ['--skill', '/opt/skills/review'],
+    harnessVersion: '1.0.0',
+    promptTemplate: 'p1',
+    systemPrompt: 's1',
+    tools: 't1',
+    skills: null,
+  };
+  return {
+    fingerprint,
+    hash: fingerprintHash(fingerprint),
+    forgeGitSha: 'abc1234',
+    baseCommit: null,
+    ...overrides,
+  };
+};
+
+test('given a recorded run, when its fingerprint is recorded, then it reads back whole and a run without one reads back as none', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(sampleRun({ id: 'with' }));
+  store.insertRun(sampleRun({ id: 'without' }));
+  const recorded = aRunFingerprint({ baseCommit: 'deadbeef' });
+
+  store.recordFingerprint('with', recorded);
+
+  assert.deepEqual(store.getFingerprint('with'), recorded);
+  assert.equal(store.getFingerprint('without'), null);
+  assert.equal(store.getFingerprint('missing'), null);
+});
+
+test('given a run whose fingerprint is already recorded, when another is recorded for it, then the first stands', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(sampleRun());
+  const first = aRunFingerprint();
+
+  store.recordFingerprint('run-01', first);
+  store.recordFingerprint('run-01', aRunFingerprint({ forgeGitSha: 'other' }));
+
+  assert.deepEqual(store.getFingerprint('run-01'), first);
+});
+
+test('given a store file whose runs predate fingerprints, when the store is opened, then its runs have no fingerprint and a new run can record one', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const first = Store.open(path);
+  first.insertRun(sampleRun({ id: 'old' }));
+  first.close();
+  const old = new DatabaseSync(path);
+  old.exec(`
+    ALTER TABLE runs DROP COLUMN fingerprint;
+    ALTER TABLE runs DROP COLUMN fingerprint_hash;
+    ALTER TABLE runs DROP COLUMN forge_git_sha;
+    ALTER TABLE runs DROP COLUMN base_commit;
+  `);
+  old.close();
+
+  const store = Store.open(path);
+  store.insertRun(sampleRun({ id: 'new' }));
+  store.recordFingerprint('new', aRunFingerprint());
+
+  assert.equal(store.getFingerprint('old'), null);
+  assert.deepEqual(store.getFingerprint('new'), aRunFingerprint());
   store.close();
   Store.open(path).close();
 });

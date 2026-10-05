@@ -57,6 +57,7 @@
             ./infra/nixos/runtime.nix
             { nixpkgs.overlays = [ runnerOverlay ]; }
             { _module.args.forgeConfig = cfg; }
+            { _module.args.forgeGitSha = self.rev or self.dirtyRev or null; }
             { forge.runtime.secretsFile = secretsFile; }
           ]
           ++ modules;
@@ -380,6 +381,9 @@
             lib.any (e: lib.hasInfix "FORGE_RUNTIME_CONFIG=" e) runnerUnit.serviceConfig.Environment
             && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") runnerUnit.serviceConfig.Environment
           ) "the runner unit must point at the generated config and the state directory";
+          runnerKnowsForgeGitSha = lib.asserts.assertMsg (
+            lib.elem "FORGE_GIT_SHA=${self.rev or self.dirtyRev}" runnerUnit.serviceConfig.Environment
+          ) "the runner unit must carry the forge git sha the host was built from, for the workload's fingerprint";
           runnerConfigReflectsWorker = lib.asserts.assertMsg (
             runnerSettings.workers.refiner.harness == "pi"
             && runnerSettings.workers.refiner.model == "anthropic/claude-opus-4"
@@ -787,6 +791,9 @@
                 && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") dispatchUnit.serviceConfig.Environment
               )
               "the dispatch unit must be a oneshot running forge-dispatch for its instance as the forge-runtime user on the workload toolset";
+          dispatchUnitKnowsForgeGitSha = lib.asserts.assertMsg (
+            lib.elem "FORGE_GIT_SHA=${self.rev or self.dirtyRev}" dispatchUnit.serviceConfig.Environment
+          ) "the dispatch unit must carry the forge git sha the host was built from, for the workload's fingerprint";
           dispatchUnitSandboxed = lib.asserts.assertMsg (isWorkloadHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
           writeTokenTemplate = dispatchHost.config.sops.templates."forge-github-write.env";
           readsWriteTokenAsCredential =
@@ -1233,6 +1240,7 @@
             assert relativeHarnessCommandFails;
             assert invalidEffortFails;
             assert runnerEnvWired;
+            assert runnerKnowsForgeGitSha;
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
             assert hostPiIsForgePi;
@@ -1284,6 +1292,7 @@
             assert undeclaredWorkerFails;
             assert dispatchUnitDeclared;
             assert dispatchUnitRunsDispatch;
+            assert dispatchUnitKnowsForgeGitSha;
             assert dispatchUnitSandboxed;
             assert dispatchUnitEnvironmentFiles;
             assert frontierSyncEnsuresLabels;

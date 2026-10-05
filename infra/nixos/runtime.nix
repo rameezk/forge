@@ -2,10 +2,13 @@
   lib,
   config,
   pkgs,
+  forgeGitSha ? null,
   ...
 }:
 let
   cfg = config.forge.runtime;
+
+  forgeGitShaVariable = lib.optional (forgeGitSha != null) "FORGE_GIT_SHA=${forgeGitSha}";
 
   timeSpanUnits = {
     s = 1;
@@ -493,7 +496,8 @@ in
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
-          ];
+          ]
+          ++ forgeGitShaVariable;
           ExecStart = "${cfg.package}/bin/forge-run %i";
         }
         // workloadMemory
@@ -643,7 +647,8 @@ in
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
             writeTokenFileVariable
-          ];
+          ]
+          ++ forgeGitShaVariable;
           ExecStart = "${dispatchInstance} %i";
         }
         // startTimeout dispatchBackstop

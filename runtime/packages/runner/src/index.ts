@@ -1,5 +1,6 @@
 export type {
   Harness,
+  HarnessIdentity,
   HarnessInvocation,
   HarnessSinks,
   RawEventSink,

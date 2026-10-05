@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -30,6 +31,7 @@ import {
   UNATTENDED_INSTRUCTION,
   type Checkout,
   type Harness,
+  type HarnessIdentity,
   type HarnessInvocation,
   type HarnessSinks,
   type RawEventSink,
@@ -515,6 +517,19 @@ const realCommand = (command: string): string => {
   }
 };
 
+const commandOutput = (
+  command: string,
+  args: string[],
+  env: Record<string, string>,
+): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile(command, args, { env, timeout: VERSION_TIMEOUT_MS }, (error, stdout) =>
+      error === null ? resolve(stdout.trim()) : reject(error),
+    );
+  });
+
+const VERSION_TIMEOUT_MS = 10_000;
+
 export interface PiHarnessOptions {
   command: string;
   extensions: PiExtensions;
@@ -539,6 +554,14 @@ export class PiHarness implements Harness {
     this.#extraArgs = options.extraArgs ?? [];
     this.#system = options.system;
     this.#env = options.env;
+  }
+
+  async identity(agentDir: string): Promise<HarnessIdentity> {
+    const version = await commandOutput(realCommand(this.#command), ['--version'], {
+      ...this.#system,
+      PI_CODING_AGENT_DIR: agentDir,
+    });
+    return { version: version === '' ? null : version, args: [...this.#extraArgs] };
   }
 
   async *run(
