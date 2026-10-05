@@ -67,6 +67,13 @@ export {
   requestClosingPullRequests,
   requestTicket,
 } from './frontier.ts';
+export type {
+  RunSkillLoad,
+  SkillCatalog,
+  SkillLoad,
+  SkillSource,
+} from './skill-loads.ts';
+export { promptSkillLoad, readSkillLoad } from './skill-loads.ts';
 export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 export {
   UNKNOWN_CONFIG,

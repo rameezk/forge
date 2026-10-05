@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessByStdio } from 'node:child_process';
+import type { Readable } from 'node:stream';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -7,6 +8,8 @@ import { dirname, join } from 'node:path';
 import { childArgs, SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
 import type { HarnessInvocation } from '../../src/harness.ts';
 import { piArgs, subagentInvocation } from '../../src/pi.ts';
+import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
+import { REQUEST_RECORD_FD } from '../../src/sandbox.ts';
 import { PI_EXTENSIONS } from '../helpers.ts';
 import {
   childScenarios,
@@ -29,9 +32,14 @@ const runPi = async (
   baseUrl: string,
   key: string | undefined,
   args: string[],
+  files: Record<string, string> = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> => {
   const home = mkdtempSync(join(tmpdir(), 'forge-record-home-'));
   const work = mkdtempSync(join(tmpdir(), 'forge-record-work-'));
+  for (const [path, contents] of Object.entries(files)) {
+    mkdirSync(dirname(join(work, path)), { recursive: true });
+    writeFileSync(join(work, path), contents);
+  }
   mkdirSync(join(home, '.pi', 'agent'), { recursive: true });
   writeFileSync(
     join(home, '.pi', 'agent', 'models.json'),
@@ -46,13 +54,14 @@ const runPi = async (
     env: {
       PATH: process.env.PATH ?? '',
       HOME: home,
+      [REQUEST_RECORD_FD_ENV]: String(REQUEST_RECORD_FD),
       [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
         subagentInvocation(pi, INVOCATION, PI_EXTENSIONS),
       ),
       ...(key === undefined ? {} : { OPENROUTER_API_KEY: key }),
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+    stdio: ['ignore', 'pipe', 'pipe', 'ignore', 'ignore'],
+  }) as ChildProcessByStdio<null, Readable, Readable>;
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (data: Buffer) => (stdout += data.toString()));
@@ -66,10 +75,17 @@ const recordRun = async (
   respond: Respond,
   args: string[],
   out: string,
+  files: Record<string, string> = {},
 ): Promise<void> => {
   const server = await serve(respond);
   const { port } = server.address() as AddressInfo;
-  const run = await runPi(pi, `http://127.0.0.1:${port}/v1`, 'sk-fake', args);
+  const run = await runPi(
+    pi,
+    `http://127.0.0.1:${port}/v1`,
+    'sk-fake',
+    args,
+    files,
+  );
   server.close();
   if (run.code !== 0) {
     throw new Error(`${out}: pi exited ${String(run.code)}: ${run.stderr}`);
@@ -96,14 +112,16 @@ const record = async (
   }
 
   mkdirSync(outDir, { recursive: true });
-  for (const [name, { respond, prompt = INVOCATION.prompt }] of Object.entries(
-    scenarios,
-  )) {
+  for (const [
+    name,
+    { respond, prompt = INVOCATION.prompt, files },
+  ] of Object.entries(scenarios)) {
     await recordRun(
       pi,
       respond,
       piArgs({ ...INVOCATION, prompt }, PI_EXTENSIONS),
       join(outDir, `${name}.jsonl`),
+      files,
     );
   }
   const preflight = await runPi(

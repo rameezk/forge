@@ -25,6 +25,7 @@ import type {
 } from './generation.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
+import type { RunSkillLoad } from './skill-loads.ts';
 import type {
   CostStatus,
   ExceededLimit,
@@ -273,6 +274,25 @@ const HAS_GENERATION_SERVED_MODEL = `
 const ADD_GENERATION_SERVED_MODEL = `
   ALTER TABLE generations ADD COLUMN served_model TEXT;
 `;
+
+const CREATE_SKILL_LOADS = `
+  CREATE TABLE IF NOT EXISTS skill_loads (
+    run_id    TEXT NOT NULL,
+    subagent  TEXT NOT NULL,
+    skill     TEXT NOT NULL,
+    source    TEXT NOT NULL,
+    loaded_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, subagent, skill)
+  ) STRICT;
+`;
+
+type SkillLoadRow = {
+  run_id: string;
+  subagent: string;
+  skill: string;
+  source: 'prompt' | 'read';
+  loaded_at: string;
+};
 
 const NO_GENERATION_ID = 'no generation id';
 
@@ -627,6 +647,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_BUDGET, ADD_RUN_BUDGET);
     this.#addColumnsOnce(HAS_RUN_FINGERPRINT, ADD_RUN_FINGERPRINT);
     db.exec(CREATE_GENERATIONS);
+    db.exec(CREATE_SKILL_LOADS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
     this.#addColumnsOnce(HAS_GENERATION_ESTIMATE, ADD_GENERATION_ESTIMATE);
@@ -840,6 +861,37 @@ export class Store {
         });
       this.#settleRun(generation.runId);
     });
+  }
+
+  recordSkillLoad(load: RunSkillLoad): void {
+    this.#db
+      .prepare(
+        `INSERT INTO skill_loads (run_id, subagent, skill, source, loaded_at)
+        VALUES ($run_id, $subagent, $skill, $source, $loaded_at)
+        ON CONFLICT (run_id, subagent, skill) DO NOTHING`,
+      )
+      .run({
+        run_id: load.runId,
+        subagent: load.subagent ?? '',
+        skill: load.skill,
+        source: load.source,
+        loaded_at: load.loadedAt,
+      });
+  }
+
+  listSkillLoads(runId: string): RunSkillLoad[] {
+    const rows = this.#db
+      .prepare(
+        'SELECT * FROM skill_loads WHERE run_id = $run_id ORDER BY loaded_at, rowid',
+      )
+      .all({ run_id: runId }) as SkillLoadRow[];
+    return rows.map((row) => ({
+      runId: row.run_id,
+      subagent: row.subagent === '' ? null : row.subagent,
+      skill: row.skill,
+      source: row.source,
+      loadedAt: row.loaded_at,
+    }));
   }
 
   workloadSpend(runId: string): WorkloadSpend {

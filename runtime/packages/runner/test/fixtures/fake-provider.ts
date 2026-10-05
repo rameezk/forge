@@ -239,9 +239,109 @@ export const delegating =
 export const SUBAGENTS_PROMPT =
   'Delegate two tasks to sub-agents in parallel: have one run echo alpha, and the other say beta.';
 
+export const SKILL_FILES: Record<string, string> = {
+  '.claude/skills/work-on/SKILL.md':
+    '---\nname: work-on\ndescription: Drive one ticket to a pull request.\n---\n\nWork on it.\n',
+  '.claude/skills/code-review/checklist.md': '# Checklist\n\nCheck the standards.\n',
+  '.claude/skills/code-review/SKILL.md':
+    '---\nname: code-review\ndescription: Review a change for standards.\n---\n\nReview it.\n',
+  '.claude/skills/security/SKILL.md':
+    '---\nname: security-review\ndescription: Review a change for vulnerabilities.\n---\n\nReview it for security.\n',
+};
+
+export const REVIEW_TASKS = {
+  standards: 'Review the change for standards.',
+  security: 'Review the change for security.',
+  securityAgain: 'Review the change for security once more.',
+};
+
+const REVIEW_SKILLS: Record<string, string> = {
+  [REVIEW_TASKS.standards]: '.claude/skills/code-review/SKILL.md',
+  [REVIEW_TASKS.security]: '.claude/skills/security/SKILL.md',
+  [REVIEW_TASKS.securityAgain]: '.claude/skills/security/SKILL.md',
+};
+
+export const read = (path: string, id: string): ToolCall => ({
+  id,
+  name: 'read',
+  arguments: { path },
+});
+
+const reviewer: Respond = (_call, res, request) => {
+  const task = Object.keys(REVIEW_SKILLS).find((candidate) =>
+    mentions(request, candidate),
+  ) as string;
+  const key = Object.values(REVIEW_TASKS).indexOf(task) + 1;
+  sse(
+    res,
+    sentToolResults(request)
+      ? textReply(
+          `gen-review-${key}-2`,
+          'No findings.',
+          usage(800, 700, 6),
+        )
+      : toolCallReply(
+          `gen-review-${key}-1`,
+          'Loading the skill.',
+          [read(REVIEW_SKILLS[task] as string, 'call_1')],
+          usage(700, 0, 20),
+        ),
+  );
+};
+
+export const reviewing: Respond = (call, res, request, headers) => {
+  if (mentions(request, 'You are a sub-agent')) {
+    reviewer(call, res, request, headers);
+    return;
+  }
+  const answered = request.messages.filter(
+    (message) => message.role === 'tool',
+  ).length;
+  const turn: [string, ToolCall[], Usage] =
+    answered === 0
+      ? [
+          'Reading the skill.',
+          [read('.claude/skills/work-on/SKILL.md', 'call_1')],
+          usage(1000, 0, 20),
+        ]
+      : answered === 1
+        ? [
+            'Reading it again.',
+            [read('.claude/skills/work-on/SKILL.md', 'call_2')],
+            usage(1100, 1000, 20),
+          ]
+        : answered === 2
+          ? [
+              'Checking the references.',
+              [
+                read('.claude/skills/code-review/checklist.md', 'call_3'),
+                bash('cat .claude/skills/security/SKILL.md', 'call_4'),
+              ],
+              usage(1200, 1100, 30),
+            ]
+          : [
+              'Reviewing.',
+              Object.values(REVIEW_TASKS).map((task, index) => ({
+                id: `call_review_${index + 1}`,
+                name: 'subagent',
+                arguments: { task },
+              })),
+              usage(1300, 1200, 40),
+            ];
+  if (answered >= 7) {
+    sse(res, textReply('gen-skills-6', 'Reviews are done.', usage(1500, 1300, 10)));
+    return;
+  }
+  sse(res, toolCallReply(`gen-skills-${answered + 1}`, ...turn));
+};
+
+export const REVIEWING_PROMPT =
+  'Read the work-on skill, then have the change reviewed.';
+
 export interface Scenario {
   respond: Respond;
   prompt?: string;
+  files?: Record<string, string>;
 }
 
 export const scenarios: Record<string, Scenario> = {
@@ -316,6 +416,11 @@ export const scenarios: Record<string, Scenario> = {
   subagents: {
     respond: delegating(alphaChild, 'Both sub-agents reported back.'),
     prompt: SUBAGENTS_PROMPT,
+  },
+  'skill-loads': {
+    respond: reviewing,
+    prompt: REVIEWING_PROMPT,
+    files: SKILL_FILES,
   },
   'subagent-failure': {
     respond: delegating(

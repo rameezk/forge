@@ -16,6 +16,7 @@ import type {
   ResultEvent,
   RetryEvent,
   RunRecord,
+  RunSkillLoad,
   RunStatus,
   RunTicket,
   SpecRef,
@@ -40,6 +41,7 @@ import {
 } from './format.ts';
 import { cacheMisses, isCall, promptTokens } from './calls.ts';
 import { renderMarkdown } from './markdown.ts';
+import { summarizeSkillLoads, type SkillSummary } from './skills.ts';
 import { DEFAULT_EFFORT, type CallEfforts, type RequestRecordView, type ToolDefinition, type WorkloadContext } from './request-record.ts';
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
@@ -924,6 +926,23 @@ const renderPullRequest = (pullRequest: PullRequestRecord | null): Rendered =>
         ? ''
         : html`<span>rework ${pullRequest.rework}</span>`}</dd>`;
 
+const skillWhere = ({ prompt, parent, subagents }: SkillSummary): string =>
+  [
+    ...(prompt ? ['prompt'] : []),
+    ...(parent ? ['parent'] : []),
+    ...(subagents === 0 ? [] : [`${subagents} ${subagents === 1 ? 'subagent' : 'subagents'}`]),
+  ].join(', ');
+
+const renderSkills = (loads: RunSkillLoad[]): Rendered => {
+  const skills = summarizeSkillLoads(loads);
+  if (skills.length === 0) return '';
+  return html`<dt class="${META_TERM}">Skills</dt>
+      <dd class="${META_VALUE}"><ul class="m-0 flex list-none flex-col gap-1 p-0" data-skills>${skills.map(
+        (summary) =>
+          html`<li class="flex flex-wrap items-baseline gap-x-3" data-skill="${summary.skill}"><code class="font-mono text-[0.85rem] font-semibold">${summary.skill}</code><span class="text-muted" data-skill-where>${skillWhere(summary)}</span></li>`,
+      )}</ul></dd>`;
+};
+
 const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
   const offered = DOWNLOADS.filter(({ key }) => downloads[key]);
   if (offered.length === 0) return '';
@@ -952,6 +971,7 @@ export const renderDetail = (
   { context, efforts: recordedEfforts }: RequestRecordView,
   generations: GenerationRecord[],
   pullRequest: PullRequestRecord | null,
+  skillLoads: RunSkillLoad[],
   downloads: Downloads,
   config: RunFingerprint | null,
   assets: AssetHrefs,
@@ -984,6 +1004,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
       <dt class="${META_TERM}">Providers</dt>
       <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
+      ${renderSkills(skillLoads)}
       ${renderPullRequest(pullRequest)}
       ${renderDownloads(run, downloads)}
     </dl>

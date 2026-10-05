@@ -2,12 +2,16 @@ import {
   errorMessage,
   startHeartbeat,
   type ExceededLimit,
+  type HarnessEvent,
   type ListPrice,
   type MessageEvent,
   type RunStatus,
   type RunTicket,
+  type SkillCatalog,
   type Store,
   type TokenUsage,
+  promptSkillLoad,
+  readSkillLoad,
 } from '@forge/shared';
 import {
   invocationFor,
@@ -144,6 +148,17 @@ export const runWorkload = async (
     });
   };
 
+  let catalog: SkillCatalog | null = null;
+  const recordSkillLoad = (
+    event: HarnessEvent,
+    detect: typeof readSkillLoad,
+  ): void => {
+    const load = catalog === null ? null : detect(event, catalog);
+    if (load !== null) {
+      store.recordSkillLoad({ ...load, runId: id, loadedAt: now() });
+    }
+  };
+
   let status: RunStatus = 'error';
   let sessionId: string | null = null;
   let error: string | null = 'harness stream ended without a result';
@@ -160,26 +175,24 @@ export const runWorkload = async (
         `worker ${worker.name} has a budget of ${worker.maxCostUsd} USD but ${worker.model} could not be priced (${outcome.reason}), so the workload was refused before it started`,
       );
     }
-    await transcript.append(
-      policy.record({
-        type: 'message',
-        role: 'user',
-        text: worker.prompt,
-        timestamp: startTime,
-        usage: {
-          inputTokens: 0,
-          outputTokens: 0,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-        },
-        generationId: null,
-      }),
-    );
-    const invocation = invocationFor(
-      worker,
-      await openWorkspace(id),
-      agentDir,
-    );
+    const promptEvent = policy.record({
+      type: 'message',
+      role: 'user',
+      text: worker.prompt,
+      timestamp: startTime,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      generationId: null,
+    });
+    await transcript.append(promptEvent);
+    const workspace = await openWorkspace(id);
+    catalog = workspace.checkout ?? null;
+    recordSkillLoad(promptEvent, promptSkillLoad);
+    const invocation = invocationFor(worker, workspace, agentDir);
     const recorder = new FingerprintRecorder({
       worker,
       identity: await harness.identity(agentDir),
@@ -211,6 +224,7 @@ export const runWorkload = async (
     for await (const harnessEvent of harness.run(invocation, sinks)) {
       const event = policy.record(harnessEvent);
       await transcript.append(event);
+      recordSkillLoad(event, readSkillLoad);
       if (event.type === 'message') {
         if (isBillable(event)) {
           recordGeneration(event);
