@@ -15,7 +15,7 @@ import {
   type Worker,
   type Workspace,
 } from './harness.ts';
-import { FingerprintRecorder } from './fingerprint.ts';
+import { FingerprintRecorder, skillsHash } from './fingerprint.ts';
 import type { OpenAgentDir } from './agent-dir.ts';
 import type { LookUpModel } from './openrouter.ts';
 import {
@@ -174,16 +174,11 @@ export const runWorkload = async (
       await openWorkspace(id),
       agentDir,
     );
-    const identity = await harness.identity(agentDir).catch((cause: unknown) => {
-      process.stderr.write(
-        `run ${id}: could not read the harness version (${errorMessage(cause)}), so the run's fingerprint records none\n`,
-      );
-      return { version: null, args: [] };
-    });
     const recorder = new FingerprintRecorder({
       worker,
-      identity,
-      checkout: invocation.checkout,
+      identity: await harness.identity(agentDir),
+      workDir: invocation.workDir,
+      skills: skillsHash(invocation.checkout),
       baseCommit: invocation.baseCommit ?? null,
       forgeGitSha: options.forgeGitSha ?? null,
       record: (recorded) => store.recordFingerprint(id, recorded),

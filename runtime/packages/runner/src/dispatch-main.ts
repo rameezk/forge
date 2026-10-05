@@ -187,7 +187,7 @@ const launch = async ({
     runId,
     openWorkspace: async (workDir) => {
       await cloneCheckout(github, workDir, cloneEnv);
-      const baseCommit = await headCommit(workDir, cloneEnv);
+      const baseCommit = await headCommit(workDir, { ...env, ...gitEnv });
       const checkout = resolveCheckout(workDir, loadSkills);
       const devShell = await enterDevShell({
         sandbox: sandboxOf(env),

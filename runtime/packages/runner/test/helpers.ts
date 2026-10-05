@@ -139,21 +139,21 @@ export const fixedClock = (times: string[]): (() => string) => {
   };
 };
 
-const fakePiSource = (version: string): string => `#!${process.execPath}
+const fakePiSource = (version: string | null): string => `#!${process.execPath}
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 const env = process.env;
-if (process.argv[2] === '--version') { process.stdout.write(${JSON.stringify(version + '\n')}); process.exit(0); }
+if (process.argv[2] === '--version') { process.stdout.write(${JSON.stringify((version ?? '') + '\n')}); process.exit(${version === null ? 1 : 0}); }
 const modelsPath = env.PI_CODING_AGENT_DIR + '/models.json';
 writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ modelsJson: existsSync(modelsPath) ? readFileSync(modelsPath, 'utf8') : null, argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR, githubToken: env.GITHUB_TOKEN, nodeOptions: env.NODE_OPTIONS, env }));
 process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
-if (env.FAKE_PI_REQUESTS) writeFileSync(Number(env.FORGE_PI_REQUEST_RECORD_FD), readFileSync(env.FAKE_PI_REQUESTS, 'utf8'));
+if (env.FAKE_PI_REQUESTS) writeFileSync(Number(env.FORGE_PI_REQUEST_RECORD_FD), readFileSync(env.FAKE_PI_REQUESTS, 'utf8').replaceAll('$CWD', process.cwd()));
 if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
 process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
 if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
 if (env.FAKE_BWRAP_STATUS_FD) process.on('exit', (code) => writeFileSync(Number(env.FAKE_BWRAP_STATUS_FD), JSON.stringify({ 'exit-code': code }) + '\\n'));
 `;
 
-export const writeFakePi = (dir: string, version = '1.0.0'): string => {
+export const writeFakePi = (dir: string, version: string | null = '1.0.0'): string => {
   const path = join(dir, 'fake-pi.mjs');
   writeFileSync(path, fakePiSource(version));
   chmodSync(path, 0o755);

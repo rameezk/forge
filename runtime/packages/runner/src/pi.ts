@@ -517,6 +517,8 @@ const realCommand = (command: string): string => {
   }
 };
 
+const VERSION_TIMEOUT_MS = 10_000;
+
 const commandOutput = (
   command: string,
   args: string[],
@@ -527,8 +529,6 @@ const commandOutput = (
       error === null ? resolve(stdout.trim()) : reject(error),
     );
   });
-
-const VERSION_TIMEOUT_MS = 10_000;
 
 export interface PiHarnessOptions {
   command: string;
@@ -560,6 +560,11 @@ export class PiHarness implements Harness {
     const version = await commandOutput(realCommand(this.#command), ['--version'], {
       ...this.#system,
       PI_CODING_AGENT_DIR: agentDir,
+    }).catch((cause: unknown) => {
+      process.stderr.write(
+        `could not read the harness version (${errorMessage(cause)}), so the workload's fingerprint records none\n`,
+      );
+      return '';
     });
     return { version: version === '' ? null : version, args: [...this.#extraArgs] };
   }

@@ -1743,3 +1743,15 @@ test('given two repositories whose skill files differ in one skill, and a third 
   assert.notEqual(first.hash, changed.hash);
   assert.equal(first.hash, same.hash);
 });
+
+test('given a checkout whose skills directory holds a dangling symlink, when the ticket is dispatched, then the workload runs and its fingerprint is recorded', async () => {
+  const outcome = await dispatch({
+    origin: originWith(
+      { '.claude/skills/work-on/SKILL.md': SKILL },
+      { '.claude/skills/dangling': '/nonexistent/skill' },
+    ),
+  });
+
+  assert.equal(outcome.runs[0]?.status, 'success');
+  assert.equal(typeof fingerprintOf(outcome)?.fingerprint.skills, 'string');
+});

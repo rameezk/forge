@@ -145,7 +145,7 @@ export const launchWorkload = async ({
       lookUpModel,
       openAgentDir: agentDirsIn(join(stateDir, 'agent')),
       secrets: [env.OPENROUTER_API_KEY ?? '', ...secrets],
-      forgeGitSha: env.FORGE_GIT_SHA ?? null,
+      forgeGitSha: env.FORGE_GIT_SHA === undefined || env.FORGE_GIT_SHA === '' ? null : env.FORGE_GIT_SHA,
       ...(ticket === undefined ? {} : { ticket }),
     });
     const run = store.getRun(id);

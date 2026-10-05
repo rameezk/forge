@@ -382,7 +382,7 @@
             && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") runnerUnit.serviceConfig.Environment
           ) "the runner unit must point at the generated config and the state directory";
           runnerKnowsForgeGitSha = lib.asserts.assertMsg (
-            lib.elem "FORGE_GIT_SHA=${self.rev or self.dirtyRev}" runnerUnit.serviceConfig.Environment
+            lib.elem "FORGE_GIT_SHA=${self.rev or self.dirtyRev or ""}" runnerUnit.serviceConfig.Environment
           ) "the runner unit must carry the forge git sha the host was built from, for the workload's fingerprint";
           runnerConfigReflectsWorker = lib.asserts.assertMsg (
             runnerSettings.workers.refiner.harness == "pi"
@@ -792,7 +792,7 @@
               )
               "the dispatch unit must be a oneshot running forge-dispatch for its instance as the forge-runtime user on the workload toolset";
           dispatchUnitKnowsForgeGitSha = lib.asserts.assertMsg (
-            lib.elem "FORGE_GIT_SHA=${self.rev or self.dirtyRev}" dispatchUnit.serviceConfig.Environment
+            lib.elem "FORGE_GIT_SHA=${self.rev or self.dirtyRev or ""}" dispatchUnit.serviceConfig.Environment
           ) "the dispatch unit must carry the forge git sha the host was built from, for the workload's fingerprint";
           dispatchUnitSandboxed = lib.asserts.assertMsg (isWorkloadHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
           writeTokenTemplate = dispatchHost.config.sops.templates."forge-github-write.env";
