@@ -56,11 +56,17 @@ const refreshPullRequests = async (
   store: Store,
   name: string,
   github: string,
-  forgeEmail: string,
+  forgeEmail: string | undefined,
   pullRequest: PullRequestPoll,
 ): Promise<boolean> => {
+  const unsettled = store.unsettledPullRequests(name);
+  if (unsettled.length === 0) return true;
+  if (forgeEmail === undefined) {
+    console.error(`${name}: could not refresh pull requests: forge.runtime.dispatch.gitIdentity is not set`);
+    return false;
+  }
   let refreshed = true;
-  for (const { id, number } of store.unsettledPullRequests(name)) {
+  for (const { id, number } of unsettled) {
     try {
       const { state, settledAt, commitAuthors } = await pullRequest(github, number);
       store.recordPullRequest(id, {
@@ -134,11 +140,14 @@ const sync = async (
         });
         failed = true;
       }
-      const forgeEmail = config.dispatch?.gitIdentity?.email;
       if (
-        worker !== undefined &&
-        forgeEmail !== undefined &&
-        !(await refreshPullRequests(store, name, github, forgeEmail, pullRequest))
+        !(await refreshPullRequests(
+          store,
+          name,
+          github,
+          config.dispatch?.gitIdentity?.email,
+          pullRequest,
+        ))
       ) {
         failed = true;
       }

@@ -1056,3 +1056,30 @@ test('given three dispatches whose pull requests GitHub fails for, reports in an
     "forge: could not refresh pull request #144: GitHub reported rameezk/forge#144 in an unknown state 'DRAFT'",
   ]);
 });
+
+test('given a dispatch with an open pull request in a repository that no longer declares a worker, when sync runs, then its pull request is still refreshed', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } }, { gitIdentity: FORGE_IDENTITY });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+    143: aPullRequest('MERGED', ['forge@example.com']),
+  });
+
+  await main(['sync'], env, github.fetch);
+
+  assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'merged');
+});
+
+test('given a dispatch with an open pull request and a runtime config with no git identity, when sync runs, then the missing identity is reported with a non-zero exit code, GitHub is not asked, and the pull request stays open', async (t) => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {});
+  const stderr: string[] = [];
+  t.mock.method(console, 'error', (line: string) => stderr.push(line));
+
+  const code = await main(['sync'], env, github.fetch);
+
+  assert.notEqual(code, 0);
+  assert.deepEqual(github.asked, []);
+  assert.deepEqual(stderr, ['forge: could not refresh pull requests: forge.runtime.dispatch.gitIdentity is not set']);
+  assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'open');
+});
