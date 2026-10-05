@@ -37,6 +37,11 @@ export const unlisted: LookUpModel = async () => ({
 
 export const plainAgentDir: OpenAgentDir = (runId) => `/agent/${runId}`;
 
+export const withoutModelEntry = {
+  lookUpModel: unlisted,
+  openAgentDir: plainAgentDir,
+};
+
 export const result = (
   overrides: Partial<Omit<ResultEvent, 'type'>> = {},
 ): ResultEvent => ({

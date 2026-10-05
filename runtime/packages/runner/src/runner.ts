@@ -85,7 +85,7 @@ export const runWorkload = async (
     );
   }
   const listPrice = listed?.price ?? null;
-  const agentDir = options.openAgentDir(id, worker, listed);
+  const agentDir = options.openAgentDir(id, worker.model, listed);
   const transcript = openTranscript(id);
   const rawEvents = options.openRawEvents(id);
   const requestRecord = options.openRequestRecord(id);

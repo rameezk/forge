@@ -41,7 +41,6 @@ const {
   requestRecord: REQUEST_RECORD_EXTENSION,
 } = PI_EXTENSIONS;
 
-
 const GITHUB_TOKEN = 'github_pat_test';
 
 const TICKET_URL = 'https://github.com/rameezk/forge/issues/113';

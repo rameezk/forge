@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ListedModel } from './openrouter.ts';
 
@@ -42,17 +42,20 @@ export const piModelsJson = (id: string, model: ListedModel): string => {
 
 export type OpenAgentDir = (
   runId: string,
-  worker: { model: string },
+  model: string,
   listed: ListedModel | null,
 ) => string;
 
 export const agentDirsIn =
   (root: string): OpenAgentDir =>
-  (runId, { model }, listed) => {
+  (runId, model, listed) => {
     const agentDir = join(root, runId);
     mkdirSync(agentDir, { recursive: true });
     if (listed !== null && listed.contextWindow !== null) {
-      writeFileSync(join(agentDir, 'models.json'), piModelsJson(model, listed));
+      writeFileSync(join(agentDir, 'models.json'), piModelsJson(model, listed), {
+        mode: 0o444,
+      });
     }
+    chmodSync(agentDir, 0o555);
     return agentDir;
   };

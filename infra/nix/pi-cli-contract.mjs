@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
 import {
-  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -48,11 +47,8 @@ const checkoutFiles = {
 
 const agentDirs = agentDirsIn(mkdtempSync(join(process.env.HOME, 'agents-')));
 
-const readOnlyAgentDir = (name, model, listed) => {
-  const dir = agentDirs(name, { model }, listed);
-  chmodSync(dir, 0o555);
-  return dir;
-};
+const readOnlyAgentDir = (name, model, listed) =>
+  agentDirs(name, model, listed);
 
 const contractAgentDir = readOnlyAgentDir('contract', 'z-ai/glm-5', null);
 

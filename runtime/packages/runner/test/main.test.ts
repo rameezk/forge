@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -1427,6 +1428,8 @@ test('given the models endpoint lists the worker\'s model with a context window,
     assert.notEqual(bind, -1);
     assert.equal(bwrap.argv[bind + 2], pi.agentDir);
     assert.ok(bind < bwrap.argv.indexOf('--remount-ro'));
+    assert.equal(statSync(pi.agentDir).mode & 0o222, 0);
+    assert.equal(statSync(join(pi.agentDir, 'models.json')).mode & 0o222, 0);
   } finally {
     openRouter.close();
   }
