@@ -74,6 +74,14 @@ export type {
   SkillSource,
 } from './skill-loads.ts';
 export { promptSkillLoad, readSkillLoad } from './skill-loads.ts';
+export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
+export {
+  UNKNOWN_CONFIG,
+  canonicalHash,
+  cohortLabel,
+  fingerprintHash,
+  sha256,
+} from './fingerprint.ts';
 export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';
 export {
   FORGE_DONE,

@@ -19,6 +19,7 @@ import {
   type Worker,
   type Workspace,
 } from './harness.ts';
+import { FingerprintRecorder, skillsHash } from './fingerprint.ts';
 import type { OpenAgentDir } from './agent-dir.ts';
 import type { LookUpModel } from './openrouter.ts';
 import {
@@ -41,6 +42,7 @@ export interface RunWorkloadOptions {
   openAgentDir: OpenAgentDir;
   secrets?: string[];
   ticket?: RunTicket;
+  forgeGitSha?: string | null;
 }
 
 export interface WorkloadResult {
@@ -162,6 +164,7 @@ export const runWorkload = async (
   let error: string | null = 'harness stream ended without a result';
   let finalMessage: string | null = null;
   let thrown: unknown = null;
+  let fingerprint: FingerprintRecorder | null = null;
   let exceeded: ExceededLimit | null = null;
   const stop = new AbortController();
   let stopTimeout = (): void => {};
@@ -190,12 +193,23 @@ export const runWorkload = async (
     catalog = workspace.checkout ?? null;
     recordSkillLoad(promptEvent, promptSkillLoad);
     const invocation = invocationFor(worker, workspace, agentDir);
+    const recorder = new FingerprintRecorder({
+      worker,
+      identity: await harness.identity(agentDir),
+      workDir: invocation.workDir,
+      skills: skillsHash(invocation.checkout),
+      baseCommit: invocation.baseCommit ?? null,
+      forgeGitSha: options.forgeGitSha ?? null,
+      record: (recorded) => store.recordFingerprint(id, recorded),
+    });
+    fingerprint = recorder;
     const sinks = {
       stop: stop.signal,
       rawEvent: (event: unknown): void => {
         rawEvents.append(policy.redactValue(event));
       },
       requestRecord: (line: unknown): void => {
+        recorder.observe(line);
         requestRecord.append(policy.redactValue(line));
       },
     };
@@ -243,6 +257,7 @@ export const runWorkload = async (
       cause instanceof Error ? cause.message : String(cause),
     );
   } finally {
+    fingerprint?.finish();
     stopTimeout();
     stopHeartbeat();
     await transcript.close();

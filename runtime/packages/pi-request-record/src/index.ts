@@ -10,7 +10,7 @@ export type {
   SystemPromptDefinition,
   ToolsDefinition,
 } from './contract.ts';
-export { REQUEST_RECORD_FD_ENV } from './contract.ts';
+export { REQUEST_RECORD_FD_ENV, SYSTEM_ROLES } from './contract.ts';
 
 export interface BeforeProviderRequestEvent {
   type: 'before_provider_request';

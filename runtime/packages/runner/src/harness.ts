@@ -19,6 +19,7 @@ export const UNATTENDED_INSTRUCTION = [
 
 export interface Workspace {
   workDir: string;
+  baseCommit?: string;
   checkout?: Checkout;
   devShell?: DevShell;
 }
@@ -40,7 +41,13 @@ export interface HarnessSinks {
   stop: AbortSignal;
 }
 
+export interface HarnessIdentity {
+  version: string | null;
+  args: string[];
+}
+
 export interface Harness {
+  identity(agentDir: string): Promise<HarnessIdentity>;
   run(
     invocation: HarnessInvocation,
     sinks: HarnessSinks,
@@ -52,6 +59,7 @@ export interface Worker {
   harness: string;
   model: string;
   prompt: string;
+  promptTemplate?: string;
   reasoningEffort?: string;
   timeoutSeconds?: number | null;
   maxCostUsd?: number | null;

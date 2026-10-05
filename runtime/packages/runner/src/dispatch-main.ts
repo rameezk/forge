@@ -33,6 +33,7 @@ import { gitEnvironment } from './git.ts';
 import type { Worker } from './harness.ts';
 import {
   cloneCheckout,
+  headCommit,
   loadPiSkills,
   resolveCheckout,
   SkillNotFound,
@@ -187,6 +188,7 @@ const launch = async ({
     runId,
     openWorkspace: async (workDir) => {
       await cloneCheckout(github, workDir, cloneEnv);
+      const baseCommit = await headCommit(workDir, { ...env, ...gitEnv });
       const checkout = resolveCheckout(workDir, loadSkills);
       const devShell = await enterDevShell({
         sandbox: sandboxOf(env),
@@ -194,7 +196,7 @@ const launch = async ({
         root: checkout.root,
         env: systemEnvironment(env),
       });
-      return { workDir, checkout, ...(devShell === undefined ? {} : { devShell }) };
+      return { workDir, baseCommit, checkout, ...(devShell === undefined ? {} : { devShell }) };
     },
   });
 };
@@ -278,7 +280,11 @@ export const main = async (
         launched = await launch({
           env,
           config,
-          worker: { ...worker, prompt: fillPrompt(worker.prompt, repository.github, ticket) },
+          worker: {
+            ...worker,
+            prompt: fillPrompt(worker.prompt, repository.github, ticket),
+            promptTemplate: worker.prompt,
+          },
           github: repository.github,
           token,
           gitEnv,
