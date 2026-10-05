@@ -1075,11 +1075,7 @@
             host: unit: (host.config.systemd.services.${unit}.serviceConfig or { }).TimeoutStartSec or null;
           scheduledBackstopOf =
             host: name:
-            let
-              dropIn = host.config.environment.etc."systemd/system/forge-runner@${name}.service.d/backstop.conf" or null;
-            in
-            if dropIn == null then null else dropIn.text;
-          backstopText = seconds: "[Service]\nTimeoutStartSec=${toString seconds}\n";
+            (host.config.systemd.services."forge-runner@${name}".serviceConfig or { }).TimeoutStartSec or null;
           scheduledBackstopIsTimeoutPlusThirtyMinutes =
             let
               host = backstopHost {
@@ -1090,18 +1086,18 @@
               };
             in
             lib.asserts.assertMsg (
-              scheduledBackstopOf host "hour" == backstopText 5400
-              && scheduledBackstopOf host "default" == backstopText 9000
+              scheduledBackstopOf host "hour" == 5400 && scheduledBackstopOf host "default" == 9000
             ) "a scheduled worker's runner unit must stop 30 minutes past its own worker's timeout: 90 minutes for a 1 hour timeout and 150 for the 2 hour default";
-          scheduledBackstopLeavesTheUnitsEnvironmentAlone =
+          scheduledBackstopKeepsTheWorkloadToolset =
             let
               host = backstopHost {
                 workers.hour.timeout = "1h";
               };
+              services = host.config.systemd.services;
             in
             lib.asserts.assertMsg (
-              !(host.config.systemd.units ? "forge-runner@hour.service")
-            ) "a scheduled worker's backstop must be a bare drop-in: declaring the instance as a NixOS service would give it NixOS's default PATH over the template's workload toolset";
+              services."forge-runner@hour".environment.PATH == services."forge-runner@".environment.PATH
+            ) "a scheduled worker's backstop must not change its runner unit's PATH: an instance declared as a NixOS service otherwise gets NixOS's default PATH over the template's workload toolset";
           unlimitedScheduledWorkerHasNoBackstop =
             let
               host = backstopHost {
@@ -1112,7 +1108,7 @@
               };
             in
             lib.asserts.assertMsg (
-              scheduledBackstopOf host "forever" == null && scheduledBackstopOf host "hour" == backstopText 5400
+              scheduledBackstopOf host "forever" == null && scheduledBackstopOf host "hour" == 5400
             ) "a scheduled worker whose timeout is null must have no start timeout on its runner unit";
           workerNamesFitUnitNames =
             lib.asserts.assertMsg
@@ -1317,7 +1313,7 @@
 
           runtime-workload-backstop =
             assert scheduledBackstopIsTimeoutPlusThirtyMinutes;
-            assert scheduledBackstopLeavesTheUnitsEnvironmentAlone;
+            assert scheduledBackstopKeepsTheWorkloadToolset;
             assert workerNamesFitUnitNames;
             assert unlimitedScheduledWorkerHasNoBackstop;
             assert dispatchBackstopIsLongestTimeoutPlusThirtyMinutes;

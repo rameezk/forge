@@ -168,8 +168,10 @@ let
   startTimeout = seconds: lib.optionalAttrs (seconds != null) { TimeoutStartSec = seconds; };
   scheduledBackstops = lib.mapAttrs' (
     name: w:
-    lib.nameValuePair "systemd/system/forge-runner@${name}.service.d/backstop.conf" {
-      text = "[Service]\nTimeoutStartSec=${toString (backstopSeconds w)}\n";
+    lib.nameValuePair "forge-runner@${name}" {
+      overrideStrategy = "asDropin";
+      path = lib.mkForce cfg.toolset;
+      serviceConfig.TimeoutStartSec = backstopSeconds w;
     }
   ) (lib.filterAttrs (_: w: w.timeout != null) cfg.workers);
   dispatchingBackstops = map (r: backstopSeconds cfg.workers.${r.worker}) (
@@ -469,7 +471,7 @@ in
       ];
     }
 
-    { environment.etc = scheduledBackstops; }
+    { systemd.services = scheduledBackstops; }
 
     (lib.mkIf hasWorkers {
       sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
