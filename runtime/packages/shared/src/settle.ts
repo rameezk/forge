@@ -14,12 +14,6 @@ export interface SettleRunningOptions {
   log: (line: string) => void;
 }
 
-/**
- * Moves each of a repository's `forge:running` tickets whose dispatch has
- * ended or stopped beating to `forge:done` or `forge:failed`, logging each one.
- * Returns false, after logging why, when the token could not be read or
- * GitHub could not be read or written.
- */
 export const settleRunningTickets = async ({
   store,
   fetch,
