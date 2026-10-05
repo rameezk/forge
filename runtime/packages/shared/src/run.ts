@@ -1,4 +1,11 @@
-export type RunStatus = 'running' | 'success' | 'error' | 'interrupted';
+export type RunStatus =
+  | 'running'
+  | 'success'
+  | 'error'
+  | 'interrupted'
+  | 'exceeded';
+
+export type ExceededLimit = 'budget' | 'timeout';
 
 export type CostStatus = 'pending' | 'billed' | 'unconfirmed';
 
@@ -38,6 +45,9 @@ export interface RunRecord {
   error: string | null;
   ticket: RunTicket | null;
   aliveAt: string | null;
+  harnessStartTime: string | null;
+  timeoutSeconds: number | null;
+  exceededLimit: ExceededLimit | null;
 }
 
 export interface InterruptedRun {
@@ -48,4 +58,5 @@ export interface InterruptedRun {
 export interface RunResult
   extends Pick<RunRecord, 'status' | 'sessionId' | 'error'> {
   endTime: string;
+  exceededLimit?: ExceededLimit;
 }

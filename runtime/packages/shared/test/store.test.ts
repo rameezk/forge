@@ -31,6 +31,9 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   error: null,
   ticket: null,
   aliveAt: '2026-09-21T10:03:00.000Z',
+  harnessStartTime: null,
+  timeoutSeconds: null,
+  exceededLimit: null,
   ...overrides,
 });
 
@@ -67,6 +70,9 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     sessionId: null,
     error: null,
     aliveAt: null,
+    harnessStartTime: null,
+    timeoutSeconds: null,
+    exceededLimit: null,
   });
 
   store.insertRun(run);
@@ -116,6 +122,9 @@ test('given a run recorded at start, when it is finalized, then result fields ar
       sessionId: null,
       error: null,
       aliveAt: null,
+      harnessStartTime: null,
+      timeoutSeconds: null,
+      exceededLimit: null,
     }),
   );
 
@@ -148,6 +157,9 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     error: null,
     ticket: null,
     aliveAt: null,
+    harnessStartTime: null,
+    timeoutSeconds: null,
+    exceededLimit: null,
   });
 });
 
@@ -602,4 +614,85 @@ test('given a store file, when the store is opened, then the file is in write-ah
   } finally {
     db.close();
   }
+});
+
+test('given a run recorded under a timeout, when it is finalized as exceeded on that limit, then it reads back with the status, the limit, its timeout and when its harness started', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(
+    sampleRun({ id: 'slow', status: 'running', endTime: null, timeoutSeconds: 7200 }),
+  );
+  store.markHarnessStarted('slow', '2026-09-21T10:00:30.000Z');
+  store.finalizeRun('slow', {
+    endTime: '2026-09-21T12:00:30.000Z',
+    status: 'exceeded',
+    sessionId: null,
+    error: 'the workload was stopped after its timeout was exceeded',
+    exceededLimit: 'timeout',
+  });
+
+  const run = store.getRun('slow');
+  assert.equal(run?.status, 'exceeded');
+  assert.equal(run?.exceededLimit, 'timeout');
+  assert.equal(run?.timeoutSeconds, 7200);
+  assert.equal(run?.harnessStartTime, '2026-09-21T10:00:30.000Z');
+  store.close();
+});
+
+test('given a store file whose runs predate limits, holding a finished run, when the store is opened, then that run reads back with no timeout, harness start or exceeded limit and a run with them round-trips', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE runs (
+      id             TEXT PRIMARY KEY,
+      worker         TEXT NOT NULL,
+      harness        TEXT NOT NULL,
+      model          TEXT NOT NULL,
+      start_time     TEXT NOT NULL,
+      end_time       TEXT,
+      status         TEXT NOT NULL,
+      cost_status    TEXT NOT NULL,
+      cost_usd       REAL NOT NULL,
+      input_tokens   INTEGER NOT NULL,
+      output_tokens  INTEGER NOT NULL,
+      transcript_ref TEXT,
+      session_id     TEXT,
+      error          TEXT,
+      repository     TEXT,
+      ticket_number  INTEGER,
+      ticket_url     TEXT,
+      cache_read_tokens  INTEGER,
+      cache_write_tokens INTEGER,
+      cost_estimated     INTEGER NOT NULL DEFAULT 0,
+      input_price        REAL,
+      output_price       REAL,
+      cache_read_price   REAL,
+      cache_write_price  REAL,
+      reasoning_effort   TEXT,
+      alive_at           TEXT
+    ) STRICT;
+    INSERT INTO runs (
+      id, worker, harness, model, start_time, end_time, status,
+      cost_status, cost_usd, input_tokens, output_tokens
+    ) VALUES
+      ('past', 'refiner', 'pi', 'z-ai/glm-5', '2026-09-21T10:00:00.000Z', '2026-09-21T10:05:00.000Z', 'success', 'billed', 0, 0, 0);
+  `);
+  old.close();
+  const limited = sampleRun({
+    id: 'limited',
+    status: 'exceeded',
+    harnessStartTime: '2026-09-21T11:00:10.000Z',
+    timeoutSeconds: 60,
+    exceededLimit: 'timeout',
+  });
+
+  const store = Store.open(path);
+  store.insertRun(limited);
+
+  const past = store.getRun('past');
+  assert.equal(past?.harnessStartTime, null);
+  assert.equal(past?.timeoutSeconds, null);
+  assert.equal(past?.exceededLimit, null);
+  assert.deepEqual(store.getRun('limited'), limited);
+  store.close();
+  Store.open(path).close();
 });

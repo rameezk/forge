@@ -24,6 +24,9 @@ const runningRun: RunRecord = {
   error: null,
   ticket: null,
   aliveAt: null,
+  harnessStartTime: null,
+  timeoutSeconds: null,
+  exceededLimit: null,
 };
 
 const ticket: Ticket = {

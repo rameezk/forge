@@ -193,6 +193,7 @@ const runRealPi = async (
         ...(await workload(workDir)),
       },
       {
+        stop: new AbortController().signal,
         rawEvent: (event) => rawEvents.push(event),
         requestRecord: (line) => requestRecord.push(line),
       },

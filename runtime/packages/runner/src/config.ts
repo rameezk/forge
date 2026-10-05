@@ -11,6 +11,7 @@ export interface WorkerConfig {
   model: string;
   prompt: string;
   reasoningEffort?: string;
+  timeoutSeconds?: number | null;
 }
 
 export interface RepositoryConfig {
@@ -76,5 +77,6 @@ export const resolveWorker = (
     model: worker.model,
     prompt: worker.prompt,
     ...withEffort(reasoningEffort),
+    timeoutSeconds: worker.timeoutSeconds ?? null,
   };
 };

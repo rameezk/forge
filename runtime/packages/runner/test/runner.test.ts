@@ -377,3 +377,43 @@ test('given a run whose heartbeat write fails, when its 20 seconds pass, then th
   assert.equal(store.getRun('run-1')?.status, 'success');
   assert.ok(stderr.includes('run run-1: could not refresh its heartbeat: database is locked\n'), stderr.join(''));
 });
+
+test('given a worker with a one-second timeout whose workspace takes longer than that to set up, when the harness then works for less than a second, then the run succeeds and records the moment its harness started', async () => {
+  const store = Store.open(':memory:');
+  const clock = ['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:02.000Z', '2026-09-21T10:00:03.000Z'];
+  const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+  await runWorkload({
+    store,
+    harness: fakeHarness([message(), result({ status: 'success' })], {
+      beforeEach: (index) => (index === 0 ? sleep(600) : undefined),
+    }),
+    worker: aWorker({ timeoutSeconds: 1 }),
+    openTranscript: arrayTranscripts().open,
+    openRawEvents: discardLines,
+    openRequestRecord: discardLines,
+    openWorkspace: async () => {
+      await sleep(1200);
+      return { workDir: '/work/run-1' };
+    },
+    now: fixedClock(clock),
+    newId: () => 'run-1',
+    lookUpListPrice: unlisted,
+  });
+
+  const run = store.getRun('run-1');
+  assert.equal(run?.status, 'success');
+  assert.equal(run?.exceededLimit, null);
+  assert.equal(run?.timeoutSeconds, 1);
+  assert.equal(run?.harnessStartTime, '2026-09-21T10:00:02.000Z');
+});
+
+test('given a worker with no timeout and a harness that outlasts a short wait, when it runs, then it is never stopped and ends on its own result', async () => {
+  const { run } = await runWith([message(), result({ status: 'success' })], {
+    worker: { timeoutSeconds: null },
+    hooks: { beforeEach: (index) => (index === 0 ? new Promise((resolve) => setTimeout(resolve, 1500)) : undefined) },
+  });
+
+  assert.equal(run?.status, 'success');
+  assert.equal(run?.timeoutSeconds, null);
+});

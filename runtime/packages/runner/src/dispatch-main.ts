@@ -83,6 +83,9 @@ const outcomeOf = (
   pullRequestOpen: boolean,
   { run, finalMessage, cause }: LaunchResult,
 ): DispatchOutcome => {
+  if (run.status === 'exceeded') {
+    return { state: 'failed', reason: 'exceeded', detail: run.exceededLimit };
+  }
   if (pullRequestOpen) return { state: 'done' };
   if (cause instanceof SkillNotFound) {
     return { state: 'failed', reason: 'skill-not-found', detail: run.error };
@@ -308,7 +311,7 @@ export const main = async (
         outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,
         [FORGE_RUNNING, FORGE_READY],
       );
-      return launched.run.status === 'error' ? 1 : 0;
+      return launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
     } finally {
       stopHeartbeat();
     }

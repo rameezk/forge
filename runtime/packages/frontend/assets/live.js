@@ -8,11 +8,12 @@ const show = (state, text) => {
   indicator.hidden = false;
 };
 
-const formatElapsed = (milliseconds) => {
+const formatElapsed = (milliseconds, limited) => {
   const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   if (hours > 0) return `${hours}h ${minutes}m`;
+  if (limited && minutes > 0) return `${minutes}m`;
   const seconds = totalSeconds % 60;
   return minutes === 0 ? `${seconds}s` : `${minutes}m ${seconds}s`;
 };
@@ -20,7 +21,9 @@ const formatElapsed = (milliseconds) => {
 const tick = () => {
   const now = Date.now();
   for (const element of document.querySelectorAll('[data-elapsed-since]')) {
-    element.textContent = formatElapsed(now - Date.parse(element.dataset.elapsedSince));
+    const limit = element.dataset.elapsedLimit;
+    const elapsed = formatElapsed(now - Date.parse(element.dataset.elapsedSince), limit !== undefined);
+    element.textContent = limit === undefined ? elapsed : `${elapsed} / ${limit}`;
   }
 };
 

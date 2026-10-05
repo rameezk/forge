@@ -1668,6 +1668,21 @@ test('given pi writing output that is not json and staying alive, when the worke
   assert.equal(isAlive(pi.pid), false);
 });
 
+test('given a worker with a one-second timeout and a pi that keeps running, when the worker runs, then pi is killed and the run ends exceeded on its timeout with the timeout recorded and the runner exits as for a failure', async () => {
+  const { code, run, pi } = await runWorker({
+    output: cutBefore('success.jsonl', 'agent_end'),
+    lingerMs: 10_000,
+    worker: { timeoutSeconds: 1 },
+  });
+
+  assert.equal(code, 1);
+  assert.equal(run.status, 'exceeded');
+  assert.equal(run.exceededLimit, 'timeout');
+  assert.equal(run.timeoutSeconds, 1);
+  assert.notEqual(run.endTime, null);
+  assert.equal(isAlive(pi.pid), false);
+});
+
 test('given a worker, recorded pi output of a successful run, and an OpenRouter that answers not found for every generation, when the worker runs, then the run is success with its tokens and a pending cost, the runner never calls OpenRouter, and the dashboard shows the cost as pending', async () => {
   const openRouter = await fakeOpenRouter(billedAt({}));
   try {

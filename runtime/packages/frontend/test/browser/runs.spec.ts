@@ -23,6 +23,9 @@ const recordedRun: RunRecord = {
   error: null,
   ticket: null,
   aliveAt: null,
+  harnessStartTime: null,
+  timeoutSeconds: null,
+  exceededLimit: null,
 };
 
 test('given a dashboard serving a real store with one recorded run, when the runs list is opened, then the run is visible', async ({

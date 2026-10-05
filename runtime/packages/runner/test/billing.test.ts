@@ -55,6 +55,9 @@ const startedRun = (
     error: null,
     ticket: null,
     aliveAt,
+    harnessStartTime: null,
+    timeoutSeconds: null,
+    exceededLimit: null,
   });
   if (generatedAt !== null) {
     store.recordGeneration({
