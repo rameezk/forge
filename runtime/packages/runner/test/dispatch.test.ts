@@ -146,6 +146,7 @@ const fakeGithub = (
   labelStatus: (write: Pick<LabelWrite, 'method' | 'path' | 'body'>) => number,
   pullRequestsStatus: number,
   piRecord: () => string,
+  forgeLabels: boolean,
 ) => {
   const requests: GraphqlRequest[] = [];
   const labelWrites: LabelWrite[] = [];
@@ -181,6 +182,9 @@ const fakeGithub = (
         throw new Error(`no recorded response for ${String(body.variables.number)}`);
       }
       return json(response);
+    }
+    if ((init?.method ?? 'GET') === 'GET' && url.pathname.includes('/labels/')) {
+      return json({ name: 'forge' }, forgeLabels ? 200 : 404);
     }
     const write = {
       method: init?.method ?? 'GET',
@@ -243,6 +247,7 @@ interface Scenario {
   running?: LabelledResponse;
   labelStatus?: (write: Pick<LabelWrite, 'method' | 'path' | 'body'>) => number;
   pullRequestsStatus?: number;
+  forgeLabels?: boolean;
   piPackage?: string;
   failing?: boolean;
   seed?: (store: Store) => void;
@@ -384,6 +389,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     scenario.labelStatus ?? (() => 200),
     scenario.pullRequestsStatus ?? 200,
     () => record,
+    scenario.forgeLabels ?? true,
   );
   if (scenario.seed !== undefined) {
     const seeded = Store.open(join(stateDir, 'forge.db'));
@@ -1086,19 +1092,20 @@ test('given the locked pi package cannot be loaded, when forge-dispatch runs, th
   assert.match(dispatches[0]?.detail ?? '', /^could not start the workload: /);
 });
 
-test('given a ticket labelled forge:ready that has an open blocker, one that is closed, one that is not ready-for-agent, and a frontier ticket without the label, when forge-dispatch runs for each, then none starts a workload or clones, and each refusal names why', async () => {
+test('given a ticket labelled forge:ready that has an open blocker, one that is closed, one that is not ready-for-agent, and a frontier ticket without the label in a repository with the forge labels, and the same ticket in a repository without them, when forge-dispatch runs for each, then none starts a workload or clones, and each refusal names why', async () => {
   const cases = [
-    { issue: 115, fixture: 'blocked-ticket', label: true, reason: /forge#115 is not dispatchable: it has open blockers/ },
-    { issue: 109, fixture: 'closed-ticket', label: true, reason: /forge#109 is not dispatchable: it is closed/ },
-    { issue: 112, fixture: 'spec-ticket', label: true, reason: /forge#112 is not dispatchable: it is not labelled ready-for-agent/ },
-    { issue: 113, fixture: 'frontier-ticket', label: false, reason: /forge#113 is not dispatchable: it is not labelled forge:ready/ },
+    { issue: 115, fixture: 'blocked-ticket', label: true, forgeLabels: true, reason: /forge#115 is not dispatchable: it has open blockers/ },
+    { issue: 109, fixture: 'closed-ticket', label: true, forgeLabels: true, reason: /forge#109 is not dispatchable: it is closed/ },
+    { issue: 112, fixture: 'spec-ticket', label: true, forgeLabels: true, reason: /forge#112 is not dispatchable: it is not labelled ready-for-agent/ },
+    { issue: 113, fixture: 'frontier-ticket', label: false, forgeLabels: true, reason: /forge#113 is not dispatchable: it is not labelled forge:ready/ },
+    { issue: 113, fixture: 'frontier-ticket', label: false, forgeLabels: false, reason: /forge#113 is not dispatchable: the forge labels are missing from rameezk\/forge, and the frontier sync creates them once it has the GitHub write token/ },
   ];
-  for (const { issue, fixture, label, reason } of cases) {
+  for (const { issue, fixture, label, forgeLabels, reason } of cases) {
     const response = label
       ? labelled(recorded(fixture), FORGE_READY)
       : recorded(fixture);
     const { result, journal } = await journaled(() =>
-      dispatch({ issue, responses: { [issue]: response } }),
+      dispatch({ issue, forgeLabels, responses: { [issue]: response } }),
     );
 
     assert.equal(result.code, 1, fixture);

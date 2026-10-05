@@ -7,6 +7,7 @@ import {
   FORGE_READY,
   FORGE_RUNNING,
   hasOpenClosingPullRequest,
+  labelExists,
   githubWriteToken,
   offFrontier,
   queryTicket,
@@ -50,9 +51,18 @@ const now = (): string => new Date().toISOString();
 
 const USAGE = 'usage: forge-dispatch <repository> <issue>';
 
-const refusal = (ticket: TicketState): string | null =>
-  offFrontier(ticket) ??
-  (ticket.labels.includes(FORGE_READY) ? null : `it is not labelled ${FORGE_READY}`);
+const refusal = async (
+  ticket: TicketState,
+  forgeLabelsExist: () => Promise<boolean>,
+  github: string,
+): Promise<string | null> => {
+  const off = offFrontier(ticket);
+  if (off !== null) return off;
+  if (ticket.labels.includes(FORGE_READY)) return null;
+  return (await forgeLabelsExist())
+    ? `it is not labelled ${FORGE_READY}`
+    : `the forge labels are missing from ${github}, and the frontier sync creates them once it has the GitHub write token`;
+};
 
 const startRefusal = (start: Exclude<DispatchStart, { started: number }>): string =>
   start.refused === 'dispatching'
@@ -216,7 +226,11 @@ export const main = async (
       repository.github,
       Number(issue),
     );
-    const refused = refusal(ticket);
+    const refused = await refusal(
+      ticket,
+      () => labelExists(fetch, token, repository.github, FORGE_READY),
+      repository.github,
+    );
     if (refused !== null) {
       console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
       return 1;
