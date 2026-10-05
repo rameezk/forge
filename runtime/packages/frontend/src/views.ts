@@ -34,7 +34,7 @@ import {
 } from './format.ts';
 import { cacheMisses, isCall, promptTokens } from './calls.ts';
 import { renderMarkdown } from './markdown.ts';
-import { DEFAULT_EFFORT, type CallEfforts, type ToolDefinition, type WorkloadContext } from './request-record.ts';
+import { DEFAULT_EFFORT, type CallEfforts, type RequestRecordView, type ToolDefinition, type WorkloadContext } from './request-record.ts';
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
@@ -268,6 +268,11 @@ const renderCalls = (calls: GenerationRecord[], efforts: (string | undefined)[])
 
 const configuredEffort = (run: Pick<RunRecord, 'reasoningEffort'>): string =>
   run.reasoningEffort ?? DEFAULT_EFFORT;
+
+const summaryEffort = (run: Pick<RunRecord, 'reasoningEffort'>, sent: (string | undefined)[]): string =>
+  sent.some((effort) => effort !== undefined && effort !== configuredEffort(run))
+    ? 'varied'
+    : configuredEffort(run);
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
@@ -879,22 +884,21 @@ const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
-  context: WorkloadContext,
-  callEfforts: CallEfforts,
+  { context, efforts: recordedEfforts }: RequestRecordView,
   generations: GenerationRecord[],
   downloads: Downloads,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
   const calls = generations.filter(isCall);
-  const efforts = sentEfforts(calls, callEfforts);
+  const efforts = sentEfforts(calls, recordedEfforts);
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
     <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
     <dl class="m-0 mb-4 grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[0.9rem]">
       <dt class="${META_TERM}">Model</dt>
       <dd class="${META_VALUE}">${run.model}</dd>
       <dt class="${META_TERM}">Reasoning effort</dt>
-      <dd class="${META_VALUE}">${efforts.some((sent) => sent !== undefined && sent !== configuredEffort(run)) ? 'varied' : configuredEffort(run)}</dd>
+      <dd class="${META_VALUE}">${summaryEffort(run, efforts)}</dd>
       <dt class="${META_TERM}">Status</dt>
       <dd class="${META_VALUE}">${renderStatus(run.status)}</dd>
       <dt class="${META_TERM}">Started</dt>

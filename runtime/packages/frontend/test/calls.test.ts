@@ -245,3 +245,31 @@ test('given a generation OpenRouter billed as served by a model other than the w
   assert.equal(cellOf(unbilled, 'data-served-model'), '');
   assert.ok(body.indexOf('data-provider') < body.indexOf('data-served-model'));
 });
+
+test('given a workload that sent an effort that is not a known level, when its detail page is requested, then the row shows it as unknown instead of the raw value', async () => {
+  const body = await callsPage({}, sent('x'.repeat(5000)));
+
+  assert.deepEqual(callRows(body).map((row) => cellOf(row, 'data-effort')), ['unknown']);
+  assert.ok(body.length < 100_000);
+});
+
+test('given a workload with more generations than recorded requests, when its detail page is requested, then the rows beyond the recorded requests show no effort', async () => {
+  const body = await callsPage({ reasoningEffort: 'high' }, [{ sentEffort: 'high' }, {}, {}]);
+
+  assert.deepEqual(callRows(body).map((row) => cellOf(row, 'data-effort')), ['high', '', '']);
+  assert.equal(summaryOf(body, 'Reasoning effort'), 'high');
+});
+
+test('given a request record of a hundred thousand requests, when its detail page is requested, then it renders promptly', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
+  const store = Store.open(':memory:');
+  store.insertRun(sampleRun());
+  writeFileSync(join(dir, 'run-01.requests.jsonl'), (requestLine(null, 'high') + '\n').repeat(100_000));
+  const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
+
+  const started = Date.now();
+  const page = await app.request('/runs/run-01');
+
+  assert.equal(page.status, 200);
+  assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`);
+});

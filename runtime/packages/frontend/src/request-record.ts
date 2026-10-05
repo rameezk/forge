@@ -50,9 +50,15 @@ const systemReferenceOf = (body: Fields): string | undefined => {
   return hashOf(message);
 };
 
-export const workloadContext = (
+export interface RequestRecordView {
+  context: WorkloadContext;
+  efforts: CallEfforts;
+}
+
+export const readRequestRecord = (
   scan: (visit: (record: unknown) => boolean) => void,
-): WorkloadContext => {
+): RequestRecordView => {
+  const efforts = new Map<string | null, string[]>();
   const systemPrompts = new Map<string, unknown>();
   const toolLists = new Map<string, unknown[]>();
   let body: Fields | undefined;
@@ -62,20 +68,26 @@ export const workloadContext = (
       systemPrompts.set(line.hash, line.value);
     } else if (line.type === 'tools' && typeof line.hash === 'string' && Array.isArray(line.tools)) {
       toolLists.set(line.hash, line.tools);
-    } else if (line.type === 'request' && line.subagent === undefined && isFields(line.body)) {
-      body = line.body;
-      return false;
+    } else if (line.type === 'request' && isFields(line.body)) {
+      const scope = typeof line.subagent === 'string' ? line.subagent : null;
+      const sent = efforts.get(scope) ?? [];
+      sent.push(effortSentIn(line.body));
+      efforts.set(scope, sent);
+      if (line.subagent === undefined && body === undefined) body = line.body;
     }
     return true;
   });
-  if (body === undefined) return { systemPrompt: null, tools: null };
+  if (body === undefined) return { context: { systemPrompt: null, tools: null }, efforts };
   const systemHash = systemReferenceOf(body);
   const systemPrompt = systemHash === undefined ? undefined : systemPrompts.get(systemHash);
   const toolsHash = hashOf(body.tools);
   const tools = toolsHash === undefined ? undefined : toolLists.get(toolsHash);
   return {
-    systemPrompt: systemPrompt === undefined ? null : textIn(systemPrompt),
-    tools: tools === undefined ? null : tools.map(toolOf),
+    context: {
+      systemPrompt: systemPrompt === undefined ? null : textIn(systemPrompt),
+      tools: tools === undefined ? null : tools.map(toolOf),
+    },
+    efforts,
   };
 };
 
@@ -83,22 +95,12 @@ export const DEFAULT_EFFORT = 'default';
 
 export type CallEfforts = ReadonlyMap<string | null, readonly string[]>;
 
+const KNOWN_EFFORTS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+
 const effortSentIn = (body: Fields): string => {
   const { reasoning } = body;
   const effort = isFields(reasoning) ? reasoning.effort : undefined;
-  if (typeof effort !== 'string' || effort === '') return DEFAULT_EFFORT;
-  return effort === 'none' ? 'off' : effort;
-};
-
-export const callEfforts = (
-  scan: (visit: (record: unknown) => boolean) => void,
-): CallEfforts => {
-  const efforts = new Map<string | null, string[]>();
-  scan((line) => {
-    if (!isFields(line) || line.type !== 'request' || !isFields(line.body)) return true;
-    const scope = typeof line.subagent === 'string' ? line.subagent : null;
-    efforts.set(scope, [...(efforts.get(scope) ?? []), effortSentIn(line.body)]);
-    return true;
-  });
-  return efforts;
+  if (effort === undefined || effort === '') return DEFAULT_EFFORT;
+  const level = effort === 'none' ? 'off' : effort;
+  return typeof level === 'string' && KNOWN_EFFORTS.has(level) ? level : 'unknown';
 };
