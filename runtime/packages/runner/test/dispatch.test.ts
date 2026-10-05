@@ -81,6 +81,7 @@ interface ClosingResponse {
         closedByPullRequestsReferences: {
           nodes: {
             number: number;
+            url: string;
             state: string;
             isCrossRepository: boolean;
             repository: { nameWithOwner: string };
@@ -520,6 +521,21 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
     repository: 'forge',
     number: 113,
     url: TICKET_URL,
+  });
+});
+
+test('given a workload that leaves an open pull request closing the ticket, when the dispatch ends, then it is done and holds that pull request\'s number and url, open and not yet settled', async () => {
+  const { dispatches } = await dispatch();
+
+  const [dispatched, ...others] = dispatches;
+  assert.deepEqual(others, []);
+  assert.equal(dispatched?.state, 'done');
+  assert.deepEqual(dispatched?.pullRequest, {
+    number: 143,
+    url: 'https://github.com/rameezk/forge/pull/143',
+    state: 'open',
+    settledAt: null,
+    rework: null,
   });
 });
 
@@ -1054,7 +1070,7 @@ test('given a ticket still labelled forge:running whose dispatch already ended d
     seed: (store) => {
       const done = startedDispatch(store, 'forge', 114, 'run-114', at);
       const failed = startedDispatch(store, 'forge', 115, 'run-115', at);
-      store.endDispatch(done, { state: 'done' }, at);
+      store.endDispatch(done, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);
       store.endDispatch(failed, { state: 'failed', reason: 'errored', detail: 'GitHub answered 502' }, at);
     },
   });

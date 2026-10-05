@@ -24,6 +24,19 @@ export interface DispatchTicket {
   url: string;
 }
 
+export type PullRequestState = 'open' | 'merged' | 'closed';
+
+export interface PullRequestRef {
+  number: number;
+  url: string;
+}
+
+export interface PullRequestRecord extends PullRequestRef {
+  state: PullRequestState;
+  settledAt: string | null;
+  rework: number | null;
+}
+
 export interface DispatchRecord extends DispatchTicket {
   id: number;
   runId: string | null;
@@ -33,6 +46,7 @@ export interface DispatchRecord extends DispatchTicket {
   startedAt: string;
   aliveAt: string;
   endedAt: string | null;
+  pullRequest: PullRequestRecord | null;
 }
 
 export type DispatchStart =
@@ -41,5 +55,5 @@ export type DispatchStart =
   | { refused: 'full'; live: number };
 
 export type DispatchOutcome =
-  | { state: 'done' }
+  | { state: 'done'; pullRequest: PullRequestRef }
   | { state: 'failed'; reason: DispatchFailure; detail: string | null };

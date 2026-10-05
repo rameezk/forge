@@ -60,7 +60,7 @@ const dashboard = () => {
     Number.POSITIVE_INFINITY,
   );
   assert.ok('started' in dispatch);
-  store.endDispatch(dispatch.started, { state: 'done' }, '2026-09-29T09:03:20.000Z');
+  store.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, '2026-09-29T09:03:20.000Z');
   const transcripts = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(
     join(transcripts, 'run-01.jsonl'),

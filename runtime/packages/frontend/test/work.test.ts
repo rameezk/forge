@@ -247,7 +247,7 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
         return id;
       };
       dispatched(56);
-      store.endDispatch(dispatched(57), { state: 'done' }, at);
+      store.endDispatch(dispatched(57), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);
       store.endDispatch(dispatched(58), { state: 'failed', reason: 'errored', detail: 'git could not clone rameezk/forge' }, at);
       store.endDispatch(dispatched(59), { state: 'failed', reason: 'no-pull-request', detail: 'Should the check use <b>REST</b>?' }, at);
       store.endDispatch(dispatched(60), { state: 'failed', reason: 'skill-not-found', detail: "skill 'work-on' not found in the checkout" }, at);
@@ -347,7 +347,7 @@ test('given a running dispatch, a done one that ran 2 hours 15 minutes, a failed
         return start.started;
       };
       dispatched(56);
-      store.endDispatch(dispatched(57), { state: 'done' }, '2026-09-30T10:15:40.000Z');
+      store.endDispatch(dispatched(57), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, '2026-09-30T10:15:40.000Z');
       store.endDispatch(dispatched(58), { state: 'failed', reason: 'errored', detail: null }, '2026-09-30T08:00:07.000Z');
     },
   );

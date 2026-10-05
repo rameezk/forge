@@ -14,6 +14,8 @@ import {
   type DispatchStart,
   type DispatchState,
   type DispatchTicket,
+  type PullRequestRecord,
+  type PullRequestState,
 } from './dispatch.ts';
 import type {
   GenerationRecord,
@@ -352,7 +354,24 @@ type DispatchRow = {
   started_at: string;
   alive_at: string;
   ended_at: string | null;
+  pr_number: number | null;
+  pr_url: string | null;
+  pr_state: string | null;
+  pr_settled_at: string | null;
+  pr_rework: number | null;
 };
+
+const HAS_DISPATCH_PULL_REQUEST = `
+  SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'pr_number'
+`;
+
+const ADD_DISPATCH_PULL_REQUEST = `
+  ALTER TABLE dispatches ADD COLUMN pr_number INTEGER;
+  ALTER TABLE dispatches ADD COLUMN pr_url TEXT;
+  ALTER TABLE dispatches ADD COLUMN pr_state TEXT;
+  ALTER TABLE dispatches ADD COLUMN pr_settled_at TEXT;
+  ALTER TABLE dispatches ADD COLUMN pr_rework INTEGER;
+`;
 
 const CREATE_DISPATCHES = `
   CREATE TABLE IF NOT EXISTS dispatches (
@@ -384,6 +403,16 @@ const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
   startedAt: row.started_at,
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
+  pullRequest:
+    row.pr_number === null || row.pr_url === null || row.pr_state === null
+      ? null
+      : {
+          number: row.pr_number,
+          url: row.pr_url,
+          state: row.pr_state as PullRequestState,
+          settledAt: row.pr_settled_at,
+          rework: row.pr_rework,
+        },
 });
 
 const boundedDetail = (detail: string | null): string | null =>
@@ -572,6 +601,7 @@ export class Store {
     }
     db.exec(CREATE_FRONTIER);
     db.exec(CREATE_DISPATCHES);
+    this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
   }
 
   #useWriteAheadLog(): void {
@@ -1094,15 +1124,58 @@ export class Store {
     this.#db
       .prepare(
         `UPDATE dispatches SET
-          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at
+          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at,
+          pr_number = $pr_number, pr_url = $pr_url, pr_state = $pr_state
         WHERE id = $id`,
       )
       .run({
         id,
+        pr_number: outcome.state === 'done' ? outcome.pullRequest.number : null,
+        pr_url: outcome.state === 'done' ? outcome.pullRequest.url : null,
+        pr_state: outcome.state === 'done' ? 'open' : null,
         state: outcome.state,
         reason: outcome.state === 'failed' ? outcome.reason : null,
         detail: outcome.state === 'failed' ? boundedDetail(outcome.detail) : null,
         ended_at: endedAt,
+      });
+  }
+
+  pullRequestOfRun(runId: string): PullRequestRecord | null {
+    const row = this.#db
+      .prepare(
+        `SELECT * FROM dispatches
+        WHERE run_id = $run_id AND pr_number IS NOT NULL
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({ run_id: runId }) as DispatchRow | undefined;
+    return row === undefined ? null : dispatchFromRow(row).pullRequest;
+  }
+
+  unsettledPullRequests(repository: string): { id: number; number: number }[] {
+    return this.#db
+      .prepare(
+        `SELECT id, pr_number AS number FROM dispatches
+        WHERE repository = $repository AND pr_state = 'open'
+        ORDER BY id`,
+      )
+      .all({ repository }) as { id: number; number: number }[];
+  }
+
+  recordPullRequest(
+    id: number,
+    pullRequest: { state: PullRequestState; settledAt: string | null; rework: number },
+  ): void {
+    this.#db
+      .prepare(
+        `UPDATE dispatches SET
+          pr_state = $state, pr_settled_at = $settled_at, pr_rework = $rework
+        WHERE id = $id AND pr_state = 'open'`,
+      )
+      .run({
+        id,
+        state: pullRequest.state,
+        settled_at: pullRequest.settledAt,
+        rework: pullRequest.rework,
       });
   }
 
@@ -1114,7 +1187,8 @@ export class Store {
           CASE WHEN EXISTS (SELECT 1 FROM runs WHERE id = d.run_id) THEN d.run_id END AS run_id,
           CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'failed' ELSE d.state END AS state,
           CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'interrupted' ELSE d.reason END AS reason,
-          d.detail, d.started_at, d.alive_at, d.ended_at
+          d.detail, d.started_at, d.alive_at, d.ended_at,
+          d.pr_number, d.pr_url, d.pr_state, d.pr_settled_at, d.pr_rework
         FROM dispatches d
         WHERE d.id = (
           SELECT MAX(id) FROM dispatches

@@ -1,0 +1,40 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "state": "MERGED",
+        "mergedAt": "2026-10-05T12:19:41Z",
+        "closedAt": "2026-10-05T12:19:41Z",
+        "commits": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Mw"
+          },
+          "nodes": [
+            {
+              "commit": {
+                "author": {
+                  "email": "forge@example.com"
+                }
+              }
+            },
+            {
+              "commit": {
+                "author": {
+                  "email": "forge@example.com"
+                }
+              }
+            },
+            {
+              "commit": {
+                "author": {
+                  "email": "forge@example.com"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

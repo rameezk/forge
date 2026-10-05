@@ -6,6 +6,7 @@
           "nodes": [
             {
               "number": 143,
+              "url": "https://github.com/rameezk/forge/pull/143",
               "state": "MERGED",
               "isCrossRepository": false,
               "repository": {
