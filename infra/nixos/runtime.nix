@@ -98,7 +98,7 @@ let
         default = cfg.workload.timeout;
         defaultText = lib.literalExpression "config.forge.runtime.workload.timeout";
         example = "30min";
-        description = "Longest this worker's workload may run, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"2h\"`, or null for unlimited. It counts from the harness's start, so checkout and devShell setup do not use it, and a workload that passes it is hard-stopped, its subagents included, and ends as exceeded. Defaults to `forge.runtime.workload.timeout`.";
+        description = "Longest this worker's workload may run, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"2h\"`, or null for unlimited. It counts from the harness's start, so checkout and devShell setup do not use it, and a workload that passes it is hard-stopped, its subagents included, and ends as exceeded. A scheduled run's systemd unit also stops 30 minutes past it, as a backstop for a runner that hangs, and the run then ends interrupted; dispatched workloads share one backstop from the longest timeout of any dispatching worker, and none when any of them is unlimited. Defaults to `forge.runtime.workload.timeout`.";
       };
     };
   };
@@ -163,12 +163,37 @@ let
   dispatchedRepositories = lib.filterAttrs (_: r: r.worker != null) cfg.repositories;
   hasDispatch = dispatchedRepositories != { };
 
+  backstopMarginSeconds = 30 * 60;
+  backstopSeconds = w: if w.timeout == null then null else timeSpanSeconds w.timeout + backstopMarginSeconds;
+  startTimeout = seconds: lib.optionalAttrs (seconds != null) { TimeoutStartSec = seconds; };
+  scheduledBackstops = lib.mapAttrs' (
+    name: w:
+    lib.nameValuePair "forge-runner@${name}" {
+      overrideStrategy = "asDropin";
+      path = lib.mkForce cfg.toolset;
+      serviceConfig.TimeoutStartSec = backstopSeconds w;
+    }
+  ) (lib.filterAttrs (_: w: w.timeout != null) cfg.workers);
+  dispatchingBackstops = map (r: backstopSeconds cfg.workers.${r.worker}) (
+    lib.attrValues dispatchedRepositories
+  );
+  dispatchBackstop =
+    if lib.elem null dispatchingBackstops || dispatchingBackstops == [ ] then
+      null
+    else
+      lib.foldl' lib.max 0 dispatchingBackstops;
+
   hasTicketPlaceholder = prompt: lib.hasInfix "{issue}" prompt || lib.hasInfix "{url}" prompt;
 
   gitIdentityAssertion = {
     assertion = !hasDispatch || cfg.dispatch.gitIdentity != null;
     message = "forge.runtime.dispatch.gitIdentity must be set when a repository declares a worker: dispatched workloads commit as that identity";
   };
+
+  workerNameAssertions = lib.mapAttrsToList (name: _: {
+    assertion = builtins.match "[A-Za-z0-9_-]+" name != null;
+    message = "forge.runtime.workers.${name} must have a name of only letters, digits, `_` and `-`: it names the unit instance forge-runner@${name} and its backstop drop-in";
+  }) cfg.workers;
 
   dispatchAssertions = lib.concatLists (
     lib.mapAttrsToList (
@@ -412,6 +437,7 @@ in
         gitIdentityAssertion
         untrustedAssertion
       ]
+      ++ workerNameAssertions
       ++ dispatchAssertions;
 
       security.allowUserNamespaces = true;
@@ -444,6 +470,8 @@ in
         "d ${cfg.stateDir}/agent 0750 ${cfg.user} ${cfg.user} 14d -"
       ];
     }
+
+    { systemd.services = scheduledBackstops; }
 
     (lib.mkIf hasWorkers {
       sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
@@ -618,6 +646,7 @@ in
           ];
           ExecStart = "${dispatchInstance} %i";
         }
+        // startTimeout dispatchBackstop
         // workloadMemory
         // writeTokenCredential
         // workloadHardening;

@@ -1049,6 +1049,112 @@
                 ]
               )
               "a worker timeout that is not a positive systemd time span of whole seconds, minutes, hours, days or weeks must fail evaluation, rather than reaching the runner as something it cannot enforce";
+          backstopHost =
+            {
+              workers,
+              repositories ? { },
+            }:
+            secretsHost exampleSecretsFile {
+              forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+              forge.runtime.workers = lib.mapAttrs (
+                _: limits:
+                {
+                  harness = "pi";
+                  model = "anthropic/claude-sonnet-4";
+                  prompt = "/work-on {url}";
+                }
+                // limits
+              ) workers;
+              forge.runtime.repositories = lib.mapAttrs (_: worker: {
+                github = "rameezk/forge";
+                inherit worker;
+              }) repositories;
+              forge.runtime.dispatch = { inherit gitIdentity; };
+            };
+          startTimeoutOf =
+            host: unit: (host.config.systemd.services.${unit}.serviceConfig or { }).TimeoutStartSec or null;
+          scheduledBackstopOf =
+            host: name:
+            (host.config.systemd.services."forge-runner@${name}".serviceConfig or { }).TimeoutStartSec or null;
+          scheduledBackstopIsTimeoutPlusThirtyMinutes =
+            let
+              host = backstopHost {
+                workers = {
+                  hour.timeout = "1h";
+                  default = { };
+                };
+              };
+            in
+            lib.asserts.assertMsg (
+              scheduledBackstopOf host "hour" == 5400 && scheduledBackstopOf host "default" == 9000
+            ) "a scheduled worker's runner unit must stop 30 minutes past its own worker's timeout: 90 minutes for a 1 hour timeout and 150 for the 2 hour default";
+          scheduledBackstopKeepsTheWorkloadToolset =
+            let
+              host = backstopHost {
+                workers.hour.timeout = "1h";
+              };
+              services = host.config.systemd.services;
+            in
+            lib.asserts.assertMsg (
+              services."forge-runner@hour".environment.PATH == services."forge-runner@".environment.PATH
+            ) "a scheduled worker's backstop must not change its runner unit's PATH: an instance declared as a NixOS service otherwise gets NixOS's default PATH over the template's workload toolset";
+          unlimitedScheduledWorkerHasNoBackstop =
+            let
+              host = backstopHost {
+                workers = {
+                  forever.timeout = null;
+                  hour.timeout = "1h";
+                };
+              };
+            in
+            lib.asserts.assertMsg (
+              scheduledBackstopOf host "forever" == null && scheduledBackstopOf host "hour" == 5400
+            ) "a scheduled worker whose timeout is null must have no start timeout on its runner unit";
+          workerNamesFitUnitNames =
+            lib.asserts.assertMsg
+              (
+                lib.all (name: !(evaluates (backstopHost { workers.${name} = { }; }))) [
+                  "has.dot"
+                  "has space"
+                  "has@at"
+                  "has/slash"
+                ]
+                && evaluates (backstopHost { workers."Plain_name-2" = { }; })
+              )
+              "a worker name must use only letters, digits, `_` and `-`, so that the unit instance forge-runner@<name> and its backstop drop-in carry the same name";
+          dispatchBackstopIsLongestTimeoutPlusThirtyMinutes =
+            let
+              host = backstopHost {
+                workers = {
+                  short.timeout = "1h";
+                  long.timeout = "3h";
+                  idle.timeout = null;
+                };
+                repositories = {
+                  alpha = "short";
+                  beta = "long";
+                };
+              };
+            in
+            lib.asserts.assertMsg (
+              startTimeoutOf host "forge-dispatch@" == 12600
+            ) "every dispatch unit must share one backstop: the longest timeout of any dispatching worker plus 30 minutes, and a worker no repository dispatches must not count";
+          unlimitedDispatchingWorkerRemovesDispatchBackstop =
+            let
+              host = backstopHost {
+                workers = {
+                  short.timeout = "1h";
+                  forever.timeout = null;
+                };
+                repositories = {
+                  alpha = "short";
+                  beta = "forever";
+                };
+              };
+            in
+            lib.asserts.assertMsg (
+              host.config.systemd.services ? "forge-dispatch@" && startTimeoutOf host "forge-dispatch@" == null
+            ) "a dispatching worker whose timeout is null must leave the dispatch units with no start timeout";
           sshFirewall = nixos.config.networking.firewall;
           sshPort = exampleCfg.sshPort;
           tailnetInterface = tailscale.interfaceName;
@@ -1203,6 +1309,17 @@
             assert malformedTimeoutFails;
             pkgs.runCommand "runtime-workload-timeout" { } ''
               echo "a worker's timeout reaches the runner in seconds: 2 hours by default, forge.runtime.workload.timeout as the global default, a per-worker override, null for unlimited, and a malformed timeout fails evaluation" > $out
+            '';
+
+          runtime-workload-backstop =
+            assert scheduledBackstopIsTimeoutPlusThirtyMinutes;
+            assert scheduledBackstopKeepsTheWorkloadToolset;
+            assert workerNamesFitUnitNames;
+            assert unlimitedScheduledWorkerHasNoBackstop;
+            assert dispatchBackstopIsLongestTimeoutPlusThirtyMinutes;
+            assert unlimitedDispatchingWorkerRemovesDispatchBackstop;
+            pkgs.runCommand "runtime-workload-backstop" { } ''
+              echo "a scheduled worker's runner unit stops 30 minutes past its own timeout, every dispatch unit shares the longest dispatching timeout plus 30 minutes, and a null timeout leaves its units with no start timeout" > $out
             '';
 
           runtime-billing =
