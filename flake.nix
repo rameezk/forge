@@ -1056,12 +1056,15 @@
             }:
             secretsHost exampleSecretsFile {
               forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
-              forge.runtime.workers = lib.mapAttrs (_: timeout: {
-                harness = "pi";
-                model = "anthropic/claude-sonnet-4";
-                prompt = "/work-on {url}";
-                inherit timeout;
-              }) workers;
+              forge.runtime.workers = lib.mapAttrs (
+                _: limits:
+                {
+                  harness = "pi";
+                  model = "anthropic/claude-sonnet-4";
+                  prompt = "/work-on {url}";
+                }
+                // limits
+              ) workers;
               forge.runtime.repositories = lib.mapAttrs (_: worker: {
                 github = "rameezk/forge";
                 inherit worker;
@@ -1074,8 +1077,8 @@
             let
               host = backstopHost {
                 workers = {
-                  hour = "1h";
-                  default = "2h";
+                  hour.timeout = "1h";
+                  default = { };
                 };
               };
             in
@@ -1086,21 +1089,23 @@
             let
               host = backstopHost {
                 workers = {
-                  forever = null;
-                  hour = "1h";
+                  forever.timeout = null;
+                  hour.timeout = "1h";
                 };
               };
             in
             lib.asserts.assertMsg (
-              runtimeMaxSecOf host "forge-runner@forever" == null && runtimeMaxSecOf host "forge-runner@" == null
+              runtimeMaxSecOf host "forge-runner@forever" == null && runtimeMaxSecOf host "forge-runner@hour" == 5400
+              && host.config.systemd.units ? "forge-runner@hour.service"
+              && !(host.config.systemd.units ? "forge-runner@forever.service")
             ) "a scheduled worker whose timeout is null must have no runtime limit on its runner unit";
           dispatchBackstopIsLongestTimeoutPlusThirtyMinutes =
             let
               host = backstopHost {
                 workers = {
-                  short = "1h";
-                  long = "3h";
-                  idle = null;
+                  short.timeout = "1h";
+                  long.timeout = "3h";
+                  idle.timeout = null;
                 };
                 repositories = {
                   alpha = "short";
@@ -1115,8 +1120,8 @@
             let
               host = backstopHost {
                 workers = {
-                  short = "1h";
-                  forever = null;
+                  short.timeout = "1h";
+                  forever.timeout = null;
                 };
                 repositories = {
                   alpha = "short";
