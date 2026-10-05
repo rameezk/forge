@@ -14,6 +14,9 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import {
+  canonicalHash,
+  fingerprintHash,
+  sha256,
   parseTranscript,
   rawEventsRef,
   requestRecordRef,
@@ -92,6 +95,7 @@ interface Scenario {
   lingerMs?: number;
   bwrapFailure?: string;
   harness?: 'direct' | 'linked' | 'missing' | 'relative';
+  piVersion?: string | null;
   whileRunning?: (stateDir: string) => Promise<void>;
 }
 
@@ -160,7 +164,7 @@ const harnessCommand = (
 
 const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
-  const fakePi = writeFakePi(stateDir);
+  const fakePi = writeFakePi(stateDir, scenario.piVersion);
   const record = join(stateDir, 'pi-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
   const fakeBwrap = writeFakeBwrap(stateDir, {
@@ -2362,4 +2366,133 @@ test('given a worker whose prompt contains the OpenRouter key, when it runs agai
     first?.type === 'message' && first.text,
     'refine the spec with [redacted]',
   );
+});
+
+const requestsOf = (system: string, tools = 'h-tools'): string =>
+  outputOf([
+    { type: 'system_prompt', hash: system, value: [{ type: 'text', text: system }] },
+    { type: 'tools', hash: tools, tools: [{ name: 'bash' }] },
+    {
+      type: 'request',
+      body: { model: 'z-ai/glm-5', system: { hash: system }, messages: [{ role: 'user', hash: 'h-user' }], tools: { hash: tools } },
+      cacheMarkers: [],
+    },
+  ]);
+
+test('given a worker with a model, an effort, extra args and a prompt, when the workload runs, then it records a fingerprint holding those fields, the prompt, system prompt and tool hashes and the harness version, a hash over it, and forge\'s git sha', async () => {
+  const { stateDir, run } = await runWorker({
+    output: fixture('success.jsonl'),
+    requests: requestsOf('h-system'),
+    worker: { model: 'z-ai/glm-5', reasoningEffort: 'high', prompt: 'refine the spec' },
+    harnessArgs: OPERATOR_EXTRAS,
+    piVersion: '1.4.2',
+    env: { FORGE_GIT_SHA: 'abc1234' },
+  });
+
+  const recorded = withStore(stateDir, (store) => store.getFingerprint(run.id));
+
+  assert.deepEqual(recorded?.fingerprint, {
+    model: 'z-ai/glm-5',
+    reasoningEffort: 'high',
+    harnessArgs: OPERATOR_EXTRAS,
+    harnessVersion: '1.4.2',
+    promptTemplate: sha256('refine the spec'),
+    systemPrompt: canonicalHash([sha256(JSON.stringify([{ type: 'text', text: 'h-system' }]))]),
+    tools: 'h-tools',
+    skills: null,
+  });
+  assert.ok(recorded);
+  assert.equal(recorded.hash, fingerprintHash(recorded.fingerprint));
+  assert.equal(recorded?.forgeGitSha, 'abc1234');
+  assert.equal(recorded?.baseCommit, null);
+});
+
+test('given two workloads of one worker with an unchanged config, when both run from different forge git shas, then their fingerprint hashes are equal and each keeps its sha', async () => {
+  const run = async (sha: string) => {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+      requests: requestsOf('h-system'),
+      env: { FORGE_GIT_SHA: sha },
+    });
+    return withStore(stateDir, (store) => store.getFingerprint(run.id));
+  };
+
+  const first = await run('aaa1111');
+  const second = await run('bbb2222');
+
+  assert.ok(first);
+  assert.equal(first.hash, second?.hash);
+  assert.deepEqual([first.forgeGitSha, second?.forgeGitSha], ['aaa1111', 'bbb2222']);
+});
+
+test('given two workloads whose system prompts differ, when both run, then their fingerprint hashes differ', async () => {
+  const run = async (system: string) => {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+      requests: requestsOf(system),
+    });
+    return withStore(stateDir, (store) => store.getFingerprint(run.id));
+  };
+
+  assert.notEqual((await run('h-one'))?.hash, (await run('h-two'))?.hash);
+});
+
+test('given a workload whose pi never made a request, when it ends, then its fingerprint is recorded with no system prompt or tool hash', async () => {
+  const { stateDir, run } = await runWorker({ output: fixture('success.jsonl') });
+
+  const recorded = withStore(stateDir, (store) => store.getFingerprint(run.id));
+
+  assert.equal(recorded?.fingerprint.systemPrompt, null);
+  assert.equal(recorded?.fingerprint.tools, null);
+  assert.equal(recorded?.forgeGitSha, null);
+});
+
+const cwdRequests = (): string =>
+  outputOf([
+    { type: 'system_prompt', hash: 'h-$CWD', value: [{ type: 'text', text: 'You are pi.\nCurrent working directory: $CWD' }] },
+    { type: 'tools', hash: 'h-tools', tools: [{ name: 'bash' }] },
+    {
+      type: 'request',
+      body: { model: 'z-ai/glm-5', system: { hash: 'h-$CWD' }, messages: [{ role: 'user', hash: 'h-user' }], tools: { hash: 'h-tools' } },
+      cacheMarkers: [],
+    },
+  ]);
+
+test('given two workloads of one worker whose system prompt names the working directory each was run in, when both run, then their fingerprint hashes are equal', async () => {
+  const run = async () => {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+      requests: cwdRequests(),
+    });
+    return withStore(stateDir, (store) => store.getFingerprint(run.id));
+  };
+
+  const first = await run();
+  const second = await run();
+
+  assert.ok(first && second);
+  assert.equal(first.hash, second.hash);
+});
+
+test('given a harness whose version cannot be read, when the workload runs, then its fingerprint records no version but keeps the configured extra args', async () => {
+  const { stateDir, run } = await runWorker({
+    output: fixture('success.jsonl'),
+    harnessArgs: OPERATOR_EXTRAS,
+    piVersion: null,
+  });
+
+  const recorded = withStore(stateDir, (store) => store.getFingerprint(run.id));
+
+  assert.equal(run.status, 'success');
+  assert.equal(recorded?.fingerprint.harnessVersion, null);
+  assert.deepEqual(recorded?.fingerprint.harnessArgs, OPERATOR_EXTRAS);
+});
+
+test('given an empty FORGE_GIT_SHA, when the workload runs, then no git sha is recorded', async () => {
+  const { stateDir, run } = await runWorker({
+    output: fixture('success.jsonl'),
+    env: { FORGE_GIT_SHA: '' },
+  });
+
+  assert.equal(withStore(stateDir, (store) => store.getFingerprint(run.id))?.forgeGitSha, null);
 });

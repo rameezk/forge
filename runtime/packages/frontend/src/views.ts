@@ -1,7 +1,8 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
+import { cohortLabel, isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
+  RunFingerprint,
   DispatchFailure,
   DispatchRecord,
   DispatchState,
@@ -933,6 +934,18 @@ const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
       )}</dd>`;
 };
 
+const SHORT_SHA_LENGTH = 7;
+
+const renderConfig = (config: RunFingerprint | null): Rendered =>
+  html`<dt class="${META_TERM}">Config</dt>
+    <dd class="${META_VALUE}" data-cohort>${cohortLabel(config?.fingerprint ?? null)}</dd>
+    ${config === null
+      ? ''
+      : html`<dt class="${META_TERM}">Forge</dt>
+        <dd class="${META_VALUE} tabular-nums" data-forge-sha>${config.forgeGitSha === null
+          ? html`<span class="text-muted">unknown</span>`
+          : html`<span title="${config.forgeGitSha}">${config.forgeGitSha.slice(0, SHORT_SHA_LENGTH)}</span>`}</dd>`}`;
+
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
@@ -940,6 +953,7 @@ export const renderDetail = (
   generations: GenerationRecord[],
   pullRequest: PullRequestRecord | null,
   downloads: Downloads,
+  config: RunFingerprint | null,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
@@ -953,6 +967,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${run.model}</dd>
       <dt class="${META_TERM}">Reasoning effort</dt>
       <dd class="${META_VALUE}">${summaryEffort(run, efforts)}</dd>
+      ${renderConfig(config)}
       <dt class="${META_TERM}">Status</dt>
       <dd class="${META_VALUE}">${renderStatus(run.status)}</dd>
       <dt class="${META_TERM}">Started</dt>

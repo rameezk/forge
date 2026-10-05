@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -84,6 +84,16 @@ export const cloneCheckout = (
         ),
       );
     });
+  });
+
+export const headCommit = (
+  dir: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile('git', ['rev-parse', 'HEAD'], { cwd: dir, env }, (error, stdout) =>
+      error === null ? resolve(stdout.trim()) : reject(error),
+    );
   });
 
 const refuseUnsafeLinks = (

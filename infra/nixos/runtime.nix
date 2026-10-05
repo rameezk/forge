@@ -7,6 +7,8 @@
 let
   cfg = config.forge.runtime;
 
+  forgeGitShaVariable = lib.optional (cfg.gitSha != null) "FORGE_GIT_SHA=${cfg.gitSha}";
+
   timeSpanUnits = {
     s = 1;
     sec = 1;
@@ -336,6 +338,12 @@ in
       description = "Dedicated service user that owns the runtime state and runs the runner.";
     };
 
+    gitSha = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "The git revision of forge this host was built from, set for the runner and dispatch units as FORGE_GIT_SHA so each workload records it beside its config fingerprint. Null leaves the variable unset and workloads record no revision.";
+    };
+
     stateDir = lib.mkOption {
       type = lib.types.path;
       default = "/var/lib/forge";
@@ -512,7 +520,8 @@ in
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
-          ];
+          ]
+          ++ forgeGitShaVariable;
           ExecStart = "${cfg.package}/bin/forge-run %i";
         }
         // workloadMemory
@@ -662,7 +671,8 @@ in
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
             writeTokenFileVariable
-          ];
+          ]
+          ++ forgeGitShaVariable;
           ExecStart = "${dispatchInstance} %i";
         }
         // startTimeout dispatchBackstop

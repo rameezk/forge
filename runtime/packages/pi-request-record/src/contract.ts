@@ -79,7 +79,7 @@ const unmarked = (value: unknown, path: Path, markers: CacheMarker[]): unknown =
   return fields;
 };
 
-const SYSTEM_ROLES = new Set(['system', 'developer']);
+export const SYSTEM_ROLES = new Set(['system', 'developer']);
 
 export const recordOf = (payload: unknown): RequestRecordLine[] => {
   const cacheMarkers: CacheMarker[] = [];

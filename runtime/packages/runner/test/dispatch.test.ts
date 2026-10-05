@@ -13,7 +13,13 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Store, type DispatchRecord, type RunRecord } from '@forge/shared';
+import {
+  sha256,
+  Store,
+  type DispatchRecord,
+  type RunFingerprint,
+  type RunRecord,
+} from '@forge/shared';
 import { main } from '../src/dispatch-main.ts';
 import { UNATTENDED_INSTRUCTION } from '../src/harness.ts';
 import {
@@ -1744,4 +1750,53 @@ test('given a checkout whose .claude/skills links to .agents/skills, which links
     pi?.argv.filter((arg, i) => pi.argv[i - 1] === '--skill').map((path) => relative(pi.cwd, path)),
     ['.claude/skills'],
   );
+});
+
+const fingerprintOf = ({ stateDir, runs }: Outcome): RunFingerprint | null => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    return store.getFingerprint((runs[0] as RunRecord).id);
+  } finally {
+    store.close();
+  }
+};
+
+test('given a ticket dispatched into a clone of a managed repository whose worker prompt has placeholders, when it runs, then its fingerprint holds the unfilled prompt template and a skills hash, and records the clone\'s commit as its base commit', async () => {
+  const outcome = await dispatch({
+    prompt: '/work-on {url}',
+    env: { FORGE_GIT_SHA: 'abc1234' },
+  });
+
+  const recorded = fingerprintOf(outcome);
+
+  assert.equal(recorded?.baseCommit, outcome.origin.tip);
+  assert.equal(recorded?.forgeGitSha, 'abc1234');
+  assert.equal(recorded?.fingerprint.promptTemplate, sha256('/work-on {url}'));
+  assert.equal(typeof recorded?.fingerprint.skills, 'string');
+});
+
+test('given two repositories whose skill files differ in one skill, and a third whose skill files match the first, when each is dispatched, then the first and third share a fingerprint hash and the second differs', async () => {
+  const skills = (extra: string) => ({
+    '.claude/skills/work-on/SKILL.md': SKILL,
+    '.claude/skills/work-on/notes.md': extra,
+  });
+  const first = fingerprintOf(await dispatch({ origin: originWith(skills('one\n')) }));
+  const changed = fingerprintOf(await dispatch({ origin: originWith(skills('two\n')) }));
+  const same = fingerprintOf(await dispatch({ origin: originWith(skills('one\n')) }));
+
+  assert.ok(first && changed && same);
+  assert.notEqual(first.hash, changed.hash);
+  assert.equal(first.hash, same.hash);
+});
+
+test('given a checkout whose skills directory holds a dangling symlink, when the ticket is dispatched, then the workload runs and its fingerprint is recorded', async () => {
+  const outcome = await dispatch({
+    origin: originWith(
+      { '.claude/skills/work-on/SKILL.md': SKILL },
+      { '.claude/skills/dangling': '/nonexistent/skill' },
+    ),
+  });
+
+  assert.equal(outcome.runs[0]?.status, 'success');
+  assert.equal(typeof fingerprintOf(outcome)?.fingerprint.skills, 'string');
 });

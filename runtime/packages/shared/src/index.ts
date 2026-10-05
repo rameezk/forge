@@ -67,6 +67,14 @@ export {
   requestClosingPullRequests,
   requestTicket,
 } from './frontier.ts';
+export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
+export {
+  UNKNOWN_CONFIG,
+  canonicalHash,
+  cohortLabel,
+  fingerprintHash,
+  sha256,
+} from './fingerprint.ts';
 export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';
 export {
   FORGE_DONE,
