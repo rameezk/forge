@@ -477,7 +477,8 @@ dispatched run.
 When the run ends, forge asks GitHub whether an open pull request from a
 branch of the repository itself closes the ticket, ignoring pull requests from
 forks or other repositories. If one does, the ticket becomes `forge:done`,
-however the run ended. Otherwise it becomes `forge:failed`. The Work page shows each ticket's
+however the run ended, except a run that exceeded its timeout, which always
+fails. Otherwise it becomes `forge:failed`. The Work page shows each ticket's
 dispatch state, and for a failed ticket its reason, linked to its run: the run
 errored, it ended without a pull request (with the agent's final message), the
 skill was not found, the run was interrupted, or it was stopped for exceeding
@@ -550,7 +551,7 @@ repository.
 
 A workload may run for at most `forge.runtime.workload.timeout`, 2 hours by
 default, a systemd time span of whole seconds, minutes, hours, days or weeks
-such as `"90min"` or `"1h 30min"`. A worker overrides it with its own
+such as `"90min"` or `"1h 30min"`, at most 24 days. A worker overrides it with its own
 `timeout`, and `null` means unlimited, either as the default or for one worker.
 A malformed timeout does not evaluate. There is no per-repository timeout, and
 it applies to scheduled and dispatched workloads alike.

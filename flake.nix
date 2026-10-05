@@ -1033,6 +1033,8 @@
                   "1h30"
                   "1.5h"
                   "infinity"
+                  "4w"
+                  "2147484s"
                 ]
                 && lib.all (timeout: evaluates (secretsHost exampleSecretsFile (timeoutModule { capped = timeout; }))) [
                   "2h"
@@ -1042,6 +1044,8 @@
                   "3600"
                   "1d"
                   "30s"
+                  "3w"
+                  "2147483s"
                 ]
               )
               "a worker timeout that is not a positive systemd time span of whole seconds, minutes, hours, days or weeks must fail evaluation, rather than reaching the runner as something it cannot enforce";
