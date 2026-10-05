@@ -107,6 +107,7 @@ testers.runNixOSTest {
     forge.runtime.secretsFile = secretsFile;
     forge.runtime.package = forge-runner;
     forge.runtime.harnesses.pi.command = lib.getExe stubHarness;
+    forge.runtime.workload.maxCost = null;
     forge.runtime.workers.builder = {
       harness = "pi";
       model = "stub/devshell";

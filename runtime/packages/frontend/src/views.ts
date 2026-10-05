@@ -24,10 +24,12 @@ import type {
 } from '@forge/shared';
 import {
   cacheHitRate,
+  formatBudget,
   formatCost,
   formatDate,
   formatDuration,
   formatSpan,
+  formatSpend,
   formatStarted,
   formatTime,
   formatTokens,
@@ -148,6 +150,12 @@ const renderCost = (run: Cost): Rendered => {
   }
   const badge = costBadge(run);
   return html`${formatCost(run.costUsd)}${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
+};
+
+const renderRunCost = (run: RunRecord): Rendered => {
+  if (run.endTime !== null || run.maxCostUsd === null) return renderCost(run);
+  const badge = costBadge(run);
+  return html`<span data-spend>${formatSpend(run.costUsd)} / ${formatBudget(run.maxCostUsd)}</span>${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
 };
 
 const PILL = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-['']";
@@ -291,11 +299,15 @@ const renderDuration = ({ startTime, endTime, harnessStartTime, timeoutSeconds }
     : html`${formatDuration(startTime, endTime)}`;
 
 const renderExceeded = (run: RunRecord): Rendered => {
-  if (run.status !== 'exceeded' || run.exceededLimit !== 'timeout' || run.timeoutSeconds === null || run.endTime === null) {
-    return '';
+  if (run.status !== 'exceeded' || run.endTime === null) return '';
+  if (run.exceededLimit === 'budget' && run.maxCostUsd !== null) {
+    return html`<p class="${WARNING_CALLOUT} mb-4" data-exceeded>Stopped at ${formatSpend(run.costUsd)} of a ${formatBudget(run.maxCostUsd)} budget</p>`;
   }
-  const stoppedAfter = (Date.parse(run.endTime) - Date.parse(run.harnessStartTime ?? run.startTime)) / 1000;
-  return html`<p class="${WARNING_CALLOUT} mb-4" data-exceeded>Stopped after ${formatSpan(stoppedAfter)} of a ${formatSpan(run.timeoutSeconds)} timeout</p>`;
+  if (run.exceededLimit === 'timeout' && run.timeoutSeconds !== null) {
+    const stoppedAfter = (Date.parse(run.endTime) - Date.parse(run.harnessStartTime ?? run.startTime)) / 1000;
+    return html`<p class="${WARNING_CALLOUT} mb-4" data-exceeded>Stopped after ${formatSpan(stoppedAfter)} of a ${formatSpan(run.timeoutSeconds)} timeout</p>`;
+  }
+  return '';
 };
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
@@ -340,7 +352,7 @@ export const renderList = (
                     <td class="${TD} whitespace-nowrap" data-duration>${renderDuration(run)}</td>
                     <td class="${TD}">${renderStatus(run.status)}</td>
                     <td class="${TD} ${NUMERIC}" data-cache-hit>${renderCacheHitRate(run)}</td>
-                    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${renderCost(run)}</td>
+                    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${renderRunCost(run)}</td>
                   </tr>`,
                 )}
               </tbody>
@@ -948,7 +960,7 @@ export const renderDetail = (
       <dt class="${META_TERM}">Duration</dt>
       <dd class="${META_VALUE}" data-duration>${renderDuration(run)}</dd>
       <dt class="${META_TERM}">Cost</dt>
-      <dd class="${META_VALUE}">${renderCost(run)}</dd>
+      <dd class="${META_VALUE}">${renderRunCost(run)}</dd>
       <dt class="${META_TERM}">Tokens</dt>
       <dd class="${META_VALUE}">${renderTokens(run)}</dd>
       <dt class="${META_TERM}">Cache</dt>

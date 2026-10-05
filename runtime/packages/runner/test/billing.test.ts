@@ -57,6 +57,7 @@ const startedRun = (
     aliveAt,
     harnessStartTime: null,
     timeoutSeconds: null,
+    maxCostUsd: null,
     exceededLimit: null,
   });
   if (generatedAt !== null) {

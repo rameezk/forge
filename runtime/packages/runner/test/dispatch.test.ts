@@ -19,6 +19,7 @@ import { UNATTENDED_INSTRUCTION } from '../src/harness.ts';
 import {
   billedAt,
   fakeOpenRouter,
+  LISTED_MODELS,
   journaled,
   startedDispatch,
   PI_CONTRACT,
@@ -260,6 +261,8 @@ interface Scenario {
   nix?: FakeNix;
   bwrapFailure?: string;
   timeoutSeconds?: number;
+  maxCostUsd?: number;
+  models?: unknown;
   piLingerMs?: number;
 }
 
@@ -361,6 +364,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
           ...(scenario.timeoutSeconds === undefined
             ? {}
             : { timeoutSeconds: scenario.timeoutSeconds }),
+          ...(scenario.maxCostUsd === undefined
+            ? {}
+            : { maxCostUsd: scenario.maxCostUsd }),
         },
       },
       repositories: {
@@ -405,7 +411,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
   }
 
   let failure: unknown = null;
-  const openRouter = await fakeOpenRouter(billedAt({}));
+  const openRouter = await fakeOpenRouter(billedAt({}), scenario.models ?? null);
   const code = await main(
     [scenario.repository ?? 'forge', String(scenario.issue ?? 113)],
     {
@@ -910,6 +916,29 @@ test('given a dispatched workload whose pi keeps running past the worker\'s time
   assert.deepEqual(
     dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
     [{ state: 'failed', reason: 'exceeded', detail: 'timeout' }],
+  );
+  assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'));
+  assert.ok(
+    labelWrites.every(({ path }) => path.startsWith('/repos/rameezk/forge/issues/113/labels')),
+  );
+});
+
+test('given a dispatched workload whose generations pass the worker\'s budget, when forge-dispatch runs, then the run ends exceeded on its budget, the dispatch fails with reason exceeded naming the budget, the ticket becomes forge:failed, and nothing but the label is written to it', async () => {
+  const { code, runs, dispatches, labelWrites } = await dispatch({
+    piOutput: piOutputEnding('still working'),
+    piLingerMs: 10_000,
+    maxCostUsd: 0.002,
+    models: LISTED_MODELS,
+    pullRequests: closing('no-pull-request'),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(runs[0]?.status, 'exceeded');
+  assert.equal(runs[0]?.exceededLimit, 'budget');
+  assert.equal(runs[0]?.maxCostUsd, 0.002);
+  assert.deepEqual(
+    dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'exceeded', detail: 'budget' }],
   );
   assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'));
   assert.ok(
