@@ -297,3 +297,40 @@ test('given a worker whose prompt contains a secret, when it is run, then the fi
   });
   assert.equal(second?.type, 'message');
 });
+
+test('given a run whose harness is still working, when 20 seconds pass at a time, then each tick refreshes the run\'s heartbeat, and once the run is finalized it is refreshed no more', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const store = Store.open(':memory:');
+  let clock = '2026-09-21T10:00:00.000Z';
+  const heartbeats: (string | null)[] = [];
+  const tick = (at: string): void => {
+    clock = at;
+    t.mock.timers.tick(20_000);
+    heartbeats.push(store.getRun('run-1')?.aliveAt ?? null);
+  };
+  const harness = fakeHarness(
+    [message({ generationId: 'gen-a' }), result({ status: 'success' })],
+    {
+      beforeEach: (index) =>
+        tick(index === 0 ? '2026-09-21T10:00:20.000Z' : '2026-09-21T10:00:40.000Z'),
+    },
+  );
+
+  await runWorkload({
+    store,
+    harness,
+    worker: aWorker(),
+    openTranscript: arrayTranscripts().open,
+    openRawEvents: discardLines,
+    openRequestRecord: discardLines,
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
+    now: () => clock,
+    newId: () => 'run-1',
+    lookUpListPrice: unlisted,
+  });
+  clock = '2026-09-21T10:01:00.000Z';
+  t.mock.timers.tick(60_000);
+
+  assert.deepEqual(heartbeats, ['2026-09-21T10:00:20.000Z', '2026-09-21T10:00:40.000Z']);
+  assert.equal(store.getRun('run-1')?.aliveAt, '2026-09-21T10:00:40.000Z');
+});

@@ -8,7 +8,6 @@ import {
 } from './frontier.ts';
 import {
   DISPATCH_DETAIL_LIMIT,
-  DISPATCH_STALE_MS,
   type DispatchFailure,
   type DispatchOutcome,
   type DispatchRecord,
@@ -22,7 +21,14 @@ import type {
   NewGeneration,
   UnsettledGeneration,
 } from './generation.ts';
-import type { CostStatus, RunRecord, RunResult, RunStatus } from './run.ts';
+import { STALE_AFTER_MS } from './heartbeat.ts';
+import type {
+  CostStatus,
+  InterruptedRun,
+  RunRecord,
+  RunResult,
+  RunStatus,
+} from './run.ts';
 
 type RunRow = {
   id: string;
@@ -49,6 +55,7 @@ type RunRow = {
   repository: string | null;
   ticket_number: number | null;
   ticket_url: string | null;
+  alive_at: string | null;
 };
 
 const CREATE_RUNS = `
@@ -76,7 +83,8 @@ const CREATE_RUNS = `
     input_price        REAL,
     output_price       REAL,
     cache_read_price   REAL,
-    cache_write_price  REAL
+    cache_write_price  REAL,
+    alive_at           TEXT
   ) STRICT;
 `;
 
@@ -109,6 +117,14 @@ const ADD_RUN_ESTIMATE = `
   ALTER TABLE runs ADD COLUMN output_price REAL;
   ALTER TABLE runs ADD COLUMN cache_read_price REAL;
   ALTER TABLE runs ADD COLUMN cache_write_price REAL;
+`;
+
+const HAS_RUN_HEARTBEAT = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'alive_at'
+`;
+
+const ADD_RUN_HEARTBEAT = `
+  ALTER TABLE runs ADD COLUMN alive_at TEXT;
 `;
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -196,6 +212,9 @@ const ADD_GENERATION_ESTIMATE = `
 const NO_GENERATION_ID = 'no generation id';
 
 const RUN_NEVER_ENDED = 'run never ended, so later generations may be unrecorded';
+
+const stoppedWithoutFinishing = (lastSeen: string): string =>
+  `runner stopped without finishing, last seen at ${lastSeen}`;
 
 const generationSum = (column: string): string =>
   `${column} = COALESCE(
@@ -336,7 +355,7 @@ const boundedDetail = (detail: string | null): string | null =>
     : `${detail.slice(0, DISPATCH_DETAIL_LIMIT - 1)}…`;
 
 const liveSince = (now: string): string =>
-  new Date(Date.parse(now) - DISPATCH_STALE_MS).toISOString();
+  new Date(Date.parse(now) - STALE_AFTER_MS).toISOString();
 
 const HAS_OUTDATED_FRONTIER = `
   SELECT 1 FROM sqlite_master
@@ -404,6 +423,7 @@ const toRow = (run: RunRecord): RunRow => ({
   repository: run.ticket?.repository ?? null,
   ticket_number: run.ticket?.number ?? null,
   ticket_url: run.ticket?.url ?? null,
+  alive_at: run.aliveAt,
 });
 
 const ticketFromRow = (row: TicketRow): Ticket => ({
@@ -477,6 +497,7 @@ const fromRow = (row: RunRow): RunRecord => ({
     row.repository === null || row.ticket_number === null || row.ticket_url === null
       ? null
       : { repository: row.repository, number: row.ticket_number, url: row.ticket_url },
+  aliveAt: row.alive_at,
 });
 
 export class Store {
@@ -492,6 +513,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_TICKET, ADD_RUN_TICKET);
     this.#addColumnsOnce(HAS_RUN_CACHE_TOKENS, ADD_RUN_CACHE_TOKENS);
     this.#addColumnsOnce(HAS_RUN_ESTIMATE, ADD_RUN_ESTIMATE);
+    this.#addColumnsOnce(HAS_RUN_HEARTBEAT, ADD_RUN_HEARTBEAT);
     db.exec(CREATE_GENERATIONS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
@@ -578,7 +600,7 @@ export class Store {
           input_tokens, output_tokens,
           cache_read_tokens, cache_write_tokens,
           transcript_ref, session_id, error,
-          repository, ticket_number, ticket_url
+          repository, ticket_number, ticket_url, alive_at
         ) VALUES (
           $id, $worker, $harness, $model, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $cost_estimated,
@@ -586,7 +608,7 @@ export class Store {
           $input_tokens, $output_tokens,
           $cache_read_tokens, $cache_write_tokens,
           $transcript_ref, $session_id, $error,
-          $repository, $ticket_number, $ticket_url
+          $repository, $ticket_number, $ticket_url, $alive_at
         )`,
       )
       .run(row);
@@ -612,6 +634,12 @@ export class Store {
         });
       this.#settleRun(id);
     });
+  }
+
+  touchRun(id: string, now: string): void {
+    this.#db
+      .prepare(`UPDATE runs SET alive_at = $now WHERE id = $id AND status = 'running'`)
+      .run({ id, now });
   }
 
   recordGeneration(generation: NewGeneration): void {
@@ -742,20 +770,45 @@ export class Store {
           )
           .all({ quiet_since: quietSince }) as { id: string }[]
       ).map((row) => row.id);
-      const giveUp = this.#db.prepare(
-        `INSERT INTO generations (run_id, last_error, given_up_at, created_at)
-        VALUES ($run_id, $last_error, $given_up_at, $given_up_at)`,
-      );
       for (const run of runs) {
-        giveUp.run({
-          run_id: run,
-          last_error: RUN_NEVER_ENDED,
-          given_up_at: givenUpAt,
-        });
-        this.#settleRun(run);
+        this.#giveUpRun(run, givenUpAt);
       }
     });
     return runs;
+  }
+
+  interruptStaleRuns(staleSince: string, interruptedAt: string): InterruptedRun[] {
+    let runs: InterruptedRun[] = [];
+    this.#transaction(() => {
+      runs = (
+        this.#db
+          .prepare(
+            `SELECT id, COALESCE(alive_at, start_time) AS last_seen FROM runs
+            WHERE status = 'running' AND COALESCE(alive_at, start_time) < $stale_since
+            ORDER BY id`,
+          )
+          .all({ stale_since: staleSince }) as { id: string; last_seen: string }[]
+      ).map((row) => ({ id: row.id, lastSeen: row.last_seen }));
+      const interrupt = this.#db.prepare(
+        `UPDATE runs SET status = 'interrupted', end_time = $last_seen, error = $error
+        WHERE id = $id`,
+      );
+      for (const { id, lastSeen } of runs) {
+        interrupt.run({ id, last_seen: lastSeen, error: stoppedWithoutFinishing(lastSeen) });
+        this.#giveUpRun(id, interruptedAt);
+      }
+    });
+    return runs;
+  }
+
+  #giveUpRun(id: string, givenUpAt: string): void {
+    this.#db
+      .prepare(
+        `INSERT INTO generations (run_id, last_error, given_up_at, created_at)
+        VALUES ($run_id, $last_error, $given_up_at, $given_up_at)`,
+      )
+      .run({ run_id: id, last_error: RUN_NEVER_ENDED, given_up_at: givenUpAt });
+    this.#settleRun(id);
   }
 
   #settleRun(id: string): void {

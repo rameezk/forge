@@ -108,6 +108,7 @@ sequenceDiagram
     R->>O: look up the model's list price
     O-->>R: list price, or none if the lookup fails
     R->>S: record the run as running with its list price, cost pending
+    Note over R,S: while the run lasts, the runner refreshes its heartbeat every 20 seconds
     R->>H: spawn with the worker's model and prompt
     loop each generation
         H->>O: model request
@@ -117,7 +118,11 @@ sequenceDiagram
         R->>S: record the generation id, its tokens and its estimated cost
     end
     H-->>R: exit
-    R->>S: finalize the run with its status
+    alt the runner finished the run
+        R->>S: finalize the run with its status
+    else the runner stopped without finishing, so its heartbeat is over 2 minutes old
+        B->>S: end the run as interrupted when last seen, its cost unconfirmed
+    end
     loop until every generation is billed, or given up after 24 hours
         B->>S: read unbilled generations
         B->>O: look up what each generation billed

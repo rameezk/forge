@@ -22,6 +22,7 @@ const runningRun: RunRecord = {
   sessionId: null,
   error: null,
   ticket: null,
+  aliveAt: null,
 };
 
 const ticket: Ticket = {

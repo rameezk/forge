@@ -159,7 +159,22 @@ testers.runNixOSTest {
     box.succeed("systemctl start --no-block forge-runner@linger")
     box.wait_until_succeeds("pgrep -u forge-runtime -x sleep")
     box.succeed("systemctl start forge-runner@probe")
+
+    def linger_run(columns):
+        return box.succeed(f"sqlite3 -separator '|' /var/lib/forge/forge.db \"select {columns} from runs where worker = 'linger'\"").strip()
+
+    with subtest("a running workload's runner keeps its heartbeat fresh"):
+        box.wait_until_succeeds("test -n \"$(sqlite3 /var/lib/forge/forge.db \"select alive_at from runs where worker = 'linger'\")\"", timeout=60)
+
     box.succeed("systemctl stop forge-runner@linger")
+
+    with subtest("a run whose runner stopped without finishing ends as interrupted when billing next runs"):
+        assert linger_run("status") == "running", linger_run("status")
+        box.succeed("runuser -u forge-runtime -- sqlite3 /var/lib/forge/forge.db \"update runs set alive_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-3 minutes') where worker = 'linger'\"")
+        last_seen = linger_run("alive_at")
+        box.succeed("systemctl start forge-billing.service")
+        ended = linger_run("status, end_time, error, cost_status")
+        assert ended == f"interrupted|{last_seen}|runner stopped without finishing, last seen at {last_seen}|unconfirmed", ended
 
     run_dir = run_dir_of(box, "sandbox.out")
     seen = attempts(box, run_dir)

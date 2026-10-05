@@ -237,6 +237,7 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
             sessionId: null,
             error: null,
             ticket: forgeTicket(number),
+            aliveAt: null,
           });
         }
         return id;

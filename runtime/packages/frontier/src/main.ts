@@ -7,6 +7,7 @@ import {
   isHeaderValue,
   oldestFirst,
   queryFrontier,
+  settleRunningTickets,
   Store,
   type Fetch,
   type Ticket,
@@ -35,19 +36,33 @@ const polling = (env: NodeJS.ProcessEnv, fetch: Fetch): Poll => {
   return (github) => queryFrontier(fetch, token, github);
 };
 
-const ensuringLabels = (
-  env: NodeJS.ProcessEnv,
-  fetch: Fetch,
-): ((github: string) => Promise<void>) | null =>
+interface Writes {
+  ensure: (github: string) => Promise<void>;
+  settle: (store: Store, repository: string, github: string) => Promise<boolean>;
+}
+
+const writing = (env: NodeJS.ProcessEnv, fetch: Fetch): Writes | null =>
   env.FORGE_GITHUB_WRITE_TOKEN_FILE === undefined
     ? null
-    : (github) => ensureLabels(fetch, githubWriteToken(env), github);
+    : {
+        ensure: (github) => ensureLabels(fetch, githubWriteToken(env), github),
+        settle: (store, repository, github) =>
+          settleRunningTickets({
+            store,
+            fetch,
+            token: () => githubWriteToken(env),
+            repository,
+            github,
+            now: () => new Date().toISOString(),
+            log: (line) => console.error(line),
+          }),
+      };
 
 const sync = async (
   config: FrontierConfig,
   env: NodeJS.ProcessEnv,
   poll: Poll,
-  ensure: ((github: string) => Promise<void>) | null,
+  writes: Writes | null,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
   if (stateDir === undefined) {
@@ -58,7 +73,7 @@ const sync = async (
   try {
     store.pruneFrontier(Object.keys(config.repositories));
     let failed = false;
-    for (const [name, { github }] of Object.entries(config.repositories)) {
+    for (const [name, { github, worker }] of Object.entries(config.repositories)) {
       try {
         const tickets = await poll(github);
         store.replaceFrontier({
@@ -78,11 +93,14 @@ const sync = async (
         });
         failed = true;
       }
-      if (ensure === null) continue;
+      if (writes === null) continue;
       try {
-        await ensure(github);
+        await writes.ensure(github);
       } catch (error) {
         console.error(`${name}: could not ensure the forge labels: ${errorMessage(error)}`);
+        failed = true;
+      }
+      if (worker !== undefined && !(await writes.settle(store, name, github))) {
         failed = true;
       }
     }
@@ -144,7 +162,7 @@ export const main = async (
   const config = readConfig(env);
   const poll = polling(env, fetch);
   return command === 'sync'
-    ? sync(config, env, poll, ensuringLabels(env, fetch))
+    ? sync(config, env, poll, writing(env, fetch))
     : list(config, poll);
 };
 
