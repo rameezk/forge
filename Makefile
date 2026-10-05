@@ -1,6 +1,6 @@
-.PHONY: check check-no-vm flake-check flake-check-no-vm vm-tests tofu-test test-generic test-scaffold test-check-selection
+.PHONY: check check-no-vm flake-check flake-check-no-vm vm-tests tofu-test test-generic test-scaffold test-check-selection test-markdown-only
 
-TESTS = tofu-test test-generic test-scaffold test-check-selection
+TESTS = tofu-test test-generic test-scaffold test-check-selection test-markdown-only
 
 check: flake-check $(TESTS)
 
@@ -31,3 +31,6 @@ test-scaffold:
 
 test-check-selection:
 	bash tests/check-selection.sh
+
+test-markdown-only:
+	bash tests/markdown-only.sh
