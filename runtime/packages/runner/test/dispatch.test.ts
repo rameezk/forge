@@ -1794,11 +1794,11 @@ test('given a parent that reads the same SKILL.md twice, then a file the skill r
 
   const page = await runPage(stateDir, (runs[0] as RunRecord).id);
 
-  assert.equal(skillsOf(page).find(([name]) => name === 'work-on')?.[1], 'parent');
-  assert.deepEqual(
-    skillsOf(page).map(([name]) => name),
-    ['code-review', 'security-review', 'work-on'],
-  );
+  assert.deepEqual(skillsOf(page), [
+    ['code-review', '1 subagent'],
+    ['security-review', '2 subagents'],
+    ['work-on', 'parent'],
+  ]);
 });
 
 test('given review subagents that read code-review once and a skill whose directory is not its frontmatter name in two separate subagents, when the run page is opened, then each skill shows the subagents that loaded it under its frontmatter name', async () => {

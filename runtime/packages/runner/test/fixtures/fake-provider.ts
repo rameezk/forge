@@ -242,7 +242,7 @@ export const SUBAGENTS_PROMPT =
 export const SKILL_FILES: Record<string, string> = {
   '.claude/skills/work-on/SKILL.md':
     '---\nname: work-on\ndescription: Drive one ticket to a pull request.\n---\n\nWork on it.\n',
-  '.claude/skills/work-on/tests.md': '# Tests\n\nWrite the test first.\n',
+  '.claude/skills/code-review/checklist.md': '# Checklist\n\nCheck the standards.\n',
   '.claude/skills/code-review/SKILL.md':
     '---\nname: code-review\ndescription: Review a change for standards.\n---\n\nReview it.\n',
   '.claude/skills/security/SKILL.md':
@@ -314,8 +314,8 @@ export const reviewing: Respond = (call, res, request, headers) => {
           ? [
               'Checking the references.',
               [
-                read('.claude/skills/work-on/tests.md', 'call_3'),
-                bash('cat .claude/skills/work-on/SKILL.md', 'call_4'),
+                read('.claude/skills/code-review/checklist.md', 'call_3'),
+                bash('cat .claude/skills/security/SKILL.md', 'call_4'),
               ],
               usage(1200, 1100, 30),
             ]
