@@ -118,7 +118,7 @@ test('given maxConcurrent = 1 and two dispatchable tickets, when the pass runs, 
     frontier: [forge([]), dotfiles],
     seed: (store) => {
       const at = new Date().toISOString();
-      store.endDispatch(startedDispatch(store, 'forge', 113, 'run-113', at), { state: 'done' }, at);
+      store.endDispatch(startedDispatch(store, 'forge', 113, 'run-113', at), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);
     },
   });
   assert.deepEqual(finished.started, ['start --no-block --no-ask-password -- forge-dispatch@dotfiles:5.service']);

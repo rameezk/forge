@@ -33,6 +33,7 @@ const sampleRun = (id: string): RunRecord => ({
   harnessStartTime: null,
   timeoutSeconds: null,
   exceededLimit: null,
+  maxCostUsd: null,
 });
 
 const fingerprint: ConfigFingerprint = {

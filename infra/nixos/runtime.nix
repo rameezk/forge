@@ -61,6 +61,10 @@ let
     description = "systemd time span of whole seconds, minutes, hours, days or weeks, at most 2147483 seconds, just under 25 days, such as \"2h\" or \"1h 30min\"";
   };
 
+  positiveNumber = lib.types.addCheck lib.types.number (value: value > 0) // {
+    description = "positive number";
+  };
+
   harnessModule = lib.types.submodule {
     options = {
       command = lib.mkOption {
@@ -95,6 +99,13 @@ let
         );
         default = null;
         description = "Reasoning effort, or null to run at the provider default.";
+      };
+      maxCost = lib.mkOption {
+        type = lib.types.nullOr positiveNumber;
+        default = cfg.workload.maxCost;
+        defaultText = lib.literalExpression "config.forge.runtime.workload.maxCost";
+        example = 2.5;
+        description = "Most this worker's workload may spend, subagents included, as a positive number of USD, or null for unlimited. Spend is each generation's billed cost where known and its estimated cost otherwise, checked after every generation, so a workload can overshoot it by the generations in flight. A workload that passes it is hard-stopped and ends as exceeded, and one whose model's list price cannot be fetched at start is refused before it spends anything. Defaults to `forge.runtime.workload.maxCost`.";
       };
       timeout = lib.mkOption {
         type = lib.types.nullOr timeSpan;
@@ -144,6 +155,7 @@ let
       {
         inherit (w) harness model prompt;
         timeoutSeconds = if w.timeout == null then null else timeSpanSeconds w.timeout;
+        maxCostUsd = w.maxCost;
       }
       // lib.optionalAttrs (w.reasoningEffort != null) { inherit (w) reasoningEffort; }
     ) cfg.workers;
@@ -151,7 +163,7 @@ let
       _: r: { inherit (r) github; } // lib.optionalAttrs (r.worker != null) { inherit (r) worker; }
     ) cfg.repositories;
   }
-  // lib.optionalAttrs hasDispatch {
+  // lib.optionalAttrs (hasDispatch || cfg.dispatch.gitIdentity != null) {
     dispatch = {
       inherit (cfg.dispatch) maxConcurrent;
     }
@@ -381,6 +393,13 @@ in
       default = "80%";
       example = "6G";
       description = "Memory a single workload may use, harness, subagents and every command they run included, as a systemd `MemoryMax=` value: a size such as `6G`, or a percentage of the box's physical memory. A workload that goes over it has its largest process, in practice the runaway command, killed by the kernel, and carries on: the agent sees that command exit with 137. The limit is per workload, so workloads running at once can together use more, and builds the nix daemon runs for a workload fall outside it.";
+    };
+
+    workload.maxCost = lib.mkOption {
+      type = lib.types.nullOr positiveNumber;
+      default = 5;
+      example = 10;
+      description = "Most a workload may spend unless its worker overrides it, subagents included, as a positive number of USD, or null for unlimited. Spend is each generation's billed cost where known and its estimated cost otherwise, checked after every generation, so a workload can overshoot it by the generations in flight. A workload that passes it is hard-stopped and ends as exceeded, and one whose model's list price cannot be fetched at start is refused before it spends anything; a dispatched one fails its dispatch and its ticket becomes `forge:failed`, with nothing posted to it.";
     };
 
     workload.timeout = lib.mkOption {

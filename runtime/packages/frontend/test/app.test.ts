@@ -32,15 +32,21 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   aliveAt: null,
   harnessStartTime: null,
   timeoutSeconds: null,
+  maxCostUsd: null,
   exceededLimit: null,
   ...overrides,
 });
 
 const usage = { inputTokens: 5, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
-const appWith = (runs: RunRecord[], dir: string = mkdtempSync(join(tmpdir(), 'forge-transcripts-'))) => {
+const appWith = (
+  runs: RunRecord[],
+  dir: string = mkdtempSync(join(tmpdir(), 'forge-transcripts-')),
+  seed: (store: Store) => void = () => {},
+) => {
   const store = Store.open(':memory:');
   for (const run of runs) store.insertRun(run);
+  seed(store);
   return createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
 };
 
@@ -173,6 +179,55 @@ test('given a run dispatched for a ticket and a run started by hand, when the li
   assert.match(ticketCell('dispatched'), /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/113"[^>]*>#113<\/a>/);
   assert.equal(textOf(ticketCell('by-hand')), '');
   assert.match(body, /<th[^>]*>Ticket<\/th>/);
+});
+
+const PULL_REQUEST_URL = 'https://github.com/rameezk/forge/pull/143';
+
+const dispatchedWithPullRequest = (store: Store, runId: string, ticket: number, pullRequest: number): number => {
+  const at = '2026-09-21T10:03:20.000Z';
+  const start = store.startDispatch(
+    { repository: 'forge', number: ticket, url: `https://github.com/rameezk/forge/issues/${ticket}` },
+    runId,
+    at,
+    10,
+  );
+  assert.ok('started' in start);
+  store.endDispatch(
+    start.started,
+    { state: 'done', pullRequest: { number: pullRequest, url: `https://github.com/rameezk/forge/pull/${pullRequest}` } },
+    at,
+  );
+  return start.started;
+};
+
+const pullRequestOn = async (app: ReturnType<typeof appWith>, id: string): Promise<string> =>
+  (await (await app.request(`/runs/${id}`)).text()).match(/<dd[^>]*\sdata-pull-request(?=[\s>])[^>]*>[\s\S]*?<\/dd>/)?.[0] ?? 'missing';
+
+test('given a dispatched workload whose pull request was merged with a rework count of 1, a dispatched one whose pull request is still open, and a workload started by hand, when each run page is requested, then the first shows the pull request link, its merged state and its rework count, the second its link as open with no rework, and the third no pull request', async () => {
+  const app = appWith(
+    [
+      sampleRun({ id: 'merged', transcriptRef: null }),
+      sampleRun({ id: 'open', transcriptRef: null }),
+      sampleRun({ id: 'by-hand', transcriptRef: null }),
+    ],
+    undefined,
+    (store) => {
+      store.recordPullRequest(dispatchedWithPullRequest(store, 'merged', 113, 143), {
+        state: 'merged',
+        settledAt: '2026-09-22T09:00:00Z',
+        rework: 1,
+      });
+      dispatchedWithPullRequest(store, 'open', 114, 144);
+    },
+  );
+
+  const merged = await pullRequestOn(app, 'merged');
+  const open = await pullRequestOn(app, 'open');
+
+  assert.match(merged, new RegExp(`<a href="${PULL_REQUEST_URL}"[^>]*>#143</a>`));
+  assert.equal(textOf(merged), '#143 merged rework 1');
+  assert.equal(textOf(open), '#144 open');
+  assert.equal(await pullRequestOn(app, 'by-hand'), 'missing');
 });
 
 test('given only settled runs, when the list is requested, then the total carries no pending count', async () => {

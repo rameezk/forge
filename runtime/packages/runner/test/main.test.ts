@@ -1687,6 +1687,126 @@ test('given a worker with a one-second timeout and a pi that keeps running, when
   assert.equal(isAlive(pi.pid), false);
 });
 
+test('given a worker with a budget the first generation\'s estimated cost passes and a pi that keeps running, when the worker runs, then pi is killed and the run ends exceeded on its budget with the budget recorded and the runner exits as for a failure', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), LISTED_MODELS);
+  try {
+    const { code, run, pi } = await runWorker({
+      output: cutBefore('success.jsonl', 'agent_end'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      lingerMs: 10_000,
+      worker: { maxCostUsd: 0.002 },
+    });
+
+    assert.equal(code, 1);
+    assert.equal(run.status, 'exceeded');
+    assert.equal(run.exceededLimit, 'budget');
+    assert.equal(run.maxCostUsd, 0.002);
+    assert.notEqual(run.endTime, null);
+    assert.equal(isAlive(pi.pid), false);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a worker whose budget its main agent alone stays under but its subagents take it over, when the crossing subagent generation is recorded, then pi is killed, nothing after that generation is recorded, and the run ends exceeded on its budget', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), LISTED_MODELS);
+  try {
+    const { run, pi, stateDir } = await runWorker({
+      output: fixture('subagents.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      lingerMs: 10_000,
+      worker: { maxCostUsd: 0.0023 },
+    });
+
+    assert.equal(run.status, 'exceeded');
+    assert.equal(run.exceededLimit, 'budget');
+    assert.equal(isAlive(pi.pid), false);
+    assert.deepEqual(
+      storedGenerations(stateDir, run.id).map(({ generationId }) => generationId),
+      ['gen-subagents-1', 'gen-child-beta-1'],
+    );
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a worker with a budget whose model the models endpoint does not list, when the worker runs, then pi never starts and the run ends error saying the model could not be priced, having spent nothing', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [{ id: 'z-ai/glm-4.6', pricing: { prompt: '0.0000006', completion: '0.0000022' } }],
+  });
+  try {
+    const { code, run, piStarted, stateDir } = await runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      worker: { maxCostUsd: 5 },
+    });
+
+    assert.equal(code, 1);
+    assert.equal(piStarted, false);
+    assert.equal(run.status, 'error');
+    assert.equal(run.maxCostUsd, 5);
+    assert.match(run.error ?? '', /z-ai\/glm-5.*could not be priced.*not listed/);
+    assert.equal(run.costUsd, 0);
+    assert.deepEqual(storedGenerations(stateDir, run.id), []);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a worker whose budget is null and a model priced at 1 USD a token, when its generations cost far more than any default, then it runs to its own end and records no budget', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [{ id: 'z-ai/glm-5', pricing: { prompt: '1', completion: '1', input_cache_read: '1', input_cache_write: '1' } }],
+  });
+  try {
+    const { code, run } = await runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      worker: { maxCostUsd: null },
+    });
+
+    assert.equal(code, 0);
+    assert.equal(run.status, 'success');
+    assert.equal(run.maxCostUsd, null);
+    assert.ok(run.costUsd > 100);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a worker with no budget whose model the models endpoint does not list, when the worker runs, then pi starts as before', async () => {
+  const { code, piStarted } = await runWorker({
+    output: fixture('success.jsonl'),
+    worker: { maxCostUsd: null },
+  });
+
+  assert.equal(code, 0);
+  assert.equal(piStarted, true);
+});
+
+test('given a worker with a generous budget and a listed model with no cache prices, when a generation that wrote to the cache is recorded with neither a billed nor an estimated cost, then the workload ends exceeded on its budget at that generation', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [{ id: 'z-ai/glm-5', pricing: { prompt: '0.000002', completion: '0.00001' } }],
+  });
+  try {
+    const { run, stateDir, pi } = await runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      lingerMs: 10_000,
+      worker: { maxCostUsd: 100 },
+    });
+
+    assert.equal(run.status, 'exceeded');
+    assert.equal(run.exceededLimit, 'budget');
+    assert.equal(isAlive(pi.pid), false);
+    assert.deepEqual(
+      storedGenerations(stateDir, run.id).map(({ generationId }) => generationId),
+      ['gen-success-1'],
+    );
+  } finally {
+    openRouter.close();
+  }
+});
+
 test('given a worker, recorded pi output of a successful run, and an OpenRouter that answers not found for every generation, when the worker runs, then the run is success with its tokens and a pending cost, the runner never calls OpenRouter, and the dashboard shows the cost as pending', async () => {
   const openRouter = await fakeOpenRouter(billedAt({}));
   try {

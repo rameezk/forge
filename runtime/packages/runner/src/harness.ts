@@ -62,6 +62,7 @@ export interface Worker {
   promptTemplate?: string;
   reasoningEffort?: string;
   timeoutSeconds?: number | null;
+  maxCostUsd?: number | null;
 }
 
 export const withEffort = (

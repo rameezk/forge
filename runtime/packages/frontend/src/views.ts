@@ -10,6 +10,8 @@ import type {
   HarnessEvent,
   CompactionEvent,
   MessageEvent,
+  PullRequestRecord,
+  PullRequestState,
   RepositoryFrontier,
   ResultEvent,
   RetryEvent,
@@ -23,10 +25,12 @@ import type {
 } from '@forge/shared';
 import {
   cacheHitRate,
+  formatBudget,
   formatCost,
   formatDate,
   formatDuration,
   formatSpan,
+  formatSpend,
   formatStarted,
   formatTime,
   formatTokens,
@@ -147,6 +151,12 @@ const renderCost = (run: Cost): Rendered => {
   }
   const badge = costBadge(run);
   return html`${formatCost(run.costUsd)}${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
+};
+
+const renderRunCost = (run: RunRecord): Rendered => {
+  if (run.endTime !== null || run.maxCostUsd === null) return renderCost(run);
+  const badge = costBadge(run);
+  return html`<span data-spend>${formatSpend(run.costUsd)} / ${formatBudget(run.maxCostUsd)}</span>${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
 };
 
 const PILL = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-['']";
@@ -290,11 +300,15 @@ const renderDuration = ({ startTime, endTime, harnessStartTime, timeoutSeconds }
     : html`${formatDuration(startTime, endTime)}`;
 
 const renderExceeded = (run: RunRecord): Rendered => {
-  if (run.status !== 'exceeded' || run.exceededLimit !== 'timeout' || run.timeoutSeconds === null || run.endTime === null) {
-    return '';
+  if (run.status !== 'exceeded' || run.endTime === null) return '';
+  if (run.exceededLimit === 'budget' && run.maxCostUsd !== null) {
+    return html`<p class="${WARNING_CALLOUT} mb-4" data-exceeded>Stopped at ${formatSpend(run.costUsd)} of a ${formatBudget(run.maxCostUsd)} budget</p>`;
   }
-  const stoppedAfter = (Date.parse(run.endTime) - Date.parse(run.harnessStartTime ?? run.startTime)) / 1000;
-  return html`<p class="${WARNING_CALLOUT} mb-4" data-exceeded>Stopped after ${formatSpan(stoppedAfter)} of a ${formatSpan(run.timeoutSeconds)} timeout</p>`;
+  if (run.exceededLimit === 'timeout' && run.timeoutSeconds !== null) {
+    const stoppedAfter = (Date.parse(run.endTime) - Date.parse(run.harnessStartTime ?? run.startTime)) / 1000;
+    return html`<p class="${WARNING_CALLOUT} mb-4" data-exceeded>Stopped after ${formatSpan(stoppedAfter)} of a ${formatSpan(run.timeoutSeconds)} timeout</p>`;
+  }
+  return '';
 };
 
 const renderTotal = (runs: RunRecord[]): Rendered => {
@@ -339,7 +353,7 @@ export const renderList = (
                     <td class="${TD} whitespace-nowrap" data-duration>${renderDuration(run)}</td>
                     <td class="${TD}">${renderStatus(run.status)}</td>
                     <td class="${TD} ${NUMERIC}" data-cache-hit>${renderCacheHitRate(run)}</td>
-                    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${renderCost(run)}</td>
+                    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${renderRunCost(run)}</td>
                   </tr>`,
                 )}
               </tbody>
@@ -894,6 +908,22 @@ const renderContext = ({ systemPrompt, tools }: WorkloadContext): Rendered =>
     ? ''
     : html`<div class="${STACK} mb-4" data-context>${renderSystemPrompt(systemPrompt)}${renderTools(tools)}</div>`;
 
+const PULL_REQUEST_TONE: Record<PullRequestState, string> = {
+  open: 'bg-raised text-fg',
+  merged: 'bg-success-soft text-success',
+  closed: 'bg-warning-soft text-warning',
+};
+
+const renderPullRequest = (pullRequest: PullRequestRecord | null): Rendered =>
+  pullRequest === null
+    ? ''
+    : html`<dt class="${META_TERM}">Pull request</dt>
+      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" data-pull-request>${isGithubUrl(pullRequest.url)
+        ? externalLink(pullRequest.url, `#${pullRequest.number}`)
+        : html`#${pullRequest.number}`}<span class="${PILL} ${PULL_REQUEST_TONE[pullRequest.state]}" data-pull-request-state="${pullRequest.state}">${pullRequest.state}</span>${pullRequest.rework === null
+        ? ''
+        : html`<span>rework ${pullRequest.rework}</span>`}</dd>`;
+
 const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
   const offered = DOWNLOADS.filter(({ key }) => downloads[key]);
   if (offered.length === 0) return '';
@@ -921,6 +951,7 @@ export const renderDetail = (
   events: HarnessEvent[],
   { context, efforts: recordedEfforts }: RequestRecordView,
   generations: GenerationRecord[],
+  pullRequest: PullRequestRecord | null,
   downloads: Downloads,
   config: RunFingerprint | null,
   assets: AssetHrefs,
@@ -944,7 +975,7 @@ export const renderDetail = (
       <dt class="${META_TERM}">Duration</dt>
       <dd class="${META_VALUE}" data-duration>${renderDuration(run)}</dd>
       <dt class="${META_TERM}">Cost</dt>
-      <dd class="${META_VALUE}">${renderCost(run)}</dd>
+      <dd class="${META_VALUE}">${renderRunCost(run)}</dd>
       <dt class="${META_TERM}">Tokens</dt>
       <dd class="${META_VALUE}">${renderTokens(run)}</dd>
       <dt class="${META_TERM}">Cache</dt>
@@ -953,6 +984,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
       <dt class="${META_TERM}">Providers</dt>
       <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
+      ${renderPullRequest(pullRequest)}
       ${renderDownloads(run, downloads)}
     </dl>
     ${stopped !== '' ? stopped : run.error === null ? '' : html`<p class="${run.status === 'interrupted' || run.status === 'exceeded' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}

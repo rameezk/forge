@@ -69,12 +69,20 @@ const replaying = (responses: Record<string, RecordedPage[]>) => {
   return { fetch, requests };
 };
 
-const declaring = (repositories: Record<string, { github: string; worker?: string }>) => {
+const declaring = (
+  repositories: Record<string, { github: string; worker?: string }>,
+  dispatch?: { gitIdentity: { name: string; email: string } },
+) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-frontier-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
     configPath,
-    JSON.stringify({ harnesses: {}, workers: {}, repositories }),
+    JSON.stringify({
+      harnesses: {},
+      workers: {},
+      repositories,
+      ...(dispatch === undefined ? {} : { dispatch }),
+    }),
   );
   return {
     stateDir,
@@ -830,4 +838,248 @@ test('given a repository with a worker and a GitHub write-token file that sets n
     'forge: could not ensure the forge labels: GitHub write token missing',
     'forge: could not settle tickets labelled forge:running: GitHub write token missing',
   ]);
+});
+
+interface RecordedPullRequest {
+  data: {
+    repository: {
+      pullRequest: {
+        state: string;
+        mergedAt: string | null;
+        closedAt: string | null;
+        commits: { nodes: { commit: { author: { email: string } } }[] };
+      };
+    };
+  };
+}
+
+const FORGE_IDENTITY = { name: 'Forge Operator', email: 'forge@example.com' };
+
+const aPullRequest = (
+  state: 'MERGED' | 'CLOSED',
+  authors: string[],
+): RecordedPullRequest => {
+  const pullRequest = JSON.parse(
+    readFileSync(join(FIXTURES, 'pull-request-merged.json'), 'utf8'),
+  ) as RecordedPullRequest;
+  const { pullRequest: node } = pullRequest.data.repository;
+  node.state = state;
+  if (state === 'CLOSED') node.mergedAt = null;
+  node.commits.nodes = authors.map((email) => ({ commit: { author: { email } } }));
+  return pullRequest;
+};
+
+const pullRequestsOf = (
+  graphql: ReturnType<typeof replaying>,
+  responses: Record<number, RecordedPullRequest>,
+) => {
+  const asked: { operation: string | undefined; variables: Request['body']['variables'] }[] = [];
+  const fetch = async (
+    input: string | URL | globalThis.Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const body = JSON.parse(String(init?.body)) as Request['body'];
+    const operation = /query (\w+)/.exec(body.query)?.[1];
+    if (operation !== 'PullRequest') return graphql.fetch(input, init);
+    asked.push({ operation, variables: body.variables });
+    const response = responses[Number(body.variables.number)];
+    if (response === undefined) {
+      throw new Error(`no recorded pull request ${String(body.variables.number)}`);
+    }
+    return new Response(JSON.stringify(response), {
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  return { fetch, asked };
+};
+
+const pullRequestOf = (number: number) => ({
+  number,
+  url: `https://github.com/rameezk/forge/pull/${number}`,
+});
+
+const dispatchedWithPullRequest = (
+  stateDir: string,
+  ticket: number,
+  pullRequest: number,
+  settle?: (store: Store, dispatch: number) => void,
+): void => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    const at = '2026-10-05T10:00:00.000Z';
+    const start = store.startDispatch(
+      { repository: 'forge', number: ticket, url: `https://github.com/rameezk/forge/issues/${ticket}` },
+      `run-${ticket}`,
+      at,
+      10,
+    );
+    assert.ok('started' in start);
+    store.endDispatch(start.started, { state: 'done', pullRequest: pullRequestOf(pullRequest) }, at);
+    settle?.(store, start.started);
+  } finally {
+    store.close();
+  }
+};
+
+const storedPullRequests = (stateDir: string) => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    return store
+      .listDispatches(new Date().toISOString())
+      .map(({ number, pullRequest }) => ({ number, pullRequest }));
+  } finally {
+    store.close();
+  }
+};
+
+test('given a dispatch with an open pull request that GitHub reports merged with two commits by forge\'s identity and one by another author, when sync runs, then the pull request is merged with its merge time as settled time and a rework count of 1', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+    143: aPullRequest('MERGED', ['forge@example.com', 'FORGE@example.com', 'human@example.com']),
+  });
+
+  const code = await main(['sync'], env, github.fetch);
+
+  assert.equal(code, 0);
+  assert.deepEqual(storedPullRequests(stateDir), [
+    {
+      number: 113,
+      pullRequest: {
+        ...pullRequestOf(143),
+        state: 'merged',
+        settledAt: '2026-10-05T12:19:41Z',
+        rework: 1,
+      },
+    },
+  ]);
+  assert.deepEqual(github.asked, [
+    { operation: 'PullRequest', variables: { owner: 'rameezk', name: 'forge', number: 143, after: null } },
+  ]);
+});
+
+test('given a dispatch with an open pull request that GitHub reports closed without merging, when sync runs, then the pull request is closed and settled at its close time', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+    143: aPullRequest('CLOSED', ['forge@example.com']),
+  });
+
+  await main(['sync'], env, github.fetch);
+
+  assert.deepEqual(storedPullRequests(stateDir)[0]?.pullRequest, {
+    ...pullRequestOf(143),
+    state: 'closed',
+    settledAt: '2026-10-05T12:19:41Z',
+    rework: 0,
+  });
+});
+
+test('given a dispatch whose pull request is already merged, when sync runs, then GitHub is not asked about that pull request', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  const first = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+    143: aPullRequest('MERGED', ['forge@example.com']),
+  });
+  await main(['sync'], env, first.fetch);
+  const second = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {});
+
+  const code = await main(['sync'], env, second.fetch);
+
+  assert.equal(code, 0);
+  assert.deepEqual(second.asked, []);
+  assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'merged');
+});
+
+test('given a pull request whose commits span two pages, when sync runs, then its rework counts the commits of both pages', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  const graphql = replaying({ 'rameezk/forge': recorded('frontier') });
+  const firstPage = aPullRequest('MERGED', ['forge@example.com', 'human@example.com']);
+  const secondPage = aPullRequest('MERGED', ['human@example.com', 'forge@example.com']);
+  const pages = [firstPage, secondPage].map((page, index, all) => ({
+    ...page,
+    data: {
+      repository: {
+        pullRequest: {
+          ...page.data.repository.pullRequest,
+          commits: {
+            ...page.data.repository.pullRequest.commits,
+            pageInfo: { hasNextPage: index < all.length - 1, endCursor: `cursor-${index}` },
+          },
+        },
+      },
+    },
+  }));
+  const paged = async (input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
+    const body = JSON.parse(String(init?.body)) as Request['body'];
+    if (!body.query.includes('query PullRequest')) return graphql.fetch(input, init);
+    const page = pages[body.variables.after === null ? 0 : 1];
+    return new Response(JSON.stringify(page), { headers: { 'content-type': 'application/json' } });
+  };
+
+  await main(['sync'], env, paged);
+
+  assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.rework, 2);
+});
+
+test('given three dispatches whose pull requests GitHub fails for, reports in an unknown state, and reports merged, when sync runs, then only the merged one settles, and the other two stay open with each failure reported and a non-zero exit code', async (t) => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  dispatchedWithPullRequest(stateDir, 114, 144);
+  dispatchedWithPullRequest(stateDir, 115, 145);
+  const graphql = replaying({ 'rameezk/forge': recorded('frontier') });
+  const answering = async (input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
+    const body = JSON.parse(String(init?.body)) as Request['body'];
+    if (!body.query.includes('query PullRequest')) return graphql.fetch(input, init);
+    if (body.variables.number === 143) return new Response('{}', { status: 502 });
+    const pullRequest = aPullRequest('MERGED', ['forge@example.com']);
+    if (body.variables.number === 144) pullRequest.data.repository.pullRequest.state = 'DRAFT';
+    return new Response(JSON.stringify(pullRequest), { headers: { 'content-type': 'application/json' } });
+  };
+  const stderr: string[] = [];
+  t.mock.method(console, 'error', (line: string) => stderr.push(line));
+
+  const code = await main(['sync'], env, answering);
+
+  assert.notEqual(code, 0);
+  assert.deepEqual(
+    storedPullRequests(stateDir).map(({ number, pullRequest }) => ({ number, state: pullRequest?.state })),
+    [
+      { number: 113, state: 'open' },
+      { number: 114, state: 'open' },
+      { number: 115, state: 'merged' },
+    ],
+  );
+  assert.deepEqual(stderr, [
+    'forge: could not refresh pull request #143: GitHub answered 502 for rameezk/forge#143',
+    "forge: could not refresh pull request #144: GitHub reported rameezk/forge#144 in an unknown state 'DRAFT'",
+  ]);
+});
+
+test('given a dispatch with an open pull request in a repository that no longer declares a worker, when sync runs, then its pull request is still refreshed', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } }, { gitIdentity: FORGE_IDENTITY });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+    143: aPullRequest('MERGED', ['forge@example.com']),
+  });
+
+  await main(['sync'], env, github.fetch);
+
+  assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'merged');
+});
+
+test('given a dispatch with an open pull request and a runtime config with no git identity, when sync runs, then the missing identity is reported with a non-zero exit code, GitHub is not asked, and the pull request stays open', async (t) => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  dispatchedWithPullRequest(stateDir, 113, 143);
+  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {});
+  const stderr: string[] = [];
+  t.mock.method(console, 'error', (line: string) => stderr.push(line));
+
+  const code = await main(['sync'], env, github.fetch);
+
+  assert.notEqual(code, 0);
+  assert.deepEqual(github.asked, []);
+  assert.deepEqual(stderr, ['forge: could not refresh pull requests: forge.runtime.dispatch.gitIdentity is not set']);
+  assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'open');
 });

@@ -14,6 +14,8 @@ import {
   type DispatchStart,
   type DispatchState,
   type DispatchTicket,
+  type PullRequestRecord,
+  type PullRequestState,
 } from './dispatch.ts';
 import type {
   GenerationRecord,
@@ -61,6 +63,7 @@ type RunRow = {
   alive_at: string | null;
   harness_start_time: string | null;
   timeout_seconds: number | null;
+  max_cost_usd: number | null;
   exceeded_limit: string | null;
 };
 
@@ -95,6 +98,7 @@ const CREATE_RUNS = `
     harness_start_time TEXT,
     timeout_seconds    INTEGER,
     exceeded_limit     TEXT,
+    max_cost_usd       REAL,
     fingerprint        TEXT,
     fingerprint_hash   TEXT,
     forge_git_sha      TEXT,
@@ -168,6 +172,14 @@ const ADD_RUN_FINGERPRINT = `
   ALTER TABLE runs ADD COLUMN fingerprint_hash TEXT;
   ALTER TABLE runs ADD COLUMN forge_git_sha TEXT;
   ALTER TABLE runs ADD COLUMN base_commit TEXT;
+`;
+
+const HAS_RUN_BUDGET = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'max_cost_usd'
+`;
+
+const ADD_RUN_BUDGET = `
+  ALTER TABLE runs ADD COLUMN max_cost_usd REAL;
 `;
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -368,7 +380,24 @@ type DispatchRow = {
   started_at: string;
   alive_at: string;
   ended_at: string | null;
+  pr_number: number | null;
+  pr_url: string | null;
+  pr_state: string | null;
+  pr_settled_at: string | null;
+  pr_rework: number | null;
 };
+
+const HAS_DISPATCH_PULL_REQUEST = `
+  SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'pr_number'
+`;
+
+const ADD_DISPATCH_PULL_REQUEST = `
+  ALTER TABLE dispatches ADD COLUMN pr_number INTEGER;
+  ALTER TABLE dispatches ADD COLUMN pr_url TEXT;
+  ALTER TABLE dispatches ADD COLUMN pr_state TEXT;
+  ALTER TABLE dispatches ADD COLUMN pr_settled_at TEXT;
+  ALTER TABLE dispatches ADD COLUMN pr_rework INTEGER;
+`;
 
 const CREATE_DISPATCHES = `
   CREATE TABLE IF NOT EXISTS dispatches (
@@ -400,6 +429,16 @@ const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
   startedAt: row.started_at,
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
+  pullRequest:
+    row.pr_number === null || row.pr_url === null || row.pr_state === null
+      ? null
+      : {
+          number: row.pr_number,
+          url: row.pr_url,
+          state: row.pr_state as PullRequestState,
+          settledAt: row.pr_settled_at,
+          rework: row.pr_rework,
+        },
 });
 
 const boundedDetail = (detail: string | null): string | null =>
@@ -480,6 +519,7 @@ const toRow = (run: RunRecord): RunRow => ({
   alive_at: run.aliveAt,
   harness_start_time: run.harnessStartTime,
   timeout_seconds: run.timeoutSeconds,
+  max_cost_usd: run.maxCostUsd,
   exceeded_limit: run.exceededLimit,
 });
 
@@ -559,8 +599,14 @@ const fromRow = (row: RunRow): RunRecord => ({
   aliveAt: row.alive_at,
   harnessStartTime: row.harness_start_time,
   timeoutSeconds: row.timeout_seconds,
+  maxCostUsd: row.max_cost_usd,
   exceededLimit: row.exceeded_limit as ExceededLimit | null,
 });
+
+export interface WorkloadSpend {
+  costUsd: number;
+  unpriced: boolean;
+}
 
 export class Store {
   readonly #db: DatabaseSync;
@@ -578,6 +624,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_EFFORT, ADD_RUN_EFFORT);
     this.#addColumnsOnce(HAS_RUN_HEARTBEAT, ADD_RUN_HEARTBEAT);
     this.#addColumnsOnce(HAS_RUN_LIMITS, ADD_RUN_LIMITS);
+    this.#addColumnsOnce(HAS_RUN_BUDGET, ADD_RUN_BUDGET);
     this.#addColumnsOnce(HAS_RUN_FINGERPRINT, ADD_RUN_FINGERPRINT);
     db.exec(CREATE_GENERATIONS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
@@ -589,6 +636,7 @@ export class Store {
     }
     db.exec(CREATE_FRONTIER);
     db.exec(CREATE_DISPATCHES);
+    this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
   }
 
   #useWriteAheadLog(): void {
@@ -667,7 +715,7 @@ export class Store {
           cache_read_tokens, cache_write_tokens,
           transcript_ref, session_id, error,
           repository, ticket_number, ticket_url, alive_at,
-          harness_start_time, timeout_seconds, exceeded_limit
+          harness_start_time, timeout_seconds, exceeded_limit, max_cost_usd
         ) VALUES (
           $id, $worker, $harness, $model, $reasoning_effort, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $cost_estimated,
@@ -676,7 +724,7 @@ export class Store {
           $cache_read_tokens, $cache_write_tokens,
           $transcript_ref, $session_id, $error,
           $repository, $ticket_number, $ticket_url, $alive_at,
-          $harness_start_time, $timeout_seconds, $exceeded_limit
+          $harness_start_time, $timeout_seconds, $exceeded_limit, $max_cost_usd
         )`,
       )
       .run(row);
@@ -792,6 +840,18 @@ export class Store {
         });
       this.#settleRun(generation.runId);
     });
+  }
+
+  workloadSpend(runId: string): WorkloadSpend {
+    const row = this.#db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(COALESCE(billed_cost_usd, estimated_cost_usd)), 0) AS cost_usd,
+          COALESCE(MAX(billed_cost_usd IS NULL AND estimated_cost_usd IS NULL), 0) AS unpriced
+        FROM generations WHERE run_id = $run_id`,
+      )
+      .get({ run_id: runId }) as { cost_usd: number; unpriced: number };
+    return { costUsd: row.cost_usd, unpriced: row.unpriced === 1 };
   }
 
   listGenerations(runId: string): GenerationRecord[] {
@@ -1154,15 +1214,58 @@ export class Store {
     this.#db
       .prepare(
         `UPDATE dispatches SET
-          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at
+          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at,
+          pr_number = $pr_number, pr_url = $pr_url, pr_state = $pr_state
         WHERE id = $id`,
       )
       .run({
         id,
+        pr_number: outcome.state === 'done' ? outcome.pullRequest.number : null,
+        pr_url: outcome.state === 'done' ? outcome.pullRequest.url : null,
+        pr_state: outcome.state === 'done' ? 'open' : null,
         state: outcome.state,
         reason: outcome.state === 'failed' ? outcome.reason : null,
         detail: outcome.state === 'failed' ? boundedDetail(outcome.detail) : null,
         ended_at: endedAt,
+      });
+  }
+
+  pullRequestOfRun(runId: string): PullRequestRecord | null {
+    const row = this.#db
+      .prepare(
+        `SELECT * FROM dispatches
+        WHERE run_id = $run_id AND pr_number IS NOT NULL
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({ run_id: runId }) as DispatchRow | undefined;
+    return row === undefined ? null : dispatchFromRow(row).pullRequest;
+  }
+
+  unsettledPullRequests(repository: string): { id: number; number: number }[] {
+    return this.#db
+      .prepare(
+        `SELECT id, pr_number AS number FROM dispatches
+        WHERE repository = $repository AND pr_state = 'open'
+        ORDER BY id`,
+      )
+      .all({ repository }) as { id: number; number: number }[];
+  }
+
+  recordPullRequest(
+    id: number,
+    pullRequest: { state: PullRequestState; settledAt: string | null; rework: number },
+  ): void {
+    this.#db
+      .prepare(
+        `UPDATE dispatches SET
+          pr_state = $state, pr_settled_at = $settled_at, pr_rework = $rework
+        WHERE id = $id AND pr_state = 'open'`,
+      )
+      .run({
+        id,
+        state: pullRequest.state,
+        settled_at: pullRequest.settledAt,
+        rework: pullRequest.rework,
       });
   }
 
@@ -1174,7 +1277,8 @@ export class Store {
           CASE WHEN EXISTS (SELECT 1 FROM runs WHERE id = d.run_id) THEN d.run_id END AS run_id,
           CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'failed' ELSE d.state END AS state,
           CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'interrupted' ELSE d.reason END AS reason,
-          d.detail, d.started_at, d.alive_at, d.ended_at
+          d.detail, d.started_at, d.alive_at, d.ended_at,
+          d.pr_number, d.pr_url, d.pr_state, d.pr_settled_at, d.pr_rework
         FROM dispatches d
         WHERE d.id = (
           SELECT MAX(id) FROM dispatches

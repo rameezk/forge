@@ -37,6 +37,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   aliveAt: '2026-09-21T10:03:00.000Z',
   harnessStartTime: null,
   timeoutSeconds: null,
+  maxCostUsd: null,
   exceededLimit: null,
   ...overrides,
 });
@@ -76,6 +77,7 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     aliveAt: null,
     harnessStartTime: null,
     timeoutSeconds: null,
+    maxCostUsd: null,
     exceededLimit: null,
   });
 
@@ -128,6 +130,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
       aliveAt: null,
       harnessStartTime: null,
       timeoutSeconds: null,
+      maxCostUsd: null,
       exceededLimit: null,
     }),
   );
@@ -163,6 +166,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     aliveAt: null,
     harnessStartTime: null,
     timeoutSeconds: null,
+    maxCostUsd: null,
     exceededLimit: null,
   });
 });
@@ -642,7 +646,7 @@ test('given a run recorded under a timeout, when it is finalized as exceeded on 
   store.close();
 });
 
-test('given a store file whose runs predate limits, holding a finished run, when the store is opened, then that run reads back with no timeout, harness start or exceeded limit and a run with them round-trips', () => {
+test('given a store file whose runs predate limits, holding a finished run, when the store is opened, then that run reads back with no timeout, budget, harness start or exceeded limit and a run with them round-trips', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const old = new DatabaseSync(path);
   old.exec(`
@@ -686,6 +690,7 @@ test('given a store file whose runs predate limits, holding a finished run, when
     status: 'exceeded',
     harnessStartTime: '2026-09-21T11:00:10.000Z',
     timeoutSeconds: 60,
+    maxCostUsd: 5,
     exceededLimit: 'timeout',
   });
 
@@ -695,6 +700,7 @@ test('given a store file whose runs predate limits, holding a finished run, when
   const past = store.getRun('past');
   assert.equal(past?.harnessStartTime, null);
   assert.equal(past?.timeoutSeconds, null);
+  assert.equal(past?.maxCostUsd, null);
   assert.equal(past?.exceededLimit, null);
   assert.deepEqual(store.getRun('limited'), limited);
   store.close();
@@ -767,4 +773,48 @@ test('given a store file whose runs predate fingerprints, when the store is open
   assert.deepEqual(store.getFingerprint('new'), aRunFingerprint());
   store.close();
   Store.open(path).close();
+});
+
+test('given a store file whose dispatches predate pull request tracking, when the store is opened twice, then the old dispatch reads back with no pull request and a new one records its pull request', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE dispatches (
+      id         INTEGER PRIMARY KEY,
+      repository TEXT NOT NULL,
+      number     INTEGER NOT NULL,
+      url        TEXT NOT NULL,
+      run_id     TEXT,
+      state      TEXT NOT NULL,
+      reason     TEXT,
+      detail     TEXT,
+      started_at TEXT NOT NULL,
+      alive_at   TEXT NOT NULL,
+      ended_at   TEXT
+    ) STRICT;
+    INSERT INTO dispatches VALUES
+      (1, 'forge', 112, 'https://github.com/rameezk/forge/issues/112', NULL, 'done', NULL, NULL, '2026-09-21T10:00:00.000Z', '2026-09-21T10:00:00.000Z', '2026-09-21T10:01:00.000Z');
+  `);
+  old.close();
+  Store.open(path).close();
+
+  const store = Store.open(path);
+  const at = '2026-09-21T11:00:00.000Z';
+  const start = store.startDispatch(
+    { repository: 'forge', number: 113, url: 'https://github.com/rameezk/forge/issues/113' },
+    'run-113',
+    at,
+    10,
+  );
+  assert.ok('started' in start);
+  store.endDispatch(start.started, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);
+
+  assert.deepEqual(
+    store.listDispatches(at).map(({ number, pullRequest }) => ({ number, pullRequest })),
+    [
+      { number: 112, pullRequest: null },
+      { number: 113, pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143', state: 'open', settledAt: null, rework: null } },
+    ],
+  );
+  store.close();
 });

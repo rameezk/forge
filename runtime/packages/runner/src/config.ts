@@ -12,6 +12,7 @@ export interface WorkerConfig {
   prompt: string;
   reasoningEffort?: string;
   timeoutSeconds?: number | null;
+  maxCostUsd?: number | null;
 }
 
 export interface RepositoryConfig {
@@ -78,5 +79,6 @@ export const resolveWorker = (
     prompt: worker.prompt,
     ...withEffort(reasoningEffort),
     timeoutSeconds: worker.timeoutSeconds ?? null,
+    maxCostUsd: worker.maxCostUsd ?? null,
   };
 };

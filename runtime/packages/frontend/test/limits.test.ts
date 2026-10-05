@@ -32,6 +32,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   aliveAt: null,
   harnessStartTime: '2026-09-21T10:00:30.000Z',
   timeoutSeconds: 7200,
+  maxCostUsd: null,
   exceededLimit: 'timeout',
   ...overrides,
 });
@@ -103,4 +104,69 @@ test('given a running run with a 2 hour timeout whose harness started after its 
   const open = counting(await bodyOf(app, '/runs/open'));
   assert.match(open, /data-elapsed-since="2026-09-21T10:00:00.000Z"/);
   assert.doesNotMatch(open, /data-elapsed-limit/);
+});
+
+test('given a running run with a 5 USD budget that has spent 3.20 USD, and one with no budget, when the list and run pages render, then the first reads $3.20 / $5 and the second its plain cost', async () => {
+  const running = { status: 'running', endTime: null, costStatus: 'pending', costEstimated: true, exceededLimit: null, error: null } as const;
+  const app = appWith((store) => {
+    store.insertRun(sampleRun({ id: 'budgeted', ...running, costUsd: 3.2, maxCostUsd: 5 }));
+    store.insertRun(sampleRun({ id: 'open', ...running, costUsd: 3.2, maxCostUsd: null }));
+  });
+
+  const spend = (body: string): string => textOf(body.match(/<span[^>]*\sdata-spend[^>]*>[\s\S]*?<\/span>/)?.[0] ?? '');
+  assert.equal(spend(await bodyOf(app, '/runs/budgeted')), '$3.20 / $5');
+  assert.equal(spend(await bodyOf(app, '/')), '$3.20 / $5');
+  assert.equal(spend(await bodyOf(app, '/runs/open')), '');
+});
+
+test('given budgets of 5, 2.5 and 0.5 USD on running runs, when their pages render, then each reads as the cheapest exact amount with at least two decimals unless whole', async () => {
+  const running = { status: 'running', endTime: null, costStatus: 'pending', costEstimated: true, exceededLimit: null, error: null, costUsd: 0.1 } as const;
+  const app = appWith((store) => {
+    for (const [id, maxCostUsd] of [['five', 5], ['half', 0.5], ['quarter', 2.5]] as const) {
+      store.insertRun(sampleRun({ id, ...running, maxCostUsd }));
+    }
+  });
+
+  const budgetOf = async (id: string): Promise<string | undefined> =>
+    textOf((await bodyOf(app, `/runs/${id}`)).match(/<span[^>]*\sdata-spend[^>]*>[\s\S]*?<\/span>/)?.[0] ?? '').split(' / ')[1];
+  assert.deepEqual([await budgetOf('five'), await budgetOf('half'), await budgetOf('quarter')], ['$5', '$0.50', '$2.50']);
+});
+
+test('given a run that ended exceeded on its 5 USD budget at 5.21 USD, when its page and the list render, then each shows an amber exceeded pill and the page a callout reading Stopped at $5.21 of a $5 budget', async () => {
+  const app = appWith((store) =>
+    store.insertRun(
+      sampleRun({
+        costUsd: 5.21,
+        maxCostUsd: 5,
+        timeoutSeconds: null,
+        exceededLimit: 'budget',
+        error: 'the workload was stopped after its budget was exceeded',
+      }),
+    ),
+  );
+
+  const page = await bodyOf(app, '/runs/run-01');
+  const callout = page.match(/<p[^>]*\sdata-exceeded[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
+  assert.match(openingTag(callout), /bg-warning-soft/);
+  assert.equal(textOf(callout), 'Stopped at $5.21 of a $5 budget');
+  assert.match(await bodyOf(app, '/'), /<span[^>]*\sdata-status="exceeded"[^>]*>\s*exceeded\s*<\/span>/);
+});
+
+test('given a dispatch that ended exceeded on its budget, when the work page renders, then the dispatch reads Exceeded budget beside a failed pill', async () => {
+  const url = 'https://github.com/rameezk/forge/issues/57';
+  const app = appWith((store) => {
+    store.replaceFrontier({
+      repository: 'forge',
+      github: 'rameezk/forge',
+      polledAt: '2026-09-29T08:15:00.000Z',
+      tickets: [{ number: 57, title: 'Costly ticket', url, parent: null, createdAt: '2026-09-28T10:00:00Z', forgeReady: false, blocked: false }],
+    });
+    const start = store.startDispatch({ repository: 'forge', number: 57, url }, 'run-57', '2026-09-29T08:00:00.000Z', Number.POSITIVE_INFINITY);
+    assert.ok('started' in start);
+    store.endDispatch(start.started, { state: 'failed', reason: 'exceeded', detail: 'budget' }, '2026-09-29T10:00:00.000Z');
+  });
+
+  const cell = (await bodyOf(app, '/work')).match(/<td[^>]*\sdata-dispatch="failed"[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
+
+  assert.match(textOf(cell), /failed .*Exceeded budget$/);
 });

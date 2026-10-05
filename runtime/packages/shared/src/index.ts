@@ -22,6 +22,9 @@ export type {
   DispatchStart,
   DispatchState,
   DispatchTicket,
+  PullRequestRecord,
+  PullRequestRef,
+  PullRequestState,
 } from './dispatch.ts';
 export type {
   CompactionEvent,
@@ -37,6 +40,7 @@ export type {
   Fetch,
   LabelledIssue,
   PolledFrontier,
+  PullRequestSnapshot,
   PollFailure,
   RepositoryFrontier,
   SpecRef,
@@ -47,16 +51,19 @@ export {
   FRONTIER_PAGE_SIZE,
   FRONTIER_QUERY,
   GITHUB_GRAPHQL_API,
-  hasOpenClosingPullRequest,
+  findOpenClosingPullRequest,
   isGithubRepository,
   isGithubUrl,
   offFrontier,
   oldestFirst,
   queryFrontier,
   queryLabelled,
+  queryPullRequest,
   queryTicket,
+  reworkOf,
   requestFrontierPage,
   requestLabelledPage,
+  requestPullRequest,
   requestClosingPullRequests,
   requestTicket,
 } from './frontier.ts';
@@ -79,7 +86,7 @@ export {
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export { githubWriteToken } from './token.ts';
-export { Store } from './store.ts';
+export { Store, type WorkloadSpend } from './store.ts';
 export {
   parseTranscript,
   rawEventsRef,

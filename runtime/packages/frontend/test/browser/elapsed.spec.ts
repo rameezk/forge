@@ -29,6 +29,7 @@ const runningRun: RunRecord = {
   aliveAt: null,
   harnessStartTime: null,
   timeoutSeconds: null,
+  maxCostUsd: null,
   exceededLimit: null,
 };
 
@@ -94,7 +95,7 @@ test('given a running dispatch and a finished one, when the work page renders an
     return started.started;
   };
   dispatch(56);
-  dashboard.store.endDispatch(dispatch(57), { state: 'done' }, '2026-09-21T12:15:40.000Z');
+  dashboard.store.endDispatch(dispatch(57), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, '2026-09-21T12:15:40.000Z');
   await openAt(page, minutesAfterStart(125), '/work');
   const running = page.getByRole('row', { name: /Ticket 56/ }).locator('[data-dispatch-elapsed]');
   const finished = page.getByRole('row', { name: /Ticket 57/ }).locator('[data-dispatch-elapsed]');

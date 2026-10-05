@@ -477,12 +477,12 @@ dispatched run.
 When the run ends, forge asks GitHub whether an open pull request from a
 branch of the repository itself closes the ticket, ignoring pull requests from
 forks or other repositories. If one does, the ticket becomes `forge:done`,
-however the run ended, except a run that exceeded its timeout, which always
-fails. Otherwise it becomes `forge:failed`. The Work page shows each ticket's
+however the run ended, except a run that exceeded its timeout or budget, which
+always fails. Otherwise it becomes `forge:failed`. The Work page shows each ticket's
 dispatch state, and for a failed ticket its reason, linked to its run: the run
 errored, it ended without a pull request (with the agent's final message), the
 skill was not found, the run was interrupted, or it was stopped for exceeding
-its timeout. Each dispatch moves a ticket
+its timeout or budget. Each dispatch moves a ticket
 labelled `forge:running` that no live dispatch is working on to `forge:failed`
 as interrupted, and moves one whose dispatch already ended to the label of its
 recorded outcome. To retry a ticket, label it `forge:ready` again. The labels are
@@ -569,6 +569,37 @@ dashboard shows an amber `exceeded` pill with a callout such as "Stopped after
 2h of a 2h timeout", and the Work page reads "Exceeded timeout". A running
 workload's elapsed time ticks against its timeout, such as "45m / 2h", counted
 from the harness's start.
+
+### Workload budget
+
+A workload may spend at most `forge.runtime.workload.maxCost`, 5 USD by
+default, a positive number of USD. A worker overrides it with its own
+`maxCost`, and `null` means unlimited, either as the default or for one worker.
+A budget that is not a positive number does not evaluate. There is no
+per-repository budget, and it applies to scheduled and dispatched workloads
+alike.
+
+The budget covers the whole workload, subagents included. Spend is each
+generation's billed cost where OpenRouter has billed it and forge's estimate at
+the model's list price otherwise, and the runner checks it after every
+generation it records. A workload with a budget whose model's list price forge
+cannot fetch from OpenRouter at start is refused before the harness starts and
+spends nothing, and its run ends `error`. A generation that has neither a billed
+cost nor an estimate, such as one that used cache tokens of a model with no
+cache price, ends the workload exceeded, since forge cannot tell what it cost.
+
+When spend passes the budget, forge kills the workload's sandbox at once, the
+harness and every subagent with it, and ends the run `exceeded` on its budget,
+recording the budget it ran under. Because spend is checked between
+generations, a workload can overshoot its budget by the generations in flight
+when it is checked, and by more when subagents run concurrently. The agent is
+neither warned nor told its budget, and nothing retries the workload. A
+dispatched workload that ends exceeded fails its dispatch as described above.
+
+The dashboard shows a running workload's spend against its budget, such as
+"$3.20 / $5". An exceeded run has an amber `exceeded` pill with a callout such
+as "Stopped at $5.21 of a $5 budget", and the Work page reads "Exceeded
+budget".
 
 ## Inspecting the run store
 

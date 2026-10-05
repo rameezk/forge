@@ -2,6 +2,14 @@ import type { RunRecord } from '@forge/shared';
 
 export const formatCost = (usd: number): string => `$${usd.toFixed(6)}`;
 
+export const formatSpend = (usd: number): string => `$${usd.toFixed(2)}`;
+
+export const formatBudget = (usd: number): string => {
+  if (Number.isInteger(usd)) return `$${usd}`;
+  const [whole, fraction = ''] = usd.toFixed(6).replace(/0+$/, '').split('.');
+  return `$${whole}.${fraction.padEnd(2, '0')}`;
+};
+
 export const formatTotal = (usd: number): string => `$${usd.toFixed(4)}`;
 
 export const formatStarted = (iso: string): string => {
