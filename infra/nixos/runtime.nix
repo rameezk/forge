@@ -188,6 +188,11 @@ let
     message = "forge.runtime.dispatch.gitIdentity must be set when a repository declares a worker: dispatched workloads commit as that identity";
   };
 
+  workerNameAssertions = lib.mapAttrsToList (name: _: {
+    assertion = builtins.match "[A-Za-z0-9_-]+" name != null;
+    message = "forge.runtime.workers.${name} must have a name of only letters, digits, `_` and `-`: it names the unit instance forge-runner@${name} and its backstop drop-in";
+  }) cfg.workers;
+
   dispatchAssertions = lib.concatLists (
     lib.mapAttrsToList (
       name: r:
@@ -430,6 +435,7 @@ in
         gitIdentityAssertion
         untrustedAssertion
       ]
+      ++ workerNameAssertions
       ++ dispatchAssertions;
 
       security.allowUserNamespaces = true;

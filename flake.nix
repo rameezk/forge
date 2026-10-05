@@ -1114,6 +1114,18 @@
             lib.asserts.assertMsg (
               scheduledBackstopOf host "forever" == null && scheduledBackstopOf host "hour" == backstopText 5400
             ) "a scheduled worker whose timeout is null must have no start timeout on its runner unit";
+          workerNamesFitUnitNames =
+            lib.asserts.assertMsg
+              (
+                lib.all (name: !(evaluates (backstopHost { workers.${name} = { }; }))) [
+                  "has.dot"
+                  "has space"
+                  "has@at"
+                  "has/slash"
+                ]
+                && evaluates (backstopHost { workers."Plain_name-2" = { }; })
+              )
+              "a worker name must use only letters, digits, `_` and `-`, so that the unit instance forge-runner@<name> and its backstop drop-in carry the same name";
           dispatchBackstopIsLongestTimeoutPlusThirtyMinutes =
             let
               host = backstopHost {
@@ -1306,6 +1318,7 @@
           runtime-workload-backstop =
             assert scheduledBackstopIsTimeoutPlusThirtyMinutes;
             assert scheduledBackstopLeavesTheUnitsEnvironmentAlone;
+            assert workerNamesFitUnitNames;
             assert unlimitedScheduledWorkerHasNoBackstop;
             assert dispatchBackstopIsLongestTimeoutPlusThirtyMinutes;
             assert unlimitedDispatchingWorkerRemovesDispatchBackstop;
