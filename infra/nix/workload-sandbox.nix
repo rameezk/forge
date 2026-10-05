@@ -37,6 +37,10 @@ let
       linger)
         sleep 600
         ;;
+      hog)
+        bash -c 'tail /dev/zero'
+        echo "$?" > hog.out
+        ;;
       probe*)
         {
           attempt "read forge.db" "cat /var/lib/forge/forge.db"
@@ -92,7 +96,7 @@ let
     forge.runtime.package = forge-runner;
     forge.runtime.harnesses.pi.command = lib.getExe stubHarness;
     forge.runtime.workers =
-      lib.genAttrs [ "plant" "linger" ] (name: {
+      lib.genAttrs [ "plant" "linger" "hog" ] (name: {
         harness = "pi";
         model = "stub/sandbox";
         prompt = name;
@@ -117,7 +121,10 @@ in
 testers.runNixOSTest {
   name = "workload-sandbox";
 
-  nodes.box = box { };
+  nodes.box = box {
+    boot.kernel.sysctl."vm.panic_on_oom" = 0;
+    forge.runtime.workload.memoryMax = "256M";
+  };
 
   nodes.unconfinable = box {
     boot.kernel.sysctl."user.max_user_namespaces" = 0;
@@ -138,6 +145,14 @@ testers.runNixOSTest {
     with subtest("a workload can write its HOME and /tmp"):
         box.succeed("systemctl start forge-runner@plant")
         assert box.succeed("cat /var/lib/forge/work/*/planted.out").strip() == "planted"
+
+    with subtest("a command that exhausts the workload's memory is killed alone, and the workload carries on"):
+        box.succeed("systemctl start forge-runner@hog")
+        assert box.succeed("cat /var/lib/forge/work/*/hog.out").strip() == "137"
+        status = box.succeed("sqlite3 /var/lib/forge/forge.db \"select status from runs where worker = 'hog'\"").strip()
+        assert status == "success", status
+        kill = box.succeed("dmesg | grep oom-kill:")
+        assert "constraint=CONSTRAINT_MEMCG" in kill and "forge-runner@hog.service" in kill, kill
 
     box.succeed("install -d -o forge-runtime -g forge-runtime /var/lib/forge/work/other-run")
     box.succeed("runuser -u forge-runtime -- sh -c 'echo report > /var/lib/forge/work/other-run/report.md'")

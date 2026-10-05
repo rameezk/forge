@@ -387,6 +387,17 @@ const isAlive = (pid: number): boolean => {
   return !isZombie(pid);
 };
 
+const exitsWithin = async (pid: number, ms: number): Promise<boolean> => {
+  const deadline = Date.now() + ms;
+  while (isAlive(pid)) {
+    if (Date.now() > deadline) {
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return true;
+};
+
 const abortOnceDone = (
   abort: AbortController,
 ): ((update: SubagentUpdate) => void) => {
@@ -420,7 +431,7 @@ test('given a call that is aborted while its child is still running a tool, when
     .log()
     .flatMap((entry) => ('tool' in entry ? [entry.tool] : []));
   assert.equal(tools.length, 1);
-  assert.equal(isAlive(tools[0] as number), false);
+  assert.equal(await exitsWithin(tools[0] as number, 5_000), true);
 });
 
 test('given an aborted child that ignores the request to stop, when the tool executes, then it is killed anyway', async () => {

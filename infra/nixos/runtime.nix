@@ -208,6 +208,11 @@ let
     IPAddressDeny = tailnetAddresses;
   };
 
+  workloadMemory = {
+    MemoryMax = cfg.workload.memoryMax;
+    OOMPolicy = "continue";
+  };
+
   baseToolset = [
     "bash"
     "coreutils"
@@ -279,6 +284,16 @@ in
       default = "5min";
       example = "15min";
       description = "How often the frontier poller syncs the managed repositories' frontier from GitHub, as a systemd time span.";
+    };
+
+    workload.memoryMax = lib.mkOption {
+      type =
+        lib.types.addCheck
+          (lib.types.strMatching "[0-9]+|[0-9]+(\\.[0-9]+)?[KMGTPE]|[0-9]{1,2}(\\.[0-9]{1,2})?%|100(\\.0{1,2})?%|infinity")
+          (value: builtins.match "[0.]+[KMGTPE%]?" value == null);
+      default = "80%";
+      example = "6G";
+      description = "Memory a single workload may use, harness, subagents and every command they run included, as a systemd `MemoryMax=` value: a size such as `6G`, or a percentage of the box's physical memory. A workload that goes over it has its largest process, in practice the runaway command, killed by the kernel, and carries on: the agent sees that command exit with 137. The limit is per workload, so workloads running at once can together use more, and builds the nix daemon runs for a workload fall outside it.";
     };
 
     toolset = lib.mkOption {
@@ -386,6 +401,7 @@ in
           ];
           ExecStart = "${cfg.package}/bin/forge-run %i";
         }
+        // workloadMemory
         // workloadHardening;
       };
 
@@ -535,6 +551,7 @@ in
           ];
           ExecStart = "${dispatchInstance} %i";
         }
+        // workloadMemory
         // writeTokenCredential
         // workloadHardening;
       };
