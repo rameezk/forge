@@ -55,8 +55,10 @@
       host = forge.lib.mkHost { inherit configFile secretsFile; };
       # Declare a worker to turn this box into a runnable forge host. Pass inline
       # NixOS modules to mkHost; each sets forge.runtime.* and installs the harness
-      # binary. Uncomment and adapt:
+      # binary. A ticket is dispatchable once its repository names a worker whose
+      # prompt takes the ticket as {url}. Uncomment and adapt:
       #
+      # forge:example-begin
       #   host = forge.lib.mkHost {
       #     inherit configFile secretsFile;
       #     modules = [
@@ -64,16 +66,25 @@
       #         { pkgs, ... }:
       #         {
       #           forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
-      #           forge.runtime.workers.refiner = {
+      #           forge.runtime.workers.builder = {
       #             harness = "pi";
-      #             model = "anthropic/claude-opus-4";
-      #             prompt = "refine the spec";
+      #             model = "anthropic/claude-sonnet-5.5";
+      #             prompt = "/work-on {url}";
+      #           };
+      #           forge.runtime.repositories.myrepo = {
+      #             github = "your-org/your-repo";
+      #             worker = "builder";
+      #           };
+      #           forge.runtime.dispatch.gitIdentity = {
+      #             name = "Your Name";
+      #             email = "you@example.com";
       #           };
       #           environment.systemPackages = [ pkgs.pi-coding-agent ];
       #         }
       #       )
       #     ];
       #   };
+      # forge:example-end
       actualKeys = host.config.users.users.${cfg.adminUser}.openssh.authorizedKeys.keys;
       actualHostName = host.config.networking.hostName;
 
