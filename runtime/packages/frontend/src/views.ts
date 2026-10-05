@@ -61,7 +61,9 @@ const PAGE_TITLE = 'm-0 mb-3 text-xl font-bold';
 const SECTION_TITLE = 'm-0 text-[1.1rem] font-bold';
 const EMPTY = 'm-0 text-muted';
 const LINK = 'rounded-sm font-medium text-accent-text no-underline hover:underline';
-const ERROR_CALLOUT = 'm-0 rounded-lg bg-error-soft px-4 py-2.5 text-error break-words';
+const CALLOUT = 'm-0 rounded-lg px-4 py-2.5 break-words';
+const ERROR_CALLOUT = `${CALLOUT} bg-error-soft text-error`;
+const WARNING_CALLOUT = `${CALLOUT} bg-warning-soft text-warning`;
 const CARD = 'overflow-x-auto rounded-lg border border-line bg-surface';
 const TABLE = 'w-full border-collapse text-[0.9rem]';
 const TH = 'whitespace-nowrap border-b border-line bg-raised px-3.5 py-2.5 text-left text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-fg';
@@ -150,6 +152,7 @@ const STATUS_TONE: Record<RunStatus, string> = {
   success: 'bg-success-soft text-success',
   error: 'bg-error-soft text-error',
   running: 'bg-raised text-fg',
+  interrupted: 'bg-warning-soft text-warning',
 };
 
 const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -596,7 +599,7 @@ const subagentStatus = (
   runStatus: RunStatus,
 ): RunStatus => {
   if (report !== undefined) return report.isError ? 'error' : 'success';
-  return runStatus === 'running' ? 'running' : 'error';
+  return runStatus === 'running' || runStatus === 'interrupted' ? runStatus : 'error';
 };
 
 const subagentCost = (
@@ -833,7 +836,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
       ${renderDownloads(run, downloads)}
     </dl>
-    ${run.error === null ? '' : html`<p class="${ERROR_CALLOUT} mb-4">${run.error}</p>`}
+    ${run.error === null ? '' : html`<p class="${run.status === 'interrupted' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
     ${renderContext(context)}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0

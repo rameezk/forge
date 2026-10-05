@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import {
   errorMessage,
-  DISPATCH_HEARTBEAT_MS,
   FORGE_DONE,
   FORGE_FAILED,
   FORGE_READY,
@@ -10,10 +9,11 @@ import {
   hasOpenClosingPullRequest,
   githubWriteToken,
   offFrontier,
-  queryLabelled,
   queryTicket,
   Store,
   relabel,
+  settleRunningTickets,
+  startHeartbeat,
   type DispatchOutcome,
   type DispatchStart,
   type DispatchTicket,
@@ -119,7 +119,7 @@ const repositoryNamed = (
   return { github: repository.github, worker: repository.worker };
 };
 
-const settleRunningTickets = async (
+const settleAllRunningTickets = async (
   store: Store,
   repositories: Record<string, RepositoryConfig> | undefined,
   fetch: Fetch,
@@ -127,25 +127,15 @@ const settleRunningTickets = async (
 ): Promise<void> => {
   for (const [name, { github, worker }] of Object.entries(repositories ?? {})) {
     if (worker === undefined) continue;
-    try {
-      for (const issue of await queryLabelled(fetch, token, github, FORGE_RUNNING)) {
-        const settled = store.reconcileDispatch({ repository: name, ...issue }, now());
-        if (settled === null) continue;
-        await relabel(
-          fetch,
-          token,
-          github,
-          issue.number,
-          settled === 'done' ? FORGE_DONE : FORGE_FAILED,
-          [FORGE_RUNNING, FORGE_READY],
-        );
-        console.error(`${name}#${issue.number} was settled as ${settled}`);
-      }
-    } catch (error) {
-      console.error(
-        `${name}: could not settle tickets labelled ${FORGE_RUNNING}: ${errorMessage(error)}`,
-      );
-    }
+    await settleRunningTickets({
+      store,
+      fetch,
+      token: () => token,
+      repository: name,
+      github,
+      now,
+      log: (line) => console.error(line),
+    });
   }
 };
 
@@ -218,7 +208,7 @@ export const main = async (
 
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   try {
-    await settleRunningTickets(store, config.repositories, fetch, token);
+    await settleAllRunningTickets(store, config.repositories, fetch, token);
 
     const ticket = await queryTicket(
       fetch,
@@ -240,9 +230,12 @@ export const main = async (
       return 1;
     }
     const dispatchId = start.started;
-    const heartbeat = setInterval(
+    const stopHeartbeat = startHeartbeat(
       () => store.touchDispatch(dispatchId, now()),
-      DISPATCH_HEARTBEAT_MS,
+      (error) =>
+        console.error(
+          `${name}#${ticket.number}: could not refresh its dispatch heartbeat: ${errorMessage(error)}`,
+        ),
     );
     try {
       const failAs = (stage: string, error: unknown): never => {
@@ -303,7 +296,7 @@ export const main = async (
       );
       return launched.run.status === 'error' ? 1 : 0;
     } finally {
-      clearInterval(heartbeat);
+      stopHeartbeat();
     }
   } finally {
     store.close();

@@ -28,6 +28,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   sessionId: 'sess-abc',
   error: null,
   ticket: null,
+  aliveAt: null,
   ...overrides,
 });
 
@@ -119,19 +120,36 @@ test('given one workload fully billed, one with an unbilled generation and one u
   assert.equal(textOf(list.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.2600 +1 pending');
 });
 
-test('given a successful, a failed and a running run, when the list is requested, then each row shows its own status', async () => {
+test('given a successful, a failed, a running and an interrupted run, when the list is requested, then each row shows its own status, with interrupted in the warning tone rather than the error tone', async () => {
   const app = appWith([
     sampleRun({ id: 'ok', status: 'success' }),
     sampleRun({ id: 'failed', status: 'error', error: 'provider exploded' }),
     sampleRun({ id: 'running', status: 'running', endTime: null, costStatus: 'pending' }),
+    sampleRun({ id: 'interrupted', status: 'interrupted', costStatus: 'unconfirmed' }),
   ]);
 
   const body = await (await app.request('/')).text();
-  for (const [id, status] of [['ok', 'success'], ['failed', 'error'], ['running', 'running']] as const) {
+  for (const [id, status] of [['ok', 'success'], ['failed', 'error'], ['running', 'running'], ['interrupted', 'interrupted']] as const) {
     const badge = statusIn(rowFor(body, id));
     assert.match(badge, new RegExp(`\\sdata-status="${status}"`));
     assert.equal(textOf(badge), status);
   }
+  assert.match(openingTag(statusIn(rowFor(body, 'interrupted'))), /\bbg-warning-soft\b[^"]*\btext-warning\b/);
+});
+
+test('given an interrupted run and a failed run, when each run page is viewed, then each shows why it ended, the interrupted one in the warning tone and the failed one in the error tone', async () => {
+  const app = appWith([
+    sampleRun({ id: 'interrupted', status: 'interrupted', costStatus: 'unconfirmed', error: 'runner stopped without finishing, last seen at 2026-09-21T10:03:20.000Z', transcriptRef: null }),
+    sampleRun({ id: 'failed', status: 'error', error: 'provider exploded', transcriptRef: null }),
+  ]);
+  const whyEnded = async (id: string, why: string): Promise<string> =>
+    (await (await app.request(`/runs/${id}`)).text()).match(new RegExp(`<p[^>]*>${why}</p>`))?.[0] ?? 'missing';
+
+  const interrupted = await whyEnded('interrupted', 'runner stopped without finishing, last seen at 2026-09-21T10:03:20.000Z');
+  const failed = await whyEnded('failed', 'provider exploded');
+
+  assert.match(openingTag(interrupted), /\bbg-warning-soft\b[^"]*\btext-warning\b/);
+  assert.match(openingTag(failed), /\bbg-error-soft\b[^"]*\btext-error\b/);
 });
 
 test('given a run dispatched for a ticket and a run started by hand, when the list is requested, then the dispatched run shows its repository and ticket linked to the issue and the other shows none', async () => {
@@ -937,7 +955,7 @@ test('given a run with two subagents, when its run page is viewed, then each hea
   assert.match(textOf(b), /\$0\.010000/);
 });
 
-test('given subagents with a successful report, an error report, no report in a running run, and no report in an ended run, when run pages are viewed, then their headers show success, error, running and error', async () => {
+test('given subagents with a successful report, an error report, no report in a running run, no report in an ended run, and no report in an interrupted run, when run pages are viewed, then their headers show success, error, running, error and interrupted', async () => {
   const events = (result: HarnessEvent[]): HarnessEvent[] => [spawn('call_a'), child('call_a', 1, 1), ...result];
   const statusOfOnly = async (run: Partial<RunRecord>, result: HarnessEvent[]): Promise<string> => {
     const body = await viewWithGenerations(run, events(result), []);
@@ -948,6 +966,7 @@ test('given subagents with a successful report, an error report, no report in a 
   assert.equal(await statusOfOnly({}, [{ type: 'tool_result', id: 'call_a', isError: true, text: 'boom' }]), 'error');
   assert.equal(await statusOfOnly({ status: 'running', endTime: null }, []), 'running');
   assert.equal(await statusOfOnly({ status: 'error' }, []), 'error');
+  assert.equal(await statusOfOnly({ status: 'interrupted' }, []), 'interrupted');
 });
 
 test('given subagents whose generations are all billed, partly unbilled, partly given up, partly unbilled with an estimate, and unbilled with only some estimated, when the run page is viewed, then their headers show the billed cost, the cost so far marked pending, the cost so far with the unconfirmed badge, the cost with its estimate marked estimated, and only pending', async () => {

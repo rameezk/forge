@@ -69,7 +69,7 @@ const replaying = (responses: Record<string, RecordedPage[]>) => {
   return { fetch, requests };
 };
 
-const declaring = (repositories: Record<string, { github: string }>) => {
+const declaring = (repositories: Record<string, { github: string; worker?: string }>) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-frontier-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -700,4 +700,134 @@ test('given a GITHUB_TOKEN padded with whitespace, when list runs, then GitHub i
     github.requests.map(({ authorization }) => authorization),
     [`bearer ${GITHUB_TOKEN}`],
   );
+});
+
+interface LabelledPage {
+  data: { repository: { issues: { nodes: { number: number }[] } } };
+}
+
+const runningIssues = (
+  graphql: ReturnType<typeof replaying>,
+  numbers: number[],
+): ReturnType<typeof replaying> => ({
+  ...graphql,
+  fetch: async (input, init) => {
+    const body = JSON.parse(String(init?.body)) as Request['body'];
+    if (body.variables.label !== 'forge:running') return graphql.fetch(input, init);
+    const page = JSON.parse(
+      readFileSync(join(FIXTURES, 'labelled-issues.json'), 'utf8'),
+    ) as LabelledPage;
+    page.data.repository.issues.nodes = page.data.repository.issues.nodes.filter(
+      ({ number }) => numbers.includes(number),
+    );
+    return new Response(JSON.stringify(page), {
+      headers: { 'content-type': 'application/json' },
+    });
+  },
+});
+
+const allForgeLabels = Object.fromEntries(
+  FORGE_LABELS.map(({ name, color, description }) => [name, { color, description }]),
+);
+
+const dispatchedEarlier = (stateDir: string, numbers: Record<number, string>): void => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    for (const [number, startedAt] of Object.entries(numbers)) {
+      store.startDispatch(
+        { repository: 'forge', number: Number(number), url: `https://github.com/rameezk/forge/issues/${number}` },
+        `run-${number}`,
+        startedAt,
+        10,
+      );
+    }
+  } finally {
+    store.close();
+  }
+};
+
+const storedDispatches = (stateDir: string) => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    return store
+      .listDispatches(new Date().toISOString())
+      .map(({ number, state, reason }) => ({ number, state, reason }));
+  } finally {
+    store.close();
+  }
+};
+
+test('given a repository with a worker whose forge:running tickets are one with a dispatch that stopped beating and one with a live dispatch, when sync runs with a GitHub write-token file, then the stale one becomes forge:failed as interrupted, losing forge:running and forge:ready, and the live one is left alone', async () => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  dispatchedEarlier(stateDir, { 114: '2026-09-01T09:00:00.000Z', 123: new Date().toISOString() });
+  const github = labelling(
+    runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), [114, 123]),
+    allForgeLabels,
+  );
+
+  const code = await main(
+    ['sync'],
+    withWriteToken(env, stateDir, `GITHUB_TOKEN=${WRITE_TOKEN}\n`),
+    github.fetch,
+  );
+
+  assert.equal(code, 0);
+  assert.deepEqual(
+    github.calls.filter(({ path }) => path.includes('/issues/')),
+    [
+      { method: 'POST', path: '/repos/rameezk/forge/issues/114/labels', authorization: `bearer ${WRITE_TOKEN}`, body: { labels: ['forge:failed'] } },
+      { method: 'DELETE', path: '/repos/rameezk/forge/issues/114/labels/forge%3Arunning', authorization: `bearer ${WRITE_TOKEN}`, body: null },
+      { method: 'DELETE', path: '/repos/rameezk/forge/issues/114/labels/forge%3Aready', authorization: `bearer ${WRITE_TOKEN}`, body: null },
+    ],
+  );
+  assert.deepEqual(storedDispatches(stateDir), [
+    { number: 114, state: 'failed', reason: 'interrupted' },
+    { number: 123, state: 'running', reason: null },
+  ]);
+});
+
+test('given a stale forge:running ticket GitHub refuses to relabel, when sync runs with a GitHub write-token file, then the frontier is still stored, and the refusal is reported with a non-zero exit code', async (t) => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  dispatchedEarlier(stateDir, { 114: '2026-09-01T09:00:00.000Z' });
+  const labels = labelling(
+    runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), [114]),
+    allForgeLabels,
+  );
+  const refusing = async (input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> =>
+    String(input).includes('/issues/') ? new Response('{}', { status: 403 }) : labels.fetch(input, init);
+  const stderr: string[] = [];
+  t.mock.method(console, 'error', (line: string) => stderr.push(line));
+
+  const code = await main(
+    ['sync'],
+    withWriteToken(env, stateDir, `GITHUB_TOKEN=${WRITE_TOKEN}\n`),
+    refusing,
+  );
+
+  assert.notEqual(code, 0);
+  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 7);
+  assert.deepEqual(stderr, [
+    'forge: could not settle tickets labelled forge:running: GitHub answered 403 labelling rameezk/forge#114 forge:failed',
+  ]);
+});
+
+test('given a repository with a worker and a GitHub write-token file that sets no token, when sync runs, then the frontier is still stored, and the missing write token is reported for the labels and the forge:running tickets with a non-zero exit code', async (t) => {
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  const github = labelling(replaying({ 'rameezk/forge': recorded('frontier') }), {});
+  const stderr: string[] = [];
+  t.mock.method(console, 'error', (line: string) => stderr.push(line));
+
+  const code = await main(
+    ['sync'],
+    withWriteToken(env, stateDir, 'OTHER=value\n'),
+    github.fetch,
+  );
+
+  assert.notEqual(code, 0);
+  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 7);
+  assert.deepEqual(github.calls, []);
+  assert.deepEqual(stderr, [
+    'forge: could not ensure the forge labels: GitHub write token missing',
+    'forge: could not settle tickets labelled forge:running: GitHub write token missing',
+  ]);
 });

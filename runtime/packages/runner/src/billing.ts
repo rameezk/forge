@@ -1,4 +1,9 @@
-import type { LookupResult, Store, UnsettledGeneration } from '@forge/shared';
+import {
+  STALE_AFTER_MS,
+  type LookupResult,
+  type Store,
+  type UnsettledGeneration,
+} from '@forge/shared';
 import type { LookupOutcome, LookUpGeneration } from './openrouter.ts';
 
 const CONCURRENT_LOOKUPS = 4;
@@ -76,6 +81,12 @@ export const settleGenerations = async ({
       );
     }
   });
+  const staleSince = new Date(Date.parse(attemptedAt) - STALE_AFTER_MS).toISOString();
+  for (const { id, lastSeen } of store.interruptStaleRuns(staleSince, attemptedAt)) {
+    log(
+      `run ${JSON.stringify(id)} was interrupted: its runner stopped without finishing, last seen at ${lastSeen}`,
+    );
+  }
   const quietSince = new Date(
     Date.parse(attemptedAt) - GIVE_UP_AFTER_MS,
   ).toISOString();

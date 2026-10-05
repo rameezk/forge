@@ -1,4 +1,4 @@
-export type RunStatus = 'running' | 'success' | 'error';
+export type RunStatus = 'running' | 'success' | 'error' | 'interrupted';
 
 export type CostStatus = 'pending' | 'billed' | 'unconfirmed';
 
@@ -36,6 +36,12 @@ export interface RunRecord {
   sessionId: string | null;
   error: string | null;
   ticket: RunTicket | null;
+  aliveAt: string | null;
+}
+
+export interface InterruptedRun {
+  id: string;
+  lastSeen: string;
 }
 
 export interface RunResult
