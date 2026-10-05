@@ -726,6 +726,10 @@ const runningIssues = (
   },
 });
 
+const allForgeLabels = Object.fromEntries(
+  FORGE_LABELS.map(({ name, color, description }) => [name, { color, description }]),
+);
+
 const dispatchedEarlier = (stateDir: string, numbers: Record<number, string>): void => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
@@ -758,7 +762,7 @@ test('given a repository with a worker whose forge:running tickets are one with 
   dispatchedEarlier(stateDir, { 114: '2026-09-01T09:00:00.000Z', 123: new Date().toISOString() });
   const github = labelling(
     runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), [114, 123]),
-    Object.fromEntries(FORGE_LABELS.map(({ name, color, description }) => [name, { color, description }])),
+    allForgeLabels,
   );
 
   const code = await main(
@@ -787,7 +791,7 @@ test('given a stale forge:running ticket GitHub refuses to relabel, when sync ru
   dispatchedEarlier(stateDir, { 114: '2026-09-01T09:00:00.000Z' });
   const labels = labelling(
     runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), [114]),
-    Object.fromEntries(FORGE_LABELS.map(({ name, color, description }) => [name, { color, description }])),
+    allForgeLabels,
   );
   const refusing = async (input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> =>
     String(input).includes('/issues/') ? new Response('{}', { status: 403 }) : labels.fetch(input, init);

@@ -36,12 +36,12 @@ const polling = (env: NodeJS.ProcessEnv, fetch: Fetch): Poll => {
   return (github) => queryFrontier(fetch, token, github);
 };
 
-interface Writes {
+interface GithubWrites {
   ensure: (github: string) => Promise<void>;
   settle: (store: Store, repository: string, github: string) => Promise<boolean>;
 }
 
-const writing = (env: NodeJS.ProcessEnv, fetch: Fetch): Writes | null =>
+const githubWrites = (env: NodeJS.ProcessEnv, fetch: Fetch): GithubWrites | null =>
   env.FORGE_GITHUB_WRITE_TOKEN_FILE === undefined
     ? null
     : {
@@ -62,7 +62,7 @@ const sync = async (
   config: FrontierConfig,
   env: NodeJS.ProcessEnv,
   poll: Poll,
-  writes: Writes | null,
+  writes: GithubWrites | null,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
   if (stateDir === undefined) {
@@ -162,7 +162,7 @@ export const main = async (
   const config = readConfig(env);
   const poll = polling(env, fetch);
   return command === 'sync'
-    ? sync(config, env, poll, writing(env, fetch))
+    ? sync(config, env, poll, githubWrites(env, fetch))
     : list(config, poll);
 };
 
