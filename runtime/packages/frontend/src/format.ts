@@ -84,3 +84,14 @@ export const totalCost = (runs: RunRecord[]): number =>
 
 export const pendingCount = (runs: RunRecord[]): number =>
   runs.filter(isPending).length;
+
+export const formatRate = (rate: number | null): string =>
+  rate === null ? 'n/a' : percentage.format(rate);
+
+const measure = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+
+export const formatMeasure = (value: number | null): string =>
+  value === null ? 'n/a' : measure.format(value);
+
+export const formatMilliseconds = (milliseconds: number): string =>
+  formatElapsed(milliseconds);

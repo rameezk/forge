@@ -83,6 +83,11 @@ export {
   fingerprintHash,
   sha256,
 } from './fingerprint.ts';
+export type {
+  CohortInsight,
+  InsightsFilter,
+  InsightsOptions,
+} from './insights.ts';
 export { countEvent, countEvents, noCounters } from './counters.ts';
 export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';
 export {

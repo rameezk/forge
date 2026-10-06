@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { rawEventsRef, requestRecordRef, type RunRecord, type Store } from '@forge/shared';
+import { rawEventsRef, requestRecordRef, type InsightsFilter, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
-import { isSettled, NAV_PAGES, renderDetail, renderList, renderWork, type AssetHrefs, type Downloads } from './views.ts';
+import { isSettled, NAV_PAGES, renderDetail, renderInsights, renderList, renderWork, type AssetHrefs, type Downloads } from './views.ts';
 
 const DETAIL_PAGE = /^\/runs\/([^/]+)$/;
 
@@ -69,6 +69,21 @@ export const createApp = ({
     c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), assets)),
   );
 
+  const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+  const filterOf = (query: Record<string, string>): InsightsFilter => ({
+    includeManual: query['manual'] === '1',
+    ...(query['worker'] ? { worker: query['worker'] } : {}),
+    ...(query['repository'] ? { repository: query['repository'] } : {}),
+    ...(DATE.test(query['from'] ?? '') ? { from: query['from']! } : {}),
+    ...(DATE.test(query['to'] ?? '') ? { to: query['to']! } : {}),
+  });
+
+  app.get('/insights', (c) => {
+    const filter = filterOf(c.req.query());
+    return c.html(renderInsights(store.listCohorts(filter), filter, store.insightsOptions(), assets));
+  });
+
   const downloadable = (ref: string | null): ref is string =>
     ref !== null && (transcripts.size(ref) ?? 0) > 0;
 
@@ -111,7 +126,7 @@ export const createApp = ({
 
   const watch = (page: string | undefined): (() => Check) | undefined => {
     if (page === undefined) return undefined;
-    if (NAV_PAGES.has(page)) return () => ({ version: String(store.dataVersion()), finished: false });
+    if (NAV_PAGES.has(page.split('?')[0]!)) return () => ({ version: String(store.dataVersion()), finished: false });
     const runId = runOfDetailPage(page);
     if (runId === undefined || store.getRun(runId) === undefined) return undefined;
     return () => {

@@ -25,6 +25,8 @@ import type {
 } from './generation.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
+import { aggregateCohorts } from './insights.ts';
+import type { CohortInsight, InsightsFilter, InsightsOptions } from './insights.ts';
 import type { RunSkillLoad } from './skill-loads.ts';
 import type {
   CostStatus,
@@ -424,6 +426,23 @@ type DispatchRow = {
   pr_url: string | null;
   pr_state: string | null;
   pr_settled_at: string | null;
+  pr_rework: number | null;
+};
+
+type InsightRow = {
+  fingerprint: string | null;
+  fingerprint_hash: string | null;
+  start_time: string;
+  end_time: string;
+  cost_usd: number;
+  input_tokens: number;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  tool_calls: number | null;
+  retries: number | null;
+  dispatched: number;
+  pr_number: number | null;
+  pr_state: string | null;
   pr_rework: number | null;
 };
 
@@ -1130,6 +1149,59 @@ export class Store {
       .prepare('SELECT * FROM runs WHERE id = $id')
       .get({ id }) as RunRow | undefined;
     return row === undefined ? undefined : fromRow(row);
+  }
+
+  listCohorts(filter: InsightsFilter): CohortInsight[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT
+          r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time, r.cost_usd,
+          r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
+          d.id IS NOT NULL AS dispatched, d.pr_number, d.pr_state, d.pr_rework
+        FROM runs r
+        LEFT JOIN dispatches d ON d.run_id = r.id
+        WHERE r.end_time IS NOT NULL
+          AND ($include_manual = 1 OR d.id IS NOT NULL)
+          AND ($worker IS NULL OR r.worker = $worker)
+          AND ($repository IS NULL OR r.repository = $repository)
+          AND ($from IS NULL OR substr(r.start_time, 1, 10) >= $from)
+          AND ($to IS NULL OR substr(r.start_time, 1, 10) <= $to)`,
+      )
+      .all({
+        include_manual: filter.includeManual ? 1 : 0,
+        worker: filter.worker ?? null,
+        repository: filter.repository ?? null,
+        from: filter.from ?? null,
+        to: filter.to ?? null,
+      }) as InsightRow[];
+    return aggregateCohorts(
+      rows.map((row) => ({
+        fingerprintHash: row.fingerprint_hash,
+        fingerprint: row.fingerprint === null ? null : (JSON.parse(row.fingerprint) as ConfigFingerprint),
+        dispatched: row.dispatched === 1,
+        costUsd: row.cost_usd,
+        durationMs: Date.parse(row.end_time) - Date.parse(row.start_time),
+        inputTokens: row.input_tokens,
+        cacheReadTokens: row.cache_read_tokens,
+        cacheWriteTokens: row.cache_write_tokens,
+        toolCalls: row.tool_calls,
+        retries: row.retries,
+        pullRequest:
+          row.pr_number === null || row.pr_state === null
+            ? null
+            : { state: row.pr_state as PullRequestState, rework: row.pr_rework },
+      })),
+    );
+  }
+
+  insightsOptions(): InsightsOptions {
+    const column = (name: string): string[] =>
+      (
+        this.#db
+          .prepare(`SELECT DISTINCT ${name} AS value FROM runs WHERE ${name} IS NOT NULL ORDER BY ${name}`)
+          .all() as { value: string }[]
+      ).map(({ value }) => value);
+    return { workers: column('worker'), repositories: column('repository') };
   }
 
   listRuns(): RunRecord[] {
