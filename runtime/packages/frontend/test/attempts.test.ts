@@ -230,3 +230,21 @@ test('given a ticket number that is not a plain positive integer, when its attem
     assert.equal((await app.request(`/tickets/forge/${number}`)).status, 404, number);
   }
 });
+
+test('given a ticket whose only dispatch never started a workload, when the Work page is requested, then it does not link to an attempts view with nothing in it', async () => {
+  const { app, store } = dashboard([]);
+  store.reconcileDispatch(TICKET, '2026-09-29T08:00:00.000Z');
+  store.replaceFrontier({
+    repository: 'forge',
+    github: 'rameezk/forge',
+    polledAt: '2026-09-29T08:15:00.000Z',
+    tickets: [
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, blocked: false },
+    ],
+  });
+
+  const work = await (await app.request('/work')).text();
+
+  assert.match(work, /data-dispatch="failed"/);
+  assert.doesNotMatch(work, /data-attempts/);
+});

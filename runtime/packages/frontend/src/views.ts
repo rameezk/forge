@@ -1150,7 +1150,7 @@ const renderRepository = (
                 (ticket) => html`<tr class="${ROW}" data-ticket="${ticket.number}">
                   <td class="${TD} whitespace-nowrap tabular-nums">${isGithubUrl(ticket.url)
                     ? externalLink(ticket.url, `#${ticket.number}`)
-                    : html`#${ticket.number}`}${dispatches.has(ticketKey(repository, ticket.number))
+                    : html`#${ticket.number}`}${dispatches.get(ticketKey(repository, ticket.number))?.runId != null
                     ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
                     : ''}</td>
                   <td class="${TD} min-w-48">${ticket.title}</td>
