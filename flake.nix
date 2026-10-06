@@ -400,6 +400,17 @@
             (rule: lib.hasInfix "/var/lib/forge/transcripts" rule && lib.hasInfix "forge-runtime" rule)
             nixos.config.systemd.tmpfiles.rules
           ) "/var/lib/forge/transcripts must be provisioned for per-run transcripts";
+          stateDirDescription = nixos.options.forge.runtime.stateDir.description;
+          tmpfilesRuleFor =
+            suffix: lib.findFirst (rule: lib.hasInfix "/var/lib/forge/${suffix} " rule) null nixos.config.systemd.tmpfiles.rules;
+          tmpfilesAge = rule: builtins.elemAt (lib.splitString " " rule) 5;
+          stateDirDescriptionMatchesRetention = lib.asserts.assertMsg (
+            tmpfilesAge (tmpfilesRuleFor "work") == "14d"
+            && tmpfilesAge (tmpfilesRuleFor "transcripts") == "-"
+            && lib.hasInfix "Run directories age out after 14 days" stateDirDescription
+            && lib.hasInfix "transcripts" stateDirDescription
+            && lib.hasInfix "are kept" stateDirDescription
+          ) "the stateDir description must say run directories age out after 14 days and transcripts are kept, matching the tmpfiles rules";
 
           frontendUnit = workerHost.config.systemd.services.forge-frontend;
           dashboardPort = workerHost.config.forge.runtime.dashboardPort;
@@ -1317,6 +1328,12 @@
             assert transcriptsProvisioned;
             pkgs.runCommand "runtime-runner" { } ''
               echo "declaring a worker wires a forge-runner@ oneshot invoking forge-run with only the OpenRouter key, from a sops template" > $out
+            '';
+
+          runtime-state-retention =
+            assert stateDirDescriptionMatchesRetention;
+            pkgs.runCommand "runtime-state-retention" { } ''
+              echo "the stateDir description says run directories age out after 14 days and transcripts are kept, matching the tmpfiles rules" > $out
             '';
 
           runtime-dashboard =
