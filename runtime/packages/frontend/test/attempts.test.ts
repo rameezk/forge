@@ -219,3 +219,11 @@ test('given attempts that ended interrupted and exceeded without a pull request,
   assert.equal(textOf(rows.get('run-i')!['outcome']!), 'interrupted');
   assert.equal(textOf(rows.get('run-x')!['outcome']!), 'exceeded');
 });
+
+test('given a ticket number that is not a plain positive integer, when its attempts view is requested, then it is not found', async () => {
+  const { app } = dashboard([]);
+
+  for (const number of ['0', '007', '1e2', '-3', '4.5', 'x']) {
+    assert.equal((await app.request(`/tickets/forge/${number}`)).status, 404, number);
+  }
+});

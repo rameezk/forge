@@ -1268,15 +1268,15 @@ export const renderInsights = (
 
 const FAILED_TONE = 'bg-error-soft text-error';
 
-const renderOutcome = ({ run, pullRequest }: TicketAttempt): Rendered => {
-  const [label, tone] =
-    pullRequest !== null
-      ? [pullRequest.state, PULL_REQUEST_TONE[pullRequest.state]]
-      : run.endTime === null
-        ? ['running', 'bg-raised text-fg']
-        : run.status === 'interrupted' || run.status === 'exceeded'
-          ? [run.status, 'bg-warning-soft text-warning']
-          : ['failed', FAILED_TONE];
+const attemptOutcome = ({ run, pullRequest }: TicketAttempt): [string, string] => {
+  if (pullRequest !== null) return [pullRequest.state, PULL_REQUEST_TONE[pullRequest.state]];
+  if (run.endTime === null) return ['running', 'bg-raised text-fg'];
+  if (run.status === 'interrupted' || run.status === 'exceeded') return [run.status, 'bg-warning-soft text-warning'];
+  return ['failed', FAILED_TONE];
+};
+
+const renderOutcome = (attempt: TicketAttempt): Rendered => {
+  const [label, tone] = attemptOutcome(attempt);
   return html`<span class="${PILL} ${tone}" data-outcome="${label}">${label}</span>`;
 };
 

@@ -7,6 +7,8 @@ import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
 import { isSettled, NAV_PAGES, renderDetail, renderInsights, renderList, renderTicketAttempts, renderWork, type AssetHrefs, type Downloads } from './views.ts';
 
+const TICKET_NUMBER = /^[1-9]\d*$/;
+
 const ATTEMPTS_PAGE = /^\/tickets\/[^/]+\/[1-9]\d*$/;
 
 const DETAIL_PAGE = /^\/runs\/([^/]+)$/;
@@ -88,7 +90,7 @@ export const createApp = ({
 
   app.get('/tickets/:repository/:number', (c) => {
     const number = Number(c.req.param('number'));
-    if (!Number.isSafeInteger(number) || number < 1) return c.notFound();
+    if (!TICKET_NUMBER.test(c.req.param('number')) || !Number.isSafeInteger(number)) return c.notFound();
     const ticket = { repository: c.req.param('repository'), number };
     return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket), assets));
   });
