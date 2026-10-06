@@ -986,7 +986,7 @@ const attemptsPath = (ticket: { repository: string; number: number }): string =>
 const renderAttemptsLink = (ticket: { repository: string; number: number }, label: string): Rendered =>
   html`<a href="${attemptsPath(ticket)}" data-attempts class="${LINK}">${label}</a>`;
 
-const renderAttempts = (ticket: RunTicket | null): Rendered =>
+const renderTicketRow = (ticket: RunTicket | null): Rendered =>
   ticket === null
     ? ''
     : html`<dt class="${META_TERM}">Ticket</dt>
@@ -1044,7 +1044,7 @@ export const renderDetail = (
       ${renderCounters(run.counters)}
       ${renderSkills(skillLoads)}
       ${renderPullRequest(pullRequest)}
-      ${renderAttempts(run.ticket)}
+      ${renderTicketRow(run.ticket)}
       ${renderDownloads(run, downloads)}
     </dl>
     ${stopped !== '' ? stopped : run.error === null ? '' : html`<p class="${run.status === 'interrupted' || run.status === 'exceeded' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
