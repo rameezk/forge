@@ -348,7 +348,7 @@ in
       type = lib.types.path;
       default = "/var/lib/forge";
       readOnly = true;
-      description = "State directory owned by the runtime service user, holding the SQLite store, per-run transcripts, run directories and the agent directories pi reads each run's model from, which age out after 14 days.";
+      description = "State directory owned by the runtime service user, holding the SQLite store, per-run transcripts and the records beside them, run directories, and the agent directories pi reads each run's model from. Run directories age out after 14 days, as do the agent directories; the SQLite store, transcripts and the records beside them are kept.";
     };
 
     package = lib.mkOption {
