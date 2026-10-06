@@ -43,6 +43,7 @@ import {
   type Lookup,
 } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
+import { NARRATION_INSTRUCTION } from '../src/harness.ts';
 import { main } from '../src/main.ts';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'pi');
@@ -1391,6 +1392,8 @@ test('given workers with and without a reasoning effort and a harness with opera
     'max',
     '-e',
     REQUEST_RECORD_EXTENSION,
+    '--append-system-prompt',
+    NARRATION_INSTRUCTION,
     '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,
@@ -1402,6 +1405,8 @@ test('given workers with and without a reasoning effort and a harness with opera
     REASONING_EXTENSION,
     '-e',
     REQUEST_RECORD_EXTENSION,
+    '--append-system-prompt',
+    NARRATION_INSTRUCTION,
     '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,
@@ -1438,6 +1443,8 @@ test('given workers with and without a reasoning effort and a harness with opera
     'high',
     '-e',
     REQUEST_RECORD_EXTENSION,
+    '--append-system-prompt',
+    NARRATION_INSTRUCTION,
   ]);
   assert.deepEqual(withoutEffortChild.argv.slice(1), [
     ...PI_CONTRACT,
@@ -1445,7 +1452,11 @@ test('given workers with and without a reasoning effort and a harness with opera
     REASONING_EXTENSION,
     '-e',
     REQUEST_RECORD_EXTENSION,
+    '--append-system-prompt',
+    NARRATION_INSTRUCTION,
   ]);
+  assert.match(NARRATION_INSTRUCTION, /before your first tool call/);
+  assert.match(NARRATION_INSTRUCTION, /changes your plan/);
   assert.match(withEffortChild.systemPrompt, /sub-agent/);
   assert.match(withEffortChild.systemPrompt, /returned verbatim/);
   assert.match(withEffortChild.systemPrompt, /cannot spawn sub-agents/);
