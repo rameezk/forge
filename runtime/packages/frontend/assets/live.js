@@ -113,7 +113,7 @@ const update = async () => {
 };
 
 if (indicator !== null) {
-  const events = new EventSource(`/events?page=${encodeURIComponent(location.pathname)}`);
+  const events = new EventSource(`/events?page=${encodeURIComponent(location.pathname + location.search)}`);
   events.addEventListener('open', () => show('live', 'Live'));
   events.addEventListener('error', () => {
     if (events.readyState === EventSource.CLOSED) {

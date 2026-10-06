@@ -223,3 +223,26 @@ for (const [state, reach] of unsettled) {
     assert.equal(signal, 'quiet');
   });
 }
+
+test('given a client streaming events for a filtered insights page, when a workload in a shown cohort ends, then the stream emits a change signal', async (t) => {
+  const { app, writer } = dashboard(t);
+  const fingerprint = {
+    model: 'anthropic/claude-opus-4',
+    reasoningEffort: null,
+    harnessArgs: [],
+    harnessVersion: null,
+    promptTemplate: 'abcd1234',
+    systemPrompt: null,
+    tools: null,
+    skills: null,
+  };
+  writer.insertRun(runningRun);
+  writer.recordFingerprint('run-01', { fingerprint, hash: 'cohort', forgeGitSha: null, baseCommit: null });
+  const stream = await streamEvents(t, app, '/insights?manual=1&worker=refiner');
+
+  writer.finalizeRun('run-01', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:03:20.000Z' });
+
+  const signal = await stream.next();
+  assert.equal(signal?.event, 'change');
+  assert.equal(signal?.data, '/insights?manual=1&worker=refiner');
+});

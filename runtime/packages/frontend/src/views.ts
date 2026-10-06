@@ -2,6 +2,9 @@ import { html, raw } from 'hono/html';
 import { cohortLabel, isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
+  CohortInsight,
+  InsightsFilter,
+  InsightsOptions,
   RunFingerprint,
   DispatchFailure,
   DispatchRecord,
@@ -31,6 +34,9 @@ import {
   formatCost,
   formatDate,
   formatDuration,
+  formatMeasure,
+  formatElapsed,
+  formatRate,
   formatSpan,
   formatSpend,
   formatStarted,
@@ -47,11 +53,12 @@ import { DEFAULT_EFFORT, type CallEfforts, type RequestRecordView, type ToolDefi
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
-type Page = 'runs' | 'work';
+type Page = 'runs' | 'work' | 'insights';
 
 const NAV: { page: Page; href: string; label: string }[] = [
   { page: 'runs', href: '/', label: 'Runs' },
   { page: 'work', href: '/work', label: 'Work' },
+  { page: 'insights', href: '/insights', label: 'Insights' },
 ];
 
 export const NAV_PAGES: ReadonlySet<string> = new Set(NAV.map(({ href }) => href));
@@ -1154,4 +1161,91 @@ export const renderWork = (
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : frontier.map((repository) => renderRepository(repository, byTicket))}`;
   return layout('Frontier', 'work', true, assets, body);
+};
+
+const FIELD = 'flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
+const COHORT_TH = 'border-b border-line bg-raised px-2.5 py-2.5 text-[0.65rem] font-semibold uppercase leading-tight tracking-[0.04em] text-fg';
+const COHORT_TD = 'border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap text-right tabular-nums';
+const INPUT = 'rounded-md border border-line bg-surface px-2 py-1.5 text-[0.9rem] font-normal normal-case tracking-normal text-fg';
+
+const renderOptions = (values: string[], selected: string | undefined): Rendered =>
+  html`${values.map((value) => html`<option value="${value}"${value === selected ? html` selected` : ''}>${value}</option>`)}`;
+
+const renderInsightsFilters = (
+  filter: InsightsFilter,
+  options: InsightsOptions,
+): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<form method="get" action="/insights" class="mb-4 flex flex-wrap items-end gap-3" data-filters>
+    <label class="${FIELD}">Worker
+      <select name="worker" class="${INPUT}">
+        <option value="">All</option>
+        ${renderOptions(options.workers, filter.worker)}
+      </select>
+    </label>
+    <label class="${FIELD}">Repository
+      <select name="repository" class="${INPUT}">
+        <option value="">All</option>
+        ${renderOptions(options.repositories, filter.repository)}
+      </select>
+    </label>
+    <label class="${FIELD}">From
+      <input type="date" name="from" value="${filter.from ?? ''}" class="${INPUT}" />
+    </label>
+    <label class="${FIELD}">To
+      <input type="date" name="to" value="${filter.to ?? ''}" class="${INPUT}" />
+    </label>
+    <label class="flex items-center gap-2 py-2 text-[0.9rem] text-fg">
+      <input type="checkbox" name="manual" value="1"${filter.includeManual ? html` checked` : ''} />Include manual workloads
+    </label>
+    <button type="submit" class="rounded-md border border-line bg-raised px-3 py-1.5 text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
+  </form>`;
+
+const renderCohort = (cohort: CohortInsight): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}">
+    <td class="border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${cohortLabel(cohort.fingerprint)}</td>
+    <td class="${COHORT_TD}" data-metric="workloads">${cohort.workloads}</td>
+    <td class="${COHORT_TD}" data-metric="opened">${formatRate(cohort.openedRate)}</td>
+    <td class="${COHORT_TD}" data-metric="merged">${formatRate(cohort.mergedRate)}</td>
+    <td class="${COHORT_TD}" data-metric="cost-median">${formatCost(cohort.costMedian)}</td>
+    <td class="${COHORT_TD}" data-metric="cost-p90">${formatCost(cohort.costP90)}</td>
+    <td class="${COHORT_TD} font-semibold" data-metric="cost-per-merged">${cohort.costPerMerged === null ? 'n/a' : formatCost(cohort.costPerMerged)}</td>
+    <td class="${COHORT_TD}" data-metric="duration">${formatElapsed(cohort.durationMedianMs)}</td>
+    <td class="${COHORT_TD}" data-metric="cache-hit">${formatRate(cohort.cacheHitRate)}</td>
+    <td class="${COHORT_TD}" data-metric="tool-calls">${formatMeasure(cohort.toolCallsMedian)}</td>
+    <td class="${COHORT_TD}" data-metric="retries">${formatMeasure(cohort.retriesPerWorkload)}</td>
+    <td class="${COHORT_TD}" data-metric="rework">${formatMeasure(cohort.reworkPerMerged)}</td>
+  </tr>`;
+
+export const renderInsights = (
+  cohorts: CohortInsight[],
+  filter: InsightsFilter,
+  options: InsightsOptions,
+  assets: AssetHrefs,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
+    ${renderInsightsFilters(filter, options)}
+    ${cohorts.length === 0
+      ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`
+      : html`<div class="${CARD}" data-cohorts role="region" aria-label="Cohort comparison" tabindex="0">
+          <table class="${TABLE}">
+            <thead>
+              <tr>
+                <th class="${COHORT_TH} text-left">Cohort</th>
+                <th class="${COHORT_TH} text-right">Workloads</th>
+                <th class="${COHORT_TH} text-right">Opened</th>
+                <th class="${COHORT_TH} text-right">Merged</th>
+                <th class="${COHORT_TH} text-right">Median cost</th>
+                <th class="${COHORT_TH} text-right">p90 cost</th>
+                <th class="${COHORT_TH} text-right">Cost per merged PR</th>
+                <th class="${COHORT_TH} text-right">Median duration</th>
+                <th class="${COHORT_TH} text-right">Cache hit</th>
+                <th class="${COHORT_TH} text-right">Median tool calls</th>
+                <th class="${COHORT_TH} text-right">Retries per workload</th>
+                <th class="${COHORT_TH} text-right">Rework per merged PR</th>
+              </tr>
+            </thead>
+            <tbody>${cohorts.map(renderCohort)}</tbody>
+          </table>
+        </div>`}`;
+  return layout('Insights', 'insights', true, assets, body);
 };
