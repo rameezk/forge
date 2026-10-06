@@ -5,7 +5,11 @@ import { rawEventsRef, requestRecordRef, type InsightsFilter, type RunRecord, ty
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
-import { isSettled, NAV_PAGES, renderDetail, renderInsights, renderList, renderWork, type AssetHrefs, type Downloads } from './views.ts';
+import { isSettled, NAV_PAGES, renderDetail, renderInsights, renderList, renderTicketAttempts, renderWork, type AssetHrefs, type Downloads } from './views.ts';
+
+const TICKET_NUMBER = /^[1-9]\d*$/;
+
+const ATTEMPTS_PAGE = /^\/tickets\/[^/]+\/[1-9]\d*$/;
 
 const DETAIL_PAGE = /^\/runs\/([^/]+)$/;
 
@@ -66,7 +70,7 @@ export const createApp = ({
   app.get('/', (c) => c.html(renderList(store.listRuns(), assets)));
 
   app.get('/work', (c) =>
-    c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), assets)),
+    c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), store.attemptedTickets(), assets)),
   );
 
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -82,6 +86,13 @@ export const createApp = ({
   app.get('/insights', (c) => {
     const filter = filterOf(c.req.query());
     return c.html(renderInsights(store.listCohorts(filter), filter, store.insightsOptions(), assets));
+  });
+
+  app.get('/tickets/:repository/:number', (c) => {
+    const number = Number(c.req.param('number'));
+    if (!TICKET_NUMBER.test(c.req.param('number')) || !Number.isSafeInteger(number)) return c.notFound();
+    const ticket = { repository: c.req.param('repository'), number };
+    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket), assets));
   });
 
   const downloadable = (ref: string | null): ref is string =>
@@ -126,7 +137,7 @@ export const createApp = ({
 
   const watch = (page: string | undefined): (() => Check) | undefined => {
     if (page === undefined) return undefined;
-    if (NAV_PAGES.has(page.split('?')[0]!)) return () => ({ version: String(store.dataVersion()), finished: false });
+    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page)) return () => ({ version: String(store.dataVersion()), finished: false });
     const runId = runOfDetailPage(page);
     if (runId === undefined || store.getRun(runId) === undefined) return undefined;
     return () => {

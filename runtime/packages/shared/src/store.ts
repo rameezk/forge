@@ -8,6 +8,7 @@ import {
 } from './frontier.ts';
 import {
   DISPATCH_DETAIL_LIMIT,
+  ticketKey,
   type DispatchFailure,
   type DispatchOutcome,
   type DispatchRecord,
@@ -23,6 +24,7 @@ import type {
   NewGeneration,
   UnsettledGeneration,
 } from './generation.ts';
+import type { TicketAttempt } from './attempts.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import { aggregateCohorts } from './insights.ts';
@@ -1202,6 +1204,32 @@ export class Store {
           .all() as { value: string }[]
       ).map(({ value }) => value);
     return { workers: column('worker'), repositories: column('repository') };
+  }
+
+  listAttempts(ticket: { repository: string; number: number }): TicketAttempt[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT d.run_id AS run_id FROM dispatches d
+        JOIN runs r ON r.id = d.run_id
+        WHERE d.repository = $repository AND d.number = $number
+        ORDER BY d.id DESC`,
+      )
+      .all({ repository: ticket.repository, number: ticket.number }) as { run_id: string }[];
+    return rows.map(({ run_id }) => ({
+      run: this.getRun(run_id)!,
+      config: this.getFingerprint(run_id),
+      pullRequest: this.pullRequestOfRun(run_id),
+    }));
+  }
+
+  attemptedTickets(): Set<string> {
+    const rows = this.#db
+      .prepare(
+        `SELECT DISTINCT d.repository AS repository, d.number AS number FROM dispatches d
+        JOIN runs r ON r.id = d.run_id`,
+      )
+      .all() as { repository: string; number: number }[];
+    return new Set(rows.map(({ repository, number }) => ticketKey(repository, number)));
   }
 
   listRuns(): RunRecord[] {

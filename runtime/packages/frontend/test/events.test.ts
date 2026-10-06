@@ -246,3 +246,18 @@ test('given a client streaming events for a filtered insights page, when a workl
   assert.equal(signal?.event, 'change');
   assert.equal(signal?.data, '/insights?manual=1&worker=refiner');
 });
+
+test('given a client streaming events for a ticket attempts page, when an attempt at that ticket ends, then the stream emits a change signal', async (t) => {
+  const { app, writer } = dashboard(t);
+  const ticket = { repository: 'forge', number: 42, url: 'https://github.com/rameezk/forge/issues/42' };
+  writer.insertRun({ ...runningRun, ticket });
+  const started = writer.startDispatch(ticket, 'run-01', runningRun.startTime, 100);
+  assert.ok('started' in started);
+  const stream = await streamEvents(t, app, '/tickets/forge/42');
+
+  writer.finalizeRun('run-01', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:03:20.000Z' });
+
+  const signal = await stream.next();
+  assert.equal(signal?.event, 'change');
+  assert.equal(signal?.data, '/tickets/forge/42');
+});
