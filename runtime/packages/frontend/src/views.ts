@@ -1151,7 +1151,7 @@ const renderRepository = (
                   <td class="${TD} whitespace-nowrap tabular-nums">${isGithubUrl(ticket.url)
                     ? externalLink(ticket.url, `#${ticket.number}`)
                     : html`#${ticket.number}`}${dispatches.has(ticketKey(repository, ticket.number))
-                    ? html` ${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}`
+                    ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
                     : ''}</td>
                   <td class="${TD} min-w-48">${ticket.title}</td>
                   <td class="${TD} min-w-48">${renderSpec(ticket.parent)}</td>
@@ -1295,13 +1295,13 @@ const renderBaseCommit = (config: RunFingerprint | null): Rendered =>
 const renderAttempt = (attempt: TicketAttempt): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { run, config, pullRequest } = attempt;
   return html`<tr class="${ROW}" data-attempt="${run.id}">
-    <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderTimestamp(run.startTime)}</a></td>
+    <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime)}</a></td>
     <td class="${TD} whitespace-nowrap" data-field="cohort">${cohortLabel(config?.fingerprint ?? null)}</td>
     <td class="${TD} whitespace-nowrap tabular-nums" data-field="base-commit">${renderBaseCommit(config)}</td>
     <td class="${TD}" data-field="outcome">${renderOutcome(attempt)}</td>
     <td class="${TD} ${NUMERIC}" data-field="cost">${renderRunCost(run)}</td>
     <td class="${TD} ${NUMERIC}" data-field="duration">${formatDuration(run.startTime, run.endTime)}</td>
-    <td class="${TD} whitespace-nowrap tabular-nums" data-field="counters">${renderAttemptCounters(run.counters)}</td>
+    <td class="${TD} min-w-56 tabular-nums" data-field="counters">${renderAttemptCounters(run.counters)}</td>
     <td class="${TD} whitespace-nowrap" data-field="pull-request">${pullRequest === null
       ? ''
       : isGithubUrl(pullRequest.url)

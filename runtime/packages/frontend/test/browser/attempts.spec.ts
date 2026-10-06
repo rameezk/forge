@@ -77,3 +77,19 @@ test('given a run detail page of a dispatched workload, when its attempts link i
   await expect(page.locator('[data-attempt="second"] [data-outcome]')).toHaveText('merged');
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
+
+test('given the attempts view at desktop width, when it is opened, then every column fits in the table without scrolling sideways', async ({
+  dashboard,
+  page,
+}) => {
+  attempt(dashboard.store, 'first', '2026-09-21T10:00:00.000Z', false);
+  attempt(dashboard.store, 'second', '2026-09-22T10:00:00.000Z', true);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/tickets/forge/42');
+
+  const overflow = await page
+    .locator('[data-attempts-table]')
+    .evaluate((element) => element.scrollWidth - element.clientWidth);
+
+  expect(overflow).toBe(0);
+});
