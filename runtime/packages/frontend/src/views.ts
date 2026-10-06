@@ -1285,7 +1285,12 @@ const plural = (count: number, one: string, many: string): string => `${count} $
 const renderAttemptCounters = (counters: RunCounters | null): Rendered =>
   counters === null
     ? NOT_RECORDED
-    : html`${plural(counters.toolCalls, 'tool call', 'tool calls')} &middot; ${counters.failedToolResults} failed &middot; ${plural(counters.retries, 'retry', 'retries')} &middot; ${plural(counters.compactions, 'compaction', 'compactions')}`;
+    : html`<div class="flex flex-wrap gap-x-3 gap-y-0.5">${[
+        plural(counters.toolCalls, 'tool call', 'tool calls'),
+        `${counters.failedToolResults} failed`,
+        plural(counters.retries, 'retry', 'retries'),
+        plural(counters.compactions, 'compaction', 'compactions'),
+      ].map((item) => html`<span data-counter class="whitespace-nowrap">${item}</span>`)}</div>`;
 
 const renderBaseCommit = (config: RunFingerprint | null): Rendered =>
   config?.baseCommit == null

@@ -171,7 +171,10 @@ test('given three dispatches of one ticket under two cohorts with different outc
   assert.equal(textOf(c!['outcome']!), 'merged');
   assert.equal(textOf(a!['cost']!), '$1.500000');
   assert.equal(textOf(a!['duration']!), '10m 0s');
-  assert.match(textOf(b!['counters']!), /10 tool calls.*5 failed.*3 retries.*1 compaction/);
+  assert.deepEqual(
+    [...b!['counters']!.matchAll(/<span[^>]*\sdata-counter[^>]*>([\s\S]*?)<\/span>/g)].map(([, item]) => textOf(item!)),
+    ['10 tool calls', '5 failed', '3 retries', '1 compaction'],
+  );
   assert.match(a!['pull-request']!, /<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/7"[^>]*>#7<\/a>/);
   assert.equal(textOf(b!['pull-request']!), '');
   assert.match(a!['run']!, /<a href="\/runs\/run-a"/);
