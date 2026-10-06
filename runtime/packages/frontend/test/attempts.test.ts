@@ -207,3 +207,15 @@ test('given a manual workload with no ticket, when its run detail page is reques
   const detail = await (await app.request('/runs/manual')).text();
   assert.doesNotMatch(detail, /data-attempts/);
 });
+
+test('given attempts that ended interrupted and exceeded without a pull request, when the ticket attempts view is requested, then each outcome names how it ended', async () => {
+  const { app } = dashboard([
+    { ...THREE[1]!, id: 'run-i', status: 'interrupted' },
+    { ...THREE[1]!, id: 'run-x', status: 'exceeded', start: '2026-09-24T10:00:00.000Z' },
+  ]);
+
+  const rows = attemptRows(await (await app.request('/tickets/forge/42')).text());
+
+  assert.equal(textOf(rows.get('run-i')!['outcome']!), 'interrupted');
+  assert.equal(textOf(rows.get('run-x')!['outcome']!), 'exceeded');
+});

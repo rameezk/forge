@@ -76,5 +76,4 @@ test('given a run detail page of a dispatched workload, when its attempts link i
   await expect(page.locator('[data-attempt]')).toHaveCount(2);
   await expect(page.locator('[data-attempt="second"] [data-outcome]')).toHaveText('merged');
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
-  await page.screenshot({ path: process.env['ATTEMPTS_SHOT'] ?? 'test-results/attempts-phone.png' });
 });

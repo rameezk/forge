@@ -1274,7 +1274,9 @@ const renderOutcome = ({ run, pullRequest }: TicketAttempt): Rendered => {
       ? [pullRequest.state, PULL_REQUEST_TONE[pullRequest.state]]
       : run.endTime === null
         ? ['running', 'bg-raised text-fg']
-        : ['failed', FAILED_TONE];
+        : run.status === 'interrupted' || run.status === 'exceeded'
+          ? [run.status, 'bg-warning-soft text-warning']
+          : ['failed', FAILED_TONE];
   return html`<span class="${PILL} ${tone}" data-outcome="${label}">${label}</span>`;
 };
 
