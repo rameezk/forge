@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTranscript, transcriptLine } from '../src/index.ts';
+import { parseTranscript, parseTranscriptLines, transcriptLine } from '../src/index.ts';
 import type { HarnessEvent } from '../src/index.ts';
 
 const events: [HarnessEvent, HarnessEvent, HarnessEvent] = [
@@ -23,4 +23,10 @@ test('given a transcript with a blank line, when parsed, then the blank line is 
 
 test('given empty content, when parsed, then it yields no events', () => {
   assert.deepEqual(parseTranscript(''), []);
+});
+
+test('given lines that are cut off, not JSON, or JSON that is not an event object, when leniently parsed, then only the event objects are kept', () => {
+  const contents = `${transcriptLine(events[0])}null\n42\n"text"\n[1]\n{"type":"tool_ca`;
+
+  assert.deepEqual(parseTranscriptLines(contents), [events[0]]);
 });

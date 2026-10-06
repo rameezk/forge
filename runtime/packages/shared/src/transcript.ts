@@ -21,7 +21,10 @@ export const parseTranscriptLines = (contents: string): HarnessEvent[] =>
     .filter((line) => line.length > 0)
     .flatMap((line) => {
       try {
-        return [JSON.parse(line) as HarnessEvent];
+        const parsed: unknown = JSON.parse(line);
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+          ? [parsed as HarnessEvent]
+          : [];
       } catch {
         return [];
       }

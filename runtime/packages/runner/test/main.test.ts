@@ -980,6 +980,28 @@ test('given an older workload recorded without counters whose transcript ends in
   }
 });
 
+test('given an older workload recorded without counters whose transcript ref points outside the transcripts directory, when billing runs, then the file there is not read and the counters stay empty', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('tool-calls.jsonl') });
+    writeFileSync(
+      join(stateDir, 'outside.jsonl'),
+      '{"type":"tool_call","id":"x","name":"bash","arguments":{}}\n',
+    );
+    const database = new DatabaseSync(join(stateDir, 'forge.db'));
+    database.exec(
+      "UPDATE runs SET tool_calls = NULL, failed_tool_results = NULL, retries = NULL, compactions = NULL, transcript_ref = '../outside.jsonl'",
+    );
+    database.close();
+
+    assert.equal(await fire(stateDir, openRouter), 0);
+
+    assert.equal(storedRun(stateDir, run.id).counters, null);
+  } finally {
+    openRouter.close();
+  }
+});
+
 test('given a recorded run whose agent calls bash in turns with no text, one call failing, when the transcript is written, then each call is recorded with its arguments and each result with its output and error flag, in stream order', async () => {
   const { code, run, transcript } = await runWorker({
     output: fixture('tool-calls.jsonl'),

@@ -1,6 +1,7 @@
 import {
   STALE_AFTER_MS,
   countEvents,
+  errorMessage,
   type HarnessEvent,
   type LookupResult,
   type Store,
@@ -100,9 +101,13 @@ export const settleGenerations = async ({
     );
   }
   for (const { id, transcriptRef } of store.runsWithoutCounters()) {
-    const events = readTranscript(transcriptRef);
-    if (events !== null) {
-      store.recordCounters(id, countEvents(events));
+    try {
+      const events = readTranscript(transcriptRef);
+      if (events !== null) {
+        store.recordCounters(id, countEvents(events));
+      }
+    } catch (error) {
+      log(`could not count the transcript of run ${JSON.stringify(id)}: ${errorMessage(error)}`);
     }
   }
 };

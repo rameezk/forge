@@ -371,3 +371,29 @@ test('given an ended run recorded without counters whose transcript holds tool c
   assert.deepEqual(filled, { toolCalls: 2, failedToolResults: 1, retries: 1, compactions: 1 });
   assert.deepEqual(store.getRun('older')?.counters, filled);
 });
+
+test('given two ended runs without counters whose first transcript cannot be read, when the settle step runs, then the failure is logged and the second run still gets its counters', async () => {
+  const store = Store.open(':memory:');
+  startedRun(store, 'a-broken');
+  finish(store, 'a-broken', endedAgo(2_000));
+  startedRun(store, 'b-fine');
+  finish(store, 'b-fine', endedAgo(1_000));
+  const log: string[] = [];
+
+  await settleGenerations({
+    store,
+    readTranscript: (ref) => {
+      if (ref === 'a-broken.jsonl') throw new Error('EACCES: permission denied');
+      return [toolCall('a')];
+    },
+    lookUp: async () => billed(0.25),
+    now: () => NOW,
+    log: (line) => log.push(line),
+  });
+
+  assert.equal(store.getRun('a-broken')?.counters, null);
+  assert.equal(store.getRun('b-fine')?.counters?.toolCalls, 1);
+  assert.deepEqual(log, [
+    'could not count the transcript of run "a-broken": EACCES: permission denied',
+  ]);
+});

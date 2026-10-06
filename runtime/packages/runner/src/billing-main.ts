@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import {
   isHeaderValue,
   parseTranscriptLines,
@@ -29,9 +29,13 @@ export const main = async (env: NodeJS.ProcessEnv): Promise<number> => {
 
   const transcriptsDir = join(stateDir, 'transcripts');
   const readTranscript = (ref: string): HarnessEvent[] | null => {
+    const path = resolve(transcriptsDir, ref);
+    if (!path.startsWith(`${resolve(transcriptsDir)}${sep}`)) {
+      throw new Error(`transcript ref ${JSON.stringify(ref)} is outside the transcripts directory`);
+    }
     let contents: string;
     try {
-      contents = readFileSync(join(transcriptsDir, ref), 'utf8');
+      contents = readFileSync(path, 'utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return null;
