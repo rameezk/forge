@@ -1303,7 +1303,7 @@ const renderAttempt = (attempt: TicketAttempt): HtmlEscapedString | Promise<Html
   const { run, config, pullRequest } = attempt;
   return html`<tr class="${ROW}" data-attempt="${run.id}">
     <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime)}</a></td>
-    <td class="${TD} whitespace-nowrap" data-field="cohort">${cohortLabel(config?.fingerprint ?? null)}</td>
+    <td class="${TD}" data-field="cohort">${cohortLabel(config?.fingerprint ?? null)}</td>
     <td class="${TD} whitespace-nowrap tabular-nums" data-field="base-commit">${renderBaseCommit(config)}</td>
     <td class="${TD}" data-field="outcome">${renderOutcome(attempt)}</td>
     <td class="${TD} ${NUMERIC}" data-field="cost">${renderRunCost(run)}</td>
