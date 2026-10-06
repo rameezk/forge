@@ -96,8 +96,8 @@ Forge picking up a frontier ticket that carries the `forge:ready` label and runn
 _Avoid_: assignment, scheduling
 
 **Attempt**:
-One dispatch of a ticket that ran a workload. A ticket's attempts, listed side by side with their cohort, base commit, outcome, cost, duration, counters and pull request, are the closest thing forge has to an A/B comparison without replaying tickets.
-_Avoid_: try, run
+A dispatch of a ticket, with the workload it ran. A ticket may have several, one per dispatch.
+_Avoid_: try
 
 **Rework**:
 The commits on a dispatch's pull request authored by anyone other than forge's git identity (ADR-0026), as of the last time forge refreshed the pull request, which stops once it is merged or closed.
