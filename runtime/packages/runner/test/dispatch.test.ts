@@ -22,7 +22,7 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import { main } from '../src/dispatch-main.ts';
-import { UNATTENDED_INSTRUCTION } from '../src/harness.ts';
+import { NARRATION_INSTRUCTION, UNATTENDED_INSTRUCTION } from '../src/harness.ts';
 import { REVIEWING_PROMPT, SKILL_FILES } from './fixtures/fake-provider.ts';
 import {
   billedAt,
@@ -1241,6 +1241,8 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
     ...projectInstructions(join(root, 'AGENTS.md')),
     '--append-system-prompt',
     UNATTENDED_INSTRUCTION,
+    '--append-system-prompt',
+    NARRATION_INSTRUCTION,
   ];
   assert.deepEqual(pi.argv, [
     ...flags,
@@ -1275,6 +1277,8 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
     ...projectInstructions(join(root, 'CLAUDE.md')),
     '--append-system-prompt',
     UNATTENDED_INSTRUCTION,
+    '--append-system-prompt',
+    NARRATION_INSTRUCTION,
     '-e',
     EXTENSION,
     `/skill:work-on ${TICKET_URL}`,

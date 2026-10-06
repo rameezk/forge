@@ -17,6 +17,11 @@ export const UNATTENDED_INSTRUCTION = [
   'A command killed with exit 137 most likely hit the workload memory limit, so choose a narrower check rather than retrying it.',
 ].join(' ');
 
+export const NARRATION_INSTRUCTION = [
+  'Narrate your work: before your first tool call, and whenever you change direction or learn something that changes your plan, say in a sentence or two what you are about to do and why.',
+  'Do not write a sentence before every tool call.',
+].join(' ');
+
 export interface Workspace {
   workDir: string;
   baseCommit?: string;

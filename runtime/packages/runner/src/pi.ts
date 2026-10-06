@@ -28,6 +28,7 @@ import {
 } from './sandbox.ts';
 import { tokenCount } from './token-count.ts';
 import {
+  NARRATION_INSTRUCTION,
   UNATTENDED_INSTRUCTION,
   type Checkout,
   type Harness,
@@ -98,6 +99,7 @@ const contractArgs = (
   '-e',
   extensions.requestRecord,
   ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout)),
+  ...appended(NARRATION_INSTRUCTION),
 ];
 
 const UNTRUSTED_PROJECT_CONFIG = [
