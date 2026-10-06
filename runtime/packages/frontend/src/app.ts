@@ -5,7 +5,9 @@ import { rawEventsRef, requestRecordRef, type InsightsFilter, type RunRecord, ty
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
-import { isSettled, NAV_PAGES, renderDetail, renderInsights, renderList, renderWork, type AssetHrefs, type Downloads } from './views.ts';
+import { isSettled, NAV_PAGES, renderDetail, renderInsights, renderList, renderTicketAttempts, renderWork, type AssetHrefs, type Downloads } from './views.ts';
+
+const ATTEMPTS_PAGE = /^\/tickets\/[^/]+\/[1-9]\d*$/;
 
 const DETAIL_PAGE = /^\/runs\/([^/]+)$/;
 
@@ -84,6 +86,13 @@ export const createApp = ({
     return c.html(renderInsights(store.listCohorts(filter), filter, store.insightsOptions(), assets));
   });
 
+  app.get('/tickets/:repository/:number', (c) => {
+    const number = Number(c.req.param('number'));
+    if (!Number.isSafeInteger(number) || number < 1) return c.notFound();
+    const ticket = { repository: c.req.param('repository'), number };
+    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket), assets));
+  });
+
   const downloadable = (ref: string | null): ref is string =>
     ref !== null && (transcripts.size(ref) ?? 0) > 0;
 
@@ -126,7 +135,7 @@ export const createApp = ({
 
   const watch = (page: string | undefined): (() => Check) | undefined => {
     if (page === undefined) return undefined;
-    if (NAV_PAGES.has(page.split('?')[0]!)) return () => ({ version: String(store.dataVersion()), finished: false });
+    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page)) return () => ({ version: String(store.dataVersion()), finished: false });
     const runId = runOfDetailPage(page);
     if (runId === undefined || store.getRun(runId) === undefined) return undefined;
     return () => {

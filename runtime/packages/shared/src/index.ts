@@ -75,6 +75,7 @@ export type {
   SkillSource,
 } from './skill-loads.ts';
 export { promptSkillLoad, readSkillLoad } from './skill-loads.ts';
+export type { TicketAttempt } from './attempts.ts';
 export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 export {
   UNKNOWN_CONFIG,

@@ -25,6 +25,7 @@ import type {
   RunTicket,
   SpecRef,
   Ticket,
+  TicketAttempt,
   ToolCallEvent,
   ToolResultEvent,
 } from '@forge/shared';
@@ -979,6 +980,18 @@ const renderCounters = (counters: RunCounters | null): Rendered =>
 
 const SHORT_SHA_LENGTH = 7;
 
+const attemptsPath = (ticket: { repository: string; number: number }): string =>
+  `/tickets/${encodeURIComponent(ticket.repository)}/${ticket.number}`;
+
+const renderAttemptsLink = (ticket: { repository: string; number: number }, label: string): Rendered =>
+  html`<a href="${attemptsPath(ticket)}" data-attempts class="${LINK}">${label}</a>`;
+
+const renderAttempts = (ticket: RunTicket | null): Rendered =>
+  ticket === null
+    ? ''
+    : html`<dt class="${META_TERM}">Ticket</dt>
+      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1">${renderRunTicket(ticket)}${renderAttemptsLink(ticket, 'All attempts')}</dd>`;
+
 const renderConfig = (config: RunFingerprint | null): Rendered =>
   html`<dt class="${META_TERM}">Config</dt>
     <dd class="${META_VALUE}" data-cohort>${cohortLabel(config?.fingerprint ?? null)}</dd>
@@ -1031,6 +1044,7 @@ export const renderDetail = (
       ${renderCounters(run.counters)}
       ${renderSkills(skillLoads)}
       ${renderPullRequest(pullRequest)}
+      ${renderAttempts(run.ticket)}
       ${renderDownloads(run, downloads)}
     </dl>
     ${stopped !== '' ? stopped : run.error === null ? '' : html`<p class="${run.status === 'interrupted' || run.status === 'exceeded' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
@@ -1136,7 +1150,9 @@ const renderRepository = (
                 (ticket) => html`<tr class="${ROW}" data-ticket="${ticket.number}">
                   <td class="${TD} whitespace-nowrap tabular-nums">${isGithubUrl(ticket.url)
                     ? externalLink(ticket.url, `#${ticket.number}`)
-                    : html`#${ticket.number}`}</td>
+                    : html`#${ticket.number}`}${dispatches.has(ticketKey(repository, ticket.number))
+                    ? html` ${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}`
+                    : ''}</td>
                   <td class="${TD} min-w-48">${ticket.title}</td>
                   <td class="${TD} min-w-48">${renderSpec(ticket.parent)}</td>
                   <td class="${TD}">${renderDate(ticket.createdAt)}</td>
@@ -1248,4 +1264,75 @@ export const renderInsights = (
           </table>
         </div>`}`;
   return layout('Insights', 'insights', true, assets, body);
+};
+
+const FAILED_TONE = 'bg-error-soft text-error';
+
+const renderOutcome = ({ run, pullRequest }: TicketAttempt): Rendered => {
+  const [label, tone] =
+    pullRequest !== null
+      ? [pullRequest.state, PULL_REQUEST_TONE[pullRequest.state]]
+      : run.endTime === null
+        ? ['running', 'bg-raised text-fg']
+        : ['failed', FAILED_TONE];
+  return html`<span class="${PILL} ${tone}" data-outcome="${label}">${label}</span>`;
+};
+
+const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
+
+const renderAttemptCounters = (counters: RunCounters | null): Rendered =>
+  counters === null
+    ? NOT_RECORDED
+    : html`${plural(counters.toolCalls, 'tool call', 'tool calls')} &middot; ${counters.failedToolResults} failed &middot; ${plural(counters.retries, 'retry', 'retries')} &middot; ${plural(counters.compactions, 'compaction', 'compactions')}`;
+
+const renderBaseCommit = (config: RunFingerprint | null): Rendered =>
+  config?.baseCommit == null
+    ? NOT_RECORDED
+    : html`<span title="${config.baseCommit}">${config.baseCommit.slice(0, SHORT_SHA_LENGTH)}</span>`;
+
+const renderAttempt = (attempt: TicketAttempt): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const { run, config, pullRequest } = attempt;
+  return html`<tr class="${ROW}" data-attempt="${run.id}">
+    <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderTimestamp(run.startTime)}</a></td>
+    <td class="${TD} whitespace-nowrap" data-field="cohort">${cohortLabel(config?.fingerprint ?? null)}</td>
+    <td class="${TD} whitespace-nowrap tabular-nums" data-field="base-commit">${renderBaseCommit(config)}</td>
+    <td class="${TD}" data-field="outcome">${renderOutcome(attempt)}</td>
+    <td class="${TD} ${NUMERIC}" data-field="cost">${renderRunCost(run)}</td>
+    <td class="${TD} ${NUMERIC}" data-field="duration">${formatDuration(run.startTime, run.endTime)}</td>
+    <td class="${TD} whitespace-nowrap tabular-nums" data-field="counters">${renderAttemptCounters(run.counters)}</td>
+    <td class="${TD} whitespace-nowrap" data-field="pull-request">${pullRequest === null
+      ? ''
+      : isGithubUrl(pullRequest.url)
+        ? externalLink(pullRequest.url, `#${pullRequest.number}`)
+        : html`#${pullRequest.number}`}</td>
+  </tr>`;
+};
+
+export const renderTicketAttempts = (
+  ticket: { repository: string; number: number },
+  attempts: TicketAttempt[],
+  assets: AssetHrefs,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/work" class="${LINK}">&larr; Work</a></p>
+    <h1 class="${PAGE_TITLE} break-words">${ticket.repository} #${ticket.number}</h1>
+    ${attempts.length === 0
+      ? html`<p class="${EMPTY}" data-empty>No attempts have run against this ticket.</p>`
+      : html`<div class="${CARD}" data-attempts-table role="region" aria-label="Attempts" tabindex="0">
+          <table class="${TABLE}">
+            <thead>
+              <tr>
+                <th class="${TH}">Started</th>
+                <th class="${TH}">Cohort</th>
+                <th class="${TH}">Base commit</th>
+                <th class="${TH}">Outcome</th>
+                <th class="${TH} text-right">Cost</th>
+                <th class="${TH} text-right">Duration</th>
+                <th class="${TH}">Counters</th>
+                <th class="${TH}">Pull request</th>
+              </tr>
+            </thead>
+            <tbody>${attempts.map(renderAttempt)}</tbody>
+          </table>
+        </div>`}`;
+  return layout(`${ticket.repository} #${ticket.number}`, null, true, assets, body);
 };
