@@ -101,5 +101,10 @@ export const aggregateCohorts = (workloads: InsightWorkload[]): CohortInsight[] 
     members.push(workload);
     groups.set(workload.fingerprintHash, members);
   }
-  return [...groups.values()].map(summarize);
+  return [...groups.values()].map(summarize).sort(
+    (a, b) =>
+      Number(a.hash === null) - Number(b.hash === null) ||
+      b.workloads - a.workloads ||
+      (a.hash ?? '').localeCompare(b.hash ?? ''),
+  );
 };

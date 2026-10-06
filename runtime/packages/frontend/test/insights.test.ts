@@ -250,3 +250,22 @@ test('given workloads across workers, repositories and weeks, when the insights 
   assert.equal(selected(filtered, 'from'), '2026-09-20');
   assert.equal(selected(filtered, 'to'), '2026-09-27');
 });
+
+test('given cohorts of different sizes recorded in any order, when the insights page is requested, then rows run from the largest cohort to the smallest with the unknown-config cohort last', async () => {
+  const quick = { seconds: 60, cost: 0.1, toolCalls: 1, retries: 0 };
+  const rows = rowsOf(
+    await dashboard([
+      { id: 'u1', ...quick },
+      { id: 'u2', ...quick },
+      { id: 'u3', ...quick },
+      { id: 'g1', fingerprint: GLM, ...quick },
+      { id: 'g2', fingerprint: GLM, ...quick },
+      { id: 's1', fingerprint: SONNET, ...quick },
+      { id: 's2', fingerprint: SONNET, ...quick },
+      { id: 's3', fingerprint: SONNET, ...quick },
+      { id: 's4', fingerprint: SONNET, ...quick },
+    ]).page(),
+  );
+
+  assert.deepEqual([...rows.keys()], [fingerprintHash(SONNET), fingerprintHash(GLM), '']);
+});

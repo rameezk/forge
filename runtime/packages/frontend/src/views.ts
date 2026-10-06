@@ -35,7 +35,7 @@ import {
   formatDate,
   formatDuration,
   formatMeasure,
-  formatMilliseconds,
+  formatElapsed,
   formatRate,
   formatSpan,
   formatSpend,
@@ -1209,7 +1209,7 @@ const renderCohort = (cohort: CohortInsight): HtmlEscapedString | Promise<HtmlEs
     <td class="${COHORT_TD}" data-metric="cost-median">${formatCost(cohort.costMedian)}</td>
     <td class="${COHORT_TD}" data-metric="cost-p90">${formatCost(cohort.costP90)}</td>
     <td class="${COHORT_TD} font-semibold" data-metric="cost-per-merged">${cohort.costPerMerged === null ? 'n/a' : formatCost(cohort.costPerMerged)}</td>
-    <td class="${COHORT_TD}" data-metric="duration">${formatMilliseconds(cohort.durationMedianMs)}</td>
+    <td class="${COHORT_TD}" data-metric="duration">${formatElapsed(cohort.durationMedianMs)}</td>
     <td class="${COHORT_TD}" data-metric="cache-hit">${formatRate(cohort.cacheHitRate)}</td>
     <td class="${COHORT_TD}" data-metric="tool-calls">${formatMeasure(cohort.toolCallsMedian)}</td>
     <td class="${COHORT_TD}" data-metric="retries">${formatMeasure(cohort.retriesPerWorkload)}</td>
