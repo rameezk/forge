@@ -243,6 +243,7 @@ test('given frontier tickets that forge dispatched, one running, one done, one f
             timeoutSeconds: null,
             maxCostUsd: null,
             exceededLimit: null,
+            counters: null,
           });
         }
         return id;

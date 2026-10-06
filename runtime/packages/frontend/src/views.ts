@@ -15,6 +15,7 @@ import type {
   RepositoryFrontier,
   ResultEvent,
   RetryEvent,
+  RunCounters,
   RunRecord,
   RunSkillLoad,
   RunStatus,
@@ -953,6 +954,22 @@ const renderDownloads = (run: RunRecord, downloads: Downloads): Rendered => {
       )}</dd>`;
 };
 
+const COUNTER_ROWS = [
+  { key: 'toolCalls', label: 'Tool calls', attribute: 'data-tool-calls' },
+  { key: 'failedToolResults', label: 'Failed tool results', attribute: 'data-failed-tool-results' },
+  { key: 'retries', label: 'Retries', attribute: 'data-retries' },
+  { key: 'compactions', label: 'Compactions', attribute: 'data-compactions' },
+] as const;
+
+const renderCounters = (counters: RunCounters | null): Rendered =>
+  counters === null
+    ? ''
+    : html`${COUNTER_ROWS.map(
+        ({ key, label, attribute }) =>
+          html`<dt class="${META_TERM}">${label}</dt>
+      <dd class="${META_VALUE}" ${raw(attribute)}>${counters[key]}</dd>`,
+      )}`;
+
 const SHORT_SHA_LENGTH = 7;
 
 const renderConfig = (config: RunFingerprint | null): Rendered =>
@@ -1004,6 +1021,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
       <dt class="${META_TERM}">Providers</dt>
       <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
+      ${renderCounters(run.counters)}
       ${renderSkills(skillLoads)}
       ${renderPullRequest(pullRequest)}
       ${renderDownloads(run, downloads)}

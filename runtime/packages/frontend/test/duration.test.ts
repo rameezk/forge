@@ -34,6 +34,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   timeoutSeconds: null,
   maxCostUsd: null,
   exceededLimit: null,
+  counters: null,
   ...overrides,
 });
 

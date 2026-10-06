@@ -46,6 +46,7 @@ const appWith = ({
     timeoutSeconds: null,
     maxCostUsd: null,
     exceededLimit: null,
+    counters: null,
   });
   return createApp({
     store,

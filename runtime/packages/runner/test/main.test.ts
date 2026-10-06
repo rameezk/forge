@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -11,6 +12,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import {
@@ -936,6 +938,45 @@ test('given a recorded run with two parallel subagent calls, when the transcript
   ]);
   for (const message of messages.filter((m) => m.subagent === undefined)) {
     assert.ok(!Object.hasOwn(message, 'subagent'));
+  }
+});
+
+test('given a pi stream with three tool calls one of which failed, a retry and a compaction, when the workload ends, then its counters match them', async () => {
+  const { run } = await runWorker({
+    output: outputFile(
+      ['tool-calls.jsonl', 'retry.jsonl', 'compaction.jsonl']
+        .map((name) => readFileSync(fixture(name), 'utf8'))
+        .join('\n'),
+    ),
+  });
+
+  assert.deepEqual(run.counters, {
+    toolCalls: 3,
+    failedToolResults: 1,
+    retries: 1,
+    compactions: 1,
+  });
+});
+
+test('given an older workload recorded without counters whose transcript ends in a line cut off mid-write, when billing runs twice, then the first run fills its counters from the complete lines and the second leaves them unchanged', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('tool-calls.jsonl') });
+    const database = new DatabaseSync(join(stateDir, 'forge.db'));
+    database.exec(
+      'UPDATE runs SET tool_calls = NULL, failed_tool_results = NULL, retries = NULL, compactions = NULL',
+    );
+    database.close();
+    appendFileSync(join(stateDir, 'transcripts', `${run.id}.jsonl`), '{"type":"tool_ca');
+
+    assert.equal(await fire(stateDir, openRouter), 0);
+    const filled = storedRun(stateDir, run.id).counters;
+    assert.equal(await fire(stateDir, openRouter), 0);
+
+    assert.deepEqual(filled, { toolCalls: 2, failedToolResults: 1, retries: 0, compactions: 0 });
+    assert.deepEqual(storedRun(stateDir, run.id).counters, filled);
+  } finally {
+    openRouter.close();
   }
 });
 

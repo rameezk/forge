@@ -23,6 +23,13 @@ export interface ListPrice {
   cacheWrite: number | null;
 }
 
+export interface RunCounters {
+  toolCalls: number;
+  failedToolResults: number;
+  retries: number;
+  compactions: number;
+}
+
 export interface RunRecord {
   id: string;
   worker: string;
@@ -49,6 +56,7 @@ export interface RunRecord {
   timeoutSeconds: number | null;
   maxCostUsd: number | null;
   exceededLimit: ExceededLimit | null;
+  counters: RunCounters | null;
 }
 
 export interface InterruptedRun {
@@ -60,4 +68,5 @@ export interface RunResult
   extends Pick<RunRecord, 'status' | 'sessionId' | 'error'> {
   endTime: string;
   exceededLimit?: ExceededLimit;
+  counters?: RunCounters;
 }

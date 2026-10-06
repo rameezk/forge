@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Store } from '@forge/shared';
+import { Store, type HarnessEvent } from '@forge/shared';
 import { settleGenerations, type LookupOutcome } from '../src/index.ts';
 
 const NOW = '2026-09-29T12:00:00.000Z';
@@ -13,6 +13,22 @@ const NO_USAGE = {
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
 };
+
+const noTranscripts = (): HarnessEvent[] | null => null;
+
+const toolCall = (id: string): HarnessEvent => ({
+  type: 'tool_call',
+  id,
+  name: 'bash',
+  arguments: { command: 'true' },
+});
+
+const toolResult = (id: string, isError: boolean): HarnessEvent => ({
+  type: 'tool_result',
+  id,
+  isError,
+  text: '',
+});
 
 const billed = async (costUsd: number): Promise<LookupOutcome> => ({
   outcome: 'billed',
@@ -59,6 +75,7 @@ const startedRun = (
     timeoutSeconds: null,
     maxCostUsd: null,
     exceededLimit: null,
+    counters: null,
   });
   if (generatedAt !== null) {
     store.recordGeneration({
@@ -94,6 +111,7 @@ test('given one run that ended just over 24 hours ago and one just under, each w
 
   await settleGenerations({
     store,
+    readTranscript: noTranscripts,
     lookUp: async () => ({ outcome: 'temporary', reason: 'HTTP 404' }),
     now: () => NOW,
     log: (line) => log.push(line),
@@ -121,6 +139,7 @@ test('given a run still running whose generations so far are all billed, when th
 
   await settleGenerations({
     store,
+    readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: () => {},
@@ -149,6 +168,7 @@ test('given a run whose runner is still beating but has had no generation for 24
 
   await settleGenerations({
     store,
+    readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: (line) => log.push(line),
@@ -184,6 +204,7 @@ test('given a run whose runner is still beating but has had no generation since 
 
   await settleGenerations({
     store,
+    readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: (line) => log.push(line),
@@ -201,6 +222,7 @@ test('given a run given up because it never ended, when its runner later finaliz
   startedRun(store, 'late', { aliveAt: BEATING });
   await settleGenerations({
     store,
+    readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: () => {},
@@ -231,6 +253,7 @@ test('given running runs whose runner last beat just over two minutes ago, whose
 
   await settleGenerations({
     store,
+    readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: (line) => log.push(line),
@@ -292,4 +315,59 @@ test('given running runs whose runner last beat just over two minutes ago, whose
     `run "killed" was interrupted: its runner stopped without finishing, last seen at ${lastBeat}`,
     `run "never-beat" was interrupted: its runner stopped without finishing, last seen at ${started}`,
   ]);
+});
+
+test('given a running run whose runner stopped beating, with a transcript holding two tool calls and a failed result so far, when the settle step runs, then it ends as interrupted with counters reflecting that transcript', async () => {
+  const store = Store.open(':memory:');
+  startedRun(store, 'killed', { aliveAt: endedAgo(121_000) });
+  startedRun(store, 'alive', { aliveAt: endedAgo(1_000) });
+  const transcripts = new Map<string, HarnessEvent[]>([
+    ['killed.jsonl', [toolCall('a'), toolResult('a', false), toolCall('b'), toolResult('b', true)]],
+    ['alive.jsonl', [toolCall('c')]],
+  ]);
+
+  await settleGenerations({
+    store,
+    readTranscript: (ref) => transcripts.get(ref) ?? null,
+    lookUp: async () => billed(0.25),
+    now: () => NOW,
+    log: () => {},
+  });
+
+  assert.equal(store.getRun('killed')?.status, 'interrupted');
+  assert.deepEqual(store.getRun('killed')?.counters, {
+    toolCalls: 2,
+    failedToolResults: 1,
+    retries: 0,
+    compactions: 0,
+  });
+  assert.equal(store.getRun('alive')?.counters, null);
+});
+
+test('given an ended run recorded without counters whose transcript holds tool calls and a failed result, when billing runs twice, then the first run fills its counters from the transcript and the second leaves them unchanged', async () => {
+  const store = Store.open(':memory:');
+  startedRun(store, 'older');
+  finish(store, 'older', endedAgo(1_000));
+  const transcript: HarnessEvent[] = [
+    toolCall('a'),
+    toolResult('a', true),
+    toolCall('b'),
+    { type: 'retry', attempt: 1, maxAttempts: 3, delayMs: 10, error: null },
+    { type: 'compaction', reason: null, tokensBefore: null, tokensAfter: null, summary: null, error: null },
+  ];
+  const settle = (events: HarnessEvent[]): Promise<void> =>
+    settleGenerations({
+      store,
+      readTranscript: () => events,
+      lookUp: async () => billed(0.25),
+      now: () => NOW,
+      log: () => {},
+    });
+
+  await settle(transcript);
+  const filled = store.getRun('older')?.counters;
+  await settle([]);
+
+  assert.deepEqual(filled, { toolCalls: 2, failedToolResults: 1, retries: 1, compactions: 1 });
+  assert.deepEqual(store.getRun('older')?.counters, filled);
 });

@@ -28,6 +28,7 @@ const runningRun: RunRecord = {
   timeoutSeconds: null,
   maxCostUsd: null,
   exceededLimit: null,
+  counters: null,
 };
 
 const ticket: Ticket = {

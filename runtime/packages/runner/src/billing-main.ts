@@ -1,5 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isHeaderValue, Store } from '@forge/shared';
+import {
+  isHeaderValue,
+  parseTranscriptLines,
+  Store,
+  type HarnessEvent,
+} from '@forge/shared';
 import { settleGenerations } from './billing.ts';
 import { openRouterBaseUrl, openRouterLookUp } from './openrouter.ts';
 
@@ -21,11 +27,26 @@ export const main = async (env: NodeJS.ProcessEnv): Promise<number> => {
   }
   const lookUp = openRouterLookUp(openRouterBaseUrl(env), apiKeyOf(env));
 
+  const transcriptsDir = join(stateDir, 'transcripts');
+  const readTranscript = (ref: string): HarnessEvent[] | null => {
+    let contents: string;
+    try {
+      contents = readFileSync(join(transcriptsDir, ref), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+    return parseTranscriptLines(contents);
+  };
+
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     await settleGenerations({
       store,
       lookUp,
+      readTranscript,
       now: () => new Date().toISOString(),
       log: (line) => process.stderr.write(`${line}\n`),
     });

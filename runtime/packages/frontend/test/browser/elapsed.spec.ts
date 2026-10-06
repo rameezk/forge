@@ -31,6 +31,7 @@ const runningRun: RunRecord = {
   timeoutSeconds: null,
   maxCostUsd: null,
   exceededLimit: null,
+  counters: null,
 };
 
 const minutesAfterStart = (minutes: number): Date => new Date(Date.parse(START) + minutes * 60_000);
