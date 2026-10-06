@@ -8,6 +8,7 @@ import {
 } from './frontier.ts';
 import {
   DISPATCH_DETAIL_LIMIT,
+  ticketKey,
   type DispatchFailure,
   type DispatchOutcome,
   type DispatchRecord,
@@ -1219,6 +1220,16 @@ export class Store {
       config: this.getFingerprint(run_id),
       pullRequest: this.pullRequestOfRun(run_id),
     }));
+  }
+
+  attemptedTickets(): Set<string> {
+    const rows = this.#db
+      .prepare(
+        `SELECT DISTINCT d.repository AS repository, d.number AS number FROM dispatches d
+        JOIN runs r ON r.id = d.run_id`,
+      )
+      .all() as { repository: string; number: number }[];
+    return new Set(rows.map(({ repository, number }) => ticketKey(repository, number)));
   }
 
   listRuns(): RunRecord[] {

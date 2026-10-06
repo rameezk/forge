@@ -70,7 +70,7 @@ export const createApp = ({
   app.get('/', (c) => c.html(renderList(store.listRuns(), assets)));
 
   app.get('/work', (c) =>
-    c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), assets)),
+    c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), store.attemptedTickets(), assets)),
   );
 
   const DATE = /^\d{4}-\d{2}-\d{2}$/;

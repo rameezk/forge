@@ -248,3 +248,22 @@ test('given a ticket whose only dispatch never started a workload, when the Work
   assert.match(work, /data-dispatch="failed"/);
   assert.doesNotMatch(work, /data-attempts/);
 });
+
+test('given a ticket with an earlier attempt that was dispatched again with no workload yet, when the Work page is requested, then it still links to the attempts view', async () => {
+  const { app, store } = dashboard(THREE.slice(0, 1));
+  const again = store.startDispatch(TICKET, 'not-started', '2026-09-30T08:00:00.000Z', 100);
+  assert.ok('started' in again);
+  store.replaceFrontier({
+    repository: 'forge',
+    github: 'rameezk/forge',
+    polledAt: '2026-09-30T08:15:00.000Z',
+    tickets: [
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, blocked: false },
+    ],
+  });
+
+  const work = await (await app.request('/work')).text();
+
+  assert.match(work, /data-dispatch="/);
+  assert.match(work, /<a href="\/tickets\/forge\/42"[^>]*data-attempts[^>]*>/);
+});

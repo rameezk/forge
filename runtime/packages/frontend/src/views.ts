@@ -1118,6 +1118,7 @@ const renderPolled = (polledAt: string | null): Rendered =>
 const renderRepository = (
   { repository, github, polledAt, lastError, tickets }: RepositoryFrontier,
   dispatches: ReadonlyMap<string, DispatchRecord>,
+  attempted: ReadonlySet<string>,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<section class="mb-10" data-repository="${repository}"${lastError === null ? '' : html` data-stale`}>
     <header class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -1150,7 +1151,7 @@ const renderRepository = (
                 (ticket) => html`<tr class="${ROW}" data-ticket="${ticket.number}">
                   <td class="${TD} whitespace-nowrap tabular-nums">${isGithubUrl(ticket.url)
                     ? externalLink(ticket.url, `#${ticket.number}`)
-                    : html`#${ticket.number}`}${dispatches.get(ticketKey(repository, ticket.number))?.runId != null
+                    : html`#${ticket.number}`}${attempted.has(ticketKey(repository, ticket.number))
                     ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
                     : ''}</td>
                   <td class="${TD} min-w-48">${ticket.title}</td>
@@ -1167,6 +1168,7 @@ const renderRepository = (
 export const renderWork = (
   frontier: RepositoryFrontier[],
   dispatches: DispatchRecord[],
+  attempted: ReadonlySet<string>,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const byTicket = new Map(
@@ -1175,7 +1177,7 @@ export const renderWork = (
   const body = html`<h1 class="${PAGE_TITLE}">Frontier</h1>
     ${frontier.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
-      : frontier.map((repository) => renderRepository(repository, byTicket))}`;
+      : frontier.map((repository) => renderRepository(repository, byTicket, attempted))}`;
   return layout('Frontier', 'work', true, assets, body);
 };
 
