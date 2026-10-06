@@ -14,3 +14,18 @@ export const parseTranscript = (contents: string): HarnessEvent[] =>
     .split('\n')
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as HarnessEvent);
+
+export const parseTranscriptLines = (contents: string): HarnessEvent[] =>
+  contents
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .flatMap((line) => {
+      try {
+        const parsed: unknown = JSON.parse(line);
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+          ? [parsed as HarnessEvent]
+          : [];
+      } catch {
+        return [];
+      }
+    });

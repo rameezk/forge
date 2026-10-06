@@ -53,6 +53,7 @@ const dashboard = () => {
     timeoutSeconds: null,
     maxCostUsd: null,
     exceededLimit: null,
+    counters: null,
   });
   const dispatch = store.startDispatch(
     { repository: 'forge', number: 56, url: TICKET_URL },

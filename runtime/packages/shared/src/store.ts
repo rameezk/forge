@@ -30,6 +30,7 @@ import type {
   CostStatus,
   ExceededLimit,
   InterruptedRun,
+  RunCounters,
   RunRecord,
   RunResult,
   RunStatus,
@@ -66,6 +67,10 @@ type RunRow = {
   timeout_seconds: number | null;
   max_cost_usd: number | null;
   exceeded_limit: string | null;
+  tool_calls: number | null;
+  failed_tool_results: number | null;
+  retries: number | null;
+  compactions: number | null;
 };
 
 const CREATE_RUNS = `
@@ -103,7 +108,11 @@ const CREATE_RUNS = `
     fingerprint        TEXT,
     fingerprint_hash   TEXT,
     forge_git_sha      TEXT,
-    base_commit        TEXT
+    base_commit        TEXT,
+    tool_calls          INTEGER,
+    failed_tool_results INTEGER,
+    retries             INTEGER,
+    compactions         INTEGER
   ) STRICT;
 `;
 
@@ -181,6 +190,17 @@ const HAS_RUN_BUDGET = `
 
 const ADD_RUN_BUDGET = `
   ALTER TABLE runs ADD COLUMN max_cost_usd REAL;
+`;
+
+const HAS_RUN_COUNTERS = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'tool_calls'
+`;
+
+const ADD_RUN_COUNTERS = `
+  ALTER TABLE runs ADD COLUMN tool_calls INTEGER;
+  ALTER TABLE runs ADD COLUMN failed_tool_results INTEGER;
+  ALTER TABLE runs ADD COLUMN retries INTEGER;
+  ALTER TABLE runs ADD COLUMN compactions INTEGER;
 `;
 
 const BUSY_TIMEOUT_MS = 5000;
@@ -541,6 +561,10 @@ const toRow = (run: RunRecord): RunRow => ({
   timeout_seconds: run.timeoutSeconds,
   max_cost_usd: run.maxCostUsd,
   exceeded_limit: run.exceededLimit,
+  tool_calls: run.counters?.toolCalls ?? null,
+  failed_tool_results: run.counters?.failedToolResults ?? null,
+  retries: run.counters?.retries ?? null,
+  compactions: run.counters?.compactions ?? null,
 });
 
 const ticketFromRow = (row: TicketRow): Ticket => ({
@@ -621,6 +645,18 @@ const fromRow = (row: RunRow): RunRecord => ({
   timeoutSeconds: row.timeout_seconds,
   maxCostUsd: row.max_cost_usd,
   exceededLimit: row.exceeded_limit as ExceededLimit | null,
+  counters:
+    row.tool_calls === null ||
+    row.failed_tool_results === null ||
+    row.retries === null ||
+    row.compactions === null
+      ? null
+      : {
+          toolCalls: row.tool_calls,
+          failedToolResults: row.failed_tool_results,
+          retries: row.retries,
+          compactions: row.compactions,
+        },
 });
 
 export interface WorkloadSpend {
@@ -646,6 +682,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_LIMITS, ADD_RUN_LIMITS);
     this.#addColumnsOnce(HAS_RUN_BUDGET, ADD_RUN_BUDGET);
     this.#addColumnsOnce(HAS_RUN_FINGERPRINT, ADD_RUN_FINGERPRINT);
+    this.#addColumnsOnce(HAS_RUN_COUNTERS, ADD_RUN_COUNTERS);
     db.exec(CREATE_GENERATIONS);
     db.exec(CREATE_SKILL_LOADS);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
@@ -736,7 +773,8 @@ export class Store {
           cache_read_tokens, cache_write_tokens,
           transcript_ref, session_id, error,
           repository, ticket_number, ticket_url, alive_at,
-          harness_start_time, timeout_seconds, exceeded_limit, max_cost_usd
+          harness_start_time, timeout_seconds, exceeded_limit, max_cost_usd,
+          tool_calls, failed_tool_results, retries, compactions
         ) VALUES (
           $id, $worker, $harness, $model, $reasoning_effort, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $cost_estimated,
@@ -745,7 +783,8 @@ export class Store {
           $cache_read_tokens, $cache_write_tokens,
           $transcript_ref, $session_id, $error,
           $repository, $ticket_number, $ticket_url, $alive_at,
-          $harness_start_time, $timeout_seconds, $exceeded_limit, $max_cost_usd
+          $harness_start_time, $timeout_seconds, $exceeded_limit, $max_cost_usd,
+          $tool_calls, $failed_tool_results, $retries, $compactions
         )`,
       )
       .run(row);
@@ -760,7 +799,11 @@ export class Store {
             status = $status,
             session_id = $session_id,
             error = $error,
-            exceeded_limit = $exceeded_limit
+            exceeded_limit = $exceeded_limit,
+            tool_calls = COALESCE($tool_calls, tool_calls),
+            failed_tool_results = COALESCE($failed_tool_results, failed_tool_results),
+            retries = COALESCE($retries, retries),
+            compactions = COALESCE($compactions, compactions)
           WHERE id = $id`,
         )
         .run({
@@ -770,6 +813,10 @@ export class Store {
           session_id: result.sessionId,
           error: result.error,
           exceeded_limit: result.exceededLimit ?? null,
+          tool_calls: result.counters?.toolCalls ?? null,
+          failed_tool_results: result.counters?.failedToolResults ?? null,
+          retries: result.counters?.retries ?? null,
+          compactions: result.counters?.compactions ?? null,
         });
       this.#settleRun(id);
     });
@@ -816,6 +863,36 @@ export class Store {
           forgeGitSha: row.forge_git_sha,
           baseCommit: row.base_commit,
         };
+  }
+
+  recordCounters(id: string, counters: RunCounters): void {
+    this.#db
+      .prepare(
+        `UPDATE runs SET
+          tool_calls = $tool_calls,
+          failed_tool_results = $failed_tool_results,
+          retries = $retries,
+          compactions = $compactions
+        WHERE id = $id AND tool_calls IS NULL`,
+      )
+      .run({
+        id,
+        tool_calls: counters.toolCalls,
+        failed_tool_results: counters.failedToolResults,
+        retries: counters.retries,
+        compactions: counters.compactions,
+      });
+  }
+
+  runsWithoutCounters(): { id: string; transcriptRef: string }[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT id, transcript_ref FROM runs
+        WHERE status != 'running' AND tool_calls IS NULL AND transcript_ref IS NOT NULL
+        ORDER BY id`,
+      )
+      .all() as { id: string; transcript_ref: string }[];
+    return rows.map((row) => ({ id: row.id, transcriptRef: row.transcript_ref }));
   }
 
   markHarnessStarted(id: string, at: string): void {

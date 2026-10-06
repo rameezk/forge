@@ -6,10 +6,13 @@ import {
   type ListPrice,
   type MessageEvent,
   type RunStatus,
+  type RunCounters,
   type RunTicket,
   type SkillCatalog,
   type Store,
   type TokenUsage,
+  countEvent,
+  noCounters,
   promptSkillLoad,
   readSkillLoad,
 } from '@forge/shared';
@@ -123,6 +126,7 @@ export const runWorkload = async (
     timeoutSeconds: worker.timeoutSeconds ?? null,
     maxCostUsd: worker.maxCostUsd ?? null,
     exceededLimit: null,
+    counters: null,
   });
   const stopHeartbeat = startHeartbeat(
     () => store.touchRun(id, now()),
@@ -166,6 +170,7 @@ export const runWorkload = async (
   let thrown: unknown = null;
   let fingerprint: FingerprintRecorder | null = null;
   let exceeded: ExceededLimit | null = null;
+  const counters: RunCounters = noCounters();
   const stop = new AbortController();
   let stopTimeout = (): void => {};
 
@@ -224,6 +229,7 @@ export const runWorkload = async (
     for await (const harnessEvent of harness.run(invocation, sinks)) {
       const event = policy.record(harnessEvent);
       await transcript.append(event);
+      countEvent(counters, event);
       recordSkillLoad(event, readSkillLoad);
       if (event.type === 'message') {
         if (isBillable(event)) {
@@ -275,6 +281,7 @@ export const runWorkload = async (
     status,
     sessionId,
     error,
+    counters,
     ...(exceeded === null ? {} : { exceededLimit: exceeded }),
   });
 

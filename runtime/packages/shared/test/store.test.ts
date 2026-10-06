@@ -39,6 +39,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   timeoutSeconds: null,
   maxCostUsd: null,
   exceededLimit: null,
+  counters: null,
   ...overrides,
 });
 
@@ -79,6 +80,7 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     timeoutSeconds: null,
     maxCostUsd: null,
     exceededLimit: null,
+    counters: null,
   });
 
   store.insertRun(run);
@@ -132,6 +134,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
       timeoutSeconds: null,
       maxCostUsd: null,
       exceededLimit: null,
+      counters: null,
     }),
   );
 
@@ -168,6 +171,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     timeoutSeconds: null,
     maxCostUsd: null,
     exceededLimit: null,
+    counters: null,
   });
 });
 

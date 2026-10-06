@@ -1,5 +1,8 @@
 import {
   STALE_AFTER_MS,
+  countEvents,
+  errorMessage,
+  type HarnessEvent,
   type LookupResult,
   type Store,
   type UnsettledGeneration,
@@ -15,6 +18,7 @@ const GIVE_UP_AFTER_MS = GIVE_UP_AFTER_HOURS * 60 * 60 * 1000;
 export interface SettleOptions {
   store: Store;
   lookUp: LookUpGeneration;
+  readTranscript: (ref: string) => HarnessEvent[] | null;
   now: () => string;
   log: (line: string) => void;
 }
@@ -63,6 +67,7 @@ const resultOf = (
 export const settleGenerations = async ({
   store,
   lookUp,
+  readTranscript,
   now,
   log,
 }: SettleOptions): Promise<void> => {
@@ -94,5 +99,15 @@ export const settleGenerations = async ({
     log(
       `gave up on run ${JSON.stringify(runId)}: it never ended and has had no generation for ${GIVE_UP_AFTER_HOURS} hours`,
     );
+  }
+  for (const { id, transcriptRef } of store.runsWithoutCounters()) {
+    try {
+      const events = readTranscript(transcriptRef);
+      if (events !== null) {
+        store.recordCounters(id, countEvents(events));
+      }
+    } catch (error) {
+      log(`could not count the transcript of run ${JSON.stringify(id)}: ${errorMessage(error)}`);
+    }
   }
 };

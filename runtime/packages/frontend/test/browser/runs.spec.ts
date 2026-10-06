@@ -27,6 +27,7 @@ const recordedRun: RunRecord = {
   timeoutSeconds: null,
   maxCostUsd: null,
   exceededLimit: null,
+  counters: null,
 };
 
 test('given a dashboard serving a real store with one recorded run, when the runs list is opened, then the run is visible', async ({
