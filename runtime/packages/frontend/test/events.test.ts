@@ -261,3 +261,28 @@ test('given a client streaming events for a ticket attempts page, when an attemp
   assert.equal(signal?.event, 'change');
   assert.equal(signal?.data, '/tickets/forge/42');
 });
+
+test('given a client streaming events for a cohort page, when another cohort appears, then the stream emits a change signal', async (t) => {
+  const { app, writer } = dashboard(t);
+  const fingerprint = {
+    model: 'anthropic/claude-opus-4',
+    reasoningEffort: null,
+    harnessArgs: [],
+    harnessVersion: null,
+    promptTemplate: 'abcd1234',
+    systemPrompt: null,
+    tools: null,
+    skills: null,
+  };
+  const page = `/cohorts/${'a'.repeat(64)}`;
+  writer.insertRun(sampleRun({ id: 'run-01' }));
+  writer.recordFingerprint('run-01', { fingerprint, hash: 'a'.repeat(64), forgeGitSha: null, baseCommit: null });
+  const stream = await streamEvents(t, app, page);
+
+  writer.insertRun(sampleRun({ id: 'run-02' }));
+  writer.recordFingerprint('run-02', { fingerprint: { ...fingerprint, skills: 'k' }, hash: 'b'.repeat(64), forgeGitSha: null, baseCommit: null });
+
+  const signal = await stream.next();
+  assert.equal(signal?.event, 'change');
+  assert.equal(signal?.data, page);
+});

@@ -79,8 +79,10 @@ export { SkillLoadTracker } from './skill-loads.ts';
 export type { TicketAttempt } from './attempts.ts';
 export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 export {
+  UNKNOWN_COHORT,
   UNKNOWN_CONFIG,
   canonicalHash,
+  cohortHref,
   cohortLabel,
   fingerprintHash,
   sha256,

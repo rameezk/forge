@@ -1,15 +1,17 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { rawEventsRef, requestRecordRef, type InsightsFilter, type RunRecord, type Store } from '@forge/shared';
+import { rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
-import { isSettled, NAV_PAGES, renderDetail, renderInsights, renderList, renderTicketAttempts, renderWork, type AssetHrefs, type Downloads } from './views.ts';
+import { isSettled, NAV_PAGES, renderCohortPage, renderDetail, renderInsights, renderList, renderTicketAttempts, renderUnknownCohortPage, renderWork, type AssetHrefs, type Downloads } from './views.ts';
 
 const TICKET_NUMBER = /^[1-9]\d*$/;
 
 const ATTEMPTS_PAGE = /^\/tickets\/[^/]+\/[1-9]\d*$/;
+
+const COHORT_PAGE = new RegExp(`^/cohorts/(?:${UNKNOWN_COHORT}|[0-9a-f]{64})(?:\\?.*)?$`);
 
 const DETAIL_PAGE = /^\/runs\/([^/]+)$/;
 
@@ -88,6 +90,17 @@ export const createApp = ({
     return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), filter, store.insightsOptions(), assets));
   });
 
+  app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => (store.hasUnknownConfigRuns() ? c.html(renderUnknownCohortPage(assets)) : c.notFound()));
+
+  app.get('/cohorts/:hash', (c) => {
+    const hash = c.req.param('hash');
+    const fingerprint = store.getCohortFingerprint(hash);
+    if (fingerprint === null) return c.notFound();
+    const againstHash = c.req.query('against') ?? '';
+    const against = againstHash === hash ? null : store.getCohortFingerprint(againstHash);
+    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.listCohortFingerprints(), assets));
+  });
+
   app.get('/tickets/:repository/:number', (c) => {
     const number = Number(c.req.param('number'));
     if (!TICKET_NUMBER.test(c.req.param('number')) || !Number.isSafeInteger(number)) return c.notFound();
@@ -137,7 +150,7 @@ export const createApp = ({
 
   const watch = (page: string | undefined): (() => Check) | undefined => {
     if (page === undefined) return undefined;
-    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page)) return () => ({ version: String(store.dataVersion()), finished: false });
+    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page) || COHORT_PAGE.test(page)) return () => ({ version: String(store.dataVersion()), finished: false });
     const runId = runOfDetailPage(page);
     if (runId === undefined || store.getRun(runId) === undefined) return undefined;
     return () => {
