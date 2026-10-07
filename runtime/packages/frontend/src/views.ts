@@ -721,6 +721,7 @@ interface SubagentContext {
   results: ToolResults;
   generations: GenerationRecord[];
   runStatus: RunStatus;
+  kinds: ReadonlyMap<string, string[]>;
 }
 
 const subagentStatus = (
@@ -759,12 +760,19 @@ const subagentCost = (
   return { costStatus: 'billed', costUsd, costEstimated };
 };
 
+const KIND_CHIP = 'whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[0.75rem]';
+
+const renderKinds = (kinds: string[] | undefined): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="flex flex-wrap items-center gap-1.5" data-subagent-kinds>${kinds === undefined
+    ? html`<span class="${KIND_CHIP} border-dashed border-line italic" data-subagent-kind>unclassified</span>`
+    : kinds.map((kind) => html`<span class="${KIND_CHIP} border-line bg-raised text-fg" data-subagent-kind>${kind}</span>`)}</span>`;
+
 const renderFigures = (
   scope: string,
   events: ScopedEvent[],
   shown: ScopedEvent[],
   report: ToolResultEvent | undefined,
-  { generations, runStatus }: SubagentContext,
+  { generations, runStatus, kinds }: SubagentContext,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -774,7 +782,8 @@ const renderFigures = (
       outputTokens += event.usage.outputTokens;
     }
   }
-  return html`<span class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[0.8rem] tabular-nums text-muted" data-subagent-figures>
+  return html`<span class="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[0.8rem] tabular-nums text-muted" data-subagent-figures>
+    ${renderKinds(kinds.get(scope))}
     ${renderStatus(subagentStatus(report, runStatus))}
     <span class="whitespace-nowrap" data-subagent-tokens>${renderTokens({ inputTokens, outputTokens })}</span>
     <span class="whitespace-nowrap" data-subagent-cost>${renderCost(subagentCost(scope, generations, runStatus))}</span>
@@ -819,7 +828,7 @@ const renderSubagentCall = (
     </header>
     ${renderGroup(
       'border-t border-line',
-      html`<span class="min-w-0 truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
+      html`<span class="min-w-0 flex-1 basis-40 truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
       renderFigures(scope, events, shown, report, context),
       failed,
       [
@@ -853,13 +862,24 @@ const renderSubagent = (
   );
 };
 
+const subagentKinds = (loads: RunSkillLoad[]): Map<string, string[]> => {
+  const kinds = new Map<string, string[]>();
+  for (const { skill, subagent } of loads) {
+    if (subagent !== null) {
+      kinds.set(subagent, [...(kinds.get(subagent) ?? []), skill].sort((a, b) => a.localeCompare(b)));
+    }
+  }
+  return kinds;
+};
+
 const renderTranscript = (
   events: HarnessEvent[],
   generations: GenerationRecord[],
   runStatus: RunStatus,
+  skillLoads: RunSkillLoad[],
 ): Rendered[] => {
   const results = toolResults(events);
-  const context: SubagentContext = { results, generations, runStatus };
+  const context: SubagentContext = { results, generations, runStatus, kinds: subagentKinds(skillLoads) };
   const first = events[0];
   const prompt = first?.type === 'message' && first.role === 'user' ? first : undefined;
   return withoutToolOnlyPreambles(nestSubagents(events)).map((entry) =>
@@ -1060,7 +1080,7 @@ export const renderDetail = (
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
-      : html`<div class="${STACK}" data-transcript="${events.length}">${renderTranscript(events, generations, run.status)}</div>`}
+      : html`<div class="${STACK}" data-transcript="${events.length}">${renderTranscript(events, generations, run.status, skillLoads)}</div>`}
     ${live ? html`<button type="button" id="new-activity" hidden class="${NEW_ACTIVITY}">↓ New activity</button>` : ''}`;
   return layout(run.worker, null, live, assets, body);
 };

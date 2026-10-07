@@ -30,6 +30,7 @@ import {
   TRUNCATED_SKILL_FILES,
   REVIEWING_PROMPT,
   SKILL_FILES,
+  SUBAGENTS_PROMPT,
 } from './fixtures/fake-provider.ts';
 import {
   billedAt,
@@ -1890,6 +1891,37 @@ test('given a worker whose prompt starts /work-on, when the run page is opened, 
 
   assert.deepEqual(skillsOf(page), [['work-on', 'prompt']]);
   assert.deepEqual(partialsOf(page), []);
+});
+
+
+const subagentKinds = (page: string): string[][] =>
+  (page.match(/<section[^>]*\sdata-subagent-call[\s>][\s\S]*?<\/section>/g) ?? []).map((card) =>
+    [...card.slice(0, card.indexOf('</summary>')).matchAll(/data-subagent-kind>([^<]*)</g)].map(
+      ([, kind = '']) => kind.trim(),
+    ),
+  );
+
+test('given a run whose agent spawned one subagent reading code-review and two reading security-review, when the run page is opened, then each subagent header carries the chip for its skill', async () => {
+  const { stateDir, runs } = await skillLoadsRun();
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.deepEqual(subagentKinds(page), [
+    ['code-review'],
+    ['security-review'],
+    ['security-review'],
+  ]);
+});
+
+test('given a run whose subagents load no skill, when the run page is opened, then each subagent header shows unclassified', async () => {
+  const { stateDir, runs } = await dispatch({
+    prompt: SUBAGENTS_PROMPT,
+    piOutput: join(import.meta.dirname, 'fixtures', 'pi', 'subagents.jsonl'),
+  });
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.deepEqual(subagentKinds(page), [['unclassified'], ['unclassified']]);
 });
 
 const fingerprintOf = ({ stateDir, runs }: Outcome): RunFingerprint | null => {
