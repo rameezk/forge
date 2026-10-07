@@ -87,8 +87,11 @@ export {
 } from './fingerprint.ts';
 export type {
   CohortInsight,
+  InsightPoint,
   InsightsFilter,
   InsightsOptions,
+  ProviderShare,
+  WorkloadOutcome,
 } from './insights.ts';
 export { countEvent, countEvents, noCounters } from './counters.ts';
 export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';

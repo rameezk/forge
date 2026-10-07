@@ -22,6 +22,12 @@ Each token is a Tailwind colour that switches between its light and dark value b
 | success / success-soft | #3F6B2B / #E4EEDC | #A3BE8C / #3E4A42 | Success pill |
 | error / error-soft | #A8404B / #F6E1E3 | #EE9CA3 / #4D3D46 | Error pill and badge, poll and run error callouts, the border and label of a failed tool, error message or failed result |
 | warning / warning-soft | #8A6512 / #F8EED6 | #EBCB8B / #4B4843 | Unconfirmed badge |
+| series-1 | #3B6EA8 | #88C0D0 | Insights chart: first cohort, provider |
+| series-2 | #B0563B | #D08770 | Insights chart: second cohort, provider |
+| series-3 | #2F7F6F | #8FBCBB | Insights chart: third cohort, provider |
+| series-4 | #7B5A9E | #B48EAD | Insights chart: fourth cohort, provider |
+| series-5 | #8A6512 | #EBCB8B | Insights chart: fifth cohort, provider |
+| series-6 | #4F7D2D | #A3BE8C | Insights chart: sixth cohort, provider |
 
 ## Usage rules
 
@@ -30,6 +36,7 @@ Each token is a Tailwind colour that switches between its light and dark value b
 - Status colours stay separate from the accent. Success is green, error is red, and unconfirmed is a yellow badge. Pending is muted italic, running is a grey pill, and a queued ticket is a `muted` pill outlined in `line` on the surface.
 - Every text colour passes WCAG AA (4.5:1) against the surface it sits on. The ratios below say which pairings that allows. In dark mode `muted` and `accent-text` fall below AA on `raised`, so `raised` only ever carries `fg` text, and hovered rows turn `bg` rather than `raised`.
 - Every focusable element shows a 2px `accent` outline when focused from the keyboard.
+- Series colours tell cohorts and providers apart on the Insights page, assigned in order and reused after the sixth. They are graphics only, never text, and the unknown-config cohort uses `muted`. A point's outcome is carried by its shape, never by colour, so status colours stay out of charts. The shapes are a filled circle for merged, a filled diamond for opened (a pull request opened, merged or not), a cross for failed (no pull request), and a hollow square for a manual workload, which has no outcome.
 - Fonts are the native stacks: system UI for text and UI monospace for code.
 
 ## Contrast ratios
@@ -52,5 +59,7 @@ WCAG 2 contrast ratios of each text colour against the surfaces in the palette. 
 | error | surface | 6.00 | 4.75 |
 | error | bg | 5.21 | 5.90 |
 | warning | warning-soft | 4.60 | 5.83 |
+
+Each series colour measures at least 4.46 (light) against `surface` and `raised`, and 3.54 (dark) against `surface`, above the 3:1 WCAG asks of graphics.
 
 `accent` is never text. As decoration it measures 2.64 (light) and 4.10 (dark) against `bg`, and 3.05 (light) and 3.30 (dark) against `surface`.

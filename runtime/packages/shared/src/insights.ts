@@ -39,10 +39,34 @@ export interface CohortInsight {
   reworkPerMerged: number | null;
 }
 
+export type WorkloadOutcome = 'merged' | 'opened' | 'failed';
+
+export interface InsightPoint {
+  runId: string;
+  fingerprintHash: string | null;
+  startTime: string;
+  costUsd: number;
+  outcome: WorkloadOutcome | null;
+}
+
+export interface ProviderShare {
+  hash: string | null;
+  providers: { provider: string; tokens: number }[];
+}
+
 export interface InsightsOptions {
   workers: string[];
   repositories: string[];
 }
+
+export const outcomeOf = (
+  dispatched: boolean,
+  pullRequest: { state: PullRequestState } | null,
+): WorkloadOutcome | null => {
+  if (!dispatched) return null;
+  if (pullRequest === null) return 'failed';
+  return pullRequest.state === 'merged' ? 'merged' : 'opened';
+};
 
 const sum = (values: number[]): number => values.reduce((total, value) => total + value, 0);
 

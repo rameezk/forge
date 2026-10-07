@@ -1,10 +1,13 @@
 import { html, raw } from 'hono/html';
+import { renderChartLegend, renderCostChart, renderProviderShares, seriesOf } from './chart.ts';
 import { cohortLabel, isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   CohortInsight,
+  InsightPoint,
   InsightsFilter,
   InsightsOptions,
+  ProviderShare,
   RunFingerprint,
   DispatchFailure,
   DispatchRecord,
@@ -1238,8 +1241,26 @@ const renderCohort = (cohort: CohortInsight): HtmlEscapedString | Promise<HtmlEs
     <td class="${COHORT_TD}" data-metric="rework">${formatMeasure(cohort.reworkPerMerged)}</td>
   </tr>`;
 
+const renderCostOverTime = (
+  cohorts: CohortInsight[],
+  points: InsightPoint[],
+  shares: ProviderShare[],
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const series = seriesOf(cohorts.map(({ hash }) => hash));
+  return html`<section class="${CARD} mt-4 p-4" data-cost-chart aria-label="Cost over time">
+    <h2 class="mb-2 text-sm font-semibold text-fg">Cost over time</h2>
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
+      <div class="w-full max-w-[30rem] shrink-0">${renderCostChart(points, series)}</div>
+      ${renderChartLegend(cohorts, points, series)}
+    </div>
+  </section>
+  ${renderProviderShares(cohorts, shares)}`;
+};
+
 export const renderInsights = (
   cohorts: CohortInsight[],
+  points: InsightPoint[],
+  shares: ProviderShare[],
   filter: InsightsFilter,
   options: InsightsOptions,
   assets: AssetHrefs,
@@ -1268,7 +1289,8 @@ export const renderInsights = (
             </thead>
             <tbody>${cohorts.map(renderCohort)}</tbody>
           </table>
-        </div>`}`;
+        </div>
+        ${renderCostOverTime(cohorts, points, shares)}`}`;
   return layout('Insights', 'insights', true, assets, body);
 };
 

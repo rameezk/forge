@@ -85,7 +85,7 @@ export const createApp = ({
 
   app.get('/insights', (c) => {
     const filter = filterOf(c.req.query());
-    return c.html(renderInsights(store.listCohorts(filter), filter, store.insightsOptions(), assets));
+    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), filter, store.insightsOptions(), assets));
   });
 
   app.get('/tickets/:repository/:number', (c) => {
