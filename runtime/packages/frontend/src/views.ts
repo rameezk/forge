@@ -22,6 +22,7 @@ import type {
   RunRecord,
   RunSkillLoad,
   RunStatus,
+  SkillCoverage,
   RunTicket,
   SpecRef,
   Ticket,
@@ -942,13 +943,16 @@ const skillWhere = ({ prompt, parent, subagents }: SkillSummary): string =>
     ...(subagents === 0 ? [] : [`${subagents} ${subagents === 1 ? 'subagent' : 'subagents'}`]),
   ].join(', ');
 
+const renderPartialCoverage = ({ coveredLines, totalLines }: SkillCoverage): Rendered =>
+  html`<span class="rounded bg-warning-soft px-1.5 py-0.5 text-xs font-semibold text-warning" data-skill-partial title="This load read ${coveredLines} of the skill file's ${totalLines} lines">partial · ${coveredLines}/${totalLines}</span>`;
+
 const renderSkills = (loads: RunSkillLoad[]): Rendered => {
   const skills = summarizeSkillLoads(loads);
   if (skills.length === 0) return '';
   return html`<dt class="${META_TERM}">Skills</dt>
       <dd class="${META_VALUE}"><ul class="m-0 flex list-none flex-col gap-1 p-0" data-skills>${skills.map(
         (summary) =>
-          html`<li class="flex flex-wrap items-baseline gap-x-3" data-skill="${summary.skill}"><code class="font-mono text-[0.85rem] font-semibold">${summary.skill}</code><span class="text-muted" data-skill-where>${skillWhere(summary)}</span></li>`,
+          html`<li class="flex flex-wrap items-baseline gap-x-3" data-skill="${summary.skill}"><code class="font-mono text-[0.85rem] font-semibold">${summary.skill}</code><span class="text-muted" data-skill-where>${skillWhere(summary)}</span>${summary.partial.map(renderPartialCoverage)}</li>`,
       )}</ul></dd>`;
 };
 

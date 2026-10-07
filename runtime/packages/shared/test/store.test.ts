@@ -218,6 +218,51 @@ test('given a store file in the old schema with one run whose cost was settled, 
   reopened.close();
 });
 
+test('given a store whose skill loads were recorded before coverage, when it is opened, then those loads read back with unknown coverage and a later record of the same load adds its coverage and keeps its source', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE skill_loads (
+      run_id    TEXT NOT NULL,
+      subagent  TEXT NOT NULL,
+      skill     TEXT NOT NULL,
+      source    TEXT NOT NULL,
+      loaded_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, subagent, skill)
+    ) STRICT;
+    INSERT INTO skill_loads VALUES
+      ('run-01', '', 'work-on', 'prompt', '2026-09-21T10:00:01.000Z');
+  `);
+  old.close();
+
+  const store = Store.open(path);
+  const loaded = store.listSkillLoads('run-01');
+  store.recordSkillLoad({
+    runId: 'run-01',
+    skill: 'work-on',
+    source: 'read',
+    subagent: null,
+    loadedAt: '2026-09-21T10:05:00.000Z',
+    coverage: { coveredLines: 60, totalLines: 142 },
+  });
+  const updated = store.listSkillLoads('run-01');
+  store.close();
+
+  assert.deepEqual(loaded.map(({ skill, coverage }) => ({ skill, coverage })), [
+    { skill: 'work-on', coverage: null },
+  ]);
+  assert.deepEqual(
+    updated.map(({ source, loadedAt, coverage }) => ({ source, loadedAt, coverage })),
+    [
+      {
+        source: 'prompt',
+        loadedAt: '2026-09-21T10:00:01.000Z',
+        coverage: { coveredLines: 60, totalLines: 142 },
+      },
+    ],
+  );
+});
+
 test('given a store file whose runs predate dispatch, when the store is opened, then its runs read back with no ticket and a dispatched run can be recorded', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const old = new DatabaseSync(path);

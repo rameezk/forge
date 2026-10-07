@@ -86,7 +86,7 @@ export const textReply = (
 export interface ToolCall {
   id: string;
   name: string;
-  arguments: Record<string, string>;
+  arguments: Record<string, string | number>;
 }
 
 export const toolCallReply = (
@@ -338,6 +338,124 @@ export const reviewing: Respond = (call, res, request, headers) => {
 export const REVIEWING_PROMPT =
   'Read the work-on skill, then have the change reviewed.';
 
+export const COVERED_SKILL_LINES = 142;
+
+const longSkill = (
+  name: string,
+  description: string,
+  lines = COVERED_SKILL_LINES,
+): string =>
+  [
+    '---',
+    `name: ${name}`,
+    `description: ${description}`,
+    '---',
+    ...Array.from(
+      { length: lines - 4 },
+      (_, index) => `Step ${index + 1} of ${name}.`,
+    ),
+  ].join('\n');
+
+export const COVERAGE_SKILL_FILES: Record<string, string> = {
+  '.claude/skills/work-on/SKILL.md': longSkill(
+    'work-on',
+    'Drive one ticket to a pull request.',
+  ),
+  '.claude/skills/code-review/SKILL.md': longSkill(
+    'code-review',
+    'Review a change for standards.',
+  ),
+};
+
+export const COVERAGE_REVIEW_TASK = 'Skim the review skill and report.';
+
+const skimmer: Respond = (_call, res, request) =>
+  sse(
+    res,
+    sentToolResults(request)
+      ? textReply('gen-skim-2', 'Skimmed.', usage(800, 700, 6))
+      : toolCallReply(
+          'gen-skim-1',
+          'Skimming the skill.',
+          [
+            {
+              id: 'call_1',
+              name: 'read',
+              arguments: {
+                path: '.claude/skills/code-review/SKILL.md',
+                limit: 60,
+              },
+            },
+          ],
+          usage(700, 0, 20),
+        ),
+  );
+
+export const coverage: Respond = (call, res, request, headers) => {
+  if (mentions(request, 'You are a sub-agent')) {
+    skimmer(call, res, request, headers);
+    return;
+  }
+  const answered = request.messages.filter(
+    (message) => message.role === 'tool',
+  ).length;
+  const work = '.claude/skills/work-on/SKILL.md';
+  const turn: [string, ToolCall[], Usage] | null =
+    answered === 0
+      ? [
+          'Reading the first page.',
+          [{ id: 'call_1', name: 'read', arguments: { path: work, offset: 1, limit: 60 } }],
+          usage(1000, 0, 20),
+        ]
+      : answered === 1
+        ? [
+            'Reading the rest.',
+            [{ id: 'call_2', name: 'read', arguments: { path: work, offset: 61 } }],
+            usage(1100, 1000, 20),
+          ]
+        : answered === 2
+          ? [
+              'Reviewing.',
+              [{ id: 'call_review', name: 'subagent', arguments: { task: COVERAGE_REVIEW_TASK } }],
+              usage(1200, 1100, 30),
+            ]
+          : null;
+  sse(
+    res,
+    turn === null
+      ? textReply('gen-coverage-4', 'Review is done.', usage(1500, 1300, 10))
+      : toolCallReply(`gen-coverage-${answered + 1}`, ...turn),
+  );
+};
+
+export const COVERAGE_PROMPT =
+  'Read the work-on skill in pages, then have the change reviewed.';
+
+export const TRUNCATED_SKILL_LINES = 2500;
+
+export const TRUNCATED_SKILL_FILES: Record<string, string> = {
+  '.claude/skills/work-on/SKILL.md': longSkill(
+    'work-on',
+    'Drive one ticket to a pull request.',
+    TRUNCATED_SKILL_LINES,
+  ),
+};
+
+export const truncatedRead: Respond = (_call, res, request) =>
+  sse(
+    res,
+    sentToolResults(request)
+      ? textReply('gen-truncated-2', 'Read it.', usage(1100, 1000, 8))
+      : toolCallReply(
+          'gen-truncated-1',
+          'Reading the skill.',
+          [read('.claude/skills/work-on/SKILL.md', 'call_1')],
+          usage(1000, 0, 20),
+        ),
+  );
+
+export const TRUNCATED_PROMPT = 'Read the work-on skill.';
+
 export interface Scenario {
   respond: Respond;
   prompt?: string;
@@ -421,6 +539,16 @@ export const scenarios: Record<string, Scenario> = {
     respond: reviewing,
     prompt: REVIEWING_PROMPT,
     files: SKILL_FILES,
+  },
+  'skill-coverage': {
+    respond: coverage,
+    prompt: COVERAGE_PROMPT,
+    files: COVERAGE_SKILL_FILES,
+  },
+  'skill-truncated': {
+    respond: truncatedRead,
+    prompt: TRUNCATED_PROMPT,
+    files: TRUNCATED_SKILL_FILES,
   },
   'subagent-failure': {
     respond: delegating(

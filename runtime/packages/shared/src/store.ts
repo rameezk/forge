@@ -310,12 +310,23 @@ const CREATE_SKILL_LOADS = `
   ) STRICT;
 `;
 
+const HAS_SKILL_LOAD_COVERAGE = `
+  SELECT 1 FROM pragma_table_info('skill_loads') WHERE name = 'lines_covered'
+`;
+
+const ADD_SKILL_LOAD_COVERAGE = `
+  ALTER TABLE skill_loads ADD COLUMN lines_covered INTEGER;
+  ALTER TABLE skill_loads ADD COLUMN total_lines INTEGER;
+`;
+
 type SkillLoadRow = {
   run_id: string;
   subagent: string;
   skill: string;
   source: 'prompt' | 'read';
   loaded_at: string;
+  lines_covered: number | null;
+  total_lines: number | null;
 };
 
 const NO_GENERATION_ID = 'no generation id';
@@ -706,6 +717,7 @@ export class Store {
     this.#addColumnsOnce(HAS_RUN_COUNTERS, ADD_RUN_COUNTERS);
     db.exec(CREATE_GENERATIONS);
     db.exec(CREATE_SKILL_LOADS);
+    this.#addColumnsOnce(HAS_SKILL_LOAD_COVERAGE, ADD_SKILL_LOAD_COVERAGE);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
     this.#addColumnsOnce(HAS_GENERATION_ESTIMATE, ADD_GENERATION_ESTIMATE);
@@ -964,9 +976,11 @@ export class Store {
   recordSkillLoad(load: RunSkillLoad): void {
     this.#db
       .prepare(
-        `INSERT INTO skill_loads (run_id, subagent, skill, source, loaded_at)
-        VALUES ($run_id, $subagent, $skill, $source, $loaded_at)
-        ON CONFLICT (run_id, subagent, skill) DO NOTHING`,
+        `INSERT INTO skill_loads (run_id, subagent, skill, source, loaded_at, lines_covered, total_lines)
+        VALUES ($run_id, $subagent, $skill, $source, $loaded_at, $lines_covered, $total_lines)
+        ON CONFLICT (run_id, subagent, skill) DO UPDATE SET
+          lines_covered = excluded.lines_covered,
+          total_lines = excluded.total_lines`,
       )
       .run({
         run_id: load.runId,
@@ -974,6 +988,8 @@ export class Store {
         skill: load.skill,
         source: load.source,
         loaded_at: load.loadedAt,
+        lines_covered: load.coverage?.coveredLines ?? null,
+        total_lines: load.coverage?.totalLines ?? null,
       });
   }
 
@@ -989,6 +1005,10 @@ export class Store {
       skill: row.skill,
       source: row.source,
       loadedAt: row.loaded_at,
+      coverage:
+        row.lines_covered === null || row.total_lines === null
+          ? null
+          : { coveredLines: row.lines_covered, totalLines: row.total_lines },
     }));
   }
 

@@ -8,13 +8,11 @@ import {
   type RunStatus,
   type RunCounters,
   type RunTicket,
-  type SkillCatalog,
   type Store,
   type TokenUsage,
   countEvent,
   noCounters,
-  promptSkillLoad,
-  readSkillLoad,
+  SkillLoadTracker,
 } from '@forge/shared';
 import {
   invocationFor,
@@ -152,12 +150,9 @@ export const runWorkload = async (
     });
   };
 
-  let catalog: SkillCatalog | null = null;
-  const recordSkillLoad = (
-    event: HarnessEvent,
-    detect: typeof readSkillLoad,
-  ): void => {
-    const load = catalog === null ? null : detect(event, catalog);
+  let skillLoads: SkillLoadTracker | null = null;
+  const recordSkillLoad = (event: HarnessEvent): void => {
+    const load = skillLoads?.observe(event) ?? null;
     if (load !== null) {
       store.recordSkillLoad({ ...load, runId: id, loadedAt: now() });
     }
@@ -195,8 +190,11 @@ export const runWorkload = async (
     });
     await transcript.append(promptEvent);
     const workspace = await openWorkspace(id);
-    catalog = workspace.checkout ?? null;
-    recordSkillLoad(promptEvent, promptSkillLoad);
+    skillLoads =
+      workspace.checkout === undefined
+        ? null
+        : new SkillLoadTracker(workspace.checkout);
+    recordSkillLoad(promptEvent);
     const invocation = invocationFor(worker, workspace, agentDir);
     const recorder = new FingerprintRecorder({
       worker,
@@ -230,7 +228,7 @@ export const runWorkload = async (
       const event = policy.record(harnessEvent);
       await transcript.append(event);
       countEvent(counters, event);
-      recordSkillLoad(event, readSkillLoad);
+      recordSkillLoad(harnessEvent);
       if (event.type === 'message') {
         if (isBillable(event)) {
           recordGeneration(event);
