@@ -8,6 +8,7 @@ export interface Checkout {
   systemPrompt: string | null;
   appendSystemPrompt: string | null;
   skills: ReadonlyMap<string, readonly string[]>;
+  skillLines: ReadonlyMap<string, number>;
 }
 
 export const UNATTENDED_INSTRUCTION = [

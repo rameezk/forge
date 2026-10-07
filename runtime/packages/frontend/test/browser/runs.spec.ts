@@ -98,16 +98,16 @@ test('given a workload whose calls are billed, estimated and flagged as cache mi
   expect(await card.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
 
-test('given a run whose agent loaded skills from its prompt, in the parent and in review subagents, when its page is opened on a phone screen, then the Skills section lists each skill with where it loaded and the page does not scroll sideways', async ({
+test('given a run whose agent loaded skills from its prompt, in the parent and in review subagents, when its page is opened on a phone screen, then the Skills section lists each skill with where it loaded, badges the partial one and the page does not scroll sideways', async ({
   dashboard,
   page,
 }) => {
   dashboard.store.insertRun(recordedRun);
   dashboard.appendEvents('run-01.jsonl', { type: 'message', role: 'user', text: 'work', usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null });
-  const load = (skill: string, source: 'prompt' | 'read', subagent: string | null) =>
-    dashboard.store.recordSkillLoad({ runId: 'run-01', skill, source, subagent, loadedAt: '2026-09-21T10:00:01.000Z' });
+  const load = (skill: string, source: 'prompt' | 'read', subagent: string | null, coveredLines = 142) =>
+    dashboard.store.recordSkillLoad({ runId: 'run-01', skill, source, subagent, loadedAt: '2026-09-21T10:00:01.000Z', coverage: { coveredLines, totalLines: 142 } });
   load('work-on', 'prompt', null);
-  load('code-review', 'read', 'call_1');
+  load('code-review', 'read', 'call_1', 60);
   load('security-review', 'read', 'call_2');
   load('security-review', 'read', 'call_3');
   await page.setViewportSize({ width: 390, height: 800 });
@@ -115,6 +115,6 @@ test('given a run whose agent loaded skills from its prompt, in the parent and i
   await page.goto('/runs/run-01');
 
   const skills = page.locator('[data-skills] [data-skill]');
-  await expect(skills).toHaveText([/code-review\s*1 subagent/, /security-review\s*2 subagents/, /work-on\s*prompt/]);
+  await expect(skills).toHaveText([/code-review\s*1 subagent\s*partial · 60\/142/, /security-review\s*2 subagents/, /work-on\s*prompt/]);
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });

@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { readdirSync, realpathSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Checkout } from './harness.ts';
@@ -170,6 +170,27 @@ const skillsIn = (
   return files;
 };
 
+const lineCountOf = (path: string): number | null => {
+  try {
+    return readFileSync(path, 'utf8').split('\n').length;
+  } catch {
+    return null;
+  }
+};
+
+const skillLinesIn = (
+  skills: ReadonlyMap<string, readonly string[]>,
+): Map<string, number> => {
+  const lines = new Map<string, number>();
+  for (const path of [...skills.values()].flat()) {
+    const count = lineCountOf(path);
+    if (count !== null) {
+      lines.set(path, count);
+    }
+  }
+  return lines;
+};
+
 export const resolveCheckout = (
   dir: string,
   loadSkills: SkillLoader,
@@ -188,6 +209,7 @@ export const resolveCheckout = (
   for (const skills of skillPaths) {
     refuseUnsafeLinks(root, skills, false, reached);
   }
+  const skills = skillsIn(root, skillPaths, loadSkills);
   return {
     root,
     skillPaths,
@@ -195,7 +217,8 @@ export const resolveCheckout = (
       CONTEXT_FILES.map(file).find((path) => path !== null) ?? null,
     systemPrompt: file('.pi/SYSTEM.md'),
     appendSystemPrompt: file('.pi/APPEND_SYSTEM.md'),
-    skills: skillsIn(root, skillPaths, loadSkills),
+    skills,
+    skillLines: skillLinesIn(skills),
   };
 };
 

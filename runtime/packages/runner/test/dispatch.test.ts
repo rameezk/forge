@@ -23,7 +23,14 @@ import {
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import { main } from '../src/dispatch-main.ts';
 import { NARRATION_INSTRUCTION, UNATTENDED_INSTRUCTION } from '../src/harness.ts';
-import { REVIEWING_PROMPT, SKILL_FILES } from './fixtures/fake-provider.ts';
+import {
+  COVERAGE_PROMPT,
+  COVERAGE_SKILL_FILES,
+  TRUNCATED_PROMPT,
+  TRUNCATED_SKILL_FILES,
+  REVIEWING_PROMPT,
+  SKILL_FILES,
+} from './fixtures/fake-provider.ts';
 import {
   billedAt,
   fakeOpenRouter,
@@ -1820,6 +1827,69 @@ test('given review subagents that read code-review once and a skill whose direct
     ['code-review', '1 subagent'],
     ['security-review', '2 subagents'],
   ]);
+});
+
+const SKILL_COVERAGE = join(import.meta.dirname, 'fixtures', 'pi', 'skill-coverage.jsonl');
+
+const skillCoverageRun = (): Promise<Outcome> =>
+  dispatch({
+    origin: originWith(COVERAGE_SKILL_FILES),
+    prompt: COVERAGE_PROMPT,
+    piOutput: SKILL_COVERAGE,
+  });
+
+const partialsOf = (page: string): [string, string][] =>
+  [...page.matchAll(/<li[^>]*data-skill="([^"]+)"[^>]*>[\s\S]*?<\/li>/g)].flatMap(
+    ([item = '', name = '']) =>
+      [...item.matchAll(/data-skill-partial[^>]*>([^<]*)</g)].map(
+        ([, badge = '']): [string, string] => [name, badge.trim()],
+      ),
+  );
+
+test('given a subagent that reads only the first 60 lines of a 142-line SKILL.md, when the run page is opened, then that load shows partial 60/142', async () => {
+  const { stateDir, runs } = await skillCoverageRun();
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.deepEqual(partialsOf(page), [['code-review', 'partial · 60/142']]);
+});
+
+test('given a parent that reads a SKILL.md as lines 1-60 and then from line 61 to the end, when the run page is opened, then the skill shows one parent load with no partial badge', async () => {
+  const { stateDir, runs } = await skillCoverageRun();
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.deepEqual(
+    skillsOf(page).filter(([name]) => name === 'work-on'),
+    [['work-on', 'parent']],
+  );
+  assert.equal(
+    partialsOf(page).some(([name]) => name === 'work-on'),
+    false,
+  );
+});
+
+test('given a parent that reads a 2500-line SKILL.md in one call that pi cuts off at 2000 lines, when the run page is opened, then that load shows partial 2000/2500', async () => {
+  const { stateDir, runs } = await dispatch({
+    origin: originWith(TRUNCATED_SKILL_FILES),
+    prompt: TRUNCATED_PROMPT,
+    piOutput: join(import.meta.dirname, 'fixtures', 'pi', 'skill-truncated.jsonl'),
+  });
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.deepEqual(partialsOf(page), [['work-on', 'partial · 2000/2500']]);
+});
+
+test('given a worker whose prompt starts /work-on, when the run page is opened, then work-on shows no partial badge', async () => {
+  const { stateDir, runs } = await dispatch({
+    origin: originWith(COVERAGE_SKILL_FILES),
+  });
+
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+
+  assert.deepEqual(skillsOf(page), [['work-on', 'prompt']]);
+  assert.deepEqual(partialsOf(page), []);
 });
 
 const fingerprintOf = ({ stateDir, runs }: Outcome): RunFingerprint | null => {
