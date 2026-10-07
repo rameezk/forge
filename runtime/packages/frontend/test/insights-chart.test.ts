@@ -140,3 +140,19 @@ test('given a manual workload, when the insights page is requested with the manu
     [['d1', 'failed', 'cross'], ['m1', 'manual', 'square']],
   );
 });
+
+test('given a pull request closed without merging and a cohort with no provider data, when the insights page is requested, then the point is an opened diamond and the cohort says it has no provider data', async () => {
+  const page = await dashboard([
+    { id: 'c1', fingerprint: SONNET, seconds: 60, cost: 0.1, toolCalls: 1, retries: 0, pullRequest: { state: 'closed', rework: 0 } },
+  ]).page();
+
+  assert.deepEqual([...pointsOf(page)].map(([id, { outcome, shape }]) => [id, outcome, shape]), [['c1', 'opened', 'diamond']]);
+  assert.match(textOf(page), /No provider data/);
+});
+
+test('given workloads on the insights page, when the chart is requested, then it is a labelled group so the point titles stay reachable', async () => {
+  const page = await dashboard(CHART_SEEDS).page();
+
+  assert.match(page, /<svg[^>]*role="group"[^>]*data-chart="cost"|<svg[^>]*data-chart="cost"[^>]*role="group"/);
+  assert.doesNotMatch(page, /<svg[^>]*role="img"[^>]*data-chart="cost"/);
+});

@@ -31,6 +31,8 @@ export const seriesOf = (hashes: (string | null)[]): Map<string | null, Series> 
   return series;
 };
 
+const seriesFor = (series: Map<string | null, Series>, key: string | null): Series => series.get(key) ?? UNKNOWN_SERIES;
+
 const WIDTH = 420;
 const HEIGHT = 250;
 const MARGIN = { top: 12, right: 14, bottom: 30, left: 50 };
@@ -40,7 +42,13 @@ const DAY_LABEL = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numer
 
 type Shape = 'circle' | 'diamond' | 'cross' | 'square';
 
-const SHAPE_OF: Record<WorkloadOutcome, Shape> = { merged: 'circle', opened: 'diamond', failed: 'cross' };
+const MANUAL = 'manual';
+
+type Mark = WorkloadOutcome | typeof MANUAL;
+
+const SHAPE_OF: Record<Mark, Shape> = { merged: 'circle', opened: 'diamond', failed: 'cross', [MANUAL]: 'square' };
+
+const markOf = (outcome: WorkloadOutcome | null): Mark => outcome ?? MANUAL;
 
 const renderShape = (shape: Shape): Rendered => {
   switch (shape) {
@@ -54,10 +62,6 @@ const renderShape = (shape: Shape): Rendered => {
       return html`<rect data-shape="square" x="-4" y="-4" width="8" height="8" fill="none" stroke-width="1.5"></rect>`;
   }
 };
-
-const outcomeLabel = (outcome: WorkloadOutcome | null): string => outcome ?? 'manual';
-
-const shapeOf = (outcome: WorkloadOutcome | null): Shape => (outcome === null ? 'square' : SHAPE_OF[outcome]);
 
 export const renderCostChart = (
   points: InsightPoint[],
@@ -77,7 +81,7 @@ export const renderCostChart = (
   const left = MARGIN.left;
   const right = WIDTH - MARGIN.right;
   const bottom = HEIGHT - MARGIN.bottom;
-  return html`<svg viewBox="0 0 ${WIDTH} ${HEIGHT}" role="img" aria-label="Cost over time, one point per workload" class="block h-auto w-full" data-chart="cost">
+  return html`<svg viewBox="0 0 ${WIDTH} ${HEIGHT}" role="group" aria-label="Cost over time, one point per workload" class="block h-auto w-full" data-chart="cost">
     ${costTicks.map(
       (tick) => html`<g data-tick="cost" data-value="${tick}">
         <line x1="${left}" x2="${right}" y1="${y(tick)}" y2="${y(tick)}" class="stroke-line" stroke-width="1"></line>
@@ -92,10 +96,10 @@ export const renderCostChart = (
     )}
     <line x1="${left}" x2="${right}" y1="${bottom}" y2="${bottom}" class="stroke-muted" stroke-width="1"></line>
     ${points.map(
-      ({ runId, fingerprintHash, startTime, costUsd, outcome }) => html`<g data-point data-run="${runId}" data-cohort="${fingerprintHash ?? ''}" data-outcome="${outcomeLabel(outcome)}" class="${(series.get(fingerprintHash) ?? UNKNOWN_SERIES).mark}" transform="translate(${x(new Date(startTime))} ${y(costUsd)})">
-        <title>${runId} - ${formatCost(costUsd)} - ${outcomeLabel(outcome)}</title>
+      ({ runId, fingerprintHash, startTime, costUsd, outcome }) => html`<g data-point data-run="${runId}" data-cohort="${fingerprintHash ?? ''}" data-outcome="${markOf(outcome)}" class="${seriesFor(series, fingerprintHash).mark}" transform="translate(${x(new Date(startTime))} ${y(costUsd)})">
+        <title>${runId} - ${formatCost(costUsd)} - ${markOf(outcome)}</title>
         <circle r="10" fill="transparent" stroke-width="0"></circle>
-        ${renderShape(shapeOf(outcome))}
+        ${renderShape(SHAPE_OF[markOf(outcome)])}
       </g>`,
     )}
   </svg>`;
@@ -106,18 +110,18 @@ export const renderChartLegend = (
   points: InsightPoint[],
   series: Map<string | null, Series>,
 ): Rendered => {
-  const outcomes = (['merged', 'opened', 'failed', null] as const).filter(
-    (outcome) => outcome !== null || points.some((point) => point.outcome === null),
+  const marks = (['merged', 'opened', 'failed', MANUAL] as const).filter(
+    (mark) => mark !== MANUAL || points.some((point) => point.outcome === null),
   );
   return html`<div class="flex flex-col gap-3 text-[0.8rem] text-muted">
     <ul class="flex flex-col gap-1" data-legend="cohorts">
       ${cohorts.map(
-        ({ hash, fingerprint }) => html`<li class="flex items-center gap-1.5" data-legend-cohort="${hash ?? ''}"><span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full ${(series.get(hash) ?? UNKNOWN_SERIES).swatch}"></span>${cohortLabel(fingerprint)}</li>`,
+        ({ hash, fingerprint }) => html`<li class="flex items-center gap-1.5" data-legend-cohort="${hash ?? ''}"><span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full ${seriesFor(series, hash).swatch}"></span>${cohortLabel(fingerprint)}</li>`,
       )}
     </ul>
     <ul class="flex flex-wrap gap-x-4 gap-y-1 lg:flex-col lg:gap-y-1" data-legend="outcomes">
-      ${outcomes.map(
-        (outcome) => html`<li class="flex items-center gap-1.5"><svg viewBox="-7 -7 14 14" class="h-3.5 w-3.5 fill-muted stroke-muted" aria-hidden="true">${renderShape(shapeOf(outcome))}</svg>${outcomeLabel(outcome)}</li>`,
+      ${marks.map(
+        (mark) => html`<li class="flex items-center gap-1.5"><svg viewBox="-7 -7 14 14" class="h-3.5 w-3.5 fill-muted stroke-muted" aria-hidden="true">${renderShape(SHAPE_OF[mark])}</svg>${mark}</li>`,
       )}
     </ul>
   </div>`;

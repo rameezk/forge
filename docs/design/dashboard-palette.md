@@ -36,7 +36,7 @@ Each token is a Tailwind colour that switches between its light and dark value b
 - Status colours stay separate from the accent. Success is green, error is red, and unconfirmed is a yellow badge. Pending is muted italic, running is a grey pill, and a queued ticket is a `muted` pill outlined in `line` on the surface.
 - Every text colour passes WCAG AA (4.5:1) against the surface it sits on. The ratios below say which pairings that allows. In dark mode `muted` and `accent-text` fall below AA on `raised`, so `raised` only ever carries `fg` text, and hovered rows turn `bg` rather than `raised`.
 - Every focusable element shows a 2px `accent` outline when focused from the keyboard.
-- Series colours tell cohorts and providers apart on the Insights page, assigned in order and reused after the sixth. They are graphics only, never text, and the unknown-config cohort uses `muted`. A point's outcome is carried by its shape, never by colour, so status colours stay out of charts.
+- Series colours tell cohorts and providers apart on the Insights page, assigned in order and reused after the sixth. They are graphics only, never text, and the unknown-config cohort uses `muted`. A point's outcome is carried by its shape, never by colour, so status colours stay out of charts. The shapes are a filled circle for merged, a filled diamond for opened (a pull request opened, merged or not), a cross for failed (no pull request), and a hollow square for a manual workload, which has no outcome.
 - Fonts are the native stacks: system UI for text and UI monospace for code.
 
 ## Contrast ratios
