@@ -1893,7 +1893,6 @@ test('given a worker whose prompt starts /work-on, when the run page is opened, 
   assert.deepEqual(partialsOf(page), []);
 });
 
-
 const subagentKinds = (page: string): string[][] =>
   (page.match(/<section[^>]*\sdata-subagent-call[\s>][\s\S]*?<\/section>/g) ?? []).map((card) =>
     [...card.slice(0, card.indexOf('</summary>')).matchAll(/data-subagent-kind>([^<]*)</g)].map(
