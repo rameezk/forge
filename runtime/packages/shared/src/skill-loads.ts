@@ -77,6 +77,9 @@ const coveredBy = (ranges: readonly Range[], total: number): number => {
   return covered;
 };
 
+const scopedKey = (subagent: string | null, name: string): string =>
+  `${subagent ?? ''}\0${name}`;
+
 const readStart = (offset: unknown): number =>
   typeof offset === 'number' && offset > 1 ? Math.floor(offset) : 1;
 
@@ -111,7 +114,7 @@ export class SkillLoadTracker {
     source: SkillSource,
     subagent: string | null,
   ): Tracked {
-    const key = `${subagent ?? ''}\0${skill}`;
+    const key = scopedKey(subagent, skill);
     const existing = this.#loads.get(key);
     if (existing !== undefined) {
       return existing;
@@ -164,7 +167,7 @@ export class SkillLoadTracker {
       return null;
     }
     const tracked = this.#track(found.skill, found.file, 'read', subagent);
-    this.#reads.set(`${subagent ?? ''}\0${id}`, {
+    this.#reads.set(scopedKey(subagent, id), {
       tracked,
       start: readStart(offset),
       limit: readLimit(limit),
@@ -178,7 +181,7 @@ export class SkillLoadTracker {
     text: string,
     subagent: string | null,
   ): SkillLoad | null {
-    const key = `${subagent ?? ''}\0${id}`;
+    const key = scopedKey(subagent, id);
     const read = this.#reads.get(key);
     if (read === undefined) {
       return null;
