@@ -27,8 +27,8 @@ import type {
 import type { TicketAttempt } from './attempts.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
-import { aggregateCohorts } from './insights.ts';
-import type { CohortInsight, InsightsFilter, InsightsOptions } from './insights.ts';
+import { aggregateCohorts, outcomeOf } from './insights.ts';
+import type { CohortInsight, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
 import type { RunSkillLoad } from './skill-loads.ts';
 import type {
   CostStatus,
@@ -432,6 +432,7 @@ type DispatchRow = {
 };
 
 type InsightRow = {
+  id: string;
   fingerprint: string | null;
   fingerprint_hash: string | null;
   start_time: string;
@@ -447,6 +448,33 @@ type InsightRow = {
   pr_state: string | null;
   pr_rework: number | null;
 };
+
+const pullRequestOfRow = (row: InsightRow): { state: PullRequestState; rework: number | null } | null =>
+  row.pr_number === null || row.pr_state === null
+    ? null
+    : { state: row.pr_state as PullRequestState, rework: row.pr_rework };
+
+const INSIGHT_FROM = `
+  FROM runs r
+  LEFT JOIN dispatches d ON d.run_id = r.id
+`;
+
+const INSIGHT_WHERE = `
+  WHERE r.end_time IS NOT NULL
+    AND ($include_manual = 1 OR d.id IS NOT NULL)
+    AND ($worker IS NULL OR r.worker = $worker)
+    AND ($repository IS NULL OR r.repository = $repository)
+    AND ($from IS NULL OR substr(r.start_time, 1, 10) >= $from)
+    AND ($to IS NULL OR substr(r.start_time, 1, 10) <= $to)
+`;
+
+const insightParameters = (filter: InsightsFilter) => ({
+  include_manual: filter.includeManual ? 1 : 0,
+  worker: filter.worker ?? null,
+  repository: filter.repository ?? null,
+  from: filter.from ?? null,
+  to: filter.to ?? null,
+});
 
 const HAS_DISPATCH_PULL_REQUEST = `
   SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'pr_number'
@@ -1153,31 +1181,21 @@ export class Store {
     return row === undefined ? undefined : fromRow(row);
   }
 
-  listCohorts(filter: InsightsFilter): CohortInsight[] {
-    const rows = this.#db
+  #insightRows(filter: InsightsFilter): InsightRow[] {
+    return this.#db
       .prepare(
         `SELECT
-          r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time, r.cost_usd,
+          r.id, r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time, r.cost_usd,
           r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
           d.id IS NOT NULL AS dispatched, d.pr_number, d.pr_state, d.pr_rework
-        FROM runs r
-        LEFT JOIN dispatches d ON d.run_id = r.id
-        WHERE r.end_time IS NOT NULL
-          AND ($include_manual = 1 OR d.id IS NOT NULL)
-          AND ($worker IS NULL OR r.worker = $worker)
-          AND ($repository IS NULL OR r.repository = $repository)
-          AND ($from IS NULL OR substr(r.start_time, 1, 10) >= $from)
-          AND ($to IS NULL OR substr(r.start_time, 1, 10) <= $to)`,
+        ${INSIGHT_FROM}${INSIGHT_WHERE}`,
       )
-      .all({
-        include_manual: filter.includeManual ? 1 : 0,
-        worker: filter.worker ?? null,
-        repository: filter.repository ?? null,
-        from: filter.from ?? null,
-        to: filter.to ?? null,
-      }) as InsightRow[];
+      .all(insightParameters(filter)) as InsightRow[];
+  }
+
+  listCohorts(filter: InsightsFilter): CohortInsight[] {
     return aggregateCohorts(
-      rows.map((row) => ({
+      this.#insightRows(filter).map((row) => ({
         fingerprintHash: row.fingerprint_hash,
         fingerprint: row.fingerprint === null ? null : (JSON.parse(row.fingerprint) as ConfigFingerprint),
         dispatched: row.dispatched === 1,
@@ -1188,12 +1206,44 @@ export class Store {
         cacheWriteTokens: row.cache_write_tokens,
         toolCalls: row.tool_calls,
         retries: row.retries,
-        pullRequest:
-          row.pr_number === null || row.pr_state === null
-            ? null
-            : { state: row.pr_state as PullRequestState, rework: row.pr_rework },
+        pullRequest: pullRequestOfRow(row),
       })),
     );
+  }
+
+  listPoints(filter: InsightsFilter): InsightPoint[] {
+    return this.#insightRows(filter)
+      .map((row) => ({
+        runId: row.id,
+        fingerprintHash: row.fingerprint_hash,
+        startTime: row.start_time,
+        costUsd: row.cost_usd,
+        outcome: outcomeOf(row.dispatched === 1, pullRequestOfRow(row)),
+      }))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.runId.localeCompare(b.runId));
+  }
+
+  listProviderShares(filter: InsightsFilter): ProviderShare[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT r.fingerprint_hash AS hash, g.provider AS provider,
+          SUM(COALESCE(g.input_tokens, 0) + COALESCE(g.output_tokens, 0)
+            + COALESCE(g.cache_read_tokens, 0) + COALESCE(g.cache_write_tokens, 0)) AS tokens
+        ${INSIGHT_FROM}
+        JOIN generations g ON g.run_id = r.id
+        ${INSIGHT_WHERE}
+          AND g.provider IS NOT NULL
+        GROUP BY r.fingerprint_hash, g.provider
+        ORDER BY tokens DESC, g.provider`,
+      )
+      .all(insightParameters(filter)) as { hash: string | null; provider: string; tokens: number }[];
+    const shares = new Map<string | null, ProviderShare>();
+    for (const { hash, provider, tokens } of rows) {
+      const share = shares.get(hash) ?? { hash, providers: [] };
+      share.providers.push({ provider, tokens });
+      shares.set(hash, share);
+    }
+    return [...shares.values()];
   }
 
   insightsOptions(): InsightsOptions {

@@ -17,4 +17,10 @@
   --color-error-soft: light-dark(#F6E1E3, #4D3D46);
   --color-warning: light-dark(#8A6512, #EBCB8B);
   --color-warning-soft: light-dark(#F8EED6, #4B4843);
+  --color-series-1: light-dark(#3B6EA8, #88C0D0);
+  --color-series-2: light-dark(#B0563B, #D08770);
+  --color-series-3: light-dark(#2F7F6F, #8FBCBB);
+  --color-series-4: light-dark(#7B5A9E, #B48EAD);
+  --color-series-5: light-dark(#8A6512, #EBCB8B);
+  --color-series-6: light-dark(#4F7D2D, #A3BE8C);
 }
