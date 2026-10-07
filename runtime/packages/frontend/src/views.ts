@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, seriesOf } from './chart.ts';
-import { cohortLabel, isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   CohortInsight,
@@ -9,6 +9,7 @@ import type {
   InsightsOptions,
   ProviderShare,
   RunFingerprint,
+  ConfigFingerprint,
   DispatchFailure,
   DispatchRecord,
   DispatchState,
@@ -999,9 +1000,12 @@ const renderTicketRow = (ticket: RunTicket | null): Rendered =>
     : html`<dt class="${META_TERM}">Ticket</dt>
       <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1">${renderRunTicket(ticket)}${renderAttemptsLink(ticket, 'All attempts')}</dd>`;
 
+const renderCohortLink = (hash: string | null, fingerprint: ConfigFingerprint | null): Rendered =>
+  html`<a href="${cohortHref(hash)}" class="${LINK}">${cohortLabel(fingerprint)}</a>`;
+
 const renderConfig = (config: RunFingerprint | null): Rendered =>
   html`<dt class="${META_TERM}">Config</dt>
-    <dd class="${META_VALUE}" data-cohort>${cohortLabel(config?.fingerprint ?? null)}</dd>
+    <dd class="${META_VALUE}" data-cohort>${renderCohortLink(config?.hash ?? null, config?.fingerprint ?? null)}</dd>
     ${config === null
       ? ''
       : html`<dt class="${META_TERM}">Forge</dt>
@@ -1227,7 +1231,7 @@ const renderInsightsFilters = (
 
 const renderCohort = (cohort: CohortInsight): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}">
-    <td class="border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${cohortLabel(cohort.fingerprint)}</td>
+    <td class="border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}</td>
     <td class="${COHORT_TD}" data-metric="workloads">${cohort.workloads}</td>
     <td class="${COHORT_TD}" data-metric="opened">${formatRate(cohort.openedRate)}</td>
     <td class="${COHORT_TD}" data-metric="merged">${formatRate(cohort.mergedRate)}</td>
@@ -1329,7 +1333,7 @@ const renderAttempt = (attempt: TicketAttempt): HtmlEscapedString | Promise<Html
   const { run, config, pullRequest } = attempt;
   return html`<tr class="${ROW}" data-attempt="${run.id}">
     <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime)}</a></td>
-    <td class="${TD}" data-field="cohort">${cohortLabel(config?.fingerprint ?? null)}</td>
+    <td class="${TD}" data-field="cohort">${renderCohortLink(config?.hash ?? null, config?.fingerprint ?? null)}</td>
     <td class="${TD} whitespace-nowrap tabular-nums" data-field="base-commit">${renderBaseCommit(config)}</td>
     <td class="${TD}" data-field="outcome">${renderOutcome(attempt)}</td>
     <td class="${TD} ${NUMERIC}" data-field="cost">${renderRunCost(run)}</td>
@@ -1370,4 +1374,89 @@ export const renderTicketAttempts = (
           </table>
         </div>`}`;
   return layout(`${ticket.repository} #${ticket.number}`, null, true, assets, body);
+};
+
+const FINGERPRINT_FIELDS: { key: string; label: string; valueOf: (fingerprint: ConfigFingerprint) => string }[] = [
+  { key: 'model', label: 'Model', valueOf: ({ model }) => model },
+  { key: 'reasoning-effort', label: 'Reasoning effort', valueOf: ({ reasoningEffort }) => reasoningEffort ?? 'default' },
+  { key: 'harness-args', label: 'Harness extra args', valueOf: ({ harnessArgs }) => (harnessArgs.length === 0 ? 'none' : harnessArgs.join(' ')) },
+  { key: 'harness-version', label: 'Harness version', valueOf: ({ harnessVersion }) => harnessVersion ?? 'unknown' },
+  { key: 'prompt-template', label: 'Prompt template', valueOf: ({ promptTemplate }) => promptTemplate },
+  { key: 'system-prompt', label: 'System prompt', valueOf: ({ systemPrompt }) => systemPrompt ?? 'not recorded' },
+  { key: 'tools', label: 'Tool definitions', valueOf: ({ tools }) => tools ?? 'not recorded' },
+  { key: 'skills', label: 'Skill files', valueOf: ({ skills }) => skills ?? 'not recorded' },
+];
+
+const renderFingerprintRow = (
+  { key, label, valueOf }: (typeof FINGERPRINT_FIELDS)[number],
+  fingerprint: ConfigFingerprint,
+  against: ConfigFingerprint | null,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const value = valueOf(fingerprint);
+  const labelCell = (changed: boolean): Rendered =>
+    html`<th scope="row" class="${TD} text-left font-semibold text-muted"><span class="whitespace-nowrap">${label}</span>${changed ? html` <span class="${PILL} bg-warning-soft text-warning">changed</span>` : ''}</th>`;
+  if (against === null) {
+    return html`<tr class="${ROW}" data-field="${key}">${labelCell(false)}<td class="${TD} min-w-44 break-all tabular-nums">${value}</td></tr>`;
+  }
+  const other = valueOf(against);
+  const changed = value !== other;
+  return html`<tr class="${ROW}${changed ? ' bg-warning-soft' : ''}" data-field="${key}" data-changed="${String(changed)}">
+    ${labelCell(changed)}
+    <td class="${TD} min-w-44 break-all tabular-nums">${value}</td>
+    <td class="${TD} min-w-44 break-all tabular-nums">${other}</td>
+  </tr>`;
+};
+
+const SHORT_COHORT_HASH_LENGTH = 8;
+
+interface CohortConfig {
+  hash: string;
+  fingerprint: ConfigFingerprint;
+}
+
+const renderCompareForm = (current: CohortConfig, against: CohortConfig | null, cohorts: CohortConfig[]): Rendered =>
+  html`<form method="get" action="/cohorts/${current.hash}" class="mb-4 flex flex-wrap items-end gap-3" data-compare>
+    <label class="${FIELD}">Compare against
+      <select name="against" class="${INPUT}">
+        <option value="">No comparison</option>
+        ${cohorts
+          .filter(({ hash }) => hash !== current.hash)
+          .map(({ hash, fingerprint }) => html`<option value="${hash}"${hash === against?.hash ? html` selected` : ''}>${cohortLabel(fingerprint)} (${hash.slice(0, SHORT_COHORT_HASH_LENGTH)})</option>`)}
+      </select>
+    </label>
+    <button type="submit" class="rounded-md border border-line bg-raised px-3 py-1.5 text-[0.9rem] font-semibold text-fg hover:bg-line">Compare</button>
+  </form>`;
+
+export const renderCohortPage = (
+  { hash, fingerprint }: CohortConfig,
+  against: CohortConfig | null,
+  cohorts: CohortConfig[],
+  assets: AssetHrefs,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/insights" class="${LINK}">&larr; Insights</a></p>
+    <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(fingerprint)}</h1>
+    <p class="m-0 mb-4 break-all text-[0.9rem] text-muted tabular-nums" data-cohort-hash>${hash}</p>
+    ${renderCompareForm({ hash, fingerprint }, against, cohorts)}
+    <div class="${CARD}" data-fingerprint role="region" aria-label="Config fingerprint" tabindex="0">
+      <table class="${TABLE}">
+        ${against === null
+          ? ''
+          : html`<thead>
+              <tr>
+                <th class="${TH}">Field</th>
+                <th class="${TH}">This cohort</th>
+                <th class="${TH}">Compared with <a href="${cohortHref(against.hash)}" class="${LINK} normal-case tracking-normal">${cohortLabel(against.fingerprint)}</a></th>
+              </tr>
+            </thead>`}
+        <tbody>${FINGERPRINT_FIELDS.map((field) => renderFingerprintRow(field, fingerprint, against?.fingerprint ?? null))}</tbody>
+      </table>
+    </div>`;
+  return layout(cohortLabel(fingerprint), 'insights', true, assets, body);
+};
+
+export const renderUnknownCohortPage = (assets: AssetHrefs): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/insights" class="${LINK}">&larr; Insights</a></p>
+    <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(null)}</h1>
+    <p class="${EMPTY}" data-unknown-cohort>These workloads were recorded before fingerprints existed, so their config is not known and there is nothing to compare.</p>`;
+  return layout(cohortLabel(null), 'insights', true, assets, body);
 };

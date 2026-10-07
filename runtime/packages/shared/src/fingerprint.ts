@@ -20,6 +20,10 @@ export interface RunFingerprint {
 
 export const UNKNOWN_CONFIG = 'unknown config';
 
+export const UNKNOWN_COHORT = 'unknown';
+
+export const cohortHref = (hash: string | null): string => `/cohorts/${hash ?? UNKNOWN_COHORT}`;
+
 const SHORT_HASH_LENGTH = 4;
 
 export const sha256 = (text: string): string =>

@@ -926,6 +926,29 @@ export class Store {
         };
   }
 
+  getCohortFingerprint(hash: string): ConfigFingerprint | null {
+    const row = this.#db
+      .prepare('SELECT fingerprint FROM runs WHERE fingerprint_hash = $hash AND fingerprint IS NOT NULL LIMIT 1')
+      .get({ hash }) as { fingerprint: string } | undefined;
+    return row === undefined ? null : (JSON.parse(row.fingerprint) as ConfigFingerprint);
+  }
+
+  listCohortFingerprints(): { hash: string; fingerprint: ConfigFingerprint }[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT fingerprint_hash AS hash, fingerprint FROM runs
+        WHERE fingerprint IS NOT NULL
+        GROUP BY fingerprint_hash
+        ORDER BY MAX(start_time) DESC, fingerprint_hash`,
+      )
+      .all() as { hash: string; fingerprint: string }[];
+    return rows.map(({ hash, fingerprint }) => ({ hash, fingerprint: JSON.parse(fingerprint) as ConfigFingerprint }));
+  }
+
+  hasUnknownConfigRuns(): boolean {
+    return this.#db.prepare('SELECT 1 FROM runs WHERE fingerprint IS NULL LIMIT 1').get() !== undefined;
+  }
+
   recordCounters(id: string, counters: RunCounters): void {
     this.#db
       .prepare(
