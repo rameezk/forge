@@ -118,3 +118,32 @@ test('given a run whose agent loaded skills from its prompt, in the parent and i
   await expect(skills).toHaveText([/code-review\s*1 subagent\s*partial · 60\/142/, /security-review\s*2 subagents/, /work-on\s*prompt/]);
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
+
+test('given a run with a subagent that loaded two skills and one that loaded none, when its page is opened on a phone screen, then the first header carries both chips, the second shows unclassified, and nothing scrolls sideways', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(recordedRun);
+  const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'tool_call', id: 'call_1', name: 'subagent', arguments: { task: 'Review the change for standards and for security' } },
+    { type: 'tool_call', id: 'call_2', name: 'subagent', arguments: { task: 'Summarise the change' } },
+    { type: 'message', role: 'assistant', text: 'reviewing', usage, generationId: null, subagent: 'call_1' },
+    { type: 'message', role: 'assistant', text: 'summarising', usage, generationId: null, subagent: 'call_2' },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'No findings.' },
+    { type: 'tool_result', id: 'call_2', isError: false, text: 'A summary.' },
+  );
+  const load = (skill: string, subagent: string) =>
+    dashboard.store.recordSkillLoad({ runId: 'run-01', skill, source: 'read', subagent, loadedAt: '2026-09-21T10:00:01.000Z', coverage: null });
+  load('security-review', 'call_1');
+  load('code-review', 'call_1');
+  await page.setViewportSize({ width: 390, height: 800 });
+
+  await page.goto('/runs/run-01');
+
+  const headers = page.locator('[data-subagent-call] summary');
+  await expect(headers.nth(0).locator('[data-subagent-kind]')).toHaveText(['code-review', 'security-review']);
+  await expect(headers.nth(1).locator('[data-subagent-kind]')).toHaveText(['unclassified']);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+});
