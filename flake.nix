@@ -371,6 +371,32 @@
                 ]
               )
               "a worker whose reasoning effort is outside off, minimal, low, medium, high, xhigh and max must fail evaluation with an error naming those levels, instead of pi warning and running at medium";
+          providerDefaultsToOpenRouter = lib.asserts.assertMsg (
+            runnerSettings.workers.refiner.provider == "openrouter"
+            && runnerSettings.workers.builder.provider == "openrouter"
+          ) "a worker with no provider must reach the runner's config on openrouter";
+          providerType = (workerHost.options.forge.runtime.workers.type.getSubOptions [ ]).provider.type;
+          unknownProviderFails =
+            lib.asserts.assertMsg
+              (
+                !(evaluates (mkHost {
+                  configFile = exampleConfigFile;
+                  secretsFile = exampleSecretsFile;
+                  modules = [
+                    {
+                      forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+                      forge.runtime.workers.builder = {
+                        harness = "pi";
+                        model = "anthropic/claude-sonnet-4";
+                        prompt = "build the thing";
+                        provider = "bedrock";
+                      };
+                    }
+                  ];
+                }))
+                && lib.hasInfix ''"openrouter"'' providerType.description
+              )
+              "a worker whose provider is not openrouter must fail evaluation with an error naming the allowed providers";
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content
             == "OPENROUTER_API_KEY=${workerHost.config.sops.placeholder.openrouter_api_key}\n"
@@ -1319,6 +1345,8 @@
             assert workerHostInstantiates;
             assert relativeHarnessCommandFails;
             assert invalidEffortFails;
+            assert providerDefaultsToOpenRouter;
+            assert unknownProviderFails;
             assert runnerEnvWired;
             assert runnerKnowsForgeGitSha;
             assert runnerConfigReflectsWorker;

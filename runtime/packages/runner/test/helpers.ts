@@ -55,6 +55,7 @@ export const result = (
 export const aWorker = (overrides: Partial<Worker> = {}): Worker => ({
   name: 'refiner',
   harness: 'pi',
+  provider: 'openrouter',
   model: 'anthropic/claude-opus-4',
   prompt: 'do the thing',
   ...overrides,

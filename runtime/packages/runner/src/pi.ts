@@ -21,6 +21,7 @@ import {
 import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { requireSkill } from './checkout.ts';
 import { underDevShell } from './devshell.ts';
+import { providerSpec } from './provider.ts';
 import {
   REQUEST_RECORD_FD,
   spawnSandboxed,
@@ -92,7 +93,7 @@ const contractArgs = (
   '--no-approve',
   '--offline',
   '--provider',
-  'openrouter',
+  providerSpec(invocation.provider).piName,
   '--model',
   invocation.model,
   ...reasoningArgs(invocation, extensions),

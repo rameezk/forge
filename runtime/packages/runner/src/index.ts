@@ -16,6 +16,13 @@ export type {
   WorkerConfig,
 } from './config.ts';
 export { resolveWorker } from './config.ts';
+export type { Provider, ProviderSpec } from './provider.ts';
+export {
+  ALLOWED_PROVIDERS,
+  DEFAULT_PROVIDER,
+  isProvider,
+  providerSpec,
+} from './provider.ts';
 export type { OpenAgentDir } from './agent-dir.ts';
 export { agentDirsIn, piModelsJson } from './agent-dir.ts';
 export type { RunWorkloadOptions } from './runner.ts';

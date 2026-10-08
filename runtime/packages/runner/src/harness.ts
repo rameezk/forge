@@ -1,5 +1,6 @@
 import type { HarnessEvent } from '@forge/shared';
 import type { DevShell } from './devshell.ts';
+import type { Provider } from './provider.ts';
 
 export interface Checkout {
   root: string;
@@ -32,6 +33,7 @@ export interface Workspace {
 
 export interface HarnessInvocation extends Workspace {
   agentDir: string;
+  provider: Provider;
   model: string;
   prompt: string;
   reasoningEffort?: string;
@@ -63,6 +65,7 @@ export interface Harness {
 export interface Worker {
   name: string;
   harness: string;
+  provider: Provider;
   model: string;
   prompt: string;
   promptTemplate?: string;
@@ -82,6 +85,7 @@ export const invocationFor = (
   agentDir: string,
 ): HarnessInvocation => ({
   agentDir,
+  provider: worker.provider,
   model: worker.model,
   prompt: worker.prompt,
   ...workspace,

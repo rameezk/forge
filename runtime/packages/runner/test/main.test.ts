@@ -2610,6 +2610,52 @@ test('given a worker with a model, an effort, extra args and a prompt, when the 
   assert.equal(recorded?.baseCommit, null);
 });
 
+test('given two workers identical except that one sets provider openrouter and the other leaves it unset, when each runs a workload, then pi gets the same argv, env keys and models.json, and the fingerprint hash is equal', async () => {
+  const run = async (worker: Partial<WorkerConfig>) => {
+    const outcome = await runWorker({
+      output: fixture('success.jsonl'),
+      requests: requestsOf('h-system'),
+      worker,
+      harnessArgs: OPERATOR_EXTRAS,
+      piVersion: '1.4.2',
+    });
+    return {
+      argv: outcome.pi.argv,
+      modelsJson: outcome.pi.modelsJson,
+      env: Object.keys(outcome.bwrap.env).sort(),
+      key: outcome.bwrap.env.OPENROUTER_API_KEY,
+      fingerprint: withStore(outcome.stateDir, (store) =>
+        store.getFingerprint(outcome.run.id),
+      ),
+    };
+  };
+
+  const explicit = await run({ provider: 'openrouter' });
+  const unset = await run({});
+
+  assert.deepEqual(explicit.argv, unset.argv);
+  assert.ok(explicit.argv.includes('openrouter'));
+  assert.equal(explicit.modelsJson, unset.modelsJson);
+  assert.deepEqual(explicit.env, unset.env);
+  assert.equal(explicit.key, OPENROUTER_KEY);
+  assert.equal(unset.key, OPENROUTER_KEY);
+  assert.ok(explicit.fingerprint);
+  assert.equal(explicit.fingerprint.hash, unset.fingerprint?.hash);
+  assert.deepEqual(
+    Object.keys(explicit.fingerprint.fingerprint).sort(),
+    [
+      'harnessArgs',
+      'harnessVersion',
+      'model',
+      'promptTemplate',
+      'reasoningEffort',
+      'skills',
+      'systemPrompt',
+      'tools',
+    ],
+  );
+});
+
 test('given two workloads of one worker with an unchanged config, when both run from different forge git shas, then their fingerprint hashes are equal and each keeps its sha', async () => {
   const run = async (sha: string) => {
     const { stateDir, run } = await runWorker({
