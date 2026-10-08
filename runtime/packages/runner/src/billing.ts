@@ -2,8 +2,10 @@ import {
   STALE_AFTER_MS,
   countEvents,
   errorMessage,
+  skillLoadsOf,
   type HarnessEvent,
   type LookupResult,
+  type RunSkillLoad,
   type Store,
   type UnsettledGeneration,
 } from '@forge/shared';
@@ -109,5 +111,22 @@ export const settleGenerations = async ({
     } catch (error) {
       log(`could not count the transcript of run ${JSON.stringify(id)}: ${errorMessage(error)}`);
     }
+  }
+  for (const { id, transcriptRef } of store.runsWithoutSkillLoadRecord()) {
+    let loads: RunSkillLoad[] | null = null;
+    try {
+      const events = transcriptRef === null ? null : readTranscript(transcriptRef);
+      loads =
+        events === null
+          ? null
+          : skillLoadsOf(events).map((load) => ({
+              ...load,
+              runId: id,
+              loadedAt: attemptedAt,
+            }));
+    } catch (error) {
+      log(`could not read the skill loads of run ${JSON.stringify(id)}: ${errorMessage(error)}`);
+    }
+    store.recordBackfilledSkillLoads(id, loads);
   }
 };

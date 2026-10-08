@@ -32,7 +32,12 @@ export class FileTranscriptSource implements TranscriptSource {
   }
 
   read(ref: string): HarnessEvent[] {
-    return parseTranscript(readFileSync(this.#path(ref), 'utf8'));
+    try {
+      return parseTranscript(readFileSync(this.#path(ref), 'utf8'));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
   }
 
   scanRecords(ref: string, visit: (record: unknown) => boolean): void {

@@ -75,7 +75,7 @@ export type {
   SkillLoad,
   SkillSource,
 } from './skill-loads.ts';
-export { SkillLoadTracker } from './skill-loads.ts';
+export { SkillLoadTracker, skillLoadsOf } from './skill-loads.ts';
 export type { TicketAttempt } from './attempts.ts';
 export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 export {

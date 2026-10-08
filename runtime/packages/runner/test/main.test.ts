@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -998,6 +999,127 @@ test('given an older workload recorded without counters whose transcript ref poi
     assert.equal(await fire(stateDir, openRouter), 0);
 
     assert.equal(storedRun(stateDir, run.id).counters, null);
+  } finally {
+    openRouter.close();
+  }
+});
+
+const numberedLines = (count: number): string =>
+  Array.from({ length: count }, (_, index) => `Step ${index + 1}.`).join('\n');
+
+const transcriptLines = (events: Record<string, unknown>[]): string =>
+  `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
+
+const NO_USAGE = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+};
+
+const FULL_AND_PARTIAL_READS = transcriptLines([
+  { type: 'message', role: 'user', text: 'Review the change.', usage: NO_USAGE, generationId: null },
+  {
+    type: 'tool_call',
+    id: 'call_1',
+    name: 'read',
+    arguments: { path: '.claude/skills/work-on/SKILL.md' },
+  },
+  { type: 'tool_result', id: 'call_1', isError: false, text: numberedLines(30) },
+  {
+    type: 'tool_call',
+    id: 'call_2',
+    name: 'read',
+    arguments: { path: '.claude/skills/code-review/SKILL.md', offset: 1, limit: 60 },
+  },
+  {
+    type: 'tool_result',
+    id: 'call_2',
+    isError: false,
+    text: `${numberedLines(60)}\n\n[82 more lines in file. Use offset=61 to continue.]`,
+  },
+  { type: 'result', status: 'success', sessionId: null, error: null },
+]);
+
+const beforeSkillLoads = (stateDir: string, transcript: string, runId: string): void => {
+  writeFileSync(join(stateDir, 'transcripts', `${runId}.jsonl`), transcript);
+  const database = new DatabaseSync(join(stateDir, 'forge.db'));
+  database.exec('DROP TABLE IF EXISTS skill_loads');
+  const marked = database
+    .prepare("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'skill_loads_recorded'")
+    .get();
+  if (marked !== undefined) {
+    database.exec('ALTER TABLE runs DROP COLUMN skill_loads_recorded');
+  }
+  database.close();
+};
+
+const skillsListed = async (stateDir: string, runId: string): Promise<string[]> =>
+  withStore(stateDir, async (store) => {
+    const app = createApp({
+      store,
+      transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
+      css: '',
+      logo: '',
+      idiomorph: '',
+      client: '',
+    });
+    const response = await app.request(`/runs/${runId}`);
+    assert.equal(response.status, 200);
+    const page = await response.text();
+    return [...page.matchAll(/<li[^>]*data-skill="([^"]+)"[^>]*>([\s\S]*?)<\/li>/g)].map(
+      ([, name = '', item = '']) =>
+        [name, ...[...item.matchAll(/data-skill-partial[^>]*>([^<]*)</g)].map(([, badge = '']) => badge.trim())].join(' '),
+    );
+  });
+
+test('given a store from before skill loads whose run transcript holds a full read and a partial read of two skills, when billing opens the store, then the run page lists both under their directory names with the partial read showing its coverage', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('tool-calls.jsonl') });
+    beforeSkillLoads(stateDir, FULL_AND_PARTIAL_READS, run.id);
+
+    assert.equal(await fire(stateDir, openRouter), 0);
+
+    assert.deepEqual(await skillsListed(stateDir, run.id), [
+      'code-review partial · 60/142',
+      'work-on',
+    ]);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a store already upgraded with skill loads backfilled, when billing opens it again, then no load is recorded twice', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('tool-calls.jsonl') });
+    beforeSkillLoads(stateDir, FULL_AND_PARTIAL_READS, run.id);
+    assert.equal(await fire(stateDir, openRouter), 0);
+    const first = withStore(stateDir, (store) => store.listSkillLoads(run.id));
+    writeFileSync(join(stateDir, 'transcripts', `${run.id}.jsonl`), transcriptLines([]));
+
+    assert.equal(await fire(stateDir, openRouter), 0);
+
+    assert.equal(first.length, 2);
+    assert.deepEqual(withStore(stateDir, (store) => store.listSkillLoads(run.id)), first);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a store from before skill loads with a run whose transcript is gone, when billing opens it, then the upgrade completes, the run has no record, and its page still renders', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { stateDir, run } = await runWorker({ output: fixture('tool-calls.jsonl') });
+    beforeSkillLoads(stateDir, FULL_AND_PARTIAL_READS, run.id);
+    rmSync(join(stateDir, 'transcripts', `${run.id}.jsonl`));
+
+    assert.equal(await fire(stateDir, openRouter), 0);
+
+    assert.deepEqual(withStore(stateDir, (store) => store.listSkillLoads(run.id)), []);
+    assert.equal(withStore(stateDir, (store) => store.runsWithoutSkillLoadRecord()).length, 0);
+    assert.deepEqual(await skillsListed(stateDir, run.id), []);
   } finally {
     openRouter.close();
   }

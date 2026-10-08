@@ -45,7 +45,18 @@ interface PendingRead {
 const SKILL_COMMAND = /^\/([^ ]+)/;
 
 const SHOWING_LINES =
-  /\n\n\[Showing lines (\d+)-(\d+) of \d+(?: \([^)]*\))?\. Use offset=\d+ to continue\.\]$/;
+  /\n\n\[Showing lines (\d+)-(\d+) of (\d+)(?: \([^)]*\))?\. Use offset=\d+ to continue\.\]$/;
+
+const MORE_LINES = /\n\n\[(\d+) more lines in file\. Use offset=(\d+) to continue\.\]$/;
+
+const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+const SKILL_FILE = /(?:^|\/)([^/]+)\/SKILL\.md$/;
+
+const linesIn = (text: string): number => {
+  const lines = text.split('\n');
+  return lines.at(-1) === '' ? lines.length - 1 : lines.length;
+};
 
 const skillOfFile = (
   catalog: SkillCatalog,
@@ -86,6 +97,21 @@ const readStart = (offset: unknown): number =>
 const readLimit = (limit: unknown): number | undefined =>
   typeof limit === 'number' && limit >= 0 ? Math.floor(limit) : undefined;
 
+const totalOf = (
+  text: string,
+  start: number,
+  shown: RegExpExecArray | null,
+  more: RegExpExecArray | null,
+): number | null => {
+  if (shown !== null) {
+    return Number(shown[3]);
+  }
+  if (more !== null) {
+    return Number(more[2]) - 1 + Number(more[1]);
+  }
+  return start - 1 + linesIn(text);
+};
+
 export class SkillLoadTracker {
   readonly #catalog: SkillCatalog;
   readonly #loads = new Map<string, Tracked>();
@@ -110,7 +136,7 @@ export class SkillLoadTracker {
 
   #track(
     skill: string,
-    file: string,
+    file: string | undefined,
     source: SkillSource,
     subagent: string | null,
   ): Tracked {
@@ -123,7 +149,7 @@ export class SkillLoadTracker {
       skill,
       source,
       subagent,
-      total: this.#catalog.skillLines.get(file) ?? null,
+      total: file === undefined ? null : (this.#catalog.skillLines.get(file) ?? null),
       ranges: [],
     };
     this.#loads.set(key, tracked);
@@ -144,11 +170,11 @@ export class SkillLoadTracker {
 
   #prompt(text: string, subagent: string | null): SkillLoad | null {
     const name = SKILL_COMMAND.exec(text)?.[1];
-    const file = name === undefined ? undefined : this.#catalog.skills.get(name)?.[0];
-    if (name === undefined || file === undefined) {
+    const files = name === undefined ? undefined : this.#catalog.skills.get(name);
+    if (name === undefined || files === undefined) {
       return null;
     }
-    const tracked = this.#track(name, file, 'prompt', subagent);
+    const tracked = this.#track(name, files[0], 'prompt', subagent);
     if (tracked.total !== null) {
       tracked.ranges.push([1, tracked.total]);
     }
@@ -190,12 +216,18 @@ export class SkillLoadTracker {
     const { tracked, start, limit } = read;
     if (!isError) {
       const shown = SHOWING_LINES.exec(text);
+      const more = MORE_LINES.exec(text);
+      if (tracked.total === null) {
+        tracked.total = totalOf(text, start, shown, more);
+      }
       const end =
         shown !== null
           ? Number(shown[2])
-          : limit !== undefined
-            ? start + limit - 1
-            : tracked.total;
+          : more !== null
+            ? Number(more[2]) - 1
+            : limit !== undefined
+              ? start + limit - 1
+              : tracked.total;
       const from = shown !== null ? Number(shown[1]) : start;
       if (end !== null) {
         tracked.ranges.push([from, end]);
@@ -204,3 +236,48 @@ export class SkillLoadTracker {
     return this.#snapshot(tracked);
   }
 }
+
+const listedInTranscript = (events: readonly HarnessEvent[]): SkillCatalog => {
+  const root = resolve('/');
+  const skills = new Map<string, string[]>();
+  const list = (skill: string, file?: string): void => {
+    const files = skills.get(skill) ?? [];
+    skills.set(skill, files);
+    if (file !== undefined && !files.includes(file)) {
+      files.push(file);
+    }
+  };
+  const prompt = events.find(
+    (event) =>
+      event.type === 'message' && event.role === 'user' && event.subagent === undefined,
+  );
+  const command =
+    prompt?.type === 'message' ? SKILL_COMMAND.exec(prompt.text)?.[1] : undefined;
+  if (command !== undefined && SKILL_NAME.test(command)) {
+    list(command);
+  }
+  for (const event of events) {
+    if (event.type !== 'tool_call' || event.name !== 'read') {
+      continue;
+    }
+    const { path } = (event.arguments ?? {}) as Record<string, unknown>;
+    const file = typeof path === 'string' ? path.replace(/^@/, '') : '';
+    const skill = SKILL_FILE.exec(file)?.[1];
+    if (skill !== undefined) {
+      list(skill, resolve(root, file));
+    }
+  }
+  return { root, skills, skillLines: new Map() };
+};
+
+export const skillLoadsOf = (events: readonly HarnessEvent[]): SkillLoad[] => {
+  const tracker = new SkillLoadTracker(listedInTranscript(events));
+  const loads = new Map<string, SkillLoad>();
+  for (const event of events) {
+    const load = tracker.observe(event);
+    if (load !== null) {
+      loads.set(scopedKey(load.subagent, load.skill), load);
+    }
+  }
+  return [...loads.values()];
+};
