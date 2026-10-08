@@ -263,7 +263,7 @@ const listedInTranscript = (events: readonly HarnessEvent[]): SkillCatalog => {
     const { path } = (event.arguments ?? {}) as Record<string, unknown>;
     const file = typeof path === 'string' ? path.replace(/^@/, '') : '';
     const skill = SKILL_FILE.exec(file)?.[1];
-    if (skill !== undefined) {
+    if (skill !== undefined && SKILL_NAME.test(skill)) {
       list(skill, resolve(root, file));
     }
   }

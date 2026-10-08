@@ -1038,6 +1038,13 @@ const FULL_AND_PARTIAL_READS = transcriptLines([
     isError: false,
     text: `${numberedLines(60)}\n\n[82 more lines in file. Use offset=61 to continue.]`,
   },
+  {
+    type: 'tool_call',
+    id: 'call_3',
+    name: 'read',
+    arguments: { path: '.claude/skills/Not_A_Skill/SKILL.md' },
+  },
+  { type: 'tool_result', id: 'call_3', isError: false, text: numberedLines(5) },
   { type: 'result', status: 'success', sessionId: null, error: null },
 ]);
 
