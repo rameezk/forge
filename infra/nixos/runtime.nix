@@ -92,6 +92,11 @@ let
         type = lib.types.lines;
         description = "Prompt the worker runs on. It must not start with `-` or `@`, which the harness would parse as an option or a file; the runner rejects such a worker.";
       };
+      provider = lib.mkOption {
+        type = lib.types.enum (lib.importJSON ../../runtime/packages/runner/src/providers.json);
+        default = "openrouter";
+        description = "Where this worker's model is served from. `openrouter` bills each generation and is the default.";
+      };
       reasoningEffort = lib.mkOption {
         type = lib.types.nullOr (
           lib.types.enum (lib.importJSON ../../runtime/packages/runner/src/reasoning-efforts.json)
@@ -152,7 +157,7 @@ let
     workers = lib.mapAttrs (
       _: w:
       {
-        inherit (w) harness model prompt;
+        inherit (w) harness model prompt provider;
         timeoutSeconds = if w.timeout == null then null else timeSpanSeconds w.timeout;
         maxCostUsd = w.maxCost;
       }

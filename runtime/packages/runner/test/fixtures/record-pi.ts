@@ -21,6 +21,7 @@ import {
 
 const INVOCATION: HarnessInvocation = {
   agentDir: '/nix/store/00000000000000000000000000000000-pi-agent-dir',
+  provider: 'openrouter',
   model: 'z-ai/glm-5',
   prompt: 'Run echo forge, then say what it printed.',
   workDir: '.',

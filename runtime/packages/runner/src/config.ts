@@ -1,5 +1,10 @@
 import { withEffort, type Worker } from './harness.ts';
 import REASONING_EFFORTS from './reasoning-efforts.json' with { type: 'json' };
+import {
+  ALLOWED_PROVIDERS,
+  DEFAULT_PROVIDER,
+  isProvider,
+} from './provider.ts';
 
 export interface HarnessConfig {
   command: string;
@@ -10,6 +15,7 @@ export interface WorkerConfig {
   harness: string;
   model: string;
   prompt: string;
+  provider?: string;
   reasoningEffort?: string;
   timeoutSeconds?: number | null;
   maxCostUsd?: number | null;
@@ -72,11 +78,18 @@ export const resolveWorker = (
       `worker '${name}' reasoning effort '${reasoningEffort}' must be one of ${REASONING_EFFORTS.join(', ')}`,
     );
   }
+  const provider = worker.provider ?? DEFAULT_PROVIDER;
+  if (!isProvider(provider)) {
+    throw new Error(
+      `worker '${name}' provider '${provider}' must be one of ${ALLOWED_PROVIDERS.join(', ')}`,
+    );
+  }
   return {
     name,
     harness: worker.harness,
     model: worker.model,
     prompt: worker.prompt,
+    provider,
     ...withEffort(reasoningEffort),
     timeoutSeconds: worker.timeoutSeconds ?? null,
     maxCostUsd: worker.maxCostUsd ?? null,

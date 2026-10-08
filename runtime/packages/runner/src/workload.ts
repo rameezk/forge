@@ -5,7 +5,12 @@ import { Store, type RunRecord, type RunTicket } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
 import type { Harness, Worker, Workspace } from './harness.ts';
 import { agentDirsIn } from './agent-dir.ts';
-import { openRouterBaseUrl, openRouterModel } from './openrouter.ts';
+import {
+  openRouterBaseUrl,
+  openRouterModel,
+  type LookUpModel,
+} from './openrouter.ts';
+import { providerSpec, type Provider } from './provider.ts';
 import { PiHarness } from './pi.ts';
 import type { Sandbox } from './sandbox.ts';
 import { JsonLinesFile } from './transcript.ts';
@@ -57,11 +62,22 @@ export const sandboxOf = (env: NodeJS.ProcessEnv): Sandbox => ({
   home: absolutePath(env, 'HOME'),
 });
 
+const modelLookUpFor = (
+  provider: Provider,
+  env: NodeJS.ProcessEnv,
+): LookUpModel => {
+  switch (provider) {
+    case 'openrouter':
+      return openRouterModel(openRouterBaseUrl(env));
+  }
+};
+
 const harnessEnvironment = (
+  provider: Provider,
   env: NodeJS.ProcessEnv,
   harnessEnv: Record<string, string>,
 ): Record<string, string> => ({
-  ...picked(env, ['OPENROUTER_API_KEY']),
+  ...picked(env, [providerSpec(provider).credentialEnv]),
   ...harnessEnv,
 });
 
@@ -89,7 +105,7 @@ const harnessFor = (
     sandbox: sandboxOf(env),
     ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
     system: systemEnvironment(env),
-    env: harnessEnvironment(env, harnessEnv),
+    env: harnessEnvironment(worker.provider, env, harnessEnv),
   });
 };
 
@@ -122,7 +138,7 @@ export const launchWorkload = async ({
 }: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
   const harness = harnessFor(config, worker, env, harnessEnv);
-  const lookUpModel = openRouterModel(openRouterBaseUrl(env));
+  const lookUpModel = modelLookUpFor(worker.provider, env);
 
   const transcriptsDir = join(stateDir, 'transcripts');
   mkdirSync(transcriptsDir, { recursive: true });
@@ -143,8 +159,8 @@ export const launchWorkload = async ({
       now: () => new Date().toISOString(),
       newId: () => runId,
       lookUpModel,
-      openAgentDir: agentDirsIn(join(stateDir, 'agent')),
-      secrets: [env.OPENROUTER_API_KEY ?? '', ...secrets],
+      openAgentDir: agentDirsIn(join(stateDir, 'agent'), worker.provider),
+      secrets: [env[providerSpec(worker.provider).credentialEnv] ?? '', ...secrets],
       forgeGitSha: env.FORGE_GIT_SHA === undefined || env.FORGE_GIT_SHA === '' ? null : env.FORGE_GIT_SHA,
       ...(ticket === undefined ? {} : { ticket }),
     });

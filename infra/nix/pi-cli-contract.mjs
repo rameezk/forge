@@ -45,7 +45,14 @@ const checkoutFiles = {
   '.pi/APPEND_SYSTEM.md': 'Appended system prompt for the contract check.\n',
 };
 
-const agentDirs = agentDirsIn(mkdtempSync(join(process.env.HOME, 'agents-')));
+const { providerSpec } = await import(join(dirname(adapter), 'provider.ts'));
+const provider = 'openrouter';
+const { piName, credentialEnv } = providerSpec(provider);
+
+const agentDirs = agentDirsIn(
+  mkdtempSync(join(process.env.HOME, 'agents-')),
+  provider,
+);
 
 const readOnlyAgentDir = (name, model, listed) =>
   agentDirs(name, model, listed);
@@ -54,6 +61,7 @@ const contractAgentDir = readOnlyAgentDir('contract', 'z-ai/glm-5', null);
 
 const invocations = [
   ...REASONING_EFFORTS.map((reasoningEffort) => () => ({
+    provider,
     model: 'z-ai/glm-5',
     prompt: 'contract check',
     workDir: '.',
@@ -61,6 +69,7 @@ const invocations = [
     reasoningEffort,
   })),
   () => ({
+    provider,
     model: 'z-ai/glm-5',
     prompt: 'contract check',
     workDir: '.',
@@ -72,6 +81,7 @@ const invocations = [
       writeFileSync(join(workDir, path), contents);
     }
     return {
+      provider,
       model: 'z-ai/glm-5',
       prompt: '/prompted-skill contract check',
       workDir,
@@ -129,7 +139,7 @@ const plant = () => {
     join(homeAgent, 'models.json'),
     JSON.stringify({
       providers: {
-        openrouter: {
+        [piName]: {
           baseUrl: 'https://openrouter.ai/api/v1',
           apiKey: `!touch ${join(markers, 'models-command')}`,
         },
@@ -158,7 +168,7 @@ const accepts = (planted, argv, env, agent = contractAgentDir) => {
     /Unknown option|Failed to load extension|Invalid thinking level/i.test(
       stderr,
     );
-  const reachedPreflight = stderr.includes('No API key found for openrouter.');
+  const reachedPreflight = stderr.includes(`No API key found for ${piName}.`);
   const loaded = readdirSync(planted.markers);
   if (rejected || !reachedPreflight || loaded.length > 0) {
     console.error(
@@ -179,6 +189,7 @@ const DECLARED_CONTEXT_LISTED = '123.5K';
 const startsWithModel = (agentDir) => {
   const planted = plant();
   const invocation = {
+    provider,
     model: MISSING_MODEL,
     prompt: 'contract check',
     workDir: planted.workDir,
@@ -201,11 +212,11 @@ const startsWithModel = (agentDir) => {
   const listed = spawnSync(pi, ['--offline', '--no-approve', '--list-models', MISSING_MODEL], {
     encoding: 'utf8',
     cwd: planted.workDir,
-    env: { ...env, OPENROUTER_API_KEY: 'sk-contract' },
+    env: { ...env, [credentialEnv]: 'sk-contract' },
   });
   return {
     warned: /not found/i.test(started.stderr),
-    reachedPreflight: started.stderr.includes('No API key found for openrouter.'),
+    reachedPreflight: started.stderr.includes(`No API key found for ${piName}.`),
     listedContext: listed.stdout
       .split('\n')
       .find((line) => line.includes(MISSING_MODEL))

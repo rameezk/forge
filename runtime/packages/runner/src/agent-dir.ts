@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ListedModel } from './openrouter.ts';
+import { providerSpec, type Provider } from './provider.ts';
 
 const PER_MILLION = 1_000_000;
 
@@ -19,11 +20,15 @@ const costOf = ({ price }: ListedModel): Record<string, number> | null => {
     : null;
 };
 
-export const piModelsJson = (id: string, model: ListedModel): string => {
+export const piModelsJson = (
+  provider: Provider,
+  id: string,
+  model: ListedModel,
+): string => {
   const cost = costOf(model);
   return JSON.stringify({
     providers: {
-      openrouter: {
+      [providerSpec(provider).piName]: {
         models: [
           {
             id,
@@ -47,12 +52,12 @@ export type OpenAgentDir = (
 ) => string;
 
 export const agentDirsIn =
-  (root: string): OpenAgentDir =>
+  (root: string, provider: Provider): OpenAgentDir =>
   (runId, model, listed) => {
     const agentDir = join(root, runId);
     mkdirSync(agentDir, { recursive: true });
     if (listed !== null && listed.contextWindow !== null) {
-      writeFileSync(join(agentDir, 'models.json'), piModelsJson(model, listed), {
+      writeFileSync(join(agentDir, 'models.json'), piModelsJson(provider, model, listed), {
         mode: 0o444,
       });
     }

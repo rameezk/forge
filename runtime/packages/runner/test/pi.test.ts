@@ -33,7 +33,13 @@ test('given a request record sink that fails to write, when pi records a request
 
   await assert.rejects(async () => {
     for await (const _event of harness.run(
-      { model: 'z-ai/glm-5', prompt: 'refine', workDir: dir, agentDir: dir },
+      {
+        provider: 'openrouter',
+        model: 'z-ai/glm-5',
+        prompt: 'refine',
+        workDir: dir,
+        agentDir: dir,
+      },
       {
         stop: new AbortController().signal,
         rawEvent: () => {},

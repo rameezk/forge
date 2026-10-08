@@ -186,6 +186,7 @@ const runRealPi = async (
   try {
     for await (const event of harness.run(
       {
+        provider: 'openrouter',
         model,
         workDir,
         agentDir,

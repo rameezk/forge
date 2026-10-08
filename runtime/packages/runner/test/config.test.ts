@@ -28,10 +28,36 @@ test('given a config, when a declared worker is resolved, then it carries its na
     harness: 'pi',
     model: 'anthropic/claude-opus-4',
     prompt: 'refine',
+    provider: 'openrouter',
     reasoningEffort: 'high',
     timeoutSeconds: null,
     maxCostUsd: null,
   });
+});
+
+test('given a worker that sets openrouter and one that sets no provider, when they are resolved, then both carry the provider openrouter', () => {
+  const explicit: RuntimeConfig = {
+    harnesses: { pi: { command: 'pi' } },
+    workers: {
+      named: { harness: 'pi', model: 'm', prompt: 'p', provider: 'openrouter' },
+      unset: { harness: 'pi', model: 'm', prompt: 'p' },
+    },
+  };
+  assert.equal(resolveWorker(explicit, 'named').provider, 'openrouter');
+  assert.equal(resolveWorker(explicit, 'unset').provider, 'openrouter');
+});
+
+test('given a worker whose provider is not allowed, when it is resolved, then it throws naming the worker and every allowed provider', () => {
+  const unknown: RuntimeConfig = {
+    harnesses: { pi: { command: 'pi' } },
+    workers: {
+      aws: { harness: 'pi', model: 'm', prompt: 'p', provider: 'bedrock' },
+    },
+  };
+  assert.throws(
+    () => resolveWorker(unknown, 'aws'),
+    /worker 'aws' provider 'bedrock' must be one of openrouter/,
+  );
 });
 
 test('given workers with a timeout in seconds, with none, and with null, when they are resolved, then the timeout is carried, and absent and null both mean unlimited', () => {
