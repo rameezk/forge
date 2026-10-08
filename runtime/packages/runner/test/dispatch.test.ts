@@ -280,6 +280,7 @@ interface Scenario {
   maxCostUsd?: number;
   models?: unknown;
   piLingerMs?: number;
+  subscription?: boolean;
 }
 
 interface FakeNix {
@@ -375,7 +376,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       workers: {
         builder: {
           harness: 'pi',
-          model: 'z-ai/glm-5',
+          ...(scenario.subscription === true
+            ? { provider: 'anthropic', model: 'claude-opus-5-5' }
+            : { model: 'z-ai/glm-5' }),
           prompt: scenario.prompt ?? '/work-on {url}',
           ...(scenario.timeoutSeconds === undefined
             ? {}
@@ -454,6 +457,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
+      ...(scenario.subscription === true
+        ? { ANTHROPIC_OAUTH_TOKEN: 'sk-ant-oat01-forge-test-token' }
+        : {}),
       OPENROUTER_BASE_URL: openRouter.baseUrl,
       ...gitConfigOf({
         [`url.${pathToFileURL(origin.path).href}.insteadOf`]:
@@ -870,6 +876,22 @@ test('given a run after which an open pull request closes the ticket, when the r
     assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:done'), piOutput);
     assert.equal(runs[0]?.status, piOutput === PI_OUTPUT ? 'success' : 'error');
   }
+});
+
+const USAGE_LIMIT = join(import.meta.dirname, 'fixtures', 'pi', 'anthropic-usage-limit.jsonl');
+
+test('given a dispatched subscription workload whose provider answers with a usage limit and leaves no pull request, when forge-dispatch runs, then the run ends error with Anthropic\'s message and the ticket becomes forge:failed', async () => {
+  const { code, runs, dispatches, labelWrites } = await dispatch({
+    subscription: true,
+    piOutput: USAGE_LIMIT,
+    pullRequests: closing('no-pull-request'),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(runs[0]?.status, 'error');
+  assert.match(runs[0]?.error ?? '', /You've hit your limit/);
+  assert.equal(dispatches[0]?.state, 'failed');
+  assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'));
 });
 
 const piOutputEnding = (text: string): string => {

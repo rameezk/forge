@@ -279,3 +279,25 @@ test('given a request record of a hundred thousand requests, when its detail pag
   assert.equal(page.status, 200);
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`);
 });
+
+test('given a finished subscription run with two calls, when its page is requested, then it shows subscription as its cost, the provider as anthropic, and each call\'s cost as subscription instead of pending', async () => {
+  const page = await callsPage(
+    { costStatus: 'subscription', costUsd: 0 },
+    [
+      { usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 500 } },
+      { usage: { input: 120, output: 12, cacheRead: 500, cacheWrite: 0 } },
+    ],
+  );
+
+  const costs = callRows(page).map((row) => cellOf(row, 'data-cost'));
+  assert.deepEqual(costs, ['subscription', 'subscription']);
+  assert.equal(
+    textOf(page.match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
+    'subscription',
+  );
+  assert.equal(
+    textOf(page.match(/<dt[^>]*>Providers<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
+    'anthropic',
+  );
+  assert.doesNotMatch(page, /data-badge="pending"/);
+});

@@ -23,6 +23,7 @@ import {
 import { FingerprintRecorder, skillsHash } from './fingerprint.ts';
 import type { OpenAgentDir } from './agent-dir.ts';
 import type { LookUpModel } from './openrouter.ts';
+import { providerSpec } from './provider.ts';
 import {
   transcriptPolicy,
   type JsonLinesWriter,
@@ -39,7 +40,7 @@ export interface RunWorkloadOptions {
   openWorkspace: (runId: string) => Workspace | Promise<Workspace>;
   now: () => string;
   newId: () => string;
-  lookUpModel: LookUpModel;
+  lookUpModel: LookUpModel | null;
   openAgentDir: OpenAgentDir;
   secrets?: string[];
   ticket?: RunTicket;
@@ -81,13 +82,15 @@ export const runWorkload = async (
   const policy = transcriptPolicy(options.secrets ?? []);
   const id = newId();
   const startTime = now();
-  const outcome = await options.lookUpModel(worker.model);
-  const listed = 'model' in outcome ? outcome.model : null;
-  if ('reason' in outcome) {
+  const subscription = providerSpec(worker.provider).subscription;
+  const outcome =
+    options.lookUpModel === null ? null : await options.lookUpModel(worker.model);
+  const listed = outcome !== null && 'model' in outcome ? outcome.model : null;
+  if (outcome !== null && 'reason' in outcome) {
     process.stderr.write(
       `run ${id}: could not look up OpenRouter's models entry for ${worker.model} (${outcome.reason}), so its unbilled generations show no estimated cost and pi starts without knowing the model\n`,
     );
-  } else if (outcome.model.contextWindow === null) {
+  } else if (outcome !== null && outcome.model.contextWindow === null) {
     process.stderr.write(
       `run ${id}: OpenRouter lists no context window for ${worker.model}, so pi starts without knowing the model\n`,
     );
@@ -107,7 +110,7 @@ export const runWorkload = async (
     startTime,
     endTime: null,
     status: 'running',
-    costStatus: 'pending',
+    costStatus: subscription ? 'subscription' : 'pending',
     costUsd: 0,
     costEstimated: false,
     listPrice,
@@ -135,7 +138,7 @@ export const runWorkload = async (
   );
 
   const recordGeneration = (event: MessageEvent): void => {
-    if (event.generationId === null) {
+    if (event.generationId === null && !subscription) {
       process.stderr.write(
         `run ${id}: an assistant response used tokens but has no generation id, so its cost is unconfirmed\n`,
       );
@@ -170,7 +173,12 @@ export const runWorkload = async (
   let stopTimeout = (): void => {};
 
   try {
-    if (worker.maxCostUsd != null && 'reason' in outcome) {
+    if (worker.maxCostUsd != null && subscription) {
+      throw new Error(
+        `worker ${worker.name} has a budget of ${worker.maxCostUsd} USD but a subscription workload has no cost to hold it to yet, so the workload was refused before it started; set the worker's maxCost to null to run it`,
+      );
+    }
+    if (worker.maxCostUsd != null && outcome !== null && 'reason' in outcome) {
       throw new Error(
         `worker ${worker.name} has a budget of ${worker.maxCostUsd} USD but ${worker.model} could not be priced (${outcome.reason}), so the workload was refused before it started`,
       );

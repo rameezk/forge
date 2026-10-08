@@ -332,7 +332,7 @@ as [Tailnet setup](#tailnet-setup) describes.
 
 ## Rotating a runtime secret
 
-Edit the OpenRouter key or a GitHub token with sops, commit, and deploy. The
+Edit the OpenRouter key, the Anthropic token or a GitHub token with sops, commit, and deploy. The
 next workload, frontier sync or dispatch uses the new value. Then revoke the
 old one in OpenRouter or GitHub: every earlier version stays decryptable in
 git history.
@@ -600,6 +600,44 @@ The dashboard shows a running workload's spend against its budget, such as
 "$3.20 / $5". An exceeded run has an amber `exceeded` pill with a callout such
 as "Stopped at $5.21 of a $5 budget", and the Work page reads "Exceeded
 budget".
+
+### Running a worker on a Claude subscription
+
+A worker draws on your Claude subscription instead of OpenRouter when it sets
+`provider = "anthropic"` and names Anthropic's own model id:
+
+```nix
+forge.runtime.workers.builder = {
+  harness = "pi";
+  provider = "anthropic";
+  model = "claude-opus-5-5";
+  prompt = "/work-on {url}";
+  maxCost = null;
+};
+```
+
+Create a long-lived token with `claude setup-token` and store it in
+`secrets/runtime.yaml` as `anthropic_oauth_token`. The secret is required only
+when some worker uses `anthropic`, and only the runner receives it, as
+`ANTHROPIC_OAUTH_TOKEN`. A workload on `anthropic` never gets the OpenRouter
+key, an `openrouter` workload never gets the token, and the billing service
+never sees it. The token lasts about a year and you rotate it by hand, as
+[Rotating a runtime secret](#rotating-a-runtime-secret) describes.
+
+pi reaches Anthropic by presenting itself as Claude Code, which Anthropic could
+stop accepting. If it does, only `anthropic` workers stop, and you can move
+them back to `openrouter` by changing the provider and the model id.
+
+A subscription workload is never billed. Its cost reads `subscription` on the
+dashboard with no dollar figure, and billing neither looks up nor settles its
+generations. A change of provider starts a new cohort, whose page shows the
+provider. Until a subscription workload's cost can be held to a budget, a
+subscription worker needs `maxCost = null`: with a budget the workload is
+refused before it starts and its run ends `error`.
+
+Hitting the subscription's 5-hour or weekly limit ends the run `error` with
+Anthropic's message, like any provider error. Nothing pauses dispatch or falls
+back to OpenRouter.
 
 ## Inspecting the run store
 

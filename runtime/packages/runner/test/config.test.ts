@@ -47,6 +47,17 @@ test('given a worker that sets openrouter and one that sets no provider, when th
   assert.equal(resolveWorker(explicit, 'unset').provider, 'openrouter');
 });
 
+test('given a worker that sets anthropic, when it is resolved, then it carries the provider anthropic', () => {
+  const config = {
+    harnesses: { pi: { command: '/bin/pi' } },
+    workers: {
+      subscribed: { harness: 'pi', model: 'claude-opus-5-5', prompt: 'p', provider: 'anthropic' },
+    },
+  };
+
+  assert.equal(resolveWorker(config, 'subscribed').provider, 'anthropic');
+});
+
 test('given a worker whose provider is not allowed, when it is resolved, then it throws naming the worker and every allowed provider', () => {
   const unknown: RuntimeConfig = {
     harnesses: { pi: { command: 'pi' } },
@@ -56,7 +67,7 @@ test('given a worker whose provider is not allowed, when it is resolved, then it
   };
   assert.throws(
     () => resolveWorker(unknown, 'aws'),
-    /worker 'aws' provider 'bedrock' must be one of openrouter/,
+    /worker 'aws' provider 'bedrock' must be one of openrouter, anthropic/,
   );
 });
 

@@ -10,6 +10,7 @@ import {
   type RunFingerprint,
 } from '@forge/shared';
 import type { Checkout, HarnessIdentity, Worker } from './harness.ts';
+import { DEFAULT_PROVIDER } from './provider.ts';
 
 const filesUnder = (dir: string): string[] =>
   readdirSync(dir)
@@ -141,6 +142,7 @@ export class FingerprintRecorder {
     this.#recorded = true;
     const { worker, identity, skills, baseCommit, forgeGitSha, record } = this.#inputs;
     const fingerprint: ConfigFingerprint = {
+      ...(worker.provider === DEFAULT_PROVIDER ? {} : { provider: worker.provider }),
       model: worker.model,
       reasoningEffort: worker.reasoningEffort ?? null,
       harnessArgs: identity.args,

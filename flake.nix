@@ -397,6 +397,37 @@
                 && lib.hasInfix ''"openrouter"'' providerType.description
               )
               "a worker whose provider is not openrouter must fail evaluation with an error naming the allowed providers";
+          anthropicWorkerModule = {
+            forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+            forge.runtime.workers.builder = {
+              harness = "pi";
+              model = "claude-opus-5-5";
+              prompt = "build the thing";
+              provider = "anthropic";
+            };
+          };
+          subscriptionHost = mkHost {
+            configFile = exampleConfigFile;
+            secretsFile = exampleSecretsFile;
+            modules = [ anthropicWorkerModule ];
+          };
+          subscriptionRunnerEnvTemplate = subscriptionHost.config.sops.templates."forge-runner.env";
+          subscriptionBillingEnvTemplate = subscriptionHost.config.sops.templates."forge-billing.env";
+          anthropicTokenOnlyForSubscriptionWorkers = lib.asserts.assertMsg (
+            !(workerHost.config.sops.secrets ? anthropic_oauth_token)
+            && !(lib.hasInfix "ANTHROPIC" runnerEnvTemplate.content)
+            && subscriptionHost.config.sops.secrets.anthropic_oauth_token.sopsFile == exampleSecretsFile
+            && subscriptionRunnerEnvTemplate.content
+            == "OPENROUTER_API_KEY=${subscriptionHost.config.sops.placeholder.openrouter_api_key}\nANTHROPIC_OAUTH_TOKEN=${subscriptionHost.config.sops.placeholder.anthropic_oauth_token}\n"
+            && subscriptionHost.config.systemd.services."forge-runner@".serviceConfig.EnvironmentFile
+            == subscriptionRunnerEnvTemplate.path
+          ) "a host with no anthropic worker must neither require anthropic_oauth_token nor hand the runner a token, and one with an anthropic worker must pass it to the runner from the runtime secrets file";
+          billingNeverSeesAnthropicToken = lib.asserts.assertMsg (
+            subscriptionBillingEnvTemplate.content
+            == "OPENROUTER_API_KEY=${subscriptionHost.config.sops.placeholder.openrouter_api_key}\n"
+            && subscriptionHost.config.systemd.services.forge-billing.serviceConfig.EnvironmentFile
+            == subscriptionBillingEnvTemplate.path
+          ) "the billing service must never receive the Anthropic token, even on a host with an anthropic worker";
           runnerKeyOnly = lib.asserts.assertMsg (
             runnerEnvTemplate.content
             == "OPENROUTER_API_KEY=${workerHost.config.sops.placeholder.openrouter_api_key}\n"
@@ -1347,6 +1378,8 @@
             assert invalidEffortFails;
             assert providerDefaultsToOpenRouter;
             assert unknownProviderFails;
+            assert anthropicTokenOnlyForSubscriptionWorkers;
+            assert billingNeverSeesAnthropicToken;
             assert runnerEnvWired;
             assert runnerKnowsForgeGitSha;
             assert runnerConfigReflectsWorker;
@@ -1497,6 +1530,19 @@
                 name = "box-without-tailscale-key";
                 host = secretsHost ./tests/fixtures/runtime-secrets-without-tailscale.yaml dispatchModule;
                 refusedKey = "tailscale_auth_key";
+              }
+              {
+                name = "anthropic-worker-without-token";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-anthropic.yaml anthropicWorkerModule;
+                refusedKey = "anthropic_oauth_token";
+              }
+              {
+                name = "anthropic-worker-with-token";
+                host = secretsHost exampleSecretsFile anthropicWorkerModule;
+              }
+              {
+                name = "openrouter-worker-without-anthropic-token";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-anthropic.yaml dispatchModule;
               }
               {
                 name = "dispatch-with-every-token";

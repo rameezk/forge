@@ -43,6 +43,7 @@ import {
   type GenerationStats,
   type Lookup,
 } from './helpers.ts';
+import { ANTHROPIC_TOKEN } from './fixtures/fake-provider.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { NARRATION_INSTRUCTION } from '../src/harness.ts';
 import { main } from '../src/main.ts';
@@ -91,6 +92,7 @@ interface Scenario {
   requests?: string;
   openRouterBaseUrl?: string;
   openRouterKey?: string;
+  anthropicToken?: string;
   worker?: Partial<WorkerConfig>;
   harnessArgs?: string[];
   env?: NodeJS.ProcessEnv;
@@ -112,6 +114,7 @@ interface Outcome {
   requestRecord: Record<string, unknown>[];
   bwrap: BwrapCall;
   piStarted: boolean;
+  openRouterRequests: number;
   pi: {
     argv: string[];
     cwd: string;
@@ -221,10 +224,14 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const unlisted =
     scenario.openRouterBaseUrl === undefined ? await fakeOpenRouter(billedAt({})) : null;
   let code: number;
+  let openRouterRequests = 0;
   try {
     const running = main(['refiner'], {
       OPENROUTER_BASE_URL: scenario.openRouterBaseUrl ?? unlisted?.baseUrl,
       OPENROUTER_API_KEY: scenario.openRouterKey ?? OPENROUTER_KEY,
+      ...(scenario.anthropicToken === undefined
+        ? {}
+        : { ANTHROPIC_OAUTH_TOKEN: scenario.anthropicToken }),
       HOME: RUNNER_HOME,
       FORGE_RUNTIME_CONFIG: configPath,
       FORGE_STATE_DIR: stateDir,
@@ -237,6 +244,8 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     await scenario.whileRunning?.(stateDir);
     code = await running;
   } finally {
+    openRouterRequests =
+      (unlisted?.modelRequests ?? 0) + (unlisted?.lookups.length ?? 0);
     unlisted?.close();
   }
 
@@ -272,6 +281,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       return JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall;
     },
     piStarted: existsSync(record),
+    openRouterRequests,
     get pi() {
       return JSON.parse(readFileSync(record, 'utf8')) as Outcome['pi'];
     },
@@ -2744,4 +2754,184 @@ test('given an empty FORGE_GIT_SHA, when the workload runs, then no git sha is r
   });
 
   assert.equal(withStore(stateDir, (store) => store.getFingerprint(run.id))?.forgeGitSha, null);
+});
+
+const SUBSCRIPTION_WORKER: Partial<WorkerConfig> = {
+  provider: 'anthropic',
+  model: 'claude-opus-5-5',
+};
+
+const subscriptionScenario = (
+  name: string,
+  overrides: Partial<Scenario> = {},
+): Scenario => ({
+  output: fixture(name),
+  anthropicToken: ANTHROPIC_TOKEN,
+  worker: SUBSCRIPTION_WORKER,
+  ...overrides,
+});
+
+test('given a worker on the anthropic provider and a token in the runner environment, when its workload runs, then pi runs with the anthropic provider and the worker\'s model, the sandbox holds the token and not the OpenRouter key, no models file is written, and OpenRouter is never asked', async () => {
+  const outcome = await runWorker(subscriptionScenario('anthropic-success.jsonl'));
+
+  assert.equal(outcome.code, 0);
+  const { argv, env } = outcome.pi;
+  const provider = argv.indexOf('--provider');
+  assert.deepEqual(argv.slice(provider, provider + 4), [
+    '--provider',
+    'anthropic',
+    '--model',
+    'claude-opus-5-5',
+  ]);
+  assert.equal(outcome.bwrap.env.ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_TOKEN);
+  assert.equal('OPENROUTER_API_KEY' in outcome.bwrap.env, false);
+  assert.equal('OPENROUTER_API_KEY' in env, false);
+  assert.equal(outcome.pi.modelsJson, null);
+  assert.equal(outcome.openRouterRequests, 0);
+  assert.equal(outcome.run.status, 'success');
+});
+
+test('given a subscription workload whose agent echoes the token in a command and in its reply, when the transcript, raw events and request record are written, then the token reaches none of them', async () => {
+  const outcome = await runWorker(
+    subscriptionScenario('anthropic-success.jsonl', {
+      output: outputFile(
+        readFileSync(fixture('anthropic-success.jsonl'), 'utf8')
+          .replaceAll('echo forge', `echo ${ANTHROPIC_TOKEN}`)
+          .replaceAll('All done.', `The token is ${ANTHROPIC_TOKEN}.`),
+      ),
+      requests: outputOf([
+        {
+          type: 'request',
+          body: { system: [{ type: 'text', text: ANTHROPIC_TOKEN }] },
+          cacheMarkers: [],
+        },
+      ]),
+    }),
+  );
+
+  assert.doesNotMatch(outcome.transcript, /sk-ant-oat/);
+  assert.doesNotMatch(JSON.stringify(outcome.rawEvents), /sk-ant-oat/);
+  assert.doesNotMatch(JSON.stringify(outcome.requestRecord), /sk-ant-oat/);
+  assert.match(outcome.transcript, /redacted/);
+});
+
+test('given workers on openrouter and on anthropic, when each runs with both credentials in the runner environment, then each sandbox holds only its own provider\'s credential', async () => {
+  const openRouter = await runWorker({
+    output: fixture('success.jsonl'),
+    anthropicToken: ANTHROPIC_TOKEN,
+  });
+  const anthropic = await runWorker(
+    subscriptionScenario('anthropic-success.jsonl'),
+  );
+
+  assert.equal(openRouter.bwrap.env.OPENROUTER_API_KEY, OPENROUTER_KEY);
+  assert.equal('ANTHROPIC_OAUTH_TOKEN' in openRouter.bwrap.env, false);
+  assert.equal(anthropic.bwrap.env.ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_TOKEN);
+  assert.equal('OPENROUTER_API_KEY' in anthropic.bwrap.env, false);
+});
+
+test('given a subscription workload with two generations, when it finishes and the billing service fires, then its cost status is subscription with no cost, its generations carry Anthropic\'s message ids and tokens, and billing neither looks up nor changes any of them', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const outcome = await runWorker(subscriptionScenario('anthropic-success.jsonl'));
+    const before = storedGenerations(outcome.stateDir, outcome.run.id);
+    assert.equal(await fire(outcome.stateDir, openRouter), 0);
+    const after = storedGenerations(outcome.stateDir, outcome.run.id);
+    const run = storedRun(outcome.stateDir, outcome.run.id);
+
+    assert.deepEqual(openRouter.lookups, []);
+    assert.deepEqual(after, before);
+    assert.deepEqual(
+      after.map(({ generationId }) => generationId),
+      ['msg_forge_success_1', 'msg_forge_success_2'],
+    );
+    assert.deepEqual(
+      after.map(({ billedCostUsd, estimatedCostUsd, attempts }) => [
+        billedCostUsd,
+        estimatedCostUsd,
+        attempts,
+      ]),
+      [
+        [null, null, 0],
+        [null, null, 0],
+      ],
+    );
+    assert.equal(run.costStatus, 'subscription');
+    assert.equal(run.costUsd, 0);
+    assert.equal(run.costEstimated, false);
+    assert.equal(run.inputTokens, 500);
+    assert.equal(run.outputTokens, 65);
+    assert.equal(run.cacheReadTokens, 1000);
+    assert.equal(run.cacheWriteTokens, 1200);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a subscription workload whose agent spawns a subagent, when it runs, then the subagent is started on the anthropic provider and the workload\'s model, its generations belong to the workload under their scope, and the workload stays subscription', async () => {
+  const outcome = await runWorker(subscriptionScenario('anthropic-subagent.jsonl'));
+
+  const invocation = JSON.parse(outcome.pi.subagentInvocation ?? '') as {
+    argv: string[];
+  };
+  const provider = invocation.argv.indexOf('--provider');
+  assert.deepEqual(invocation.argv.slice(provider, provider + 4), [
+    '--provider',
+    'anthropic',
+    '--model',
+    'claude-opus-5-5',
+  ]);
+  assert.equal(outcome.bwrap.env.ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_TOKEN);
+  const generations = storedGenerations(outcome.stateDir, outcome.run.id);
+  assert.ok(generations.some(({ subagent }) => subagent !== null));
+  assert.ok(generations.some(({ subagent }) => subagent === null));
+  assert.ok(
+    generations.every(({ generationId }) => generationId?.startsWith('msg_forge_')),
+  );
+  assert.equal(outcome.run.costStatus, 'subscription');
+});
+
+test('given a subscription workload whose provider answers with a usage limit asking for a retry after hours, when pi gives up after its retries, then the workload ends error with Anthropic\'s message and the runner exits as for a failure', async () => {
+  const outcome = await runWorker(
+    subscriptionScenario('anthropic-usage-limit.jsonl'),
+  );
+
+  assert.equal(outcome.code, 1);
+  assert.equal(outcome.run.status, 'error');
+  assert.match(outcome.run.error ?? '', /You've hit your limit - resets 4pm/);
+  assert.equal(outcome.run.costStatus, 'subscription');
+});
+
+test('given a subscription worker with a budget, when it runs, then pi never starts and the run ends error saying a subscription workload cannot be budgeted yet', async () => {
+  const outcome = await runWorker(
+    subscriptionScenario('anthropic-success.jsonl', {
+      worker: { ...SUBSCRIPTION_WORKER, maxCostUsd: 5 },
+    }),
+  );
+
+  assert.equal(outcome.code, 1);
+  assert.equal(outcome.piStarted, false);
+  assert.equal(outcome.run.status, 'error');
+  assert.match(outcome.run.error ?? '', /budget.*subscription/);
+});
+
+test('given a worker on anthropic and one on openrouter otherwise identical, when each runs, then only the anthropic fingerprint carries its provider and the two hash apart', async () => {
+  const run = async (worker: Partial<WorkerConfig>, anthropic: boolean) => {
+    const outcome = await runWorker(
+      anthropic
+        ? subscriptionScenario('anthropic-success.jsonl', {
+            requests: requestsOf('h-system'),
+            worker: { ...worker, ...SUBSCRIPTION_WORKER },
+          })
+        : { output: fixture('success.jsonl'), requests: requestsOf('h-system'), worker },
+    );
+    return withStore(outcome.stateDir, (store) => store.getFingerprint(outcome.run.id));
+  };
+
+  const subscription = await run({ model: 'claude-opus-5-5' }, true);
+  const billedRun = await run({ model: 'claude-opus-5-5' }, false);
+
+  assert.equal(subscription?.fingerprint.provider, 'anthropic');
+  assert.equal('provider' in (billedRun?.fingerprint ?? {}), false);
+  assert.notEqual(subscription?.hash, billedRun?.hash);
 });

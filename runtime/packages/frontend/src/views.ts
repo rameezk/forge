@@ -161,7 +161,10 @@ const costBadge = (run: Cost): Rendered => {
   return run.costStatus === 'pending' ? PENDING_BADGE : '';
 };
 
+const SUBSCRIPTION_BADGE = html`<span class="${BADGE} bg-line text-fg" data-badge="subscription" title="Run on a Claude subscription, so not billed per generation">subscription</span>`;
+
 const renderCost = (run: Cost): Rendered => {
+  if (run.costStatus === 'subscription') return SUBSCRIPTION_BADGE;
   if (run.costStatus === 'pending' && !run.costEstimated && run.costUsd === 0) {
     return html`<span class="${PENDING}">pending</span>`;
   }
@@ -220,6 +223,7 @@ const renderCacheHitRate = (run: RunRecord): Rendered => {
 };
 
 const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rendered => {
+  if (run.costStatus === 'subscription') return html`anthropic`;
   const providers = [
     ...new Set(generations.flatMap(({ provider }) => (provider === null ? [] : [provider]))),
   ];
@@ -234,7 +238,11 @@ const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rende
 
 const BILLED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="billed" title="The cost OpenRouter billed for this generation">billed</span>`;
 
-const callCost = ({ billedCostUsd, estimatedCostUsd }: GenerationRecord): Rendered => {
+const callCost = (
+  { billedCostUsd, estimatedCostUsd }: GenerationRecord,
+  subscription: boolean,
+): Rendered => {
+  if (subscription) return SUBSCRIPTION_BADGE;
   if (billedCostUsd !== null) return html`${formatCost(billedCostUsd)}<wbr>${BILLED_BADGE}`;
   if (estimatedCostUsd !== null) return html`${formatCost(estimatedCostUsd)}<wbr>${ESTIMATED_BADGE}`;
   return html`<span class="${PENDING}">pending</span>`;
@@ -248,6 +256,7 @@ const renderCall = (
   generation: GenerationRecord,
   miss: boolean,
   effort: string | undefined,
+  subscription: boolean,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { usage } = generation;
   return html`<tr class="${miss ? 'bg-warning-soft' : ROW}" data-call${miss ? html` data-cache-miss` : ''}>
@@ -260,7 +269,7 @@ const renderCall = (
     <td class="${TD} ${NUMERIC}" data-cache-write>${usage === null ? '' : formatTokens(usage.cacheWriteTokens)}</td>
     <td class="${TD} ${NUMERIC}" data-output>${usage === null ? '' : formatTokens(usage.outputTokens)}</td>
     <td class="${TD} ${NUMERIC}" data-reasoning>${optionalTokens(generation.reasoningTokens)}</td>
-    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${callCost(generation)}</td>
+    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${callCost(generation, subscription)}</td>
   </tr>`;
 };
 
@@ -273,7 +282,11 @@ const sentEfforts = (calls: GenerationRecord[], efforts: CallEfforts): (string |
   });
 };
 
-const renderCalls = (calls: GenerationRecord[], efforts: (string | undefined)[]): Rendered => {
+const renderCalls = (
+  calls: GenerationRecord[],
+  efforts: (string | undefined)[],
+  subscription: boolean,
+): Rendered => {
   if (calls.length === 0) return '';
   const misses = cacheMisses(calls);
   return html`<h2 class="${SECTION_TITLE} mt-8 mb-3">Calls</h2>
@@ -293,7 +306,7 @@ const renderCalls = (calls: GenerationRecord[], efforts: (string | undefined)[])
             <th class="${TH} text-right">Cost</th>
           </tr>
         </thead>
-        <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index]))}</tbody>
+        <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index], subscription))}</tbody>
       </table>
     </div>`;
 };
@@ -722,6 +735,7 @@ interface SubagentContext {
   results: ToolResults;
   generations: GenerationRecord[];
   runStatus: RunStatus;
+  subscription: boolean;
   kinds: ReadonlyMap<string, string[]>;
 }
 
@@ -737,7 +751,9 @@ const subagentCost = (
   scope: string,
   generations: GenerationRecord[],
   runStatus: RunStatus,
+  subscription: boolean,
 ): Cost => {
+  if (subscription) return { costStatus: 'subscription', costUsd: 0, costEstimated: false };
   const own = generations.filter((generation) => generation.subagent === scope);
   const awaiting = own.filter(
     (generation) => generation.billedCostUsd === null && generation.givenUpAt === null,
@@ -773,7 +789,7 @@ const renderFigures = (
   events: ScopedEvent[],
   shown: ScopedEvent[],
   report: ToolResultEvent | undefined,
-  { generations, runStatus, kinds }: SubagentContext,
+  { generations, runStatus, subscription, kinds }: SubagentContext,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -787,7 +803,7 @@ const renderFigures = (
     ${renderKinds(kinds.get(scope))}
     ${renderStatus(subagentStatus(report, runStatus))}
     <span class="whitespace-nowrap" data-subagent-tokens>${renderTokens({ inputTokens, outputTokens })}</span>
-    <span class="whitespace-nowrap" data-subagent-cost>${renderCost(subagentCost(scope, generations, runStatus))}</span>
+    <span class="whitespace-nowrap" data-subagent-cost>${renderCost(subagentCost(scope, generations, runStatus, subscription))}</span>
     <span class="whitespace-nowrap">${messageCount(shown)}</span>
   </span>`;
 };
@@ -877,10 +893,11 @@ const renderTranscript = (
   events: HarnessEvent[],
   generations: GenerationRecord[],
   runStatus: RunStatus,
+  subscription: boolean,
   skillLoads: RunSkillLoad[],
 ): Rendered[] => {
   const results = toolResults(events);
-  const context: SubagentContext = { results, generations, runStatus, kinds: subagentKinds(skillLoads) };
+  const context: SubagentContext = { results, generations, runStatus, subscription, kinds: subagentKinds(skillLoads) };
   const first = events[0];
   const prompt = first?.type === 'message' && first.role === 'user' ? first : undefined;
   return withoutToolOnlyPreambles(nestSubagents(events)).map((entry) =>
@@ -1080,11 +1097,11 @@ export const renderDetail = (
     </dl>
     ${stopped !== '' ? stopped : run.error === null ? '' : html`<p class="${run.status === 'interrupted' || run.status === 'exceeded' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
     ${renderContext(context)}
-    ${renderCalls(calls, efforts)}
+    ${renderCalls(calls, efforts, run.costStatus === 'subscription')}
     <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
-      : html`<div class="${STACK}" data-transcript="${events.length}">${renderTranscript(events, generations, run.status, skillLoads)}</div>`}
+      : html`<div class="${STACK}" data-transcript="${events.length}">${renderTranscript(events, generations, run.status, run.costStatus === 'subscription', skillLoads)}</div>`}
     ${live ? html`<button type="button" id="new-activity" hidden class="${NEW_ACTIVITY}">↓ New activity</button>` : ''}`;
   return layout(run.worker, null, live, assets, body);
 };
@@ -1397,6 +1414,7 @@ export const renderTicketAttempts = (
 };
 
 const FINGERPRINT_FIELDS: { key: string; label: string; valueOf: (fingerprint: ConfigFingerprint) => string }[] = [
+  { key: 'provider', label: 'Provider', valueOf: ({ provider }) => provider ?? 'openrouter' },
   { key: 'model', label: 'Model', valueOf: ({ model }) => model },
   { key: 'reasoning-effort', label: 'Reasoning effort', valueOf: ({ reasoningEffort }) => reasoningEffort ?? 'default' },
   { key: 'harness-args', label: 'Harness extra args', valueOf: ({ harnessArgs }) => (harnessArgs.length === 0 ? 'none' : harnessArgs.join(' ')) },

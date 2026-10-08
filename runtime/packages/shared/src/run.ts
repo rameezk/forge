@@ -7,7 +7,7 @@ export type RunStatus =
 
 export type ExceededLimit = 'budget' | 'timeout';
 
-export type CostStatus = 'pending' | 'billed' | 'unconfirmed';
+export type CostStatus = 'pending' | 'billed' | 'unconfirmed' | 'subscription';
 
 export interface RunTicket {
   repository: string;

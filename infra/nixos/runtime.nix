@@ -95,7 +95,7 @@ let
       provider = lib.mkOption {
         type = lib.types.enum (lib.importJSON ../../runtime/packages/runner/src/providers.json);
         default = "openrouter";
-        description = "Where this worker's model is served from. `openrouter` bills each generation and is the default.";
+        description = "Where this worker's model is served from. `openrouter` bills each generation and is the default. `anthropic` runs on the operator's Claude subscription, needs Anthropic's own model id and the `anthropic_oauth_token` secret, and is never billed.";
       };
       reasoningEffort = lib.mkOption {
         type = lib.types.nullOr (
@@ -269,15 +269,19 @@ let
     exec ${cfg.package}/bin/forge-dispatch "''${1%:*}" "''${1##*:}"
   '';
 
-  openRouterEnvFiles = [
-    "forge-runner.env"
-    "forge-billing.env"
-  ];
+  usesAnthropic = lib.any (worker: worker.provider == "anthropic") (lib.attrValues cfg.workers);
   envFile = name: config.sops.templates.${name}.path;
-  envTemplate = variable: secret: {
-    content = "${variable}=${config.sops.placeholder.${secret}}\n";
+  envTemplateOf = variables: {
+    content = lib.concatMapStrings (
+      { variable, secret }: "${variable}=${config.sops.placeholder.${secret}}\n"
+    ) variables;
     owner = cfg.user;
     mode = "0400";
+  };
+  envTemplate = variable: secret: envTemplateOf [ { inherit variable secret; } ];
+  openRouterKey = {
+    variable = "OPENROUTER_API_KEY";
+    secret = "openrouter_api_key";
   };
 
   writeTokenCredentialId = "github-write-token";
@@ -371,7 +375,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests, Issues and Workflows of every managed repository) when a repository declares a worker. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch and the frontier sync read only GITHUB_TOKEN, as data.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests, Issues and Workflows of every managed repository) when a repository declares a worker. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch and the frontier sync read only GITHUB_TOKEN, as data.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -506,10 +510,22 @@ in
     { systemd.services = scheduledBackstops; }
 
     (lib.mkIf hasWorkers {
-      sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
-      sops.templates = lib.genAttrs openRouterEnvFiles (
-        _: envTemplate "OPENROUTER_API_KEY" "openrouter_api_key"
-      );
+      sops.secrets = {
+        openrouter_api_key.sopsFile = cfg.secretsFile;
+      }
+      // lib.optionalAttrs usesAnthropic {
+        anthropic_oauth_token.sopsFile = cfg.secretsFile;
+      };
+      sops.templates = {
+        "forge-billing.env" = envTemplateOf [ openRouterKey ];
+        "forge-runner.env" = envTemplateOf (
+          [ openRouterKey ]
+          ++ lib.optional usesAnthropic {
+            variable = "ANTHROPIC_OAUTH_TOKEN";
+            secret = "anthropic_oauth_token";
+          }
+        );
+      };
 
       systemd.services."forge-runner@" = {
         description = "Forge workload runner for worker %i";

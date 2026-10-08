@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export interface ConfigFingerprint {
+  provider?: string;
   model: string;
   reasoningEffort: string | null;
   harnessArgs: string[];

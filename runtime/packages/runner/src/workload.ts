@@ -65,10 +65,12 @@ export const sandboxOf = (env: NodeJS.ProcessEnv): Sandbox => ({
 const modelLookUpFor = (
   provider: Provider,
   env: NodeJS.ProcessEnv,
-): LookUpModel => {
+): LookUpModel | null => {
   switch (provider) {
     case 'openrouter':
       return openRouterModel(openRouterBaseUrl(env));
+    case 'anthropic':
+      return null;
   }
 };
 
