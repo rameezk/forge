@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted, amended by ADR-0047
 
 Amends ADR-0013 and ADR-0028.
 

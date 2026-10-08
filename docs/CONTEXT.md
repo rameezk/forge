@@ -48,8 +48,16 @@ _Avoid_: catalog cost
 Forge's own price for a generation OpenRouter has not billed yet: the harness's token counts at OpenRouter's list price for the model, recorded at run start. Replaced by the billed cost once known, and always shown as estimated (ADR-0032).
 _Avoid_: harness cost, pi cost
 
+**Provider**:
+Where a worker's model is served from: `openrouter`, billed per generation, or `anthropic`, drawn from the operator's Claude subscription. Set per worker, defaulting to `openrouter`; a workload's subagents use its provider (ADR-0046).
+_Avoid_: backend, vendor
+
+**List-price equivalent**:
+What a subscription workload's generations would have cost at the model's list price, from the harness's token counts and its catalog price. Never billed, and always shown apart from billed and estimated cost (ADR-0047).
+_Avoid_: subscription cost, saved cost
+
 **Config fingerprint**:
-The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034).
+The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034).
 _Avoid_: version, run config
 
 **Cohort**:
@@ -57,7 +65,7 @@ The workloads sharing one config fingerprint, compared as a group against other 
 _Avoid_: variant, experiment, arm
 
 **Cost status**:
-How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, including on an interrupted workload, where later generations may be unrecorded (ADR-0031).
+How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, including on an interrupted workload, where later generations may be unrecorded (ADR-0031), or `subscription` for a workload on a subscription provider, which is never billed and never settles (ADR-0047).
 _Avoid_: cost uncertain
 
 **Interrupted**:
@@ -65,7 +73,7 @@ The end state of a workload whose runner stopped heartbeating before finishing i
 _Avoid_: crashed, stuck, abandoned
 
 **Budget**:
-The most a workload may spend in USD, its subagents included, measured as billed cost where known and estimated cost otherwise; set per worker over a global default (ADR-0045).
+The most a workload may spend in USD, its subagents included, measured as billed cost where known and estimated cost otherwise, or as list-price equivalent on a subscription provider; set per worker over a global default (ADR-0045, ADR-0047).
 _Avoid_: cost cap, spend limit
 
 **Exceeded**:
