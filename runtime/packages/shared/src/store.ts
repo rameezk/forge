@@ -319,6 +319,16 @@ const ADD_SKILL_LOAD_COVERAGE = `
   ALTER TABLE skill_loads ADD COLUMN total_lines INTEGER;
 `;
 
+const HAS_RUN_SKILL_LOADS_RECORDED = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'skill_loads_recorded'
+`;
+
+const ADD_RUN_SKILL_LOADS_RECORDED = `
+  ALTER TABLE runs ADD COLUMN skill_loads_recorded INTEGER;
+  UPDATE runs SET skill_loads_recorded = 1
+    WHERE id IN (SELECT run_id FROM skill_loads);
+`;
+
 type SkillLoadRow = {
   run_id: string;
   subagent: string;
@@ -746,6 +756,7 @@ export class Store {
     db.exec(CREATE_GENERATIONS);
     db.exec(CREATE_SKILL_LOADS);
     this.#addColumnsOnce(HAS_SKILL_LOAD_COVERAGE, ADD_SKILL_LOAD_COVERAGE);
+    this.#addColumnsOnce(HAS_RUN_SKILL_LOADS_RECORDED, ADD_RUN_SKILL_LOADS_RECORDED);
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
     this.#addColumnsOnce(HAS_GENERATION_ESTIMATE, ADD_GENERATION_ESTIMATE);
@@ -835,7 +846,8 @@ export class Store {
           transcript_ref, session_id, error,
           repository, ticket_number, ticket_url, alive_at,
           harness_start_time, timeout_seconds, exceeded_limit, max_cost_usd,
-          tool_calls, failed_tool_results, retries, compactions
+          tool_calls, failed_tool_results, retries, compactions,
+          skill_loads_recorded
         ) VALUES (
           $id, $worker, $harness, $model, $reasoning_effort, $start_time, $end_time, $status,
           $cost_status, $cost_usd, $cost_estimated,
@@ -845,7 +857,8 @@ export class Store {
           $transcript_ref, $session_id, $error,
           $repository, $ticket_number, $ticket_url, $alive_at,
           $harness_start_time, $timeout_seconds, $exceeded_limit, $max_cost_usd,
-          $tool_calls, $failed_tool_results, $retries, $compactions
+          $tool_calls, $failed_tool_results, $retries, $compactions,
+          1
         )`,
       )
       .run(row);
@@ -1042,6 +1055,34 @@ export class Store {
         lines_covered: load.coverage?.coveredLines ?? null,
         total_lines: load.coverage?.totalLines ?? null,
       });
+  }
+
+  runsWithoutSkillLoadRecord(): { id: string; transcriptRef: string | null }[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT id, transcript_ref FROM runs
+        WHERE status != 'running' AND skill_loads_recorded IS NULL
+        ORDER BY id`,
+      )
+      .all() as { id: string; transcript_ref: string | null }[];
+    return rows.map((row) => ({ id: row.id, transcriptRef: row.transcript_ref }));
+  }
+
+  recordBackfilledSkillLoads(runId: string, loads: RunSkillLoad[] | null): void {
+    this.#transaction(() => {
+      const marked = this.#db
+        .prepare(
+          `UPDATE runs SET skill_loads_recorded = $recorded
+          WHERE id = $id AND skill_loads_recorded IS NULL`,
+        )
+        .run({ id: runId, recorded: loads === null ? 0 : 1 });
+      if (marked.changes === 0) {
+        return;
+      }
+      for (const load of loads ?? []) {
+        this.recordSkillLoad(load);
+      }
+    });
   }
 
   listSkillLoads(runId: string): RunSkillLoad[] {
