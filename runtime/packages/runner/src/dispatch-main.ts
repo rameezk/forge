@@ -39,6 +39,7 @@ import {
   SkillNotFound,
 } from './checkout.ts';
 import { DevShellFailed, enterDevShell, nixErrorOf } from './devshell.ts';
+import { withoutCredentials } from './provider.ts';
 import {
   absolutePath,
   launchWorkload,
@@ -177,7 +178,8 @@ const launch = async ({
 }): Promise<LaunchResult> => {
   const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
   const nixSystem = nixSystemOf(env);
-  const cloneEnv = { ...env, GITHUB_TOKEN: token, ...gitEnv };
+  const hostEnv = withoutCredentials(env);
+  const cloneEnv = { ...hostEnv, GITHUB_TOKEN: token, ...gitEnv };
   return launchWorkload({
     config,
     worker,
@@ -188,7 +190,7 @@ const launch = async ({
     runId,
     openWorkspace: async (workDir) => {
       await cloneCheckout(github, workDir, cloneEnv);
-      const baseCommit = await headCommit(workDir, { ...env, ...gitEnv });
+      const baseCommit = await headCommit(workDir, { ...hostEnv, ...gitEnv });
       const checkout = resolveCheckout(workDir, loadSkills);
       const devShell = await enterDevShell({
         sandbox: sandboxOf(env),

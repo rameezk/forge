@@ -628,6 +628,18 @@ test('given a managed repository, when it is dispatched, then its clone runs wit
   assert.match(readFileSync(credential, 'utf8'), new RegExp(`^password=${GITHUB_TOKEN}$`, 'm'));
 });
 
+test('given a subscription worker and a runner environment holding both provider credentials, when its repository is cloned, then no git process on the box sees either credential', async () => {
+  const hooks = mkdtempSync(join(tmpdir(), 'forge-hooks-'));
+  const seen = join(hooks, 'environment');
+  writeFileSync(join(hooks, 'post-checkout'), `#!/bin/sh\nenv > '${seen}'\n`, { mode: 0o755 });
+
+  await dispatch({ subscription: true, gitConfig: { 'core.hooksPath': hooks } });
+
+  const environment = readFileSync(seen, 'utf8');
+  assert.match(environment, /^GITHUB_TOKEN=/m);
+  assert.doesNotMatch(environment, /ANTHROPIC_OAUTH_TOKEN|sk-ant-oat|OPENROUTER_API_KEY|sk-or-test/);
+});
+
 test('given a frontier ticket labelled forge:ready, when it is dispatched, then forge:running replaces forge:ready before the workload starts', async () => {
   const { labelWrites } = await dispatch();
 

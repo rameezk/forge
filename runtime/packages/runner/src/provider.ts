@@ -30,3 +30,11 @@ export const isProvider = (value: string): value is Provider =>
 
 export const providerSpec = (provider: Provider): ProviderSpec =>
   SPECS[provider];
+
+export const withoutCredentials = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const kept = { ...env };
+  for (const { credentialEnv } of Object.values(SPECS)) {
+    delete kept[credentialEnv];
+  }
+  return kept;
+};
