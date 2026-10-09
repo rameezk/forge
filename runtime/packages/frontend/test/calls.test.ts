@@ -282,7 +282,7 @@ test('given a request record of a hundred thousand requests, when its detail pag
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`);
 });
 
-test('given a finished subscription run with two priced calls and one the catalog could not price, when its page is requested, then it shows subscription as its cost, the total of the list-price equivalents labelled as such, each priced call\'s equivalent badged as list price, and the unpriced call as subscription', async () => {
+test('given a finished subscription run with two priced calls and one the catalog could not price, when its page is requested, then it shows subscription as its cost, the total of the list-price equivalents labelled as such, each priced call\'s equivalent under a List price column, and the unpriced call as subscription', async () => {
   const page = await callsPage(
     { costStatus: 'subscription', costUsd: 0 },
     [
@@ -293,7 +293,8 @@ test('given a finished subscription run with two priced calls and one the catalo
   );
 
   const costs = callRows(page).map((row) => cellOf(row, 'data-cost'));
-  assert.deepEqual(costs, ['$0.010000 list price', '$0.020000 list price', 'subscription']);
+  assert.deepEqual(costs, ['$0.010000', '$0.020000', 'subscription']);
+  assert.equal(textOf(page.match(/<th[^>]*>[^<]*<\/th>\s*<\/tr>\s*<\/thead>/)?.[0] ?? '').replace(/\s+/g, ' '), 'List price');
   assert.equal(
     textOf(page.match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
     'subscription',
@@ -317,8 +318,9 @@ test('given a finished subscription run whose calls are all priced, when its pag
   assert.doesNotMatch(page, /data-badge="partial"/);
 });
 
-test('given a billed run, when its page is requested, then it has no list-price equivalent row', async () => {
+test('given a billed run, when its page is requested, then its cost column is headed Cost and it has no list-price equivalent row', async () => {
   const page = await callsPage({}, [{ usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, billed: { cost: 0.01 } }]);
 
   assert.doesNotMatch(page, /List-price equivalent/);
+  assert.match(page, /<th[^>]*>Cost<\/th>\s*<\/tr>\s*<\/thead>/);
 });

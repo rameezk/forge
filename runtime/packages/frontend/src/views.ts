@@ -254,8 +254,6 @@ const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rende
 
 const BILLED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="billed" title="The cost OpenRouter billed for this generation">billed</span>`;
 
-const LIST_PRICE_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="list-price" title="What this generation would have cost at the model's list price. Not billed.">list price</span>`;
-
 const callCost = (
   { billedCostUsd, estimatedCostUsd, listPriceEquivalentUsd }: GenerationRecord,
   subscription: boolean,
@@ -263,7 +261,7 @@ const callCost = (
   if (subscription) {
     return listPriceEquivalentUsd === null
       ? SUBSCRIPTION_BADGE
-      : html`${formatCost(listPriceEquivalentUsd)}<wbr>${LIST_PRICE_BADGE}`;
+      : html`<span title="What this generation would have cost at the model's list price. Not billed.">${formatCost(listPriceEquivalentUsd)}</span>`;
   }
   if (billedCostUsd !== null) return html`${formatCost(billedCostUsd)}<wbr>${BILLED_BADGE}`;
   if (estimatedCostUsd !== null) return html`${formatCost(estimatedCostUsd)}<wbr>${ESTIMATED_BADGE}`;
@@ -325,7 +323,7 @@ const renderCalls = (
             <th class="${TH} text-right">Cache write</th>
             <th class="${TH} text-right">Output</th>
             <th class="${TH} text-right">Reasoning</th>
-            <th class="${TH} text-right">Cost</th>
+            <th class="${TH} text-right">${subscription ? 'List price' : 'Cost'}</th>
           </tr>
         </thead>
         <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index], subscription))}</tbody>
