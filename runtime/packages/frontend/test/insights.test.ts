@@ -201,3 +201,13 @@ test('given a subscription cohort with one priced and one unpriced workload, and
   const none = rows.get(fingerprintHash(unpriced))!;
   assert.deepEqual([none.workloads, none['cost-median'], none['cost-p90'], none['cost-per-merged']], ['1', 'n/a', 'n/a', 'n/a']);
 });
+
+test('given a subscription cohort where one merged workload has a generation the catalog could not price, when the insights page is requested, then that workload adds no cost and cost per merged PR reads n/a instead of an understated figure', async () => {
+  const page = await dashboard([
+    { id: 'a1', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: 3, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
+    { id: 'a2', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: 5, unpricedGeneration: true, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
+  ]).page();
+
+  const row = rowsOf(page).get(fingerprintHash(SUBSCRIBED))!;
+  assert.deepEqual([row['cost-median'], row['cost-per-merged']], ['$3.000000', 'n/a']);
+});

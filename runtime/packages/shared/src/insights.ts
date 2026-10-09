@@ -104,8 +104,10 @@ const summarize = (members: InsightWorkload[]): CohortInsight => {
   const retries = present(members.map(({ retries: count }) => count));
   const rework = present(merged.map(({ pullRequest }) => pullRequest?.rework ?? null));
   const billed = members.filter(({ listPrice }) => !listPrice);
-  const costed = (billed.length === 0 ? members : billed).filter(({ costUsd }) => costUsd !== null);
-  const costs = costed.map(({ costUsd }) => costUsd!);
+  const basis = billed.length === 0 ? members : billed;
+  const costs = present(basis.map(({ costUsd }) => costUsd));
+  const dispatchedCosts = basis.filter(({ dispatched: isDispatched }) => isDispatched).map(({ costUsd }) => costUsd);
+  const unpriced = dispatchedCosts.some((cost) => cost === null);
   return {
     hash: members[0]!.fingerprintHash,
     fingerprint: members[0]!.fingerprint,
@@ -115,7 +117,7 @@ const summarize = (members: InsightWorkload[]): CohortInsight => {
     mergedRate: ratio(merged.length, dispatched.length),
     costMedian: costs.length === 0 ? null : quantile(costs, 0.5),
     costP90: costs.length === 0 ? null : quantile(costs, 0.9),
-    costPerMerged: ratio(sum(costed.filter(({ dispatched: isDispatched }) => isDispatched).map(({ costUsd }) => costUsd!)), merged.length),
+    costPerMerged: unpriced ? null : ratio(sum(present(dispatchedCosts)), merged.length),
     durationMedianMs: quantile(members.map(({ durationMs }) => durationMs), 0.5),
     cacheHitRate: cacheHitRate(members),
     toolCallsMedian: toolCalls.length === 0 ? null : quantile(toolCalls, 0.5),

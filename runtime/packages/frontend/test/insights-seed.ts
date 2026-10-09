@@ -41,6 +41,7 @@ export interface Seed {
   pullRequest?: { state: PullRequestState; rework: number };
   providers?: Record<string, number>;
   listPrice?: number | null;
+  unpricedGeneration?: boolean;
 }
 
 const GITHUB = 'https://github.com/rameezk/';
@@ -82,6 +83,17 @@ const runOf = (seed: Seed): RunRecord => {
 };
 
 const seedGenerations = (store: Store, seed: Seed): void => {
+  if (seed.unpricedGeneration === true) {
+    store.recordGeneration({
+      runId: seed.id,
+      generationId: `${seed.id}-gen-unpriced`,
+      subagent: null,
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      estimatedCostUsd: null,
+      listPriceEquivalentUsd: null,
+      createdAt: '2026-09-21T10:00:01.000Z',
+    });
+  }
   if (seed.listPrice !== undefined) {
     store.recordGeneration({
       runId: seed.id,

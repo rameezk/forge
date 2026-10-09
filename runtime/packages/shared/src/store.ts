@@ -1309,7 +1309,7 @@ export class Store {
         `SELECT
           r.id, r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time,
           CASE WHEN r.cost_status = 'subscription'
-            THEN (SELECT SUM(list_price_equivalent_usd) FROM generations WHERE run_id = r.id)
+            THEN (SELECT CASE WHEN COUNT(*) = COUNT(list_price_equivalent_usd) THEN SUM(list_price_equivalent_usd) END FROM generations WHERE run_id = r.id)
             ELSE r.cost_usd END AS cost_usd,
           r.cost_status = 'subscription' AS list_price,
           r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
