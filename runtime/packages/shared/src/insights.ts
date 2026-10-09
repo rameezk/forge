@@ -13,7 +13,8 @@ export interface InsightWorkload {
   fingerprintHash: string | null;
   fingerprint: ConfigFingerprint | null;
   dispatched: boolean;
-  costUsd: number;
+  listPrice: boolean;
+  costUsd: number | null;
   durationMs: number;
   inputTokens: number;
   cacheReadTokens: number | null;
@@ -27,10 +28,11 @@ export interface CohortInsight {
   hash: string | null;
   fingerprint: ConfigFingerprint | null;
   workloads: number;
+  listPrice: boolean;
   openedRate: number | null;
   mergedRate: number | null;
-  costMedian: number;
-  costP90: number;
+  costMedian: number | null;
+  costP90: number | null;
   costPerMerged: number | null;
   durationMedianMs: number;
   cacheHitRate: number | null;
@@ -46,6 +48,7 @@ export interface InsightPoint {
   fingerprintHash: string | null;
   startTime: string;
   costUsd: number;
+  listPrice: boolean;
   outcome: WorkloadOutcome | null;
 }
 
@@ -100,16 +103,21 @@ const summarize = (members: InsightWorkload[]): CohortInsight => {
   const toolCalls = present(members.map(({ toolCalls: count }) => count));
   const retries = present(members.map(({ retries: count }) => count));
   const rework = present(merged.map(({ pullRequest }) => pullRequest?.rework ?? null));
-  const costs = members.map(({ costUsd }) => costUsd);
+  const billed = members.filter(({ listPrice }) => !listPrice);
+  const basis = billed.length === 0 ? members : billed;
+  const costs = present(basis.map(({ costUsd }) => costUsd));
+  const dispatchedCosts = basis.filter(({ dispatched: isDispatched }) => isDispatched).map(({ costUsd }) => costUsd);
+  const unpriced = dispatchedCosts.some((cost) => cost === null);
   return {
     hash: members[0]!.fingerprintHash,
     fingerprint: members[0]!.fingerprint,
     workloads: members.length,
+    listPrice: billed.length === 0,
     openedRate: ratio(dispatched.filter(({ pullRequest }) => pullRequest !== null).length, dispatched.length),
     mergedRate: ratio(merged.length, dispatched.length),
-    costMedian: quantile(costs, 0.5),
-    costP90: quantile(costs, 0.9),
-    costPerMerged: ratio(sum(dispatched.map(({ costUsd }) => costUsd)), merged.length),
+    costMedian: costs.length === 0 ? null : quantile(costs, 0.5),
+    costP90: costs.length === 0 ? null : quantile(costs, 0.9),
+    costPerMerged: unpriced ? null : ratio(sum(present(dispatchedCosts)), merged.length),
     durationMedianMs: quantile(members.map(({ durationMs }) => durationMs), 0.5),
     cacheHitRate: cacheHitRate(members),
     toolCallsMedian: toolCalls.length === 0 ? null : quantile(toolCalls, 0.5),

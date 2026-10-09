@@ -40,6 +40,8 @@ export interface Seed {
   retries: number;
   pullRequest?: { state: PullRequestState; rework: number };
   providers?: Record<string, number>;
+  listPrice?: number | null;
+  unpricedGeneration?: boolean;
 }
 
 const GITHUB = 'https://github.com/rameezk/';
@@ -57,7 +59,7 @@ const runOf = (seed: Seed): RunRecord => {
     startTime: start,
     endTime: new Date(Date.parse(start) + seed.seconds * 1000).toISOString(),
     status: 'success',
-    costStatus: 'billed',
+    costStatus: seed.listPrice === undefined ? 'billed' : 'subscription',
     costUsd: seed.cost,
     costEstimated: false,
     listPrice: null,
@@ -81,6 +83,28 @@ const runOf = (seed: Seed): RunRecord => {
 };
 
 const seedGenerations = (store: Store, seed: Seed): void => {
+  if (seed.unpricedGeneration === true) {
+    store.recordGeneration({
+      runId: seed.id,
+      generationId: `${seed.id}-gen-unpriced`,
+      subagent: null,
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      estimatedCostUsd: null,
+      listPriceEquivalentUsd: null,
+      createdAt: '2026-09-21T10:00:01.000Z',
+    });
+  }
+  if (seed.listPrice !== undefined) {
+    store.recordGeneration({
+      runId: seed.id,
+      generationId: `${seed.id}-gen-1`,
+      subagent: null,
+      usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      estimatedCostUsd: null,
+      listPriceEquivalentUsd: seed.listPrice,
+      createdAt: '2026-09-21T10:00:01.000Z',
+    });
+  }
   const providers = Object.entries(seed.providers ?? {});
   providers.forEach(([provider, tokens], index) => {
     store.recordGeneration({

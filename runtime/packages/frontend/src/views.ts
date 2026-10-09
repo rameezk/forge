@@ -7,6 +7,7 @@ import type {
   InsightPoint,
   InsightsFilter,
   InsightsOptions,
+  ListPriceEquivalent,
   ProviderShare,
   RunFingerprint,
   ConfigFingerprint,
@@ -49,6 +50,7 @@ import {
   formatTime,
   formatTokens,
   formatTotal,
+  isSubscription,
   pendingCount,
   totalCost,
 } from './format.ts';
@@ -238,6 +240,12 @@ const renderListPriceEquivalent = (
       <dd class="${META_VALUE}" data-list-price-equivalent>${formatCost(total)}${priced.length < generations.length ? html`<wbr>${PARTIAL_BADGE}` : ''}</dd>`;
 };
 
+const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquivalent>): Rendered => {
+  const equivalent = equivalents.get(run.id);
+  if (!isSubscription(run) || equivalent === undefined) return renderRunCost(run);
+  return html`${SUBSCRIPTION_BADGE}<wbr><span class="ml-1.5 whitespace-nowrap text-muted" data-list-price-equivalent title="What this workload would have cost at the model's list price. Not billed.">${formatCost(equivalent.usd)} list price</span>${equivalent.partial ? html`<wbr>${PARTIAL_BADGE}` : ''}`;
+};
+
 const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rendered => {
   if (run.costStatus === 'subscription') return html`anthropic`;
   const providers = [
@@ -367,8 +375,26 @@ const renderTotal = (runs: RunRecord[]): Rendered => {
     : html` <span class="${PENDING}">+${pending} pending</span>`}`;
 };
 
+const renderListPriceTotal = (
+  runs: RunRecord[],
+  equivalents: Map<string, ListPriceEquivalent>,
+): Rendered => {
+  const priced = runs.flatMap((run) => {
+    const equivalent = isSubscription(run) ? equivalents.get(run.id) : undefined;
+    return equivalent === undefined ? [] : [equivalent];
+  });
+  if (priced.length === 0) return '';
+  const total = priced.reduce((sum, { usd }) => sum + usd, 0);
+  const partial = priced.length < runs.filter(isSubscription).length || priced.some((equivalent) => equivalent.partial);
+  return html`<tr data-total="list-price-equivalent">
+    <td colspan="8" class="${TD} text-muted" title="What the subscription workloads would have cost at the models' list price. Not billed.">List-price equivalent, not billed</td>
+    <td class="${TD} ${NUMERIC} text-muted">${formatTotal(total)}${partial ? html`<wbr>${PARTIAL_BADGE}` : ''}</td>
+  </tr>`;
+};
+
 export const renderList = (
   runs: RunRecord[],
+  equivalents: Map<string, ListPriceEquivalent>,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body =
@@ -402,15 +428,16 @@ export const renderList = (
                     <td class="${TD} whitespace-nowrap" data-duration>${renderDuration(run)}</td>
                     <td class="${TD}">${renderStatus(run.status)}</td>
                     <td class="${TD} ${NUMERIC}" data-cache-hit>${renderCacheHitRate(run)}</td>
-                    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${renderRunCost(run)}</td>
+                    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${renderListCost(run, equivalents)}</td>
                   </tr>`,
                 )}
               </tbody>
               <tfoot>
-                <tr>
+                <tr data-total="billed">
                   <td colspan="8" class="${TD} font-semibold">Total</td>
                   <td class="${TD} ${NUMERIC} font-semibold">${renderTotal(runs)}</td>
                 </tr>
+                ${renderListPriceTotal(runs, equivalents)}
               </tfoot>
             </table>
           </div>`;
@@ -1258,6 +1285,8 @@ const INPUT = 'rounded-md border border-line bg-surface px-2 py-1.5 text-[0.9rem
 const renderOptions = (values: string[], selected: string | undefined): Rendered =>
   html`${values.map((value) => html`<option value="${value}"${value === selected ? html` selected` : ''}>${value}</option>`)}`;
 
+const LIST_PRICE_NOTE = html`<p class="m-0 mt-2 text-[0.8rem] text-muted" data-cost-note>Cohorts marked subscription show their list-price equivalent, what they would have cost at list price, not billed spend.</p>`;
+
 const renderInsightsFilters = (
   filter: InsightsFilter,
   options: InsightsOptions,
@@ -1287,15 +1316,17 @@ const renderInsightsFilters = (
     <button type="submit" class="rounded-md border border-line bg-raised px-3 py-1.5 text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
   </form>`;
 
+const COST_TITLE = html` title="List-price equivalent, not billed"`;
+
 const renderCohort = (cohort: CohortInsight): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}">
-    <td class="border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}</td>
+  html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
+    <td class="border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}</td>
     <td class="${COHORT_TD}" data-metric="workloads">${cohort.workloads}</td>
     <td class="${COHORT_TD}" data-metric="opened">${formatRate(cohort.openedRate)}</td>
     <td class="${COHORT_TD}" data-metric="merged">${formatRate(cohort.mergedRate)}</td>
-    <td class="${COHORT_TD}" data-metric="cost-median">${formatCost(cohort.costMedian)}</td>
-    <td class="${COHORT_TD}" data-metric="cost-p90">${formatCost(cohort.costP90)}</td>
-    <td class="${COHORT_TD} font-semibold" data-metric="cost-per-merged">${cohort.costPerMerged === null ? 'n/a' : formatCost(cohort.costPerMerged)}</td>
+    <td class="${COHORT_TD}" data-metric="cost-median"${cohort.listPrice ? COST_TITLE : ''}>${cohort.costMedian === null ? 'n/a' : formatCost(cohort.costMedian)}</td>
+    <td class="${COHORT_TD}" data-metric="cost-p90"${cohort.listPrice ? COST_TITLE : ''}>${cohort.costP90 === null ? 'n/a' : formatCost(cohort.costP90)}</td>
+    <td class="${COHORT_TD} font-semibold" data-metric="cost-per-merged"${cohort.listPrice ? COST_TITLE : ''}>${cohort.costPerMerged === null ? 'n/a' : formatCost(cohort.costPerMerged)}</td>
     <td class="${COHORT_TD}" data-metric="duration">${formatElapsed(cohort.durationMedianMs)}</td>
     <td class="${COHORT_TD}" data-metric="cache-hit">${formatRate(cohort.cacheHitRate)}</td>
     <td class="${COHORT_TD}" data-metric="tool-calls">${formatMeasure(cohort.toolCallsMedian)}</td>
@@ -1312,7 +1343,7 @@ const renderCostOverTime = (
   return html`<section class="${CARD} mt-4 p-4" data-cost-chart aria-label="Cost over time">
     <h2 class="mb-2 text-sm font-semibold text-fg">Cost over time</h2>
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
-      <div class="w-full max-w-[30rem] shrink-0">${renderCostChart(points, series)}</div>
+      <div class="w-full max-w-[30rem] shrink-0">${points.length === 0 ? html`<p class="m-0 text-[0.8rem] text-muted" data-chart-empty>No workload has a cost to plot.</p>` : renderCostChart(points, series)}</div>
       ${renderChartLegend(cohorts, points, series)}
     </div>
   </section>
@@ -1352,6 +1383,7 @@ export const renderInsights = (
             <tbody>${cohorts.map(renderCohort)}</tbody>
           </table>
         </div>
+        ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}
         ${renderCostOverTime(cohorts, points, shares)}`}`;
   return layout('Insights', 'insights', true, assets, body);
 };

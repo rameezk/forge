@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fingerprintHash } from '@forge/shared';
+import type { ConfigFingerprint } from '@forge/shared';
 import { textOf } from './html.ts';
 import { dashboard, GLM, SONNET, type Seed } from './insights-seed.ts';
 
@@ -145,4 +146,68 @@ test('given cohorts of different sizes recorded in any order, when the insights 
   );
 
   assert.deepEqual([...rows.keys()], [fingerprintHash(SONNET), fingerprintHash(GLM), '']);
+});
+
+const SUBSCRIBED: ConfigFingerprint = { ...SONNET, provider: 'anthropic' };
+
+const MIXED_SEEDS: Seed[] = [
+  { id: 'o1', fingerprint: SONNET, seconds: 60, cost: 0.2, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
+  { id: 'o2', fingerprint: SONNET, seconds: 60, cost: 0.4, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
+  { id: 's1', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: 3, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
+  { id: 's2', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: 5, toolCalls: 1, retries: 0 },
+];
+
+test('given an OpenRouter cohort and a subscription cohort of the same worker, when the insights page is requested, then the subscription cohort\'s costs are its list-price equivalents, marked as such, and the OpenRouter cohort\'s are its billed costs alone', async () => {
+  const page = await dashboard(MIXED_SEEDS).page();
+  const rows = rowsOf(page);
+  const basis = (hash: string): string =>
+    page.match(new RegExp(`<tr[^>]*\\sdata-cohort="${hash}"[^>]*\\sdata-cost-basis="([^"]*)"`))?.[1] ?? 'missing';
+
+  const billed = rows.get(fingerprintHash(SONNET))!;
+  const subscription = rows.get(fingerprintHash(SUBSCRIBED))!;
+  assert.deepEqual(
+    [billed['cost-median'], billed['cost-p90'], billed['cost-per-merged']],
+    ['$0.300000', '$0.380000', '$0.300000'],
+  );
+  assert.deepEqual(
+    [subscription['cost-median'], subscription['cost-p90'], subscription['cost-per-merged']],
+    ['$4.000000', '$4.800000', '$8.000000'],
+  );
+  assert.equal(basis(fingerprintHash(SONNET)), 'billed');
+  assert.equal(basis(fingerprintHash(SUBSCRIBED)), 'list-price');
+  assert.match(subscription.label!, /subscription/);
+  assert.doesNotMatch(billed.label!, /subscription/);
+  assert.match(page, /<th[^>]*>Median cost<\/th>/);
+  assert.match(page, /data-cost-note[^>]*>[^<]*list-price equivalent[^<]*not billed/i);
+});
+
+test('given only OpenRouter cohorts, when the insights page is requested, then the page carries no list-price note', async () => {
+  const page = await dashboard(COHORT_SEEDS).page();
+
+  assert.doesNotMatch(page, /data-cost-note|data-cost-basis="list-price"/);
+});
+
+test('given a subscription cohort with one priced and one unpriced workload, and another whose workloads are all unpriced, when the insights page is requested, then unpriced workloads count but add no cost, and a cohort with nothing priced shows n/a', async () => {
+  const unpriced: ConfigFingerprint = { ...SONNET, provider: 'anthropic', promptTemplate: 'aaaa1111' };
+  const page = await dashboard([
+    ...MIXED_SEEDS,
+    { id: 'u1', fingerprint: unpriced, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
+    { id: 'p1', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
+  ]).page();
+  const rows = rowsOf(page);
+
+  const partly = rows.get(fingerprintHash(SUBSCRIBED))!;
+  assert.deepEqual([partly.workloads, partly['cost-median'], partly['cost-p90']], ['3', '$4.000000', '$4.800000']);
+  const none = rows.get(fingerprintHash(unpriced))!;
+  assert.deepEqual([none.workloads, none['cost-median'], none['cost-p90'], none['cost-per-merged']], ['1', 'n/a', 'n/a', 'n/a']);
+});
+
+test('given a subscription cohort where one merged workload has a generation the catalog could not price, when the insights page is requested, then that workload adds no cost and cost per merged PR reads n/a instead of an understated figure', async () => {
+  const page = await dashboard([
+    { id: 'a1', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: 3, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
+    { id: 'a2', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: 5, unpricedGeneration: true, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
+  ]).page();
+
+  const row = rowsOf(page).get(fingerprintHash(SUBSCRIBED))!;
+  assert.deepEqual([row['cost-median'], row['cost-per-merged']], ['$3.000000', 'n/a']);
 });

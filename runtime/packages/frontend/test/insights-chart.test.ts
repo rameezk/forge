@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fingerprintHash } from '@forge/shared';
+import type { ConfigFingerprint } from '@forge/shared';
 import { textOf } from './html.ts';
 import { dashboard, GLM, SONNET, type Seed } from './insights-seed.ts';
 
@@ -155,4 +156,49 @@ test('given workloads on the insights page, when the chart is requested, then it
 
   assert.match(page, /<svg[^>]*role="group"[^>]*data-chart="cost"|<svg[^>]*data-chart="cost"[^>]*role="group"/);
   assert.doesNotMatch(page, /<svg[^>]*role="img"[^>]*data-chart="cost"/);
+});
+
+test('given an OpenRouter cohort and a subscription cohort, when the insights page is requested, then no point of the OpenRouter cohort carries a list-price equivalent, the subscription points are titled as list-price equivalents, and the legend labels the subscription series', async () => {
+  const subscribed: ConfigFingerprint = { ...SONNET, provider: 'anthropic' };
+  const page = await dashboard([
+    { id: 'o1', fingerprint: SONNET, seconds: 60, cost: 0.5, toolCalls: 1, retries: 0 },
+    { id: 's1', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: 2.5, toolCalls: 1, retries: 0 },
+  ]).page();
+  const points = pointsOf(page);
+  const basisOf = (id: string): string =>
+    page.match(new RegExp(`<g\\s[^>]*data-run="${id}"[^>]*data-cost-basis="([^"]*)"`))?.[1] ?? 'missing';
+
+  assert.equal(points.get('o1')!.title, 'o1 - $0.500000 - failed');
+  assert.equal(points.get('s1')!.title, 's1 - $2.500000 list-price equivalent - failed');
+  assert.equal(basisOf('o1'), 'billed');
+  assert.equal(basisOf('s1'), 'list-price');
+  assert.notEqual(points.get('o1')!.color, points.get('s1')!.color);
+  const legend = (hash: string): string =>
+    textOf(page.match(new RegExp(`<li[^>]*data-legend-cohort="${hash}"[^>]*>[\\s\\S]*?</li>`))?.[0] ?? '');
+  assert.doesNotMatch(legend(fingerprintHash(SONNET)), /subscription/);
+  assert.match(legend(fingerprintHash(subscribed)), /subscription.*list-price equivalent/);
+});
+
+test('given a subscription workload whose generations the catalog could not price, when the insights page is requested, then the chart draws no point for it instead of one at $0', async () => {
+  const subscribed: ConfigFingerprint = { ...SONNET, provider: 'anthropic' };
+  const points = pointsOf(
+    await dashboard([
+      { id: 's1', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: 1.5, toolCalls: 1, retries: 0 },
+      { id: 's2', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
+    ]).page(),
+  );
+
+  assert.deepEqual([...points.keys()], ['s1']);
+});
+
+test('given only subscription workloads the catalog could not price, when the insights page is requested, then the page renders with the cohort and no chart points', async () => {
+  const subscribed: ConfigFingerprint = { ...SONNET, provider: 'anthropic' };
+  const page = await dashboard([
+    { id: 's1', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
+  ]).page();
+
+  assert.equal(pointsOf(page).size, 0);
+  assert.doesNotMatch(page, /NaN/);
+  assert.match(page, /data-chart-empty/);
+  assert.match(page, /data-cohort="[0-9a-f]+"/);
 });
