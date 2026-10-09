@@ -222,6 +222,8 @@ const renderCacheHitRate = (run: RunRecord): Rendered => {
   return rate === null ? NOT_RECORDED : html`${rate}`;
 };
 
+const PARTIAL_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="partial" title="Some generations have no list-price equivalent, so the total is understated">partial</span>`;
+
 const renderListPriceEquivalent = (
   run: RunRecord,
   generations: GenerationRecord[],
@@ -233,7 +235,7 @@ const renderListPriceEquivalent = (
   if (priced.length === 0) return '';
   const total = priced.reduce((sum, usd) => sum + usd, 0);
   return html`<dt class="${META_TERM}" title="What this workload would have cost at the model's list price. Not billed.">List-price equivalent</dt>
-      <dd class="${META_VALUE}" data-list-price-equivalent>${formatCost(total)}</dd>`;
+      <dd class="${META_VALUE}" data-list-price-equivalent>${formatCost(total)}${priced.length < generations.length ? html`<wbr>${PARTIAL_BADGE}` : ''}</dd>`;
 };
 
 const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rendered => {

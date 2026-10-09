@@ -300,13 +300,21 @@ test('given a finished subscription run with two priced calls and one the catalo
   );
   assert.equal(
     textOf(page.match(/<dt[^>]*>List-price equivalent<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
-    '$0.030000',
+    '$0.030000 partial',
   );
   assert.equal(
     textOf(page.match(/<dt[^>]*>Providers<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
     'anthropic',
   );
   assert.doesNotMatch(page, /data-badge="(pending|billed|estimated)"/);
+});
+
+test('given a finished subscription run whose calls are all priced, when its page is requested, then its list-price equivalent carries no partial badge', async () => {
+  const page = await callsPage({ costStatus: 'subscription', costUsd: 0 }, [
+    { usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, listPrice: 0.01 },
+  ]);
+
+  assert.doesNotMatch(page, /data-badge="partial"/);
 });
 
 test('given a billed run, when its page is requested, then it has no list-price equivalent row', async () => {
