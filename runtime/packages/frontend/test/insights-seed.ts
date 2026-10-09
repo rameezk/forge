@@ -40,7 +40,7 @@ export interface Seed {
   retries: number;
   pullRequest?: { state: PullRequestState; rework: number };
   providers?: Record<string, number>;
-  listPrice?: number;
+  listPrice?: number | null;
 }
 
 const GITHUB = 'https://github.com/rameezk/';

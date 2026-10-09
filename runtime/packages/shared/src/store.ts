@@ -469,7 +469,7 @@ type InsightRow = {
   fingerprint_hash: string | null;
   start_time: string;
   end_time: string;
-  cost_usd: number;
+  cost_usd: number | null;
   list_price: number;
   input_tokens: number;
   cache_read_tokens: number | null;
@@ -1309,7 +1309,7 @@ export class Store {
         `SELECT
           r.id, r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time,
           CASE WHEN r.cost_status = 'subscription'
-            THEN COALESCE((SELECT SUM(list_price_equivalent_usd) FROM generations WHERE run_id = r.id), 0)
+            THEN (SELECT SUM(list_price_equivalent_usd) FROM generations WHERE run_id = r.id)
             ELSE r.cost_usd END AS cost_usd,
           r.cost_status = 'subscription' AS list_price,
           r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
@@ -1340,14 +1340,20 @@ export class Store {
 
   listPoints(filter: InsightsFilter): InsightPoint[] {
     return this.#insightRows(filter)
-      .map((row) => ({
-        runId: row.id,
-        fingerprintHash: row.fingerprint_hash,
-        startTime: row.start_time,
-        costUsd: row.cost_usd,
-        listPrice: row.list_price === 1,
-        outcome: outcomeOf(row.dispatched === 1, pullRequestOfRow(row)),
-      }))
+      .flatMap((row) =>
+        row.cost_usd === null
+          ? []
+          : [
+              {
+                runId: row.id,
+                fingerprintHash: row.fingerprint_hash,
+                startTime: row.start_time,
+                costUsd: row.cost_usd,
+                listPrice: row.list_price === 1,
+                outcome: outcomeOf(row.dispatched === 1, pullRequestOfRow(row)),
+              },
+            ],
+      )
       .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.runId.localeCompare(b.runId));
   }
 

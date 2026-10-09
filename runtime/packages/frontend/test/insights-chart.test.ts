@@ -178,3 +178,27 @@ test('given an OpenRouter cohort and a subscription cohort, when the insights pa
   assert.doesNotMatch(legend(fingerprintHash(SONNET)), /subscription/);
   assert.match(legend(fingerprintHash(subscribed)), /subscription.*list-price equivalent/);
 });
+
+test('given a subscription workload whose generations the catalog could not price, when the insights page is requested, then the chart draws no point for it instead of one at $0', async () => {
+  const subscribed: ConfigFingerprint = { ...SONNET, provider: 'anthropic' };
+  const points = pointsOf(
+    await dashboard([
+      { id: 's1', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: 1.5, toolCalls: 1, retries: 0 },
+      { id: 's2', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
+    ]).page(),
+  );
+
+  assert.deepEqual([...points.keys()], ['s1']);
+});
+
+test('given only subscription workloads the catalog could not price, when the insights page is requested, then the page renders with the cohort and no chart points', async () => {
+  const subscribed: ConfigFingerprint = { ...SONNET, provider: 'anthropic' };
+  const page = await dashboard([
+    { id: 's1', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
+  ]).page();
+
+  assert.equal(pointsOf(page).size, 0);
+  assert.doesNotMatch(page, /NaN/);
+  assert.match(page, /data-chart-empty/);
+  assert.match(page, /data-cohort="[0-9a-f]+"/);
+});

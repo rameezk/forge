@@ -186,3 +186,18 @@ test('given only OpenRouter cohorts, when the insights page is requested, then t
 
   assert.doesNotMatch(page, /data-cost-note|data-cost-basis="list-price"/);
 });
+
+test('given a subscription cohort with one priced and one unpriced workload, and another whose workloads are all unpriced, when the insights page is requested, then unpriced workloads count but add no cost, and a cohort with nothing priced shows n/a', async () => {
+  const unpriced: ConfigFingerprint = { ...SONNET, provider: 'anthropic', promptTemplate: 'aaaa1111' };
+  const page = await dashboard([
+    ...MIXED_SEEDS,
+    { id: 'u1', fingerprint: unpriced, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
+    { id: 'p1', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
+  ]).page();
+  const rows = rowsOf(page);
+
+  const partly = rows.get(fingerprintHash(SUBSCRIBED))!;
+  assert.deepEqual([partly.workloads, partly['cost-median'], partly['cost-p90']], ['3', '$4.000000', '$4.800000']);
+  const none = rows.get(fingerprintHash(unpriced))!;
+  assert.deepEqual([none.workloads, none['cost-median'], none['cost-p90'], none['cost-per-merged']], ['1', 'n/a', 'n/a', 'n/a']);
+});
