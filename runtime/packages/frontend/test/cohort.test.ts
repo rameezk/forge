@@ -21,6 +21,7 @@ test('given a cohort, when its page is requested, then it shows the label and ev
 
   assert.match(textOf(page), /sonnet-5\.5 · high · prompt#3fa2/);
   assert.deepEqual(fieldsOf(page), new Map([
+    ['provider', 'Provider openrouter'],
     ['model', 'Model anthropic/claude-sonnet-5.5'],
     ['reasoning-effort', 'Reasoning effort high'],
     ['harness-args', 'Harness extra args none'],
@@ -45,6 +46,20 @@ test('given two cohorts differing only in the skill files hash, when one is requ
   assert.deepEqual(changedFieldsOf(page), ['skills']);
   assert.equal(fieldsOf(page).get('skills'), 'Skill files changed k k2');
   assert.equal(fieldsOf(page).get('model'), 'Model anthropic/claude-sonnet-5.5 anthropic/claude-sonnet-5.5');
+});
+
+const SUBSCRIBED = { ...SONNET, provider: 'anthropic' };
+
+test('given a cohort on openrouter and one on anthropic otherwise identical, when one is requested with the other chosen, then the page shows each provider and the diff marks only the provider as changed', async () => {
+  const { app } = dashboard([
+    ...SEEDS,
+    { id: 's1', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+  ]);
+
+  const page = await (await app.request(`/cohorts/${fingerprintHash(SUBSCRIBED)}?against=${fingerprintHash(SONNET)}`)).text();
+
+  assert.deepEqual(changedFieldsOf(page), ['provider']);
+  assert.equal(fieldsOf(page).get('provider'), 'Provider changed anthropic openrouter');
 });
 
 const choicesOf = (page: string): { value: string; selected: boolean; text: string }[] =>

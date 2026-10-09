@@ -376,6 +376,7 @@ const SETTLE_RUN = `
     ) ELSE 0 END,
     cost_estimated = ${FULLY_ESTIMATED},
     cost_status = CASE
+      WHEN cost_status = 'subscription' THEN 'subscription'
       WHEN EXISTS (
         SELECT 1 FROM generations WHERE run_id = runs.id AND given_up_at IS NOT NULL
       ) THEN 'unconfirmed'
@@ -1129,6 +1130,7 @@ export class Store {
         `SELECT g.id, g.run_id, g.generation_id, COALESCE(r.end_time, g.created_at) AS since
         FROM generations g LEFT JOIN runs r ON r.id = g.run_id
         WHERE g.billed_cost_usd IS NULL AND g.given_up_at IS NULL
+          AND COALESCE(r.cost_status, '') != 'subscription'
         ORDER BY g.id`,
       )
       .all() as UnsettledRow[];

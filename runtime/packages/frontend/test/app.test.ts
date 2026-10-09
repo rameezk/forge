@@ -242,6 +242,23 @@ test('given only settled runs, when the list is requested, then the total carrie
   assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.3000');
 });
 
+test('given a billed run and a finished subscription run, when the list is requested, then the subscription run\'s cost reads subscription with its badge and the total counts neither a dollar figure nor a pending run for it', async () => {
+  const app = appWith([
+    sampleRun({ id: 'billed', costStatus: 'billed', costUsd: 0.2 }),
+    sampleRun({ id: 'subscribed', costStatus: 'subscription', costUsd: 0 }),
+  ]);
+
+  const body = await (await app.request('/')).text();
+  const cost = textOf(
+    rowFor(body, 'subscribed').match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '',
+  );
+
+  assert.equal(cost, 'subscription');
+  assert.match(rowFor(body, 'subscribed'), /<span[^>]*\sdata-badge="subscription"[^>]*\stitle="[^"]*not billed[^"]*"[^>]*>subscription<\/span>/);
+  assert.doesNotMatch(rowFor(body, 'subscribed'), /\$0/);
+  assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.2000');
+});
+
 test('given a pending run billed $0.5 so far and an unconfirmed run, when each transcript page is requested, then the first shows its billed cost so far marked pending and the second its partial billed sum marked unconfirmed', async () => {
   const app = appWith([
     sampleRun({ id: 'pending', costStatus: 'pending', costUsd: 0.5, transcriptRef: null }),

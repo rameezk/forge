@@ -867,3 +867,95 @@ test('given a store file whose dispatches predate pull request tracking, when th
   );
   store.close();
 });
+
+const usageOf = (inputTokens: number, outputTokens: number) => ({
+  inputTokens,
+  outputTokens,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+});
+
+test('given a subscription run with two generations, when it ends and the store settles it, then no generation awaits billing, the run stays subscription with its tokens summed and no cost', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(
+    sampleRun({
+      status: 'running',
+      endTime: null,
+      costStatus: 'subscription',
+      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    }),
+  );
+  for (const [generationId, input] of [['msg_1', 100], ['msg_2', 250]] as const) {
+    store.recordGeneration({
+      runId: 'run-01',
+      generationId,
+      subagent: null,
+      usage: usageOf(input, 10),
+      estimatedCostUsd: null,
+      createdAt: '2026-09-21T10:01:00.000Z',
+    });
+  }
+
+  assert.deepEqual(store.unsettledGenerations(), []);
+
+  store.finalizeRun('run-01', {
+    endTime: '2026-09-21T10:03:20.000Z',
+    status: 'success',
+    sessionId: 'sess-abc',
+    error: null,
+  });
+
+  const run = store.getRun('run-01');
+  assert.equal(run?.costStatus, 'subscription');
+  assert.equal(run?.costUsd, 0);
+  assert.equal(run?.costEstimated, false);
+  assert.equal(run?.inputTokens, 350);
+  assert.equal(run?.outputTokens, 20);
+  assert.deepEqual(store.unsettledGenerations(), []);
+});
+
+test('given a subscription run whose runner stopped heartbeating, when the store interrupts it, then it stays subscription and nothing awaits billing', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(
+    sampleRun({
+      status: 'running',
+      endTime: null,
+      costStatus: 'subscription',
+      costUsd: 0,
+      aliveAt: '2026-09-21T10:00:00.000Z',
+    }),
+  );
+
+  const interrupted = store.interruptStaleRuns(
+    '2026-09-21T11:00:00.000Z',
+    '2026-09-21T11:05:00.000Z',
+  );
+
+  assert.equal(interrupted.length, 1);
+  assert.equal(store.getRun('run-01')?.status, 'interrupted');
+  assert.equal(store.getRun('run-01')?.costStatus, 'subscription');
+  assert.deepEqual(store.unsettledGenerations(), []);
+});
+
+test('given a billed run and a subscription run each with a generation, when the store lists what awaits billing, then only the billed run\'s generation is listed', () => {
+  const store = Store.open(':memory:');
+  store.insertRun(sampleRun({ id: 'run-billed', costStatus: 'pending' }));
+  store.insertRun(sampleRun({ id: 'run-sub', costStatus: 'subscription' }));
+  for (const runId of ['run-billed', 'run-sub']) {
+    store.recordGeneration({
+      runId,
+      generationId: `gen-of-${runId}`,
+      subagent: null,
+      usage: usageOf(10, 5),
+      estimatedCostUsd: null,
+      createdAt: '2026-09-21T10:01:00.000Z',
+    });
+  }
+
+  assert.deepEqual(
+    store.unsettledGenerations().map(({ generationId }) => generationId),
+    ['gen-of-run-billed'],
+  );
+});

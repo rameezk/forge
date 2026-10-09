@@ -8,10 +8,13 @@ import { dirname, join } from 'node:path';
 import { childArgs, SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
 import type { HarnessInvocation } from '../../src/harness.ts';
 import { piArgs, subagentInvocation } from '../../src/pi.ts';
+import { providerSpec } from '../../src/provider.ts';
 import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { REQUEST_RECORD_FD } from '../../src/sandbox.ts';
 import { PI_EXTENSIONS } from '../helpers.ts';
 import {
+  ANTHROPIC_TOKEN,
+  anthropicScenarios,
   childScenarios,
   serve,
   SUBAGENT_TASKS,
@@ -28,8 +31,15 @@ const INVOCATION: HarnessInvocation = {
   reasoningEffort: 'high',
 };
 
+const ANTHROPIC_INVOCATION: HarnessInvocation = {
+  ...INVOCATION,
+  provider: 'anthropic',
+  model: 'claude-opus-5-5',
+};
+
 const runPi = async (
   pi: string,
+  invocation: HarnessInvocation,
   baseUrl: string,
   key: string | undefined,
   args: string[],
@@ -44,7 +54,9 @@ const runPi = async (
   mkdirSync(join(home, '.pi', 'agent'), { recursive: true });
   writeFileSync(
     join(home, '.pi', 'agent', 'models.json'),
-    JSON.stringify({ providers: { openrouter: { baseUrl } } }),
+    JSON.stringify({
+      providers: { [providerSpec(invocation.provider).piName]: { baseUrl } },
+    }),
   );
   writeFileSync(
     join(home, '.pi', 'agent', 'settings.json'),
@@ -57,9 +69,11 @@ const runPi = async (
       HOME: home,
       [REQUEST_RECORD_FD_ENV]: String(REQUEST_RECORD_FD),
       [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
-        subagentInvocation(pi, INVOCATION, PI_EXTENSIONS),
+        subagentInvocation(pi, invocation, PI_EXTENSIONS),
       ),
-      ...(key === undefined ? {} : { OPENROUTER_API_KEY: key }),
+      ...(key === undefined
+        ? {}
+        : { [providerSpec(invocation.provider).credentialEnv]: key }),
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ignore', 'ignore'],
   }) as ChildProcessByStdio<null, Readable, Readable>;
@@ -73,6 +87,7 @@ const runPi = async (
 
 const recordRun = async (
   pi: string,
+  invocation: HarnessInvocation,
   respond: Respond,
   args: string[],
   out: string,
@@ -82,8 +97,11 @@ const recordRun = async (
   const { port } = server.address() as AddressInfo;
   const run = await runPi(
     pi,
-    `http://127.0.0.1:${port}/v1`,
-    'sk-fake',
+    invocation,
+    invocation.provider === 'anthropic'
+      ? `http://127.0.0.1:${port}`
+      : `http://127.0.0.1:${port}/v1`,
+    invocation.provider === 'anthropic' ? ANTHROPIC_TOKEN : 'sk-fake',
     args,
     files,
   );
@@ -103,6 +121,7 @@ const record = async (
   for (const [name, respond] of Object.entries(childScenarios)) {
     await recordRun(
       pi,
+      INVOCATION,
       respond,
       childArgs(
         subagentInvocation(pi, INVOCATION, PI_EXTENSIONS),
@@ -119,14 +138,29 @@ const record = async (
   ] of Object.entries(scenarios)) {
     await recordRun(
       pi,
+      INVOCATION,
       respond,
       piArgs({ ...INVOCATION, prompt }, PI_EXTENSIONS),
       join(outDir, `${name}.jsonl`),
       files,
     );
   }
+  for (const [
+    name,
+    { respond, prompt = INVOCATION.prompt, files },
+  ] of Object.entries(anthropicScenarios)) {
+    await recordRun(
+      pi,
+      ANTHROPIC_INVOCATION,
+      respond,
+      piArgs({ ...ANTHROPIC_INVOCATION, prompt }, PI_EXTENSIONS),
+      join(outDir, `${name}.jsonl`),
+      files,
+    );
+  }
   const preflight = await runPi(
     pi,
+    INVOCATION,
     'http://127.0.0.1:9/v1',
     undefined,
     piArgs(INVOCATION, PI_EXTENSIONS),

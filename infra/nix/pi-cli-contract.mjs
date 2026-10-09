@@ -49,31 +49,38 @@ const { providerSpec } = await import(join(dirname(adapter), 'provider.ts'));
 const provider = 'openrouter';
 const { piName, credentialEnv } = providerSpec(provider);
 
-const agentDirs = agentDirsIn(
-  mkdtempSync(join(process.env.HOME, 'agents-')),
-  provider,
-);
+const agentRoot = mkdtempSync(join(process.env.HOME, 'agents-'));
+const agentDirs = agentDirsIn(agentRoot, provider);
 
 const readOnlyAgentDir = (name, model, listed) =>
   agentDirs(name, model, listed);
 
-const contractAgentDir = readOnlyAgentDir('contract', 'z-ai/glm-5', null);
+const ANTHROPIC_MODEL = 'claude-opus-5-5';
 
-const invocations = [
-  ...REASONING_EFFORTS.map((reasoningEffort) => () => ({
+const targets = [
+  {
     provider,
     model: 'z-ai/glm-5',
+    agentDir: readOnlyAgentDir('contract', 'z-ai/glm-5', null),
+  },
+  {
+    provider: 'anthropic',
+    model: ANTHROPIC_MODEL,
+    agentDir: agentDirsIn(agentRoot, 'anthropic')('contract-anthropic', ANTHROPIC_MODEL, null),
+  },
+];
+
+const invocations = targets.flatMap((target) => [
+  ...REASONING_EFFORTS.map((reasoningEffort) => () => ({
+    ...target,
     prompt: 'contract check',
     workDir: '.',
-    agentDir: contractAgentDir,
     reasoningEffort,
   })),
   () => ({
-    provider,
-    model: 'z-ai/glm-5',
+    ...target,
     prompt: 'contract check',
     workDir: '.',
-    agentDir: contractAgentDir,
   }),
   ...[{ reasoningEffort: 'high' }, {}].map((effort) => (workDir) => {
     for (const [path, contents] of Object.entries(checkoutFiles)) {
@@ -81,16 +88,14 @@ const invocations = [
       writeFileSync(join(workDir, path), contents);
     }
     return {
-      provider,
-      model: 'z-ai/glm-5',
+      ...target,
       prompt: '/prompted-skill contract check',
       workDir,
-      agentDir: contractAgentDir,
       ...effort,
       checkout: resolveCheckout(workDir, loadSkills),
     };
   }),
-];
+]);
 
 const plant = () => {
   const root = mkdtempSync(join(process.env.HOME, 'planted-'));
@@ -143,6 +148,10 @@ const plant = () => {
           baseUrl: 'https://openrouter.ai/api/v1',
           apiKey: `!touch ${join(markers, 'models-command')}`,
         },
+        anthropic: {
+          baseUrl: 'https://api.anthropic.com',
+          apiKey: `!touch ${join(markers, 'anthropic-models-command')}`,
+        },
       },
     }),
   );
@@ -153,7 +162,12 @@ const plant = () => {
   return { home, workDir, markers };
 };
 
-const accepts = (planted, argv, env, agent = contractAgentDir) => {
+const agentDirContents = new Map(
+  targets.map(({ agentDir }) => [agentDir, readdirSync(agentDir)]),
+);
+
+const accepts = (planted, argv, env, agent, provider) => {
+  const { piName } = providerSpec(provider);
   const { status, stderr } = spawnSync(pi, argv, {
     encoding: 'utf8',
     cwd: planted.workDir,
@@ -170,9 +184,11 @@ const accepts = (planted, argv, env, agent = contractAgentDir) => {
     );
   const reachedPreflight = stderr.includes(`No API key found for ${piName}.`);
   const loaded = readdirSync(planted.markers);
-  if (rejected || !reachedPreflight || loaded.length > 0) {
+  const before = agentDirContents.get(agent);
+  const written = readdirSync(agent).filter((name) => !before.includes(name));
+  if (rejected || !reachedPreflight || loaded.length > 0 || written.length > 0) {
     console.error(
-      `pi did not accept ${JSON.stringify(argv)} next to planted resources (exit ${status}, loaded ${JSON.stringify(loaded)}):\n${stderr}`,
+      `pi did not accept ${JSON.stringify(argv)} next to planted resources (exit ${status}, loaded ${JSON.stringify(loaded)}, wrote ${JSON.stringify(written)} to its agent dir):\n${stderr}`,
     );
     return false;
   }
@@ -259,13 +275,19 @@ for (const invocationIn of invocations) {
   const parent = plant();
   const invocation = invocationIn(parent.workDir);
   const child = subagentInvocation(pi, invocation, extensions);
-  const parentAccepted = accepts(parent, piArgs(invocation, extensions), {
-    [SUBAGENT_INVOCATION_ENV]: JSON.stringify(child),
-  });
+  const parentAccepted = accepts(
+    parent,
+    piArgs(invocation, extensions),
+    { [SUBAGENT_INVOCATION_ENV]: JSON.stringify(child) },
+    invocation.agentDir,
+    invocation.provider,
+  );
   const childAccepted = accepts(
     plant(),
     childArgs(child, 'contract check'),
     {},
+    invocation.agentDir,
+    invocation.provider,
   );
   failed ||= !parentAccepted || !childAccepted;
 }

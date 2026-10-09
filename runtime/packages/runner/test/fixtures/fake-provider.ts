@@ -462,6 +462,116 @@ export interface Scenario {
   files?: Record<string, string>;
 }
 
+export const ANTHROPIC_TOKEN = 'sk-ant-oat01-forge-test-token';
+
+const sentAnthropicToolResults = (request: ChatRequest): boolean =>
+  request.messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some(
+        (part: { type?: string }) => part.type === 'tool_result',
+      ),
+  );
+
+export const ANTHROPIC_USAGE_LIMIT =
+  "You've hit your limit - resets 4pm (Europe/Berlin)";
+
+export const usageLimitRejection = (res: ServerResponse): void => {
+  res.writeHead(429, {
+    'content-type': 'application/json',
+    'retry-after': '18000',
+  });
+  res.end(
+    JSON.stringify({
+      type: 'error',
+      error: { type: 'rate_limit_error', message: ANTHROPIC_USAGE_LIMIT },
+    }),
+  );
+};
+
+export const SUBSCRIPTION_SUBAGENT_PROMPT =
+  'Delegate one task to a sub-agent: have it run echo alpha.';
+
+export const anthropicScenarios: Record<string, Scenario> = {
+  'anthropic-success': {
+    respond: (_call, res, request) =>
+      anthropicSse(
+        res,
+        sentAnthropicToolResults(request)
+          ? anthropicReply(
+              'msg_forge_success_2',
+              { text: 'The command printed forge. All done.' },
+              anthropicUsage(300, 1000, 200, 25),
+            )
+          : anthropicReply(
+              'msg_forge_success_1',
+              {
+                thinking: 'I should run the command and read what it prints.',
+                text: 'Let me look.',
+                toolUses: [
+                  { id: 'toolu_1', name: 'bash', input: { command: 'echo forge' } },
+                ],
+              },
+              anthropicUsage(200, 0, 1000, 40),
+            ),
+      ),
+  },
+  'anthropic-subagent': {
+    prompt: SUBSCRIPTION_SUBAGENT_PROMPT,
+    respond: (_call, res, request) => {
+      const text = JSON.stringify(request.messages);
+      if (text.includes('You are a sub-agent')) {
+        anthropicSse(
+          res,
+          sentAnthropicToolResults(request)
+            ? anthropicReply(
+                'msg_forge_child_2',
+                { text: 'Alpha report: echo alpha printed alpha.' },
+                anthropicUsage(100, 600, 0, 12),
+              )
+            : anthropicReply(
+                'msg_forge_child_1',
+                {
+                  text: 'Running it.',
+                  toolUses: [
+                    { id: 'toolu_c1', name: 'bash', input: { command: 'echo alpha' } },
+                  ],
+                },
+                anthropicUsage(600, 0, 0, 20),
+              ),
+        );
+        return;
+      }
+      anthropicSse(
+        res,
+        sentAnthropicToolResults(request)
+          ? anthropicReply(
+              'msg_forge_parent_2',
+              { text: 'The sub-agent reported back.' },
+              anthropicUsage(300, 1200, 0, 10),
+            )
+          : anthropicReply(
+              'msg_forge_parent_1',
+              {
+                text: 'Delegating.',
+                toolUses: [
+                  {
+                    id: 'toolu_alpha',
+                    name: 'subagent',
+                    input: { task: SUBAGENT_TASKS.alpha },
+                  },
+                ],
+              },
+              anthropicUsage(1400, 0, 0, 30),
+            ),
+      );
+    },
+  },
+  'anthropic-usage-limit': {
+    respond: (_call, res) => usageLimitRejection(res),
+  },
+};
+
 export const scenarios: Record<string, Scenario> = {
   success: {
     respond: (call, res) =>
