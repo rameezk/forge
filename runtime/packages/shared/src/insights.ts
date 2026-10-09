@@ -13,6 +13,7 @@ export interface InsightWorkload {
   fingerprintHash: string | null;
   fingerprint: ConfigFingerprint | null;
   dispatched: boolean;
+  listPrice: boolean;
   costUsd: number;
   durationMs: number;
   inputTokens: number;
@@ -27,6 +28,7 @@ export interface CohortInsight {
   hash: string | null;
   fingerprint: ConfigFingerprint | null;
   workloads: number;
+  listPrice: boolean;
   openedRate: number | null;
   mergedRate: number | null;
   costMedian: number;
@@ -46,6 +48,7 @@ export interface InsightPoint {
   fingerprintHash: string | null;
   startTime: string;
   costUsd: number;
+  listPrice: boolean;
   outcome: WorkloadOutcome | null;
 }
 
@@ -100,16 +103,19 @@ const summarize = (members: InsightWorkload[]): CohortInsight => {
   const toolCalls = present(members.map(({ toolCalls: count }) => count));
   const retries = present(members.map(({ retries: count }) => count));
   const rework = present(merged.map(({ pullRequest }) => pullRequest?.rework ?? null));
-  const costs = members.map(({ costUsd }) => costUsd);
+  const billed = members.filter(({ listPrice }) => !listPrice);
+  const costed = billed.length === 0 ? members : billed;
+  const costs = costed.map(({ costUsd }) => costUsd);
   return {
     hash: members[0]!.fingerprintHash,
     fingerprint: members[0]!.fingerprint,
     workloads: members.length,
+    listPrice: billed.length === 0,
     openedRate: ratio(dispatched.filter(({ pullRequest }) => pullRequest !== null).length, dispatched.length),
     mergedRate: ratio(merged.length, dispatched.length),
     costMedian: quantile(costs, 0.5),
     costP90: quantile(costs, 0.9),
-    costPerMerged: ratio(sum(dispatched.map(({ costUsd }) => costUsd)), merged.length),
+    costPerMerged: ratio(sum(costed.filter(({ dispatched: isDispatched }) => isDispatched).map(({ costUsd }) => costUsd)), merged.length),
     durationMedianMs: quantile(members.map(({ durationMs }) => durationMs), 0.5),
     cacheHitRate: cacheHitRate(members),
     toolCallsMedian: toolCalls.length === 0 ? null : quantile(toolCalls, 0.5),

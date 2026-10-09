@@ -31,6 +31,8 @@ export const seriesOf = (hashes: (string | null)[]): Map<string | null, Series> 
   return series;
 };
 
+const SUBSCRIPTION_LABEL = 'subscription';
+
 const seriesFor = (series: Map<string | null, Series>, key: string | null): Series => series.get(key) ?? UNKNOWN_SERIES;
 
 const WIDTH = 420;
@@ -96,8 +98,8 @@ export const renderCostChart = (
     )}
     <line x1="${left}" x2="${right}" y1="${bottom}" y2="${bottom}" class="stroke-muted" stroke-width="1"></line>
     ${points.map(
-      ({ runId, fingerprintHash, startTime, costUsd, outcome }) => html`<g data-point data-run="${runId}" data-cohort="${fingerprintHash ?? ''}" data-outcome="${markOf(outcome)}" class="${seriesFor(series, fingerprintHash).mark}" transform="translate(${x(new Date(startTime))} ${y(costUsd)})">
-        <title>${runId} - ${formatCost(costUsd)} - ${markOf(outcome)}</title>
+      ({ runId, fingerprintHash, startTime, costUsd, listPrice, outcome }) => html`<g data-point data-run="${runId}" data-cohort="${fingerprintHash ?? ''}" data-cost-basis="${listPrice ? 'list-price' : 'billed'}" data-outcome="${markOf(outcome)}" class="${seriesFor(series, fingerprintHash).mark}" transform="translate(${x(new Date(startTime))} ${y(costUsd)})">
+        <title>${runId} - ${formatCost(costUsd)}${listPrice ? ' list-price equivalent' : ''} - ${markOf(outcome)}</title>
         <circle r="10" fill="transparent" stroke-width="0"></circle>
         ${renderShape(SHAPE_OF[markOf(outcome)])}
       </g>`,
@@ -116,7 +118,7 @@ export const renderChartLegend = (
   return html`<div class="flex flex-col gap-3 text-[0.8rem] text-muted">
     <ul class="flex flex-col gap-1" data-legend="cohorts">
       ${cohorts.map(
-        ({ hash, fingerprint }) => html`<li class="flex items-center gap-1.5" data-legend-cohort="${hash ?? ''}"><span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full ${seriesFor(series, hash).swatch}"></span>${cohortLabel(fingerprint)}</li>`,
+        ({ hash, fingerprint, listPrice }) => html`<li class="flex items-center gap-1.5" data-legend-cohort="${hash ?? ''}"><span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full ${seriesFor(series, hash).swatch}"></span>${cohortLabel(fingerprint)}${listPrice ? html` <span class="text-muted">${SUBSCRIPTION_LABEL}, list-price equivalent</span>` : ''}</li>`,
       )}
     </ul>
     <ul class="flex flex-wrap gap-x-4 gap-y-1 lg:flex-col lg:gap-y-1" data-legend="outcomes">

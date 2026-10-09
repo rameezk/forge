@@ -259,6 +259,60 @@ test('given a billed run and a finished subscription run, when the list is reque
   assert.equal(textOf(body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? ''), 'Total $0.2000');
 });
 
+const listPriced = (runId: string, ...equivalents: (number | null)[]) => (store: Store): void => {
+  equivalents.forEach((listPriceEquivalentUsd, index) => {
+    store.recordGeneration({
+      runId,
+      generationId: `${runId}-gen-${index + 1}`,
+      subagent: null,
+      usage,
+      estimatedCostUsd: null,
+      listPriceEquivalentUsd,
+      createdAt: '2026-09-21T10:00:01.000Z',
+    });
+  });
+};
+
+test('given billed OpenRouter runs, a subscription run and a subscription run with an unpriced call, when the list is requested, then the billed total counts the OpenRouter runs alone and a labelled list-price equivalent total follows it', async () => {
+  const app = appWith(
+    [
+      sampleRun({ id: 'billed', costStatus: 'billed', costUsd: 0.2 }),
+      sampleRun({ id: 'second', costStatus: 'billed', costUsd: 0.1 }),
+      sampleRun({ id: 'subscribed', costStatus: 'subscription', costUsd: 0 }),
+      sampleRun({ id: 'partial', costStatus: 'subscription', costUsd: 0 }),
+    ],
+    undefined,
+    (store) => {
+      listPriced('subscribed', 0.01, 0.02)(store);
+      listPriced('partial', 0.5, null)(store);
+    },
+  );
+
+  const body = await (await app.request('/')).text();
+  const cell = (id: string): string =>
+    textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '');
+  const footer = body.match(/<tfoot>[\s\S]*?<\/tfoot>/)?.[0] ?? '';
+
+  assert.equal(cell('billed'), '$0.200000');
+  assert.equal(cell('subscribed'), 'subscription $0.030000 list price');
+  assert.equal(cell('partial'), 'subscription $0.500000 list price partial');
+  assert.match(rowFor(body, 'subscribed'), /<span[^>]*\sdata-badge="subscription"/);
+  assert.equal(
+    textOf(footer.match(/<tr[^>]*\sdata-total="billed"[^>]*>[\s\S]*?<\/tr>/)?.[0] ?? ''),
+    'Total $0.3000',
+  );
+  assert.equal(
+    textOf(footer.match(/<tr[^>]*\sdata-total="list-price-equivalent"[^>]*>[\s\S]*?<\/tr>/)?.[0] ?? ''),
+    'List-price equivalent, not billed $0.5300 partial',
+  );
+});
+
+test('given only billed runs, when the list is requested, then the footer carries no list-price equivalent total', async () => {
+  const body = await (await appWith([sampleRun({ id: 'billed', costUsd: 0.2 })]).request('/')).text();
+
+  assert.doesNotMatch(body, /list-price-equivalent/);
+});
+
 test('given a pending run billed $0.5 so far and an unconfirmed run, when each transcript page is requested, then the first shows its billed cost so far marked pending and the second its partial billed sum marked unconfirmed', async () => {
   const app = appWith([
     sampleRun({ id: 'pending', costStatus: 'pending', costUsd: 0.5, transcriptRef: null }),

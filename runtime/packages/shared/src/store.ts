@@ -470,6 +470,7 @@ type InsightRow = {
   start_time: string;
   end_time: string;
   cost_usd: number;
+  list_price: number;
   input_tokens: number;
   cache_read_tokens: number | null;
   cache_write_tokens: number | null;
@@ -740,6 +741,11 @@ const fromRow = (row: RunRow): RunRecord => ({
           compactions: row.compactions,
         },
 });
+
+export interface ListPriceEquivalent {
+  usd: number;
+  partial: boolean;
+}
 
 export interface WorkloadSpend {
   costUsd: number;
@@ -1133,6 +1139,20 @@ export class Store {
     return { costUsd: row.cost_usd, unpriced: row.unpriced === 1 };
   }
 
+  listPriceEquivalents(): Map<string, ListPriceEquivalent> {
+    const rows = this.#db
+      .prepare(
+        `SELECT run_id,
+          SUM(list_price_equivalent_usd) AS usd,
+          MAX(list_price_equivalent_usd IS NULL) AS partial
+        FROM generations
+        GROUP BY run_id
+        HAVING COUNT(list_price_equivalent_usd) > 0`,
+      )
+      .all() as { run_id: string; usd: number; partial: number }[];
+    return new Map(rows.map(({ run_id, usd, partial }) => [run_id, { usd, partial: partial === 1 }]));
+  }
+
   listGenerations(runId: string): GenerationRecord[] {
     const rows = this.#db
       .prepare('SELECT * FROM generations WHERE run_id = $run_id ORDER BY id')
@@ -1287,7 +1307,11 @@ export class Store {
     return this.#db
       .prepare(
         `SELECT
-          r.id, r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time, r.cost_usd,
+          r.id, r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time,
+          CASE WHEN r.cost_status = 'subscription'
+            THEN COALESCE((SELECT SUM(list_price_equivalent_usd) FROM generations WHERE run_id = r.id), 0)
+            ELSE r.cost_usd END AS cost_usd,
+          r.cost_status = 'subscription' AS list_price,
           r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
           d.id IS NOT NULL AS dispatched, d.pr_number, d.pr_state, d.pr_rework
         ${INSIGHT_FROM}${INSIGHT_WHERE}`,
@@ -1301,6 +1325,7 @@ export class Store {
         fingerprintHash: row.fingerprint_hash,
         fingerprint: row.fingerprint === null ? null : (JSON.parse(row.fingerprint) as ConfigFingerprint),
         dispatched: row.dispatched === 1,
+        listPrice: row.list_price === 1,
         costUsd: row.cost_usd,
         durationMs: Date.parse(row.end_time) - Date.parse(row.start_time),
         inputTokens: row.input_tokens,
@@ -1320,6 +1345,7 @@ export class Store {
         fingerprintHash: row.fingerprint_hash,
         startTime: row.start_time,
         costUsd: row.cost_usd,
+        listPrice: row.list_price === 1,
         outcome: outcomeOf(row.dispatched === 1, pullRequestOfRow(row)),
       }))
       .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.runId.localeCompare(b.runId));
