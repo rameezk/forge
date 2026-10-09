@@ -629,11 +629,16 @@ stop accepting. If it does, only `anthropic` workers stop, and you can move
 them back to `openrouter` by changing the provider and the model id.
 
 A subscription workload is never billed. Its cost reads `subscription` on the
-dashboard with no dollar figure, and billing neither looks up nor settles its
-generations. A change of provider starts a new cohort, whose page shows the
-provider. Until a subscription workload's cost can be held to a budget, a
-subscription worker needs `maxCost = null`: with a budget the workload is
-refused before it starts and its run ends `error`.
+dashboard, and billing neither looks up nor settles its generations. Each
+generation records its list-price equivalent: its tokens, cache reads and writes
+included, at pi's catalog price for the model. A run's page shows the total
+labelled as a list-price equivalent, never as billed or estimated cost. A change
+of provider starts a new cohort, whose page shows the provider.
+
+The workload budget applies to the list-price equivalent, subagents included. A
+budgeted subscription worker whose model pi's catalog cannot price is refused
+before it starts and its run ends `error`; set its `maxCost` to `null` to run it
+unbudgeted.
 
 Hitting the subscription's 5-hour or weekly limit ends the run `error` with
 Anthropic's message, like any provider error. Nothing pauses dispatch or falls

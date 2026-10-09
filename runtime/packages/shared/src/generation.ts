@@ -6,11 +6,14 @@ export interface NewGeneration {
   subagent: string | null;
   usage: TokenUsage;
   estimatedCostUsd: number | null;
+  listPriceEquivalentUsd?: number | null;
   createdAt: string;
 }
 
-export interface GenerationRecord extends Omit<NewGeneration, 'usage'> {
+export interface GenerationRecord
+  extends Omit<NewGeneration, 'usage' | 'listPriceEquivalentUsd'> {
   usage: TokenUsage | null;
+  listPriceEquivalentUsd: number | null;
   billedCostUsd: number | null;
   reasoningTokens: number | null;
   provider: string | null;

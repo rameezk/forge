@@ -222,6 +222,20 @@ const renderCacheHitRate = (run: RunRecord): Rendered => {
   return rate === null ? NOT_RECORDED : html`${rate}`;
 };
 
+const renderListPriceEquivalent = (
+  run: RunRecord,
+  generations: GenerationRecord[],
+): Rendered => {
+  if (run.costStatus !== 'subscription') return '';
+  const priced = generations.flatMap(({ listPriceEquivalentUsd }) =>
+    listPriceEquivalentUsd === null ? [] : [listPriceEquivalentUsd],
+  );
+  if (priced.length === 0) return '';
+  const total = priced.reduce((sum, usd) => sum + usd, 0);
+  return html`<dt class="${META_TERM}" title="What this workload would have cost at the model's list price. Not billed.">List-price equivalent</dt>
+      <dd class="${META_VALUE}" data-list-price-equivalent>${formatCost(total)}</dd>`;
+};
+
 const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rendered => {
   if (run.costStatus === 'subscription') return html`anthropic`;
   const providers = [
@@ -238,11 +252,17 @@ const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rende
 
 const BILLED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="billed" title="The cost OpenRouter billed for this generation">billed</span>`;
 
+const LIST_PRICE_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="list-price" title="What this generation would have cost at the model's list price. Not billed.">list price</span>`;
+
 const callCost = (
-  { billedCostUsd, estimatedCostUsd }: GenerationRecord,
+  { billedCostUsd, estimatedCostUsd, listPriceEquivalentUsd }: GenerationRecord,
   subscription: boolean,
 ): Rendered => {
-  if (subscription) return SUBSCRIPTION_BADGE;
+  if (subscription) {
+    return listPriceEquivalentUsd === null
+      ? SUBSCRIPTION_BADGE
+      : html`${formatCost(listPriceEquivalentUsd)}<wbr>${LIST_PRICE_BADGE}`;
+  }
   if (billedCostUsd !== null) return html`${formatCost(billedCostUsd)}<wbr>${BILLED_BADGE}`;
   if (estimatedCostUsd !== null) return html`${formatCost(estimatedCostUsd)}<wbr>${ESTIMATED_BADGE}`;
   return html`<span class="${PENDING}">pending</span>`;
@@ -1081,6 +1101,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}" data-duration>${renderDuration(run)}</dd>
       <dt class="${META_TERM}">Cost</dt>
       <dd class="${META_VALUE}">${renderRunCost(run)}</dd>
+      ${renderListPriceEquivalent(run, generations)}
       <dt class="${META_TERM}">Tokens</dt>
       <dd class="${META_VALUE}">${renderTokens(run)}</dd>
       <dt class="${META_TERM}">Cache</dt>

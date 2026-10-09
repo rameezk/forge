@@ -11,6 +11,7 @@ import {
   type LookUpModel,
 } from './openrouter.ts';
 import { providerSpec, type Provider } from './provider.ts';
+import { piCatalogModel } from './pi-catalog.ts';
 import { PiHarness } from './pi.ts';
 import type { Sandbox } from './sandbox.ts';
 import { JsonLinesFile } from './transcript.ts';
@@ -65,12 +66,12 @@ export const sandboxOf = (env: NodeJS.ProcessEnv): Sandbox => ({
 const modelLookUpFor = (
   provider: Provider,
   env: NodeJS.ProcessEnv,
-): LookUpModel | null => {
+): LookUpModel => {
   switch (provider) {
     case 'openrouter':
       return openRouterModel(openRouterBaseUrl(env));
     case 'anthropic':
-      return null;
+      return piCatalogModel(absolutePath(env, 'FORGE_PI_PACKAGE'));
   }
 };
 

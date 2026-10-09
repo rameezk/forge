@@ -40,7 +40,7 @@ export interface RunWorkloadOptions {
   openWorkspace: (runId: string) => Workspace | Promise<Workspace>;
   now: () => string;
   newId: () => string;
-  lookUpModel: LookUpModel | null;
+  lookUpModel: LookUpModel;
   openAgentDir: OpenAgentDir;
   secrets?: string[];
   ticket?: RunTicket;
@@ -83,20 +83,20 @@ export const runWorkload = async (
   const id = newId();
   const startTime = now();
   const subscription = providerSpec(worker.provider).subscription;
-  const outcome =
-    options.lookUpModel === null ? null : await options.lookUpModel(worker.model);
-  const listed = outcome !== null && 'model' in outcome ? outcome.model : null;
-  if (outcome !== null && 'reason' in outcome) {
+  const outcome = await options.lookUpModel(worker.model);
+  const listed = 'model' in outcome ? outcome.model : null;
+  const source = subscription ? "pi's catalog" : "OpenRouter's models entry";
+  if ('reason' in outcome) {
     process.stderr.write(
-      `run ${id}: could not look up OpenRouter's models entry for ${worker.model} (${outcome.reason}), so its unbilled generations show no estimated cost and pi starts without knowing the model\n`,
+      `run ${id}: could not look up ${source} for ${worker.model} (${outcome.reason}), so its ${subscription ? 'generations show no list-price equivalent' : 'unbilled generations show no estimated cost and pi starts without knowing the model'}\n`,
     );
-  } else if (outcome !== null && outcome.model.contextWindow === null) {
+  } else if (!subscription && outcome.model.contextWindow === null) {
     process.stderr.write(
       `run ${id}: OpenRouter lists no context window for ${worker.model}, so pi starts without knowing the model\n`,
     );
   }
   const listPrice = listed?.price ?? null;
-  const agentDir = options.openAgentDir(id, worker.model, listed);
+  const agentDir = options.openAgentDir(id, worker.model, subscription ? null : listed);
   const transcript = openTranscript(id);
   const rawEvents = options.openRawEvents(id);
   const requestRecord = options.openRequestRecord(id);
@@ -143,12 +143,14 @@ export const runWorkload = async (
         `run ${id}: an assistant response used tokens but has no generation id, so its cost is unconfirmed\n`,
       );
     }
+    const priced = estimatedCost(listPrice, event.usage);
     store.recordGeneration({
       runId: id,
       generationId: event.generationId,
       subagent: event.subagent ?? null,
       usage: event.usage,
-      estimatedCostUsd: estimatedCost(listPrice, event.usage),
+      estimatedCostUsd: subscription ? null : priced,
+      listPriceEquivalentUsd: subscription ? priced : null,
       createdAt: now(),
     });
   };
@@ -173,12 +175,7 @@ export const runWorkload = async (
   let stopTimeout = (): void => {};
 
   try {
-    if (worker.maxCostUsd != null && subscription) {
-      throw new Error(
-        `worker ${worker.name} has a budget of ${worker.maxCostUsd} USD but a subscription workload has no cost to hold it to yet, so the workload was refused before it started; set the worker's maxCost to null to run it`,
-      );
-    }
-    if (worker.maxCostUsd != null && outcome !== null && 'reason' in outcome) {
+    if (worker.maxCostUsd != null && 'reason' in outcome) {
       throw new Error(
         `worker ${worker.name} has a budget of ${worker.maxCostUsd} USD but ${worker.model} could not be priced (${outcome.reason}), so the workload was refused before it started`,
       );

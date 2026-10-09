@@ -43,6 +43,7 @@ interface Call {
   at?: string;
   usage?: { input: number; output: number; cacheRead: number; cacheWrite: number };
   estimate?: number;
+  listPrice?: number;
   billed?: {
     cost: number;
     provider?: string;
@@ -87,6 +88,7 @@ const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests =
         cacheWriteTokens: usage.cacheWrite,
       },
       estimatedCostUsd: call.estimate ?? null,
+      listPriceEquivalentUsd: call.listPrice ?? null,
       createdAt: call.at ?? `2026-09-21T10:00:${String(index + 1).padStart(2, '0')}.000Z`,
     });
   });
@@ -280,24 +282,35 @@ test('given a request record of a hundred thousand requests, when its detail pag
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`);
 });
 
-test('given a finished subscription run with two calls, when its page is requested, then it shows subscription as its cost, the provider as anthropic, and each call\'s cost as subscription instead of pending', async () => {
+test('given a finished subscription run with two priced calls and one the catalog could not price, when its page is requested, then it shows subscription as its cost, the total of the list-price equivalents labelled as such, each priced call\'s equivalent badged as list price, and the unpriced call as subscription', async () => {
   const page = await callsPage(
     { costStatus: 'subscription', costUsd: 0 },
     [
-      { usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 500 } },
-      { usage: { input: 120, output: 12, cacheRead: 500, cacheWrite: 0 } },
+      { usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 500 }, listPrice: 0.01 },
+      { usage: { input: 120, output: 12, cacheRead: 500, cacheWrite: 0 }, listPrice: 0.02 },
+      { usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 } },
     ],
   );
 
   const costs = callRows(page).map((row) => cellOf(row, 'data-cost'));
-  assert.deepEqual(costs, ['subscription', 'subscription']);
+  assert.deepEqual(costs, ['$0.010000 list price', '$0.020000 list price', 'subscription']);
   assert.equal(
     textOf(page.match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
     'subscription',
   );
   assert.equal(
+    textOf(page.match(/<dt[^>]*>List-price equivalent<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
+    '$0.030000',
+  );
+  assert.equal(
     textOf(page.match(/<dt[^>]*>Providers<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
     'anthropic',
   );
-  assert.doesNotMatch(page, /data-badge="pending"/);
+  assert.doesNotMatch(page, /data-badge="(pending|billed|estimated)"/);
+});
+
+test('given a billed run, when its page is requested, then it has no list-price equivalent row', async () => {
+  const page = await callsPage({}, [{ usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, billed: { cost: 0.01 } }]);
+
+  assert.doesNotMatch(page, /List-price equivalent/);
 });
