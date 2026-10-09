@@ -37,7 +37,7 @@ The bubblewrap sandbox a workload's harness and its subagents run in: the Nix st
 _Avoid_: container, jail
 
 **Generation**:
-One model response within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time. The store also keeps a given-up row with no id where a response used tokens without one, or where a workload never ended and later generations may be unrecorded.
+One billed model call within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time. Its kind is a `message` from the harness's agent loop, a `compaction` summary, or a `cache_warm` request (ADR-0052). The store also keeps a given-up row with no id where a response used tokens without one, or where a workload never ended and later generations may be unrecorded.
 _Avoid_: response, completion, call
 
 **Billed cost**:
