@@ -108,7 +108,15 @@ A dispatch of a ticket, with the workload it ran. A ticket may have several, one
 _Avoid_: try
 
 **Rework**:
-The commits on a dispatch's pull request authored by anyone other than forge's git identity (ADR-0026), as of the last time forge refreshed the pull request, which stops once it is merged or closed.
+The commits on a dispatch's pull request authored by anyone other than forge's GitHub App (ADR-0051), as of the last time forge refreshed the pull request, which stops once it is merged or closed.
+
+**Feedback**:
+The reviews and conversation comments on a pull request authored by forge's GitHub App, written by anyone other than forge's App or a bot (ADR-0050).
+_Avoid_: review, comments
+
+**Revision**:
+A workload forge runs against a pull request's new feedback, on the pull request's own branch. A pull request may have several (ADR-0050).
+_Avoid_: iteration, round, follow-up
 
 **Queued**:
 A `ready-for-agent` ticket labelled `forge:ready` that still has open blockers, so it is not yet on the frontier. Forge's frontier snapshot keeps it beside the frontier, the Work page shows it as queued, and the first sync after its last blocker closes dispatches it.
