@@ -221,6 +221,7 @@ type GenerationRow = {
   provider: string | null;
   served_model: string | null;
   estimated_cost_usd: number | null;
+  list_price_equivalent_usd: number | null;
   billed_cost_usd: number | null;
   attempts: number;
   last_attempt_at: string | null;
@@ -255,6 +256,7 @@ const CREATE_GENERATIONS = `
     reasoning_tokens   INTEGER,
     provider           TEXT,
     estimated_cost_usd REAL,
+    list_price_equivalent_usd REAL,
     served_model       TEXT,
     UNIQUE (run_id, generation_id)
   ) STRICT;
@@ -289,6 +291,14 @@ const HAS_GENERATION_ESTIMATE = `
 
 const ADD_GENERATION_ESTIMATE = `
   ALTER TABLE generations ADD COLUMN estimated_cost_usd REAL;
+`;
+
+const HAS_GENERATION_LIST_PRICE_EQUIVALENT = `
+  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'list_price_equivalent_usd'
+`;
+
+const ADD_GENERATION_LIST_PRICE_EQUIVALENT = `
+  ALTER TABLE generations ADD COLUMN list_price_equivalent_usd REAL;
 `;
 
 const HAS_GENERATION_SERVED_MODEL = `
@@ -668,6 +678,7 @@ const generationFromRow = (row: GenerationRow): GenerationRecord => ({
           cacheWriteTokens: row.cache_write_tokens,
         },
   estimatedCostUsd: row.estimated_cost_usd,
+  listPriceEquivalentUsd: row.list_price_equivalent_usd,
   billedCostUsd: row.billed_cost_usd,
   reasoningTokens: row.reasoning_tokens,
   provider: row.provider,
@@ -761,6 +772,10 @@ export class Store {
     this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
     this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
     this.#addColumnsOnce(HAS_GENERATION_ESTIMATE, ADD_GENERATION_ESTIMATE);
+    this.#addColumnsOnce(
+      HAS_GENERATION_LIST_PRICE_EQUIVALENT,
+      ADD_GENERATION_LIST_PRICE_EQUIVALENT,
+    );
     this.#addColumnsOnce(HAS_GENERATION_SERVED_MODEL, ADD_GENERATION_SERVED_MODEL);
     if (this.#hasOutdatedFrontier()) {
       this.#migrateOutdatedFrontier();
@@ -1013,11 +1028,11 @@ export class Store {
           `INSERT INTO generations (
             run_id, generation_id, subagent,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-            estimated_cost_usd, last_error, given_up_at, created_at
+            estimated_cost_usd, list_price_equivalent_usd, last_error, given_up_at, created_at
           ) VALUES (
             $run_id, $generation_id, $subagent,
             $input_tokens, $output_tokens, $cache_read_tokens, $cache_write_tokens,
-            $estimated_cost_usd, $last_error, $given_up_at, $created_at
+            $estimated_cost_usd, $list_price_equivalent_usd, $last_error, $given_up_at, $created_at
           )
           ON CONFLICT (run_id, generation_id) DO NOTHING`,
         )
@@ -1030,6 +1045,7 @@ export class Store {
           cache_read_tokens: generation.usage.cacheReadTokens,
           cache_write_tokens: generation.usage.cacheWriteTokens,
           estimated_cost_usd: generation.estimatedCostUsd,
+          list_price_equivalent_usd: generation.listPriceEquivalentUsd ?? null,
           last_error: unnamed ? NO_GENERATION_ID : null,
           given_up_at: unnamed ? generation.createdAt : null,
           created_at: generation.createdAt,
@@ -1109,8 +1125,8 @@ export class Store {
     const row = this.#db
       .prepare(
         `SELECT
-          COALESCE(SUM(COALESCE(billed_cost_usd, estimated_cost_usd)), 0) AS cost_usd,
-          COALESCE(MAX(billed_cost_usd IS NULL AND estimated_cost_usd IS NULL), 0) AS unpriced
+          COALESCE(SUM(COALESCE(billed_cost_usd, estimated_cost_usd, list_price_equivalent_usd)), 0) AS cost_usd,
+          COALESCE(MAX(billed_cost_usd IS NULL AND estimated_cost_usd IS NULL AND list_price_equivalent_usd IS NULL), 0) AS unpriced
         FROM generations WHERE run_id = $run_id`,
       )
       .get({ run_id: runId }) as { cost_usd: number; unpriced: number };

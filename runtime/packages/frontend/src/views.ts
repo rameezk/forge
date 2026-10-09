@@ -222,6 +222,22 @@ const renderCacheHitRate = (run: RunRecord): Rendered => {
   return rate === null ? NOT_RECORDED : html`${rate}`;
 };
 
+const PARTIAL_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="partial" title="Some generations have no list-price equivalent, so the total is understated">partial</span>`;
+
+const renderListPriceEquivalent = (
+  run: RunRecord,
+  generations: GenerationRecord[],
+): Rendered => {
+  if (run.costStatus !== 'subscription') return '';
+  const priced = generations.flatMap(({ listPriceEquivalentUsd }) =>
+    listPriceEquivalentUsd === null ? [] : [listPriceEquivalentUsd],
+  );
+  if (priced.length === 0) return '';
+  const total = priced.reduce((sum, usd) => sum + usd, 0);
+  return html`<dt class="${META_TERM}" title="What this workload would have cost at the model's list price. Not billed.">List-price equivalent</dt>
+      <dd class="${META_VALUE}" data-list-price-equivalent>${formatCost(total)}${priced.length < generations.length ? html`<wbr>${PARTIAL_BADGE}` : ''}</dd>`;
+};
+
 const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rendered => {
   if (run.costStatus === 'subscription') return html`anthropic`;
   const providers = [
@@ -239,10 +255,14 @@ const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rende
 const BILLED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="billed" title="The cost OpenRouter billed for this generation">billed</span>`;
 
 const callCost = (
-  { billedCostUsd, estimatedCostUsd }: GenerationRecord,
+  { billedCostUsd, estimatedCostUsd, listPriceEquivalentUsd }: GenerationRecord,
   subscription: boolean,
 ): Rendered => {
-  if (subscription) return SUBSCRIPTION_BADGE;
+  if (subscription) {
+    return listPriceEquivalentUsd === null
+      ? SUBSCRIPTION_BADGE
+      : html`<span title="What this generation would have cost at the model's list price. Not billed.">${formatCost(listPriceEquivalentUsd)}</span>`;
+  }
   if (billedCostUsd !== null) return html`${formatCost(billedCostUsd)}<wbr>${BILLED_BADGE}`;
   if (estimatedCostUsd !== null) return html`${formatCost(estimatedCostUsd)}<wbr>${ESTIMATED_BADGE}`;
   return html`<span class="${PENDING}">pending</span>`;
@@ -303,7 +323,7 @@ const renderCalls = (
             <th class="${TH} text-right">Cache write</th>
             <th class="${TH} text-right">Output</th>
             <th class="${TH} text-right">Reasoning</th>
-            <th class="${TH} text-right">Cost</th>
+            <th class="${TH} text-right">${subscription ? 'List price' : 'Cost'}</th>
           </tr>
         </thead>
         <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index], subscription))}</tbody>
@@ -1081,6 +1101,7 @@ export const renderDetail = (
       <dd class="${META_VALUE}" data-duration>${renderDuration(run)}</dd>
       <dt class="${META_TERM}">Cost</dt>
       <dd class="${META_VALUE}">${renderRunCost(run)}</dd>
+      ${renderListPriceEquivalent(run, generations)}
       <dt class="${META_TERM}">Tokens</dt>
       <dd class="${META_VALUE}">${renderTokens(run)}</dd>
       <dt class="${META_TERM}">Cache</dt>

@@ -169,6 +169,38 @@ const harnessCommand = (
   }
 };
 
+const PI_CATALOG_PRICE = {
+  input: 4,
+  output: 20,
+  cacheRead: 0.4,
+  cacheWrite: 5,
+};
+
+const writeFakePiPackage = (dir: string): string => {
+  const providers = join(
+    dir,
+    'pi-package',
+    'node_modules',
+    '@earendil-works',
+    'pi-ai',
+    'dist',
+    'providers',
+  );
+  mkdirSync(providers, { recursive: true });
+  writeFileSync(
+    join(providers, 'anthropic.models.js'),
+    `export const ANTHROPIC_MODELS = ${JSON.stringify({
+      'claude-opus-5-5': {
+        id: 'claude-opus-5-5',
+        cost: PI_CATALOG_PRICE,
+        contextWindow: 200000,
+        maxTokens: 64000,
+      },
+    })};\n`,
+  );
+  return join(dir, 'pi-package');
+};
+
 const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-main-'));
   const fakePi = writeFakePi(stateDir, scenario.piVersion);
@@ -239,6 +271,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
       FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
       FORGE_BWRAP: fakeBwrap,
+      FORGE_PI_PACKAGE: writeFakePiPackage(stateDir),
       ...scenario.env,
     });
     await scenario.whileRunning?.(stateDir);
@@ -2856,6 +2889,13 @@ test('given a subscription workload with two generations, when it finishes and t
         [null, null, 0],
       ],
     );
+    const listPriceEquivalents = after.map(
+      ({ listPriceEquivalentUsd }) => listPriceEquivalentUsd,
+    );
+    assert.deepEqual(
+      listPriceEquivalents.map((usd) => Number(usd?.toFixed(9))),
+      [0.0066, 0.0031],
+    );
     assert.equal(run.costStatus, 'subscription');
     assert.equal(run.costUsd, 0);
     assert.equal(run.costEstimated, false);
@@ -2902,17 +2942,60 @@ test('given a subscription workload whose provider answers with a usage limit as
   assert.equal(outcome.run.costStatus, 'subscription');
 });
 
-test('given a subscription worker with a budget, when it runs, then pi never starts and the run ends error saying a subscription workload cannot be budgeted yet', async () => {
+test('given a subscription worker whose budget the first generation\'s list-price equivalent passes and a pi that keeps running, when it runs, then pi is killed and the run ends exceeded on its budget', async () => {
+  const { code, run, pi } = await runWorker(
+    subscriptionScenario('anthropic-success.jsonl', {
+      lingerMs: 10_000,
+      worker: { ...SUBSCRIPTION_WORKER, maxCostUsd: 0.005 },
+    }),
+  );
+
+  assert.equal(code, 1);
+  assert.equal(run.status, 'exceeded');
+  assert.equal(run.exceededLimit, 'budget');
+  assert.equal(run.maxCostUsd, 0.005);
+  assert.equal(isAlive(pi.pid), false);
+});
+
+test('given a subscription worker with a budget its list-price equivalents stay under, when it runs, then the workload succeeds', async () => {
+  const { code, run } = await runWorker(
+    subscriptionScenario('anthropic-success.jsonl', {
+      worker: { ...SUBSCRIPTION_WORKER, maxCostUsd: 1 },
+    }),
+  );
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+});
+
+test('given a budgeted subscription worker whose model pi\'s catalog cannot price, when it runs, then pi never starts and the run ends error saying the model could not be priced', async () => {
   const outcome = await runWorker(
     subscriptionScenario('anthropic-success.jsonl', {
-      worker: { ...SUBSCRIPTION_WORKER, maxCostUsd: 5 },
+      worker: { ...SUBSCRIPTION_WORKER, model: 'claude-unpriced', maxCostUsd: 5 },
     }),
   );
 
   assert.equal(outcome.code, 1);
   assert.equal(outcome.piStarted, false);
   assert.equal(outcome.run.status, 'error');
-  assert.match(outcome.run.error ?? '', /budget.*subscription/);
+  assert.match(outcome.run.error ?? '', /claude-unpriced.*could not be priced/);
+  assert.equal(outcome.openRouterRequests, 0);
+});
+
+test('given an unbudgeted subscription worker whose model pi\'s catalog cannot price, when it runs, then the workload runs with no list-price equivalent', async () => {
+  const outcome = await runWorker(
+    subscriptionScenario('anthropic-success.jsonl', {
+      worker: { ...SUBSCRIPTION_WORKER, model: 'claude-unpriced', maxCostUsd: null },
+    }),
+  );
+
+  assert.equal(outcome.code, 0);
+  assert.deepEqual(
+    storedGenerations(outcome.stateDir, outcome.run.id).map(
+      ({ listPriceEquivalentUsd }) => listPriceEquivalentUsd,
+    ),
+    [null, null],
+  );
 });
 
 test('given a worker on anthropic and one on openrouter otherwise identical, when each runs, then only the anthropic fingerprint carries its provider and the two hash apart', async () => {

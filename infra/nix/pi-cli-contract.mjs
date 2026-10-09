@@ -270,7 +270,31 @@ const readsDeclaredModel = () => {
   return true;
 };
 
-let failed = !readsDeclaredModel();
+const { piCatalogModel } = await import(join(dirname(adapter), 'pi-catalog.ts'));
+
+const readsCatalogPrice = async () => {
+  const lookUp = piCatalogModel(piPackage);
+  const priced = await lookUp(ANTHROPIC_MODEL);
+  const unpriced = await lookUp('forge-contract-model-missing-from-pi');
+  const ok =
+    'model' in priced &&
+    priced.model.price.input > 0 &&
+    priced.model.price.output > 0 &&
+    'reason' in unpriced;
+  if (!ok) {
+    console.error(
+      `the runner could not read pi's catalog price for ${ANTHROPIC_MODEL} (priced: ${JSON.stringify(priced)}, unknown model: ${JSON.stringify(unpriced)})`,
+    );
+    return false;
+  }
+  console.log(
+    `the runner read pi's catalog price for ${ANTHROPIC_MODEL} and found none for a model missing from it`,
+  );
+  return true;
+};
+
+let failed = !(await readsCatalogPrice());
+failed ||= !readsDeclaredModel();
 for (const invocationIn of invocations) {
   const parent = plant();
   const invocation = invocationIn(parent.workDir);
