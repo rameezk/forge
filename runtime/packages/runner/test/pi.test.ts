@@ -52,3 +52,58 @@ test('given a request record sink that fails to write, when pi records a request
     }
   }, /no space left on device/);
 });
+
+test('given a read of a skill file, when pi reports its result, then each skill load is emitted before the event that caused it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-pi-'));
+  const root = join(dir, 'repo');
+  const skillFile = join(root, '.claude', 'skills', 'work-on', 'SKILL.md');
+  const harness = new PiHarness({
+    command: writeFakePi(dir),
+    provider: 'openrouter',
+    openAgentDir: () => dir,
+    extensions: PI_EXTENSIONS,
+    sandbox: {
+      bwrap: writeFakeBwrap(dir, {
+        record: join(dir, 'bwrap-call.json'),
+        harnessEnv: {
+          FAKE_PI_RECORD: join(dir, 'pi-call.json'),
+          FAKE_PI_OUTPUT: join(FIXTURES, 'skill-loads.jsonl'),
+        },
+      }),
+      home: dir,
+    },
+    system: { PATH: process.env.PATH ?? '' },
+    env: {},
+  });
+
+  const types: string[] = [];
+  for await (const event of harness
+    .open({ runId: 'run-1', model: 'z-ai/glm-5', listedModel: null })
+    .run(
+      {
+        provider: 'openrouter',
+        model: 'z-ai/glm-5',
+        prompt: 'review',
+        workDir: dir,
+        checkout: {
+          root,
+          skillPaths: [],
+          projectInstructions: null,
+          systemPrompt: null,
+          appendSystemPrompt: null,
+          skills: new Map([['work-on', [skillFile]]]),
+          skillLines: new Map([[skillFile, 10]]),
+        },
+      },
+      { stop: new AbortController().signal, rawEvent: () => {}, requestRecord: () => {} },
+    )) {
+    types.push(event.type === 'tool_call' ? `call:${event.name}` : event.type);
+  }
+
+  const result = types.indexOf('tool_result');
+  assert.deepEqual(types.slice(result - 2, result + 1), [
+    'call:read',
+    'skill_load',
+    'tool_result',
+  ]);
+});

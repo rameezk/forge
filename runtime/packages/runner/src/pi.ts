@@ -665,9 +665,9 @@ class PiRun implements HarnessRun {
           break;
         }
         for (const event of events) {
-          yield event;
           const load = skillLoads?.observe(event) ?? null;
           if (load !== null) yield { type: 'skill_load', ...load };
+          yield event;
         }
       }
       drained = !stream.malformed;
