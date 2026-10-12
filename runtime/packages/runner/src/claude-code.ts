@@ -156,7 +156,7 @@ const parseJson = (text: string): unknown => {
 const blocksOf = (content: unknown): ClaudeContent[] =>
   Array.isArray(content) ? (content as ClaudeContent[]) : [];
 
-const readRegularFile = (path: string, limit: number): string | null => {
+const readRegularFile = (path: string, limit: number, from = 0): string | null => {
   let fd: number;
   try {
     fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -167,10 +167,11 @@ const readRegularFile = (path: string, limit: number): string | null => {
     const stat = fstatSync(fd);
     const { size } = stat;
     if (!stat.isFile() || size > limit) return null;
-    const buffer = Buffer.alloc(size);
+    const wanted = Math.max(size - from, 0);
+    const buffer = Buffer.alloc(wanted);
     let filled = 0;
-    while (filled < size) {
-      const read = readSync(fd, buffer, filled, size - filled, filled);
+    while (filled < wanted) {
+      const read = readSync(fd, buffer, filled, wanted - filled, from + filled);
       if (read === 0) break;
       filled += read;
     }
@@ -187,6 +188,8 @@ const sleep = (ms: number): Promise<void> =>
 
 class RecordedBodies {
   readonly #dir: string;
+  readonly #entries = new Map<string, IndexEntry>();
+  #offset = 0;
 
   constructor(dir: string) {
     this.#dir = dir;
@@ -206,23 +209,31 @@ class RecordedBodies {
     }
   }
 
+  #refresh(): void {
+    const added = readRegularFile(
+      join(this.#dir, 'index.jsonl'),
+      MAX_INDEX_BYTES,
+      this.#offset,
+    );
+    if (added === null) return;
+    const complete = added.slice(0, added.lastIndexOf('\n') + 1);
+    this.#offset += Buffer.byteLength(complete);
+    for (const line of complete.split('\n')) {
+      const parsed = parseJson(line) as IndexEntry | null;
+      if (typeof parsed?.message_id === 'string') this.#entries.set(parsed.message_id, parsed);
+    }
+  }
+
   peek(messageId: string): Recorded | null {
-    const index = readRegularFile(join(this.#dir, 'index.jsonl'), MAX_INDEX_BYTES);
-    if (index === null) return null;
-    const entry = index
-      .split('\n')
-      .flatMap((line) => {
-        const parsed = parseJson(line) as IndexEntry | null;
-        return parsed !== null && parsed.message_id === messageId ? [parsed] : [];
-      })
-      .at(-1);
+    this.#refresh();
+    const entry = this.#entries.get(messageId);
     const file = nonEmpty(entry?.response_file);
     if (entry === undefined || file === null || basename(file) !== file) return null;
     const text = readRegularFile(join(this.#dir, file), MAX_RESPONSE_BYTES);
     if (text === null) return null;
     const body = parseJson(text) as ClaudeBody | null;
     const usage = body?.usage;
-    if (usage === undefined) return null;
+    if (typeof usage !== 'object' || usage === null) return null;
     const inputTokens = tokenCount(usage.input_tokens);
     const outputTokens = tokenCount(usage.output_tokens);
     if (inputTokens === null || outputTokens === null) return null;
@@ -526,7 +537,12 @@ class ClaudeCodeRun implements HarnessRun {
       const lines = createInterface({ input: stdout, crlfDelay: Infinity })[
         Symbol.asyncIterator
       ]();
-      let next = lines.next();
+      const arm = (): Promise<IteratorResult<string>> => {
+        const pending = lines.next();
+        pending.catch(() => undefined);
+        return pending;
+      };
+      let next = arm();
       for (;;) {
         const read = stream.pending
           ? await Promise.race([next, sleep(BODIES_POLL_MS).then(() => null)])
@@ -536,7 +552,7 @@ class ClaudeCodeRun implements HarnessRun {
           continue;
         }
         if (read.done === true) break;
-        next = lines.next();
+        next = arm();
         yield* stream.translate(read.value);
         if (stream.malformed !== null) break;
       }
@@ -546,10 +562,8 @@ class ClaudeCodeRun implements HarnessRun {
       drained = stream.malformed === null;
     } finally {
       sinks.stop.removeEventListener('abort', killOnStop);
-      if (!drained) {
-        child.kill('SIGKILL');
-        await exit;
-      }
+      if (!drained) child.kill('SIGKILL');
+      await exit;
       rmSync(this.#dir, { recursive: true, force: true });
     }
     yield stream.result(await exit);
