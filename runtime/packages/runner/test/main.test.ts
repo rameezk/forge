@@ -42,6 +42,7 @@ import {
   type BwrapCall,
   type GenerationStats,
   type Lookup,
+  isAlive,
 } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { NARRATION_INSTRUCTION } from '../src/harness.ts';
@@ -395,15 +396,6 @@ const withoutGenerationId = (name: string, id: string): string =>
       )
       .join('\n'),
   );
-
-const isAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 const sessionIdOf = (output: string): string =>
   (

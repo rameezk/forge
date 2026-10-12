@@ -1,6 +1,5 @@
-import { execFile } from 'node:child_process';
-import { lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { lstatSync } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable } from 'node:stream';
 import {
@@ -23,6 +22,12 @@ import {
 import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { requireSkill } from './checkout.ts';
 import { underDevShell } from './devshell.ts';
+import {
+  NON_JSON_EXCERPT_CHARS,
+  nonEmpty,
+  realCommand,
+  versionOutput,
+} from './harness-process.ts';
 import type { OpenAgentDir } from './agent-dir.ts';
 import { providerSpec, type Provider } from './provider.ts';
 import {
@@ -262,9 +267,6 @@ const timestampOf = (time: unknown): { timestamp?: string } => {
   return Number.isNaN(date.getTime()) ? {} : { timestamp: date.toISOString() };
 };
 
-const nonEmpty = (value: unknown): string | null =>
-  typeof value === 'string' && value !== '' ? value : null;
-
 const scoped = (subagent: string | undefined): { subagent?: string } =>
   subagent === undefined ? {} : { subagent };
 
@@ -366,8 +368,6 @@ const promptEvent = (text: string): HarnessEvent => ({
   usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
   generationId: null,
 });
-
-const NON_JSON_EXCERPT_CHARS = 200;
 
 const parseLine = (line: string): PiLine | null => {
   try {
@@ -520,32 +520,6 @@ const recordLines = async (
   }
 };
 
-const realCommand = (command: string): string => {
-  const unresolved = (reason: string): Error =>
-    new Error(`the harness command ${command} cannot be resolved: ${reason}`);
-  if (!isAbsolute(command)) {
-    throw unresolved('it is not an absolute path');
-  }
-  try {
-    return realpathSync(command);
-  } catch (cause) {
-    throw unresolved(errorMessage(cause));
-  }
-};
-
-const VERSION_TIMEOUT_MS = 10_000;
-
-const commandOutput = (
-  command: string,
-  args: string[],
-  env: Record<string, string>,
-): Promise<string> =>
-  new Promise((resolve, reject) => {
-    execFile(command, args, { env, timeout: VERSION_TIMEOUT_MS }, (error, stdout) =>
-      error === null ? resolve(stdout.trim()) : reject(error),
-    );
-  });
-
 export interface PiHarnessOptions {
   command: string;
   provider: Provider;
@@ -597,14 +571,9 @@ class PiRun implements HarnessRun {
   }
 
   async identity(): Promise<HarnessIdentity> {
-    const version = await commandOutput(realCommand(this.#command), ['--version'], {
+    const version = await versionOutput(this.#command, {
       ...this.#system,
       PI_CODING_AGENT_DIR: this.#agentDir,
-    }).catch((cause: unknown) => {
-      process.stderr.write(
-        `could not read the harness version (${errorMessage(cause)}), so the workload's fingerprint records none\n`,
-      );
-      return '';
     });
     return { version: version === '' ? null : version, args: [...this.#extraArgs] };
   }

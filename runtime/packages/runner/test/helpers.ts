@@ -162,12 +162,18 @@ export const writeFakePi = (dir: string, version: string | null = '1.0.0'): stri
 };
 
 const fakeClaudeSource = (version: string | null): string => `#!${process.execPath}
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 const env = process.env;
 if (process.argv[2] === '--version') { process.stdout.write(${JSON.stringify(version === null ? '' : `${version} (Claude Code)\n`)}); process.exit(${version === null ? 1 : 0}); }
-writeFileSync(env.FAKE_CLAUDE_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, env }));
 const bodies = (env.OTEL_LOG_RAW_API_BODIES ?? '').replace(/^file:/, '');
+const modeOf = (path) => (path ? statSync(path).mode & 0o777 : null);
+const modes = { run: modeOf(dirname(env.CLAUDE_CONFIG_DIR ?? '')), config: modeOf(env.CLAUDE_CONFIG_DIR), bodies: modeOf(bodies) };
+writeFileSync(env.FAKE_CLAUDE_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, env, modes }));
 if (bodies && env.FAKE_CLAUDE_BODIES && existsSync(env.FAKE_CLAUDE_BODIES)) { mkdirSync(bodies, { recursive: true }); for (const file of readdirSync(env.FAKE_CLAUDE_BODIES)) cpSync(env.FAKE_CLAUDE_BODIES + '/' + file, bodies + '/' + file); }
+if (bodies && env.FAKE_CLAUDE_INDEX === 'fifo') { rmSync(bodies + '/index.jsonl', { force: true }); execFileSync('mkfifo', [bodies + '/index.jsonl']); }
+if (bodies && env.FAKE_CLAUDE_INDEX === 'symlink') { rmSync(bodies + '/index.jsonl', { force: true }); symlinkSync(env.FAKE_CLAUDE_BODIES + '/index.jsonl', bodies + '/index.jsonl'); }
 process.stdout.write(readFileSync(env.FAKE_CLAUDE_STREAM, 'utf8'));
 process.exitCode = Number(env.FAKE_CLAUDE_EXIT ?? '0');
 if (env.FAKE_CLAUDE_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_CLAUDE_LINGER_MS));
@@ -414,4 +420,26 @@ export const fakeOpenRouter = async (
       server.close();
     },
   };
+};
+
+export const PASSTHROUGH_BWRAP = `#!/bin/sh
+while [ "$1" != -- ]; do
+  if [ "$1" = --chdir ]; then dir=$2; fi
+  shift
+done
+shift
+cd "$dir" || exit 1
+"$@"
+code=$?
+printf '{"exit-code": %s}\\n' "$code" >&3
+exit $code
+`;
+
+export const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 };

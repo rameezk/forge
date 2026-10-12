@@ -20,6 +20,7 @@ import {
   writeFakeBwrap,
   writeFakeClaude,
   type BwrapCall,
+  isAlive,
 } from './helpers.ts';
 import { CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
 
@@ -55,6 +56,7 @@ interface Scenario {
   env?: NodeJS.ProcessEnv;
   models?: unknown;
   lingerMs?: number;
+  indexAs?: 'fifo' | 'symlink';
   rewrite?: (stream: string) => string;
 }
 
@@ -66,7 +68,12 @@ interface Outcome {
   generations: GenerationRecord[];
   transcript: string;
   claudeStarted: boolean;
-  claude: { argv: string[]; env: Record<string, string>; pid: number };
+  claude: {
+    argv: string[];
+    env: Record<string, string>;
+    pid: number;
+    modes: { run: number; config: number; bodies: number };
+  };
   bwrap: BwrapCall;
 }
 
@@ -76,6 +83,7 @@ const runClaude = async ({
   env,
   models = OPENROUTER_MODELS,
   lingerMs,
+  indexAs,
   rewrite,
 }: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-claude-'));
@@ -94,6 +102,7 @@ const runClaude = async ({
       ...claudeReplay(fixture, claudeRecord),
       FAKE_CLAUDE_STREAM: stream,
       ...(lingerMs === undefined ? {} : { FAKE_CLAUDE_LINGER_MS: String(lingerMs) }),
+      ...(indexAs === undefined ? {} : { FAKE_CLAUDE_INDEX: indexAs }),
     },
   });
   const configPath = join(stateDir, 'runtime.json');
@@ -223,15 +232,6 @@ test('given a claude-code worker on a two-request recording, when its workload r
   assert.match(run.sessionId ?? '', /^[0-9a-f-]{36}$/);
 });
 
-const isAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 test('given a claude-code worker whose provider rejects the model, when its workload runs, then the run ends error with the provider\'s message and the runner exits as for a failure', async () => {
   const { code, run, generations } = await runClaude({ fixture: 'provider-error' });
 
@@ -267,6 +267,37 @@ test('given a claude-code worker with a budget the first generation\'s list-pric
     '0.005',
   ]);
 });
+
+const untilFirstToolCall = (stream: string): string => {
+  const lines = stream.split('\n').filter((line) => line !== '');
+  const last = lines.findIndex((line) => line.includes('"type":"tool_use"'));
+  return `${lines.slice(0, last + 1).join('\n')}\n`;
+};
+
+test('given a claude-code worker with a budget its first tool-calling request already passes and a claude still running that tool, when it runs, then the run ends exceeded without waiting for the tool to finish', async () => {
+  const started = Date.now();
+  const { run, claude } = await runClaude({
+    fixture: 'success',
+    rewrite: untilFirstToolCall,
+    lingerMs: 30_000,
+    worker: { maxCostUsd: 0.005 },
+  });
+
+  assert.equal(run.status, 'exceeded');
+  assert.equal(run.exceededLimit, 'budget');
+  assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`);
+  assert.equal(isAlive(claude.pid), false);
+});
+
+for (const indexAs of ['fifo', 'symlink'] as const) {
+  test(`given a claude-code workload that leaves a ${indexAs} where claude's request index belongs, when the runner reads the recorded usage, then it neither blocks nor follows it and the run ends error saying no usage was recorded`, { timeout: 40_000 }, async () => {
+    const { run, generations } = await runClaude({ fixture: 'success', indexAs });
+
+    assert.equal(run.status, 'error');
+    assert.match(run.error ?? '', /claude recorded no usage for its response/);
+    assert.deepEqual(generations, []);
+  });
+}
 
 test('given a claude-code worker with a budget its list-price equivalents stay under, when it runs, then the workload succeeds', async () => {
   const { code, run } = await runClaude({ fixture: 'success', worker: { maxCostUsd: 1 } });
@@ -363,6 +394,14 @@ test('given a claude-code worker with an effort and a budget, when its workload 
   assert.equal(argv.includes('--system-prompt'), false);
   assert.equal(argv.includes('--bare'), false);
   assert.deepEqual(argv.slice(-2), ['--', 'refine the spec']);
+});
+
+test('given a claude-code workload, when it runs, then the per-run dirs are private to the runner user and claude exports telemetry to no collector', async () => {
+  const { claude } = await runClaude({ fixture: 'success' });
+
+  assert.deepEqual(claude.modes, { run: 0o700, config: 0o700, bodies: 0o700 });
+  assert.equal(claude.env.OTEL_METRICS_EXPORTER, 'none');
+  assert.equal(claude.env.OTEL_TRACES_EXPORTER, 'none');
 });
 
 test('given a claude-code workload, when it runs, then claude gets an empty per-run config dir inside the sandbox state, telemetry on and auto-update off, and the dir is gone after the run', async () => {

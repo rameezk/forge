@@ -1,6 +1,13 @@
-import { execFile } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { basename, isAbsolute, join } from 'node:path';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  rmSync,
+} from 'node:fs';
+import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   errorMessage,
@@ -22,6 +29,12 @@ import {
   type HarnessRunSetup,
   type HarnessSinks,
 } from './harness.ts';
+import {
+  NON_JSON_EXCERPT_CHARS,
+  nonEmpty,
+  realCommand,
+  versionOutput,
+} from './harness-process.ts';
 import { spawnSandboxed, type Sandbox } from './sandbox.ts';
 import { tokenCount } from './token-count.ts';
 
@@ -42,17 +55,21 @@ export function claudeCodeEnv(
     DISABLE_AUTOUPDATER: '1',
     CLAUDE_CODE_ENABLE_TELEMETRY: '1',
     OTEL_LOGS_EXPORTER: 'none',
+    OTEL_METRICS_EXPORTER: 'none',
+    OTEL_TRACES_EXPORTER: 'none',
     OTEL_LOG_RAW_API_BODIES: `file:${bodiesDir}`,
   };
 }
 
 const BODIES_TIMEOUT_MS = 10_000;
 
+const PRIVATE_DIR = 0o700;
+
+const MAX_INDEX_BYTES = 16 * 1024 * 1024;
+
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+
 const BODIES_POLL_MS = 20;
-
-const VERSION_TIMEOUT_MS = 10_000;
-
-const NON_JSON_EXCERPT_CHARS = 200;
 
 const SYNTHETIC_MODEL = '<synthetic>';
 
@@ -111,6 +128,7 @@ interface ClaudeLine {
 
 interface ClaudeBody {
   stop_reason?: unknown;
+  content?: unknown;
   usage?: Record<string, unknown>;
 }
 
@@ -121,13 +139,11 @@ interface IndexEntry {
 }
 
 interface Recorded {
+  contentBlocks: number;
   requestId: string | null;
   stopReason: string | null;
   usage: TokenUsage;
 }
-
-const nonEmpty = (value: unknown): string | null =>
-  typeof value === 'string' && value !== '' ? value : null;
 
 const parseJson = (text: string): unknown => {
   try {
@@ -139,6 +155,32 @@ const parseJson = (text: string): unknown => {
 
 const blocksOf = (content: unknown): ClaudeContent[] =>
   Array.isArray(content) ? (content as ClaudeContent[]) : [];
+
+const readRegularFile = (path: string, limit: number): string | null => {
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return null;
+  }
+  try {
+    const stat = fstatSync(fd);
+    const { size } = stat;
+    if (!stat.isFile() || size > limit) return null;
+    const buffer = Buffer.alloc(size);
+    let filled = 0;
+    while (filled < size) {
+      const read = readSync(fd, buffer, filled, size - filled, filled);
+      if (read === 0) break;
+      filled += read;
+    }
+    return buffer.toString('utf8', 0, filled);
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+};
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -153,7 +195,7 @@ class RecordedBodies {
   async of(messageId: string, signal: AbortSignal): Promise<Recorded> {
     const deadline = Date.now() + BODIES_TIMEOUT_MS;
     for (;;) {
-      const recorded = this.#read(messageId);
+      const recorded = this.peek(messageId);
       if (recorded !== null) return recorded;
       if (signal.aborted || Date.now() >= deadline) {
         throw new Error(
@@ -164,13 +206,9 @@ class RecordedBodies {
     }
   }
 
-  #read(messageId: string): Recorded | null {
-    let index: string;
-    try {
-      index = readFileSync(join(this.#dir, 'index.jsonl'), 'utf8');
-    } catch {
-      return null;
-    }
+  peek(messageId: string): Recorded | null {
+    const index = readRegularFile(join(this.#dir, 'index.jsonl'), MAX_INDEX_BYTES);
+    if (index === null) return null;
     const entry = index
       .split('\n')
       .flatMap((line) => {
@@ -180,18 +218,16 @@ class RecordedBodies {
       .at(-1);
     const file = nonEmpty(entry?.response_file);
     if (entry === undefined || file === null || basename(file) !== file) return null;
-    let body: ClaudeBody | null;
-    try {
-      body = parseJson(readFileSync(join(this.#dir, file), 'utf8')) as ClaudeBody | null;
-    } catch {
-      return null;
-    }
+    const text = readRegularFile(join(this.#dir, file), MAX_RESPONSE_BYTES);
+    if (text === null) return null;
+    const body = parseJson(text) as ClaudeBody | null;
     const usage = body?.usage;
     if (usage === undefined) return null;
     const inputTokens = tokenCount(usage.input_tokens);
     const outputTokens = tokenCount(usage.output_tokens);
     if (inputTokens === null || outputTokens === null) return null;
     return {
+      contentBlocks: blocksOf(body?.content).length,
       requestId: nonEmpty(entry.request_id),
       stopReason: nonEmpty(body?.stop_reason),
       usage: {
@@ -209,6 +245,7 @@ interface Turn {
   requestId: string | null;
   model: string | null;
   timestamp: string | null;
+  blocks: number;
   text: string[];
   thinking: string[];
   calls: ToolCallEvent[];
@@ -263,6 +300,7 @@ class ClaudeCodeStream {
     switch (parsed.type) {
       case 'assistant':
         yield* this.#assistant(parsed);
+        yield* this.settle();
         return;
       case 'user':
         yield* this.#user(parsed);
@@ -281,6 +319,19 @@ class ClaudeCodeStream {
 
   async *finish(): AsyncGenerator<HarnessEvent> {
     yield* this.#flush();
+  }
+
+  get pending(): boolean {
+    return this.#turn !== null;
+  }
+
+  async *settle(): AsyncGenerator<HarnessEvent> {
+    const turn = this.#turn;
+    if (turn === null) return;
+    const recorded = this.#bodies.peek(turn.messageId);
+    if (recorded !== null && recorded.contentBlocks > 0 && recorded.contentBlocks <= turn.blocks) {
+      yield* this.#flush(recorded);
+    }
   }
 
   result(exitFailure: Error | null): HarnessEvent {
@@ -312,12 +363,14 @@ class ClaudeCodeStream {
       requestId: null,
       model: nonEmpty(message?.model),
       timestamp: null,
+      blocks: 0,
       text: [],
       thinking: [],
       calls: [],
     });
     turn.requestId ??= nonEmpty(line.request_id);
     turn.timestamp ??= nonEmpty(line.timestamp);
+    turn.blocks += blocksOf(message?.content).length;
     for (const block of blocksOf(message?.content)) {
       if (block.type === 'text' && block.text !== undefined) {
         turn.text.push(block.text);
@@ -355,7 +408,7 @@ class ClaudeCodeStream {
     }
   }
 
-  async *#flush(): AsyncGenerator<HarnessEvent> {
+  async *#flush(known?: Recorded): AsyncGenerator<HarnessEvent> {
     const turn = this.#turn;
     if (turn === null) return;
     this.#turn = null;
@@ -378,7 +431,7 @@ class ClaudeCodeStream {
     }
     let recorded: Recorded;
     try {
-      recorded = await this.#bodies.of(turn.messageId, this.#stop);
+      recorded = known ?? (await this.#bodies.of(turn.messageId, this.#stop));
     } catch (error) {
       this.fail(errorMessage(error));
       return;
@@ -397,30 +450,6 @@ class ClaudeCodeStream {
     yield* turn.calls;
   }
 }
-
-const realCommand = (command: string): string => {
-  const unresolved = (reason: string): Error =>
-    new Error(`the harness command ${command} cannot be resolved: ${reason}`);
-  if (!isAbsolute(command)) {
-    throw unresolved('it is not an absolute path');
-  }
-  try {
-    return realpathSync(command);
-  } catch (cause) {
-    throw unresolved(errorMessage(cause));
-  }
-};
-
-const commandOutput = (
-  command: string,
-  args: string[],
-  env: Record<string, string>,
-): Promise<string> =>
-  new Promise((resolve, reject) => {
-    execFile(command, args, { env, timeout: VERSION_TIMEOUT_MS }, (error, stdout) =>
-      error === null ? resolve(stdout.trim()) : reject(error),
-    );
-  });
 
 export interface ClaudeCodeHarnessOptions {
   command: string;
@@ -456,14 +485,7 @@ class ClaudeCodeRun implements HarnessRun {
 
   async identity(): Promise<HarnessIdentity> {
     const { command, system, extraArgs = [] } = this.#options;
-    const output = await commandOutput(realCommand(command), ['--version'], system).catch(
-      (cause: unknown) => {
-        process.stderr.write(
-          `could not read the harness version (${errorMessage(cause)}), so the workload's fingerprint records none\n`,
-        );
-        return '';
-      },
-    );
+    const output = await versionOutput(command, system);
     const version = output.split(/\s+/)[0] ?? '';
     return { version: version === '' ? null : version, args: [...extraArgs] };
   }
@@ -475,8 +497,8 @@ class ClaudeCodeRun implements HarnessRun {
     const { command, sandbox, system, env, maxCostUsd, extraArgs = [] } = this.#options;
     const configDir = join(this.#dir, 'config');
     const bodiesDir = join(this.#dir, 'bodies');
-    mkdirSync(configDir, { recursive: true });
-    mkdirSync(bodiesDir, { recursive: true });
+    mkdirSync(configDir, { recursive: true, mode: PRIVATE_DIR });
+    mkdirSync(bodiesDir, { recursive: true, mode: PRIVATE_DIR });
     const stream = new ClaudeCodeStream(sinks, new RecordedBodies(bodiesDir));
     const { child, stdout, exited: exit } = spawnSandboxed(
       sandbox,
@@ -501,8 +523,21 @@ class ClaudeCodeRun implements HarnessRun {
     sinks.stop.addEventListener('abort', killOnStop, { once: true });
     let drained = false;
     try {
-      for await (const line of createInterface({ input: stdout, crlfDelay: Infinity })) {
-        yield* stream.translate(line);
+      const lines = createInterface({ input: stdout, crlfDelay: Infinity })[
+        Symbol.asyncIterator
+      ]();
+      let next = lines.next();
+      for (;;) {
+        const read = stream.pending
+          ? await Promise.race([next, sleep(BODIES_POLL_MS).then(() => null)])
+          : await next;
+        if (read === null) {
+          yield* stream.settle();
+          continue;
+        }
+        if (read.done === true) break;
+        next = lines.next();
+        yield* stream.translate(read.value);
         if (stream.malformed !== null) break;
       }
       if (stream.malformed === null) {

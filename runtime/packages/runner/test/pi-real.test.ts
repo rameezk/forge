@@ -35,7 +35,10 @@ import {
   type Respond,
   type Usage,
 } from './fixtures/fake-provider.ts';
-import { PI_EXTENSIONS } from './helpers.ts';
+import {
+  PI_EXTENSIONS,
+  PASSTHROUGH_BWRAP,
+} from './helpers.ts';
 
 const piPackage = process.env.FORGE_PI_PACKAGE;
 const skip =
@@ -105,19 +108,6 @@ const unreadCacheDetail =
     respond(call, res, request, headers);
   };
 
-const passthrough = `#!/bin/sh
-while [ "$1" != -- ]; do
-  if [ "$1" = --chdir ]; then dir=$2; fi
-  shift
-done
-shift
-cd "$dir" || exit 1
-"$@"
-code=$?
-printf '{"exit-code": %s}\\n' "$code" >&3
-exit $code
-`;
-
 type Workload = (
   workDir: string,
 ) => Promise<Pick<HarnessInvocation, 'prompt' | 'checkout'>>;
@@ -171,7 +161,7 @@ const runRealPi = async (
   );
   chmodSync(agentDir, 0o555);
   const bwrap = join(root, 'passthrough-bwrap');
-  writeFileSync(bwrap, passthrough);
+  writeFileSync(bwrap, PASSTHROUGH_BWRAP);
   chmodSync(bwrap, 0o755);
   const harness = new PiHarness({
     command: join(piPackage as string, '..', '..', '..', 'bin', 'pi'),

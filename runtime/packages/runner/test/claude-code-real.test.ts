@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { HarnessEvent, MessageEvent } from '@forge/shared';
 import { ClaudeCodeHarness } from '../src/index.ts';
+import { PASSTHROUGH_BWRAP } from './helpers.ts';
 import {
   NARRATION_INSTRUCTION,
   UNATTENDED_INSTRUCTION,
@@ -29,19 +30,6 @@ const skip =
   claudeCommand === undefined
     ? 'FORGE_CLAUDE_CODE is not set to the locked claude'
     : false;
-
-const passthrough = `#!/bin/sh
-while [ "$1" != -- ]; do
-  if [ "$1" = --chdir ]; then dir=$2; fi
-  shift
-done
-shift
-cd "$dir" || exit 1
-"$@"
-code=$?
-printf '{"exit-code": %s}\\n' "$code" >&3
-exit $code
-`;
 
 interface RealClaudeRun {
   events: HarnessEvent[];
@@ -81,7 +69,7 @@ const runRealClaude = async ({
   writeAll(workDir, files);
   writeAll(home, homeFiles);
   const bwrap = join(root, 'passthrough-bwrap');
-  writeFileSync(bwrap, passthrough);
+  writeFileSync(bwrap, PASSTHROUGH_BWRAP);
   chmodSync(bwrap, 0o755);
   const harness = new ClaudeCodeHarness({
     command: claudeCommand as string,

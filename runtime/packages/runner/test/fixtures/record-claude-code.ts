@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { claudeCodeArgs, claudeCodeEnv } from '../../src/claude-code.ts';
 import {
   CLAUDE_TOKEN,
   claudeScenarios,
@@ -23,7 +24,7 @@ const PROMPT = 'Run echo forge, then say what it printed.';
 const record = async (
   claude: string,
   name: string,
-  { respond, prompt = PROMPT, files = {} }: ClaudeScenario,
+  { respond }: ClaudeScenario,
   outDir: string,
 ): Promise<void> => {
   const server = await serveMessages(respond);
@@ -32,39 +33,24 @@ const record = async (
   const config = mkdtempSync(join(tmpdir(), 'forge-record-config-'));
   const home = mkdtempSync(join(tmpdir(), 'forge-record-home-'));
   const bodies = mkdtempSync(join(tmpdir(), 'forge-record-bodies-'));
-  for (const [path, contents] of Object.entries(files)) {
-    mkdirSync(dirname(join(work, path)), { recursive: true });
-    writeFileSync(join(work, path), contents);
-  }
-  const child = spawn(
-    claude,
-    [
-      '-p',
-      '--output-format',
-      'stream-json',
-      '--verbose',
-      '--no-session-persistence',
-      '--dangerously-skip-permissions',
-      '--model',
-      'claude-opus-4-5',
-      prompt,
-    ],
-    {
-      cwd: work,
-      env: {
+  const args = claudeCodeArgs(
+    { workDir: work, provider: 'anthropic', model: 'claude-opus-4-5', prompt: PROMPT },
+    { maxCostUsd: null, extraArgs: [] },
+  );
+  const child = spawn(claude, args, {
+    cwd: work,
+    env: claudeCodeEnv(
+      {
         PATH: process.env.PATH ?? '',
         HOME: home,
-        CLAUDE_CONFIG_DIR: config,
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
         CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN,
-        DISABLE_AUTOUPDATER: '1',
-        CLAUDE_CODE_ENABLE_TELEMETRY: '1',
-        OTEL_LOGS_EXPORTER: 'none',
-        OTEL_LOG_RAW_API_BODIES: `file:${bodies}`,
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
+      config,
+      bodies,
+    ),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (data: Buffer) => (stdout += data.toString()));

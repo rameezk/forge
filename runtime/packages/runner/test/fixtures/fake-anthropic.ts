@@ -1,7 +1,6 @@
 import {
   createServer,
   type IncomingMessage,
-  type IncomingHttpHeaders,
   type Server,
   type ServerResponse,
 } from 'node:http';
@@ -27,13 +26,10 @@ export type RespondMessages = (
   call: number,
   res: ServerResponse,
   request: MessagesRequest,
-  headers: IncomingHttpHeaders,
 ) => void;
 
 export interface ClaudeScenario {
   respond: RespondMessages;
-  prompt?: string;
-  files?: Record<string, string>;
 }
 
 export const serveMessages = async (
@@ -53,7 +49,7 @@ export const serveMessages = async (
       calls += 1;
       const request = JSON.parse(body) as MessagesRequest;
       requests.push(request);
-      respond(calls, res, request, req.headers);
+      respond(calls, res, request);
     });
   });
   server.listen(0, '127.0.0.1');
