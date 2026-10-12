@@ -1,4 +1,4 @@
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -161,6 +161,19 @@ export const writeFakePi = (dir: string, version: string | null = '1.0.0'): stri
   return path;
 };
 
+export const commandPath = (name: string): string => {
+  for (const dir of (process.env.PATH ?? '').split(':')) {
+    const candidate = join(dir, name);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(`${name} is not on PATH`);
+};
+
 const fakeClaudeSource = (version: string | null): string => `#!${process.execPath}
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -172,7 +185,7 @@ const modeOf = (path) => (path ? statSync(path).mode & 0o777 : null);
 const modes = { run: modeOf(dirname(env.CLAUDE_CONFIG_DIR ?? '')), config: modeOf(env.CLAUDE_CONFIG_DIR), bodies: modeOf(bodies) };
 writeFileSync(env.FAKE_CLAUDE_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, env, modes }));
 if (bodies && env.FAKE_CLAUDE_BODIES && existsSync(env.FAKE_CLAUDE_BODIES)) { mkdirSync(bodies, { recursive: true }); for (const file of readdirSync(env.FAKE_CLAUDE_BODIES)) cpSync(env.FAKE_CLAUDE_BODIES + '/' + file, bodies + '/' + file); }
-if (bodies && env.FAKE_CLAUDE_INDEX === 'fifo') { rmSync(bodies + '/index.jsonl', { force: true }); execFileSync('mkfifo', [bodies + '/index.jsonl']); }
+if (bodies && env.FAKE_CLAUDE_INDEX === 'fifo') { rmSync(bodies + '/index.jsonl', { force: true }); execFileSync(env.FAKE_CLAUDE_MKFIFO, [bodies + '/index.jsonl']); }
 if (bodies && env.FAKE_CLAUDE_INDEX === 'symlink') { rmSync(bodies + '/index.jsonl', { force: true }); symlinkSync(env.FAKE_CLAUDE_BODIES + '/index.jsonl', bodies + '/index.jsonl'); }
 process.stdout.write(readFileSync(env.FAKE_CLAUDE_STREAM, 'utf8'));
 process.exitCode = Number(env.FAKE_CLAUDE_EXIT ?? '0');

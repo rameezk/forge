@@ -17,6 +17,7 @@ import {
   fakeOpenRouter,
   billedAt,
   claudeReplay,
+  commandPath,
   writeFakeBwrap,
   writeFakeClaude,
   type BwrapCall,
@@ -102,6 +103,7 @@ const runClaude = async ({
       ...claudeReplay(fixture, claudeRecord),
       FAKE_CLAUDE_STREAM: stream,
       ...(lingerMs === undefined ? {} : { FAKE_CLAUDE_LINGER_MS: String(lingerMs) }),
+      ...(indexAs === 'fifo' ? { FAKE_CLAUDE_MKFIFO: commandPath('mkfifo') } : {}),
       ...(indexAs === undefined ? {} : { FAKE_CLAUDE_INDEX: indexAs }),
     },
   });

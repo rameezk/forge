@@ -3,6 +3,7 @@
   bubblewrap,
   buildNpmPackage,
   claude-code,
+  coreutils,
   git,
   makeWrapper,
   nodejs,
@@ -32,7 +33,10 @@ buildNpmPackage {
   npmDepsHash = "sha256-hQ/1YqFd9cQHxQ+h3Hj9oPDex1T9w+LpHWhDJnBELu4=";
 
   nativeBuildInputs = [ makeWrapper ];
-  nativeCheckInputs = [ git ];
+  nativeCheckInputs = [
+    coreutils
+    git
+  ];
 
   doCheck = true;
   checkPhase = ''
