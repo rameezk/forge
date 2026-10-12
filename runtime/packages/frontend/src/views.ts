@@ -936,6 +936,19 @@ const subagentKinds = (loads: RunSkillLoad[]): Map<string, string[]> => {
   return kinds;
 };
 
+const withoutErrorReportedByResult = (events: HarnessEvent[]): HarnessEvent[] => {
+  const result = events.find((event): event is ResultEvent => event.type === 'result');
+  if (result === undefined || result.error === null) return events;
+  const failed = events.findLastIndex(
+    (event) => event.type === 'message' && event.role === 'assistant' && event.subagent === undefined,
+  );
+  const last = events[failed];
+  if (last?.type !== 'message' || last.error !== result.error) return events;
+  const { error: _reported, ...unreported } = last;
+  if (last.text === '' && last.thinking === undefined) return events.filter((event) => event !== last);
+  return events.map((event) => (event === last ? unreported : event));
+};
+
 const renderTranscript = (
   events: HarnessEvent[],
   generations: GenerationRecord[],
@@ -947,7 +960,7 @@ const renderTranscript = (
   const context: SubagentContext = { results, generations, runStatus, subscription, kinds: subagentKinds(skillLoads) };
   const first = events[0];
   const prompt = first?.type === 'message' && first.role === 'user' ? first : undefined;
-  return withoutToolOnlyPreambles(nestSubagents(events)).map((entry) =>
+  return withoutToolOnlyPreambles(nestSubagents(withoutErrorReportedByResult(events))).map((entry) =>
     entry.type === 'subagent'
       ? renderSubagent(entry, context)
       : entry === prompt
