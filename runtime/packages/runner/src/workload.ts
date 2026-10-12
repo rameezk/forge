@@ -1,10 +1,11 @@
 import { mkdirSync, readFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store, type RunRecord, type RunTicket } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
-import type { Harness, Worker, Workspace } from './harness.ts';
-import { agentDirsIn } from './agent-dir.ts';
+import type { Worker, Workspace } from './harness.ts';
+import { absolutePath, stateDirOf } from './environment.ts';
+import { builtInHarnesses, harnessFor, type HarnessRegistry } from './harnesses.ts';
 import {
   openRouterBaseUrl,
   openRouterModel,
@@ -12,18 +13,15 @@ import {
 } from './openrouter.ts';
 import { providerSpec, type Provider } from './provider.ts';
 import { piCatalogModel } from './pi-catalog.ts';
-import { PiHarness } from './pi.ts';
-import type { Sandbox } from './sandbox.ts';
 import { JsonLinesFile } from './transcript.ts';
 import { runWorkload } from './runner.ts';
 
-export const absolutePath = (env: NodeJS.ProcessEnv, name: string): string => {
-  const value = env[name];
-  if (value === undefined || !isAbsolute(value)) {
-    throw new Error(`${name} is not set to an absolute path`);
-  }
-  return value;
-};
+export {
+  absolutePath,
+  sandboxOf,
+  stateDirOf,
+  systemEnvironment,
+} from './environment.ts';
 
 export const readRuntimeConfig = (env: NodeJS.ProcessEnv): RuntimeConfig => {
   const configPath = env.FORGE_RUNTIME_CONFIG;
@@ -32,36 +30,6 @@ export const readRuntimeConfig = (env: NodeJS.ProcessEnv): RuntimeConfig => {
   }
   return JSON.parse(readFileSync(configPath, 'utf8')) as RuntimeConfig;
 };
-
-export const stateDirOf = (env: NodeJS.ProcessEnv): string => {
-  const stateDir = env.FORGE_STATE_DIR;
-  if (stateDir === undefined) {
-    throw new Error('FORGE_STATE_DIR is not set');
-  }
-  return stateDir;
-};
-
-const SYSTEM_VARIABLES = ['PATH', 'LANG', 'LOCALE_ARCHIVE', 'TZDIR'];
-
-const picked = (
-  env: NodeJS.ProcessEnv,
-  names: string[],
-): Record<string, string> =>
-  Object.fromEntries(
-    names.flatMap((name) => {
-      const value = env[name];
-      return value === undefined ? [] : [[name, value]];
-    }),
-  );
-
-export const systemEnvironment = (
-  env: NodeJS.ProcessEnv,
-): Record<string, string> => picked(env, SYSTEM_VARIABLES);
-
-export const sandboxOf = (env: NodeJS.ProcessEnv): Sandbox => ({
-  bwrap: absolutePath(env, 'FORGE_BWRAP'),
-  home: absolutePath(env, 'HOME'),
-});
 
 const modelLookUpFor = (
   provider: Provider,
@@ -75,49 +43,13 @@ const modelLookUpFor = (
   }
 };
 
-const harnessEnvironment = (
-  provider: Provider,
-  env: NodeJS.ProcessEnv,
-  harnessEnv: Record<string, string>,
-): Record<string, string> => ({
-  ...picked(env, [providerSpec(provider).credentialEnv]),
-  ...harnessEnv,
-});
-
-const harnessFor = (
-  config: RuntimeConfig,
-  worker: Worker,
-  env: NodeJS.ProcessEnv,
-  harnessEnv: Record<string, string>,
-): Harness => {
-  const harness = config.harnesses[worker.harness];
-  if (harness === undefined || worker.harness !== 'pi') {
-    throw new Error(`unsupported harness '${worker.harness}'`);
-  }
-  const extensions = {
-    subagent: absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION'),
-    modelDefaultReasoning: absolutePath(
-      env,
-      'FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION',
-    ),
-    requestRecord: absolutePath(env, 'FORGE_PI_REQUEST_RECORD_EXTENSION'),
-  };
-  return new PiHarness({
-    command: harness.command,
-    extensions,
-    sandbox: sandboxOf(env),
-    ...(harness.args === undefined ? {} : { extraArgs: harness.args }),
-    system: systemEnvironment(env),
-    env: harnessEnvironment(worker.provider, env, harnessEnv),
-  });
-};
-
 export interface LaunchOptions {
   config: RuntimeConfig;
   worker: Worker;
   env: NodeJS.ProcessEnv;
   openWorkspace: (workDir: string) => Workspace | Promise<Workspace>;
   harnessEnv?: Record<string, string>;
+  harnesses?: HarnessRegistry;
   ticket?: RunTicket;
   secrets?: string[];
   runId?: string;
@@ -135,12 +67,26 @@ export const launchWorkload = async ({
   env,
   openWorkspace,
   harnessEnv = {},
+  harnesses = builtInHarnesses,
   ticket,
   secrets = [],
   runId = randomUUID(),
 }: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
-  const harness = harnessFor(config, worker, env, harnessEnv);
+  const harnessConfig = Object.hasOwn(config.harnesses, worker.harness)
+    ? config.harnesses[worker.harness]
+    : undefined;
+  if (harnessConfig === undefined) {
+    throw new Error(`unsupported harness '${worker.harness}'`);
+  }
+  const harness = harnessFor(harnesses, {
+    name: worker.harness,
+    config: harnessConfig,
+    worker,
+    env,
+    harnessEnv,
+    stateDir,
+  });
   const lookUpModel = modelLookUpFor(worker.provider, env);
 
   const transcriptsDir = join(stateDir, 'transcripts');
@@ -162,7 +108,6 @@ export const launchWorkload = async ({
       now: () => new Date().toISOString(),
       newId: () => runId,
       lookUpModel,
-      openAgentDir: agentDirsIn(join(stateDir, 'agent'), worker.provider),
       secrets: [env[providerSpec(worker.provider).credentialEnv] ?? '', ...secrets],
       forgeGitSha: env.FORGE_GIT_SHA === undefined || env.FORGE_GIT_SHA === '' ? null : env.FORGE_GIT_SHA,
       ...(ticket === undefined ? {} : { ticket }),

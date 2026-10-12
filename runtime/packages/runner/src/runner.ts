@@ -2,7 +2,6 @@ import {
   errorMessage,
   startHeartbeat,
   type ExceededLimit,
-  type HarnessEvent,
   type ListPrice,
   type MessageEvent,
   type RunStatus,
@@ -12,7 +11,6 @@ import {
   type TokenUsage,
   countEvent,
   noCounters,
-  SkillLoadTracker,
 } from '@forge/shared';
 import {
   invocationFor,
@@ -21,7 +19,6 @@ import {
   type Workspace,
 } from './harness.ts';
 import { FingerprintRecorder, skillsHash } from './fingerprint.ts';
-import type { OpenAgentDir } from './agent-dir.ts';
 import type { LookUpModel } from './openrouter.ts';
 import { providerSpec } from './provider.ts';
 import {
@@ -41,7 +38,6 @@ export interface RunWorkloadOptions {
   now: () => string;
   newId: () => string;
   lookUpModel: LookUpModel;
-  openAgentDir: OpenAgentDir;
   secrets?: string[];
   ticket?: RunTicket;
   forgeGitSha?: string | null;
@@ -88,15 +84,11 @@ export const runWorkload = async (
   const source = subscription ? "pi's catalog" : "OpenRouter's models entry";
   if ('reason' in outcome) {
     process.stderr.write(
-      `run ${id}: could not look up ${source} for ${worker.model} (${outcome.reason}), so its ${subscription ? 'generations show no list-price equivalent' : 'unbilled generations show no estimated cost and pi starts without knowing the model'}\n`,
-    );
-  } else if (!subscription && outcome.model.contextWindow === null) {
-    process.stderr.write(
-      `run ${id}: OpenRouter lists no context window for ${worker.model}, so pi starts without knowing the model\n`,
+      `run ${id}: could not look up ${source} for ${worker.model} (${outcome.reason}), so its ${subscription ? 'generations show no list-price equivalent' : 'unbilled generations show no estimated cost'}\n`,
     );
   }
   const listPrice = listed?.price ?? null;
-  const agentDir = options.openAgentDir(id, worker.model, subscription ? null : listed);
+  const harnessRun = harness.open({ runId: id, model: worker.model, listedModel: listed });
   const transcript = openTranscript(id);
   const rawEvents = options.openRawEvents(id);
   const requestRecord = options.openRequestRecord(id);
@@ -155,14 +147,6 @@ export const runWorkload = async (
     });
   };
 
-  let skillLoads: SkillLoadTracker | null = null;
-  const recordSkillLoad = (event: HarnessEvent): void => {
-    const load = skillLoads?.observe(event) ?? null;
-    if (load !== null) {
-      store.recordSkillLoad({ ...load, runId: id, loadedAt: now() });
-    }
-  };
-
   let status: RunStatus = 'error';
   let sessionId: string | null = null;
   let error: string | null = 'harness stream ended without a result';
@@ -195,15 +179,10 @@ export const runWorkload = async (
     });
     await transcript.append(promptEvent);
     const workspace = await openWorkspace(id);
-    skillLoads =
-      workspace.checkout === undefined
-        ? null
-        : new SkillLoadTracker(workspace.checkout);
-    recordSkillLoad(promptEvent);
-    const invocation = invocationFor(worker, workspace, agentDir);
+    const invocation = invocationFor(worker, workspace);
     const recorder = new FingerprintRecorder({
       worker,
-      identity: await harness.identity(agentDir),
+      identity: await harnessRun.identity(),
       workDir: invocation.workDir,
       skills: skillsHash(invocation.checkout),
       baseCommit: invocation.baseCommit ?? null,
@@ -229,11 +208,15 @@ export const runWorkload = async (
       }, worker.timeoutSeconds * 1000);
       stopTimeout = () => clearTimeout(timer);
     }
-    for await (const harnessEvent of harness.run(invocation, sinks)) {
+    for await (const harnessEvent of harnessRun.run(invocation, sinks)) {
+      if (harnessEvent.type === 'skill_load') {
+        const { type: _type, ...load } = harnessEvent;
+        store.recordSkillLoad({ ...load, runId: id, loadedAt: now() });
+        continue;
+      }
       const event = policy.record(harnessEvent);
       await transcript.append(event);
       countEvent(counters, event);
-      recordSkillLoad(harnessEvent);
       if (event.type === 'message') {
         if (isBillable(event)) {
           recordGeneration(event);

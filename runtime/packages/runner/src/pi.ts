@@ -5,8 +5,10 @@ import { createInterface } from 'node:readline';
 import type { Readable } from 'node:stream';
 import {
   errorMessage,
+  SkillLoadTracker,
   type CompactionEvent,
   type HarnessEvent,
+  type HarnessOutput,
   type MessageEvent,
   type RetryEvent,
   type ToolCallEvent,
@@ -21,7 +23,8 @@ import {
 import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { requireSkill } from './checkout.ts';
 import { underDevShell } from './devshell.ts';
-import { providerSpec } from './provider.ts';
+import type { OpenAgentDir } from './agent-dir.ts';
+import { providerSpec, type Provider } from './provider.ts';
 import {
   REQUEST_RECORD_FD,
   spawnSandboxed,
@@ -35,6 +38,8 @@ import {
   type Harness,
   type HarnessIdentity,
   type HarnessInvocation,
+  type HarnessRun,
+  type HarnessRunSetup,
   type HarnessSinks,
   type RawEventSink,
   type RequestRecordSink,
@@ -354,6 +359,14 @@ const compaction = (
   ...scoped(subagent),
 });
 
+const promptEvent = (text: string): HarnessEvent => ({
+  type: 'message',
+  role: 'user',
+  text,
+  usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+  generationId: null,
+});
+
 const NON_JSON_EXCERPT_CHARS = 200;
 
 const parseLine = (line: string): PiLine | null => {
@@ -535,6 +548,8 @@ const commandOutput = (
 
 export interface PiHarnessOptions {
   command: string;
+  provider: Provider;
+  openAgentDir: OpenAgentDir;
   extensions: PiExtensions;
   sandbox: Sandbox;
   system: Record<string, string>;
@@ -543,26 +558,48 @@ export interface PiHarnessOptions {
 }
 
 export class PiHarness implements Harness {
+  readonly #options: PiHarnessOptions;
+
+  constructor(options: PiHarnessOptions) {
+    this.#options = options;
+  }
+
+  open({ runId, model, listedModel }: HarnessRunSetup): HarnessRun {
+    const { provider, openAgentDir } = this.#options;
+    const subscription = providerSpec(provider).subscription;
+    if (!subscription && listedModel?.contextWindow == null) {
+      process.stderr.write(
+        `run ${runId}: OpenRouter lists no context window for ${model}, so pi starts without knowing the model\n`,
+      );
+    }
+    const agentDir = openAgentDir(runId, model, subscription ? null : listedModel);
+    return new PiRun(this.#options, agentDir);
+  }
+}
+
+class PiRun implements HarnessRun {
   readonly #command: string;
   readonly #extensions: PiExtensions;
   readonly #sandbox: Sandbox;
   readonly #extraArgs: string[];
   readonly #system: Record<string, string>;
   readonly #env: Record<string, string>;
+  readonly #agentDir: string;
 
-  constructor(options: PiHarnessOptions) {
+  constructor(options: PiHarnessOptions, agentDir: string) {
     this.#command = options.command;
     this.#extensions = options.extensions;
     this.#sandbox = options.sandbox;
     this.#extraArgs = options.extraArgs ?? [];
     this.#system = options.system;
     this.#env = options.env;
+    this.#agentDir = agentDir;
   }
 
-  async identity(agentDir: string): Promise<HarnessIdentity> {
+  async identity(): Promise<HarnessIdentity> {
     const version = await commandOutput(realCommand(this.#command), ['--version'], {
       ...this.#system,
-      PI_CODING_AGENT_DIR: agentDir,
+      PI_CODING_AGENT_DIR: this.#agentDir,
     }).catch((cause: unknown) => {
       process.stderr.write(
         `could not read the harness version (${errorMessage(cause)}), so the workload's fingerprint records none\n`,
@@ -575,7 +612,13 @@ export class PiHarness implements Harness {
   async *run(
     invocation: HarnessInvocation,
     sinks: HarnessSinks,
-  ): AsyncIterable<HarnessEvent> {
+  ): AsyncIterable<HarnessOutput> {
+    const skillLoads =
+      invocation.checkout === undefined
+        ? null
+        : new SkillLoadTracker(invocation.checkout);
+    const promptLoad = skillLoads?.observe(promptEvent(invocation.prompt)) ?? null;
+    if (promptLoad !== null) yield { type: 'skill_load', ...promptLoad };
     const stream = new PiStream(sinks.rawEvent);
     const command = realCommand(this.#command);
     warnUnloadedProjectConfig(invocation.checkout);
@@ -587,10 +630,10 @@ export class PiHarness implements Harness {
       {
         name: 'pi',
         workDir: invocation.workDir,
-        agentDir: invocation.agentDir,
+        agentDir: this.#agentDir,
         env: underDevShell(invocation.devShell, this.#system, {
           ...this.#env,
-          ...piEnv(invocation.agentDir),
+          ...piEnv(this.#agentDir),
           [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
             subagentInvocation(command, invocation, this.#extensions),
           ),
@@ -621,7 +664,11 @@ export class PiHarness implements Harness {
         if (stream.malformed) {
           break;
         }
-        yield* events;
+        for (const event of events) {
+          const load = skillLoads?.observe(event) ?? null;
+          if (load !== null) yield { type: 'skill_load', ...load };
+          yield event;
+        }
       }
       drained = !stream.malformed;
     } finally {

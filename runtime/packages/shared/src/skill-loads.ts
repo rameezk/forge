@@ -1,12 +1,7 @@
 import { resolve } from 'node:path';
-import type { HarnessEvent } from './events.ts';
+import type { HarnessEvent, SkillCoverage, SkillSource } from './events.ts';
 
-export type SkillSource = 'prompt' | 'read';
-
-export interface SkillCoverage {
-  coveredLines: number;
-  totalLines: number;
-}
+export type { SkillCoverage, SkillSource };
 
 export interface SkillLoad {
   skill: string;

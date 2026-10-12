@@ -1,3 +1,5 @@
+import { hashOf, isFields, systemHashesOf, toolsHashOf } from '@forge/shared';
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -11,11 +13,6 @@ export interface WorkloadContext {
 
 type Fields = Record<string, unknown>;
 
-const isFields = (value: unknown): value is Fields =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const SYSTEM_ROLES = new Set(['system', 'developer']);
-
 const textIn = (value: unknown): string => {
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) return value.map(textIn).filter((text) => text !== '').join('\n\n');
@@ -23,9 +20,6 @@ const textIn = (value: unknown): string => {
   if (typeof value.text === 'string') return value.text;
   return textIn(value.content);
 };
-
-const hashOf = (reference: unknown): string | undefined =>
-  isFields(reference) && typeof reference.hash === 'string' ? reference.hash : undefined;
 
 const stringOr = (value: unknown, fallback: unknown): string =>
   typeof value === 'string' ? value : typeof fallback === 'string' ? fallback : '';
@@ -38,16 +32,6 @@ const toolOf = (tool: unknown): ToolDefinition => {
     description: stringOr(fields.description, fn.description),
     parameters: fields.input_schema ?? fn.parameters ?? fields.parameters ?? null,
   };
-};
-
-const systemReferenceOf = (body: Fields): string | undefined => {
-  const system = hashOf(body.system);
-  if (system !== undefined) return system;
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const message = messages.find(
-    (reference) => isFields(reference) && typeof reference.role === 'string' && SYSTEM_ROLES.has(reference.role),
-  );
-  return hashOf(message);
 };
 
 export interface RequestRecordView {
@@ -78,9 +62,9 @@ export const readRequestRecord = (
     return true;
   });
   if (body === undefined) return { context: { systemPrompt: null, tools: null }, efforts };
-  const systemHash = systemReferenceOf(body);
+  const systemHash = systemHashesOf(body)[0];
   const systemPrompt = systemHash === undefined ? undefined : systemPrompts.get(systemHash);
-  const toolsHash = hashOf(body.tools);
+  const toolsHash = toolsHashOf(body);
   const tools = toolsHash === undefined ? undefined : toolLists.get(toolsHash);
   return {
     context: {
