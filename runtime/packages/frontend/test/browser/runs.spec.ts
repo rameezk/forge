@@ -147,3 +147,21 @@ test('given a run with a subagent that loaded two skills and one that loaded non
   await expect(headers.nth(1).locator('[data-subagent-kind]')).toHaveText(['unclassified']);
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
+
+test('given a claude-code run on subscription, when its page is opened, then the summary shows the claude-code harness and the anthropic provider', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun({
+    ...recordedRun,
+    harness: 'claude-code',
+    model: 'claude-opus-4-5',
+    costStatus: 'subscription',
+    costUsd: 0,
+  });
+
+  await page.goto('/runs/run-01');
+
+  await expect(page.locator('[data-harness]')).toHaveText('claude-code');
+  await expect(page.getByText('anthropic', { exact: true })).toBeVisible();
+});

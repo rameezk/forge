@@ -7,6 +7,10 @@
 let
   cfg = config.forge.runtime;
 
+  harnessProviders = lib.importJSON ../../runtime/packages/runner/src/harness-providers.json;
+  harnessEfforts = lib.importJSON ../../runtime/packages/runner/src/reasoning-efforts.json;
+  allEfforts = lib.unique (lib.concatLists (lib.attrValues harnessEfforts));
+
   forgeGitShaVariable = lib.optional (cfg.gitSha != null) "FORGE_GIT_SHA=${cfg.gitSha}";
 
   timeSpanUnits = {
@@ -78,7 +82,7 @@ let
     };
   };
 
-  workerModule = lib.types.submodule {
+  workerModule = lib.types.submodule ({ config, ... }: {
     options = {
       harness = lib.mkOption {
         type = lib.types.str;
@@ -94,15 +98,20 @@ let
       };
       provider = lib.mkOption {
         type = lib.types.enum (lib.importJSON ../../runtime/packages/runner/src/providers.json);
-        default = "openrouter";
-        description = "Where this worker's model is served from. `openrouter` bills each generation and is the default. `anthropic` runs on the operator's Claude subscription, needs Anthropic's own model id and the `anthropic_oauth_token` secret, and is never billed.";
+        default = harnessProviders.${config.harness} or "openrouter";
+        defaultText = lib.literalExpression ''the provider its harness takes, `openrouter` for pi and `anthropic` for claude-code, and `openrouter` for any other harness'';
+        description = "Where this worker's model is served from, which its harness fixes: pi takes `openrouter` only and claude-code `anthropic` only, and a worker pairing a harness with the other provider is rejected. `openrouter` bills each generation. `anthropic` runs on the operator's Claude subscription, needs Anthropic's own model id and the `anthropic_oauth_token` secret, and is never billed.";
       };
       reasoningEffort = lib.mkOption {
         type = lib.types.nullOr (
-          lib.types.enum (lib.importJSON ../../runtime/packages/runner/src/reasoning-efforts.json)
+          lib.types.enum allEfforts
         );
         default = null;
-        description = "Reasoning effort, or null to run at the provider default.";
+        description = "Reasoning effort, or null to run at the provider default. Each harness takes its own levels: ${
+          lib.concatStringsSep "; " (
+            lib.mapAttrsToList (harness: levels: "${harness} ${lib.concatStringsSep ", " levels}") harnessEfforts
+          )
+        }. A worker whose effort its harness does not take is rejected.";
       };
       maxCost = lib.mkOption {
         type = lib.types.nullOr positiveNumber;
@@ -119,7 +128,7 @@ let
         description = "Longest this worker's workload may run, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"2h\"`, or null for unlimited. It counts from the harness's start, so checkout and devShell setup do not use it, and a workload that passes it is hard-stopped, its subagents included, and ends as exceeded. A scheduled run's systemd unit also stops 30 minutes past it, as a backstop for a runner that hangs, and the run then ends interrupted; dispatched workloads share one backstop from the longest timeout of any dispatching worker, and none when any of them is unlimited. Defaults to `forge.runtime.workload.timeout`.";
       };
     };
-  };
+  });
 
   repositoryModule = lib.types.submodule {
     options = {
@@ -208,6 +217,24 @@ let
     assertion = !hasDispatch || cfg.dispatch.gitIdentity != null;
     message = "forge.runtime.dispatch.gitIdentity must be set when a repository declares a worker: dispatched workloads commit as that identity";
   };
+
+  workerPairingAssertions = lib.concatLists (
+    lib.mapAttrsToList (
+      name: w:
+      lib.optionals (harnessProviders ? ${w.harness}) [
+        {
+          assertion = w.provider == harnessProviders.${w.harness};
+          message = "forge.runtime.workers.${name} pairs harness '${w.harness}' with provider '${w.provider}': harness '${w.harness}' only takes provider ${harnessProviders.${w.harness}}";
+        }
+      ]
+      ++ lib.optionals (harnessEfforts ? ${w.harness} && w.reasoningEffort != null) [
+        {
+          assertion = lib.elem w.reasoningEffort harnessEfforts.${w.harness};
+          message = "forge.runtime.workers.${name} reasoning effort '${w.reasoningEffort}' must be one of ${lib.concatStringsSep ", " harnessEfforts.${w.harness}} for harness '${w.harness}'";
+        }
+      ]
+    ) cfg.workers
+  );
 
   workerNameAssertions = lib.mapAttrsToList (name: _: {
     assertion = builtins.match "[A-Za-z0-9_-]+" name != null;
@@ -474,6 +501,7 @@ in
         untrustedAssertion
       ]
       ++ workerNameAssertions
+      ++ workerPairingAssertions
       ++ dispatchAssertions;
 
       security.allowUserNamespaces = true;
@@ -521,7 +549,7 @@ in
         "forge-runner.env" = envTemplateOf (
           [ openRouterKey ]
           ++ lib.optional usesAnthropic {
-            variable = "ANTHROPIC_OAUTH_TOKEN";
+            variable = "CLAUDE_CODE_OAUTH_TOKEN";
             secret = "anthropic_oauth_token";
           }
         );

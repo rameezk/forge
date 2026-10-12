@@ -1,4 +1,4 @@
-import { chmodSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -159,6 +159,39 @@ export const writeFakePi = (dir: string, version: string | null = '1.0.0'): stri
   writeFileSync(path, fakePiSource(version));
   chmodSync(path, 0o755);
   return path;
+};
+
+const fakeClaudeSource = (version: string | null): string => `#!${process.execPath}
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+const env = process.env;
+if (process.argv[2] === '--version') { process.stdout.write(${JSON.stringify(version === null ? '' : `${version} (Claude Code)\n`)}); process.exit(${version === null ? 1 : 0}); }
+writeFileSync(env.FAKE_CLAUDE_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, env }));
+const bodies = (env.OTEL_LOG_RAW_API_BODIES ?? '').replace(/^file:/, '');
+if (bodies && env.FAKE_CLAUDE_BODIES && existsSync(env.FAKE_CLAUDE_BODIES)) { mkdirSync(bodies, { recursive: true }); for (const file of readdirSync(env.FAKE_CLAUDE_BODIES)) cpSync(env.FAKE_CLAUDE_BODIES + '/' + file, bodies + '/' + file); }
+process.stdout.write(readFileSync(env.FAKE_CLAUDE_STREAM, 'utf8'));
+process.exitCode = Number(env.FAKE_CLAUDE_EXIT ?? '0');
+if (env.FAKE_CLAUDE_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_CLAUDE_LINGER_MS));
+if (env.FAKE_BWRAP_STATUS_FD) process.on('exit', (code) => writeFileSync(Number(env.FAKE_BWRAP_STATUS_FD), JSON.stringify({ 'exit-code': code }) + '\\n'));
+`;
+
+export const writeFakeClaude = (dir: string, version: string | null = '2.1.296'): string => {
+  const path = join(dir, 'fake-claude.mjs');
+  writeFileSync(path, fakeClaudeSource(version));
+  chmodSync(path, 0o755);
+  return path;
+};
+
+export const claudeReplay = (
+  fixture: string,
+  record: string,
+): Record<string, string> => {
+  const dir = join(import.meta.dirname, 'fixtures', 'claude-code', fixture);
+  return {
+    FAKE_CLAUDE_RECORD: record,
+    FAKE_CLAUDE_STREAM: join(dir, 'stream.jsonl'),
+    FAKE_CLAUDE_BODIES: join(dir, 'bodies'),
+    FAKE_CLAUDE_EXIT: readFileSync(join(dir, 'exit.txt'), 'utf8').trim(),
+  };
 };
 
 const FAKE_BWRAP_RECORDER = `import { writeFileSync } from 'node:fs';

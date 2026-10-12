@@ -47,15 +47,55 @@ test('given a worker that sets openrouter and one that sets no provider, when th
   assert.equal(resolveWorker(explicit, 'unset').provider, 'openrouter');
 });
 
-test('given a worker that sets anthropic, when it is resolved, then it carries the provider anthropic', () => {
-  const config = {
-    harnesses: { pi: { command: '/bin/pi' } },
+test('given a claude-code worker that sets anthropic or sets no provider, when it is resolved, then it carries the provider anthropic', () => {
+  const config: RuntimeConfig = {
+    harnesses: { 'claude-code': { command: '/bin/claude' } },
     workers: {
-      subscribed: { harness: 'pi', model: 'claude-opus-5-5', prompt: 'p', provider: 'anthropic' },
+      named: { harness: 'claude-code', model: 'claude-opus-4-5', prompt: 'p', provider: 'anthropic' },
+      unset: { harness: 'claude-code', model: 'claude-opus-4-5', prompt: 'p' },
     },
   };
 
-  assert.equal(resolveWorker(config, 'subscribed').provider, 'anthropic');
+  assert.equal(resolveWorker(config, 'named').provider, 'anthropic');
+  assert.equal(resolveWorker(config, 'unset').provider, 'anthropic');
+});
+
+test('given workers pairing a harness with a provider it cannot use, when they are resolved, then each throws naming the worker, the pair and the provider the harness takes', () => {
+  const crossed: RuntimeConfig = {
+    harnesses: { pi: { command: 'pi' }, 'claude-code': { command: '/bin/claude' } },
+    workers: {
+      piOnAnthropic: { harness: 'pi', model: 'm', prompt: 'p', provider: 'anthropic' },
+      claudeOnOpenrouter: { harness: 'claude-code', model: 'm', prompt: 'p', provider: 'openrouter' },
+    },
+  };
+  assert.throws(
+    () => resolveWorker(crossed, 'piOnAnthropic'),
+    /worker 'piOnAnthropic' pairs harness 'pi' with provider 'anthropic': harness 'pi' only takes provider openrouter/,
+  );
+  assert.throws(
+    () => resolveWorker(crossed, 'claudeOnOpenrouter'),
+    /worker 'claudeOnOpenrouter' pairs harness 'claude-code' with provider 'openrouter': harness 'claude-code' only takes provider anthropic/,
+  );
+});
+
+test('given workers whose reasoning effort belongs to the other harness, when they are resolved, then each throws naming the worker, the harness and that harness own levels', () => {
+  const crossed: RuntimeConfig = {
+    harnesses: { pi: { command: 'pi' }, 'claude-code': { command: '/bin/claude' } },
+    workers: {
+      claudeOnPiLevel: { harness: 'claude-code', model: 'm', prompt: 'p', reasoningEffort: 'minimal' },
+      piOnClaudeLevel: { harness: 'pi', model: 'm', prompt: 'p', reasoningEffort: 'ultracode' },
+      claudeOnUltracode: { harness: 'claude-code', model: 'm', prompt: 'p', reasoningEffort: 'ultracode' },
+    },
+  };
+  assert.throws(
+    () => resolveWorker(crossed, 'claudeOnPiLevel'),
+    /worker 'claudeOnPiLevel' reasoning effort 'minimal' must be one of low, medium, high, xhigh, max, ultracode for harness 'claude-code'/,
+  );
+  assert.throws(
+    () => resolveWorker(crossed, 'piOnClaudeLevel'),
+    /worker 'piOnClaudeLevel' reasoning effort 'ultracode' must be one of off, minimal, low, medium, high, xhigh, max for harness 'pi'/,
+  );
+  assert.equal(resolveWorker(crossed, 'claudeOnUltracode').reasoningEffort, 'ultracode');
 });
 
 test('given a worker whose provider is not allowed, when it is resolved, then it throws naming the worker and every allowed provider', () => {
@@ -113,7 +153,7 @@ test('given a worker whose reasoning effort is outside the allowed levels, when 
   };
   assert.throws(
     () => resolveWorker(typo, 'typo'),
-    /worker 'typo' reasoning effort 'hgih' must be one of off, minimal, low, medium, high, xhigh, max/,
+    /worker 'typo' reasoning effort 'hgih' must be one of off, minimal, low, medium, high, xhigh, max for harness 'pi'/,
   );
 });
 

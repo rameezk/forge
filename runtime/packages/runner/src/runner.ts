@@ -81,10 +81,9 @@ export const runWorkload = async (
   const subscription = providerSpec(worker.provider).subscription;
   const outcome = await options.lookUpModel(worker.model);
   const listed = 'model' in outcome ? outcome.model : null;
-  const source = subscription ? "pi's catalog" : "OpenRouter's models entry";
   if ('reason' in outcome) {
     process.stderr.write(
-      `run ${id}: could not look up ${source} for ${worker.model} (${outcome.reason}), so its ${subscription ? 'generations show no list-price equivalent' : 'unbilled generations show no estimated cost'}\n`,
+      `run ${id}: could not look up OpenRouter's models entry for ${worker.model} (${outcome.reason}), so its ${subscription ? 'generations show no list-price equivalent' : 'unbilled generations show no estimated cost'}\n`,
     );
   }
   const listPrice = listed?.price ?? null;

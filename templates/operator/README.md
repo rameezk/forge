@@ -603,42 +603,58 @@ budget".
 
 ### Running a worker on a Claude subscription
 
-A worker draws on your Claude subscription instead of OpenRouter when it sets
-`provider = "anthropic"` and names Anthropic's own model id:
+A worker draws on your Claude subscription instead of OpenRouter when it runs on
+the `claude-code` harness, which takes the `anthropic` provider and Anthropic's
+own model id, and `pi` takes `openrouter` only. A worker pairing a harness with
+the other provider fails evaluation, as does a reasoning effort its harness does
+not take: `claude-code` takes `low`, `medium`, `high`, `xhigh`, `max` and
+`ultracode`.
 
 ```nix
+forge.runtime.harnesses.claude-code.command = "/run/current-system/sw/bin/claude";
 forge.runtime.workers.builder = {
-  harness = "pi";
-  provider = "anthropic";
+  harness = "claude-code";
   model = "claude-opus-5-5";
   prompt = "/work-on {url}";
   maxCost = null;
 };
+environment.systemPackages = [ pkgs.claude-code ];
 ```
+
+`pkgs.claude-code` on a forge host is locked at an exact version with its
+auto-updater disabled, and CI checks that the locked version still takes the
+flags forge passes it.
 
 Create a long-lived token with `claude setup-token` and store it in
 `secrets/runtime.yaml` as `anthropic_oauth_token`. The secret is required only
 when some worker uses `anthropic`, and only the runner receives it, as
-`ANTHROPIC_OAUTH_TOKEN`. A workload on `anthropic` never gets the OpenRouter
-key, an `openrouter` workload never gets the token, and the billing service
-never sees it. The token lasts about a year and you rotate it by hand, as
-[Rotating a runtime secret](#rotating-a-runtime-secret) describes.
+`CLAUDE_CODE_OAUTH_TOKEN`; no `ANTHROPIC_API_KEY` reaches a run. A workload on
+`anthropic` never gets the OpenRouter key, an `openrouter` workload never gets
+the token, and the billing service never sees it. The token lasts about a year
+and you rotate it by hand, as [Rotating a runtime
+secret](#rotating-a-runtime-secret) describes.
 
-pi reaches Anthropic by presenting itself as Claude Code, which Anthropic could
-stop accepting. If it does, only `anthropic` workers stop, and you can move
-them back to `openrouter` by changing the provider and the model id.
+Each run starts Claude Code with an empty config dir that is discarded after the
+run, so nothing from the host's `~/.claude` is visible. Claude Code loads the
+repository's own `AGENTS.md` or `CLAUDE.md`, skills, agents, settings, hooks and
+MCP servers natively, and forge's instructions are appended to its system
+prompt. A run gets Claude Code's native tools with permission prompts skipped,
+less the tools that wait on a human; the sandbox stays the boundary.
 
 A subscription workload is never billed. Its cost reads `subscription` on the
 dashboard, and billing neither looks up nor settles its generations. Each
-generation records its list-price equivalent: its tokens, cache reads and writes
-included, at pi's catalog price for the model. A run's page shows the total
-labelled as a list-price equivalent, never as billed or estimated cost. A change
-of provider starts a new cohort, whose page shows the provider.
+generation, keyed by Anthropic's request id, records its list-price equivalent:
+its tokens, cache reads and writes included, at the price of the matching
+`anthropic/...` entry in OpenRouter's models list. A run's page shows the total
+labelled as a list-price equivalent, never as billed or estimated cost, and
+shows the `claude-code` harness and the `anthropic` provider. A change of
+provider starts a new cohort, whose page shows the provider.
 
-The workload budget applies to the list-price equivalent, subagents included. A
-budgeted subscription worker whose model pi's catalog cannot price is refused
-before it starts and its run ends `error`; set its `maxCost` to `null` to run it
-unbudgeted.
+The workload budget applies to the list-price equivalent, subagents included, and
+forge also passes the same cap to Claude Code as `--max-budget-usd` as a
+backstop. A budgeted subscription worker whose model has no OpenRouter entry is
+refused before it starts as one that "could not be priced", and its run ends `error`; set
+its `maxCost` to `null` to run it unbudgeted.
 
 Hitting the subscription's 5-hour or weekly limit ends the run `error` with
 Anthropic's message, like any provider error. Nothing pauses dispatch or falls

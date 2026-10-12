@@ -26,10 +26,11 @@ const { loadPiSkills, resolveCheckout } = await import(
   join(dirname(adapter), 'checkout.ts')
 );
 const loadSkills = await loadPiSkills(piPackage);
-const { default: REASONING_EFFORTS } = await import(
-  join(dirname(adapter), 'reasoning-efforts.json'),
-  { with: { type: 'json' } }
-);
+const {
+  default: { pi: REASONING_EFFORTS },
+} = await import(join(dirname(adapter), 'reasoning-efforts.json'), {
+  with: { type: 'json' },
+});
 const { SUBAGENT_INVOCATION_ENV, childArgs } = await import(
   join(subagentExtension, 'index.ts')
 );

@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { agentDirsIn } from './agent-dir.ts';
+import { ClaudeCodeHarness } from './claude-code.ts';
 import type { HarnessConfig } from './config.ts';
 import {
   absolutePath,
@@ -52,7 +53,30 @@ const piFactory: HarnessFactory = ({
     },
   });
 
-export const builtInHarnesses: HarnessRegistry = { pi: piFactory };
+const claudeCodeFactory: HarnessFactory = ({
+  config,
+  worker,
+  env,
+  harnessEnv,
+  stateDir,
+}) =>
+  new ClaudeCodeHarness({
+    command: config.command,
+    runsDir: join(stateDir, 'agent'),
+    maxCostUsd: worker.maxCostUsd ?? null,
+    sandbox: sandboxOf(env),
+    ...(config.args === undefined ? {} : { extraArgs: config.args }),
+    system: systemEnvironment(env),
+    env: {
+      ...picked(env, [providerSpec(worker.provider).credentialEnv]),
+      ...harnessEnv,
+    },
+  });
+
+export const builtInHarnesses: HarnessRegistry = {
+  pi: piFactory,
+  'claude-code': claudeCodeFactory,
+};
 
 export const harnessFor = (
   registry: HarnessRegistry,

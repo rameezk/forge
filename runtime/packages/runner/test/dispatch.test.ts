@@ -32,8 +32,10 @@ import {
   SKILL_FILES,
   SUBAGENTS_PROMPT,
 } from './fixtures/fake-provider.ts';
+import { CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
 import {
   billedAt,
+  claudeReplay,
   fakeOpenRouter,
   LISTED_MODELS,
   journaled,
@@ -42,6 +44,7 @@ import {
   PI_EXTENSIONS,
   lockedPiPackage,
   writeFakeBwrap,
+  writeFakeClaude,
   writeFakePi,
   type BwrapCall,
 } from './helpers.ts';
@@ -281,6 +284,7 @@ interface Scenario {
   models?: unknown;
   piLingerMs?: number;
   subscription?: boolean;
+  claudeFixture?: string;
 }
 
 interface FakeNix {
@@ -372,13 +376,15 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
   writeFileSync(
     configPath,
     JSON.stringify({
-      harnesses: { pi: { command: writeFakePi(stateDir) } },
+      harnesses:
+        scenario.subscription === true
+          ? { 'claude-code': { command: writeFakeClaude(stateDir) } }
+          : { pi: { command: writeFakePi(stateDir) } },
       workers: {
         builder: {
-          harness: 'pi',
           ...(scenario.subscription === true
-            ? { provider: 'anthropic', model: 'claude-opus-5-5' }
-            : { model: 'z-ai/glm-5' }),
+            ? { harness: 'claude-code', model: 'claude-opus-4-5' }
+            : { harness: 'pi', model: 'z-ai/glm-5' }),
           prompt: scenario.prompt ?? '/work-on {url}',
           ...(scenario.timeoutSeconds === undefined
             ? {}
@@ -448,6 +454,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         harnessEnv: {
           FAKE_PI_RECORD: record,
           FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
+          ...(scenario.subscription === true ? claudeReplay(scenario.claudeFixture ?? 'success', record) : {}),
           ...(scenario.piLingerMs === undefined
             ? {}
             : { FAKE_PI_LINGER_MS: String(scenario.piLingerMs) }),
@@ -458,7 +465,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       GITHUB_TOKEN: 'github_pat_from_the_environment',
       OPENROUTER_API_KEY: 'sk-or-test',
       ...(scenario.subscription === true
-        ? { ANTHROPIC_OAUTH_TOKEN: 'sk-ant-oat01-forge-test-token' }
+        ? { CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN }
         : {}),
       OPENROUTER_BASE_URL: openRouter.baseUrl,
       ...gitConfigOf({
@@ -637,7 +644,7 @@ test('given a subscription worker and a runner environment holding both provider
 
   const environment = readFileSync(seen, 'utf8');
   assert.match(environment, /^GITHUB_TOKEN=/m);
-  assert.doesNotMatch(environment, /ANTHROPIC_OAUTH_TOKEN|sk-ant-oat|OPENROUTER_API_KEY|sk-or-test/);
+  assert.doesNotMatch(environment, /CLAUDE_CODE_OAUTH_TOKEN|sk-ant-oat|OPENROUTER_API_KEY|sk-or-test/);
 });
 
 test('given a frontier ticket labelled forge:ready, when it is dispatched, then forge:running replaces forge:ready before the workload starts', async () => {
@@ -890,12 +897,10 @@ test('given a run after which an open pull request closes the ticket, when the r
   }
 });
 
-const USAGE_LIMIT = join(import.meta.dirname, 'fixtures', 'pi', 'anthropic-usage-limit.jsonl');
-
 test('given a dispatched subscription workload whose provider answers with a usage limit and leaves no pull request, when forge-dispatch runs, then the run ends error with Anthropic\'s message and the ticket becomes forge:failed', async () => {
   const { code, runs, dispatches, labelWrites } = await dispatch({
     subscription: true,
-    piOutput: USAGE_LIMIT,
+    claudeFixture: 'usage-limit',
     pullRequests: closing('no-pull-request'),
   });
 

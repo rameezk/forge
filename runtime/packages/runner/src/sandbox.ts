@@ -16,6 +16,7 @@ export const sandboxArgs = (
   { home }: Sandbox,
   workDir: string,
   agentDir?: string,
+  writableDirs: string[] = [],
 ): string[] => [
   '--unshare-user',
   '--disable-userns',
@@ -38,6 +39,7 @@ export const sandboxArgs = (
   '--tmpfs',
   home,
   ...(agentDir === undefined ? [] : readOnly(agentDir)),
+  ...writableDirs.flatMap((dir) => ['--bind', dir, dir]),
   '--bind',
   workDir,
   workDir,
@@ -128,17 +130,19 @@ export const spawnSandboxed = (
     name,
     workDir,
     agentDir,
+    writableDirs,
     env,
   }: {
     name: string;
     workDir: string;
     agentDir?: string;
+    writableDirs?: string[];
     env: NodeJS.ProcessEnv;
   },
 ): SandboxedProcess => {
   const child = spawn(
     sandbox.bwrap,
-    [...sandboxArgs(sandbox, workDir, agentDir), '--', command, ...args],
+    [...sandboxArgs(sandbox, workDir, agentDir, writableDirs), '--', command, ...args],
     {
       cwd: workDir,
       env: { ...env, HOME: sandbox.home },

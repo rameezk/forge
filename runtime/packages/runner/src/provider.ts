@@ -20,7 +20,7 @@ const SPECS: Record<Provider, ProviderSpec> = {
   },
   anthropic: {
     piName: 'anthropic',
-    credentialEnv: 'ANTHROPIC_OAUTH_TOKEN',
+    credentialEnv: 'CLAUDE_CODE_OAUTH_TOKEN',
     subscription: true,
   },
 };

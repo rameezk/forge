@@ -2,6 +2,7 @@
   lib,
   bubblewrap,
   buildNpmPackage,
+  claude-code,
   git,
   makeWrapper,
   nodejs,
@@ -37,7 +38,7 @@ buildNpmPackage {
   checkPhase = ''
     runHook preCheck
     npm run typecheck
-    FORGE_PI_PACKAGE=${piPackage} node --test 'packages/*/test/**/*.test.ts'
+    FORGE_PI_PACKAGE=${piPackage} FORGE_CLAUDE_CODE=${lib.getExe claude-code} node --test 'packages/*/test/**/*.test.ts'
     runHook postCheck
   '';
 
@@ -78,6 +79,7 @@ buildNpmPackage {
       requestRecordExtension
       piPackage
       ;
+    claudeCode = lib.getExe claude-code;
   };
 
   meta = {

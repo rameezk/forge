@@ -18,7 +18,7 @@ _Avoid_: job, task (reserve "task" for the work a workload performs).
 A named, reusable configuration that binds a harness to a model, a prompt, and an optional reasoning effort (for example a `refiner` or a `builder`); one execution of a worker is a workload. Forge declares workers in typed config, each referencing a harness by name, and several workers may share one harness.
 
 **Reasoning effort**:
-The thinking level a worker asks its model for, one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, or unset. Unset means the model's own default: forge asks for no level at all, and records the effort as absent, shown as `default`, never as the level the model happened to use (ADR-0038).
+The thinking level a worker asks its model for, one of the levels its harness takes (`off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max` on `pi`; `low`, `medium`, `high`, `xhigh`, `max` or `ultracode` on Claude Code), or unset. Unset means the model's own default: forge asks for no level at all, and records the effort as absent, shown as `default`, never as the level the model happened to use (ADR-0038).
 _Avoid_: thinking level, reasoning level
 
 **Harness**:

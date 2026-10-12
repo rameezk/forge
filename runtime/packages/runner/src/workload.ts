@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Store, type RunRecord, type RunTicket } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
 import type { Worker, Workspace } from './harness.ts';
-import { absolutePath, stateDirOf } from './environment.ts';
+import { stateDirOf } from './environment.ts';
 import { builtInHarnesses, harnessFor, type HarnessRegistry } from './harnesses.ts';
 import {
   openRouterBaseUrl,
@@ -12,7 +12,7 @@ import {
   type LookUpModel,
 } from './openrouter.ts';
 import { providerSpec, type Provider } from './provider.ts';
-import { piCatalogModel } from './pi-catalog.ts';
+import { anthropicModel } from './anthropic-models.ts';
 import { JsonLinesFile } from './transcript.ts';
 import { runWorkload } from './runner.ts';
 
@@ -39,7 +39,7 @@ const modelLookUpFor = (
     case 'openrouter':
       return openRouterModel(openRouterBaseUrl(env));
     case 'anthropic':
-      return piCatalogModel(absolutePath(env, 'FORGE_PI_PACKAGE'));
+      return anthropicModel(openRouterModel(openRouterBaseUrl(env)));
   }
 };
 

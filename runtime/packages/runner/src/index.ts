@@ -46,6 +46,8 @@ export {
 } from './openrouter.ts';
 export type { SettleOptions } from './billing.ts';
 export { settleGenerations } from './billing.ts';
+export type { ClaudeCodeHarnessOptions } from './claude-code.ts';
+export { ClaudeCodeHarness, claudeCodeArgs } from './claude-code.ts';
 export type { PiExtensions, PiHarnessOptions } from './pi.ts';
 export {
   PiHarness,
