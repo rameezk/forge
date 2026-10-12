@@ -5,9 +5,6 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {
-    "@forge/shared": "0.0.0"
-  },
   "scripts": {
     "test": "node --test 'test/**/*.test.ts'"
   }
