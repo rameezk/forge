@@ -1238,20 +1238,45 @@ test('given an assistant turn with thinking but no text, followed by a tool call
   assert.ok(body.indexOf(card) < body.indexOf(toolCards(body)[0] ?? ''), 'the preview sits before the tool call it led to');
 });
 
-test('given assistant turns that ended in an error, one with partial text and one with none before a tool call, when the run page is viewed, then each shows its error verbatim under its text', async () => {
+const messageErrorOf = (card: string): string => card.match(/<p[^>]*\sdata-message-error[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
+
+test('given a run that failed on a provider error in its last turn, when the run page is viewed, then the error appears once, in the result row, and the turn does not repeat it', async () => {
   const body = await viewTranscript([
-    { type: 'message', role: 'assistant', text: 'Starting', stopReason: 'error', error: 'Provider returned **error**', usage, generationId: 'gen-1' },
-    { type: 'message', role: 'assistant', text: '', stopReason: 'error', error: 'Request timed out', usage, generationId: 'gen-2' },
-    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
-    { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'Request timed out' },
+    { type: 'message', role: 'assistant', text: 'Starting', stopReason: 'error', error: 'Provider returned error (request id req_01)', usage, generationId: 'gen-1' },
+    { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'Provider returned error (request id req_01)' },
   ]);
 
-  const [partial, empty] = messageCards(body) as [string, string];
-  const errorOf = (card: string): string => card.match(/<p[^>]*\sdata-message-error[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
-  assert.equal(textOf(errorOf(partial)), 'Provider returned **error**');
-  assert.ok(partial.indexOf('Starting') < partial.indexOf(errorOf(partial)), 'the error sits under the text');
-  assert.equal(textOf(errorOf(empty)), 'Request timed out');
-  assert.match(openingTag(errorOf(empty)), /\btext-error\b/);
+  const [partial] = messageCards(body) as [string];
+  assert.equal(messageErrorOf(partial), '');
+  assert.match(partial, /Starting/);
+  const [result] = body.match(/<article[^>]*\sdata-message="result"[\s\S]*?<\/article>/) ?? [];
+  assert.match(textOf(result ?? ''), /Provider returned error \(request id req_01\)/);
+  assert.equal(body.split('request id req_01').length - 1, 1, 'the error text appears once on the page');
+});
+
+test('given a run that failed on a provider error before its first turn produced any text, when the run page is viewed, then the empty turn is not rendered and the error appears once', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'user', text: 'Refine ticket 12.', usage, generationId: null },
+    { type: 'message', role: 'assistant', text: '', stopReason: 'error', error: 'Provider returned error (request id req_01)', usage, generationId: 'gen-1' },
+    { type: 'result', status: 'error', sessionId: 'sess-abc', error: 'Provider returned error (request id req_01)' },
+  ]);
+
+  assert.deepEqual(messageCards(body).map((card) => card.match(/data-message="([^"]*)"/)?.[1]), ['prompt', 'result']);
+  assert.equal(body.split('request id req_01').length - 1, 1, 'the error text appears once on the page');
+});
+
+test('given a turn that failed, was retried and recovered, when the run page is viewed, then the turn keeps showing its error', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'Starting', stopReason: 'error', error: 'Provider returned **error**', usage, generationId: 'gen-1' },
+    { type: 'retry', attempt: 1, maxAttempts: 3, delayMs: 2000, error: 'Provider returned **error**' },
+    { type: 'message', role: 'assistant', text: 'Recovered.', usage, generationId: 'gen-2' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [failed] = messageCards(body) as [string];
+  assert.equal(textOf(messageErrorOf(failed)), 'Provider returned **error**');
+  assert.ok(failed.indexOf('Starting') < failed.indexOf(messageErrorOf(failed)), 'the error sits under the text');
+  assert.match(openingTag(messageErrorOf(failed)), /\btext-error\b/);
 });
 
 test('given a transcript where pi retried a failed response, compacted its context once and failed to compact once, and a subagent retried too, when the run page is viewed, then each retry and compaction appears where it happened and a compaction expands to its summary verbatim', async () => {
