@@ -12,7 +12,7 @@ ADR-0046 ran subscription workers on pi's `anthropic` provider, relying on Anthr
 
 - Option 1: Claude Code as a second harness behind the `HarnessEvent` seam, ADR-0046's Option 1. Subagents, skill loading, the agent dir, credentials and event parsing need a second implementation.
 - Option 2: Keep pi's `anthropic` provider and pay through usage credits. Per-token billing with no subscription benefit, and the `subscription` cost status would misreport real spend.
-- Option 3: Make pi send Claude Code's billing header, as `@gotgenes/pi-anthropic-auth` does. It works by misreporting the client to evade Anthropic's enforcement of its terms, and breaks whenever Anthropic changes the check.
+- Option 3: Make pi send Claude Code's billing header. It works by misreporting the client to evade Anthropic's enforcement of its terms, and breaks whenever Anthropic changes the check.
 - Option 4: Retire the `anthropic` provider and run every worker on OpenRouter. Gives up the subscription.
 
 ## Decision
