@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by ADR-0054
 
 Amends ADR-0008.
 

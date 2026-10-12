@@ -22,7 +22,7 @@ The thinking level a worker asks its model for, one of `off`, `minimal`, `low`, 
 _Avoid_: thinking level, reasoning level
 
 **Harness**:
-The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract - though the runner currently implements only the `pi` harness. Each harness's own CLI and event format belongs to its adapter in the runner, not to operator config (ADR-0008).
+The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract. Everything harness specific, from its CLI and event format to its per-run state, request capture and skill loads, belongs to its adapter in the runner, not to operator config or the rest of forge (ADR-0008, ADR-0055). A Claude Code run loads the repository's own setup natively and nothing from the host (ADR-0057).
 
 **Workload toolset**:
 The generic command-line tools forge puts on every workload's `PATH`, after its repository's devShell. Forge ships a base set, and operators may extend or replace it. A repository's own stack, a browser included, belongs in its devShell, not here. It is a convenience, not a limit: the workload sandbox exposes the Nix store and the nix daemon, so a workload can run anything in the store (ADR-0024, ADR-0027).
@@ -49,15 +49,15 @@ Forge's own price for a generation OpenRouter has not billed yet: the harness's 
 _Avoid_: harness cost, pi cost
 
 **Provider**:
-Where a worker's model is served from: `openrouter`, billed per generation, or `anthropic`, drawn from the operator's Claude subscription. Set per worker, defaulting to `openrouter`; a workload's subagents use its provider (ADR-0046).
+Where a worker's model is served from: `openrouter`, billed per generation, or `anthropic`, drawn from the operator's Claude subscription. Set per worker, defaulting to `openrouter`; `openrouter` runs only on `pi` and `anthropic` only on Claude Code. A workload's subagents use its provider (ADR-0054).
 _Avoid_: backend, vendor
 
 **List-price equivalent**:
-What a subscription workload's generations would have cost at the model's list price, from the harness's token counts and its catalog price. Never billed, and always shown apart from billed and estimated cost (ADR-0047).
+What a subscription workload's generations would have cost at the model's list price, from the harness's token counts and OpenRouter's list price for the model. Never billed, and always shown apart from billed and estimated cost (ADR-0047, ADR-0056).
 _Avoid_: subscription cost, saved cost
 
 **Config fingerprint**:
-The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034).
+The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files, plus on Claude Code the repository's Claude Code settings and hooks. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034, ADR-0057).
 _Avoid_: version, run config
 
 **Cohort**:
@@ -85,7 +85,7 @@ A child harness run that a workload's agent spawns mid-run to perform a delegate
 _Avoid_: child workload, sub-workload
 
 **Skill load**:
-A workload's agent taking in one skill within one scope - the workload itself or one subagent - either through the worker's starting `/skill` prompt or by reading the skill's listed `SKILL.md`, counted once per scope however many reads it took. Its coverage is how much of the file those reads spanned, so a load may be partial. A subagent's kind is the skills it loaded (ADR-0037).
+A workload's agent taking in one skill within one scope - the workload itself or one subagent - either through the worker's starting `/skill` prompt or by reading the skill's listed `SKILL.md`, counted once per scope however many reads it took. On Claude Code the skill is taken in through its `Skill` tool, which reads the whole file. Its coverage is how much of the file those reads spanned, so a load on `pi` may be partial. A subagent's kind is the skills it loaded (ADR-0037).
 _Avoid_: skill invocation, skill call, skill use
 
 **Managed repository**:
