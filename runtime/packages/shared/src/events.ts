@@ -60,6 +60,21 @@ export interface ResultEvent {
   error: string | null;
 }
 
+export type SkillSource = 'prompt' | 'read';
+
+export interface SkillCoverage {
+  coveredLines: number;
+  totalLines: number;
+}
+
+export interface SkillLoadEvent {
+  type: 'skill_load';
+  skill: string;
+  source: SkillSource;
+  subagent: string | null;
+  coverage: SkillCoverage | null;
+}
+
 export type HarnessEvent =
   | MessageEvent
   | ToolCallEvent
@@ -67,3 +82,5 @@ export type HarnessEvent =
   | RetryEvent
   | CompactionEvent
   | ResultEvent;
+
+export type HarnessOutput = HarnessEvent | SkillLoadEvent;

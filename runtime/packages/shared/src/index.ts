@@ -30,9 +30,11 @@ export type {
 export type {
   CompactionEvent,
   HarnessEvent,
+  HarnessOutput,
   MessageEvent,
   ResultEvent,
   RetryEvent,
+  SkillLoadEvent,
   TokenUsage,
   ToolCallEvent,
   ToolResultEvent,
@@ -76,6 +78,22 @@ export type {
   SkillSource,
 } from './skill-loads.ts';
 export { SkillLoadTracker, skillLoadsOf } from './skill-loads.ts';
+export type {
+  CacheMarker,
+  Reference,
+  RequestEntry,
+  RequestPath,
+  RequestRecordLine,
+  SystemPromptDefinition,
+  ToolsDefinition,
+} from './request-record.ts';
+export {
+  SYSTEM_ROLES,
+  hashOf,
+  isFields,
+  systemHashesOf,
+  toolsHashOf,
+} from './request-record.ts';
 export type { TicketAttempt } from './attempts.ts';
 export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 export {

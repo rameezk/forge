@@ -175,6 +175,8 @@ const runRealPi = async (
   chmodSync(bwrap, 0o755);
   const harness = new PiHarness({
     command: join(piPackage as string, '..', '..', '..', 'bin', 'pi'),
+    provider: 'openrouter',
+    openAgentDir: () => agentDir,
     extensions: PI_EXTENSIONS,
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
@@ -184,12 +186,11 @@ const runRealPi = async (
   const rawEvents: unknown[] = [];
   const requestRecord: unknown[] = [];
   try {
-    for await (const event of harness.run(
+    for await (const event of harness.open({ runId: 'run-1', model, listedModel: null }).run(
       {
         provider: 'openrouter',
         model,
         workDir,
-        agentDir,
         ...effort,
         ...(await workload(workDir)),
       },
@@ -199,7 +200,7 @@ const runRealPi = async (
         requestRecord: (line) => requestRecord.push(line),
       },
     )) {
-      events.push(event);
+      if (event.type !== 'skill_load') events.push(event);
     }
   } finally {
     server.close();

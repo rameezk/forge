@@ -1,6 +1,8 @@
 export type {
   Harness,
   HarnessIdentity,
+  HarnessRun,
+  HarnessRunSetup,
   HarnessInvocation,
   HarnessSinks,
   RawEventSink,
@@ -25,6 +27,8 @@ export {
 } from './provider.ts';
 export type { OpenAgentDir } from './agent-dir.ts';
 export { agentDirsIn, piModelsJson } from './agent-dir.ts';
+export type { HarnessContext, HarnessFactory, HarnessRegistry } from './harnesses.ts';
+export { builtInHarnesses } from './harnesses.ts';
 export type { RunWorkloadOptions } from './runner.ts';
 export { runWorkload } from './runner.ts';
 export type {

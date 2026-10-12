@@ -1,5 +1,6 @@
-import type { HarnessEvent } from '@forge/shared';
+import type { HarnessOutput } from '@forge/shared';
 import type { DevShell } from './devshell.ts';
+import type { ListedModel } from './openrouter.ts';
 import type { Provider } from './provider.ts';
 
 export interface Checkout {
@@ -32,7 +33,6 @@ export interface Workspace {
 }
 
 export interface HarnessInvocation extends Workspace {
-  agentDir: string;
   provider: Provider;
   model: string;
   prompt: string;
@@ -54,12 +54,22 @@ export interface HarnessIdentity {
   args: string[];
 }
 
-export interface Harness {
-  identity(agentDir: string): Promise<HarnessIdentity>;
+export interface HarnessRunSetup {
+  runId: string;
+  model: string;
+  listedModel: ListedModel | null;
+}
+
+export interface HarnessRun {
+  identity(): Promise<HarnessIdentity>;
   run(
     invocation: HarnessInvocation,
     sinks: HarnessSinks,
-  ): AsyncIterable<HarnessEvent>;
+  ): AsyncIterable<HarnessOutput>;
+}
+
+export interface Harness {
+  open(setup: HarnessRunSetup): HarnessRun;
 }
 
 export interface Worker {
@@ -82,9 +92,7 @@ export const withEffort = (
 export const invocationFor = (
   worker: Worker,
   workspace: Workspace,
-  agentDir: string,
 ): HarnessInvocation => ({
-  agentDir,
   provider: worker.provider,
   model: worker.model,
   prompt: worker.prompt,

@@ -1,15 +1,6 @@
 import { writeSync } from 'node:fs';
 import { recordOf, REQUEST_RECORD_FD_ENV } from './contract.ts';
 
-export type {
-  CacheMarker,
-  Path,
-  Reference,
-  RequestEntry,
-  RequestRecordLine,
-  SystemPromptDefinition,
-  ToolsDefinition,
-} from './contract.ts';
 export { REQUEST_RECORD_FD_ENV, SYSTEM_ROLES } from './contract.ts';
 
 export interface BeforeProviderRequestEvent {

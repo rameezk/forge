@@ -1,11 +1,13 @@
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { SYSTEM_ROLES } from '@forge/pi-request-record';
 import {
   errorMessage,
   canonicalHash,
   fingerprintHash,
+  isFields,
   sha256,
+  systemHashesOf,
+  toolsHashOf,
   type ConfigFingerprint,
   type RunFingerprint,
 } from '@forge/shared';
@@ -68,38 +70,22 @@ interface Definitions {
   tools: string | null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const hashOf = (value: unknown): string[] =>
-  isRecord(value) && typeof value.hash === 'string' ? [value.hash] : [];
-
 export const mainAgentDefinitions = (
   line: unknown,
   systemPrompts: ReadonlyMap<string, string>,
 ): Definitions | null => {
-  if (!isRecord(line) || line.type !== 'request' || line.subagent !== undefined) {
+  if (!isFields(line) || line.type !== 'request' || line.subagent !== undefined) {
     return null;
   }
   const { body } = line;
-  if (!isRecord(body)) return null;
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const hashes = [
-    ...hashOf(body.system),
-    ...messages.flatMap((message: unknown) =>
-      isRecord(message) &&
-      typeof message.role === 'string' &&
-      SYSTEM_ROLES.has(message.role)
-        ? hashOf(message)
-        : [],
-    ),
-  ];
+  if (!isFields(body)) return null;
+  const hashes = systemHashesOf(body);
   return {
     systemPrompt:
       hashes.length === 0
         ? null
         : canonicalHash(hashes.map((hash) => systemPrompts.get(hash) ?? hash)),
-    tools: hashOf(body.tools)[0] ?? null,
+    tools: toolsHashOf(body) ?? null,
   };
 };
 
@@ -123,7 +109,7 @@ export class FingerprintRecorder {
   }
 
   observe(line: unknown): void {
-    if (isRecord(line) && line.type === 'system_prompt' && typeof line.hash === 'string') {
+    if (isFields(line) && line.type === 'system_prompt' && typeof line.hash === 'string') {
       this.#systemPrompts.set(
         line.hash,
         sha256(withoutWorkDir(line.value, this.#inputs.workDir)),

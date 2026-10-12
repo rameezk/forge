@@ -1,44 +1,14 @@
 import { createHash } from 'node:crypto';
+import type {
+  CacheMarker,
+  Reference,
+  RequestPath,
+  RequestRecordLine,
+} from '@forge/shared';
 
 export const REQUEST_RECORD_FD_ENV = 'FORGE_PI_REQUEST_RECORD_FD';
 
 const CACHE_MARKER = 'cache_control';
-
-export type Path = (string | number)[];
-
-export interface CacheMarker {
-  path: Path;
-  value: unknown;
-}
-
-export interface Reference {
-  role?: unknown;
-  hash: string;
-}
-
-export interface SystemPromptDefinition {
-  type: 'system_prompt';
-  hash: string;
-  value: unknown;
-}
-
-export interface ToolsDefinition {
-  type: 'tools';
-  hash: string;
-  tools: unknown[];
-}
-
-export interface RequestEntry {
-  type: 'request';
-  subagent?: string;
-  body: unknown;
-  cacheMarkers: CacheMarker[];
-}
-
-export type RequestRecordLine =
-  | SystemPromptDefinition
-  | ToolsDefinition
-  | RequestEntry;
 
 const canonical = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -61,7 +31,7 @@ const contentHash = (value: unknown): string =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const unmarked = (value: unknown, path: Path, markers: CacheMarker[]): unknown => {
+const unmarked = (value: unknown, path: RequestPath, markers: CacheMarker[]): unknown => {
   if (Array.isArray(value)) {
     return value.map((item, index) => unmarked(item, [...path, index], markers));
   }

@@ -13,7 +13,6 @@ import type {
   Harness,
   HarnessInvocation,
   LookUpModel,
-  OpenAgentDir,
   PiExtensions,
   JsonLinesWriter,
   TranscriptWriter,
@@ -35,11 +34,8 @@ export const unlisted: LookUpModel = async () => ({
   reason: 'the model is not listed',
 });
 
-export const plainAgentDir: OpenAgentDir = (runId) => `/agent/${runId}`;
-
 export const withoutModelEntry = {
   lookUpModel: unlisted,
-  openAgentDir: plainAgentDir,
 };
 
 export const result = (
@@ -74,16 +70,18 @@ export const fakeHarness = (
   const invocations: HarnessInvocation[] = [];
   return {
     invocations,
-    identity: async () => ({ version: '1.0.0', args: [] }),
-    async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
-      invocations.push(invocation);
-      let index = 0;
-      for (const event of events) {
-        await hooks.beforeEach?.(index);
-        index += 1;
-        yield event;
-      }
-    },
+    open: () => ({
+      identity: async () => ({ version: '1.0.0', args: [] }),
+      async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
+        invocations.push(invocation);
+        let index = 0;
+        for (const event of events) {
+          await hooks.beforeEach?.(index);
+          index += 1;
+          yield event;
+        }
+      },
+    }),
   };
 };
 
@@ -91,11 +89,13 @@ export const throwingHarness = (
   events: HarnessEvent[],
   error: Error,
 ): Harness => ({
-  identity: async () => ({ version: '1.0.0', args: [] }),
-  async *run(): AsyncIterable<HarnessEvent> {
-    yield* events;
-    throw error;
-  },
+  open: () => ({
+    identity: async () => ({ version: '1.0.0', args: [] }),
+    async *run(): AsyncIterable<HarnessEvent> {
+      yield* events;
+      throw error;
+    },
+  }),
 });
 
 export interface ArrayTranscripts {
