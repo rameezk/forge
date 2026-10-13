@@ -19,12 +19,13 @@ import {
   billedAt,
   claudeReplay,
   commandPath,
+  skillCheckout,
   writeFakeBwrap,
   writeFakeClaude,
   type BwrapCall,
   isAlive,
 } from './helpers.ts';
-import { CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
+import { CLAUDE_SKILL_FILES, CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'claude-code');
 
@@ -267,11 +268,7 @@ test('given a claude-code worker on a recording of two parallel subagents, when 
   );
   assert.deepEqual(
     parentMessages.map((event) => event.text),
-    [
-      'Two subagents will take it from here.',
-      'Both subagents reported. All done.',
-      'Both subagents reported. All done.',
-    ],
+    ['Two subagents will take it from here.', 'Both subagents reported. All done.'],
   );
   const byScope = Object.fromEntries(
     generations.map(({ generationId, subagent }) => [generationId, subagent]),
@@ -282,21 +279,67 @@ test('given a claude-code worker on a recording of two parallel subagents, when 
     req_forge_subagents_beta_1: 'toolu_beta',
     req_forge_subagents_alpha_2: 'toolu_alpha',
     req_forge_subagents_parent_2: null,
-    req_forge_subagents_parent_3: null,
   });
-  assert.equal(generations.length, 6);
+  assert.equal(generations.length, 5);
+});
+
+test('given a claude-code worker on a recording of two parallel subagents, when its workload runs, then each Agent call\'s result is the report its subagent handed back, after that subagent\'s own messages', async () => {
+  const { transcript } = await runClaude({ fixture: 'subagents' });
+
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  const results = events.filter(
+    (event) => event.type === 'tool_result' && event.subagent === undefined,
+  );
+  assert.deepEqual(
+    results.map((event) => event.id),
+    ['toolu_beta', 'toolu_alpha'],
+  );
+  for (const result of results) {
+    const scope = String(result.id).replace('toolu_', '');
+    assert.match(String(result.text), new RegExp(`Report from ${scope}\\.`));
+    const last = events.findLastIndex((event) => event.subagent === result.id);
+    assert.ok(last !== -1 && last < events.indexOf(result));
+  }
+});
+
+test('given a claude-code worker whose first Agent call is answered before the same assistant message has delivered its second, when its workload runs, then that message is reported once and its second call still follows', async () => {
+  const moveFirstResultEarly = (stream: string): string => {
+    const lines = stream.split('\n');
+    const result = lines.findIndex((line) =>
+      line.includes('"tool_use_id":"toolu_alpha","type":"tool_result"'),
+    );
+    const second = lines.findIndex((line) => line.includes('"id":"toolu_beta"') && line.includes('"tool_use"'));
+    const [moved] = lines.splice(result, 1);
+    lines.splice(second, 0, moved as string);
+    return lines.join('\n');
+  };
+
+  const { transcript } = await runClaude({
+    fixture: 'subagents',
+    rewrite: moveFirstResultEarly,
+  });
+
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  assert.deepEqual(
+    events
+      .filter((event) => event.type === 'tool_call' && event.name === 'Agent')
+      .map((event) => event.id),
+    ['toolu_alpha', 'toolu_beta'],
+  );
+  assert.equal(
+    events.filter(
+      (event) => event.type === 'message' && event.role === 'assistant' && event.subagent === undefined,
+    ).length,
+    2,
+  );
 });
 
 const skillLoadsOf = async (
   fixture: string,
   prompt: string,
-  skills: string[],
 ): Promise<SkillLoadEvent[]> => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-claude-skills-'));
   const root = join(dir, 'repo');
-  const files = new Map(
-    skills.map((name) => [name, [join(root, '.claude', 'skills', name, 'SKILL.md')]]),
-  );
   const harness = new ClaudeCodeHarness({
     command: writeFakeClaude(dir),
     runsDir: join(dir, 'runs'),
@@ -320,15 +363,7 @@ const skillLoadsOf = async (
         model: MODEL,
         prompt,
         workDir: dir,
-        checkout: {
-          root,
-          skillPaths: [],
-          projectInstructions: null,
-          systemPrompt: null,
-          appendSystemPrompt: null,
-          skills: files,
-          skillLines: new Map([...files.values()].map(([file]) => [file as string, 7])),
-        },
+        checkout: skillCheckout(root, CLAUDE_SKILL_FILES),
       },
       { stop: new AbortController().signal, rawEvent: () => {}, requestRecord: () => {} },
     )) {
@@ -338,10 +373,7 @@ const skillLoadsOf = async (
 };
 
 test('given a claude-code worker starting with a skill command and a recording where a subagent invokes another skill, when it runs, then each load is recorded in its own scope with complete coverage', async () => {
-  const loads = await skillLoadsOf('subagents', '/first-skill start the work', [
-    'first-skill',
-    'other-skill',
-  ]);
+  const loads = await skillLoadsOf('subagents', '/first-skill start the work');
 
   const final = new Map(
     loads.map((load) => [`${load.subagent ?? ''}:${load.skill}`, load]),
@@ -352,14 +384,14 @@ test('given a claude-code worker starting with a skill command and a recording w
     skill: 'first-skill',
     source: 'prompt',
     subagent: null,
-    coverage: { coveredLines: 7, totalLines: 7 },
+    coverage: { coveredLines: 8, totalLines: 8 },
   });
   assert.deepEqual(final.get('toolu_alpha:other-skill'), {
     type: 'skill_load',
     skill: 'other-skill',
     source: 'read',
     subagent: 'toolu_alpha',
-    coverage: { coveredLines: 7, totalLines: 7 },
+    coverage: { coveredLines: 8, totalLines: 8 },
   });
 });
 
@@ -536,11 +568,19 @@ test('given a claude-code workload, when it runs, then the per-run dirs are priv
   assert.equal(claude.env.OTEL_TRACES_EXPORTER, 'none');
 });
 
-test('given a claude-code workload, when it runs, then claude may spawn subagents one level deep and four at once, as pi does', async () => {
+test('given a claude-code workload, when it runs, then claude is told through its command-line settings, which a checkout\'s own settings cannot override, to allow subagents one level deep and four at once and to run them to completion before reporting back, with their text forwarded', async () => {
   const { claude } = await runClaude({ fixture: 'success' });
 
-  assert.equal(claude.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, '1');
-  assert.equal(claude.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, '4');
+  const { argv } = claude;
+  const settings = JSON.parse(argv[argv.indexOf('--settings') + 1] ?? '') as {
+    env: Record<string, string>;
+  };
+  assert.deepEqual(settings.env, {
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
+    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '4',
+  });
+  assert.ok(argv.includes('--forward-subagent-text'));
 });
 
 test('given a claude-code workload, when it runs, then claude gets an empty per-run config dir inside the sandbox state, telemetry on and auto-update off, and the dir is gone after the run', async () => {

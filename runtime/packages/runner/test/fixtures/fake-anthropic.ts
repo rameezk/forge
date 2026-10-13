@@ -59,7 +59,7 @@ export const serveMessages = async (
   return server;
 };
 
-const sentToolResults = (request: MessagesRequest): boolean =>
+export const sentToolResults = (request: MessagesRequest): boolean =>
   request.messages.some(
     (message) =>
       Array.isArray(message.content) &&
@@ -95,8 +95,14 @@ export const CLAUDE_SKILL_FILES: Record<string, string> = Object.fromEntries(
   ]),
 );
 
+export const isSubagentRequest = (request: MessagesRequest): boolean =>
+  JSON.stringify(request.system).includes('cc_is_subagent=true');
+
+export const toolNames = (request: MessagesRequest): string[] =>
+  (request.tools ?? []).map(({ name }) => name);
+
 const subagentOf = (request: MessagesRequest): 'alpha' | 'beta' | null => {
-  if (!JSON.stringify(request.system).includes('cc_is_subagent=true')) return null;
+  if (!isSubagentRequest(request)) return null;
   return JSON.stringify(request.messages).includes('SUBTASK alpha') ? 'alpha' : 'beta';
 };
 
@@ -154,6 +160,38 @@ export const subagentsScenario = (): ClaudeScenario => {
               { text: `Report from ${child}.` },
               anthropicUsage(110, 500, 30, 12),
             ),
+      );
+    },
+  };
+};
+
+export const manySubagentsScenario = (count: number): ClaudeScenario => {
+  let calls = 0;
+  return {
+    prompt: 'spawn many subagents',
+    respond: (_call, res, request) => {
+      calls += 1;
+      const id = `msg_forge_many_${String(calls)}`;
+      anthropicSse(
+        res,
+        !isSubagentRequest(request) && !sentToolResults(request)
+          ? anthropicReply(
+              id,
+              {
+                text: `${String(count)} subagents.`,
+                toolUses: Array.from({ length: count }, (_, index) => ({
+                  id: `toolu_${String(index)}`,
+                  name: 'Agent',
+                  input: {
+                    description: `Subagent ${String(index)}`,
+                    subagent_type: 'general-purpose',
+                    prompt: `SUBTASK ${String(index)}`,
+                  },
+                })),
+              },
+              anthropicUsage(10, 0, 0, 5),
+            )
+          : anthropicReply(id, { text: 'Done.' }, anthropicUsage(10, 0, 0, 5)),
       );
     },
   };

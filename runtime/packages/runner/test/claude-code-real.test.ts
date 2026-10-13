@@ -6,7 +6,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   writeFileSync,
 } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -14,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { HarnessEvent, MessageEvent, SkillLoadEvent } from '@forge/shared';
 import { ClaudeCodeHarness } from '../src/index.ts';
-import { PASSTHROUGH_BWRAP } from './helpers.ts';
+import { PASSTHROUGH_BWRAP, skillCheckout } from './helpers.ts';
 import {
   NARRATION_INSTRUCTION,
   UNATTENDED_INSTRUCTION,
@@ -23,16 +22,14 @@ import {
   CLAUDE_SKILL_FILES,
   CLAUDE_TOKEN,
   claudeScenarios,
+  isSubagentRequest,
+  manySubagentsScenario,
   serveMessages,
   subagentsScenario,
+  toolNames,
   type MessagesRequest,
   type RespondMessages,
 } from './fixtures/fake-anthropic.ts';
-import {
-  anthropicReply,
-  anthropicSse,
-  anthropicUsage,
-} from './fixtures/fake-provider.ts';
 
 const claudeCommand = process.env.FORGE_CLAUDE_CODE;
 const skip =
@@ -98,10 +95,6 @@ const runRealClaude = async ({
   });
   const events: HarnessEvent[] = [];
   const loads: SkillLoadEvent[] = [];
-  const skillFiles = Object.keys(files).flatMap((path) => {
-    const name = /^\.claude\/skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
-    return name === undefined ? [] : [[name, join(workDir, path)] as const];
-  });
   const rawEvents: Record<string, unknown>[] = [];
   try {
     for await (const event of harness
@@ -112,20 +105,7 @@ const runRealClaude = async ({
           model: 'claude-opus-4-5',
           workDir,
           prompt,
-          checkout: {
-            root: workDir,
-            skillPaths: [],
-            projectInstructions: null,
-            systemPrompt: null,
-            appendSystemPrompt: null,
-            skills: new Map(skillFiles.map(([name, file]) => [name, [file]])),
-            skillLines: new Map(
-              skillFiles.map(([, file]) => [
-                file,
-                readFileSync(file, 'utf8').split('\n').length,
-              ]),
-            ),
-          },
+          checkout: skillCheckout(workDir, files),
         },
         {
           stop: new AbortController().signal,
@@ -246,12 +226,6 @@ test(
   },
 );
 
-const isSubagentRequest = (request: MessagesRequest): boolean =>
-  JSON.stringify(request.system).includes('cc_is_subagent=true');
-
-const toolNames = (request: MessagesRequest): string[] =>
-  (request.tools ?? []).map(({ name }) => name);
-
 test(
   'given the locked claude and a run that spawns two subagents, when a workload runs, then every subagent request carries forge\'s instructions, a subagent cannot spawn one of its own, and the messages and skill loads of each carry the id of the call that spawned it',
   { skip },
@@ -289,41 +263,22 @@ test(
   },
 );
 
+const HOSTILE_SETTINGS = JSON.stringify({
+  env: {
+    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '9',
+    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '5',
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '0',
+  },
+});
+
 test(
-  'given the locked claude and a run that asks for six subagents at once, when a workload runs, then only four start and the other two calls are refused',
+  'given the locked claude and a checkout whose own settings raise the subagent limits, when a run asks for six subagents at once, then only four start, the other two calls are refused and no subagent can spawn one',
   { skip },
   async () => {
-    const respond: RespondMessages = (_call, res, request) => {
-      const results = request.messages.some(
-        (message) =>
-          Array.isArray(message.content) &&
-          message.content.some((part: { type?: string }) => part.type === 'tool_result'),
-      );
-      const id = `msg_forge_cap_${isSubagentRequest(request) ? 'child' : 'parent'}_${String(requests++)}`;
-      anthropicSse(
-        res,
-        !isSubagentRequest(request) && !results
-          ? anthropicReply(
-              id,
-              {
-                text: 'Six subagents.',
-                toolUses: Array.from({ length: 6 }, (_, index) => ({
-                  id: `toolu_${String(index)}`,
-                  name: 'Agent',
-                  input: {
-                    description: `Subagent ${String(index)}`,
-                    subagent_type: 'general-purpose',
-                    prompt: `SUBTASK ${String(index)}`,
-                  },
-                })),
-              },
-              anthropicUsage(10, 0, 0, 5),
-            )
-          : anthropicReply(id, { text: 'Done.' }, anthropicUsage(10, 0, 0, 5)),
-      );
-    };
-    let requests = 0;
-    const { events } = await runRealClaude({ respond });
+    const { events, requests } = await runRealClaude({
+      files: { '.claude/settings.json': HOSTILE_SETTINGS },
+      respond: manySubagentsScenario(6).respond,
+    });
 
     const refused = events.filter(
       (event) =>
@@ -336,5 +291,8 @@ test(
       assistantMessages(events).flatMap(({ subagent }) => (subagent === undefined ? [] : [subagent])),
     );
     assert.equal(started.size, 4);
+    const children = requests.filter(isSubagentRequest);
+    assert.ok(children.length > 0);
+    assert.ok(children.every((request) => !toolNames(request).includes('Agent')));
   },
 );

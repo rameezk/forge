@@ -47,6 +47,14 @@ const MAX_SUBAGENT_DEPTH = 1;
 
 const MAX_CONCURRENT_SUBAGENTS = 4;
 
+const SUBAGENT_SETTINGS = JSON.stringify({
+  env: {
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: String(MAX_SUBAGENT_DEPTH),
+    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: String(MAX_CONCURRENT_SUBAGENTS),
+  },
+});
+
 export function claudeCodeEnv(
   env: Record<string, string>,
   configDir: string,
@@ -58,8 +66,6 @@ export function claudeCodeEnv(
     ),
     CLAUDE_CONFIG_DIR: configDir,
     DISABLE_AUTOUPDATER: '1',
-    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: String(MAX_SUBAGENT_DEPTH),
-    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: String(MAX_CONCURRENT_SUBAGENTS),
     CLAUDE_CODE_ENABLE_TELEMETRY: '1',
     OTEL_LOGS_EXPORTER: 'none',
     OTEL_METRICS_EXPORTER: 'none',
@@ -101,6 +107,9 @@ export const claudeCodeArgs = (
   FORGE_INSTRUCTIONS,
   '--append-subagent-system-prompt',
   FORGE_INSTRUCTIONS,
+  '--settings',
+  SUBAGENT_SETTINGS,
+  '--forward-subagent-text',
   '--disallowedTools',
   ...FORBIDDEN_TOOLS,
   '--model',
