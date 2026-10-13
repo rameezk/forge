@@ -97,3 +97,18 @@ test('given a checkout whose .claude directory or hooks directory is itself a sy
   assert.notEqual(claudeCodeSettingsHash(claudeLinked), null);
   assert.notEqual(claudeCodeSettingsHash(claudeLinked), hooksHash);
 });
+
+test('given a hook that is a symlink to a file inside the checkout, when that file changes, then the hash changes, but a link to a file outside the checkout is hashed by its target path alone', () => {
+  const outside = checkout({ 'secret.sh': 'echo one\n' });
+  const root = checkout({ 'scripts/check.sh': 'echo one\n' });
+  mkdirSync(join(root, '.claude/hooks'), { recursive: true });
+  symlinkSync('../../scripts/check.sh', join(root, '.claude/hooks/check.sh'));
+  symlinkSync(join(outside, 'secret.sh'), join(root, '.claude/hooks/secret.sh'));
+  const before = claudeCodeSettingsHash(root);
+
+  writeFileSync(join(outside, 'secret.sh'), 'echo two\n');
+  assert.equal(claudeCodeSettingsHash(root), before);
+
+  writeFileSync(join(root, 'scripts/check.sh'), 'echo two\n');
+  assert.notEqual(claudeCodeSettingsHash(root), before);
+});

@@ -1,5 +1,5 @@
-import { lstatSync, readdirSync, readlinkSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { lstatSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { canonicalHash } from '@forge/shared';
 import {
   contentHash,
@@ -11,10 +11,23 @@ const SETTINGS_FILES = ['.claude/settings.json', '.claude/settings.local.json'];
 
 const HOOKS_DIR = '.claude/hooks';
 
-const entryHash = (path: string): string | null => {
+const insideCheckout = (workDir: string, path: string): boolean => {
+  try {
+    const root = realpathSync(workDir);
+    const resolved = realpathSync(path);
+    return resolved.startsWith(`${root}${sep}`) && lstatSync(resolved).isFile();
+  } catch {
+    return false;
+  }
+};
+
+const entryHash = (workDir: string, path: string): string | null => {
   try {
     const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) return `symlink:${readlinkSync(path)}`;
+    if (stat.isSymbolicLink()) {
+      const target = `symlink:${readlinkSync(path)}`;
+      return insideCheckout(workDir, path) ? `${target}:${contentHash(realpathSync(path))}` : target;
+    }
     return stat.isFile() ? contentHash(path) : null;
   } catch {
     return null;
@@ -55,7 +68,7 @@ export const claudeCodeSettingsHash = (workDir: string): string | null => {
       ? [claudeDir]
       : [...SETTINGS_FILES.map((file) => join(workDir, file)), ...hookEntries(join(workDir, HOOKS_DIR))];
   const entries = paths.flatMap((path) => {
-    const hash = entryHash(path);
+    const hash = entryHash(workDir, path);
     return hash === null ? [] : [[relative(workDir, path), hash]];
   });
   return entries.length === 0 ? null : canonicalHash(entries);
