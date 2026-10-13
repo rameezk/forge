@@ -1,9 +1,8 @@
-import { existsSync } from 'node:fs';
+import { lstatSync, readdirSync, readlinkSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { canonicalHash } from '@forge/shared';
 import {
   contentHash,
-  filesUnder,
   realpathOrSelf,
   replacingPaths,
 } from './fingerprint.ts';
@@ -12,14 +11,38 @@ const SETTINGS_FILES = ['.claude/settings.json', '.claude/settings.local.json'];
 
 const HOOKS_DIR = '.claude/hooks';
 
+const entryHash = (path: string): string | null => {
+  try {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) return `symlink:${readlinkSync(path)}`;
+    return stat.isFile() ? contentHash(path) : null;
+  } catch {
+    return null;
+  }
+};
+
+const hookEntries = (dir: string): string[] => {
+  try {
+    return readdirSync(dir)
+      .sort()
+      .flatMap((name) => {
+        const path = join(dir, name);
+        return lstatSync(path).isDirectory() ? hookEntries(path) : [path];
+      });
+  } catch {
+    return [];
+  }
+};
+
 export const claudeCodeSettingsHash = (workDir: string): string | null => {
-  const files = [
-    ...SETTINGS_FILES.map((file) => join(workDir, file)).filter(existsSync),
-    ...(existsSync(join(workDir, HOOKS_DIR)) ? filesUnder(join(workDir, HOOKS_DIR)) : []),
-  ];
-  return files.length === 0
-    ? null
-    : canonicalHash(files.map((file) => [relative(workDir, file), contentHash(file)]));
+  const entries = [
+    ...SETTINGS_FILES.map((file) => join(workDir, file)),
+    ...hookEntries(join(workDir, HOOKS_DIR)),
+  ].flatMap((path) => {
+    const hash = entryHash(path);
+    return hash === null ? [] : [[relative(workDir, path), hash]];
+  });
+  return entries.length === 0 ? null : canonicalHash(entries);
 };
 
 const slugOf = (path: string): string => path.replace(/[^a-zA-Z0-9]/g, '-');

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { claudeCodeNormalizer, claudeCodeSettingsHash } from '../src/claude-code-fingerprint.ts';
@@ -55,4 +55,28 @@ test('given checkouts with Claude Code settings and hook scripts, when their set
   assert.notEqual(claudeCodeSettingsHash(checkout({ ...base, '.claude/hooks/check.sh': 'echo two\n' })), hash);
   assert.notEqual(claudeCodeSettingsHash(checkout({ ...base, '.claude/settings.json': '{}' })), hash);
   assert.notEqual(claudeCodeSettingsHash(checkout({ ...base, '.claude/settings.local.json': '{}' })), hash);
+});
+
+test('given a checkout whose settings file and hook directories are symlinks, when its settings are hashed, then no link is followed, a loop terminates, and retargeting a link changes the hash', () => {
+  const root = checkout({ '.claude/hooks/check.sh': 'echo one\n' });
+  symlinkSync('/dev/zero', join(root, '.claude/settings.json'));
+  symlinkSync('.', join(root, '.claude/hooks/a'));
+  symlinkSync('.', join(root, '.claude/hooks/b'));
+  const before = claudeCodeSettingsHash(root);
+
+  rmSync(join(root, '.claude/settings.json'));
+  symlinkSync('/dev/null', join(root, '.claude/settings.json'));
+
+  assert.notEqual(before, null);
+  assert.notEqual(claudeCodeSettingsHash(root), before);
+});
+
+test('given a checkout whose hooks path is a regular file, when its settings are hashed, then the settings are hashed without it', () => {
+  const settings = { '.claude/settings.json': '{}' };
+
+  assert.equal(claudeCodeSettingsHash(checkout({ '.claude/hooks': 'not a directory' })), null);
+  assert.equal(
+    claudeCodeSettingsHash(checkout({ ...settings, '.claude/hooks': 'not a directory' })),
+    claudeCodeSettingsHash(checkout(settings)),
+  );
 });

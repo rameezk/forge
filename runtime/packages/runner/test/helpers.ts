@@ -116,7 +116,7 @@ export const throwingHarness = (
 ): Harness => ({
   open: () => ({
     identity: async () => ({ version: '1.0.0', args: [] }),
-      fingerprintBasis: () => NO_BASIS,
+    fingerprintBasis: () => NO_BASIS,
     async *run(): AsyncIterable<HarnessEvent> {
       yield* events;
       throw error;
