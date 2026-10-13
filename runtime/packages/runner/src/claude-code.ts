@@ -316,6 +316,7 @@ class ClaudeCodeStream {
   readonly #stop: AbortSignal;
   readonly #turns = new Map<string | null, Turn>();
   readonly #flushed = new Set<string>();
+  readonly #holders = new Map<string, string | null>();
   #sessionId: string | null = null;
   #outcome: { error: string | null } | null = null;
   #malformed: string | null = null;
@@ -402,10 +403,14 @@ class ClaudeCodeStream {
       return;
     }
     const scope = nonEmpty(line.parent_tool_use_id);
+    if (!this.#known(scope)) return;
     yield* this.#flushSpawner(scope);
     if (this.#flushed.has(messageId)) {
       for (const block of blocksOf(message?.content)) {
-        if (block.type === 'tool_use') yield scoped(toolCall(block), scope);
+        if (block.type === 'tool_use') {
+          this.#holders.set(block.id ?? '', scope);
+          yield scoped(toolCall(block), scope);
+        }
       }
       return;
     }
@@ -441,6 +446,7 @@ class ClaudeCodeStream {
         turn.thinking.push(block.thinking);
       } else if (block.type === 'tool_use') {
         turn.calls.push(toolCall(block));
+        this.#holders.set(block.id ?? '', scope);
       }
     }
   }
@@ -451,6 +457,7 @@ class ClaudeCodeStream {
     );
     if (results.length === 0) return;
     const scope = nonEmpty(line.parent_tool_use_id);
+    if (!this.#known(scope)) return;
     yield* this.#flushSpawner(scope);
     yield* this.#flush(scope);
     for (const block of results) {
@@ -466,11 +473,14 @@ class ClaudeCodeStream {
 
   async *#flushSpawner(scope: string | null): AsyncGenerator<HarnessEvent> {
     if (scope === null) return;
-    for (const turn of [...this.#turns.values()]) {
-      if (turn.scope !== scope && turn.calls.some((call) => call.id === scope)) {
-        yield* this.#flush(turn.scope);
-      }
-    }
+    const holder = this.#holders.get(scope);
+    if (holder !== undefined && holder !== scope) yield* this.#flush(holder);
+  }
+
+  #known(scope: string | null): boolean {
+    if (scope === null || this.#holders.has(scope)) return true;
+    this.fail(`claude attributed a message to tool call ${scope}, which it never made`);
+    return false;
   }
 
   async *#flushAll(): AsyncGenerator<HarnessEvent> {

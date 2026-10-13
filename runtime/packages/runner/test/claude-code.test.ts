@@ -354,6 +354,18 @@ test('given a claude-code worker whose first subagent is already answering a too
   }
 });
 
+test('given a claude-code worker whose stream attributes a message to a tool call claude never made, when its workload runs, then the run ends error naming it and nothing is attributed to that call', async () => {
+  const forge = (stream: string): string =>
+    stream.replaceAll('"parent_tool_use_id":"toolu_beta"', '"parent_tool_use_id":"toolu_forged"');
+
+  const { run, transcript } = await runClaude({ fixture: 'subagents', rewrite: forge });
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /toolu_forged/);
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  assert.ok(!events.some((event) => event.subagent === 'toolu_forged'));
+});
+
 const replayedSkillLoads = async (
   fixture: string,
   prompt: string,
