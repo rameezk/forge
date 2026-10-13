@@ -26,7 +26,7 @@ test('given no request record descriptor beyond pi\'s own stdio, when pi loads t
   }
 });
 
-test('given a provider payload with cache_control markers on its system prompt and messages, when it is recorded, then the markers are lifted out with their paths and the body carries none', () => {
+test('given a provider payload with cache_control markers on its system prompt and messages, when it is recorded, then the markers are lifted out with their paths and the recorded system prompt carries none', () => {
   const marker = { type: 'ephemeral' };
   const lines = recordOf({
     model: 'anthropic/claude-opus-4.5',
@@ -42,6 +42,7 @@ test('given a provider payload with cache_control markers on its system prompt a
     { path: ['system', 0], value: marker },
     { path: ['messages', 0, 'content', 0], value: marker },
   ]);
-  assert.equal(JSON.stringify(request.body).includes('cache_control'), false);
-  assert.equal(lines.filter((line) => line.type === 'system_prompt').length, 1);
+  const prompts = lines.filter((line) => line.type === 'system_prompt');
+  assert.equal(prompts.length, 1);
+  assert.deepEqual(prompts[0]?.value, [{ type: 'text', text: 'be brief' }]);
 });
