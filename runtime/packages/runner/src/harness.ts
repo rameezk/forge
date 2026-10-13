@@ -53,6 +53,11 @@ export interface HarnessIdentity {
   args: string[];
 }
 
+export interface FingerprintBasis {
+  settings: string | null;
+  normalize(text: string): string;
+}
+
 export interface HarnessRunSetup {
   runId: string;
   model: string;
@@ -61,6 +66,7 @@ export interface HarnessRunSetup {
 
 export interface HarnessRun {
   identity(): Promise<HarnessIdentity>;
+  fingerprintBasis(invocation: HarnessInvocation): FingerprintBasis;
   run(
     invocation: HarnessInvocation,
     sinks: HarnessSinks,

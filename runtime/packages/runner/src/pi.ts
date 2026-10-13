@@ -21,6 +21,7 @@ import {
 } from '@forge/pi-subagent';
 import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { requireSkill } from './checkout.ts';
+import { replacingPaths } from './fingerprint.ts';
 import { underDevShell } from './devshell.ts';
 import {
   NON_JSON_EXCERPT_CHARS,
@@ -41,6 +42,7 @@ import {
   UNATTENDED_INSTRUCTION,
   type Checkout,
   type Harness,
+  type FingerprintBasis,
   type HarnessIdentity,
   type HarnessInvocation,
   type HarnessRun,
@@ -565,6 +567,10 @@ class PiRun implements HarnessRun {
       PI_CODING_AGENT_DIR: this.#agentDir,
     });
     return { version: version === '' ? null : version, args: [...this.#extraArgs] };
+  }
+
+  fingerprintBasis({ workDir }: HarnessInvocation): FingerprintBasis {
+    return { settings: null, normalize: replacingPaths([[workDir, '<work dir>']]) };
   }
 
   async *run(

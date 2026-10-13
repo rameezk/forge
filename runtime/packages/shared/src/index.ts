@@ -97,6 +97,7 @@ export {
 export type { TicketAttempt } from './attempts.ts';
 export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 export {
+  DEFAULT_HARNESS,
   UNKNOWN_COHORT,
   UNKNOWN_CONFIG,
   canonicalHash,

@@ -83,6 +83,8 @@ export interface FakeHarness extends Harness {
   readonly invocations: HarnessInvocation[];
 }
 
+export const NO_BASIS = { settings: null, normalize: (text: string): string => text };
+
 export const fakeHarness = (
   events: HarnessEvent[],
   hooks: {
@@ -94,6 +96,7 @@ export const fakeHarness = (
     invocations,
     open: () => ({
       identity: async () => ({ version: '1.0.0', args: [] }),
+      fingerprintBasis: () => NO_BASIS,
       async *run(invocation: HarnessInvocation): AsyncIterable<HarnessEvent> {
         invocations.push(invocation);
         let index = 0;
@@ -113,6 +116,7 @@ export const throwingHarness = (
 ): Harness => ({
   open: () => ({
     identity: async () => ({ version: '1.0.0', args: [] }),
+      fingerprintBasis: () => NO_BASIS,
     async *run(): AsyncIterable<HarnessEvent> {
       yield* events;
       throw error;
@@ -198,7 +202,7 @@ export const commandPath = (name: string): string => {
 
 const fakeClaudeSource = (version: string | null): string => `#!${process.execPath}
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 const env = process.env;
 if (process.argv[2] === '--version') { process.stdout.write(${JSON.stringify(version === null ? '' : `${version} (Claude Code)\n`)}); process.exit(${version === null ? 1 : 0}); }
@@ -206,7 +210,8 @@ const bodies = (env.OTEL_LOG_RAW_API_BODIES ?? '').replace(/^file:/, '');
 const modeOf = (path) => (path ? statSync(path).mode & 0o777 : null);
 const modes = { run: modeOf(dirname(env.CLAUDE_CONFIG_DIR ?? '')), config: modeOf(env.CLAUDE_CONFIG_DIR), bodies: modeOf(bodies) };
 writeFileSync(env.FAKE_CLAUDE_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, env, modes }));
-if (bodies && env.FAKE_CLAUDE_BODIES && existsSync(env.FAKE_CLAUDE_BODIES)) { mkdirSync(bodies, { recursive: true }); for (const file of readdirSync(env.FAKE_CLAUDE_BODIES)) cpSync(env.FAKE_CLAUDE_BODIES + '/' + file, bodies + '/' + file); }
+const perRun = (text) => text.replaceAll('{{WORK_DIR}}', realpathSync(process.cwd())).replaceAll('{{CONFIG_DIR}}', env.CLAUDE_CONFIG_DIR ?? '').replaceAll('{{WORK_DIR_SLUG}}', realpathSync(process.cwd()).replace(/[^a-zA-Z0-9]/g, '-'));
+if (bodies && env.FAKE_CLAUDE_BODIES && existsSync(env.FAKE_CLAUDE_BODIES)) { mkdirSync(bodies, { recursive: true }); for (const file of readdirSync(env.FAKE_CLAUDE_BODIES)) { cpSync(env.FAKE_CLAUDE_BODIES + '/' + file, bodies + '/' + file); if (file.endsWith('.request.json')) writeFileSync(bodies + '/' + file, perRun(readFileSync(bodies + '/' + file, 'utf8'))); } }
 if (bodies && env.FAKE_CLAUDE_INDEX === 'fifo') { rmSync(bodies + '/index.jsonl', { force: true }); execFileSync(env.FAKE_CLAUDE_MKFIFO, [bodies + '/index.jsonl']); }
 if (bodies && env.FAKE_CLAUDE_INDEX === 'symlink') { rmSync(bodies + '/index.jsonl', { force: true }); symlinkSync(env.FAKE_CLAUDE_BODIES + '/index.jsonl', bodies + '/index.jsonl'); }
 process.stdout.write(readFileSync(env.FAKE_CLAUDE_STREAM, 'utf8'));
