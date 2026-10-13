@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 
+export const DEFAULT_HARNESS = 'pi';
+
 export interface ConfigFingerprint {
   provider?: string;
+  harness?: string;
   model: string;
   reasoningEffort: string | null;
   harnessArgs: string[];
@@ -10,6 +13,7 @@ export interface ConfigFingerprint {
   systemPrompt: string | null;
   tools: string | null;
   skills: string | null;
+  settings?: string;
 }
 
 export interface RunFingerprint {

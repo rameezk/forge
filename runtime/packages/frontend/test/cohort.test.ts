@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fingerprintHash } from '@forge/shared';
+import { fingerprintHash, type ConfigFingerprint } from '@forge/shared';
 import { textOf } from './html.ts';
 import { dashboard, GLM, SONNET } from './insights-seed.ts';
 
@@ -21,6 +21,7 @@ test('given a cohort, when its page is requested, then it shows the label and ev
 
   assert.match(textOf(page), /sonnet-5\.5 · high · prompt#3fa2/);
   assert.deepEqual(fieldsOf(page), new Map([
+    ['harness', 'Harness pi'],
     ['provider', 'Provider openrouter'],
     ['model', 'Model anthropic/claude-sonnet-5.5'],
     ['reasoning-effort', 'Reasoning effort high'],
@@ -30,6 +31,7 @@ test('given a cohort, when its page is requested, then it shows the label and ev
     ['system-prompt', 'System prompt s'],
     ['tools', 'Tool definitions t'],
     ['skills', 'Skill files k'],
+    ['settings', 'Settings and hooks none'],
   ]));
 });
 
@@ -60,6 +62,35 @@ test('given a cohort on openrouter and one on anthropic otherwise identical, whe
 
   assert.deepEqual(changedFieldsOf(page), ['provider']);
   assert.equal(fieldsOf(page).get('provider'), 'Provider changed anthropic openrouter');
+});
+
+const CLAUDE_CODE: ConfigFingerprint = { ...SONNET, harness: 'claude-code', provider: 'anthropic', settings: 'h1' };
+
+const HOOKED: ConfigFingerprint = { ...CLAUDE_CODE, settings: 'h2' };
+
+test('given a pi cohort and a Claude Code cohort, when one is requested with the other chosen, then each page names its harness and the diff marks the harness among the changed fields', async () => {
+  const { app } = dashboard([
+    ...SEEDS,
+    { id: 'c1', fingerprint: CLAUDE_CODE, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+  ]);
+
+  const page = await (await app.request(`/cohorts/${fingerprintHash(CLAUDE_CODE)}?against=${fingerprintHash(SONNET)}`)).text();
+
+  assert.deepEqual(changedFieldsOf(page), ['harness', 'provider', 'settings']);
+  assert.equal(fieldsOf(page).get('harness'), 'Harness changed claude-code pi');
+  assert.equal(fieldsOf(page).get('settings'), 'Settings and hooks changed h1 none');
+  assert.equal(fieldsOf(await (await app.request(`/cohorts/${fingerprintHash(CLAUDE_CODE)}`)).text()).get('harness'), 'Harness claude-code');
+});
+
+test('given two Claude Code cohorts differing only in their settings and hooks hash, when one is requested with the other chosen, then the diff marks only the settings as changed', async () => {
+  const { app } = dashboard([
+    { id: 'c1', fingerprint: CLAUDE_CODE, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+    { id: 'c2', fingerprint: HOOKED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+  ]);
+
+  const page = await (await app.request(`/cohorts/${fingerprintHash(CLAUDE_CODE)}?against=${fingerprintHash(HOOKED)}`)).text();
+
+  assert.deepEqual(changedFieldsOf(page), ['settings']);
 });
 
 const choicesOf = (page: string): { value: string; selected: boolean; text: string }[] =>

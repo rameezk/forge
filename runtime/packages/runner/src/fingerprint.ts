@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import {
   errorMessage,
   canonicalHash,
+  DEFAULT_HARNESS,
   fingerprintHash,
   isFields,
   sha256,
@@ -11,7 +12,7 @@ import {
   type ConfigFingerprint,
   type RunFingerprint,
 } from '@forge/shared';
-import type { Checkout, HarnessIdentity, Worker } from './harness.ts';
+import type { Checkout, FingerprintBasis, HarnessIdentity, Worker } from './harness.ts';
 import { DEFAULT_PROVIDER } from './provider.ts';
 
 const filesUnder = (dir: string): string[] =>
@@ -30,7 +31,7 @@ const filesUnder = (dir: string): string[] =>
 
 const UNREADABLE = 'unreadable';
 
-const contentHash = (path: string): string => {
+export const contentHash = (path: string): string => {
   try {
     return sha256(readFileSync(path, 'utf8'));
   } catch {
@@ -47,9 +48,7 @@ export const skillsHash = (checkout: Checkout | undefined): string | null =>
           .map((path) => [relative(checkout.root, path), contentHash(path)]),
       );
 
-const WORK_DIR = '<work dir>';
-
-const realpathOrSelf = (path: string): string => {
+export const realpathOrSelf = (path: string): string => {
   try {
     return realpathSync(path);
   } catch {
@@ -57,12 +56,29 @@ const realpathOrSelf = (path: string): string => {
   }
 };
 
-const withoutWorkDir = (value: unknown, workDir: string): string => {
-  let text = JSON.stringify(value);
-  for (const path of new Set([realpathOrSelf(workDir), workDir])) {
-    text = text.replaceAll(path, WORK_DIR);
+export const replacingPaths =
+  (placeholders: readonly (readonly [string, string])[]) =>
+  (text: string): string => {
+    const ordered = placeholders
+      .flatMap(([path, placeholder]) =>
+        [...new Set([realpathOrSelf(path), path])].map((variant) => [variant, placeholder] as const),
+      )
+      .sort(([left], [right]) => right.length - left.length);
+    return ordered.reduce(
+      (replaced, [path, placeholder]) => replaced.replaceAll(path, placeholder),
+      text,
+    );
+  };
+
+const normalized = (value: unknown, normalize: (text: string) => string): unknown => {
+  if (typeof value === 'string') return normalize(value);
+  if (Array.isArray(value)) return value.map((item) => normalized(item, normalize));
+  if (isFields(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, field]) => [key, normalized(field, normalize)]),
+    );
   }
-  return text;
+  return value;
 };
 
 interface Definitions {
@@ -92,7 +108,7 @@ export const mainAgentDefinitions = (
 export interface FingerprintInputs {
   worker: Worker;
   identity: HarnessIdentity;
-  workDir: string;
+  basis: FingerprintBasis;
   skills: string | null;
   baseCommit: string | null;
   forgeGitSha: string | null;
@@ -112,7 +128,7 @@ export class FingerprintRecorder {
     if (isFields(line) && line.type === 'system_prompt' && typeof line.hash === 'string') {
       this.#systemPrompts.set(
         line.hash,
-        sha256(withoutWorkDir(line.value, this.#inputs.workDir)),
+        sha256(JSON.stringify(normalized(line.value, this.#inputs.basis.normalize))),
       );
     }
     const definitions = mainAgentDefinitions(line, this.#systemPrompts);
@@ -126,9 +142,10 @@ export class FingerprintRecorder {
   #record({ systemPrompt, tools }: Definitions): void {
     if (this.#recorded) return;
     this.#recorded = true;
-    const { worker, identity, skills, baseCommit, forgeGitSha, record } = this.#inputs;
+    const { worker, identity, basis, skills, baseCommit, forgeGitSha, record } = this.#inputs;
     const fingerprint: ConfigFingerprint = {
       ...(worker.provider === DEFAULT_PROVIDER ? {} : { provider: worker.provider }),
+      ...(worker.harness === DEFAULT_HARNESS ? {} : { harness: worker.harness }),
       model: worker.model,
       reasoningEffort: worker.reasoningEffort ?? null,
       harnessArgs: identity.args,
@@ -137,6 +154,7 @@ export class FingerprintRecorder {
       systemPrompt,
       tools,
       skills,
+      ...(basis.settings === null ? {} : { settings: basis.settings }),
     };
     try {
       record({ fingerprint, hash: fingerprintHash(fingerprint), forgeGitSha, baseCommit });

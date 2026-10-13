@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -11,8 +12,14 @@ import {
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { HarnessEvent, MessageEvent, SkillLoadEvent } from '@forge/shared';
+import type {
+  HarnessEvent,
+  MessageEvent,
+  RunFingerprint,
+  SkillLoadEvent,
+} from '@forge/shared';
 import { ClaudeCodeHarness } from '../src/index.ts';
+import { FingerprintRecorder } from '../src/fingerprint.ts';
 import { PASSTHROUGH_BWRAP, skillCheckout } from './helpers.ts';
 import {
   NARRATION_INSTRUCTION,
@@ -44,6 +51,8 @@ interface RealClaudeRun {
   loads: SkillLoadEvent[];
   rawEvents: Record<string, unknown>[];
   requests: MessagesRequest[];
+  requestRecord: Record<string, unknown>[];
+  fingerprint: RunFingerprint | null;
   workDir: string;
   home: string;
   runsDir: string;
@@ -55,7 +64,16 @@ interface RealClaudeOptions {
   maxCostUsd?: number | null;
   respond?: RespondMessages;
   prompt?: string;
+  untracked?: Record<string, string>;
 }
+
+const git = (cwd: string, ...args: string[]): void => {
+  execFileSync(
+    'git',
+    ['-c', 'user.name=Forge', '-c', 'user.email=forge@example.com', ...args],
+    { cwd, stdio: 'ignore' },
+  );
+};
 
 const writeAll = (root: string, files: Record<string, string>): void => {
   for (const [path, contents] of Object.entries(files)) {
@@ -70,6 +88,7 @@ const runRealClaude = async ({
   maxCostUsd = null,
   respond = claudeScenarios.success!.respond,
   prompt = 'Run echo forge, then say what it printed.',
+  untracked,
 }: RealClaudeOptions = {}): Promise<RealClaudeRun> => {
   const requests: MessagesRequest[] = [];
   const server = await serveMessages(respond, requests);
@@ -80,6 +99,12 @@ const runRealClaude = async ({
   const runsDir = join(root, 'runs');
   for (const dir of [home, workDir, runsDir]) mkdirSync(dir);
   writeAll(workDir, files);
+  if (untracked !== undefined) {
+    git(workDir, 'init', '-q', '-b', 'main');
+    git(workDir, 'add', '-A');
+    git(workDir, 'commit', '-q', '--allow-empty', '-m', 'init');
+    writeAll(workDir, untracked);
+  }
   writeAll(home, homeFiles);
   const bwrap = join(root, 'passthrough-bwrap');
   writeFileSync(bwrap, PASSTHROUGH_BWRAP);
@@ -98,22 +123,35 @@ const runRealClaude = async ({
   const events: HarnessEvent[] = [];
   const loads: SkillLoadEvent[] = [];
   const rawEvents: Record<string, unknown>[] = [];
+  const requestRecord: Record<string, unknown>[] = [];
+  let fingerprint: RunFingerprint | null = null;
   try {
-    for await (const event of harness
-      .open({ runId: 'run-1', model: 'claude-opus-4-5', listedModel: null })
-      .run(
-        {
-          model: 'claude-opus-4-5',
-          workDir,
-          prompt,
-          checkout: skillCheckout(workDir, files),
-        },
-        {
-          stop: new AbortController().signal,
-          rawEvent: (event) => rawEvents.push(event as Record<string, unknown>),
-          requestRecord: () => undefined,
-        },
-      )) {
+    const invocation = {
+      model: 'claude-opus-4-5',
+      workDir,
+      prompt,
+      checkout: skillCheckout(workDir, files),
+    };
+    const run = harness.open({ runId: 'run-1', model: 'claude-opus-4-5', listedModel: null });
+    const recorder = new FingerprintRecorder({
+      worker: { name: 'refiner', harness: 'claude-code', provider: 'anthropic', model: 'claude-opus-4-5', prompt, promptTemplate: 'work the ticket' },
+      identity: await run.identity(),
+      basis: run.fingerprintBasis(invocation),
+      skills: null,
+      baseCommit: null,
+      forgeGitSha: null,
+      record: (recorded) => {
+        fingerprint = recorded;
+      },
+    });
+    for await (const event of run.run(invocation, {
+      stop: new AbortController().signal,
+      rawEvent: (event) => rawEvents.push(event as Record<string, unknown>),
+      requestRecord: (line) => {
+        recorder.observe(line);
+        requestRecord.push(line as Record<string, unknown>);
+      },
+    })) {
       if (event.type === 'skill_load') loads.push(event);
       else events.push(event);
     }
@@ -121,7 +159,7 @@ const runRealClaude = async ({
     server.close();
     await once(server, 'close');
   }
-  return { events, loads, rawEvents, requests, workDir, home, runsDir };
+  return { events, loads, rawEvents, requests, requestRecord, fingerprint: fingerprint as RunFingerprint | null, workDir, home, runsDir };
 };
 
 const assistantMessages = (events: HarnessEvent[]): MessageEvent[] =>
@@ -165,6 +203,70 @@ test(
     );
     const end = events.at(-1);
     assert.deepEqual(end, { ...end, type: 'result', status: 'success', error: null });
+  },
+);
+
+test(
+  'given the locked claude, when a workload runs, then its request record holds claude\'s system prompt and tool definitions and one request line per request the endpoint served',
+  { skip },
+  async () => {
+    const { requests, requestRecord, fingerprint } = await runRealClaude();
+
+    const lines = (type: string): Record<string, unknown>[] =>
+      requestRecord.filter((line) => line.type === type);
+    assert.equal(lines('request').length, requests.length);
+    assert.ok(lines('system_prompt').length >= 1);
+    assert.match(JSON.stringify(lines('system_prompt')), /You are Claude Code/);
+    const toolList = lines('tools').flatMap(({ tools }) => tools as { name: string }[]);
+    assert.ok(toolList.some(({ name }) => name === 'Bash'));
+    assert.ok(fingerprint);
+    assert.equal(fingerprint.fingerprint.harness, 'claude-code');
+    assert.notEqual(fingerprint.fingerprint.systemPrompt, null);
+    assert.notEqual(fingerprint.fingerprint.tools, null);
+  },
+);
+
+test(
+  'given the locked claude and two runs of one worker in different work dirs, with different prompts, git statuses and times, when each runs, then both fingerprints hash alike',
+  { skip },
+  async () => {
+    const files = { 'README.md': 'a repo\n' };
+    const first = await runRealClaude({ files, untracked: { 'notes.md': 'one\n' } });
+    const second = await runRealClaude({
+      files,
+      untracked: { 'other.md': 'two\n', 'more.md': 'three\n' },
+      prompt: 'Say hello, then run echo forge.',
+    });
+
+    assert.notEqual(first.workDir, second.workDir);
+    assert.ok(first.fingerprint);
+    assert.ok(second.fingerprint);
+    assert.equal(first.fingerprint.fingerprint.systemPrompt, second.fingerprint.fingerprint.systemPrompt);
+    assert.equal(first.fingerprint.fingerprint.tools, second.fingerprint.fingerprint.tools);
+    assert.equal(first.fingerprint.hash, second.fingerprint.hash);
+  },
+);
+
+test(
+  'given the locked claude and two repos that differ only in a Claude Code hook, when each runs, then the fingerprints differ in their settings and nothing else',
+  { skip },
+  async () => {
+    const hooked = (command: string): Record<string, string> => ({
+      '.claude/settings.json': JSON.stringify({
+        hooks: { PreToolUse: [{ hooks: [{ type: 'command', command }] }] },
+      }),
+    });
+    const first = await runRealClaude({ files: hooked('true') });
+    const second = await runRealClaude({ files: hooked('false') });
+
+    assert.ok(first.fingerprint);
+    assert.ok(second.fingerprint);
+    assert.notEqual(first.fingerprint.hash, second.fingerprint.hash);
+    const { settings: before, ...rest } = first.fingerprint.fingerprint;
+    const { settings: after, ...others } = second.fingerprint.fingerprint;
+    assert.notEqual(before, after);
+    assert.notEqual(before, undefined);
+    assert.deepEqual(rest, others);
   },
 );
 

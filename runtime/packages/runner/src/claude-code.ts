@@ -19,11 +19,14 @@ import {
   type ToolCallEvent,
   type ToolResultEvent,
 } from '@forge/shared';
+import { recordOf } from '@forge/pi-request-record';
+import { claudeCodeNormalizer, claudeCodeSettingsHash } from './claude-code-fingerprint.ts';
 import { underDevShell } from './devshell.ts';
 import {
   NARRATION_INSTRUCTION,
   UNATTENDED_INSTRUCTION,
   type Harness,
+  type FingerprintBasis,
   type HarnessIdentity,
   type HarnessInvocation,
   type HarnessRun,
@@ -81,6 +84,8 @@ const PRIVATE_DIR = 0o700;
 const MAX_INDEX_BYTES = 16 * 1024 * 1024;
 
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+
+const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 
 const BODIES_POLL_MS = 20;
 
@@ -156,6 +161,7 @@ interface ClaudeBody {
 interface IndexEntry {
   message_id?: unknown;
   request_id?: unknown;
+  request_file?: unknown;
   response_file?: unknown;
 }
 
@@ -245,6 +251,14 @@ class RecordedBodies {
     }
   }
 
+  request(messageId: string): unknown {
+    this.#refresh();
+    const file = nonEmpty(this.#entries.get(messageId)?.request_file);
+    if (file === null || basename(file) !== file) return null;
+    const text = readRegularFile(join(this.#dir, file), MAX_REQUEST_BYTES);
+    return text === null ? null : parseJson(text);
+  }
+
   peek(messageId: string): Recorded | null {
     this.#refresh();
     const entry = this.#entries.get(messageId);
@@ -312,6 +326,8 @@ const scoped = <T extends MessageEvent | ToolCallEvent | ToolResultEvent>(
 
 class ClaudeCodeStream {
   readonly #rawEvent: HarnessSinks['rawEvent'];
+  readonly #requestRecord: HarnessSinks['requestRecord'];
+  readonly #defined = new Set<string>();
   readonly #bodies: RecordedBodies;
   readonly #stop: AbortSignal;
   readonly #turns = new Map<string | null, Turn>();
@@ -323,6 +339,7 @@ class ClaudeCodeStream {
 
   constructor(sinks: HarnessSinks, bodies: RecordedBodies) {
     this.#rawEvent = sinks.rawEvent;
+    this.#requestRecord = sinks.requestRecord;
     this.#stop = sinks.stop;
     this.#bodies = bodies;
   }
@@ -489,6 +506,19 @@ class ClaudeCodeStream {
     }
   }
 
+  #record({ messageId, scope }: Turn): void {
+    const body = this.#bodies.request(messageId);
+    if (body === null) return;
+    for (const line of recordOf(body)) {
+      if (line.type === 'request') {
+        this.#requestRecord(scope === null ? line : { ...line, subagent: scope });
+      } else if (!this.#defined.has(line.hash)) {
+        this.#defined.add(line.hash);
+        this.#requestRecord(line);
+      }
+    }
+  }
+
   async *#flush(
     scope: string | null,
     known?: Recorded,
@@ -521,6 +551,7 @@ class ClaudeCodeStream {
       this.fail(errorMessage(error));
       return;
     }
+    this.#record(turn);
     const message: MessageEvent = {
       type: 'message',
       role: 'assistant',
@@ -586,12 +617,23 @@ class ClaudeCodeRun implements HarnessRun {
     return { version: version === '' ? null : version, args: [...extraArgs] };
   }
 
+  fingerprintBasis({ workDir }: HarnessInvocation): FingerprintBasis {
+    return {
+      settings: claudeCodeSettingsHash(workDir),
+      normalize: claudeCodeNormalizer({ workDir, configDir: this.#configDir }),
+    };
+  }
+
+  get #configDir(): string {
+    return join(this.#dir, 'config');
+  }
+
   async *run(
     invocation: HarnessInvocation,
     sinks: HarnessSinks,
   ): AsyncIterable<HarnessOutput> {
     const { command, sandbox, system, env, maxCostUsd, extraArgs = [] } = this.#options;
-    const configDir = join(this.#dir, 'config');
+    const configDir = this.#configDir;
     const bodiesDir = join(this.#dir, 'bodies');
     mkdirSync(configDir, { recursive: true, mode: PRIVATE_DIR });
     mkdirSync(bodiesDir, { recursive: true, mode: PRIVATE_DIR });
