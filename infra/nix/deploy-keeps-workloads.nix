@@ -66,7 +66,7 @@ testers.runNixOSTest {
       };
     };
 
-  testScript = builtins.readFile ./oneshot.py + ''
+  testScript = ''
     def show(unit, prop):
         return box.succeed(f"systemctl show --value -p {prop} {unit}").strip()
 
@@ -75,6 +75,17 @@ testers.runNixOSTest {
 
     def wait_inactive(unit):
         retry(lambda _: show(unit, "ActiveState") == "inactive", 60)
+
+    def survives_deploy(unit, kind, pid):
+        state = (show(unit, "ActiveState"), show(unit, "SubState"))
+        assert state == ("activating", "start"), (unit, state)
+        assert show(unit, "MainPID") == pid, (unit, show(unit, "MainPID"), pid)
+        box.succeed(f"touch /var/lib/forge/release-{kind}")
+        wait_inactive(unit)
+        assert show(unit, "Result") == "success", (unit, show(unit, "Result"))
+
+    def runs_version(kind, name, version):
+        assert started_by(kind, name) == version, (kind, name, started_by(kind, name))
 
     box.wait_for_unit("multi-user.target")
 
@@ -90,25 +101,17 @@ testers.runNixOSTest {
     box.succeed("/run/current-system/specialisation/newpackage/bin/switch-to-configuration test")
 
     with subtest("a dispatch survives a deploy that changes its unit"):
-        assert show(dispatch, "ActiveState") == "active", show(dispatch, "ActiveState")
-        assert show(dispatch, "MainPID") == pids[dispatch], (show(dispatch, "MainPID"), pids[dispatch])
-        box.succeed("touch /var/lib/forge/release-dispatch")
-        wait_inactive(dispatch)
-        assert show(dispatch, "Result") == "success", show(dispatch, "Result")
+        survives_deploy(dispatch, "dispatch", pids[dispatch])
 
     with subtest("a worker run survives a deploy that changes its unit"):
-        assert show(runner, "ActiveState") == "active", show(runner, "ActiveState")
-        assert show(runner, "MainPID") == pids[runner], (show(runner, "MainPID"), pids[runner])
-        box.succeed("touch /var/lib/forge/release-run")
-        wait_inactive(runner)
-        assert show(runner, "Result") == "success", show(runner, "Result")
+        survives_deploy(runner, "run", pids[runner])
 
     with subtest("a dispatch started after a deploy runs the new package"):
         box.succeed("systemctl start forge-dispatch@forge:8.service")
-        assert started_by("dispatch", "forge") == "new", started_by("dispatch", "forge")
+        runs_version("dispatch", "forge", "new")
 
     with subtest("a worker run started after a deploy runs the new package"):
         box.succeed("systemctl start forge-runner@builder.service")
-        assert started_by("run", "builder") == "new", started_by("run", "builder")
+        runs_version("run", "builder", "new")
   '';
 }
