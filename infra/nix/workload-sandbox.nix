@@ -29,6 +29,8 @@ let
     attempt() {
       if bash -c "$2" > /dev/null 2>&1; then echo "$1 allowed"; else echo "$1 denied"; fi
     }
+    environment='for name in PATH LOCALE_ARCHIVE TZDIR LANG; do printf "%s=%s\n" "$name" "''${!name-}"; done'
+    tools='for tool in gh git cat; do if command -v "$tool" > /dev/null; then echo "$tool resolved"; else echo "$tool missing"; fi; done'
     case "''${@: -1}" in
       plant)
         echo '[credential]' > "$HOME/.gitconfig" && echo planted > planted.out
@@ -68,6 +70,9 @@ let
           attempt "create user namespace" "${lib.getExe' util-linux "unshare"} --user true 2> userns.err"
         } > sandbox.out
         env | cut -d= -f1 | sort > env.out
+        bash -c "$environment" > harness-environment.out
+        bash -l -c "$environment; $tools" > login-shell.out
+        bash -c "$environment; $tools" > non-login-shell.out
         test -n "''${OPENROUTER_API_KEY-}" && echo present > openrouter.out
         for process in /proc/[0-9]*; do cat "$process/comm"; done > processes.out 2>/dev/null
         mkdir flake
@@ -228,9 +233,23 @@ testers.runNixOSTest {
         assert "sleep" not in processes, processes
         assert "systemd" not in processes, processes
 
+    resolved = "gh resolved\ngit resolved\ncat resolved\n"
+    given = box.succeed(f"cat {run_dir}/harness-environment.out")
+    login = box.succeed(f"cat {run_dir}/login-shell.out")
+    non_login = box.succeed(f"cat {run_dir}/non-login-shell.out")
+
+    with subtest("a login shell keeps the environment the runner gave the workload, and finds its tools"):
+        values = dict(line.split("=", 1) for line in given.splitlines())
+        assert all(values.get(name) for name in ["PATH", "LOCALE_ARCHIVE", "TZDIR", "LANG"]), given
+        assert login == given + resolved, login
+
+    with subtest("a non-login shell sees the same environment as a login shell"):
+        assert non_login == login, (non_login, login)
+
     with subtest("the harness receives only deliberate credentials"):
         names = set(box.succeed(f"cat {run_dir}/env.out").split())
         deliberate = {
+            "__NIXOS_SET_ENVIRONMENT_DONE",
             "FORGE_PI_REQUEST_RECORD_FD",
             "FORGE_PI_SUBAGENT_INVOCATION",
             "HOME",

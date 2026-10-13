@@ -1484,7 +1484,7 @@ test('given a GitHub write-token file that also sets NODE_OPTIONS and quotes the
   assert.equal(pi.nodeOptions, undefined);
 });
 
-test('given a runner whose own environment holds its git config, the write-token file and more, when a ticket is dispatched, then the harness environment holds only the system settings, its HOME, the OpenRouter key, the write token, the git identity and credential helper, and pi\'s own variables', async () => {
+test('given a runner whose own environment holds its git config, the write-token file and more, when a ticket is dispatched, then the harness environment holds only the system settings, its HOME, the OpenRouter key, the write token, the git identity and credential helper, the NixOS environment marker, and pi\'s own variables', async () => {
   const { bwrap } = await dispatch({
     env: { NODE_OPTIONS: '--require /var/lib/forge/planted.js' },
   });
@@ -1507,6 +1507,7 @@ test('given a runner whose own environment holds its git config, the write-token
     'OPENROUTER_API_KEY',
     'PATH',
     'PI_CODING_AGENT_DIR',
+    '__NIXOS_SET_ENVIRONMENT_DONE',
   ]);
   assert.equal(bwrap.env.GITHUB_TOKEN, GITHUB_TOKEN);
   assert.equal(bwrap.env.GIT_CONFIG_COUNT, '2');
