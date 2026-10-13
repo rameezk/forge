@@ -757,8 +757,19 @@ export const anthropicReply = (
   { type: 'message_stop' },
 ];
 
+const requestIdOf = (events: unknown[]): string | undefined => {
+  const start = events.find(
+    (event) => (event as { type: string }).type === 'message_start',
+  ) as { message: { id: string } } | undefined;
+  return start?.message.id.replace(/^msg_/, 'req_');
+};
+
 export const anthropicSse = (res: ServerResponse, events: unknown[]): void => {
-  res.writeHead(200, { 'content-type': 'text/event-stream' });
+  const requestId = requestIdOf(events);
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    ...(requestId === undefined ? {} : { 'request-id': requestId }),
+  });
   for (const event of events) {
     const { type } = event as { type: string };
     res.write(`event: ${type}\ndata: ${JSON.stringify(event)}\n\n`);

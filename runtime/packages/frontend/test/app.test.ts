@@ -357,6 +357,20 @@ test('given a run whose recorded start time is not a date, when the list and its
 const summaryValue = (body: string, term: string): string =>
   textOf(body.match(new RegExp(`<dt[^>]*>${term}</dt>\\s*<dd[^>]*>([\\s\\S]*?)</dd>`))?.[1] ?? 'missing');
 
+test('given a pi run and a claude-code run on subscription, when their run pages are requested, then each summary names its harness, and the claude-code run names the anthropic provider', async () => {
+  const app = appWith([
+    sampleRun({ id: 'pi-run', harness: 'pi', transcriptRef: null }),
+    sampleRun({ id: 'claude-run', harness: 'claude-code', model: 'claude-opus-4-5', costStatus: 'subscription', costUsd: 0, transcriptRef: null }),
+  ]);
+
+  const pi = await (await app.request('/runs/pi-run')).text();
+  const claude = await (await app.request('/runs/claude-run')).text();
+
+  assert.equal(summaryValue(pi, 'Harness'), 'pi');
+  assert.equal(summaryValue(claude, 'Harness'), 'claude-code');
+  assert.equal(summaryValue(claude, 'Providers'), 'anthropic');
+});
+
 test('given a run with 44991 input, 3480 output, 120000 cache-read and 5009 cache-write tokens, when its run page is requested, then the summary shows each count with thousands separators and the cache hit rate as cache read over all prompt tokens', async () => {
   const app = appWith([
     sampleRun({ id: 'run-01', inputTokens: 44991, outputTokens: 3480, cacheReadTokens: 120000, cacheWriteTokens: 5009, transcriptRef: null }),

@@ -2,6 +2,8 @@
   lib,
   bubblewrap,
   buildNpmPackage,
+  claude-code,
+  coreutils,
   git,
   makeWrapper,
   nodejs,
@@ -31,13 +33,16 @@ buildNpmPackage {
   npmDepsHash = "sha256-hQ/1YqFd9cQHxQ+h3Hj9oPDex1T9w+LpHWhDJnBELu4=";
 
   nativeBuildInputs = [ makeWrapper ];
-  nativeCheckInputs = [ git ];
+  nativeCheckInputs = [
+    coreutils
+    git
+  ];
 
   doCheck = true;
   checkPhase = ''
     runHook preCheck
     npm run typecheck
-    FORGE_PI_PACKAGE=${piPackage} node --test 'packages/*/test/**/*.test.ts'
+    FORGE_PI_PACKAGE=${piPackage} FORGE_CLAUDE_CODE=${lib.getExe claude-code} node --test 'packages/*/test/**/*.test.ts'
     runHook postCheck
   '';
 
@@ -78,6 +83,7 @@ buildNpmPackage {
       requestRecordExtension
       piPackage
       ;
+    claudeCode = lib.getExe claude-code;
   };
 
   meta = {

@@ -35,10 +35,13 @@
 
       forgeGitSha = self.rev or self.dirtyRev or null;
 
-      runnerOverlay = final: _prev: {
+      runnerOverlay = final: prev: {
         pi-coding-agent = final.callPackage ./infra/nix/pi-coding-agent.nix { };
+        claude-code = final.callPackage ./infra/nix/claude-code.nix { claude-code = prev.claude-code; };
         forge-runner = final.callPackage ./infra/nix/runner.nix { };
       };
+
+      unfreeAllowed = pkg: lib.getName pkg == "claude-code";
 
       mkHost =
         {
@@ -58,6 +61,7 @@
             ./infra/nixos/disko.nix
             ./infra/nixos/runtime.nix
             { nixpkgs.overlays = [ runnerOverlay ]; }
+            { nixpkgs.config.allowUnfreePredicate = unfreeAllowed; }
             { _module.args.forgeConfig = cfg; }
             { forge.runtime.gitSha = forgeGitSha; }
             { forge.runtime.secretsFile = secretsFile; }
@@ -98,12 +102,17 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          unfreePkgs = import nixpkgs {
+            inherit system;
+            config.allowUnfreePredicate = unfreeAllowed;
+          };
         in
         {
           forge-shared = pkgs.callPackage ./infra/nix/shared.nix { };
           pi-coding-agent = pkgs.callPackage ./infra/nix/pi-coding-agent.nix { };
+          claude-code = unfreePkgs.callPackage ./infra/nix/claude-code.nix { };
           forge-runner = pkgs.callPackage ./infra/nix/runner.nix {
-            inherit (self.packages.${system}) pi-coding-agent;
+            inherit (self.packages.${system}) pi-coding-agent claude-code;
           };
         }
       );
@@ -127,6 +136,7 @@
           default = pkgs.mkShell {
             packages = operatorToolchain system ++ [ pkgs.nodejs ];
             FORGE_PI_PACKAGE = self.packages.${system}.forge-runner.piPackage;
+            FORGE_CLAUDE_CODE = self.packages.${system}.forge-runner.claudeCode;
             PLAYWRIGHT_BROWSERS_PATH = pkgs.callPackage ./infra/nix/playwright-browsers.nix { };
             PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
             PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
@@ -371,6 +381,41 @@
                 ]
               )
               "a worker whose reasoning effort is outside off, minimal, low, medium, high, xhigh and max must fail evaluation with an error naming those levels, instead of pi warning and running at medium";
+          harnessWorker =
+            {
+              harness,
+              provider ? null,
+              reasoningEffort ? null,
+            }:
+            mkHost {
+              configFile = exampleConfigFile;
+              secretsFile = exampleSecretsFile;
+              modules = [
+                {
+                  forge.runtime.harnesses.${harness}.command = "/run/current-system/sw/bin/${harness}";
+                  forge.runtime.workers.builder = {
+                    inherit harness;
+                    model = "claude-opus-4-5";
+                    prompt = "build the thing";
+                  }
+                  // lib.optionalAttrs (provider != null) { inherit provider; }
+                  // lib.optionalAttrs (reasoningEffort != null) { inherit reasoningEffort; };
+                }
+              ];
+            };
+          claudeCodeHost = harnessWorker { harness = "claude-code"; };
+          claudeCodeDeclaredAlongsidePi = lib.asserts.assertMsg (
+            claudeCodeHost.config.forge.runtime.settings.workers.builder.provider == "anthropic"
+            && claudeCodeHost.config.forge.runtime.settings.harnesses ? claude-code
+            && (harnessWorker { harness = "claude-code"; reasoningEffort = "ultracode"; }).config.forge.runtime.settings.workers.builder.reasoningEffort == "ultracode"
+            && (harnessWorker { harness = "pi"; reasoningEffort = "off"; }).config.forge.runtime.settings.workers.builder.reasoningEffort == "off"
+          ) "a claude-code worker must default to the anthropic provider and reach the runner's config with claude-code's own reasoning efforts, alongside a pi worker with pi's";
+          crossedPairsAndEffortsFail = lib.asserts.assertMsg (
+            !(evaluates (harnessWorker { harness = "pi"; provider = "anthropic"; }))
+            && !(evaluates (harnessWorker { harness = "claude-code"; provider = "openrouter"; }))
+            && !(evaluates (harnessWorker { harness = "claude-code"; reasoningEffort = "off"; }))
+            && !(evaluates (harnessWorker { harness = "pi"; reasoningEffort = "ultracode"; }))
+          ) "a worker pairing pi with anthropic or claude-code with openrouter, or using an effort its harness does not take, must fail evaluation";
           providerDefaultsToOpenRouter = lib.asserts.assertMsg (
             runnerSettings.workers.refiner.provider == "openrouter"
             && runnerSettings.workers.builder.provider == "openrouter"
@@ -398,12 +443,11 @@
               )
               "a worker whose provider is not openrouter must fail evaluation with an error naming the allowed providers";
           anthropicWorkerModule = {
-            forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+            forge.runtime.harnesses.claude-code.command = "/run/current-system/sw/bin/claude";
             forge.runtime.workers.builder = {
-              harness = "pi";
+              harness = "claude-code";
               model = "claude-opus-5-5";
               prompt = "build the thing";
-              provider = "anthropic";
             };
           };
           subscriptionHost = mkHost {
@@ -418,7 +462,7 @@
             && !(lib.hasInfix "ANTHROPIC" runnerEnvTemplate.content)
             && subscriptionHost.config.sops.secrets.anthropic_oauth_token.sopsFile == exampleSecretsFile
             && subscriptionRunnerEnvTemplate.content
-            == "OPENROUTER_API_KEY=${subscriptionHost.config.sops.placeholder.openrouter_api_key}\nANTHROPIC_OAUTH_TOKEN=${subscriptionHost.config.sops.placeholder.anthropic_oauth_token}\n"
+            == "OPENROUTER_API_KEY=${subscriptionHost.config.sops.placeholder.openrouter_api_key}\nCLAUDE_CODE_OAUTH_TOKEN=${subscriptionHost.config.sops.placeholder.anthropic_oauth_token}\n"
             && subscriptionHost.config.systemd.services."forge-runner@".serviceConfig.EnvironmentFile
             == subscriptionRunnerEnvTemplate.path
           ) "a host with no anthropic worker must neither require anthropic_oauth_token nor hand the runner a token, and one with an anthropic worker must pass it to the runner from the runtime secrets file";
@@ -1376,6 +1420,8 @@
             assert workerHostInstantiates;
             assert relativeHarnessCommandFails;
             assert invalidEffortFails;
+            assert claudeCodeDeclaredAlongsidePi;
+            assert crossedPairsAndEffortsFail;
             assert providerDefaultsToOpenRouter;
             assert unknownProviderFails;
             assert anthropicTokenOnlyForSubscriptionWorkers;
@@ -1555,6 +1601,9 @@
           };
           pi-cli-contract = pkgs.callPackage ./infra/nix/pi-cli-contract.nix {
             inherit (self.packages.${system}) forge-runner pi-coding-agent;
+          };
+          claude-code-cli-contract = pkgs.callPackage ./infra/nix/claude-code-cli-contract.nix {
+            inherit (self.packages.${system}) forge-runner claude-code;
           };
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
