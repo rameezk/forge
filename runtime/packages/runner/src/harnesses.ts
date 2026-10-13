@@ -52,7 +52,7 @@ const piFactory: HarnessFactory = ({
     ...(config.args === undefined ? {} : { extraArgs: config.args }),
     system: systemEnvironment(env),
     env: {
-      ...picked(env, [providerSpec(worker.provider).credentialEnv]),
+      ...picked(env, [providerSpec(PI_PROVIDER).credentialEnv]),
       ...harnessEnv,
     },
   });

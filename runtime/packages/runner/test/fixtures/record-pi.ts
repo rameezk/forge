@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { childArgs, SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
 import type { HarnessInvocation } from '../../src/harness.ts';
 import { piArgs, subagentInvocation } from '../../src/pi.ts';
-import { PI_PROVIDER } from '../../src/provider.ts';
+import { PI_PROVIDER, providerSpec } from '../../src/provider.ts';
 import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { REQUEST_RECORD_FD } from '../../src/sandbox.ts';
 import { PI_EXTENSIONS } from '../helpers.ts';
@@ -61,7 +61,9 @@ const runPi = async (
       [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
         subagentInvocation(pi, invocation, PI_EXTENSIONS),
       ),
-      ...(key === undefined ? {} : { OPENROUTER_API_KEY: key }),
+      ...(key === undefined
+        ? {}
+        : { [providerSpec(PI_PROVIDER).credentialEnv]: key }),
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ignore', 'ignore'],
   }) as ChildProcessByStdio<null, Readable, Readable>;
