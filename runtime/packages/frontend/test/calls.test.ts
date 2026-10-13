@@ -54,15 +54,16 @@ interface Call {
     output?: number;
   };
   sentEffort?: string | null;
+  effortField?: string;
 }
 
 const NO_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
-const requestLine = (subagent: string | null, effort: string | null): string =>
+const requestLine = (subagent: string | null, effort: string | null, field = 'reasoning'): string =>
   JSON.stringify({
     type: 'request',
     ...(subagent === null ? {} : { subagent }),
-    body: { model: 'z-ai/glm-5', messages: [], ...(effort === null ? {} : { reasoning: { effort } }) },
+    body: { model: 'z-ai/glm-5', messages: [], ...(effort === null ? {} : { [field]: { effort } }) },
     cacheMarkers: [],
   });
 
@@ -118,7 +119,7 @@ const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests =
   if (recordRequests) {
     const lines = calls
       .filter((call) => call.sentEffort !== undefined)
-      .map((call) => requestLine(call.subagent ?? null, call.sentEffort ?? null));
+      .map((call) => requestLine(call.subagent ?? null, call.sentEffort ?? null, call.effortField));
     writeFileSync(join(dir, `${id}.requests.jsonl`), lines.join('\n') + '\n');
   }
 };
@@ -259,6 +260,16 @@ test('given a workload that sent an effort that is not a known level, when its d
 
   assert.deepEqual(callRows(body).map((row) => cellOf(row, 'data-effort')), ['unknown']);
   assert.ok(body.length < 100_000);
+});
+
+test('given a Claude Code workload whose requests carry their effort in output_config, when its detail page is requested, then each row shows the effort it sent', async () => {
+  const body = await callsPage({ harness: 'claude-code', reasoningEffort: 'high' }, [
+    { sentEffort: 'high', effortField: 'output_config' },
+    { sentEffort: 'low', effortField: 'output_config', subagent: 'call_a' },
+    { sentEffort: null },
+  ]);
+
+  assert.deepEqual(callRows(body).map((row) => cellOf(row, 'data-effort')), ['high', 'low', 'default']);
 });
 
 test('given a workload with more generations than recorded requests, when its detail page is requested, then the rows beyond the recorded requests show no effort', async () => {

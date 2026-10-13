@@ -66,6 +66,34 @@ test('given two cohorts, when a cohort label is followed from the insights page 
   await expect(page.locator('[data-field="skills"]')).toHaveAttribute('data-changed', 'true');
 });
 
+const claudeCode: ConfigFingerprint = {
+  ...fingerprint,
+  harness: 'claude-code',
+  provider: 'anthropic',
+  harnessArgs: [],
+  settings: 'e'.repeat(64),
+};
+
+test('given a pi cohort and a Claude Code cohort, when the diff between them is opened, then each cohort names its harness and the diff marks the harness and the settings as changed', async ({
+  dashboard,
+  page,
+}) => {
+  record(dashboard.store, 'one', fingerprint);
+  record(dashboard.store, 'two', claudeCode);
+
+  await page.goto(`/cohorts/${fingerprintHash(claudeCode)}`);
+  await expect(page.locator('[data-field="harness"]')).toContainText('claude-code');
+  await page.goto(`/cohorts/${fingerprintHash(fingerprint)}`);
+  await expect(page.locator('[data-field="harness"]')).toContainText('pi');
+  await page.getByLabel('Compare against').selectOption(fingerprintHash(claudeCode));
+  await page.getByRole('button', { name: 'Compare' }).click();
+
+  await expect(page.locator('[data-field="harness"]')).toHaveAttribute('data-changed', 'true');
+  await expect(page.locator('[data-field="harness"]')).toContainText('pi');
+  await expect(page.locator('[data-field="harness"]')).toContainText('claude-code');
+  await expect(page.locator('[data-field="settings"]')).toHaveAttribute('data-changed', 'true');
+});
+
 test('given a cohort page with a comparison, when it is opened at phone width, then the page does not scroll sideways', async ({ dashboard, page }) => {
   record(dashboard.store, 'one', fingerprint);
   record(dashboard.store, 'two', reskilled);
