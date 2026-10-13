@@ -265,6 +265,7 @@ const listPriced = (runId: string, ...equivalents: (number | null)[]) => (store:
       runId,
       generationId: `${runId}-gen-${index + 1}`,
       subagent: null,
+      kind: 'message',
       usage,
       estimatedCostUsd: null,
       listPriceEquivalentUsd,
@@ -1051,7 +1052,7 @@ const viewWithGenerations = async (
   const store = Store.open(':memory:');
   store.insertRun(sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl', ...run }));
   for (const { generationId, subagent, estimate } of generations) {
-    store.recordGeneration({ runId: 'run-01', generationId, subagent, usage, estimatedCostUsd: estimate ?? null, createdAt: '2026-09-21T10:01:00.000Z' });
+    store.recordGeneration({ runId: 'run-01', generationId, subagent, kind: 'message', usage, estimatedCostUsd: estimate ?? null, createdAt: '2026-09-21T10:01:00.000Z' });
   }
   const ids = new Map(store.unsettledGenerations().map((g) => [g.generationId, g.id]));
   const lookups: LookupResult[] = [];

@@ -81,7 +81,7 @@ test('given a workload whose calls are billed, estimated and flagged as cache mi
   dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, reasoningEffort: 'high', model: 'anthropic/claude-opus-5.5' });
   const usage = (cacheReadTokens: number, cacheWriteTokens: number) => ({ inputTokens: 120, outputTokens: 450, cacheReadTokens, cacheWriteTokens });
   [usage(0, 20000), usage(20000, 800), usage(0, 20800)].forEach((tokens, index) =>
-    dashboard.store.recordGeneration({ runId: 'run-01', generationId: `gen-0${index}`, subagent: null, usage: tokens, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
+    dashboard.store.recordGeneration({ runId: 'run-01', generationId: `gen-0${index}`, subagent: null, kind: 'message', usage: tokens, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
   );
   const [first] = dashboard.store.unsettledGenerations();
   dashboard.store.recordLookups(
@@ -94,6 +94,28 @@ test('given a workload whose calls are billed, estimated and flagged as cache mi
   await expect(page.locator('[data-calls] [data-badge="billed"]')).toHaveCount(1);
   await expect(page.locator('[data-calls] [data-badge="estimated"]')).toHaveCount(2);
   await expect(page.locator('[data-calls] [data-badge="cache-miss"]')).toHaveCount(1);
+  const card = page.locator('[data-calls]');
+  expect(await card.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+});
+
+test('given a workload with message, compaction and cache-warm generations, when its detail page is opened, then compaction and cache-warm rows carry a kind badge, message rows carry none, and the per-call table does not scroll sideways', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, model: 'anthropic/claude-opus-5.5' });
+  const usage = { inputTokens: 120, outputTokens: 450, cacheReadTokens: 20000, cacheWriteTokens: 800 };
+  (['message', 'compaction', 'message', 'cache_warm'] as const).forEach((kind, index) =>
+    dashboard.store.recordGeneration({ runId: 'run-01', generationId: `gen-0${index}`, subagent: null, kind, usage, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
+  );
+
+  await page.goto('/runs/run-01');
+
+  const rows = page.locator('[data-calls] [data-call]');
+  await expect(rows).toHaveCount(4);
+  await expect(rows.nth(0).locator('[data-badge]')).toHaveCount(1);
+  await expect(rows.nth(1).locator('[data-badge="compaction"]')).toHaveText('compaction');
+  await expect(rows.nth(2).locator('[data-badge]')).toHaveCount(1);
+  await expect(rows.nth(3).locator('[data-badge="cache-warm"]')).toHaveText('cache warm');
   const card = page.locator('[data-calls]');
   expect(await card.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });

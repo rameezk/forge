@@ -164,6 +164,7 @@ export const runWorkload = async (
       runId: id,
       generationId: call.generationId,
       subagent: call.subagent,
+      kind: 'message',
       usage: call.usage,
       estimatedCostUsd: subscription ? null : priced,
       listPriceEquivalentUsd: subscription ? priced : null,

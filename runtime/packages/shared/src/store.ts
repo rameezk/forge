@@ -19,6 +19,7 @@ import {
   type PullRequestState,
 } from './dispatch.ts';
 import type {
+  GenerationKind,
   GenerationRecord,
   LookupResult,
   NewGeneration,
@@ -220,6 +221,7 @@ type GenerationRow = {
   reasoning_tokens: number | null;
   provider: string | null;
   served_model: string | null;
+  kind: GenerationKind;
   estimated_cost_usd: number | null;
   list_price_equivalent_usd: number | null;
   billed_cost_usd: number | null;
@@ -258,6 +260,7 @@ const CREATE_GENERATIONS = `
     estimated_cost_usd REAL,
     list_price_equivalent_usd REAL,
     served_model       TEXT,
+    kind               TEXT NOT NULL DEFAULT 'message' CHECK (kind IN ('message', 'compaction', 'cache_warm')),
     UNIQUE (run_id, generation_id)
   ) STRICT;
 
@@ -307,6 +310,15 @@ const HAS_GENERATION_SERVED_MODEL = `
 
 const ADD_GENERATION_SERVED_MODEL = `
   ALTER TABLE generations ADD COLUMN served_model TEXT;
+`;
+
+const HAS_GENERATION_KIND = `
+  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'kind'
+`;
+
+const ADD_GENERATION_KIND = `
+  ALTER TABLE generations ADD COLUMN kind TEXT NOT NULL DEFAULT 'message'
+    CHECK (kind IN ('message', 'compaction', 'cache_warm'));
 `;
 
 const CREATE_SKILL_LOADS = `
@@ -684,6 +696,7 @@ const generationFromRow = (row: GenerationRow): GenerationRecord => ({
   reasoningTokens: row.reasoning_tokens,
   provider: row.provider,
   servedModel: row.served_model,
+  kind: row.kind,
   attempts: row.attempts,
   lastAttemptAt: row.last_attempt_at,
   lastError: row.last_error,
@@ -783,6 +796,7 @@ export class Store {
       ADD_GENERATION_LIST_PRICE_EQUIVALENT,
     );
     this.#addColumnsOnce(HAS_GENERATION_SERVED_MODEL, ADD_GENERATION_SERVED_MODEL);
+    this.#addColumnsOnce(HAS_GENERATION_KIND, ADD_GENERATION_KIND);
     if (this.#hasOutdatedFrontier()) {
       this.#migrateOutdatedFrontier();
     }
@@ -1032,11 +1046,11 @@ export class Store {
       this.#db
         .prepare(
           `INSERT INTO generations (
-            run_id, generation_id, subagent,
+            run_id, generation_id, subagent, kind,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
             estimated_cost_usd, list_price_equivalent_usd, last_error, given_up_at, created_at
           ) VALUES (
-            $run_id, $generation_id, $subagent,
+            $run_id, $generation_id, $subagent, $kind,
             $input_tokens, $output_tokens, $cache_read_tokens, $cache_write_tokens,
             $estimated_cost_usd, $list_price_equivalent_usd, $last_error, $given_up_at, $created_at
           )
@@ -1046,6 +1060,7 @@ export class Store {
           run_id: generation.runId,
           generation_id: generation.generationId,
           subagent: generation.subagent,
+          kind: generation.kind,
           input_tokens: generation.usage.inputTokens,
           output_tokens: generation.usage.outputTokens,
           cache_read_tokens: generation.usage.cacheReadTokens,
