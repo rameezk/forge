@@ -334,7 +334,27 @@ test('given a claude-code worker whose first Agent call is answered before the s
   );
 });
 
-const skillLoadsOf = async (
+test('given a claude-code worker whose first subagent is already answering a tool call before its parent message has delivered its second Agent call, when its workload runs, then the spawning Agent call still precedes everything the subagent did', async () => {
+  const delaySecondCall = (stream: string): string => {
+    const lines = stream.split('\n');
+    const second = lines.findIndex((line) => line.includes('"id":"toolu_beta"') && line.includes('"tool_use"'));
+    const skillResult = lines.findIndex((line) => line.includes('"tool_use_id":"toolu_skill"') && line.includes('"tool_result"'));
+    const [moved] = lines.splice(second, 1);
+    lines.splice(skillResult, 0, moved as string);
+    return lines.join('\n');
+  };
+
+  const { transcript } = await runClaude({ fixture: 'subagents', rewrite: delaySecondCall });
+
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  for (const id of ['toolu_alpha', 'toolu_beta']) {
+    const call = events.findIndex((event) => event.type === 'tool_call' && event.id === id);
+    const first = events.findIndex((event) => event.subagent === id);
+    assert.ok(call !== -1 && first !== -1 && call < first, `${id} call at ${String(call)} after its first subagent event at ${String(first)}`);
+  }
+});
+
+const replayedSkillLoads = async (
   fixture: string,
   prompt: string,
 ): Promise<SkillLoadEvent[]> => {
@@ -373,7 +393,7 @@ const skillLoadsOf = async (
 };
 
 test('given a claude-code worker starting with a skill command and a recording where a subagent invokes another skill, when it runs, then each load is recorded in its own scope with complete coverage', async () => {
-  const loads = await skillLoadsOf('subagents', '/first-skill start the work');
+  const loads = await replayedSkillLoads('subagents', '/first-skill start the work');
 
   const final = new Map(
     loads.map((load) => [`${load.subagent ?? ''}:${load.skill}`, load]),

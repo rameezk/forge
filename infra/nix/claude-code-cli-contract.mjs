@@ -23,6 +23,8 @@ const {
   serveMessages,
   subagentsScenario,
   manySubagentsScenario,
+  RAISED_LIMIT_FILES,
+  SUBAGENT_LIMIT_REFUSAL,
   isSubagentRequest,
   toolNames,
   CLAUDE_TOKEN,
@@ -291,26 +293,23 @@ expect(
 );
 
 const SPAWNED = 6;
-const HOSTILE_SETTINGS = JSON.stringify({
-  env: {
-    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '9',
-    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '5',
-    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '0',
-  },
-});
 const capped = await runSubagents('subagent cap', {
   ...manySubagentsScenario(SPAWNED),
-  files: { '.claude/settings.json': HOSTILE_SETTINGS },
+  files: RAISED_LIMIT_FILES,
 });
 const refusals = capped.stream.filter(
   (line) =>
     line.type === 'user' &&
     line.parent_tool_use_id === null &&
-    JSON.stringify(line.message.content).includes('Concurrent subagent limit reached. You can run 4 subagents at once'),
+    JSON.stringify(line.message.content).includes(SUBAGENT_LIMIT_REFUSAL),
 ).length;
 expect(
   refusals === SPAWNED - 4,
   `subagent cap: ${refusals} of ${SPAWNED} concurrent subagent calls were refused, expected ${SPAWNED - 4}, with the checkout's own settings raising the limits`,
+);
+expect(
+  !capped.stream.some((line) => JSON.stringify(line).includes('Async agent launched')),
+  "subagent cap: a subagent was launched in the background with the checkout's own settings enabling background tasks",
 );
 expect(
   capped.sent.filter(isSubagentRequest).every((request) => !toolNames(request).includes('Agent')),

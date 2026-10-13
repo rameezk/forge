@@ -47,7 +47,7 @@ const MAX_SUBAGENT_DEPTH = 1;
 
 const MAX_CONCURRENT_SUBAGENTS = 4;
 
-const SUBAGENT_SETTINGS = JSON.stringify({
+const RUN_SETTINGS = JSON.stringify({
   env: {
     CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
     CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: String(MAX_SUBAGENT_DEPTH),
@@ -108,7 +108,7 @@ export const claudeCodeArgs = (
   '--append-subagent-system-prompt',
   FORGE_INSTRUCTIONS,
   '--settings',
-  SUBAGENT_SETTINGS,
+  RUN_SETTINGS,
   '--forward-subagent-text',
   '--disallowedTools',
   ...FORBIDDEN_TOOLS,
@@ -402,6 +402,7 @@ class ClaudeCodeStream {
       return;
     }
     const scope = nonEmpty(line.parent_tool_use_id);
+    yield* this.#flushSpawner(scope);
     if (this.#flushed.has(messageId)) {
       for (const block of blocksOf(message?.content)) {
         if (block.type === 'tool_use') yield scoped(toolCall(block), scope);
@@ -450,6 +451,7 @@ class ClaudeCodeStream {
     );
     if (results.length === 0) return;
     const scope = nonEmpty(line.parent_tool_use_id);
+    yield* this.#flushSpawner(scope);
     yield* this.#flush(scope);
     for (const block of results) {
       const event: ToolResultEvent = {
@@ -459,6 +461,15 @@ class ClaudeCodeStream {
         text: toolResultText(block.content),
       };
       yield scoped(event, scope);
+    }
+  }
+
+  async *#flushSpawner(scope: string | null): AsyncGenerator<HarnessEvent> {
+    if (scope === null) return;
+    for (const turn of [...this.#turns.values()]) {
+      if (turn.scope !== scope && turn.calls.some((call) => call.id === scope)) {
+        yield* this.#flush(turn.scope);
+      }
     }
   }
 

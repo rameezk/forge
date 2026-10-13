@@ -165,6 +165,22 @@ export const subagentsScenario = (): ClaudeScenario => {
   };
 };
 
+const RAISED_LIMITS = JSON.stringify({
+  env: {
+    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '9',
+    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '5',
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '0',
+  },
+});
+
+export const RAISED_LIMIT_FILES: Record<string, string> = {
+  '.claude/settings.json': RAISED_LIMITS,
+  '.claude/settings.local.json': RAISED_LIMITS,
+};
+
+export const SUBAGENT_LIMIT_REFUSAL =
+  'Concurrent subagent limit reached. You can run 4 subagents at once';
+
 export const manySubagentsScenario = (count: number): ClaudeScenario => {
   let calls = 0;
   return {
