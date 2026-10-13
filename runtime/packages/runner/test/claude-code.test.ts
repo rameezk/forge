@@ -638,6 +638,208 @@ test('given a claude-code worker starting with a skill command and a recording w
   });
 });
 
+test('given a claude-code worker on a recording where a request was retried and then succeeded, when its workload runs, then the transcript shows the retry before the recovered response with its attempt, attempts allowed, delay and error, and the run counts one retry', async () => {
+  const { code, run, transcript, generations } = await runClaude({ fixture: 'retry' });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  const events = parseTranscript(transcript).filter(({ type }) => type !== 'result');
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['message', 'retry', 'message'],
+  );
+  const retry = events[1];
+  assert.equal(retry?.type, 'retry');
+  if (retry?.type === 'retry') {
+    assert.equal(retry.attempt, 1);
+    assert.equal(retry.maxAttempts, 10);
+    assert.equal(typeof retry.delayMs, 'number');
+    assert.equal(retry.error, 'overloaded (HTTP 529)');
+    assert.equal(retry.subagent, undefined);
+  }
+  assert.equal(run.counters?.retries, 1);
+  assert.deepEqual(
+    generations.map(({ generationId }) => generationId),
+    ['req_forge_retry_1'],
+  );
+});
+
+test('given a claude-code worker on a recording where claude compacted its context, when its workload runs, then the transcript shows the compaction where it happened with its trigger and the tokens before and after, and the run counts one compaction', async () => {
+  const { code, run, transcript } = await runClaude({ fixture: 'compaction' });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  const events = parseTranscript(transcript).filter(({ type }) => type !== 'result');
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['message', 'message', 'tool_call', 'tool_result', 'compaction', 'message'],
+  );
+  const compaction = events[4];
+  assert.equal(compaction?.type, 'compaction');
+  if (compaction?.type === 'compaction') {
+    assert.equal(compaction.reason, 'auto');
+    assert.equal(compaction.tokensBefore, 190_070);
+    assert.equal(compaction.tokensAfter, 824);
+    assert.equal(compaction.error, null);
+    assert.equal(compaction.subagent, undefined);
+  }
+  assert.equal(run.counters?.compactions, 1);
+});
+
+test('given a claude-code worker on a recording where claude compacted its context, when its workload runs, then the compaction request is a generation with its request id and list-price equivalent, in order, and the run\'s totals include it', async () => {
+  const { run, generations, transcript } = await runClaude({ fixture: 'compaction' });
+
+  assert.deepEqual(
+    generations.map(({ generationId, subagent, billedCostUsd, estimatedCostUsd }) => [
+      generationId,
+      subagent,
+      billedCostUsd,
+      estimatedCostUsd,
+    ]),
+    [
+      ['req_forge_compaction_1', null, null, null],
+      ['req_forge_compaction_summary', null, null, null],
+      ['req_forge_compaction_2', null, null, null],
+    ],
+  );
+  assert.deepEqual(
+    generations.map(({ listPriceEquivalentUsd }) => Number(listPriceEquivalentUsd?.toFixed(9))),
+    [
+      Number(listPriceOf([500, 40, 189_000, 500]).toFixed(9)),
+      Number(listPriceOf([6000, 300, 0, 0]).toFixed(9)),
+      Number(listPriceOf([300, 25, 0, 800]).toFixed(9)),
+    ],
+  );
+  assert.equal(run.inputTokens, 6800);
+  assert.equal(run.outputTokens, 365);
+  assert.equal(run.cacheReadTokens, 189_000);
+  assert.equal(run.cacheWriteTokens, 1300);
+  const compaction = parseTranscript(transcript).find(({ type }) => type === 'compaction');
+  assert.deepEqual(
+    compaction?.type === 'compaction' ? compaction.generationId : undefined,
+    'req_forge_compaction_summary',
+  );
+});
+
+test('given a claude-code worker on a recording where a subagent compacted its context, when its workload runs, then the compaction and its generation carry that subagent\'s scope and the parent has none', async () => {
+  const { code, run, generations, transcript } = await runClaude({
+    fixture: 'subagent-compaction',
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  const compactions = parseTranscript(transcript).filter(({ type }) => type === 'compaction');
+  assert.equal(compactions.length, 1);
+  const [compaction] = compactions;
+  assert.equal(compaction?.type, 'compaction');
+  if (compaction?.type === 'compaction') {
+    assert.equal(compaction.subagent, 'toolu_alpha');
+    assert.equal(compaction.generationId, 'req_forge_subagent_compaction_summary');
+    assert.equal(compaction.tokensBefore, 6000);
+  }
+  assert.equal(run.counters?.compactions, 1);
+  assert.deepEqual(
+    Object.fromEntries(generations.map(({ generationId, subagent }) => [generationId, subagent])),
+    {
+      req_forge_subagent_compaction_parent_1: null,
+      req_forge_subagent_compaction_alpha_1: 'toolu_alpha',
+      req_forge_subagent_compaction_summary: 'toolu_alpha',
+      req_forge_subagent_compaction_alpha_2: 'toolu_alpha',
+      req_forge_subagent_compaction_parent_2: null,
+    },
+  );
+});
+
+const requestsFor = (fixture: string): Record<string, unknown> => {
+  const index = readFileSync(
+    join(import.meta.dirname, 'fixtures', 'claude-code', fixture, 'bodies', 'index.jsonl'),
+    'utf8',
+  );
+  return Object.fromEntries(
+    index
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => [
+        (JSON.parse(line) as { request_file: string }).request_file,
+        requestBody([{ role: 'user', content: [{ type: 'text', text: 'go' }] }]),
+      ]),
+  );
+};
+
+const requestScopes = (requestRecord: Record<string, unknown>[]): string[] =>
+  requestRecord.flatMap((line) =>
+    line.type === 'request' ? [String(line.subagent ?? 'parent')] : [],
+  );
+
+test('given a claude-code worker on a recording where claude compacted its context and its request bodies were recorded, when its workload runs, then the request record holds one request line per generation, the compaction request included', async () => {
+  const { code, requestRecord } = await runClaude({
+    fixture: 'compaction',
+    requests: requestsFor('compaction'),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(requestScopes(requestRecord), ['parent', 'parent', 'parent']);
+});
+
+test('given a claude-code worker on a recording where a subagent compacted its context and its request bodies were recorded, when its workload runs, then the compaction request is recorded under that subagent\'s scope in generation order', async () => {
+  const { code, requestRecord } = await runClaude({
+    fixture: 'subagent-compaction',
+    requests: requestsFor('subagent-compaction'),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(requestScopes(requestRecord), [
+    'parent',
+    'toolu_alpha',
+    'toolu_alpha',
+    'toolu_alpha',
+    'parent',
+  ]);
+});
+
+test('given a claude-code worker on a recording where a subagent\'s prompt reads like a compaction hand-off, when its workload runs, then the run succeeds and shows no compaction, because a hand-off only follows a turn of the same agent', async () => {
+  const { code, run, transcript } = await runClaude({
+    fixture: 'subagents',
+    rewrite: (stream) =>
+      stream.replace(
+        '"text":"SUBTASK alpha"',
+        '"text":"This session is being continued from a previous conversation that ran out of context."',
+      ),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.equal(
+    parseTranscript(transcript).some(({ type }) => type === 'compaction'),
+    false,
+  );
+  assert.equal(run.counters?.compactions, 0);
+});
+
+test('given a claude-code worker on a recording whose stream never announces a compaction request claude recorded, when its workload runs, then the request is still a generation and a compaction in the transcript, so its cost counts toward the budget', async () => {
+  const { run, generations, transcript } = await runClaude({
+    fixture: 'compaction',
+    rewrite: (stream) =>
+      stream
+        .split('\n')
+        .filter(
+          (line) =>
+            !line.includes('"compact_boundary"') &&
+            !line.includes('This session is being continued'),
+        )
+        .join('\n'),
+  });
+
+  assert.equal(run.status, 'success');
+  assert.deepEqual(
+    generations.map(({ generationId }) => generationId),
+    ['req_forge_compaction_1', 'req_forge_compaction_2', 'req_forge_compaction_summary'],
+  );
+  const compactions = parseTranscript(transcript).filter(({ type }) => type === 'compaction');
+  assert.equal(compactions.length, 1);
+  assert.equal(run.counters?.compactions, 1);
+});
+
 test('given a claude-code worker whose provider rejects the model, when its workload runs, then the run ends error with the provider\'s message and the runner exits as for a failure', async () => {
   const { code, run, generations } = await runClaude({ fixture: 'provider-error' });
 
@@ -693,6 +895,33 @@ test('given a claude-code worker with a budget its first tool-calling request al
   assert.equal(run.exceededLimit, 'budget');
   assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`);
   assert.equal(isAlive(claude.pid), false);
+});
+
+const untilCompaction = (stream: string): string => {
+  const lines = stream.split('\n').filter((line) => line !== '');
+  const boundary = lines.findIndex((line) => line.includes('"compact_boundary"'));
+  return `${lines.slice(0, boundary + 1).join('\n')}\n`;
+};
+
+test('given a claude-code worker with a budget its compaction request takes it over and a claude still running, when it runs, then the run is stopped as that request completes and ends exceeded on its budget, with the compaction counted as a generation', async () => {
+  const { run, claude, generations, transcript } = await runClaude({
+    fixture: 'compaction',
+    rewrite: untilCompaction,
+    lingerMs: 30_000,
+    worker: { maxCostUsd: 0.12 },
+  });
+
+  assert.equal(run.status, 'exceeded');
+  assert.equal(run.exceededLimit, 'budget');
+  assert.equal(isAlive(claude.pid), false);
+  assert.deepEqual(
+    generations.map(({ generationId }) => generationId),
+    ['req_forge_compaction_1', 'req_forge_compaction_summary'],
+  );
+  assert.ok(
+    parseTranscript(transcript).some(({ type }) => type === 'compaction'),
+    'the compaction is in the transcript',
+  );
 });
 
 for (const indexAs of ['fifo', 'symlink'] as const) {

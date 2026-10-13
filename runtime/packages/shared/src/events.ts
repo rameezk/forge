@@ -50,6 +50,8 @@ export interface CompactionEvent {
   tokensAfter: number | null;
   summary: string | null;
   error: string | null;
+  usage?: TokenUsage;
+  generationId?: string | null;
   subagent?: string;
 }
 

@@ -29,11 +29,14 @@ import {
   CLAUDE_SKILL_FILES,
   CLAUDE_TOKEN,
   claudeScenarios,
+  compactionScenario,
   isSubagentRequest,
   manySubagentsScenario,
   RAISED_LIMIT_FILES,
+  retryScenario,
   SUBAGENT_LIMIT_REFUSAL,
   serveMessages,
+  subagentCompactionScenario,
   subagentsScenario,
   toolNames,
   type MessagesRequest,
@@ -64,6 +67,7 @@ interface RealClaudeOptions {
   maxCostUsd?: number | null;
   respond?: RespondMessages;
   prompt?: string;
+  args?: string[];
   untracked?: Record<string, string>;
 }
 
@@ -88,6 +92,7 @@ const runRealClaude = async ({
   maxCostUsd = null,
   respond = claudeScenarios.success!.respond,
   prompt = 'Run echo forge, then say what it printed.',
+  args = [],
   untracked,
 }: RealClaudeOptions = {}): Promise<RealClaudeRun> => {
   const requests: MessagesRequest[] = [];
@@ -115,6 +120,7 @@ const runRealClaude = async ({
     maxCostUsd,
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
+    extraArgs: args,
     env: {
       CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN,
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
@@ -390,5 +396,78 @@ test(
     const children = requests.filter(isSubagentRequest);
     assert.ok(children.length > 0);
     assert.ok(children.every((request) => !toolNames(request).includes('Agent')));
+  },
+);
+
+test(
+  'given the locked claude and an endpoint that answers its first request with an overload, when a workload runs, then the failed attempt is a retry event with its attempt, attempts allowed and error before the recovered response, and only the recovered request is a generation',
+  { skip },
+  async () => {
+    const { events, requests } = await runRealClaude({ respond: retryScenario().respond });
+
+    assert.equal(requests.length, 2);
+    assert.deepEqual(
+      events.filter((event) => event.type !== 'result').map((event) => event.type),
+      ['retry', 'message'],
+    );
+    const [retry] = events;
+    assert.equal(retry?.type, 'retry');
+    if (retry?.type === 'retry') {
+      assert.equal(retry.attempt, 1);
+      assert.equal(typeof retry.maxAttempts, 'number');
+      assert.equal(typeof retry.delayMs, 'number');
+      assert.equal(retry.error, 'overloaded (HTTP 529)');
+    }
+    assert.deepEqual(
+      assistantMessages(events).map(({ generationId }) => generationId),
+      ['req_forge_retry_1'],
+    );
+  },
+);
+
+test(
+  'given the locked claude compacting its context at a window of 100k tokens, when a workload runs, then the compaction is an event with its trigger and tokens before and a generation with the summarizing request\'s id and four token counts',
+  { skip },
+  async () => {
+    const scenario = compactionScenario();
+    const { events, requests, requestRecord } = await runRealClaude({
+      respond: scenario.respond,
+      args: scenario.args ?? [],
+    });
+
+    assert.equal(
+      requestRecord.filter((line) => line.type === 'request').length,
+      requests.length,
+    );
+    const compactions = events.filter((event) => event.type === 'compaction');
+    assert.equal(compactions.length, 1);
+    const [compaction] = compactions;
+    assert.equal(compaction?.reason, 'auto');
+    assert.ok((compaction?.tokensBefore ?? 0) >= 190_000);
+    assert.equal(compaction?.generationId, 'req_forge_compaction_summary');
+    assert.deepEqual(compaction?.usage, {
+      inputTokens: 6000,
+      outputTokens: 300,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    });
+  },
+);
+
+test(
+  'given the locked claude and a subagent that compacts its context, when a workload runs, then the compaction and its generation carry the id of the call that spawned that subagent',
+  { skip },
+  async () => {
+    const scenario = subagentCompactionScenario();
+    const { events } = await runRealClaude({
+      respond: scenario.respond,
+      args: scenario.args ?? [],
+      prompt: scenario.prompt ?? '',
+    });
+
+    const compactions = events.filter((event) => event.type === 'compaction');
+    assert.equal(compactions.length, 1);
+    assert.equal(compactions[0]?.subagent, 'toolu_alpha');
+    assert.equal(compactions[0]?.generationId, 'req_forge_subagent_compaction_summary');
   },
 );

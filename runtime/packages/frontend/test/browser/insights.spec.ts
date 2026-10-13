@@ -96,6 +96,7 @@ test('given workloads on the insights page, when it is opened at phone width, th
   record(dashboard.store, workload('two', { startTime: '2026-09-23T10:00:00.000Z', endTime: '2026-09-23T10:02:00.000Z', costUsd: 2 }));
   await page.setViewportSize({ width: 375, height: 800 });
   await page.goto('/insights?manual=1');
+  await expect(page.locator('[data-chart="cost"]')).toBeVisible();
 
   const box = await page.locator('[data-chart="cost"]').boundingBox();
 
