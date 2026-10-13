@@ -8,6 +8,8 @@ fi
 base="$1"
 head="$2"
 
+export GIT_LITERAL_PATHSPECS=1
+
 verdict=false
 trap 'echo "$verdict"; exit 0' EXIT
 
@@ -48,6 +50,7 @@ check_symlink() {
 	local tree="$1" blob="$2" path="$3" target part joined
 	local -a stack=() parts=()
 	target="$(git cat-file blob "$blob")"
+	[ "$(printf %s "$target" | wc -c)" -eq "$(git cat-file -s "$blob")" ] || exit 0
 	[[ "$target" != /* && "$target" != *$'\n'* ]] || exit 0
 	if [[ "$path" == */* ]]; then
 		IFS=/ read -ra stack <<<"${path%/*}"
@@ -86,12 +89,13 @@ check_side() {
 	esac
 }
 
-changed="$(git -c core.quotePath=false diff --raw --no-abbrev --no-renames "$base" "$head")"
+changed="$(git -c core.quotePath=false diff --raw --no-abbrev --no-renames --ignore-submodules=none "$base" "$head")"
 [ -n "$changed" ] || exit 0
 
 while IFS= read -r line; do
 	meta="${line%%$'\t'*}"
 	path="${line#*$'\t'}"
+	[[ "$path" != \"* ]] || exit 0
 	read -r old_mode new_mode old_sha new_sha _ <<<"${meta#:}"
 	check_side "$base" "$old_mode" "$old_sha" "$path"
 	check_side "$head" "$new_mode" "$new_sha" "$path"

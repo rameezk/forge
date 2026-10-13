@@ -19,11 +19,15 @@ git -C "$scratch" add .
 git -C "$scratch" commit --quiet -m base
 base="$(git -C "$scratch" rev-parse HEAD)"
 
-commit_change() {
-	git -C "$scratch" add -A
+commit_index() {
 	git -C "$scratch" commit --quiet -m change
 	git -C "$scratch" rev-parse HEAD
 	git -C "$scratch" reset --quiet --hard "$base"
+}
+
+commit_change() {
+	git -C "$scratch" add -A
+	commit_index
 }
 
 from() {
@@ -198,5 +202,62 @@ ln -s .. "$scratch/docs/root"
 symlink_to_repository_root="$(commit_change)"
 
 assert_decision "a symlink to the repository root is a code change" "$base" "$symlink_to_repository_root" false
+
+from "$symlinked_directory_base"
+mkdir -p "$scratch/docs/guides"
+echo guide >"$scratch/docs/guides/intro.md"
+symlink_blob="$(printf 'docs/guides\n' | git -C "$scratch" hash-object -w --stdin)"
+git -C "$scratch" add -A
+git -C "$scratch" update-index --add --cacheinfo "120000,$symlink_blob,link"
+symlink_with_trailing_newline_in_target="$(commit_index)"
+
+assert_decision "a symlink whose target ends in a newline is a code change" "$symlinked_directory_base" "$symlink_with_trailing_newline_in_target" false
+
+from "$symlinked_directory_base"
+ln -s :/mdocs "$scratch/magic"
+symlink_through_pathspec_magic="$(commit_change)"
+
+assert_decision "a symlink whose target looks like a pathspec is judged by its literal path" "$symlinked_directory_base" "$symlink_through_pathspec_magic" false
+
+from "$base"
+git -C "$scratch" update-index --add --cacheinfo "160000,1111111111111111111111111111111111111111,vendor"
+submodule_base="$(commit_index)"
+
+from "$submodule_base"
+echo changed >"$scratch/README.md"
+git -C "$scratch" add -A
+git -C "$scratch" update-index --cacheinfo "160000,2222222222222222222222222222222222222222,vendor"
+submodule_moved="$(commit_index)"
+
+git -C "$scratch" config diff.ignoreSubmodules all
+assert_decision "a submodule moved alongside a markdown change is a code change even when the diff configuration ignores submodules" "$submodule_base" "$submodule_moved" false
+git -C "$scratch" config --unset diff.ignoreSubmodules
+
+from "$base"
+quoted_decoy="$scratch/\"x"
+tab_directory="$scratch/x/a$(printf '\t')b"
+mkdir -p "$quoted_decoy/a\\tb" "$quoted_decoy/sub" "$scratch/x/sub" "$tab_directory"
+echo notes >"$quoted_decoy/sub/notes.md"
+echo notes >"$quoted_decoy/a\\tb/notes.md"
+echo code >"$scratch/x/sub/run.sh"
+echo notes >"$tab_directory/notes.md"
+quoted_names_base="$(commit_change)"
+
+from "$quoted_names_base"
+ln -s ../sub "$tab_directory/link"
+symlink_in_directory_git_quotes="$(commit_change)"
+
+assert_decision "a symlink in a directory whose name git quotes is a code change" "$quoted_names_base" "$symlink_in_directory_git_quotes" false
+
+from "$symlinked_directory_base"
+mkdir -p "$scratch/linked"
+ln -s ../src/deep/code.rs "$scratch/linked/notes.md"
+directory_holding_symlink_base="$(commit_change)"
+
+from "$directory_holding_symlink_base"
+ln -s linked "$scratch/link"
+symlink_to_directory_holding_symlink="$(commit_change)"
+
+assert_decision "a symlink to a directory holding a markdown-named symlink is a code change" "$directory_holding_symlink_base" "$symlink_to_directory_holding_symlink" false
 
 exit "$fail"
