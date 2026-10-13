@@ -21,24 +21,40 @@ const entryHash = (path: string): string | null => {
   }
 };
 
-const hookEntries = (dir: string): string[] => {
+const kindOf = (path: string): 'directory' | 'symlink' | 'other' | 'missing' => {
   try {
-    return readdirSync(dir)
-      .sort()
-      .flatMap((name) => {
-        const path = join(dir, name);
-        return lstatSync(path).isDirectory() ? hookEntries(path) : [path];
-      });
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) return 'symlink';
+    return stat.isDirectory() ? 'directory' : 'other';
+  } catch {
+    return 'missing';
+  }
+};
+
+const childrenOf = (dir: string): string[] => {
+  try {
+    return readdirSync(dir).sort().map((name) => join(dir, name));
   } catch {
     return [];
   }
 };
 
+const entriesUnder = (path: string): string[] =>
+  kindOf(path) === 'directory' ? childrenOf(path).flatMap(entriesUnder) : [path];
+
+const hookEntries = (dir: string): string[] => {
+  const kind = kindOf(dir);
+  if (kind === 'symlink') return [dir];
+  return kind === 'directory' ? entriesUnder(dir) : [];
+};
+
 export const claudeCodeSettingsHash = (workDir: string): string | null => {
-  const entries = [
-    ...SETTINGS_FILES.map((file) => join(workDir, file)),
-    ...hookEntries(join(workDir, HOOKS_DIR)),
-  ].flatMap((path) => {
+  const claudeDir = join(workDir, '.claude');
+  const paths =
+    kindOf(claudeDir) === 'symlink'
+      ? [claudeDir]
+      : [...SETTINGS_FILES.map((file) => join(workDir, file)), ...hookEntries(join(workDir, HOOKS_DIR))];
+  const entries = paths.flatMap((path) => {
     const hash = entryHash(path);
     return hash === null ? [] : [[relative(workDir, path), hash]];
   });

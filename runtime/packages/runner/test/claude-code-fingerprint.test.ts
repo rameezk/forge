@@ -80,3 +80,20 @@ test('given a checkout whose hooks path is a regular file, when its settings are
     claudeCodeSettingsHash(checkout(settings)),
   );
 });
+
+test('given a checkout whose .claude directory or hooks directory is itself a symlink, when its settings are hashed, then the target is not read, and a .claude link hashes by its target path alone', () => {
+  const outside = checkout({ 'hooks/check.sh': 'echo one\n', 'settings.json': '{}' });
+  const hooksLinked = checkout({});
+  mkdirSync(join(hooksLinked, '.claude'));
+  symlinkSync(join(outside, 'hooks'), join(hooksLinked, '.claude/hooks'));
+  const claudeLinked = checkout({});
+  symlinkSync(outside, join(claudeLinked, '.claude'));
+
+  const hooksHash = claudeCodeSettingsHash(hooksLinked);
+  writeFileSync(join(outside, 'hooks/check.sh'), 'echo two\n');
+
+  assert.notEqual(hooksHash, null);
+  assert.equal(claudeCodeSettingsHash(hooksLinked), hooksHash);
+  assert.notEqual(claudeCodeSettingsHash(claudeLinked), null);
+  assert.notEqual(claudeCodeSettingsHash(claudeLinked), hooksHash);
+});

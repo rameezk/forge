@@ -15,7 +15,7 @@ import {
 import type { Checkout, FingerprintBasis, HarnessIdentity, Worker } from './harness.ts';
 import { DEFAULT_PROVIDER } from './provider.ts';
 
-export const filesUnder = (dir: string): string[] =>
+const filesUnder = (dir: string): string[] =>
   readdirSync(dir)
     .sort()
     .flatMap((name) => {
