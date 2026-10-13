@@ -1639,6 +1639,11 @@
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
+          deploy-keeps-workloads = pkgs.callPackage ./infra/nix/deploy-keeps-workloads.nix {
+            sopsModule = sops-nix.nixosModules.sops;
+            secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
+          };
           run-directories = pkgs.callPackage ./infra/nix/run-directories.nix {
             sopsModule = sops-nix.nixosModules.sops;
           };
