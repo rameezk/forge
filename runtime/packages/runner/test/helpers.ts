@@ -9,6 +9,7 @@ import type {
   ResultEvent,
   Store,
 } from '@forge/shared';
+import type { Checkout } from '../src/harness.ts';
 import type {
   Harness,
   HarnessInvocation,
@@ -18,6 +19,27 @@ import type {
   TranscriptWriter,
   Worker,
 } from '../src/index.ts';
+
+export const skillCheckout = (
+  root: string,
+  files: Record<string, string>,
+): Checkout => {
+  const skills = Object.entries(files).flatMap(([path, content]) => {
+    const name = /^\.claude\/skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
+    return name === undefined
+      ? []
+      : [{ name, file: join(root, path), lines: content.split('\n').length }];
+  });
+  return {
+    root,
+    skillPaths: [],
+    projectInstructions: null,
+    systemPrompt: null,
+    appendSystemPrompt: null,
+    skills: new Map(skills.map(({ name, file }) => [name, [file]])),
+    skillLines: new Map(skills.map(({ file, lines }) => [file, lines])),
+  };
+};
 
 export const message = (
   overrides: Partial<Omit<MessageEvent, 'type'>> = {},

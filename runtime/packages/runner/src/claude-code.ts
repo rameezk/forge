@@ -11,6 +11,7 @@ import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   errorMessage,
+  SkillLoadTracker,
   type HarnessEvent,
   type HarnessOutput,
   type MessageEvent,
@@ -41,6 +42,18 @@ import { tokenCount } from './token-count.ts';
 const FORBIDDEN_TOOLS = ['AskUserQuestion'];
 
 const WITHHELD_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+
+const MAX_SUBAGENT_DEPTH = 1;
+
+const MAX_CONCURRENT_SUBAGENTS = 4;
+
+const RUN_SETTINGS = JSON.stringify({
+  env: {
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: String(MAX_SUBAGENT_DEPTH),
+    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: String(MAX_CONCURRENT_SUBAGENTS),
+  },
+});
 
 export function claudeCodeEnv(
   env: Record<string, string>,
@@ -78,6 +91,8 @@ export interface ClaudeCodeArgsOptions {
   extraArgs: string[];
 }
 
+const FORGE_INSTRUCTIONS = [UNATTENDED_INSTRUCTION, NARRATION_INSTRUCTION].join('\n\n');
+
 export const claudeCodeArgs = (
   invocation: HarnessInvocation,
   { maxCostUsd, extraArgs }: ClaudeCodeArgsOptions,
@@ -89,7 +104,12 @@ export const claudeCodeArgs = (
   '--no-session-persistence',
   '--dangerously-skip-permissions',
   '--append-system-prompt',
-  [UNATTENDED_INSTRUCTION, NARRATION_INSTRUCTION].join('\n\n'),
+  FORGE_INSTRUCTIONS,
+  '--append-subagent-system-prompt',
+  FORGE_INSTRUCTIONS,
+  '--settings',
+  RUN_SETTINGS,
+  '--forward-subagent-text',
   '--disallowedTools',
   ...FORBIDDEN_TOOLS,
   '--model',
@@ -119,6 +139,7 @@ interface ClaudeLine {
   type?: string;
   subtype?: string;
   session_id?: string;
+  parent_tool_use_id?: string | null;
   timestamp?: string;
   request_id?: string;
   is_error?: boolean;
@@ -252,6 +273,7 @@ class RecordedBodies {
 }
 
 interface Turn {
+  scope: string | null;
   messageId: string;
   requestId: string | null;
   model: string | null;
@@ -276,11 +298,25 @@ const timestampOf = (time: string | undefined): { timestamp?: string } => {
   return Number.isNaN(date.getTime()) ? {} : { timestamp: date.toISOString() };
 };
 
+const toolCall = (block: ClaudeContent): ToolCallEvent => ({
+  type: 'tool_call',
+  id: block.id ?? '',
+  name: block.name ?? '',
+  arguments: block.input,
+});
+
+const scoped = <T extends MessageEvent | ToolCallEvent | ToolResultEvent>(
+  event: T,
+  scope: string | null,
+): T => (scope === null ? event : { ...event, subagent: scope });
+
 class ClaudeCodeStream {
   readonly #rawEvent: HarnessSinks['rawEvent'];
   readonly #bodies: RecordedBodies;
   readonly #stop: AbortSignal;
-  #turn: Turn | null = null;
+  readonly #turns = new Map<string | null, Turn>();
+  readonly #flushed = new Set<string>();
+  readonly #holders = new Map<string, string | null>();
   #sessionId: string | null = null;
   #outcome: { error: string | null } | null = null;
   #malformed: string | null = null;
@@ -317,7 +353,7 @@ class ClaudeCodeStream {
         yield* this.#user(parsed);
         return;
       case 'result':
-        yield* this.#flush();
+        yield* this.#flushAll();
         this.#outcome = {
           error:
             parsed.is_error === true
@@ -329,19 +365,19 @@ class ClaudeCodeStream {
   }
 
   async *finish(): AsyncGenerator<HarnessEvent> {
-    yield* this.#flush();
+    yield* this.#flushAll();
   }
 
   get pending(): boolean {
-    return this.#turn !== null;
+    return this.#turns.size > 0;
   }
 
   async *settle(): AsyncGenerator<HarnessEvent> {
-    const turn = this.#turn;
-    if (turn === null) return;
-    const recorded = this.#bodies.peek(turn.messageId);
-    if (recorded !== null && recorded.contentBlocks > 0 && recorded.contentBlocks <= turn.blocks) {
-      yield* this.#flush(recorded);
+    for (const turn of [...this.#turns.values()]) {
+      const recorded = this.#bodies.peek(turn.messageId);
+      if (recorded !== null && recorded.contentBlocks > 0 && recorded.contentBlocks <= turn.blocks) {
+        yield* this.#flush(turn.scope, recorded);
+      }
     }
   }
 
@@ -366,19 +402,36 @@ class ClaudeCodeStream {
       this.fail('claude emitted an assistant message without an id');
       return;
     }
-    if (this.#turn !== null && this.#turn.messageId !== messageId) {
-      yield* this.#flush();
+    const scope = nonEmpty(line.parent_tool_use_id);
+    if (!this.#known(scope)) return;
+    yield* this.#flushSpawner(scope);
+    if (this.#flushed.has(messageId)) {
+      for (const block of blocksOf(message?.content)) {
+        if (block.type === 'tool_use') {
+          this.#holders.set(block.id ?? '', scope);
+          yield scoped(toolCall(block), scope);
+        }
+      }
+      return;
     }
-    const turn = (this.#turn ??= {
-      messageId,
-      requestId: null,
-      model: nonEmpty(message?.model),
-      timestamp: null,
-      blocks: 0,
-      text: [],
-      thinking: [],
-      calls: [],
-    });
+    if (this.#turns.get(scope)?.messageId !== messageId) {
+      yield* this.#flush(scope);
+    }
+    let turn = this.#turns.get(scope);
+    if (turn === undefined) {
+      turn = {
+        scope,
+        messageId,
+        requestId: null,
+        model: nonEmpty(message?.model),
+        timestamp: null,
+        blocks: 0,
+        text: [],
+        thinking: [],
+        calls: [],
+      };
+      this.#turns.set(scope, turn);
+    }
     turn.requestId ??= nonEmpty(line.request_id);
     turn.timestamp ??= nonEmpty(line.timestamp);
     turn.blocks += blocksOf(message?.content).length;
@@ -392,12 +445,8 @@ class ClaudeCodeStream {
       ) {
         turn.thinking.push(block.thinking);
       } else if (block.type === 'tool_use') {
-        turn.calls.push({
-          type: 'tool_call',
-          id: block.id ?? '',
-          name: block.name ?? '',
-          arguments: block.input,
-        });
+        turn.calls.push(toolCall(block));
+        this.#holders.set(block.id ?? '', scope);
       }
     }
   }
@@ -407,7 +456,10 @@ class ClaudeCodeStream {
       (block) => block.type === 'tool_result',
     );
     if (results.length === 0) return;
-    yield* this.#flush();
+    const scope = nonEmpty(line.parent_tool_use_id);
+    if (!this.#known(scope)) return;
+    yield* this.#flushSpawner(scope);
+    yield* this.#flush(scope);
     for (const block of results) {
       const event: ToolResultEvent = {
         type: 'tool_result',
@@ -415,14 +467,36 @@ class ClaudeCodeStream {
         isError: block.is_error === true,
         text: toolResultText(block.content),
       };
-      yield event;
+      yield scoped(event, scope);
     }
   }
 
-  async *#flush(known?: Recorded): AsyncGenerator<HarnessEvent> {
-    const turn = this.#turn;
-    if (turn === null) return;
-    this.#turn = null;
+  async *#flushSpawner(scope: string | null): AsyncGenerator<HarnessEvent> {
+    if (scope === null) return;
+    const holder = this.#holders.get(scope);
+    if (holder !== undefined && holder !== scope) yield* this.#flush(holder);
+  }
+
+  #known(scope: string | null): boolean {
+    if (scope === null || this.#holders.has(scope)) return true;
+    this.fail(`claude attributed a message to tool call ${scope}, which it never made`);
+    return false;
+  }
+
+  async *#flushAll(): AsyncGenerator<HarnessEvent> {
+    for (const scope of [...this.#turns.keys()]) {
+      yield* this.#flush(scope);
+    }
+  }
+
+  async *#flush(
+    scope: string | null,
+    known?: Recorded,
+  ): AsyncGenerator<HarnessEvent> {
+    const turn = this.#turns.get(scope);
+    if (turn === undefined) return;
+    this.#turns.delete(scope);
+    this.#flushed.add(turn.messageId);
     const text = turn.text.join('');
     const thinking = turn.thinking.join('\n\n');
     const when = timestampOf(turn.timestamp ?? undefined);
@@ -437,7 +511,7 @@ class ClaudeCodeStream {
         usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
         generationId: null,
       };
-      yield failed;
+      yield scoped(failed, scope);
       return;
     }
     let recorded: Recorded;
@@ -457,8 +531,19 @@ class ClaudeCodeStream {
       usage: recorded.usage,
       generationId: recorded.requestId ?? turn.requestId ?? turn.messageId,
     };
-    yield message;
-    yield* turn.calls;
+    yield scoped(message, scope);
+    for (const call of turn.calls) yield scoped(call, scope);
+  }
+}
+
+async function* withSkillLoads(
+  skillLoads: SkillLoadTracker | null,
+  events: AsyncIterable<HarnessEvent>,
+): AsyncGenerator<HarnessOutput> {
+  for await (const event of events) {
+    const load = skillLoads?.observe(event) ?? null;
+    if (load !== null) yield { type: 'skill_load', ...load };
+    yield event;
   }
 }
 
@@ -510,6 +595,12 @@ class ClaudeCodeRun implements HarnessRun {
     const bodiesDir = join(this.#dir, 'bodies');
     mkdirSync(configDir, { recursive: true, mode: PRIVATE_DIR });
     mkdirSync(bodiesDir, { recursive: true, mode: PRIVATE_DIR });
+    const skillLoads =
+      invocation.checkout === undefined
+        ? null
+        : new SkillLoadTracker(invocation.checkout);
+    const promptLoad = skillLoads?.observePrompt(invocation.prompt) ?? null;
+    if (promptLoad !== null) yield { type: 'skill_load', ...promptLoad };
     const stream = new ClaudeCodeStream(sinks, new RecordedBodies(bodiesDir));
     const { child, stdout, exited: exit } = spawnSandboxed(
       sandbox,
@@ -548,16 +639,16 @@ class ClaudeCodeRun implements HarnessRun {
           ? await Promise.race([next, sleep(BODIES_POLL_MS).then(() => null)])
           : await next;
         if (read === null) {
-          yield* stream.settle();
+          yield* withSkillLoads(skillLoads, stream.settle());
           continue;
         }
         if (read.done === true) break;
         next = arm();
-        yield* stream.translate(read.value);
+        yield* withSkillLoads(skillLoads, stream.translate(read.value));
         if (stream.malformed !== null) break;
       }
       if (stream.malformed === null) {
-        yield* stream.finish();
+        yield* withSkillLoads(skillLoads, stream.finish());
       }
       drained = stream.malformed === null;
     } finally {

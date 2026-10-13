@@ -11,18 +11,26 @@ import {
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { HarnessEvent, MessageEvent } from '@forge/shared';
+import type { HarnessEvent, MessageEvent, SkillLoadEvent } from '@forge/shared';
 import { ClaudeCodeHarness } from '../src/index.ts';
-import { PASSTHROUGH_BWRAP } from './helpers.ts';
+import { PASSTHROUGH_BWRAP, skillCheckout } from './helpers.ts';
 import {
   NARRATION_INSTRUCTION,
   UNATTENDED_INSTRUCTION,
 } from '../src/harness.ts';
 import {
+  CLAUDE_SKILL_FILES,
   CLAUDE_TOKEN,
   claudeScenarios,
+  isSubagentRequest,
+  manySubagentsScenario,
+  RAISED_LIMIT_FILES,
+  SUBAGENT_LIMIT_REFUSAL,
   serveMessages,
+  subagentsScenario,
+  toolNames,
   type MessagesRequest,
+  type RespondMessages,
 } from './fixtures/fake-anthropic.ts';
 
 const claudeCommand = process.env.FORGE_CLAUDE_CODE;
@@ -33,6 +41,7 @@ const skip =
 
 interface RealClaudeRun {
   events: HarnessEvent[];
+  loads: SkillLoadEvent[];
   rawEvents: Record<string, unknown>[];
   requests: MessagesRequest[];
   workDir: string;
@@ -44,6 +53,8 @@ interface RealClaudeOptions {
   files?: Record<string, string>;
   homeFiles?: Record<string, string>;
   maxCostUsd?: number | null;
+  respond?: RespondMessages;
+  prompt?: string;
 }
 
 const writeAll = (root: string, files: Record<string, string>): void => {
@@ -57,9 +68,11 @@ const runRealClaude = async ({
   files = {},
   homeFiles = {},
   maxCostUsd = null,
+  respond = claudeScenarios.success!.respond,
+  prompt = 'Run echo forge, then say what it printed.',
 }: RealClaudeOptions = {}): Promise<RealClaudeRun> => {
   const requests: MessagesRequest[] = [];
-  const server = await serveMessages(claudeScenarios.success!.respond, requests);
+  const server = await serveMessages(respond, requests);
   const { port } = server.address() as AddressInfo;
   const root = mkdtempSync(join(tmpdir(), 'forge-real-claude-'));
   const home = join(root, 'home');
@@ -83,6 +96,7 @@ const runRealClaude = async ({
     },
   });
   const events: HarnessEvent[] = [];
+  const loads: SkillLoadEvent[] = [];
   const rawEvents: Record<string, unknown>[] = [];
   try {
     for await (const event of harness
@@ -91,7 +105,8 @@ const runRealClaude = async ({
         {
           model: 'claude-opus-4-5',
           workDir,
-          prompt: 'Run echo forge, then say what it printed.',
+          prompt,
+          checkout: skillCheckout(workDir, files),
         },
         {
           stop: new AbortController().signal,
@@ -99,13 +114,14 @@ const runRealClaude = async ({
           requestRecord: () => undefined,
         },
       )) {
-      if (event.type !== 'skill_load') events.push(event);
+      if (event.type === 'skill_load') loads.push(event);
+      else events.push(event);
     }
   } finally {
     server.close();
     await once(server, 'close');
   }
-  return { events, rawEvents, requests, workDir, home, runsDir };
+  return { events, loads, rawEvents, requests, workDir, home, runsDir };
 };
 
 const assistantMessages = (events: HarnessEvent[]): MessageEvent[] =>
@@ -208,5 +224,69 @@ test(
     assert.ok(sent.includes(NARRATION_INSTRUCTION.slice(0, 40)));
     assert.match(sent, /Claude Code/);
     assert.equal(existsSync(join(runsDir, 'run-1')), false);
+  },
+);
+
+test(
+  'given the locked claude and a run that spawns two subagents, when a workload runs, then every subagent request carries forge\'s instructions, a subagent cannot spawn one of its own, and the messages and skill loads of each carry the id of the call that spawned it',
+  { skip },
+  async () => {
+    const { events, loads, requests } = await runRealClaude({
+      files: CLAUDE_SKILL_FILES,
+      prompt: '/first-skill start the work',
+      respond: subagentsScenario().respond,
+    });
+
+    const children = requests.filter(isSubagentRequest);
+    assert.equal(children.length, 3);
+    for (const request of children) {
+      const sent = JSON.stringify(request.system);
+      assert.ok(sent.includes(UNATTENDED_INSTRUCTION.slice(0, 40)));
+      assert.ok(sent.includes(NARRATION_INSTRUCTION.slice(0, 40)));
+      assert.equal(toolNames(request).includes('Agent'), false);
+    }
+    const parents = requests.filter((request) => !isSubagentRequest(request));
+    assert.ok(parents.every((request) => toolNames(request).includes('Agent')));
+    const scopes = assistantMessages(events).map(({ subagent }) => subagent ?? null);
+    assert.deepEqual(
+      [...new Set(scopes)].sort((a, b) => String(a).localeCompare(String(b))),
+      [null, 'toolu_alpha', 'toolu_beta'],
+    );
+    assert.deepEqual(
+      loads.map(({ skill, source, subagent }) => [skill, source, subagent]),
+      [
+        ['first-skill', 'prompt', null],
+        ['other-skill', 'read', 'toolu_alpha'],
+        ['other-skill', 'read', 'toolu_alpha'],
+      ],
+    );
+    assert.deepEqual(loads.at(-1)?.coverage?.coveredLines, loads.at(-1)?.coverage?.totalLines);
+  },
+);
+
+test(
+  'given the locked claude and a checkout whose own settings and local settings raise the subagent limits, when a run asks for six subagents at once, then only four start, the other two calls are refused and no subagent can spawn one',
+  { skip },
+  async () => {
+    const { events, requests } = await runRealClaude({
+      files: RAISED_LIMIT_FILES,
+      respond: manySubagentsScenario(6).respond,
+    });
+
+    const refused = events.filter(
+      (event) =>
+        event.type === 'tool_result' &&
+        event.subagent === undefined &&
+        event.text.includes(SUBAGENT_LIMIT_REFUSAL),
+    );
+    assert.equal(refused.length, 2);
+    const started = new Set(
+      assistantMessages(events).flatMap(({ subagent }) => (subagent === undefined ? [] : [subagent])),
+    );
+    assert.equal(started.size, 4);
+    assert.ok(!events.some((event) => event.type === 'tool_result' && event.text.includes('Async agent launched')));
+    const children = requests.filter(isSubagentRequest);
+    assert.ok(children.length > 0);
+    assert.ok(children.every((request) => !toolNames(request).includes('Agent')));
   },
 );

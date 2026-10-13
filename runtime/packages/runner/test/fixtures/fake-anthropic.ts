@@ -30,6 +30,8 @@ export type RespondMessages = (
 
 export interface ClaudeScenario {
   respond: RespondMessages;
+  prompt?: string;
+  files?: Record<string, string>;
 }
 
 export const serveMessages = async (
@@ -57,7 +59,7 @@ export const serveMessages = async (
   return server;
 };
 
-const sentToolResults = (request: MessagesRequest): boolean =>
+export const sentToolResults = (request: MessagesRequest): boolean =>
   request.messages.some(
     (message) =>
       Array.isArray(message.content) &&
@@ -84,6 +86,131 @@ const rejection = (
     'request-id': 'req_forge_rejected',
   });
   res.end(JSON.stringify({ type: 'error', error: { type, message } }));
+};
+
+export const CLAUDE_SKILL_FILES: Record<string, string> = Object.fromEntries(
+  ['first-skill', 'other-skill'].map((name) => [
+    `.claude/skills/${name}/SKILL.md`,
+    `---\nname: ${name}\ndescription: The ${name} skill.\n---\n\nDo the ${name} thing.\nThen report back.\n`,
+  ]),
+);
+
+export const isSubagentRequest = (request: MessagesRequest): boolean =>
+  JSON.stringify(request.system).includes('cc_is_subagent=true');
+
+export const toolNames = (request: MessagesRequest): string[] =>
+  (request.tools ?? []).map(({ name }) => name);
+
+const subagentOf = (request: MessagesRequest): 'alpha' | 'beta' | null => {
+  if (!isSubagentRequest(request)) return null;
+  return JSON.stringify(request.messages).includes('SUBTASK alpha') ? 'alpha' : 'beta';
+};
+
+export const subagentsScenario = (): ClaudeScenario => {
+  let parentRequests = 0;
+  return {
+    prompt: '/first-skill start the work',
+    files: CLAUDE_SKILL_FILES,
+    respond: (_call, res, request) => {
+      const child = subagentOf(request);
+      if (child === null) {
+        parentRequests += 1;
+        anthropicSse(
+          res,
+          parentRequests === 1
+            ? anthropicReply(
+                'msg_forge_subagents_parent_1',
+                {
+                  text: 'Two subagents will take it from here.',
+                  toolUses: ['alpha', 'beta'].map((name) => ({
+                    id: `toolu_${name}`,
+                    name: 'Agent',
+                    input: {
+                      description: `Subagent ${name}`,
+                      subagent_type: 'general-purpose',
+                      prompt: `SUBTASK ${name}`,
+                    },
+                  })),
+                },
+                anthropicUsage(200, 0, 1000, 40),
+              )
+            : anthropicReply(
+                `msg_forge_subagents_parent_${parentRequests}`,
+                { text: 'Both subagents reported. All done.' },
+                anthropicUsage(300, 1000, 200, 25),
+              ),
+        );
+        return;
+      }
+      anthropicSse(
+        res,
+        child === 'alpha' && !sentToolResults(request)
+          ? anthropicReply(
+              'msg_forge_subagents_alpha_1',
+              {
+                text: 'Loading the other skill.',
+                toolUses: [
+                  { id: 'toolu_skill', name: 'Skill', input: { skill: 'other-skill' } },
+                ],
+              },
+              anthropicUsage(100, 0, 500, 20),
+            )
+          : anthropicReply(
+              `msg_forge_subagents_${child}_${sentToolResults(request) ? 2 : 1}`,
+              { text: `Report from ${child}.` },
+              anthropicUsage(110, 500, 30, 12),
+            ),
+      );
+    },
+  };
+};
+
+const RAISED_LIMITS = JSON.stringify({
+  env: {
+    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '9',
+    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '5',
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '0',
+  },
+});
+
+export const RAISED_LIMIT_FILES: Record<string, string> = {
+  '.claude/settings.json': RAISED_LIMITS,
+  '.claude/settings.local.json': RAISED_LIMITS,
+};
+
+export const SUBAGENT_LIMIT_REFUSAL =
+  'Concurrent subagent limit reached. You can run 4 subagents at once';
+
+export const manySubagentsScenario = (count: number): ClaudeScenario => {
+  let calls = 0;
+  return {
+    prompt: 'spawn many subagents',
+    respond: (_call, res, request) => {
+      calls += 1;
+      const id = `msg_forge_many_${String(calls)}`;
+      anthropicSse(
+        res,
+        !isSubagentRequest(request) && !sentToolResults(request)
+          ? anthropicReply(
+              id,
+              {
+                text: `${String(count)} subagents.`,
+                toolUses: Array.from({ length: count }, (_, index) => ({
+                  id: `toolu_${String(index)}`,
+                  name: 'Agent',
+                  input: {
+                    description: `Subagent ${String(index)}`,
+                    subagent_type: 'general-purpose',
+                    prompt: `SUBTASK ${String(index)}`,
+                  },
+                })),
+              },
+              anthropicUsage(10, 0, 0, 5),
+            )
+          : anthropicReply(id, { text: 'Done.' }, anthropicUsage(10, 0, 0, 5)),
+      );
+    },
+  };
 };
 
 export const claudeScenarios: Record<string, ClaudeScenario> = {
@@ -118,4 +245,5 @@ export const claudeScenarios: Record<string, ClaudeScenario> = {
     respond: (_call, res) =>
       rejection(res, 429, 'rate_limit_error', CLAUDE_USAGE_LIMIT),
   },
+  subagents: subagentsScenario(),
 };

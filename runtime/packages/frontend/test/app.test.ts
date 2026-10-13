@@ -783,6 +783,28 @@ test('given a subagent given a long multi-line task, when its group is expanded,
   assert.match(card, /<header[^>]*>task<\/header>\s*<div[^>]*>\s*<p>Review the diff\.<\/p>\s*<p>Report each finding with its file and line\.<\/p>\s*<\/div>/);
 });
 
+test('given a claude-code run whose Agent tool calls spawned two subagents, when its run page is viewed, then each card is titled by the prompt it was given and shows that prompt in full, with its group nested inside', async () => {
+  const prompt = 'Review the diff.\n\nReport each finding with its file and line.';
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'toolu_alpha', name: 'Agent', arguments: { description: 'Review', subagent_type: 'general-purpose', prompt } },
+    { type: 'tool_call', id: 'toolu_beta', name: 'Agent', arguments: { description: 'Summarise', subagent_type: 'general-purpose', prompt: 'Say beta.' } },
+    { type: 'message', role: 'assistant', text: 'reviewing', usage, generationId: null, subagent: 'toolu_alpha' },
+    { type: 'message', role: 'assistant', text: 'beta here', usage, generationId: null, subagent: 'toolu_beta' },
+    { type: 'tool_result', id: 'toolu_alpha', isError: false, text: 'clean' },
+    { type: 'tool_result', id: 'toolu_beta', isError: false, text: 'beta' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const calls = subagentCalls(body);
+  assert.equal(calls.length, 2);
+  const [alpha, beta] = calls as [string, string];
+  assert.match(alpha, /<span[^>]*\sdata-subagent-task[^>]*\stitle="Review the diff\. Report each finding with its file and line\."/);
+  assert.match(alpha, /<header[^>]*>task<\/header>\s*<div[^>]*>\s*<p>Review the diff\.<\/p>\s*<p>Report each finding with its file and line\.<\/p>\s*<\/div>/);
+  assert.match(beta, /<span[^>]*\sdata-subagent-task[^>]*\stitle="Say beta\."/);
+  assert.equal(subagentGroups(alpha).length, 1);
+  assert.doesNotMatch(body, /subagent_type/);
+});
+
 test('given a run whose agent spawned two subagents, when a group is viewed, then its report is the subagent tool result, shown once', async () => {
   const body = await viewTranscript(delegation);
 

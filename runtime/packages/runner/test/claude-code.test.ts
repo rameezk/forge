@@ -9,8 +9,9 @@ import {
   Store,
   type GenerationRecord,
   type RunRecord,
+  type SkillLoadEvent,
 } from '@forge/shared';
-import type { WorkerConfig } from '../src/index.ts';
+import { ClaudeCodeHarness, type WorkerConfig } from '../src/index.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { main } from '../src/main.ts';
 import {
@@ -18,12 +19,13 @@ import {
   billedAt,
   claudeReplay,
   commandPath,
+  skillCheckout,
   writeFakeBwrap,
   writeFakeClaude,
   type BwrapCall,
   isAlive,
 } from './helpers.ts';
-import { CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
+import { CLAUDE_SKILL_FILES, CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'claude-code');
 
@@ -234,6 +236,222 @@ test('given a claude-code worker on a two-request recording, when its workload r
   assert.match(run.sessionId ?? '', /^[0-9a-f-]{36}$/);
 });
 
+test('given a claude-code worker on a recording of two parallel subagents, when its workload runs, then each subagent\'s messages, tool calls, results and generations carry the id of the tool call that spawned it, and the parent\'s carry none', async () => {
+  const { code, run, generations, transcript } = await runClaude({ fixture: 'subagents' });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  const scoped = (scope: string | undefined): string[] =>
+    events.flatMap((event) =>
+      event.subagent === scope
+        ? [
+            event.type === 'message'
+              ? String(event.text)
+              : event.type === 'tool_call'
+                ? `call ${String(event.name)}`
+                : event.type === 'tool_result'
+                  ? 'result'
+                  : String(event.type),
+          ]
+        : [],
+    );
+  assert.deepEqual(scoped('toolu_alpha'), [
+    'Loading the other skill.',
+    'call Skill',
+    'result',
+    'Report from alpha.',
+  ]);
+  assert.deepEqual(scoped('toolu_beta'), ['Report from beta.']);
+  const parentMessages = events.filter(
+    (event) => event.type === 'message' && event.role === 'assistant' && event.subagent === undefined,
+  );
+  assert.deepEqual(
+    parentMessages.map((event) => event.text),
+    ['Two subagents will take it from here.', 'Both subagents reported. All done.'],
+  );
+  const byScope = Object.fromEntries(
+    generations.map(({ generationId, subagent }) => [generationId, subagent]),
+  );
+  assert.deepEqual(byScope, {
+    req_forge_subagents_parent_1: null,
+    req_forge_subagents_alpha_1: 'toolu_alpha',
+    req_forge_subagents_beta_1: 'toolu_beta',
+    req_forge_subagents_alpha_2: 'toolu_alpha',
+    req_forge_subagents_parent_2: null,
+  });
+  assert.equal(generations.length, 5);
+});
+
+test('given a claude-code worker on a recording of two parallel subagents, when its workload runs, then each Agent call\'s result is the report its subagent handed back, after that subagent\'s own messages', async () => {
+  const { transcript } = await runClaude({ fixture: 'subagents' });
+
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  const results = events.filter(
+    (event) => event.type === 'tool_result' && event.subagent === undefined,
+  );
+  assert.deepEqual(
+    results.map((event) => event.id),
+    ['toolu_beta', 'toolu_alpha'],
+  );
+  for (const result of results) {
+    const scope = String(result.id).replace('toolu_', '');
+    assert.match(String(result.text), new RegExp(`Report from ${scope}\\.`));
+    const last = events.findLastIndex((event) => event.subagent === result.id);
+    assert.ok(last !== -1 && last < events.indexOf(result));
+  }
+});
+
+test('given a claude-code worker whose first Agent call is answered before the same assistant message has delivered its second, when its workload runs, then that message is reported once and its second call still follows', async () => {
+  const moveFirstResultEarly = (stream: string): string => {
+    const lines = stream.split('\n');
+    const result = lines.findIndex((line) =>
+      line.includes('"tool_use_id":"toolu_alpha","type":"tool_result"'),
+    );
+    const second = lines.findIndex((line) => line.includes('"id":"toolu_beta"') && line.includes('"tool_use"'));
+    const [moved] = lines.splice(result, 1);
+    lines.splice(second, 0, moved as string);
+    return lines.join('\n');
+  };
+
+  const { transcript } = await runClaude({
+    fixture: 'subagents',
+    rewrite: moveFirstResultEarly,
+  });
+
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  assert.deepEqual(
+    events
+      .filter((event) => event.type === 'tool_call' && event.name === 'Agent')
+      .map((event) => event.id),
+    ['toolu_alpha', 'toolu_beta'],
+  );
+  assert.equal(
+    events.filter(
+      (event) => event.type === 'message' && event.role === 'assistant' && event.subagent === undefined,
+    ).length,
+    2,
+  );
+});
+
+test('given a claude-code worker whose first subagent is already answering a tool call before its parent message has delivered its second Agent call, when its workload runs, then the spawning Agent call still precedes everything the subagent did', async () => {
+  const delaySecondCall = (stream: string): string => {
+    const lines = stream.split('\n');
+    const second = lines.findIndex((line) => line.includes('"id":"toolu_beta"') && line.includes('"tool_use"'));
+    const skillResult = lines.findIndex((line) => line.includes('"tool_use_id":"toolu_skill"') && line.includes('"tool_result"'));
+    const [moved] = lines.splice(second, 1);
+    lines.splice(skillResult, 0, moved as string);
+    return lines.join('\n');
+  };
+
+  const { transcript } = await runClaude({ fixture: 'subagents', rewrite: delaySecondCall });
+
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  for (const id of ['toolu_alpha', 'toolu_beta']) {
+    const call = events.findIndex((event) => event.type === 'tool_call' && event.id === id);
+    const first = events.findIndex((event) => event.subagent === id);
+    assert.ok(call !== -1 && first !== -1 && call < first, `${id} call at ${String(call)} after its first subagent event at ${String(first)}`);
+  }
+});
+
+test('given a claude-code worker whose stream attributes a message to a tool call claude never made, when its workload runs, then the run ends error naming it and nothing is attributed to that call', async () => {
+  const forge = (stream: string): string =>
+    stream.replaceAll('"parent_tool_use_id":"toolu_beta"', '"parent_tool_use_id":"toolu_forged"');
+
+  const { run, transcript } = await runClaude({ fixture: 'subagents', rewrite: forge });
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /toolu_forged/);
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  assert.ok(!events.some((event) => event.subagent === 'toolu_forged'));
+});
+
+test('given a claude-code worker whose stream attributes a tool result to a tool call claude never made, when its workload runs, then the run ends error naming it and the parent keeps the events it had', async () => {
+  const forge = (stream: string): string =>
+    stream
+      .split('\n')
+      .map((line) =>
+        line.includes('"tool_use_id":"toolu_skill"') && line.includes('"tool_result"')
+          ? line.replace('"parent_tool_use_id":"toolu_alpha"', '"parent_tool_use_id":"toolu_forged"')
+          : line,
+      )
+      .join('\n');
+
+  const clean = await runClaude({ fixture: 'subagents' });
+  const { run, transcript } = await runClaude({ fixture: 'subagents', rewrite: forge });
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /toolu_forged/);
+  const unscoped = (text: string): number =>
+    (parseTranscript(text) as unknown as Record<string, unknown>[]).filter(
+      (event) => event.subagent === undefined && event.type !== 'tool_result',
+    ).length;
+  assert.ok(unscoped(transcript) > 0);
+  assert.ok(unscoped(transcript) <= unscoped(clean.transcript));
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  assert.ok(!events.some((event) => event.subagent === 'toolu_forged'));
+});
+
+const replayedSkillLoads = async (
+  fixture: string,
+  prompt: string,
+): Promise<SkillLoadEvent[]> => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-claude-skills-'));
+  const root = join(dir, 'repo');
+  const harness = new ClaudeCodeHarness({
+    command: writeFakeClaude(dir),
+    runsDir: join(dir, 'runs'),
+    maxCostUsd: null,
+    sandbox: {
+      bwrap: writeFakeBwrap(dir, {
+        record: join(dir, 'bwrap-call.json'),
+        harnessEnv: claudeReplay(fixture, join(dir, 'claude-call.json')),
+      }),
+      home: dir,
+    },
+    system: { PATH: process.env.PATH ?? '' },
+    env: {},
+  });
+  const loads: SkillLoadEvent[] = [];
+  for await (const event of harness
+    .open({ runId: 'run-1', model: MODEL, listedModel: null })
+    .run(
+      {
+        model: MODEL,
+        prompt,
+        workDir: dir,
+        checkout: skillCheckout(root, CLAUDE_SKILL_FILES),
+      },
+      { stop: new AbortController().signal, rawEvent: () => {}, requestRecord: () => {} },
+    )) {
+    if (event.type === 'skill_load') loads.push(event);
+  }
+  return loads;
+};
+
+test('given a claude-code worker starting with a skill command and a recording where a subagent invokes another skill, when it runs, then each load is recorded in its own scope with complete coverage', async () => {
+  const loads = await replayedSkillLoads('subagents', '/first-skill start the work');
+
+  const final = new Map(
+    loads.map((load) => [`${load.subagent ?? ''}:${load.skill}`, load]),
+  );
+  assert.deepEqual([...final.keys()].sort(), [':first-skill', 'toolu_alpha:other-skill']);
+  assert.deepEqual(final.get(':first-skill'), {
+    type: 'skill_load',
+    skill: 'first-skill',
+    source: 'prompt',
+    subagent: null,
+    coverage: { coveredLines: 8, totalLines: 8 },
+  });
+  assert.deepEqual(final.get('toolu_alpha:other-skill'), {
+    type: 'skill_load',
+    skill: 'other-skill',
+    source: 'read',
+    subagent: 'toolu_alpha',
+    coverage: { coveredLines: 8, totalLines: 8 },
+  });
+});
+
 test('given a claude-code worker whose provider rejects the model, when its workload runs, then the run ends error with the provider\'s message and the runner exits as for a failure', async () => {
   const { code, run, generations } = await runClaude({ fixture: 'provider-error' });
 
@@ -393,6 +611,7 @@ test('given a claude-code worker with an effort and a budget, when its workload 
   assert.equal(after('--max-budget-usd'), '1');
   assert.match(after('--append-system-prompt') ?? '', /running unattended/);
   assert.match(after('--append-system-prompt') ?? '', /Narrate your work/);
+  assert.equal(after('--append-subagent-system-prompt'), after('--append-system-prompt'));
   assert.equal(argv.includes('--system-prompt'), false);
   assert.equal(argv.includes('--bare'), false);
   assert.deepEqual(argv.slice(-2), ['--', 'refine the spec']);
@@ -404,6 +623,21 @@ test('given a claude-code workload, when it runs, then the per-run dirs are priv
   assert.deepEqual(claude.modes, { run: 0o700, config: 0o700, bodies: 0o700 });
   assert.equal(claude.env.OTEL_METRICS_EXPORTER, 'none');
   assert.equal(claude.env.OTEL_TRACES_EXPORTER, 'none');
+});
+
+test('given a claude-code workload, when it runs, then claude is told through its command-line settings, which a checkout\'s own settings cannot override, to allow subagents one level deep and four at once and to run them to completion before reporting back, with their text forwarded', async () => {
+  const { claude } = await runClaude({ fixture: 'success' });
+
+  const { argv } = claude;
+  const settings = JSON.parse(argv[argv.indexOf('--settings') + 1] ?? '') as {
+    env: Record<string, string>;
+  };
+  assert.deepEqual(settings.env, {
+    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
+    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
+    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '4',
+  });
+  assert.ok(argv.includes('--forward-subagent-text'));
 });
 
 test('given a claude-code workload, when it runs, then claude gets an empty per-run config dir inside the sandbox state, telemetry on and auto-update off, and the dir is gone after the run', async () => {

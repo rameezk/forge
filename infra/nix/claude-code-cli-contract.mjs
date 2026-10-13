@@ -19,9 +19,16 @@ const {
 } = await import(join(dirname(adapter), 'reasoning-efforts.json'), {
   with: { type: 'json' },
 });
-const { serveMessages, CLAUDE_TOKEN } = await import(
-  join(fixtures, 'fake-anthropic.ts')
-);
+const {
+  serveMessages,
+  subagentsScenario,
+  manySubagentsScenario,
+  RAISED_LIMIT_FILES,
+  SUBAGENT_LIMIT_REFUSAL,
+  isSubagentRequest,
+  toolNames,
+  CLAUDE_TOKEN,
+} = await import(join(fixtures, 'fake-anthropic.ts'));
 const { anthropicReply, anthropicSse, anthropicUsage } = await import(
   join(fixtures, 'fake-provider.ts')
 );
@@ -55,26 +62,31 @@ const expect = (condition, message) => {
   if (!condition) failures.push(message);
 };
 
-const runClaude = async (label, reasoningEffort, configDir) => {
+const runClaude = async (
+  label,
+  reasoningEffort,
+  configDir,
+  { work = workDir, prompt = 'contract check', endpoint = port } = {},
+) => {
   const bodiesDir = mkdtempSync(join(scratch, 'bodies-'));
   mkdirSync(configDir, { recursive: true });
   const args = claudeCodeArgs(
     {
       provider: 'anthropic',
       model: 'claude-opus-4-5',
-      prompt: 'contract check',
-      workDir,
+      prompt,
+      workDir: work,
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     },
     { maxCostUsd: 1, extraArgs: [] },
   );
   const child = spawn(claude, args, {
-    cwd: workDir,
+    cwd: work,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       PATH: process.env.PATH,
       HOME: home,
-      ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
+      ANTHROPIC_BASE_URL: `http://127.0.0.1:${endpoint}`,
       ...claudeCodeEnv({ CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN }, configDir, bodiesDir),
     },
   });
@@ -204,6 +216,106 @@ expect(
 );
 
 server.close();
+
+const runSubagents = async (label, { respond, prompt, files = {} }) => {
+  const sent = [];
+  const subagentServer = await serveMessages(respond, sent);
+  const dir = mkdtempSync(join(scratch, 'subagents-'));
+  const work = join(dir, 'work');
+  mkdirSync(work);
+  for (const [path, contents] of Object.entries(files)) {
+    mkdirSync(dirname(join(work, path)), { recursive: true });
+    writeFileSync(join(work, path), contents);
+  }
+  const run = await runClaude(label, undefined, join(dir, 'config'), {
+    work,
+    prompt,
+    endpoint: subagentServer.address().port,
+  });
+  subagentServer.close();
+  expect(run.code === 0, `${label}: claude exited ${run.code}: ${run.stderr.slice(0, 400)}`);
+  return { stream: events(run), sent };
+};
+
+const subagents = await runSubagents('two subagents', subagentsScenario());
+const children = subagents.sent.filter(isSubagentRequest);
+expect(children.length > 0, 'two subagents: no subagent request reached the fake endpoint');
+for (const request of children) {
+  const wire = JSON.stringify(request.system);
+  expect(
+    wire.includes(UNATTENDED_INSTRUCTION.slice(0, 40)) &&
+      wire.includes(NARRATION_INSTRUCTION.slice(0, 40)),
+    "two subagents: forge's instructions were not appended to a subagent's system prompt",
+  );
+  expect(
+    !toolNames(request).includes('Agent'),
+    'two subagents: a subagent was allowed to spawn a subagent of its own',
+  );
+}
+const scoped = (line, scope) =>
+  line.type === 'assistant' && line.parent_tool_use_id === scope;
+expect(
+  ['toolu_alpha', 'toolu_beta'].every((scope) =>
+    subagents.stream.some((line) => scoped(line, scope)),
+  ),
+  "two subagents: stream-json no longer tags each subagent's assistant messages with the id of the tool call that spawned it",
+);
+expect(
+  subagents.stream.some(
+    (line) =>
+      scoped(line, 'toolu_alpha') &&
+      line.message.content.some(
+        (block) => block.type === 'tool_use' && block.name === 'Skill',
+      ),
+  ),
+  "two subagents: a subagent's Skill tool call did not appear in stream-json with its spawning call's id",
+);
+expect(
+  subagents.stream.some(
+    (line) =>
+      line.type === 'user' &&
+      line.parent_tool_use_id === 'toolu_alpha' &&
+      JSON.stringify(line.message.content).includes('Launching skill: other-skill'),
+  ),
+  "two subagents: a subagent's Skill tool result did not appear in stream-json with its spawning call's id",
+);
+expect(
+  ['toolu_alpha', 'toolu_beta'].every((id) =>
+    subagents.stream.some(
+      (line) =>
+        line.type === 'user' &&
+        line.parent_tool_use_id === null &&
+        JSON.stringify(line.message.content).includes(id) &&
+        JSON.stringify(line.message.content).includes('Report from'),
+    ),
+  ),
+  "two subagents: an Agent call's result is no longer the report its subagent handed back",
+);
+
+const SPAWNED = 6;
+const capped = await runSubagents('subagent cap', {
+  ...manySubagentsScenario(SPAWNED),
+  files: RAISED_LIMIT_FILES,
+});
+const refusals = capped.stream.filter(
+  (line) =>
+    line.type === 'user' &&
+    line.parent_tool_use_id === null &&
+    JSON.stringify(line.message.content).includes(SUBAGENT_LIMIT_REFUSAL),
+).length;
+expect(
+  refusals === SPAWNED - 4,
+  `subagent cap: ${refusals} of ${SPAWNED} concurrent subagent calls were refused, expected ${SPAWNED - 4}, with the checkout's own settings raising the limits`,
+);
+expect(
+  !capped.stream.some((line) => JSON.stringify(line).includes('Async agent launched')),
+  "subagent cap: a subagent was launched in the background with the checkout's own settings enabling background tasks",
+);
+expect(
+  capped.sent.filter(isSubagentRequest).every((request) => !toolNames(request).includes('Agent')),
+  "subagent cap: a subagent was allowed to spawn one of its own with the checkout's own settings raising the depth",
+);
+
 if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);

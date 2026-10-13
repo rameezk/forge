@@ -44,6 +44,8 @@ const SHOWING_LINES =
 
 const MORE_LINES = /\n\n\[(\d+) more lines in file\. Use offset=(\d+) to continue\.\]$/;
 
+const SKILL_TOOL = 'Skill';
+
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const SKILL_FILE = /(?:^|\/)([^/]+)\/SKILL\.md$/;
@@ -111,9 +113,14 @@ export class SkillLoadTracker {
   readonly #catalog: SkillCatalog;
   readonly #loads = new Map<string, Tracked>();
   readonly #reads = new Map<string, PendingRead>();
+  readonly #skillCalls = new Map<string, Tracked>();
 
   constructor(catalog: SkillCatalog) {
     this.#catalog = catalog;
+  }
+
+  observePrompt(text: string): SkillLoad | null {
+    return this.#prompt(text, null);
   }
 
   observe(event: HarnessEvent): SkillLoad | null {
@@ -122,6 +129,9 @@ export class SkillLoadTracker {
     }
     if (event.type === 'tool_call' && event.name === 'read') {
       return this.#readStarted(event.id, event.arguments, scopeOf(event));
+    }
+    if (event.type === 'tool_call' && event.name === SKILL_TOOL) {
+      return this.#skillToolStarted(event.id, event.arguments, scopeOf(event));
     }
     if (event.type === 'tool_result') {
       return this.#readFinished(event.id, event.isError, event.text, scopeOf(event));
@@ -196,6 +206,22 @@ export class SkillLoadTracker {
     return this.#snapshot(tracked);
   }
 
+  #skillToolStarted(
+    id: string,
+    args: unknown,
+    subagent: string | null,
+  ): SkillLoad | null {
+    const { skill } = (args ?? {}) as Record<string, unknown>;
+    const name = typeof skill === 'string' ? skill.replace(/^\//, '') : undefined;
+    const files = name === undefined ? undefined : this.#catalog.skills.get(name);
+    if (name === undefined || files === undefined) {
+      return null;
+    }
+    const tracked = this.#track(name, files[0], 'read', subagent);
+    this.#skillCalls.set(scopedKey(subagent, id), tracked);
+    return this.#snapshot(tracked);
+  }
+
   #readFinished(
     id: string,
     isError: boolean,
@@ -203,6 +229,14 @@ export class SkillLoadTracker {
     subagent: string | null,
   ): SkillLoad | null {
     const key = scopedKey(subagent, id);
+    const skillCall = this.#skillCalls.get(key);
+    if (skillCall !== undefined) {
+      this.#skillCalls.delete(key);
+      if (!isError && skillCall.total !== null) {
+        skillCall.ranges.push([1, skillCall.total]);
+      }
+      return this.#snapshot(skillCall);
+    }
     const read = this.#reads.get(key);
     if (read === undefined) {
       return null;
