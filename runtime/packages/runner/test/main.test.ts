@@ -1766,7 +1766,7 @@ test('given a harness command that does not exist, or one that is not an absolut
   }
 });
 
-test('given a runner whose own environment holds more than the harness needs, when it launches the harness, then the harness environment holds only the system settings, its throwaway HOME, the OpenRouter key and pi\'s own variables', async () => {
+test('given a runner whose own environment holds more than the harness needs, when it launches the harness, then the harness environment holds only the system settings, its throwaway HOME, the OpenRouter key, the NixOS environment marker and pi\'s own variables', async () => {
   const { bwrap } = await runWorker({
     output: fixture('success.jsonl'),
     env: {
@@ -1792,9 +1792,11 @@ test('given a runner whose own environment holds more than the harness needs, wh
     'PATH',
     'PI_CODING_AGENT_DIR',
     'TZDIR',
+    '__NIXOS_SET_ENVIRONMENT_DONE',
   ]);
   assert.equal(bwrap.env.OPENROUTER_API_KEY, OPENROUTER_KEY);
   assert.equal(bwrap.env.HOME, RUNNER_HOME);
+  assert.equal(bwrap.env.__NIXOS_SET_ENVIRONMENT_DONE, '1');
 });
 
 test('given a sandbox that cannot set up or a bubblewrap that is missing, when the runner launches the harness, then the run is error naming the sandbox and why, and pi never starts', async () => {
