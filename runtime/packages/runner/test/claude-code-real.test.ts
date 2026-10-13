@@ -430,11 +430,15 @@ test(
   { skip },
   async () => {
     const scenario = compactionScenario();
-    const { events } = await runRealClaude({
+    const { events, requests, requestRecord } = await runRealClaude({
       respond: scenario.respond,
       args: scenario.args ?? [],
     });
 
+    assert.equal(
+      requestRecord.filter((line) => line.type === 'request').length,
+      requests.length,
+    );
     const compactions = events.filter((event) => event.type === 'compaction');
     assert.equal(compactions.length, 1);
     const [compaction] = compactions;

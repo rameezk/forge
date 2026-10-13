@@ -750,6 +750,53 @@ test('given a claude-code worker on a recording where a subagent compacted its c
   );
 });
 
+const requestsFor = (fixture: string): Record<string, unknown> => {
+  const index = readFileSync(
+    join(import.meta.dirname, 'fixtures', 'claude-code', fixture, 'bodies', 'index.jsonl'),
+    'utf8',
+  );
+  return Object.fromEntries(
+    index
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => [
+        (JSON.parse(line) as { request_file: string }).request_file,
+        requestBody([{ role: 'user', content: [{ type: 'text', text: 'go' }] }]),
+      ]),
+  );
+};
+
+const requestScopes = (requestRecord: Record<string, unknown>[]): string[] =>
+  requestRecord.flatMap((line) =>
+    line.type === 'request' ? [String(line.subagent ?? 'parent')] : [],
+  );
+
+test('given a claude-code worker on a recording where claude compacted its context and its request bodies were recorded, when its workload runs, then the request record holds one request line per generation, the compaction request included', async () => {
+  const { code, requestRecord } = await runClaude({
+    fixture: 'compaction',
+    requests: requestsFor('compaction'),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(requestScopes(requestRecord), ['parent', 'parent', 'parent']);
+});
+
+test('given a claude-code worker on a recording where a subagent compacted its context and its request bodies were recorded, when its workload runs, then the compaction request is recorded under that subagent\'s scope in generation order', async () => {
+  const { code, requestRecord } = await runClaude({
+    fixture: 'subagent-compaction',
+    requests: requestsFor('subagent-compaction'),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(requestScopes(requestRecord), [
+    'parent',
+    'toolu_alpha',
+    'toolu_alpha',
+    'toolu_alpha',
+    'parent',
+  ]);
+});
+
 test('given a claude-code worker on a recording where a subagent\'s prompt reads like a compaction hand-off, when its workload runs, then the run succeeds and shows no compaction, because a hand-off only follows a turn of the same agent', async () => {
   const { code, run, transcript } = await runClaude({
     fixture: 'subagents',

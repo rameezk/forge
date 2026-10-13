@@ -179,6 +179,7 @@ interface IndexEntry {
 }
 
 interface Recorded {
+  messageId: string | null;
   contentBlocks: number;
   requestId: string | null;
   stopReason: string | null;
@@ -323,6 +324,7 @@ class RecordedBodies {
     const outputTokens = tokenCount(usage.output_tokens);
     if (inputTokens === null || outputTokens === null) return null;
     return {
+      messageId: nonEmpty(entry.message_id),
       contentBlocks: blocksOf(body?.content).length,
       requestId: nonEmpty(entry.request_id),
       stopReason: nonEmpty(body?.stop_reason),
@@ -578,6 +580,7 @@ class ClaudeCodeStream {
       this.fail(errorMessage(error));
       return;
     }
+    if (recorded.messageId !== null) this.#record({ messageId: recorded.messageId, scope });
     const { usage } = recorded;
     const compaction: CompactionEvent = {
       type: 'compaction',
@@ -643,7 +646,7 @@ class ClaudeCodeStream {
     }
   }
 
-  #record({ messageId, scope }: Turn): void {
+  #record({ messageId, scope }: Pick<Turn, 'messageId' | 'scope'>): void {
     const body = this.#bodies.request(messageId);
     if (body === null) return;
     for (const line of recordOf(body)) {
