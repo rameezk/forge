@@ -452,7 +452,7 @@ test('given a claude-code worker starting with a skill command and a recording w
   });
 });
 
-test('given a claude-code worker on a recording where a request was retried and then succeeded, when its workload runs, then the transcript shows the retry between the failed attempt and the recovery with its attempt, attempts allowed, delay and error, and the run counts one retry', async () => {
+test('given a claude-code worker on a recording where a request was retried and then succeeded, when its workload runs, then the transcript shows the retry before the recovered response with its attempt, attempts allowed, delay and error, and the run counts one retry', async () => {
   const { code, run, transcript, generations } = await runClaude({ fixture: 'retry' });
 
   assert.equal(code, 0);

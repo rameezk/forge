@@ -242,7 +242,7 @@ class RecordedBodies {
     return this.#await(() => this.#peekCompaction(), 'its compaction request', signal);
   }
 
-  get unclaimedCompactions(): boolean {
+  hasUnclaimedCompactions(): boolean {
     this.#refresh();
     return this.#compactions.length > 0;
   }
@@ -435,7 +435,7 @@ class ClaudeCodeStream {
 
   async *finish(): AsyncGenerator<HarnessEvent> {
     yield* this.#flushAll();
-    while (this.malformed === null && this.#bodies.unclaimedCompactions) {
+    while (this.malformed === null && this.#bodies.hasUnclaimedCompactions()) {
       yield* this.#compaction(null, {});
     }
   }
@@ -564,12 +564,12 @@ class ClaudeCodeStream {
     const { usage } = recorded;
     const compaction: CompactionEvent = {
       type: 'compaction',
-      reason: null,
-      tokensBefore: usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
-      tokensAfter: null,
+      reason: known.reason ?? null,
+      tokensBefore:
+        known.tokensBefore ?? usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+      tokensAfter: known.tokensAfter ?? null,
       summary: null,
       error: null,
-      ...known,
       usage,
       generationId: recorded.requestId,
     };

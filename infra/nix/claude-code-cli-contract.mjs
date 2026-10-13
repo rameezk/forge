@@ -223,7 +223,7 @@ server.close();
 const runScenario = async (label, { respond, prompt, files = {}, args }) => {
   const sent = [];
   const subagentServer = await serveMessages(respond, sent);
-  const dir = mkdtempSync(join(scratch, 'subagents-'));
+  const dir = mkdtempSync(join(scratch, 'scenario-'));
   const work = join(dir, 'work');
   mkdirSync(work);
   for (const [path, contents] of Object.entries(files)) {
@@ -360,6 +360,17 @@ expect(
     Number.isInteger(meta.post_tokens),
   `compaction: stream-json no longer carries a system compact_boundary event with compact_metadata trigger, pre_tokens and post_tokens: ${JSON.stringify(boundary)}`,
 );
+const handoffAt = compacted.stream.findIndex(
+  (line) =>
+    line.type === 'user' &&
+    JSON.stringify(line.message.content).includes(
+      'This session is being continued from a previous conversation',
+    ),
+);
+expect(
+  handoffAt > compacted.stream.indexOf(boundary),
+  'compaction: stream-json no longer carries the summary claude continues from after the compact_boundary event',
+);
 expect(
   compacted.index.filter((entry) => entry.query_source === 'compact').length === 1,
   "compaction: the raw API bodies index no longer marks the summarizing request with query_source compact",
@@ -376,6 +387,12 @@ expect(
       ),
   ),
   "subagent compaction: stream-json no longer carries the summary a compacting subagent continues from as a user message with its spawning call's id",
+);
+expect(
+  !subagentCompacted.stream.some(
+    (line) => line.type === 'system' && line.subtype === 'compact_boundary',
+  ),
+  'subagent compaction: stream-json now carries a compact_boundary event for a subagent, which the runner would treat as the parent\'s',
 );
 expect(
   subagentCompacted.index.filter((entry) => entry.query_source === 'compact').length === 1,
