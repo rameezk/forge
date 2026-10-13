@@ -208,6 +208,13 @@ tailnet.
    just deploy
    ```
 
+   A deploy never interrupts a running workload. A dispatch or worker run in
+   flight finishes on the package, configuration and secrets it started with,
+   and only workloads started after the deploy run the new version. To stop one
+   early, for example to get a fix to it, run `systemctl stop` on its
+   `forge-dispatch@` or `forge-runner@` unit on the box: it then settles as
+   interrupted.
+
    A deploy that breaks SSH or Tailscale has no automatic rollback; recover it
    from the Hetzner console.
 

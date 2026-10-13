@@ -559,6 +559,8 @@ in
         description = "Forge workload runner for worker %i";
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
+        restartIfChanged = false;
+        stopIfChanged = false;
         path = lib.mkForce cfg.toolset;
         serviceConfig = {
           Type = "oneshot";
@@ -709,6 +711,8 @@ in
         description = "Forge dispatch of ticket %i";
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
+        restartIfChanged = false;
+        stopIfChanged = false;
         path = lib.mkForce cfg.toolset;
         serviceConfig = {
           Type = "oneshot";
