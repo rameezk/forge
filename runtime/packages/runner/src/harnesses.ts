@@ -10,7 +10,7 @@ import {
 } from './environment.ts';
 import type { Harness, Worker } from './harness.ts';
 import { PiHarness } from './pi.ts';
-import { providerSpec } from './provider.ts';
+import { PI_PROVIDER, providerSpec } from './provider.ts';
 
 export interface HarnessContext {
   name: string;
@@ -31,11 +31,15 @@ const piFactory: HarnessFactory = ({
   env,
   harnessEnv,
   stateDir,
-}) =>
-  new PiHarness({
+}) => {
+  if (worker.provider !== PI_PROVIDER) {
+    throw new Error(
+      `worker '${worker.name}' pairs harness 'pi' with provider '${worker.provider}': harness 'pi' only takes provider ${PI_PROVIDER}`,
+    );
+  }
+  return new PiHarness({
     command: config.command,
-    provider: worker.provider,
-    openAgentDir: agentDirsIn(join(stateDir, 'agent'), worker.provider),
+    openAgentDir: agentDirsIn(join(stateDir, 'agent')),
     extensions: {
       subagent: absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION'),
       modelDefaultReasoning: absolutePath(
@@ -52,6 +56,7 @@ const piFactory: HarnessFactory = ({
       ...harnessEnv,
     },
   });
+};
 
 const claudeCodeFactory: HarnessFactory = ({
   config,

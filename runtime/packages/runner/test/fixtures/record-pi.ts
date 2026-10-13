@@ -8,13 +8,11 @@ import { dirname, join } from 'node:path';
 import { childArgs, SUBAGENT_INVOCATION_ENV } from '@forge/pi-subagent';
 import type { HarnessInvocation } from '../../src/harness.ts';
 import { piArgs, subagentInvocation } from '../../src/pi.ts';
-import { providerSpec } from '../../src/provider.ts';
+import { PI_PROVIDER } from '../../src/provider.ts';
 import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { REQUEST_RECORD_FD } from '../../src/sandbox.ts';
 import { PI_EXTENSIONS } from '../helpers.ts';
 import {
-  ANTHROPIC_TOKEN,
-  anthropicScenarios,
   childScenarios,
   serve,
   SUBAGENT_TASKS,
@@ -23,17 +21,10 @@ import {
 } from './fake-provider.ts';
 
 const INVOCATION: HarnessInvocation = {
-  provider: 'openrouter',
   model: 'z-ai/glm-5',
   prompt: 'Run echo forge, then say what it printed.',
   workDir: '.',
   reasoningEffort: 'high',
-};
-
-const ANTHROPIC_INVOCATION: HarnessInvocation = {
-  ...INVOCATION,
-  provider: 'anthropic',
-  model: 'claude-opus-5-5',
 };
 
 const runPi = async (
@@ -54,7 +45,7 @@ const runPi = async (
   writeFileSync(
     join(home, '.pi', 'agent', 'models.json'),
     JSON.stringify({
-      providers: { [providerSpec(invocation.provider).piName]: { baseUrl } },
+      providers: { [PI_PROVIDER]: { baseUrl } },
     }),
   );
   writeFileSync(
@@ -70,9 +61,7 @@ const runPi = async (
       [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
         subagentInvocation(pi, invocation, PI_EXTENSIONS),
       ),
-      ...(key === undefined
-        ? {}
-        : { [providerSpec(invocation.provider).credentialEnv]: key }),
+      ...(key === undefined ? {} : { OPENROUTER_API_KEY: key }),
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ignore', 'ignore'],
   }) as ChildProcessByStdio<null, Readable, Readable>;
@@ -97,10 +86,8 @@ const recordRun = async (
   const run = await runPi(
     pi,
     invocation,
-    invocation.provider === 'anthropic'
-      ? `http://127.0.0.1:${port}`
-      : `http://127.0.0.1:${port}/v1`,
-    invocation.provider === 'anthropic' ? ANTHROPIC_TOKEN : 'sk-fake',
+    `http://127.0.0.1:${port}/v1`,
+    'sk-fake',
     args,
     files,
   );
@@ -140,19 +127,6 @@ const record = async (
       INVOCATION,
       respond,
       piArgs({ ...INVOCATION, prompt }, PI_EXTENSIONS),
-      join(outDir, `${name}.jsonl`),
-      files,
-    );
-  }
-  for (const [
-    name,
-    { respond, prompt = INVOCATION.prompt, files },
-  ] of Object.entries(anthropicScenarios)) {
-    await recordRun(
-      pi,
-      ANTHROPIC_INVOCATION,
-      respond,
-      piArgs({ ...ANTHROPIC_INVOCATION, prompt }, PI_EXTENSIONS),
       join(outDir, `${name}.jsonl`),
       files,
     );

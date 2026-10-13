@@ -89,7 +89,6 @@ const runRealClaude = async ({
       .open({ runId: 'run-1', model: 'claude-opus-4-5', listedModel: null })
       .run(
         {
-          provider: 'anthropic',
           model: 'claude-opus-4-5',
           workDir,
           prompt: 'Run echo forge, then say what it printed.',

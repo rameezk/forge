@@ -46,28 +46,21 @@ const checkoutFiles = {
   '.pi/APPEND_SYSTEM.md': 'Appended system prompt for the contract check.\n',
 };
 
-const { providerSpec } = await import(join(dirname(adapter), 'provider.ts'));
-const provider = 'openrouter';
-const { piName, credentialEnv } = providerSpec(provider);
+const { PI_PROVIDER, providerSpec } = await import(
+  join(dirname(adapter), 'provider.ts')
+);
+const { credentialEnv } = providerSpec(PI_PROVIDER);
 
 const agentRoot = mkdtempSync(join(process.env.HOME, 'agents-'));
-const agentDirs = agentDirsIn(agentRoot, provider);
+const agentDirs = agentDirsIn(agentRoot);
 
 const readOnlyAgentDir = (name, model, listed) =>
   agentDirs(name, model, listed);
 
-const ANTHROPIC_MODEL = 'claude-opus-5-5';
-
 const targets = [
   {
-    provider,
     model: 'z-ai/glm-5',
     agentDir: readOnlyAgentDir('contract', 'z-ai/glm-5', null),
-  },
-  {
-    provider: 'anthropic',
-    model: ANTHROPIC_MODEL,
-    agentDir: agentDirsIn(agentRoot, 'anthropic')('contract-anthropic', ANTHROPIC_MODEL, null),
   },
 ];
 
@@ -145,13 +138,9 @@ const plant = () => {
     join(homeAgent, 'models.json'),
     JSON.stringify({
       providers: {
-        [piName]: {
+        [PI_PROVIDER]: {
           baseUrl: 'https://openrouter.ai/api/v1',
           apiKey: `!touch ${join(markers, 'models-command')}`,
-        },
-        anthropic: {
-          baseUrl: 'https://api.anthropic.com',
-          apiKey: `!touch ${join(markers, 'anthropic-models-command')}`,
         },
       },
     }),
@@ -167,8 +156,7 @@ const agentDirContents = new Map(
   targets.map(({ agentDir }) => [agentDir, readdirSync(agentDir)]),
 );
 
-const accepts = (planted, argv, env, agent, provider) => {
-  const { piName } = providerSpec(provider);
+const accepts = (planted, argv, env, agent) => {
   const { status, stderr } = spawnSync(pi, argv, {
     encoding: 'utf8',
     cwd: planted.workDir,
@@ -183,7 +171,7 @@ const accepts = (planted, argv, env, agent, provider) => {
     /Unknown option|Failed to load extension|Invalid thinking level/i.test(
       stderr,
     );
-  const reachedPreflight = stderr.includes(`No API key found for ${piName}.`);
+  const reachedPreflight = stderr.includes(`No API key found for ${PI_PROVIDER}.`);
   const loaded = readdirSync(planted.markers);
   const before = agentDirContents.get(agent);
   const written = readdirSync(agent).filter((name) => !before.includes(name));
@@ -206,7 +194,6 @@ const DECLARED_CONTEXT_LISTED = '123.5K';
 const startsWithModel = (agentDir) => {
   const planted = plant();
   const invocation = {
-    provider,
     model: MISSING_MODEL,
     prompt: 'contract check',
     workDir: planted.workDir,
@@ -233,7 +220,7 @@ const startsWithModel = (agentDir) => {
   });
   return {
     warned: /not found/i.test(started.stderr),
-    reachedPreflight: started.stderr.includes(`No API key found for ${piName}.`),
+    reachedPreflight: started.stderr.includes(`No API key found for ${PI_PROVIDER}.`),
     listedContext: listed.stdout
       .split('\n')
       .find((line) => line.includes(MISSING_MODEL))
@@ -271,31 +258,7 @@ const readsDeclaredModel = () => {
   return true;
 };
 
-const { piCatalogModel } = await import(join(dirname(adapter), 'pi-catalog.ts'));
-
-const readsCatalogPrice = async () => {
-  const lookUp = piCatalogModel(piPackage);
-  const priced = await lookUp(ANTHROPIC_MODEL);
-  const unpriced = await lookUp('forge-contract-model-missing-from-pi');
-  const ok =
-    'model' in priced &&
-    priced.model.price.input > 0 &&
-    priced.model.price.output > 0 &&
-    'reason' in unpriced;
-  if (!ok) {
-    console.error(
-      `the runner could not read pi's catalog price for ${ANTHROPIC_MODEL} (priced: ${JSON.stringify(priced)}, unknown model: ${JSON.stringify(unpriced)})`,
-    );
-    return false;
-  }
-  console.log(
-    `the runner read pi's catalog price for ${ANTHROPIC_MODEL} and found none for a model missing from it`,
-  );
-  return true;
-};
-
-let failed = !(await readsCatalogPrice());
-failed ||= !readsDeclaredModel();
+let failed = !readsDeclaredModel();
 for (const invocationIn of invocations) {
   const parent = plant();
   const invocation = invocationIn(parent.workDir);
@@ -305,14 +268,12 @@ for (const invocationIn of invocations) {
     piArgs(invocation, extensions),
     { [SUBAGENT_INVOCATION_ENV]: JSON.stringify(child) },
     invocation.agentDir,
-    invocation.provider,
   );
   const childAccepted = accepts(
     plant(),
     childArgs(child, 'contract check'),
     {},
     invocation.agentDir,
-    invocation.provider,
   );
   failed ||= !parentAccepted || !childAccepted;
 }

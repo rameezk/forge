@@ -14,7 +14,6 @@ test('given a request record sink that fails to write, when pi records a request
   writeFileSync(requests, `${JSON.stringify({ type: 'request', body: {}, cacheMarkers: [] })}\n`);
   const harness = new PiHarness({
     command: writeFakePi(dir),
-    provider: 'openrouter',
     openAgentDir: () => dir,
     extensions: PI_EXTENSIONS,
     sandbox: {
@@ -36,7 +35,6 @@ test('given a request record sink that fails to write, when pi records a request
   await assert.rejects(async () => {
     for await (const _event of harness.open({ runId: 'run-1', model: 'z-ai/glm-5', listedModel: null }).run(
       {
-        provider: 'openrouter',
         model: 'z-ai/glm-5',
         prompt: 'refine',
         workDir: dir,
@@ -59,7 +57,6 @@ test('given a read of a skill file, when pi reports its result, then each skill 
   const skillFile = join(root, '.claude', 'skills', 'work-on', 'SKILL.md');
   const harness = new PiHarness({
     command: writeFakePi(dir),
-    provider: 'openrouter',
     openAgentDir: () => dir,
     extensions: PI_EXTENSIONS,
     sandbox: {
@@ -81,7 +78,6 @@ test('given a read of a skill file, when pi reports its result, then each skill 
     .open({ runId: 'run-1', model: 'z-ai/glm-5', listedModel: null })
     .run(
       {
-        provider: 'openrouter',
         model: 'z-ai/glm-5',
         prompt: 'review',
         workDir: dir,

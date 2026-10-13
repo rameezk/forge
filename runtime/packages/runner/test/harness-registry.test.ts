@@ -11,6 +11,7 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import type { HarnessRegistry, RuntimeConfig } from '../src/index.ts';
+import { builtInHarnesses, harnessFor } from '../src/harnesses.ts';
 import { launchWorkload } from '../src/workload.ts';
 import { resolveWorker } from '../src/config.ts';
 import { fakeOpenRouter, LISTED_MODELS, billedAt } from './helpers.ts';
@@ -115,4 +116,33 @@ test('given a test-only harness registered by name that emits its own events, re
   } finally {
     openRouter.close();
   }
+});
+
+test('given a pi worker on the anthropic provider that got past config resolution, when its harness is built, then it is refused because pi has no anthropic provider', () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'forge-registry-'));
+
+  assert.throws(
+    () =>
+      harnessFor(builtInHarnesses, {
+        name: 'pi',
+        config: { command: '/not/used' },
+        worker: {
+          name: 'crossed',
+          harness: 'pi',
+          provider: 'anthropic',
+          model: 'claude-opus-4-5',
+          prompt: 'go',
+        },
+        env: {
+          FORGE_BWRAP: '/not/used',
+          HOME: stateDir,
+          FORGE_PI_SUBAGENT_EXTENSION: '/not/used',
+          FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: '/not/used',
+          FORGE_PI_REQUEST_RECORD_EXTENSION: '/not/used',
+        },
+        harnessEnv: {},
+        stateDir,
+      }),
+    /worker 'crossed' pairs harness 'pi' with provider 'anthropic'/,
+  );
 });
