@@ -10,6 +10,7 @@ export type {
 } from './run.ts';
 export type {
   Billing,
+  GenerationKind,
   GenerationRecord,
   LookupResult,
   NativeUsage,

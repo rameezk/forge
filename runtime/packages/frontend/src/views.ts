@@ -14,6 +14,7 @@ import type {
   DispatchFailure,
   DispatchRecord,
   DispatchState,
+  GenerationKind,
   GenerationRecord,
   HarnessEvent,
   CompactionEvent,
@@ -280,6 +281,14 @@ const optionalTokens = (count: number | null): string => (count === null ? '' : 
 
 const CACHE_MISS_BADGE = html`<span class="${BADGE} mr-1.5 bg-warning-soft text-warning" data-badge="cache-miss" title="This call's cache read fell well below the previous call's prompt size, so most of its prompt was not served from the cache">miss</span>`;
 
+const KIND_BADGES: Record<Exclude<GenerationKind, 'message'>, Rendered> = {
+  compaction: html`<span class="${BADGE} bg-line text-fg" data-badge="compaction" title="The summary model call behind a context compaction">compaction</span>`,
+  cache_warm: html`<span class="${BADGE} bg-line text-fg" data-badge="cache-warm" title="A request that kept the prompt cache warm">cache warm</span>`,
+};
+
+const kindBadge = ({ kind }: GenerationRecord): Rendered =>
+  kind === 'message' ? '' : html`<wbr><div>${KIND_BADGES[kind]}</div>`;
+
 const renderCall = (
   generation: GenerationRecord,
   miss: boolean,
@@ -288,7 +297,7 @@ const renderCall = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { usage } = generation;
   return html`<tr class="${miss ? 'bg-warning-soft' : ROW}" data-call${miss ? html` data-cache-miss` : ''}>
-    <td class="${TD} whitespace-nowrap" data-time>${renderClock(generation.createdAt)}</td>
+    <td class="${TD} whitespace-nowrap" data-time>${renderClock(generation.createdAt)}${kindBadge(generation)}</td>
     <td class="${TD} whitespace-nowrap" data-provider>${generation.provider ?? ''}</td>
     <td class="${TD} wrap-anywhere" data-served-model>${generation.servedModel ?? ''}</td>
     <td class="${TD} whitespace-nowrap" data-effort>${effort ?? ''}</td>

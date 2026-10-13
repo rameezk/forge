@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { LookupResult, RunRecord } from '@forge/shared';
+import type { GenerationKind, LookupResult, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { textOf } from './html.ts';
 
@@ -40,6 +40,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
 
 interface Call {
   subagent?: string | null;
+  kind?: GenerationKind;
   at?: string;
   usage?: { input: number; output: number; cacheRead: number; cacheWrite: number };
   estimate?: number;
@@ -82,6 +83,7 @@ const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests =
       runId: id,
       generationId: `${id}-gen-${index + 1}`,
       subagent: call.subagent ?? null,
+      kind: call.kind ?? 'message',
       usage: {
         inputTokens: usage.input,
         outputTokens: usage.output,
@@ -182,6 +184,21 @@ test('given a workload whose calls read the cache steadily, then one whose cache
   assert.equal(rows.length, 6);
   assert.deepEqual(rows.map(isHighlighted), [false, false, false, false, true, false]);
   assert.match(rows[4] ?? '', /data-badge="cache-miss"/);
+});
+
+const kindBadge = (row: string): string | null =>
+  row.match(/<span[^>]*\sdata-badge="(compaction|cache-warm)"[^>]*>([^<]*)<\/span>/)?.[2] ?? null;
+
+test('given a workload with a message, a compaction and a cache-warm generation, when its detail page is requested, then the compaction row shows a compaction badge, the cache-warm row a cache warm badge and the message row no kind badge', async () => {
+  const usage = { input: 10, output: 10, cacheRead: 0, cacheWrite: 0 };
+  const body = await callsPage({}, [
+    { usage },
+    { usage, kind: 'compaction' },
+    { usage, kind: 'cache_warm' },
+  ]);
+
+  const rows = callRows(body);
+  assert.deepEqual(rows.map(kindBadge), [null, 'compaction', 'cache warm']);
 });
 
 const summaryOf = (body: string, term: string): string =>

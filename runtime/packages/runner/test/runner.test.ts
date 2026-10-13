@@ -97,10 +97,10 @@ test('given a multi-message run, when it completes, then each assistant generati
   assert.equal(run?.costUsd, 0);
   assert.equal(run?.costStatus, 'pending');
   assert.deepEqual(
-    store.listGenerations('run-1').map(({ generationId, subagent }) => ({ generationId, subagent })),
+    store.listGenerations('run-1').map(({ generationId, subagent, kind }) => ({ generationId, subagent, kind })),
     [
-      { generationId: 'gen-a', subagent: null },
-      { generationId: 'gen-b', subagent: 'call_alpha' },
+      { generationId: 'gen-a', subagent: null, kind: 'message' },
+      { generationId: 'gen-b', subagent: 'call_alpha', kind: 'message' },
     ],
   );
 });

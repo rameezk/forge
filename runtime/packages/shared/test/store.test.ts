@@ -363,6 +363,7 @@ test('given generations whose token counts are each the largest safe integer, wh
       runId: 'huge',
       generationId,
       subagent: null,
+      kind: 'message',
       usage: { inputTokens: most, outputTokens: most, cacheReadTokens: most, cacheWriteTokens: most },
       estimatedCostUsd: null,
       createdAt: '2026-09-21T10:01:00.000Z',
@@ -374,6 +375,51 @@ test('given generations whose token counts are each the largest safe integer, wh
     [run?.inputTokens, run?.outputTokens, run?.cacheReadTokens, run?.cacheWriteTokens],
     [most, most, most, most],
   );
+});
+
+test('given a store whose generations predate kinds, when it is opened twice, then every old generation reads back as a message and generations of each kind round-trip', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE generations (
+      id              INTEGER PRIMARY KEY,
+      run_id          TEXT NOT NULL,
+      generation_id   TEXT,
+      subagent        TEXT,
+      billed_cost_usd REAL,
+      attempts        INTEGER NOT NULL DEFAULT 0,
+      last_attempt_at TEXT,
+      last_error      TEXT,
+      given_up_at     TEXT,
+      created_at      TEXT NOT NULL,
+      UNIQUE (run_id, generation_id)
+    ) STRICT;
+    INSERT INTO generations (run_id, generation_id, billed_cost_usd, created_at) VALUES
+      ('old', 'gen-billed', 0.5, '2026-09-21T10:00:30.000Z'),
+      ('old', 'gen-pending', NULL, '2026-09-21T10:00:40.000Z');
+    INSERT INTO generations (run_id, generation_id, last_error, given_up_at, created_at) VALUES
+      ('old', NULL, 'no id', '2026-09-21T10:00:50.000Z', '2026-09-21T10:00:50.000Z');
+  `);
+  old.close();
+  Store.open(path).close();
+
+  const store = Store.open(path);
+  const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  for (const kind of ['message', 'compaction', 'cache_warm'] as const) {
+    store.recordGeneration({
+      runId: 'new',
+      generationId: `gen-${kind}`,
+      subagent: null,
+      kind,
+      usage,
+      estimatedCostUsd: null,
+      createdAt: '2026-09-21T11:00:00.000Z',
+    });
+  }
+
+  assert.deepEqual(store.listGenerations('old').map(({ kind }) => kind), ['message', 'message', 'message']);
+  assert.deepEqual(store.listGenerations('new').map(({ kind }) => kind), ['message', 'compaction', 'cache_warm']);
+  store.close();
 });
 
 test('given a store whose generations predate token columns, holding finished workloads with token totals, when it is opened and billing later settles a legacy generation with OpenRouter\'s native counts, then it migrates in place, the generation takes its provider, and those workloads keep their recorded totals with their cache split unknown and no list price or estimate', () => {
@@ -892,6 +938,7 @@ test('given a subscription run with two generations, when it ends and the store 
       runId: 'run-01',
       generationId,
       subagent: null,
+      kind: 'message',
       usage: usageOf(input, 10),
       estimatedCostUsd: null,
       createdAt: '2026-09-21T10:01:00.000Z',
@@ -948,6 +995,7 @@ test('given a billed run and a subscription run each with a generation, when the
       runId,
       generationId: `gen-of-${runId}`,
       subagent: null,
+      kind: 'message',
       usage: usageOf(10, 5),
       estimatedCostUsd: null,
       createdAt: '2026-09-21T10:01:00.000Z',

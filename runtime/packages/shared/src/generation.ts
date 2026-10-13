@@ -1,9 +1,12 @@
 import type { TokenUsage } from './events.ts';
 
+export type GenerationKind = 'message' | 'compaction' | 'cache_warm';
+
 export interface NewGeneration {
   runId: string;
   generationId: string | null;
   subagent: string | null;
+  kind: GenerationKind;
   usage: TokenUsage;
   estimatedCostUsd: number | null;
   listPriceEquivalentUsd?: number | null;
