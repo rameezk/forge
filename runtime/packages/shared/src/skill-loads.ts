@@ -35,6 +35,7 @@ interface PendingRead {
   tracked: Tracked;
   start: number;
   limit: number | undefined;
+  whole?: boolean;
 }
 
 const SKILL_COMMAND = /^\/([^ ]+)/;
@@ -43,6 +44,8 @@ const SHOWING_LINES =
   /\n\n\[Showing lines (\d+)-(\d+) of (\d+)(?: \([^)]*\))?\. Use offset=\d+ to continue\.\]$/;
 
 const MORE_LINES = /\n\n\[(\d+) more lines in file\. Use offset=(\d+) to continue\.\]$/;
+
+const SKILL_TOOL = 'Skill';
 
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -116,12 +119,19 @@ export class SkillLoadTracker {
     this.#catalog = catalog;
   }
 
+  observePrompt(text: string): SkillLoad | null {
+    return this.#prompt(text, null);
+  }
+
   observe(event: HarnessEvent): SkillLoad | null {
     if (event.type === 'message' && event.role === 'user') {
       return this.#prompt(event.text, scopeOf(event));
     }
     if (event.type === 'tool_call' && event.name === 'read') {
       return this.#readStarted(event.id, event.arguments, scopeOf(event));
+    }
+    if (event.type === 'tool_call' && event.name === SKILL_TOOL) {
+      return this.#skillToolStarted(event.id, event.arguments, scopeOf(event));
     }
     if (event.type === 'tool_result') {
       return this.#readFinished(event.id, event.isError, event.text, scopeOf(event));
@@ -196,6 +206,27 @@ export class SkillLoadTracker {
     return this.#snapshot(tracked);
   }
 
+  #skillToolStarted(
+    id: string,
+    args: unknown,
+    subagent: string | null,
+  ): SkillLoad | null {
+    const { skill } = (args ?? {}) as Record<string, unknown>;
+    const name = typeof skill === 'string' ? skill.replace(/^\//, '') : undefined;
+    const files = name === undefined ? undefined : this.#catalog.skills.get(name);
+    if (name === undefined || files === undefined) {
+      return null;
+    }
+    const tracked = this.#track(name, files[0], 'read', subagent);
+    this.#reads.set(scopedKey(subagent, id), {
+      tracked,
+      start: 1,
+      limit: undefined,
+      whole: true,
+    });
+    return this.#snapshot(tracked);
+  }
+
   #readFinished(
     id: string,
     isError: boolean,
@@ -208,7 +239,13 @@ export class SkillLoadTracker {
       return null;
     }
     this.#reads.delete(key);
-    const { tracked, start, limit } = read;
+    const { tracked, start, limit, whole } = read;
+    if (whole === true) {
+      if (!isError && tracked.total !== null) {
+        tracked.ranges.push([1, tracked.total]);
+      }
+      return this.#snapshot(tracked);
+    }
     if (!isError) {
       const shown = SHOWING_LINES.exec(text);
       const more = MORE_LINES.exec(text);

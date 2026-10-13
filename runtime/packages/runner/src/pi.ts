@@ -361,14 +361,6 @@ const compaction = (
   ...scoped(subagent),
 });
 
-const promptEvent = (text: string): HarnessEvent => ({
-  type: 'message',
-  role: 'user',
-  text,
-  usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
-  generationId: null,
-});
-
 const parseLine = (line: string): PiLine | null => {
   try {
     return JSON.parse(line) as PiLine;
@@ -586,7 +578,7 @@ class PiRun implements HarnessRun {
       invocation.checkout === undefined
         ? null
         : new SkillLoadTracker(invocation.checkout);
-    const promptLoad = skillLoads?.observe(promptEvent(invocation.prompt)) ?? null;
+    const promptLoad = skillLoads?.observePrompt(invocation.prompt) ?? null;
     if (promptLoad !== null) yield { type: 'skill_load', ...promptLoad };
     const stream = new PiStream(sinks.rawEvent);
     const command = realCommand(this.#command);

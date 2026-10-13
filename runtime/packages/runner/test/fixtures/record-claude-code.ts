@@ -24,7 +24,7 @@ const PROMPT = 'Run echo forge, then say what it printed.';
 const record = async (
   claude: string,
   name: string,
-  { respond }: ClaudeScenario,
+  { respond, prompt = PROMPT, files = {} }: ClaudeScenario,
   outDir: string,
 ): Promise<void> => {
   const server = await serveMessages(respond);
@@ -33,8 +33,12 @@ const record = async (
   const config = mkdtempSync(join(tmpdir(), 'forge-record-config-'));
   const home = mkdtempSync(join(tmpdir(), 'forge-record-home-'));
   const bodies = mkdtempSync(join(tmpdir(), 'forge-record-bodies-'));
+  for (const [path, contents] of Object.entries(files)) {
+    mkdirSync(dirname(join(work, path)), { recursive: true });
+    writeFileSync(join(work, path), contents);
+  }
   const args = claudeCodeArgs(
-    { workDir: work, provider: 'anthropic', model: 'claude-opus-4-5', prompt: PROMPT },
+    { workDir: work, provider: 'anthropic', model: 'claude-opus-4-5', prompt },
     { maxCostUsd: null, extraArgs: [] },
   );
   const child = spawn(claude, args, {
@@ -73,10 +77,12 @@ const record = async (
 
 const claude = process.argv[2];
 if (claude === undefined) {
-  console.error('usage: node record-claude-code.ts <path-to-claude>');
+  console.error('usage: node record-claude-code.ts <path-to-claude> [scenario...]');
   process.exit(1);
 }
 const outDir = join(dirname(import.meta.filename), 'claude-code');
+const wanted = process.argv.slice(3);
 for (const [name, scenario] of Object.entries(claudeScenarios)) {
+  if (wanted.length > 0 && !wanted.includes(name)) continue;
   await record(claude, name, scenario, outDir);
 }

@@ -30,6 +30,8 @@ export type RespondMessages = (
 
 export interface ClaudeScenario {
   respond: RespondMessages;
+  prompt?: string;
+  files?: Record<string, string>;
 }
 
 export const serveMessages = async (
@@ -86,6 +88,77 @@ const rejection = (
   res.end(JSON.stringify({ type: 'error', error: { type, message } }));
 };
 
+export const CLAUDE_SKILL_FILES: Record<string, string> = Object.fromEntries(
+  ['first-skill', 'other-skill'].map((name) => [
+    `.claude/skills/${name}/SKILL.md`,
+    `---\nname: ${name}\ndescription: The ${name} skill.\n---\n\nDo the ${name} thing.\nThen report back.\n`,
+  ]),
+);
+
+const subagentOf = (request: MessagesRequest): 'alpha' | 'beta' | null => {
+  if (!JSON.stringify(request.system).includes('cc_is_subagent=true')) return null;
+  return JSON.stringify(request.messages).includes('SUBTASK alpha') ? 'alpha' : 'beta';
+};
+
+export const subagentsScenario = (): ClaudeScenario => {
+  let parentRequests = 0;
+  return {
+    prompt: '/first-skill start the work',
+    files: CLAUDE_SKILL_FILES,
+    respond: (_call, res, request) => {
+      const child = subagentOf(request);
+      if (child === null) {
+        parentRequests += 1;
+        anthropicSse(
+          res,
+          parentRequests === 1
+            ? anthropicReply(
+                'msg_forge_subagents_parent_1',
+                {
+                  text: 'Two subagents will take it from here.',
+                  toolUses: ['alpha', 'beta'].map((name) => ({
+                    id: `toolu_${name}`,
+                    name: 'Agent',
+                    input: {
+                      description: `Subagent ${name}`,
+                      subagent_type: 'general-purpose',
+                      prompt: `SUBTASK ${name}`,
+                    },
+                  })),
+                },
+                anthropicUsage(200, 0, 1000, 40),
+              )
+            : anthropicReply(
+                `msg_forge_subagents_parent_${parentRequests}`,
+                { text: 'Both subagents reported. All done.' },
+                anthropicUsage(300, 1000, 200, 25),
+              ),
+        );
+        return;
+      }
+      anthropicSse(
+        res,
+        child === 'alpha' && !sentToolResults(request)
+          ? anthropicReply(
+              'msg_forge_subagents_alpha_1',
+              {
+                text: 'Loading the other skill.',
+                toolUses: [
+                  { id: 'toolu_skill', name: 'Skill', input: { skill: 'other-skill' } },
+                ],
+              },
+              anthropicUsage(100, 0, 500, 20),
+            )
+          : anthropicReply(
+              `msg_forge_subagents_${child}_${sentToolResults(request) ? 2 : 1}`,
+              { text: `Report from ${child}.` },
+              anthropicUsage(110, 500, 30, 12),
+            ),
+      );
+    },
+  };
+};
+
 export const claudeScenarios: Record<string, ClaudeScenario> = {
   success: {
     respond: (_call, res, request) =>
@@ -118,4 +191,5 @@ export const claudeScenarios: Record<string, ClaudeScenario> = {
     respond: (_call, res) =>
       rejection(res, 429, 'rate_limit_error', CLAUDE_USAGE_LIMIT),
   },
+  subagents: subagentsScenario(),
 };

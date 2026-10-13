@@ -6,12 +6,13 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   writeFileSync,
 } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { HarnessEvent, MessageEvent } from '@forge/shared';
+import type { HarnessEvent, MessageEvent, SkillLoadEvent } from '@forge/shared';
 import { ClaudeCodeHarness } from '../src/index.ts';
 import { PASSTHROUGH_BWRAP } from './helpers.ts';
 import {
@@ -19,11 +20,19 @@ import {
   UNATTENDED_INSTRUCTION,
 } from '../src/harness.ts';
 import {
+  CLAUDE_SKILL_FILES,
   CLAUDE_TOKEN,
   claudeScenarios,
   serveMessages,
+  subagentsScenario,
   type MessagesRequest,
+  type RespondMessages,
 } from './fixtures/fake-anthropic.ts';
+import {
+  anthropicReply,
+  anthropicSse,
+  anthropicUsage,
+} from './fixtures/fake-provider.ts';
 
 const claudeCommand = process.env.FORGE_CLAUDE_CODE;
 const skip =
@@ -33,6 +42,7 @@ const skip =
 
 interface RealClaudeRun {
   events: HarnessEvent[];
+  loads: SkillLoadEvent[];
   rawEvents: Record<string, unknown>[];
   requests: MessagesRequest[];
   workDir: string;
@@ -44,6 +54,8 @@ interface RealClaudeOptions {
   files?: Record<string, string>;
   homeFiles?: Record<string, string>;
   maxCostUsd?: number | null;
+  respond?: RespondMessages;
+  prompt?: string;
 }
 
 const writeAll = (root: string, files: Record<string, string>): void => {
@@ -57,9 +69,11 @@ const runRealClaude = async ({
   files = {},
   homeFiles = {},
   maxCostUsd = null,
+  respond = claudeScenarios.success!.respond,
+  prompt = 'Run echo forge, then say what it printed.',
 }: RealClaudeOptions = {}): Promise<RealClaudeRun> => {
   const requests: MessagesRequest[] = [];
-  const server = await serveMessages(claudeScenarios.success!.respond, requests);
+  const server = await serveMessages(respond, requests);
   const { port } = server.address() as AddressInfo;
   const root = mkdtempSync(join(tmpdir(), 'forge-real-claude-'));
   const home = join(root, 'home');
@@ -83,6 +97,11 @@ const runRealClaude = async ({
     },
   });
   const events: HarnessEvent[] = [];
+  const loads: SkillLoadEvent[] = [];
+  const skillFiles = Object.keys(files).flatMap((path) => {
+    const name = /^\.claude\/skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
+    return name === undefined ? [] : [[name, join(workDir, path)] as const];
+  });
   const rawEvents: Record<string, unknown>[] = [];
   try {
     for await (const event of harness
@@ -92,7 +111,21 @@ const runRealClaude = async ({
           provider: 'anthropic',
           model: 'claude-opus-4-5',
           workDir,
-          prompt: 'Run echo forge, then say what it printed.',
+          prompt,
+          checkout: {
+            root: workDir,
+            skillPaths: [],
+            projectInstructions: null,
+            systemPrompt: null,
+            appendSystemPrompt: null,
+            skills: new Map(skillFiles.map(([name, file]) => [name, [file]])),
+            skillLines: new Map(
+              skillFiles.map(([, file]) => [
+                file,
+                readFileSync(file, 'utf8').split('\n').length,
+              ]),
+            ),
+          },
         },
         {
           stop: new AbortController().signal,
@@ -100,13 +133,14 @@ const runRealClaude = async ({
           requestRecord: () => undefined,
         },
       )) {
-      if (event.type !== 'skill_load') events.push(event);
+      if (event.type === 'skill_load') loads.push(event);
+      else events.push(event);
     }
   } finally {
     server.close();
     await once(server, 'close');
   }
-  return { events, rawEvents, requests, workDir, home, runsDir };
+  return { events, loads, rawEvents, requests, workDir, home, runsDir };
 };
 
 const assistantMessages = (events: HarnessEvent[]): MessageEvent[] =>
@@ -209,5 +243,98 @@ test(
     assert.ok(sent.includes(NARRATION_INSTRUCTION.slice(0, 40)));
     assert.match(sent, /Claude Code/);
     assert.equal(existsSync(join(runsDir, 'run-1')), false);
+  },
+);
+
+const isSubagentRequest = (request: MessagesRequest): boolean =>
+  JSON.stringify(request.system).includes('cc_is_subagent=true');
+
+const toolNames = (request: MessagesRequest): string[] =>
+  (request.tools ?? []).map(({ name }) => name);
+
+test(
+  'given the locked claude and a run that spawns two subagents, when a workload runs, then every subagent request carries forge\'s instructions, a subagent cannot spawn one of its own, and the messages and skill loads of each carry the id of the call that spawned it',
+  { skip },
+  async () => {
+    const { events, loads, requests } = await runRealClaude({
+      files: CLAUDE_SKILL_FILES,
+      prompt: '/first-skill start the work',
+      respond: subagentsScenario().respond,
+    });
+
+    const children = requests.filter(isSubagentRequest);
+    assert.equal(children.length, 3);
+    for (const request of children) {
+      const sent = JSON.stringify(request.system);
+      assert.ok(sent.includes(UNATTENDED_INSTRUCTION.slice(0, 40)));
+      assert.ok(sent.includes(NARRATION_INSTRUCTION.slice(0, 40)));
+      assert.equal(toolNames(request).includes('Agent'), false);
+    }
+    const parents = requests.filter((request) => !isSubagentRequest(request));
+    assert.ok(parents.every((request) => toolNames(request).includes('Agent')));
+    const scopes = assistantMessages(events).map(({ subagent }) => subagent ?? null);
+    assert.deepEqual(
+      [...new Set(scopes)].sort((a, b) => String(a).localeCompare(String(b))),
+      [null, 'toolu_alpha', 'toolu_beta'],
+    );
+    assert.deepEqual(
+      loads.map(({ skill, source, subagent }) => [skill, source, subagent]),
+      [
+        ['first-skill', 'prompt', null],
+        ['other-skill', 'read', 'toolu_alpha'],
+        ['other-skill', 'read', 'toolu_alpha'],
+      ],
+    );
+    assert.deepEqual(loads.at(-1)?.coverage?.coveredLines, loads.at(-1)?.coverage?.totalLines);
+  },
+);
+
+test(
+  'given the locked claude and a run that asks for six subagents at once, when a workload runs, then only four start and the other two calls are refused',
+  { skip },
+  async () => {
+    const respond: RespondMessages = (_call, res, request) => {
+      const results = request.messages.some(
+        (message) =>
+          Array.isArray(message.content) &&
+          message.content.some((part: { type?: string }) => part.type === 'tool_result'),
+      );
+      const id = `msg_forge_cap_${isSubagentRequest(request) ? 'child' : 'parent'}_${String(requests++)}`;
+      anthropicSse(
+        res,
+        !isSubagentRequest(request) && !results
+          ? anthropicReply(
+              id,
+              {
+                text: 'Six subagents.',
+                toolUses: Array.from({ length: 6 }, (_, index) => ({
+                  id: `toolu_${String(index)}`,
+                  name: 'Agent',
+                  input: {
+                    description: `Subagent ${String(index)}`,
+                    subagent_type: 'general-purpose',
+                    prompt: `SUBTASK ${String(index)}`,
+                  },
+                })),
+              },
+              anthropicUsage(10, 0, 0, 5),
+            )
+          : anthropicReply(id, { text: 'Done.' }, anthropicUsage(10, 0, 0, 5)),
+      );
+    };
+    let requests = 0;
+    const { events } = await runRealClaude({ respond });
+
+    const refused = events.filter(
+      (event) =>
+        event.type === 'tool_result' &&
+        event.subagent === undefined &&
+        /Concurrent subagent limit reached. You can run 4 subagents at once/.test(event.text),
+    );
+    assert.equal(refused.length, 2);
+    const started = new Set(
+      assistantMessages(events).flatMap(({ subagent }) => (subagent === undefined ? [] : [subagent])),
+    );
+    assert.equal(started.size, 4);
   },
 );

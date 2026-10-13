@@ -9,8 +9,9 @@ import {
   Store,
   type GenerationRecord,
   type RunRecord,
+  type SkillLoadEvent,
 } from '@forge/shared';
-import type { WorkerConfig } from '../src/index.ts';
+import { ClaudeCodeHarness, type WorkerConfig } from '../src/index.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { main } from '../src/main.ts';
 import {
@@ -234,6 +235,134 @@ test('given a claude-code worker on a two-request recording, when its workload r
   assert.match(run.sessionId ?? '', /^[0-9a-f-]{36}$/);
 });
 
+test('given a claude-code worker on a recording of two parallel subagents, when its workload runs, then each subagent\'s messages, tool calls, results and generations carry the id of the tool call that spawned it, and the parent\'s carry none', async () => {
+  const { code, run, generations, transcript } = await runClaude({ fixture: 'subagents' });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  const scoped = (scope: string | undefined): string[] =>
+    events.flatMap((event) =>
+      event.subagent === scope
+        ? [
+            event.type === 'message'
+              ? String(event.text)
+              : event.type === 'tool_call'
+                ? `call ${String(event.name)}`
+                : event.type === 'tool_result'
+                  ? 'result'
+                  : String(event.type),
+          ]
+        : [],
+    );
+  assert.deepEqual(scoped('toolu_alpha'), [
+    'Loading the other skill.',
+    'call Skill',
+    'result',
+    'Report from alpha.',
+  ]);
+  assert.deepEqual(scoped('toolu_beta'), ['Report from beta.']);
+  const parentMessages = events.filter(
+    (event) => event.type === 'message' && event.role === 'assistant' && event.subagent === undefined,
+  );
+  assert.deepEqual(
+    parentMessages.map((event) => event.text),
+    [
+      'Two subagents will take it from here.',
+      'Both subagents reported. All done.',
+      'Both subagents reported. All done.',
+    ],
+  );
+  const byScope = Object.fromEntries(
+    generations.map(({ generationId, subagent }) => [generationId, subagent]),
+  );
+  assert.deepEqual(byScope, {
+    req_forge_subagents_parent_1: null,
+    req_forge_subagents_alpha_1: 'toolu_alpha',
+    req_forge_subagents_beta_1: 'toolu_beta',
+    req_forge_subagents_alpha_2: 'toolu_alpha',
+    req_forge_subagents_parent_2: null,
+    req_forge_subagents_parent_3: null,
+  });
+  assert.equal(generations.length, 6);
+});
+
+const skillLoadsOf = async (
+  fixture: string,
+  prompt: string,
+  skills: string[],
+): Promise<SkillLoadEvent[]> => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-claude-skills-'));
+  const root = join(dir, 'repo');
+  const files = new Map(
+    skills.map((name) => [name, [join(root, '.claude', 'skills', name, 'SKILL.md')]]),
+  );
+  const harness = new ClaudeCodeHarness({
+    command: writeFakeClaude(dir),
+    runsDir: join(dir, 'runs'),
+    maxCostUsd: null,
+    sandbox: {
+      bwrap: writeFakeBwrap(dir, {
+        record: join(dir, 'bwrap-call.json'),
+        harnessEnv: claudeReplay(fixture, join(dir, 'claude-call.json')),
+      }),
+      home: dir,
+    },
+    system: { PATH: process.env.PATH ?? '' },
+    env: {},
+  });
+  const loads: SkillLoadEvent[] = [];
+  for await (const event of harness
+    .open({ runId: 'run-1', model: MODEL, listedModel: null })
+    .run(
+      {
+        provider: 'anthropic',
+        model: MODEL,
+        prompt,
+        workDir: dir,
+        checkout: {
+          root,
+          skillPaths: [],
+          projectInstructions: null,
+          systemPrompt: null,
+          appendSystemPrompt: null,
+          skills: files,
+          skillLines: new Map([...files.values()].map(([file]) => [file as string, 7])),
+        },
+      },
+      { stop: new AbortController().signal, rawEvent: () => {}, requestRecord: () => {} },
+    )) {
+    if (event.type === 'skill_load') loads.push(event);
+  }
+  return loads;
+};
+
+test('given a claude-code worker starting with a skill command and a recording where a subagent invokes another skill, when it runs, then each load is recorded in its own scope with complete coverage', async () => {
+  const loads = await skillLoadsOf('subagents', '/first-skill start the work', [
+    'first-skill',
+    'other-skill',
+  ]);
+
+  const final = new Map(
+    loads.map((load) => [`${load.subagent ?? ''}:${load.skill}`, load]),
+  );
+  assert.deepEqual([...final.keys()].sort(), [':first-skill', 'toolu_alpha:other-skill']);
+  assert.deepEqual(final.get(':first-skill'), {
+    type: 'skill_load',
+    skill: 'first-skill',
+    source: 'prompt',
+    subagent: null,
+    coverage: { coveredLines: 7, totalLines: 7 },
+  });
+  assert.deepEqual(final.get('toolu_alpha:other-skill'), {
+    type: 'skill_load',
+    skill: 'other-skill',
+    source: 'read',
+    subagent: 'toolu_alpha',
+    coverage: { coveredLines: 7, totalLines: 7 },
+  });
+});
+
 test('given a claude-code worker whose provider rejects the model, when its workload runs, then the run ends error with the provider\'s message and the runner exits as for a failure', async () => {
   const { code, run, generations } = await runClaude({ fixture: 'provider-error' });
 
@@ -393,6 +522,7 @@ test('given a claude-code worker with an effort and a budget, when its workload 
   assert.equal(after('--max-budget-usd'), '1');
   assert.match(after('--append-system-prompt') ?? '', /running unattended/);
   assert.match(after('--append-system-prompt') ?? '', /Narrate your work/);
+  assert.equal(after('--append-subagent-system-prompt'), after('--append-system-prompt'));
   assert.equal(argv.includes('--system-prompt'), false);
   assert.equal(argv.includes('--bare'), false);
   assert.deepEqual(argv.slice(-2), ['--', 'refine the spec']);
@@ -404,6 +534,13 @@ test('given a claude-code workload, when it runs, then the per-run dirs are priv
   assert.deepEqual(claude.modes, { run: 0o700, config: 0o700, bodies: 0o700 });
   assert.equal(claude.env.OTEL_METRICS_EXPORTER, 'none');
   assert.equal(claude.env.OTEL_TRACES_EXPORTER, 'none');
+});
+
+test('given a claude-code workload, when it runs, then claude may spawn subagents one level deep and four at once, as pi does', async () => {
+  const { claude } = await runClaude({ fixture: 'success' });
+
+  assert.equal(claude.env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, '1');
+  assert.equal(claude.env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, '4');
 });
 
 test('given a claude-code workload, when it runs, then claude gets an empty per-run config dir inside the sandbox state, telemetry on and auto-update off, and the dir is gone after the run', async () => {
