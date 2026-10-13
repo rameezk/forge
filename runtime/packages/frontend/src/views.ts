@@ -773,10 +773,12 @@ const reportMessage = (
 const argumentFields = (args: unknown): Record<string, unknown> =>
   typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
 
-const taskText = (args: unknown): string => {
-  const { task } = argumentFields(args);
-  return typeof task === 'string' ? task : prettyArguments(args);
+const givenTask = (args: unknown): string | undefined => {
+  const { task, prompt } = argumentFields(args);
+  return [task, prompt].find((text): text is string => typeof text === 'string');
 };
+
+const taskText = (args: unknown): string => givenTask(args) ?? prettyArguments(args);
 
 interface SubagentContext {
   results: ToolResults;
@@ -897,7 +899,7 @@ const renderSubagentCall = (
       failed,
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
-        (typeof argumentFields(call.arguments).task === 'string' ? renderProse : renderText)('task', task),
+        (givenTask(call.arguments) === undefined ? renderText : renderProse)('task', task),
         ...shown.filter((event) => event !== reported).map((event) => renderEvent(event, results)),
         report === undefined
           ? html`<p class="${EMPTY}">No report recorded.</p>`

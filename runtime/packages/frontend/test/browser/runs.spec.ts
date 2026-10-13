@@ -148,6 +148,43 @@ test('given a run with a subagent that loaded two skills and one that loaded non
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
 
+test('given a claude-code run whose two Agent subagents loaded a skill and none, when its page is opened on a phone screen, then each header is titled by its prompt with its skill chips, and nothing scrolls sideways', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun({ ...recordedRun, harness: 'claude-code', model: 'claude-opus-4-5', costStatus: 'subscription', costUsd: 0 });
+  const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const agent = (id: string, prompt: string) => ({
+    type: 'tool_call' as const,
+    id,
+    name: 'Agent',
+    arguments: { description: 'Subagent', subagent_type: 'general-purpose', prompt },
+  });
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    agent('toolu_alpha', 'Review the change for standards'),
+    agent('toolu_beta', 'Summarise the change'),
+    { type: 'message', role: 'assistant', text: 'reviewing', usage, generationId: null, subagent: 'toolu_alpha' },
+    { type: 'tool_call', id: 'toolu_skill', name: 'Skill', arguments: { skill: 'code-review' }, subagent: 'toolu_alpha' },
+    { type: 'tool_result', id: 'toolu_skill', isError: false, text: 'Launching skill: code-review', subagent: 'toolu_alpha' },
+    { type: 'message', role: 'assistant', text: 'summarising', usage, generationId: null, subagent: 'toolu_beta' },
+    { type: 'tool_result', id: 'toolu_alpha', isError: false, text: 'No findings.' },
+    { type: 'tool_result', id: 'toolu_beta', isError: false, text: 'A summary.' },
+  );
+  dashboard.store.recordSkillLoad({ runId: 'run-01', skill: 'code-review', source: 'read', subagent: 'toolu_alpha', loadedAt: '2026-09-21T10:00:01.000Z', coverage: { coveredLines: 142, totalLines: 142 } });
+  await page.setViewportSize({ width: 390, height: 800 });
+
+  await page.goto('/runs/run-01');
+
+  const headers = page.locator('[data-subagent-call] > details > summary');
+  await expect(headers.nth(0).locator('[data-subagent-task]')).toHaveText('Review the change for standards');
+  await expect(headers.nth(0).locator('[data-subagent-kind]')).toHaveText(['code-review']);
+  await expect(headers.nth(1).locator('[data-subagent-task]')).toHaveText('Summarise the change');
+  await expect(headers.nth(1).locator('[data-subagent-kind]')).toHaveText(['unclassified']);
+  await expect(page.locator('[data-skills] [data-skill]')).toHaveText([/code-review\s*1 subagent/]);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+});
+
 test('given a claude-code run on subscription, when its page is opened, then the summary shows the claude-code harness and the anthropic provider', async ({
   dashboard,
   page,
