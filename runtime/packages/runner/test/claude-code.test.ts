@@ -564,6 +564,49 @@ test('given a claude-code worker on a recording where a subagent compacted its c
   );
 });
 
+test('given a claude-code worker on a recording where a subagent\'s prompt reads like a compaction hand-off, when its workload runs, then the run succeeds and shows no compaction, because a hand-off only follows a turn of the same agent', async () => {
+  const { code, run, transcript } = await runClaude({
+    fixture: 'subagents',
+    rewrite: (stream) =>
+      stream.replace(
+        '"text":"SUBTASK alpha"',
+        '"text":"This session is being continued from a previous conversation that ran out of context."',
+      ),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.equal(
+    parseTranscript(transcript).some(({ type }) => type === 'compaction'),
+    false,
+  );
+  assert.equal(run.counters?.compactions, 0);
+});
+
+test('given a claude-code worker on a recording whose stream never announces a compaction request claude recorded, when its workload runs, then the request is still a generation and a compaction in the transcript, so its cost counts toward the budget', async () => {
+  const { run, generations, transcript } = await runClaude({
+    fixture: 'compaction',
+    rewrite: (stream) =>
+      stream
+        .split('\n')
+        .filter(
+          (line) =>
+            !line.includes('"compact_boundary"') &&
+            !line.includes('This session is being continued'),
+        )
+        .join('\n'),
+  });
+
+  assert.equal(run.status, 'success');
+  assert.deepEqual(
+    generations.map(({ generationId }) => generationId),
+    ['req_forge_compaction_1', 'req_forge_compaction_2', 'req_forge_compaction_summary'],
+  );
+  const compactions = parseTranscript(transcript).filter(({ type }) => type === 'compaction');
+  assert.equal(compactions.length, 1);
+  assert.equal(run.counters?.compactions, 1);
+});
+
 test('given a claude-code worker whose provider rejects the model, when its workload runs, then the run ends error with the provider\'s message and the runner exits as for a failure', async () => {
   const { code, run, generations } = await runClaude({ fixture: 'provider-error' });
 

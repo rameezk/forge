@@ -58,22 +58,23 @@ interface BilledCall {
 const hasUsage = (usage: TokenUsage): boolean =>
   Object.values(usage).some((count) => count > 0);
 
+const callOf = (
+  generationId: string | null,
+  subagent: string | undefined,
+  usage: TokenUsage,
+): BilledCall | null =>
+  generationId !== null || hasUsage(usage)
+    ? { generationId, subagent: subagent ?? null, usage }
+    : null;
+
 const billedCall = (event: HarnessEvent): BilledCall | null => {
   if (event.type === 'message') {
-    return event.role === 'assistant' &&
-      (event.generationId !== null || hasUsage(event.usage))
-      ? {
-          generationId: event.generationId,
-          subagent: event.subagent ?? null,
-          usage: event.usage,
-        }
+    return event.role === 'assistant'
+      ? callOf(event.generationId, event.subagent, event.usage)
       : null;
   }
   if (event.type === 'compaction' && event.usage !== undefined) {
-    const generationId = event.generationId ?? null;
-    return generationId !== null || hasUsage(event.usage)
-      ? { generationId, subagent: event.subagent ?? null, usage: event.usage }
-      : null;
+    return callOf(event.generationId ?? null, event.subagent, event.usage);
   }
   return null;
 };
@@ -155,7 +156,7 @@ export const runWorkload = async (
   const recordGeneration = (call: BilledCall): void => {
     if (call.generationId === null && !subscription) {
       process.stderr.write(
-        `run ${id}: an assistant response used tokens but has no generation id, so its cost is unconfirmed\n`,
+        `run ${id}: a model call used tokens but has no generation id, so its cost is unconfirmed\n`,
       );
     }
     const priced = estimatedCost(listPrice, call.usage);

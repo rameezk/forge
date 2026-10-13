@@ -231,34 +231,41 @@ class RecordedBodies {
   }
 
   async of(messageId: string, signal: AbortSignal): Promise<Recorded> {
-    const deadline = Date.now() + BODIES_TIMEOUT_MS;
-    for (;;) {
-      const recorded = this.peek(messageId);
-      if (recorded !== null) return recorded;
-      if (signal.aborted || Date.now() >= deadline) {
-        throw new Error(
-          `claude recorded no usage for its response ${messageId}, so the run's generations would be incomplete`,
-        );
-      }
-      await sleep(BODIES_POLL_MS);
-    }
+    return this.#await(
+      () => this.peek(messageId),
+      `its response ${messageId}`,
+      signal,
+    );
   }
 
   async nextCompaction(signal: AbortSignal): Promise<Recorded> {
+    return this.#await(() => this.#peekCompaction(), 'its compaction request', signal);
+  }
+
+  get unclaimedCompactions(): boolean {
+    this.#refresh();
+    return this.#compactions.length > 0;
+  }
+
+  async #await(
+    read: () => Recorded | null,
+    what: string,
+    signal: AbortSignal,
+  ): Promise<Recorded> {
     const deadline = Date.now() + BODIES_TIMEOUT_MS;
     for (;;) {
-      const recorded = this.peekCompaction();
+      const recorded = read();
       if (recorded !== null) return recorded;
       if (signal.aborted || Date.now() >= deadline) {
         throw new Error(
-          'claude recorded no usage for its compaction request, so the run\'s generations would be incomplete',
+          `claude recorded no usage for ${what}, so the run's generations would be incomplete`,
         );
       }
       await sleep(BODIES_POLL_MS);
     }
   }
 
-  peekCompaction(): Recorded | null {
+  #peekCompaction(): Recorded | null {
     this.#refresh();
     const entry = this.#compactions[0];
     if (entry === undefined) return null;
@@ -375,6 +382,7 @@ class ClaudeCodeStream {
   readonly #flushed = new Set<string>();
   readonly #holders = new Map<string, string | null>();
   readonly #announced = new Set<string | null>();
+  readonly #spoken = new Set<string | null>();
   #sessionId: string | null = null;
   #outcome: { error: string | null } | null = null;
   #malformed: string | null = null;
@@ -427,6 +435,9 @@ class ClaudeCodeStream {
 
   async *finish(): AsyncGenerator<HarnessEvent> {
     yield* this.#flushAll();
+    while (this.malformed === null && this.#bodies.unclaimedCompactions) {
+      yield* this.#compaction(null, {});
+    }
   }
 
   get pending(): boolean {
@@ -465,6 +476,7 @@ class ClaudeCodeStream {
     }
     const scope = nonEmpty(line.parent_tool_use_id);
     if (!this.#known(scope)) return;
+    this.#spoken.add(scope);
     yield* this.#flushSpawner(scope);
     if (this.#flushed.has(messageId)) {
       for (const block of blocksOf(message?.content)) {
@@ -566,7 +578,7 @@ class ClaudeCodeStream {
 
   async *#handoff(line: ClaudeLine): AsyncGenerator<HarnessEvent> {
     const scope = nonEmpty(line.parent_tool_use_id);
-    if (!this.#known(scope)) return;
+    if (!this.#known(scope) || !this.#spoken.has(scope)) return;
     if (this.#announced.delete(scope)) return;
     yield* this.#flushSpawner(scope);
     yield* this.#flush(scope);
