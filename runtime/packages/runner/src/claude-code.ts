@@ -12,9 +12,11 @@ import { createInterface } from 'node:readline';
 import {
   errorMessage,
   SkillLoadTracker,
+  type CompactionEvent,
   type HarnessEvent,
   type HarnessOutput,
   type MessageEvent,
+  type RetryEvent,
   type TokenUsage,
   type ToolCallEvent,
   type ToolResultEvent,
@@ -86,6 +88,10 @@ const BODIES_POLL_MS = 20;
 
 const SYNTHETIC_MODEL = '<synthetic>';
 
+const COMPACTION_SOURCE = 'compact';
+
+const COMPACTION_HANDOFF = 'This session is being continued from a previous conversation';
+
 export interface ClaudeCodeArgsOptions {
   maxCostUsd: number | null;
   extraArgs: string[];
@@ -144,6 +150,12 @@ interface ClaudeLine {
   request_id?: string;
   is_error?: boolean;
   result?: unknown;
+  attempt?: unknown;
+  max_retries?: unknown;
+  retry_delay_ms?: unknown;
+  error_status?: unknown;
+  error?: unknown;
+  compact_metadata?: { trigger?: unknown; pre_tokens?: unknown; post_tokens?: unknown };
   message?: { id?: string; model?: string; content?: unknown };
 }
 
@@ -157,6 +169,7 @@ interface IndexEntry {
   message_id?: unknown;
   request_id?: unknown;
   response_file?: unknown;
+  query_source?: unknown;
 }
 
 interface Recorded {
@@ -210,6 +223,7 @@ const sleep = (ms: number): Promise<void> =>
 class RecordedBodies {
   readonly #dir: string;
   readonly #entries = new Map<string, IndexEntry>();
+  readonly #compactions: IndexEntry[] = [];
   #offset = 0;
 
   constructor(dir: string) {
@@ -230,6 +244,29 @@ class RecordedBodies {
     }
   }
 
+  async nextCompaction(signal: AbortSignal): Promise<Recorded> {
+    const deadline = Date.now() + BODIES_TIMEOUT_MS;
+    for (;;) {
+      const recorded = this.peekCompaction();
+      if (recorded !== null) return recorded;
+      if (signal.aborted || Date.now() >= deadline) {
+        throw new Error(
+          'claude recorded no usage for its compaction request, so the run\'s generations would be incomplete',
+        );
+      }
+      await sleep(BODIES_POLL_MS);
+    }
+  }
+
+  peekCompaction(): Recorded | null {
+    this.#refresh();
+    const entry = this.#compactions[0];
+    if (entry === undefined) return null;
+    const recorded = this.#recorded(entry);
+    if (recorded !== null) this.#compactions.shift();
+    return recorded;
+  }
+
   #refresh(): void {
     const added = readRegularFile(
       join(this.#dir, 'index.jsonl'),
@@ -241,15 +278,21 @@ class RecordedBodies {
     this.#offset += Buffer.byteLength(complete);
     for (const line of complete.split('\n')) {
       const parsed = parseJson(line) as IndexEntry | null;
-      if (typeof parsed?.message_id === 'string') this.#entries.set(parsed.message_id, parsed);
+      if (typeof parsed?.message_id !== 'string') continue;
+      this.#entries.set(parsed.message_id, parsed);
+      if (parsed.query_source === COMPACTION_SOURCE) this.#compactions.push(parsed);
     }
   }
 
   peek(messageId: string): Recorded | null {
     this.#refresh();
     const entry = this.#entries.get(messageId);
-    const file = nonEmpty(entry?.response_file);
-    if (entry === undefined || file === null || basename(file) !== file) return null;
+    return entry === undefined ? null : this.#recorded(entry);
+  }
+
+  #recorded(entry: IndexEntry): Recorded | null {
+    const file = nonEmpty(entry.response_file);
+    if (file === null || basename(file) !== file) return null;
     const text = readRegularFile(join(this.#dir, file), MAX_RESPONSE_BYTES);
     if (text === null) return null;
     const body = parseJson(text) as ClaudeBody | null;
@@ -305,7 +348,21 @@ const toolCall = (block: ClaudeContent): ToolCallEvent => ({
   arguments: block.input,
 });
 
-const scoped = <T extends MessageEvent | ToolCallEvent | ToolResultEvent>(
+const isCompactionHandoff = (line: ClaudeLine): boolean =>
+  blocksOf(line.message?.content).some(
+    (block) => block.type === 'text' && block.text?.startsWith(COMPACTION_HANDOFF) === true,
+  );
+
+const retryError = ({ error, error_status: status }: ClaudeLine): string | null => {
+  const reason = nonEmpty(error);
+  const code = tokenCount(status);
+  if (code === null) return reason;
+  return reason === null ? `HTTP ${code}` : `${reason} (HTTP ${code})`;
+};
+
+const scoped = <
+  T extends MessageEvent | ToolCallEvent | ToolResultEvent | RetryEvent | CompactionEvent,
+>(
   event: T,
   scope: string | null,
 ): T => (scope === null ? event : { ...event, subagent: scope });
@@ -317,6 +374,7 @@ class ClaudeCodeStream {
   readonly #turns = new Map<string | null, Turn>();
   readonly #flushed = new Set<string>();
   readonly #holders = new Map<string, string | null>();
+  readonly #announced = new Set<string | null>();
   #sessionId: string | null = null;
   #outcome: { error: string | null } | null = null;
   #malformed: string | null = null;
@@ -351,6 +409,9 @@ class ClaudeCodeStream {
         return;
       case 'user':
         yield* this.#user(parsed);
+        return;
+      case 'system':
+        yield* this.#system(parsed);
         return;
       case 'result':
         yield* this.#flushAll();
@@ -451,11 +512,75 @@ class ClaudeCodeStream {
     }
   }
 
+  async *#system(line: ClaudeLine): AsyncGenerator<HarnessEvent> {
+    if (line.subtype !== 'api_retry' && line.subtype !== 'compact_boundary') return;
+    const scope = nonEmpty(line.parent_tool_use_id);
+    if (!this.#known(scope)) return;
+    yield* this.#flushSpawner(scope);
+    yield* this.#flush(scope);
+    if (line.subtype === 'compact_boundary') {
+      this.#announced.add(scope);
+      const meta = line.compact_metadata;
+      yield* this.#compaction(scope, {
+        reason: nonEmpty(meta?.trigger),
+        tokensBefore: tokenCount(meta?.pre_tokens),
+        tokensAfter: tokenCount(meta?.post_tokens),
+      });
+      return;
+    }
+    const retry: RetryEvent = {
+      type: 'retry',
+      attempt: tokenCount(line.attempt),
+      maxAttempts: tokenCount(line.max_retries),
+      delayMs: tokenCount(line.retry_delay_ms),
+      error: retryError(line),
+    };
+    yield scoped(retry, scope);
+  }
+
+  async *#compaction(
+    scope: string | null,
+    known: Partial<Pick<CompactionEvent, 'reason' | 'tokensBefore' | 'tokensAfter'>>,
+  ): AsyncGenerator<HarnessEvent> {
+    let recorded: Recorded;
+    try {
+      recorded = await this.#bodies.nextCompaction(this.#stop);
+    } catch (error) {
+      this.fail(errorMessage(error));
+      return;
+    }
+    const { usage } = recorded;
+    const compaction: CompactionEvent = {
+      type: 'compaction',
+      reason: null,
+      tokensBefore: usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+      tokensAfter: null,
+      summary: null,
+      error: null,
+      ...known,
+      usage,
+      generationId: recorded.requestId,
+    };
+    yield scoped(compaction, scope);
+  }
+
+  async *#handoff(line: ClaudeLine): AsyncGenerator<HarnessEvent> {
+    const scope = nonEmpty(line.parent_tool_use_id);
+    if (!this.#known(scope)) return;
+    if (this.#announced.delete(scope)) return;
+    yield* this.#flushSpawner(scope);
+    yield* this.#flush(scope);
+    yield* this.#compaction(scope, {});
+  }
+
   async *#user(line: ClaudeLine): AsyncGenerator<HarnessEvent> {
     const results = blocksOf(line.message?.content).filter(
       (block) => block.type === 'tool_result',
     );
-    if (results.length === 0) return;
+    if (results.length === 0) {
+      if (isCompactionHandoff(line)) yield* this.#handoff(line);
+      return;
+    }
     const scope = nonEmpty(line.parent_tool_use_id);
     if (!this.#known(scope)) return;
     yield* this.#flushSpawner(scope);

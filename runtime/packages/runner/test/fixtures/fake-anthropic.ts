@@ -32,6 +32,7 @@ export interface ClaudeScenario {
   respond: RespondMessages;
   prompt?: string;
   files?: Record<string, string>;
+  args?: string[];
 }
 
 export const serveMessages = async (
@@ -98,6 +99,11 @@ export const CLAUDE_SKILL_FILES: Record<string, string> = Object.fromEntries(
 export const isSubagentRequest = (request: MessagesRequest): boolean =>
   JSON.stringify(request.system).includes('cc_is_subagent=true');
 
+export const isCompactionRequest = (request: MessagesRequest): boolean =>
+  JSON.stringify(request.messages.at(-1)).includes('CRITICAL: Respond with TEXT ONLY');
+
+export const COMPACT_AT_TOKENS = ['--autocompact', '100k'];
+
 export const toolNames = (request: MessagesRequest): string[] =>
   (request.tools ?? []).map(({ name }) => name);
 
@@ -159,6 +165,145 @@ export const subagentsScenario = (): ClaudeScenario => {
               `msg_forge_subagents_${child}_${sentToolResults(request) ? 2 : 1}`,
               { text: `Report from ${child}.` },
               anthropicUsage(110, 500, 30, 12),
+            ),
+      );
+    },
+  };
+};
+
+export const CLAUDE_OVERLOADED =
+  '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+
+export const retryScenario = (): ClaudeScenario => {
+  let attempts = 0;
+  return {
+    respond: (_call, res) => {
+      attempts += 1;
+      if (attempts === 1) {
+        res.writeHead(529, {
+          'content-type': 'application/json',
+          'request-id': 'req_forge_retry_failed',
+        });
+        res.end(CLAUDE_OVERLOADED);
+        return;
+      }
+      anthropicSse(
+        res,
+        anthropicReply(
+          'msg_forge_retry_1',
+          { text: 'Recovered after a retry.' },
+          anthropicUsage(200, 0, 1000, 40),
+        ),
+      );
+    },
+  };
+};
+
+export const compactionScenario = (): ClaudeScenario => {
+  let turns = 0;
+  return {
+    args: COMPACT_AT_TOKENS,
+    respond: (_call, res, request) => {
+      if (isCompactionRequest(request)) {
+        anthropicSse(
+          res,
+          anthropicReply(
+            'msg_forge_compaction_summary',
+            { text: '<summary>The command printed forge.</summary>' },
+            anthropicUsage(6000, 0, 0, 300),
+          ),
+        );
+        return;
+      }
+      turns += 1;
+      anthropicSse(
+        res,
+        turns === 1
+          ? anthropicReply(
+              'msg_forge_compaction_1',
+              {
+                text: 'Let me look.',
+                toolUses: [
+                  { id: 'toolu_1', name: 'Bash', input: { command: 'echo forge' } },
+                ],
+              },
+              anthropicUsage(500, 189_000, 500, 40),
+            )
+          : anthropicReply(
+              'msg_forge_compaction_2',
+              { text: 'The command printed forge. All done.' },
+              anthropicUsage(300, 0, 800, 25),
+            ),
+      );
+    },
+  };
+};
+
+export const subagentCompactionScenario = (): ClaudeScenario => {
+  let subagentTurns = 0;
+  return {
+    args: COMPACT_AT_TOKENS,
+    prompt: 'delegate the work to a subagent',
+    respond: (_call, res, request) => {
+      if (isCompactionRequest(request)) {
+        anthropicSse(
+          res,
+          anthropicReply(
+            'msg_forge_subagent_compaction_summary',
+            { text: '<summary>The subagent printed forge.</summary>' },
+            anthropicUsage(6000, 0, 0, 300),
+          ),
+        );
+        return;
+      }
+      if (!isSubagentRequest(request)) {
+        anthropicSse(
+          res,
+          sentToolResults(request)
+            ? anthropicReply(
+                'msg_forge_subagent_compaction_parent_2',
+                { text: 'The subagent reported. All done.' },
+                anthropicUsage(300, 1000, 200, 25),
+              )
+            : anthropicReply(
+                'msg_forge_subagent_compaction_parent_1',
+                {
+                  text: 'A subagent will take it from here.',
+                  toolUses: [
+                    {
+                      id: 'toolu_alpha',
+                      name: 'Agent',
+                      input: {
+                        description: 'Subagent alpha',
+                        subagent_type: 'general-purpose',
+                        prompt: 'SUBTASK alpha',
+                      },
+                    },
+                  ],
+                },
+                anthropicUsage(200, 0, 1000, 40),
+              ),
+        );
+        return;
+      }
+      subagentTurns += 1;
+      anthropicSse(
+        res,
+        subagentTurns === 1
+          ? anthropicReply(
+              'msg_forge_subagent_compaction_alpha_1',
+              {
+                text: 'Running the command.',
+                toolUses: [
+                  { id: 'toolu_run', name: 'Bash', input: { command: 'echo forge' } },
+                ],
+              },
+              anthropicUsage(500, 189_000, 500, 40),
+            )
+          : anthropicReply(
+              'msg_forge_subagent_compaction_alpha_2',
+              { text: 'Report from alpha.' },
+              anthropicUsage(110, 0, 30, 12),
             ),
       );
     },
@@ -246,4 +391,7 @@ export const claudeScenarios: Record<string, ClaudeScenario> = {
       rejection(res, 429, 'rate_limit_error', CLAUDE_USAGE_LIMIT),
   },
   subagents: subagentsScenario(),
+  retry: retryScenario(),
+  compaction: compactionScenario(),
+  'subagent-compaction': subagentCompactionScenario(),
 };

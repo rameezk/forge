@@ -24,7 +24,7 @@ const PROMPT = 'Run echo forge, then say what it printed.';
 const record = async (
   claude: string,
   name: string,
-  { respond, prompt = PROMPT, files = {} }: ClaudeScenario,
+  { respond, prompt = PROMPT, files = {}, args: extraArgs = [] }: ClaudeScenario,
   outDir: string,
 ): Promise<void> => {
   const server = await serveMessages(respond);
@@ -39,7 +39,7 @@ const record = async (
   }
   const args = claudeCodeArgs(
     { workDir: work, model: 'claude-opus-4-5', prompt },
-    { maxCostUsd: null, extraArgs: [] },
+    { maxCostUsd: null, extraArgs },
   );
   const child = spawn(claude, args, {
     cwd: work,

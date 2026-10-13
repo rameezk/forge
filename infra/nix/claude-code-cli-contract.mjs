@@ -22,6 +22,9 @@ const {
 const {
   serveMessages,
   subagentsScenario,
+  retryScenario,
+  compactionScenario,
+  subagentCompactionScenario,
   manySubagentsScenario,
   RAISED_LIMIT_FILES,
   SUBAGENT_LIMIT_REFUSAL,
@@ -66,7 +69,7 @@ const runClaude = async (
   label,
   reasoningEffort,
   configDir,
-  { work = workDir, prompt = 'contract check', endpoint = port } = {},
+  { work = workDir, prompt = 'contract check', endpoint = port, args: extraArgs = [] } = {},
 ) => {
   const bodiesDir = mkdtempSync(join(scratch, 'bodies-'));
   mkdirSync(configDir, { recursive: true });
@@ -78,7 +81,7 @@ const runClaude = async (
       workDir: work,
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     },
-    { maxCostUsd: 1, extraArgs: [] },
+    { maxCostUsd: 1, extraArgs },
   );
   const child = spawn(claude, args, {
     cwd: work,
@@ -217,7 +220,7 @@ expect(
 
 server.close();
 
-const runSubagents = async (label, { respond, prompt, files = {} }) => {
+const runScenario = async (label, { respond, prompt, files = {}, args }) => {
   const sent = [];
   const subagentServer = await serveMessages(respond, sent);
   const dir = mkdtempSync(join(scratch, 'subagents-'));
@@ -230,14 +233,25 @@ const runSubagents = async (label, { respond, prompt, files = {} }) => {
   const run = await runClaude(label, undefined, join(dir, 'config'), {
     work,
     prompt,
+    args,
     endpoint: subagentServer.address().port,
   });
   subagentServer.close();
   expect(run.code === 0, `${label}: claude exited ${run.code}: ${run.stderr.slice(0, 400)}`);
-  return { stream: events(run), sent };
+  const index = (() => {
+    try {
+      return readFileSync(join(run.bodiesDir, 'index.jsonl'), 'utf8')
+        .split('\n')
+        .filter((line) => line !== '')
+        .map((line) => JSON.parse(line));
+    } catch {
+      return [];
+    }
+  })();
+  return { stream: events(run), sent, index };
 };
 
-const subagents = await runSubagents('two subagents', subagentsScenario());
+const subagents = await runScenario('two subagents', subagentsScenario());
 const children = subagents.sent.filter(isSubagentRequest);
 expect(children.length > 0, 'two subagents: no subagent request reached the fake endpoint');
 for (const request of children) {
@@ -293,7 +307,7 @@ expect(
 );
 
 const SPAWNED = 6;
-const capped = await runSubagents('subagent cap', {
+const capped = await runScenario('subagent cap', {
   ...manySubagentsScenario(SPAWNED),
   files: RAISED_LIMIT_FILES,
 });
@@ -314,6 +328,58 @@ expect(
 expect(
   capped.sent.filter(isSubagentRequest).every((request) => !toolNames(request).includes('Agent')),
   "subagent cap: a subagent was allowed to spawn one of its own with the checkout's own settings raising the depth",
+);
+
+const retried = await runScenario('retry', retryScenario());
+const apiRetry = retried.stream.find(
+  (line) => line.type === 'system' && line.subtype === 'api_retry',
+);
+expect(
+  apiRetry !== undefined &&
+    Number.isInteger(apiRetry.attempt) &&
+    Number.isInteger(apiRetry.max_retries) &&
+    Number.isInteger(apiRetry.retry_delay_ms) &&
+    Number.isInteger(apiRetry.error_status) &&
+    typeof apiRetry.error === 'string',
+  `retry: stream-json no longer carries a system api_retry event with attempt, max_retries, retry_delay_ms, error_status and error: ${JSON.stringify(apiRetry)}`,
+);
+expect(
+  retried.index.length === 1,
+  'retry: the raw API bodies index recorded the failed attempt, which was never billed',
+);
+
+const compacted = await runScenario('compaction', compactionScenario());
+const boundary = compacted.stream.find(
+  (line) => line.type === 'system' && line.subtype === 'compact_boundary',
+);
+const meta = boundary?.compact_metadata;
+expect(
+  meta !== undefined &&
+    typeof meta.trigger === 'string' &&
+    Number.isInteger(meta.pre_tokens) &&
+    Number.isInteger(meta.post_tokens),
+  `compaction: stream-json no longer carries a system compact_boundary event with compact_metadata trigger, pre_tokens and post_tokens: ${JSON.stringify(boundary)}`,
+);
+expect(
+  compacted.index.filter((entry) => entry.query_source === 'compact').length === 1,
+  "compaction: the raw API bodies index no longer marks the summarizing request with query_source compact",
+);
+
+const subagentCompacted = await runScenario('subagent compaction', subagentCompactionScenario());
+expect(
+  subagentCompacted.stream.some(
+    (line) =>
+      line.type === 'user' &&
+      line.parent_tool_use_id === 'toolu_alpha' &&
+      JSON.stringify(line.message.content).includes(
+        'This session is being continued from a previous conversation',
+      ),
+  ),
+  "subagent compaction: stream-json no longer carries the summary a compacting subagent continues from as a user message with its spawning call's id",
+);
+expect(
+  subagentCompacted.index.filter((entry) => entry.query_source === 'compact').length === 1,
+  'subagent compaction: the raw API bodies index no longer marks the summarizing request with query_source compact',
 );
 
 if (failures.length > 0) {

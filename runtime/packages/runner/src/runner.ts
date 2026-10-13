@@ -2,8 +2,8 @@ import {
   errorMessage,
   startHeartbeat,
   type ExceededLimit,
+  type HarnessEvent,
   type ListPrice,
-  type MessageEvent,
   type RunStatus,
   type RunCounters,
   type RunTicket,
@@ -49,10 +49,34 @@ export interface WorkloadResult {
   cause: unknown;
 }
 
-const isBillable = (event: MessageEvent): boolean =>
-  event.role === 'assistant' &&
-  (event.generationId !== null ||
-    Object.values(event.usage).some((count) => count > 0));
+interface BilledCall {
+  generationId: string | null;
+  subagent: string | null;
+  usage: TokenUsage;
+}
+
+const hasUsage = (usage: TokenUsage): boolean =>
+  Object.values(usage).some((count) => count > 0);
+
+const billedCall = (event: HarnessEvent): BilledCall | null => {
+  if (event.type === 'message') {
+    return event.role === 'assistant' &&
+      (event.generationId !== null || hasUsage(event.usage))
+      ? {
+          generationId: event.generationId,
+          subagent: event.subagent ?? null,
+          usage: event.usage,
+        }
+      : null;
+  }
+  if (event.type === 'compaction' && event.usage !== undefined) {
+    const generationId = event.generationId ?? null;
+    return generationId !== null || hasUsage(event.usage)
+      ? { generationId, subagent: event.subagent ?? null, usage: event.usage }
+      : null;
+  }
+  return null;
+};
 
 const estimatedCost = (price: ListPrice | null, usage: TokenUsage): number | null => {
   if (price === null) return null;
@@ -128,18 +152,18 @@ export const runWorkload = async (
       ),
   );
 
-  const recordGeneration = (event: MessageEvent): void => {
-    if (event.generationId === null && !subscription) {
+  const recordGeneration = (call: BilledCall): void => {
+    if (call.generationId === null && !subscription) {
       process.stderr.write(
         `run ${id}: an assistant response used tokens but has no generation id, so its cost is unconfirmed\n`,
       );
     }
-    const priced = estimatedCost(listPrice, event.usage);
+    const priced = estimatedCost(listPrice, call.usage);
     store.recordGeneration({
       runId: id,
-      generationId: event.generationId,
-      subagent: event.subagent ?? null,
-      usage: event.usage,
+      generationId: call.generationId,
+      subagent: call.subagent,
+      usage: call.usage,
       estimatedCostUsd: subscription ? null : priced,
       listPriceEquivalentUsd: subscription ? priced : null,
       createdAt: now(),
@@ -216,18 +240,19 @@ export const runWorkload = async (
       const event = policy.record(harnessEvent);
       await transcript.append(event);
       countEvent(counters, event);
-      if (event.type === 'message') {
-        if (isBillable(event)) {
-          recordGeneration(event);
-          if (exceeded === null && worker.maxCostUsd != null) {
-            const spend = store.workloadSpend(id);
-            if (spend.unpriced || spend.costUsd > worker.maxCostUsd) {
-              exceeded = 'budget';
-              stop.abort();
-              break;
-            }
+      const call = billedCall(event);
+      if (call !== null) {
+        recordGeneration(call);
+        if (exceeded === null && worker.maxCostUsd != null) {
+          const spend = store.workloadSpend(id);
+          if (spend.unpriced || spend.costUsd > worker.maxCostUsd) {
+            exceeded = 'budget';
+            stop.abort();
+            break;
           }
         }
+      }
+      if (event.type === 'message') {
         if (
           event.role === 'assistant' &&
           event.subagent === undefined &&
