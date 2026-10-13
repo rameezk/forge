@@ -11,7 +11,7 @@ in
 runCommand "claude-code-cli-contract"
   {
     nativeBuildInputs = [ nodejs ];
-    meta.description = "Runs the locked claude with the exact argv and environment the runner's claude-code adapter uses, at every reasoning effort and with none, against a fake Anthropic endpoint from a cwd holding a repository AGENTS.md and an empty config dir, failing if claude rejects any flag, stops emitting stream-json with a system init event, assistant events and a successful result, stops writing the raw API bodies the runner reads each request's token counts from, stops loading the repository's AGENTS.md from a cold config dir, does not append forge's instructions to its system prompt, produces an init event on a warm config dir that differs from a cold one beyond its per-process fields, stops carrying forge's instructions into a subagent's system prompt, lets a subagent spawn one of its own, stops refusing subagents past four at once or lets a checkout's own settings or local settings raise that limit or the depth or re-enable background subagents, stops answering an Agent call with the report its subagent handed back, or stops tagging a subagent's assistant, Skill call and Skill result stream lines with the id of the tool call that spawned it.";
+    meta.description = "Runs the locked claude with the exact argv and environment the runner's claude-code adapter uses, against a fake Anthropic endpoint, failing if the CLI rejects a flag, stops emitting the stream-json the runner reads, stops writing the raw API bodies it takes token counts from, stops loading the repository's AGENTS.md or appending forge's instructions, or stops honouring forge's subagent limits, subagent reports and tool call attribution.";
   }
   ''
     export HOME="$TMPDIR"
