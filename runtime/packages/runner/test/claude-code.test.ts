@@ -366,6 +366,32 @@ test('given a claude-code worker whose stream attributes a message to a tool cal
   assert.ok(!events.some((event) => event.subagent === 'toolu_forged'));
 });
 
+test('given a claude-code worker whose stream attributes a tool result to a tool call claude never made, when its workload runs, then the run ends error naming it and the parent keeps the events it had', async () => {
+  const forge = (stream: string): string =>
+    stream
+      .split('\n')
+      .map((line) =>
+        line.includes('"tool_use_id":"toolu_skill"') && line.includes('"tool_result"')
+          ? line.replace('"parent_tool_use_id":"toolu_alpha"', '"parent_tool_use_id":"toolu_forged"')
+          : line,
+      )
+      .join('\n');
+
+  const clean = await runClaude({ fixture: 'subagents' });
+  const { run, transcript } = await runClaude({ fixture: 'subagents', rewrite: forge });
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /toolu_forged/);
+  const unscoped = (text: string): number =>
+    (parseTranscript(text) as unknown as Record<string, unknown>[]).filter(
+      (event) => event.subagent === undefined && event.type !== 'tool_result',
+    ).length;
+  assert.ok(unscoped(transcript) > 0);
+  assert.ok(unscoped(transcript) <= unscoped(clean.transcript));
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  assert.ok(!events.some((event) => event.subagent === 'toolu_forged'));
+});
+
 const replayedSkillLoads = async (
   fixture: string,
   prompt: string,
