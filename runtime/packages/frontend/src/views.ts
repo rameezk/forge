@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, seriesOf } from './chart.ts';
-import { cohortHref, cohortLabel, isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
+import { cohortHref, cohortLabel, DEFAULT_HARNESS, isGithubRepository, isGithubUrl, ticketKey } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type {
   CohortInsight,
@@ -1484,6 +1484,7 @@ export const renderTicketAttempts = (
 };
 
 const FINGERPRINT_FIELDS: { key: string; label: string; valueOf: (fingerprint: ConfigFingerprint) => string }[] = [
+  { key: 'harness', label: 'Harness', valueOf: ({ harness }) => harness ?? DEFAULT_HARNESS },
   { key: 'provider', label: 'Provider', valueOf: ({ provider }) => provider ?? 'openrouter' },
   { key: 'model', label: 'Model', valueOf: ({ model }) => model },
   { key: 'reasoning-effort', label: 'Reasoning effort', valueOf: ({ reasoningEffort }) => reasoningEffort ?? 'default' },
@@ -1493,6 +1494,7 @@ const FINGERPRINT_FIELDS: { key: string; label: string; valueOf: (fingerprint: C
   { key: 'system-prompt', label: 'System prompt', valueOf: ({ systemPrompt }) => systemPrompt ?? 'not recorded' },
   { key: 'tools', label: 'Tool definitions', valueOf: ({ tools }) => tools ?? 'not recorded' },
   { key: 'skills', label: 'Skill files', valueOf: ({ skills }) => skills ?? 'not recorded' },
+  { key: 'settings', label: 'Settings and hooks', valueOf: ({ settings }) => settings ?? 'none' },
 ];
 
 const renderFingerprintRow = (
@@ -1502,7 +1504,7 @@ const renderFingerprintRow = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const value = valueOf(fingerprint);
   const labelCell = (changed: boolean): Rendered =>
-    html`<th scope="row" class="${TD} text-left font-semibold text-muted"><span class="whitespace-nowrap">${label}</span>${changed ? html` <span class="${PILL} bg-warning-soft text-warning">changed</span>` : ''}</th>`;
+    html`<th scope="row" class="${TD} whitespace-nowrap text-left font-semibold text-muted">${label}${changed ? html` <span class="${PILL} bg-warning-soft text-warning">changed</span>` : ''}</th>`;
   if (against === null) {
     return html`<tr class="${ROW}" data-field="${key}">${labelCell(false)}<td class="${TD} min-w-44 break-all tabular-nums">${value}</td></tr>`;
   }

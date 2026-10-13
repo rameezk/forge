@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   parseTranscript,
   rawEventsRef,
+  requestRecordRef,
   Store,
   type GenerationRecord,
   type RunRecord,
@@ -61,6 +62,7 @@ interface Scenario {
   lingerMs?: number;
   indexAs?: 'fifo' | 'symlink';
   rewrite?: (stream: string) => string;
+  requests?: Record<string, unknown>;
 }
 
 interface Outcome {
@@ -70,15 +72,25 @@ interface Outcome {
   run: RunRecord;
   generations: GenerationRecord[];
   transcript: string;
+  requestRecord: Record<string, unknown>[];
   claudeStarted: boolean;
   claude: {
     argv: string[];
+    cwd: string;
     env: Record<string, string>;
     pid: number;
     modes: { run: number; config: number; bodies: number };
   };
   bwrap: BwrapCall;
 }
+
+const parseRecord = (path: string): Record<string, unknown>[] =>
+  existsSync(path)
+    ? readFileSync(path, 'utf8')
+        .split('\n')
+        .filter((line) => line !== '')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+    : [];
 
 const runClaude = async ({
   fixture,
@@ -88,6 +100,7 @@ const runClaude = async ({
   lingerMs,
   indexAs,
   rewrite,
+  requests = {},
 }: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-claude-'));
   const fakeClaude = writeFakeClaude(stateDir);
@@ -99,11 +112,19 @@ const runClaude = async ({
     stream,
     (rewrite ?? ((text: string) => text))(readFileSync(join(recorded, 'stream.jsonl'), 'utf8')),
   );
+  const bodies = join(stateDir, 'recorded-bodies');
+  if (existsSync(join(recorded, 'bodies'))) {
+    cpSync(join(recorded, 'bodies'), bodies, { recursive: true });
+  }
+  for (const [file, body] of Object.entries(requests)) {
+    writeFileSync(join(bodies, file), JSON.stringify(body));
+  }
   const fakeBwrap = writeFakeBwrap(stateDir, {
     record: bwrapRecord,
     harnessEnv: {
       ...claudeReplay(fixture, claudeRecord),
       FAKE_CLAUDE_STREAM: stream,
+      FAKE_CLAUDE_BODIES: bodies,
       ...(lingerMs === undefined ? {} : { FAKE_CLAUDE_LINGER_MS: String(lingerMs) }),
       ...(indexAs === 'fifo' ? { FAKE_CLAUDE_MKFIFO: commandPath('mkfifo') } : {}),
       ...(indexAs === undefined ? {} : { FAKE_CLAUDE_INDEX: indexAs }),
@@ -153,6 +174,9 @@ const runClaude = async ({
       run,
       generations: store.listGenerations(run.id),
       transcript: readFileSync(join(stateDir, 'transcripts', `${run.id}.jsonl`), 'utf8'),
+      requestRecord: parseRecord(
+        join(stateDir, 'transcripts', requestRecordRef(run.id)),
+      ),
       claudeStarted: existsSync(claudeRecord),
       get claude() {
         return JSON.parse(readFileSync(claudeRecord, 'utf8')) as Outcome['claude'];
@@ -165,6 +189,168 @@ const runClaude = async ({
     store.close();
   }
 };
+
+const SYSTEM_BLOCKS = [
+  { type: 'text', text: 'You are Claude Code.', cache_control: { type: 'ephemeral' } },
+  { type: 'text', text: 'Be brief.' },
+];
+
+const TOOLS = [
+  {
+    name: 'Bash',
+    description: 'Runs a command',
+    input_schema: { type: 'object', properties: { command: { type: 'string' } } },
+  },
+];
+
+const requestBody = (messages: unknown[], system: unknown[] = SYSTEM_BLOCKS) => ({
+  model: MODEL,
+  system,
+  tools: TOOLS,
+  messages,
+  max_tokens: 32000,
+  stream: true,
+});
+
+const SUCCESS_REQUESTS = {
+  '7d838a06-085b-4316-acfe-42673768a9f9.request.json': requestBody([
+    { role: 'user', content: [{ type: 'text', text: 'refine the spec' }] },
+  ]),
+  'a9815516-cd0f-4b58-9aa4-02e8a9dc2d20.request.json': requestBody([
+    { role: 'user', content: [{ type: 'text', text: 'refine the spec' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'Let me look.' }] },
+  ]),
+};
+
+test('given a claude-code worker whose requests were recorded, when its workload runs, then the run\'s request record holds the system prompt and tools once and each request referring to them, with the cache markers lifted out', async () => {
+  const { code, requestRecord } = await runClaude({
+    fixture: 'success',
+    requests: SUCCESS_REQUESTS,
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(
+    requestRecord.map(({ type }) => type),
+    ['system_prompt', 'tools', 'request', 'request'],
+  );
+  const [system, tools, first, second] = requestRecord as [
+    { hash: string; value: unknown },
+    { hash: string; tools: unknown },
+    { body: Record<string, unknown>; cacheMarkers: unknown[]; subagent?: string },
+    { body: Record<string, unknown> },
+  ];
+  assert.deepEqual(system.value, [
+    { type: 'text', text: 'You are Claude Code.' },
+    { type: 'text', text: 'Be brief.' },
+  ]);
+  assert.deepEqual(tools.tools, TOOLS);
+  assert.deepEqual(first.body.system, { hash: system.hash });
+  assert.deepEqual(first.body.tools, { hash: tools.hash });
+  assert.deepEqual(second.body.system, { hash: system.hash });
+  assert.equal((second.body.messages as unknown[]).length, 2);
+  assert.deepEqual(first.cacheMarkers, [
+    { path: ['system', 0], value: { type: 'ephemeral' } },
+  ]);
+  assert.equal(first.subagent, undefined);
+});
+
+interface Snapshot {
+  buildSuffix: string;
+  date: string;
+  status: string;
+  persona?: string;
+}
+
+const perRunSystem = ({ buildSuffix, date, status, persona = 'You are Claude Code.' }: Snapshot) => [
+  { type: 'text', text: `x-anthropic-billing-header: cc_version=2.1.296.${buildSuffix}; cc_entrypoint=sdk-cli;` },
+  {
+    type: 'text',
+    text: `${persona} Your work dir is {{WORK_DIR}}. Memory lives in {{CONFIG_DIR}}/projects/{{WORK_DIR_SLUG}}/memory/.`,
+  },
+  {
+    type: 'text',
+    text: `Today's date is ${date}.\n# gitStatus\nThis is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.\n\nCurrent branch: main\n\nStatus:\n${status}\n\nRecent commits:\nabc init\n\nClaude Code attached this context.`,
+  },
+];
+
+const snapshotRequests = (snapshot: Snapshot) => ({
+  '7d838a06-085b-4316-acfe-42673768a9f9.request.json': requestBody(
+    [{ role: 'user', content: [{ type: 'text', text: 'refine the spec' }] }],
+    perRunSystem(snapshot),
+  ),
+});
+
+const fingerprintOf = ({ stateDir, run }: Outcome) => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    return store.getFingerprint(run.id);
+  } finally {
+    store.close();
+  }
+};
+
+const MORNING: Snapshot = { buildSuffix: 'a7e', date: '2026-10-13', status: '?? notes.md' };
+
+test('given two claude-code runs of one worker whose per-run values differ - work dir, config dir, build suffix, date and git status - when each runs, then both fingerprints hash alike', async () => {
+  const first = await runClaude({ fixture: 'success', requests: snapshotRequests(MORNING) });
+  const second = await runClaude({
+    fixture: 'success',
+    requests: snapshotRequests({ buildSuffix: '1ec', date: '2026-11-02', status: ' M src/a.ts\n?? b.ts' }),
+  });
+
+  const [one, two] = [fingerprintOf(first), fingerprintOf(second)];
+  assert.ok(one);
+  assert.ok(two);
+  assert.notEqual(first.claude.env.CLAUDE_CONFIG_DIR, second.claude.env.CLAUDE_CONFIG_DIR);
+  assert.notEqual(first.claude.cwd, second.claude.cwd);
+  assert.equal(one.fingerprint.harness, 'claude-code');
+  assert.equal(one.fingerprint.settings, undefined);
+  assert.equal(one.fingerprint.systemPrompt, two.fingerprint.systemPrompt);
+  assert.equal(one.hash, two.hash);
+});
+
+test('given two claude-code runs whose system prompts differ in their own text, when each runs, then their fingerprints hash differently', async () => {
+  const first = await runClaude({ fixture: 'success', requests: snapshotRequests(MORNING) });
+  const second = await runClaude({
+    fixture: 'success',
+    requests: snapshotRequests({ ...MORNING, persona: 'You are a different agent.' }),
+  });
+
+  assert.notEqual(fingerprintOf(first)?.hash, fingerprintOf(second)?.hash);
+});
+
+test('given a claude-code worker on a recording of two parallel subagents whose requests were recorded, when its workload runs, then each subagent\'s request is recorded under the id of the tool call that spawned it and the parent\'s under none', async () => {
+  const subagentSystem = [{ type: 'text', text: 'You are a subagent.' }];
+  const user = [{ role: 'user', content: [{ type: 'text', text: 'go' }] }];
+  const { code, requestRecord } = await runClaude({
+    fixture: 'subagents',
+    requests: {
+      '2674eee4-1bf8-4f25-8481-c50e541b34e2.request.json': requestBody(user),
+      '400902d3-9729-4072-89f4-def6a8c3a8ec.request.json': requestBody(user, subagentSystem),
+      '5f27d403-fec9-4c8a-85b7-6280990f3b1b.request.json': requestBody(user, subagentSystem),
+      '69701490-96c0-480d-b15e-79ed4bc09c73.request.json': requestBody(user, subagentSystem),
+      '9350db0c-ce48-4fe8-a4fb-ec31cec2416a.request.json': requestBody(user),
+    },
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(
+    requestRecord.flatMap((line) =>
+      line.type === 'request' ? [String(line.subagent ?? 'parent')] : [],
+    ),
+    ['parent', 'toolu_alpha', 'toolu_beta', 'toolu_alpha', 'parent'],
+  );
+  assert.equal(requestRecord.filter(({ type }) => type === 'system_prompt').length, 2);
+  assert.equal(requestRecord.filter(({ type }) => type === 'tools').length, 1);
+});
+
+test('given a claude-code worker on a recording whose request bodies were not kept, when its workload runs, then the run still succeeds with an empty request record', async () => {
+  const { code, run, requestRecord } = await runClaude({ fixture: 'success' });
+
+  assert.equal(code, 0);
+  assert.equal(run.status, 'success');
+  assert.deepEqual(requestRecord, []);
+});
 
 test('given a claude-code worker on a two-request recording, when its workload runs through the runner, then each request is a generation keyed by its Anthropic request id with its four token counts and a list-price equivalent, and the run stays on subscription', async () => {
   const { code, run, generations } = await runClaude({ fixture: 'success' });

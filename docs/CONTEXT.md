@@ -57,7 +57,7 @@ What a subscription workload's generations would have cost at the model's list p
 _Avoid_: subscription cost, saved cost
 
 **Config fingerprint**:
-The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files, plus on Claude Code the repository's Claude Code settings and hooks. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034, ADR-0057).
+The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), harness when not `pi`, reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files, plus on Claude Code the repository's Claude Code settings and hooks. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034, ADR-0057).
 _Avoid_: version, run config
 
 **Cohort**:

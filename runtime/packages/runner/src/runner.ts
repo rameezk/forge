@@ -207,7 +207,7 @@ export const runWorkload = async (
     const recorder = new FingerprintRecorder({
       worker,
       identity: await harnessRun.identity(),
-      workDir: invocation.workDir,
+      basis: harnessRun.fingerprintBasis(invocation),
       skills: skillsHash(invocation.checkout),
       baseCommit: invocation.baseCommit ?? null,
       forgeGitSha: options.forgeGitSha ?? null,

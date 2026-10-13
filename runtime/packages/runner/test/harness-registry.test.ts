@@ -22,6 +22,7 @@ const scripted: HarnessRegistry = {
   scripted: () => ({
     open: () => ({
       identity: async () => ({ version: '9.9.9', args: ['--scripted'] }),
+      fingerprintBasis: () => ({ settings: null, normalize: (text) => text }),
       async *run(_invocation, sinks): AsyncIterable<HarnessOutput> {
         sinks.requestRecord({ type: 'system_prompt', hash: 'scripted-system', value: SYSTEM_PROMPT });
         sinks.requestRecord({

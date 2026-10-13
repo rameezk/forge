@@ -82,8 +82,12 @@ export type CallEfforts = ReadonlyMap<string | null, readonly string[]>;
 const KNOWN_EFFORTS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 const effortSentIn = (body: Fields): string => {
-  const { reasoning } = body;
-  const effort = isFields(reasoning) ? reasoning.effort : undefined;
+  const { reasoning, output_config: outputConfig } = body;
+  const effort = isFields(reasoning)
+    ? reasoning.effort
+    : isFields(outputConfig)
+      ? outputConfig.effort
+      : undefined;
   if (effort === undefined || effort === '') return DEFAULT_EFFORT;
   const level = effort === 'none' ? 'off' : effort;
   return typeof level === 'string' && KNOWN_EFFORTS.has(level) ? level : 'unknown';
