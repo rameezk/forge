@@ -35,7 +35,6 @@ interface PendingRead {
   tracked: Tracked;
   start: number;
   limit: number | undefined;
-  whole?: boolean;
 }
 
 const SKILL_COMMAND = /^\/([^ ]+)/;
@@ -114,6 +113,7 @@ export class SkillLoadTracker {
   readonly #catalog: SkillCatalog;
   readonly #loads = new Map<string, Tracked>();
   readonly #reads = new Map<string, PendingRead>();
+  readonly #skillCalls = new Map<string, Tracked>();
 
   constructor(catalog: SkillCatalog) {
     this.#catalog = catalog;
@@ -218,12 +218,7 @@ export class SkillLoadTracker {
       return null;
     }
     const tracked = this.#track(name, files[0], 'read', subagent);
-    this.#reads.set(scopedKey(subagent, id), {
-      tracked,
-      start: 1,
-      limit: undefined,
-      whole: true,
-    });
+    this.#skillCalls.set(scopedKey(subagent, id), tracked);
     return this.#snapshot(tracked);
   }
 
@@ -234,18 +229,20 @@ export class SkillLoadTracker {
     subagent: string | null,
   ): SkillLoad | null {
     const key = scopedKey(subagent, id);
+    const skillCall = this.#skillCalls.get(key);
+    if (skillCall !== undefined) {
+      this.#skillCalls.delete(key);
+      if (!isError && skillCall.total !== null) {
+        skillCall.ranges.push([1, skillCall.total]);
+      }
+      return this.#snapshot(skillCall);
+    }
     const read = this.#reads.get(key);
     if (read === undefined) {
       return null;
     }
     this.#reads.delete(key);
-    const { tracked, start, limit, whole } = read;
-    if (whole === true) {
-      if (!isError && tracked.total !== null) {
-        tracked.ranges.push([1, tracked.total]);
-      }
-      return this.#snapshot(tracked);
-    }
+    const { tracked, start, limit } = read;
     if (!isError) {
       const shown = SHOWING_LINES.exec(text);
       const more = MORE_LINES.exec(text);
