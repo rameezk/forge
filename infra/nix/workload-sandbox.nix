@@ -71,8 +71,8 @@ let
         } > sandbox.out
         env | cut -d= -f1 | sort > env.out
         bash -c "$environment" > harness-environment.out
-        bash -l -c "$environment; $tools" > login-shell.out 2>&1
-        bash -c "$environment; $tools" > non-login-shell.out 2>&1
+        bash -l -c "$environment; $tools" > login-shell.out
+        bash -c "$environment; $tools" > non-login-shell.out
         test -n "''${OPENROUTER_API_KEY-}" && echo present > openrouter.out
         for process in /proc/[0-9]*; do cat "$process/comm"; done > processes.out 2>/dev/null
         mkdir flake
@@ -233,16 +233,18 @@ testers.runNixOSTest {
         assert "sleep" not in processes, processes
         assert "systemd" not in processes, processes
 
+    resolved = "gh resolved\ngit resolved\ncat resolved\n"
+    given = box.succeed(f"cat {run_dir}/harness-environment.out")
+    login = box.succeed(f"cat {run_dir}/login-shell.out")
+    non_login = box.succeed(f"cat {run_dir}/non-login-shell.out")
+
     with subtest("a login shell keeps the environment the runner gave the workload, and finds its tools"):
-        given = box.succeed(f"cat {run_dir}/harness-environment.out")
-        assert "PATH=" in given and "LOCALE_ARCHIVE=" in given and "TZDIR=" in given and "LANG=" in given, given
-        resolved = "gh resolved\ngit resolved\ncat resolved\n"
-        login = box.succeed(f"cat {run_dir}/login-shell.out")
+        values = dict(line.split("=", 1) for line in given.splitlines())
+        assert all(values.get(name) for name in ["PATH", "LOCALE_ARCHIVE", "TZDIR", "LANG"]), given
         assert login == given + resolved, login
 
     with subtest("a non-login shell sees the same environment as a login shell"):
-        non_login = box.succeed(f"cat {run_dir}/non-login-shell.out")
-        assert non_login == given + resolved, non_login
+        assert non_login == login, (non_login, login)
 
     with subtest("the harness receives only deliberate credentials"):
         names = set(box.succeed(f"cat {run_dir}/env.out").split())

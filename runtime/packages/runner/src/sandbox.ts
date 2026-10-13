@@ -8,7 +8,7 @@ export interface Sandbox {
 
 const STATUS_FD = 3;
 
-const NIXOS_ENVIRONMENT_SET = { __NIXOS_SET_ENVIRONMENT_DONE: '1' };
+const NIXOS_ENVIRONMENT_MARKER = { __NIXOS_SET_ENVIRONMENT_DONE: '1' };
 
 export const REQUEST_RECORD_FD = 4;
 
@@ -147,7 +147,7 @@ export const spawnSandboxed = (
     [...sandboxArgs(sandbox, workDir, agentDir, writableDirs), '--', command, ...args],
     {
       cwd: workDir,
-      env: { ...env, ...NIXOS_ENVIRONMENT_SET, HOME: sandbox.home },
+      env: { ...env, ...NIXOS_ENVIRONMENT_MARKER, HOME: sandbox.home },
       stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
     },
   );
