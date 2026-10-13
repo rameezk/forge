@@ -6,20 +6,19 @@ export const ALLOWED_PROVIDERS: readonly string[] = PROVIDERS;
 
 export const DEFAULT_PROVIDER: Provider = 'openrouter';
 
+export const PI_PROVIDER = 'openrouter';
+
 export interface ProviderSpec {
-  piName: string;
   credentialEnv: string;
   subscription: boolean;
 }
 
 const SPECS: Record<Provider, ProviderSpec> = {
   openrouter: {
-    piName: 'openrouter',
     credentialEnv: 'OPENROUTER_API_KEY',
     subscription: false,
   },
   anthropic: {
-    piName: 'anthropic',
     credentialEnv: 'CLAUDE_CODE_OAUTH_TOKEN',
     subscription: true,
   },

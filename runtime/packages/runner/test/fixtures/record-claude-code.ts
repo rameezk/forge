@@ -34,7 +34,7 @@ const record = async (
   const home = mkdtempSync(join(tmpdir(), 'forge-record-home-'));
   const bodies = mkdtempSync(join(tmpdir(), 'forge-record-bodies-'));
   const args = claudeCodeArgs(
-    { workDir: work, provider: 'anthropic', model: 'claude-opus-4-5', prompt: PROMPT },
+    { workDir: work, model: 'claude-opus-4-5', prompt: PROMPT },
     { maxCostUsd: null, extraArgs: [] },
   );
   const child = spawn(claude, args, {
