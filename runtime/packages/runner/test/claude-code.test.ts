@@ -417,7 +417,6 @@ const replayedSkillLoads = async (
     .open({ runId: 'run-1', model: MODEL, listedModel: null })
     .run(
       {
-        provider: 'anthropic',
         model: MODEL,
         prompt,
         workDir: dir,

@@ -38,7 +38,7 @@ const record = async (
     writeFileSync(join(work, path), contents);
   }
   const args = claudeCodeArgs(
-    { workDir: work, provider: 'anthropic', model: 'claude-opus-4-5', prompt },
+    { workDir: work, model: 'claude-opus-4-5', prompt },
     { maxCostUsd: null, extraArgs: [] },
   );
   const child = spawn(claude, args, {

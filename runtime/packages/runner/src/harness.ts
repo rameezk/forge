@@ -33,7 +33,6 @@ export interface Workspace {
 }
 
 export interface HarnessInvocation extends Workspace {
-  provider: Provider;
   model: string;
   prompt: string;
   reasoningEffort?: string;
@@ -93,7 +92,6 @@ export const invocationFor = (
   worker: Worker,
   workspace: Workspace,
 ): HarnessInvocation => ({
-  provider: worker.provider,
   model: worker.model,
   prompt: worker.prompt,
   ...workspace,

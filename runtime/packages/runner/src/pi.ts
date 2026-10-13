@@ -29,7 +29,7 @@ import {
   versionOutput,
 } from './harness-process.ts';
 import type { OpenAgentDir } from './agent-dir.ts';
-import { providerSpec, type Provider } from './provider.ts';
+import { PI_PROVIDER } from './provider.ts';
 import {
   REQUEST_RECORD_FD,
   spawnSandboxed,
@@ -103,7 +103,7 @@ const contractArgs = (
   '--no-approve',
   '--offline',
   '--provider',
-  providerSpec(invocation.provider).piName,
+  PI_PROVIDER,
   '--model',
   invocation.model,
   ...reasoningArgs(invocation, extensions),
@@ -514,7 +514,6 @@ const recordLines = async (
 
 export interface PiHarnessOptions {
   command: string;
-  provider: Provider;
   openAgentDir: OpenAgentDir;
   extensions: PiExtensions;
   sandbox: Sandbox;
@@ -531,14 +530,12 @@ export class PiHarness implements Harness {
   }
 
   open({ runId, model, listedModel }: HarnessRunSetup): HarnessRun {
-    const { provider, openAgentDir } = this.#options;
-    const subscription = providerSpec(provider).subscription;
-    if (!subscription && listedModel?.contextWindow == null) {
+    if (listedModel?.contextWindow == null) {
       process.stderr.write(
         `run ${runId}: OpenRouter lists no context window for ${model}, so pi starts without knowing the model\n`,
       );
     }
-    const agentDir = openAgentDir(runId, model, subscription ? null : listedModel);
+    const agentDir = this.#options.openAgentDir(runId, model, listedModel);
     return new PiRun(this.#options, agentDir);
   }
 }
