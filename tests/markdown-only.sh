@@ -26,6 +26,10 @@ commit_change() {
 	git -C "$scratch" reset --quiet --hard "$base"
 }
 
+from() {
+	git -C "$scratch" reset --quiet --hard "$1"
+}
+
 assert_decision() {
 	local description="$1" base_ref="$2" head_ref="$3" expected="$4" actual
 	if ! actual="$(cd "$scratch" && "$script" "$base_ref" "$head_ref")"; then
@@ -66,5 +70,133 @@ assert_decision "an unchanged head is a code change" "$base" "$base" false
 assert_decision "an all-zero base is a code change" 0000000000000000000000000000000000000000 "$markdown_only" false
 assert_decision "an empty base is a code change" "" "$markdown_only" false
 assert_decision "a base missing from history is a code change" 1111111111111111111111111111111111111111 "$markdown_only" false
+
+mkdir -p "$scratch/.agents/skills/demo/references" "$scratch/.claude/skills"
+echo skill >"$scratch/.agents/skills/demo/SKILL.md"
+echo notes >"$scratch/.agents/skills/demo/references/notes.md"
+ln -s ../../.agents/skills/demo "$scratch/.claude/skills/demo"
+skill_added="$(commit_change)"
+
+assert_decision "a markdown skill directory and its symlink added together are markdown-only" "$base" "$skill_added" true
+
+from "$skill_added"
+git -C "$scratch" rm --quiet -r .agents/skills/demo .claude/skills/demo
+skill_removed="$(commit_change)"
+
+assert_decision "a markdown skill directory and its symlink removed together are markdown-only" "$skill_added" "$skill_removed" true
+
+mkdir -p "$scratch/.agents/skills/demo/references" "$scratch/.agents/skills/tool/scripts/lib"
+echo skill >"$scratch/.agents/skills/demo/SKILL.md"
+echo notes >"$scratch/.agents/skills/demo/references/notes.md"
+echo skill >"$scratch/.agents/skills/tool/SKILL.md"
+echo run >"$scratch/.agents/skills/tool/scripts/lib/run.sh"
+skills_without_symlinks="$(commit_change)"
+
+from "$skills_without_symlinks"
+mkdir -p "$scratch/.claude/skills"
+ln -s ../../.agents/skills/demo "$scratch/.claude/skills/demo"
+symlink_to_markdown_directory="$(commit_change)"
+
+from "$skills_without_symlinks"
+mkdir -p "$scratch/.claude/skills"
+ln -s ../../.agents/skills/tool "$scratch/.claude/skills/tool"
+symlink_to_directory_with_script="$(commit_change)"
+
+assert_decision "a symlink added to an existing directory of markdown is markdown-only" "$skills_without_symlinks" "$symlink_to_markdown_directory" true
+assert_decision "a symlink added to a directory holding a nested script is a code change" "$skills_without_symlinks" "$symlink_to_directory_with_script" false
+
+ln -s ../README.md "$scratch/docs/readme"
+symlink_to_markdown_file="$(commit_change)"
+
+ln -s ../src/main.rs "$scratch/docs/main"
+symlink_to_source_file="$(commit_change)"
+
+assert_decision "a symlink added to a markdown file is markdown-only" "$base" "$symlink_to_markdown_file" true
+assert_decision "a symlink added to a file that is not markdown is a code change" "$base" "$symlink_to_source_file" false
+
+ln -s ../nowhere.md "$scratch/docs/dangling"
+dangling_symlink="$(commit_change)"
+
+assert_decision "a symlink whose target does not exist is a code change" "$base" "$dangling_symlink" false
+
+ln -s /README.md "$scratch/absolute"
+absolute_symlink="$(commit_change)"
+
+ln -s ../../README.md "$scratch/docs/escaping"
+escaping_symlink="$(commit_change)"
+
+assert_decision "a symlink to an absolute path is a code change" "$base" "$absolute_symlink" false
+assert_decision "a symlink that escapes the repository is a code change" "$base" "$escaping_symlink" false
+
+from "$symlink_to_directory_with_script"
+git -C "$scratch" rm --quiet .claude/skills/tool
+removed_symlink_to_directory_with_script="$(commit_change)"
+
+assert_decision "a symlink removed from a directory holding a script is a code change" "$symlink_to_directory_with_script" "$removed_symlink_to_directory_with_script" false
+
+from "$symlink_to_markdown_directory"
+mkdir -p "$scratch/.agents/skills/other"
+echo skill >"$scratch/.agents/skills/other/SKILL.md"
+ln -sfn ../../.agents/skills/other "$scratch/.claude/skills/demo"
+retargeted_to_markdown_directory="$(commit_change)"
+
+from "$symlink_to_markdown_directory"
+ln -sfn ../../.agents/skills/tool "$scratch/.claude/skills/demo"
+retargeted_to_directory_with_script="$(commit_change)"
+
+from "$symlink_to_markdown_directory"
+ln -s demo "$scratch/.claude/skills/alias"
+symlink_to_symlink="$(commit_change)"
+
+from "$skills_without_symlinks"
+echo notes >"$scratch/docs/notes.md"
+markdown_file_base="$(commit_change)"
+
+from "$markdown_file_base"
+rm "$scratch/docs/notes.md"
+ln -s ../.agents/skills/demo "$scratch/docs/notes.md"
+file_became_symlink_to_markdown_directory="$(commit_change)"
+
+from "$markdown_file_base"
+rm "$scratch/docs/notes.md"
+ln -s ../src/main.rs "$scratch/docs/notes.md"
+file_became_symlink_to_source_file="$(commit_change)"
+
+from "$skills_without_symlinks"
+mkdir -p "$scratch/.claude/skills"
+ln -s ../../.agents/skills/demo "$scratch/.claude/skills/demo"
+echo changed >"$scratch/src/main.rs"
+symlink_with_code_change="$(commit_change)"
+
+assert_decision "a symlink retargeted to another directory of markdown is markdown-only" "$symlink_to_markdown_directory" "$retargeted_to_markdown_directory" true
+assert_decision "a symlink retargeted to a directory holding a script is a code change" "$symlink_to_markdown_directory" "$retargeted_to_directory_with_script" false
+assert_decision "a symlink to another symlink is a code change" "$symlink_to_markdown_directory" "$symlink_to_symlink" false
+assert_decision "a markdown file replaced by a symlink to a directory of markdown is markdown-only" "$markdown_file_base" "$file_became_symlink_to_markdown_directory" true
+assert_decision "a markdown file replaced by a symlink to a source file is a code change" "$markdown_file_base" "$file_became_symlink_to_source_file" false
+assert_decision "a symlink to a directory of markdown alongside a code change is a code change" "$skills_without_symlinks" "$symlink_with_code_change" false
+
+mkdir -p "$scratch/mdocs" "$scratch/src/deep" "$scratch/src/mdocs"
+echo notes >"$scratch/mdocs/notes.md"
+echo code >"$scratch/src/deep/code.rs"
+echo run >"$scratch/src/mdocs/run.sh"
+ln -s src/deep "$scratch/hop"
+symlinked_directory_base="$(commit_change)"
+
+from "$symlinked_directory_base"
+ln -s hop/../mdocs "$scratch/link"
+symlink_through_symlinked_directory="$(commit_change)"
+
+assert_decision "a symlink that goes up out of a symlinked directory is a code change" "$symlinked_directory_base" "$symlink_through_symlinked_directory" false
+
+from "$symlinked_directory_base"
+ln -s "$(printf 'mdocs\n../src')" "$scratch/multiline"
+symlink_with_newline_in_target="$(commit_change)"
+
+assert_decision "a symlink whose target holds a newline is a code change" "$symlinked_directory_base" "$symlink_with_newline_in_target" false
+
+ln -s .. "$scratch/docs/root"
+symlink_to_repository_root="$(commit_change)"
+
+assert_decision "a symlink to the repository root is a code change" "$base" "$symlink_to_repository_root" false
 
 exit "$fail"
