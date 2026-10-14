@@ -1,4 +1,4 @@
-import { html, raw } from 'hono/html';
+import { html } from 'hono/html';
 import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type RevisionRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, STATUSES, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
@@ -127,8 +127,7 @@ const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined):
     ? html`<span class="text-muted">manual</span>`
     : html`${renderRunTicket(run.ticket)}${renderRunPullRequest(revision)}`;
 
-const renderCardStat = (label: string, value: Rendered, attribute: string): Rendered =>
-  html`<div class="flex flex-col gap-0.5"><dt class="text-xs font-semibold uppercase tracking-[0.05em] text-muted">${label}</dt><dd class="m-0 tabular-nums" ${raw(attribute)}>${value}</dd></div>`;
+const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
 const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>): Rendered =>
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
@@ -137,9 +136,9 @@ const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equ
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, revision)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">
-      ${renderCardStat('Duration', renderDuration(run), 'data-duration')}
-      ${renderCardStat('Cache hit', renderCacheHitRate(run), 'data-cache-hit')}
-      <div class="flex flex-col gap-0.5 text-right"><dt class="text-xs font-semibold uppercase tracking-[0.05em] text-muted">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
+      <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Duration</dt><dd class="m-0 tabular-nums" data-duration>${renderDuration(run)}</dd></div>
+      <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Cache hit</dt><dd class="m-0 tabular-nums" data-cache-hit>${renderCacheHitRate(run)}</dd></div>
+      <div class="flex flex-col gap-0.5 text-right"><dt class="${STAT_LABEL}">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
     </dl>
   </article>`;
 
