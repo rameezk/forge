@@ -137,6 +137,12 @@ export {
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export { githubWriteToken } from './token.ts';
+export {
+  GithubApp,
+  type GithubAppOptions,
+  type InstallationToken,
+  type TokenAccess,
+} from './github-app.ts';
 export { Store, type ListPriceEquivalent, type WorkloadSpend } from './store.ts';
 export {
   parseTranscript,
