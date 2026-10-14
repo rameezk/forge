@@ -10,6 +10,7 @@ import { renderWork } from './views/frontier.ts';
 import { renderCohortPage, renderInsights, renderUnknownCohortPage } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs } from './views/shared.ts';
+import { parseWorkloadFilter } from './workload-filter.ts';
 import { renderList } from './views/workloads.ts';
 
 const TICKET_NUMBER = /^[1-9]\d*$/;
@@ -78,7 +79,7 @@ export const createApp = ({
     const revisions = new Map(
       store.listRevisions(new Date().toISOString()).map((revision) => [revision.runId, revision]),
     );
-    return c.html(renderList(store.listRuns(), store.listPriceEquivalents(), revisions, assets));
+    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), store.listPriceEquivalents(), revisions, assets));
   });
 
   app.get('/work', (c) =>

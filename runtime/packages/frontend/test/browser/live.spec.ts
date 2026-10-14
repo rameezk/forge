@@ -105,6 +105,23 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
   await expectNotReloaded(page);
 });
 
+test('given the runs list filtered to Error, when a run fails and another succeeds, then only the failed one joins the list and the counts follow without a reload', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun({ ...runningRun, id: 'earlier', worker: 'earlier-worker', status: 'success', endTime: '2026-09-21T10:03:20.000Z', costStatus: 'billed' });
+  await openLive(page, '/?status=error');
+  await expect(page.getByText('No workloads match.')).toBeVisible();
+
+  dashboard.store.insertRun({ ...runningRun, id: 'failed', worker: 'failing-worker', status: 'error', endTime: '2026-09-21T10:03:20.000Z', costStatus: 'billed' });
+
+  await expect(page.getByRole('row', { name: /failing-worker/ })).toBeVisible();
+  await expect(page.getByRole('row', { name: /earlier-worker/ })).toHaveCount(0);
+  await expect(page.locator('[data-status-chip="all"]')).toContainText('2');
+  await expect(page.locator('[data-showing]')).toContainText('Showing 1 of 2 workloads');
+  await expectNotReloaded(page);
+});
+
 test('given the runs list loaded before its stream connects, when a run is recorded in between, then the table shows it once the stream connects', async ({
   dashboard,
   page,
