@@ -180,13 +180,13 @@ const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true }: Set
     return started().slice(before);
   };
 
-  const revise = (number: number, state: 'ok' | 'error' = 'ok'): void =>
+  const revise = (number: number, startedMinutesAgo: number, state: 'ok' | 'error' = 'ok'): void =>
     withStore((store) => {
       const start = store.startRevision(
         { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
         [],
         randomUUID(),
-        new Date().toISOString(),
+        ago(startedMinutesAgo),
         Number.POSITIVE_INFINITY,
       );
       assert.ok('started' in start);
@@ -285,10 +285,11 @@ test('given feedback past its quiet period while a revision of the pull request 
       { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
       [],
       'run-revision',
-      new Date().toISOString(),
+      ago(45),
       5,
     );
     assert.ok('started' in start);
+    store.touchRevision(start.started, new Date().toISOString());
     return start.started;
   });
 
@@ -318,7 +319,7 @@ test('given a revision that ended in error and no newer feedback, when later syn
   const setup = forge();
   const old = [pullRequest(143, { reviews: [review(ago(60))] })];
   assert.deepEqual(await setup.syncAndPass(old), [REVISE_UNIT]);
-  setup.revise(143, 'error');
+  setup.revise(143, 45, 'error');
 
   assert.deepEqual(await setup.syncAndPass(old), []);
   assert.deepEqual(await setup.syncAndPass(old), []);
@@ -337,8 +338,8 @@ test('given watched pull requests that are merged and closed, when feedback is l
     'start --no-block --no-ask-password -- forge-revise@forge:143.service',
     'start --no-block --no-ask-password -- forge-revise@forge:144.service',
   ]);
-  setup.revise(143);
-  setup.revise(144);
+  setup.revise(143, 45);
+  setup.revise(144, 45);
 
   const settled = [
     pullRequest(143, { state: 'MERGED', reviews: [review(ago(60)), review(ago(30))] }),
@@ -364,6 +365,15 @@ test('given feedback.quietPeriod = 2min, when feedback is three minutes old, the
 
 test('given a repository with no feedback worker, when sync and the pass run past the quiet period, then no revision starts', async () => {
   const setup = forge({ feedbackWorker: false });
+  assert.deepEqual(
+    await setup.syncAndPass([pullRequest(143, { reviews: [review(ago(60))] })]),
+    [],
+  );
+});
+
+test('given a revision started by hand before any sync recorded the pull request\'s feedback, when sync and the pass run past the quiet period, then no revision starts for the feedback it covered', async () => {
+  const setup = forge();
+  setup.revise(143, 5);
   assert.deepEqual(
     await setup.syncAndPass([pullRequest(143, { reviews: [review(ago(60))] })]),
     [],

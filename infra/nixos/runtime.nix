@@ -153,7 +153,7 @@ let
         type = lib.types.nullOr lib.types.str;
         default = null;
         example = "reviser";
-        description = "Worker that revises this repository's pull requests, whether the dispatch pass starts it when feedback on a pull request forge's App opened has been quiet for `forge.runtime.feedback.quietPeriod` or an operator runs `forge-revise`, in a fresh clone of the pull request's head branch, or null to turn revisions off for the repository. Its prompt is a template filled in for each pull request: `{repo}` becomes the repository's `owner/name`, `{pr}` the pull request's number, `{url}` its URL and `{branch}` its head branch, and it must hold `{pr}` or `{url}`. A leading `/<name>` runs the branch's skill of that name, and the revision fails before the harness starts if the branch has none. Skills, project instructions and the devShell come from the branch, as for `on.ticket`. The worker is told that a person reviews the pull request: it proceeds where the feedback settles a skill's confirmation, and otherwise asks its question as a reply on the pull request and ends its run at once. Budget and timeout come from the worker.";
+        description = "Worker that revises this repository's pull requests in a fresh clone of the pull request's head branch, or null to turn revisions off for the repository. The dispatch pass starts it when feedback on a pull request forge's App opened has been quiet for `forge.runtime.feedback.quietPeriod`, and `forge-revise` starts it by hand. Its prompt is a template filled in for each pull request: `{repo}` becomes the repository's `owner/name`, `{pr}` the pull request's number, `{url}` its URL and `{branch}` its head branch, and it must hold `{pr}` or `{url}`. A leading `/<name>` runs the branch's skill of that name, and the revision fails before the harness starts if the branch has none. Skills, project instructions and the devShell come from the branch, as for `on.ticket`. The worker is told that a person reviews the pull request: it proceeds where the feedback settles a skill's confirmation, and otherwise asks its question as a reply on the pull request and ends its run at once. Budget and timeout come from the worker.";
       };
     };
   };
@@ -745,7 +745,7 @@ in
       };
 
       systemd.services.forge-dispatch-pass = {
-        description = "Forge dispatch pass: start a forge-dispatch@ unit for each forge:ready frontier ticket, up to dispatch.maxConcurrent";
+        description = "Forge dispatch pass: start a forge-dispatch@ unit for each forge:ready frontier ticket and a forge-revise@ unit for each pull request whose feedback has gone quiet, up to dispatch.maxConcurrent";
         serviceConfig = {
           Type = "oneshot";
           User = cfg.user;

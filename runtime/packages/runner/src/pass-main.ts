@@ -63,14 +63,14 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   let live: number;
   let candidates: Pending[];
   try {
+    const now = new Date().toISOString();
     running = new Set(
       store
-        .listDispatches(new Date().toISOString())
+        .listDispatches(now)
         .filter(({ state }) => state === 'running')
         .map(({ repository, number }) => ticketKey(repository, number)),
     );
-    live = store.liveWorkloads(new Date().toISOString());
-    const now = new Date().toISOString();
+    live = store.liveWorkloads(now);
     candidates = [
       ...store
         .feedbackDue(now, quietPeriodOf(config))

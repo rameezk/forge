@@ -1703,6 +1703,11 @@ export class Store {
       | undefined;
   }
 
+  #revisionLive(pullRequest: RevisedPullRequest, now: string): boolean {
+    const latest = this.#latestRevision(pullRequest);
+    return latest?.state === 'running' && latest.alive_at >= liveSince(now);
+  }
+
   #openingDispatchLive(
     pullRequest: RevisedPullRequest,
     tickets: readonly number[],
@@ -1731,7 +1736,7 @@ export class Store {
     let start: RevisionStart = { refused: 'revising' };
     this.#transaction(() => {
       const latest = this.#latestRevision(pullRequest);
-      if (latest?.state === 'running' && latest.alive_at >= liveSince(startedAt)) return;
+      if (this.#revisionLive(pullRequest, startedAt)) return;
       if (this.#openingDispatchLive(pullRequest, openedBy, startedAt)) {
         start = { refused: 'dispatching' };
         return;
@@ -1776,10 +1781,21 @@ export class Store {
         }) as { id: number };
       this.#db
         .prepare(
-          `UPDATE feedback_watches SET cursor = newest, newest = NULL
-          WHERE repository = $repository AND number = $number AND newest IS NOT NULL`,
+          `INSERT INTO feedback_watches (repository, number, url, closes, cursor)
+          VALUES ($repository, $number, $url, $closes, $now)
+          ON CONFLICT (repository, number) DO UPDATE SET
+            cursor = $now,
+            newest = CASE
+              WHEN newest IS NOT NULL AND unixepoch(newest) > unixepoch($now) THEN newest
+            END`,
         )
-        .run({ repository: pullRequest.repository, number: pullRequest.number });
+        .run({
+          repository: pullRequest.repository,
+          number: pullRequest.number,
+          url: pullRequest.url,
+          closes: JSON.stringify(openedBy),
+          now: startedAt,
+        });
       start = { started: row.id };
     });
     return start;
@@ -1828,9 +1844,10 @@ export class Store {
       .all({ now, quiet: quietSeconds }) as FeedbackWatchRow[];
     return rows
       .filter((row) => {
-        const latest = this.#latestRevision(row);
-        if (latest?.state === 'running' && latest.alive_at >= liveSince(now)) return false;
-        return !this.#openingDispatchLive(row, JSON.parse(row.closes) as number[], now);
+        return (
+          !this.#revisionLive(row, now) &&
+          !this.#openingDispatchLive(row, JSON.parse(row.closes) as number[], now)
+        );
       })
       .map(({ repository, number, url }) => ({ repository, number, url }));
   }

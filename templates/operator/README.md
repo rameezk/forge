@@ -487,8 +487,9 @@ queue a whole spec, label all of its tickets.
 dispatched workloads run at once across every repository, and tickets from the
 same repository may run in parallel. A ticket over the limit stays
 `forge:ready` until a pass after one of the running workloads finishes. The
-pass may start only `forge-dispatch@` units of repositories that declare a
-worker, which polkit allows the forge-runtime user and nothing else.
+pass may start only `forge-dispatch@` units of repositories that declare
+`on.ticket` and `forge-revise@` units of repositories that declare
+`on.feedback`, which polkit allows the forge-runtime user and nothing else.
 
 To dispatch a ticket straight away rather than waiting for the next sync, run:
 
