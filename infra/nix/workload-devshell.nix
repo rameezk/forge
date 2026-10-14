@@ -25,6 +25,10 @@ let
       -keyout $out/key.pem -out $out/cert.pem
   '';
 
+  githubAppKey = runCommand "fake-github-app-key" { nativeBuildInputs = [ openssl ]; } ''
+    openssl genrsa -out $out 2048
+  '';
+
   fakeGithub = writeText "fake-github.mjs" ''
     import { createServer } from 'node:https';
     import { readFileSync } from 'node:fs';
@@ -44,6 +48,7 @@ let
       if (operation === 'ClosingPullRequests') return fixture('no-pull-request');
       return { errors: [{ message: `no fake answer for ''${operation}` }] };
     };
+    let minted = 0;
     createServer(
       { key: readFileSync('${githubCertificate}/key.pem'), cert: readFileSync('${githubCertificate}/cert.pem') },
       (request, response) => {
@@ -51,6 +56,16 @@ let
         request.on('data', (chunk) => { body += chunk; });
         request.on('end', () => {
           response.setHeader('content-type', 'application/json');
+          if (request.url === '/repos/rameezk/forge/installation') {
+            response.end(JSON.stringify({ id: 1 }));
+            return;
+          }
+          if (request.url === '/app/installations/1/access_tokens') {
+            minted += 1;
+            response.statusCode = 201;
+            response.end(JSON.stringify({ token: 'ghs_devshell_' + minted, expires_at: new Date(Date.now() + 3600000).toISOString() }));
+            return;
+          }
           response.end(JSON.stringify(request.url === '/graphql' ? graphql(JSON.parse(body)) : []));
         });
       },
@@ -137,6 +152,8 @@ testers.runNixOSTest {
 
     box.wait_for_unit("multi-user.target")
     box.wait_for_open_port(443)
+
+    box.succeed("cat ${githubAppKey} > /run/secrets/github_app_private_key")
 
     box.succeed("install -d -o forge-runtime -g forge-runtime /srv/origin /srv/origin/bin")
     box.succeed("install -o forge-runtime -g forge-runtime -m 0644 ${flake} /srv/origin/flake.nix")
