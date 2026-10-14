@@ -398,7 +398,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         },
       },
       repositories: {
-        forge: { github: 'rameezk/forge', worker: 'builder' },
+        forge: { github: 'rameezk/forge', on: { ticket: 'builder' } },
       },
       dispatch: {
         ...(scenario.gitIdentity === null

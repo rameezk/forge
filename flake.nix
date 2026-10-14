@@ -732,7 +732,7 @@
               };
               forge.runtime.repositories.forge = {
                 github = "rameezk/forge";
-                worker = "builder";
+                on.ticket = "builder";
               };
               forge.runtime.dispatch = dispatch;
             };
@@ -757,7 +757,7 @@
             dispatchHost.config.forge.runtime.settings.repositories == {
               forge = {
                 github = "rameezk/forge";
-                worker = "builder";
+                on.ticket = "builder";
               };
             }
             &&
@@ -885,7 +885,7 @@
                   {
                     forge.runtime.repositories.forge = {
                       github = "rameezk/forge";
-                      worker = "missing";
+                      on.ticket = "missing";
                     };
                   }
                 ];
@@ -894,6 +894,24 @@
             lib.asserts.assertMsg (
               !(evaluates host) && lib.any (lib.hasInfix "undeclared worker 'missing'") (failedAssertions host)
             ) "a repository naming an undeclared worker must fail evaluation";
+          workerOptionRefused =
+            let
+              host = mkHost {
+                configFile = exampleConfigFile;
+                secretsFile = exampleSecretsFile;
+                modules = [
+                  {
+                    forge.runtime.repositories.forge = {
+                      github = "rameezk/forge";
+                      worker = "builder";
+                    };
+                  }
+                ];
+              };
+            in
+            lib.asserts.assertMsg (
+              !(evaluates host) && lib.any (lib.hasInfix "on.ticket") (failedAssertions host)
+            ) "a repository setting the removed worker option must fail evaluation naming on.ticket";
           dispatchUnitDeclared =
             lib.asserts.assertMsg
               (
@@ -1197,7 +1215,7 @@
               ) workers;
               forge.runtime.repositories = lib.mapAttrs (_: worker: {
                 github = "rameezk/forge";
-                inherit worker;
+                on.ticket = worker;
               }) repositories;
               forge.runtime.dispatch = { inherit gitIdentity; };
             };
@@ -1485,6 +1503,7 @@
             assert dispatchHostEvaluates;
             assert placeholderlessWorkerFails;
             assert undeclaredWorkerFails;
+            assert workerOptionRefused;
             assert dispatchUnitDeclared;
             assert dispatchUnitRunsDispatch;
             assert dispatchUnitKnowsForgeGitSha;

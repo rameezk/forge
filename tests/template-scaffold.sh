@@ -244,7 +244,7 @@ else
 	EXAMPLE_FILE="$work/example.nix" perl -0pi -e 'BEGIN { open my $f, "<", $ENV{EXAMPLE_FILE}; $e = <$f>; chomp $e; $e =~ s/^\s+//; } s/host = forge\.lib\.mkHost \{ inherit configFile secretsFile; \};/$e/' "$work/flake.nix"
 	git -C "$work" add -A
 	settings="$(cd "$work" && nix eval --json "${override[@]}" ".#nixosConfigurations.mybox.config.forge.runtime.settings" 2>"$work/example.log" || true)"
-	worker="$(printf '%s' "$settings" | jq -r '[.repositories[].worker] | first // empty' 2>/dev/null || true)"
+	worker="$(printf '%s' "$settings" | jq -r '[.repositories[].on.ticket] | first // empty' 2>/dev/null || true)"
 	prompt="$(printf '%s' "$settings" | jq -r --arg w "$worker" '.workers[$w].prompt // empty' 2>/dev/null || true)"
 	model="$(printf '%s' "$settings" | jq -r --arg w "$worker" '.workers[$w].model // empty' 2>/dev/null || true)"
 	if

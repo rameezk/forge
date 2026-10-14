@@ -24,7 +24,7 @@ export interface WorkerConfig {
 
 export interface RepositoryConfig {
   github: string;
-  worker?: string;
+  on?: { ticket?: string };
 }
 
 export interface GitIdentity {

@@ -83,7 +83,7 @@ testers.runNixOSTest {
     };
     forge.runtime.repositories.forge = {
       github = "rameezk/forge";
-      worker = "builder";
+      on.ticket = "builder";
     };
     forge.runtime.repositories.notes.github = "rameezk/notes";
     forge.runtime.dispatch.gitIdentity = {

@@ -375,12 +375,12 @@ the missing key, if a token your repositories need is not there.
   fine-grained personal access token that is read-only on Issues and Metadata
   for the managed repositories. The frontier sync and `forge-frontier list`
   read the frontier with it.
-- `github_write_token`, needed when a repository declares a worker: a
+- `github_write_token`, needed when a repository declares `on.ticket`: a
   separate fine-grained personal access token with read and write access on
   Contents, Pull requests, Issues and Workflows. GitHub rejects any push that
   adds or changes a file under `.github/workflows/` from a token without
   Workflows, so a run that sets up CI cannot push. It must cover **every**
-  declared repository, not only those with a worker, because each frontier
+  declared repository, not only those with `on.ticket`, because each frontier
   sync makes sure all of them have the `forge:*` labels. Forge also uses it
   to move dispatched tickets through those labels, and the dispatched agent
   reads it from a read-only file, so the repository's skills can push branches and
@@ -414,8 +414,8 @@ just ssh sudo -u forge-runtime forge-frontier list
 
 ### Dispatching a ticket
 
-Give a repository a worker to run its tickets. The worker's prompt is written
-the way you would type it locally, with `{repo}` (the repository's
+Name a repository's ticket worker with `on.ticket` to run its tickets. The
+worker's prompt is written the way you would type it locally, with `{repo}` (the repository's
 `owner/name`), `{issue}` (the ticket's number) and `{url}` (its URL) filled in
 for each ticket. It must hold `{issue}` or `{url}`, or the host does not
 evaluate:
@@ -428,7 +428,7 @@ forge.runtime.workers.builder = {
 };
 forge.runtime.repositories.forge = {
   github = "rameezk/forge";
-  worker = "builder";
+  on.ticket = "builder";
 };
 forge.runtime.dispatch.gitIdentity = {
   name = "Forge";
@@ -436,7 +436,7 @@ forge.runtime.dispatch.gitIdentity = {
 };
 ```
 
-A host with a repository that declares a worker must also set
+A host with a repository that declares `on.ticket` must also set
 `dispatch.gitIdentity`, or it does not evaluate. Every commit a dispatched
 workload makes carries it as author and committer, while pushes and pull
 requests show as the owner of the GitHub write token.

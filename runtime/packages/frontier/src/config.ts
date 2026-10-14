@@ -1,6 +1,6 @@
 export interface RepositoryConfig {
   github: string;
-  worker?: string;
+  on?: { ticket?: string };
 }
 
 export interface FrontierConfig {

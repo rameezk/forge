@@ -132,12 +132,18 @@ let
 
   repositoryModule = lib.types.submodule {
     options = {
+      worker = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        visible = false;
+        description = "Removed: name the worker per trigger with `on.ticket` instead. Setting it fails evaluation.";
+      };
       github = lib.mkOption {
         type = lib.types.strMatching "[A-Za-z0-9-]+/[A-Za-z0-9._-]+";
         example = "rameezk/forge";
         description = "The repository on GitHub as `owner/name`, whose issues track its tickets.";
       };
-      worker = lib.mkOption {
+      on.ticket = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
         default = null;
         example = "builder";
@@ -173,7 +179,7 @@ let
       // lib.optionalAttrs (w.reasoningEffort != null) { inherit (w) reasoningEffort; }
     ) cfg.workers;
     repositories = lib.mapAttrs (
-      _: r: { inherit (r) github; } // lib.optionalAttrs (r.worker != null) { inherit (r) worker; }
+      _: r: { inherit (r) github; } // lib.optionalAttrs (r.on.ticket != null) { on = { inherit (r.on) ticket; }; }
     ) cfg.repositories;
   }
   // lib.optionalAttrs (hasDispatch || cfg.dispatch.gitIdentity != null) {
@@ -188,7 +194,7 @@ let
   hasWorkers = cfg.workers != { };
   hasRepositories = cfg.repositories != { };
   hasDashboard = hasWorkers || hasRepositories;
-  dispatchedRepositories = lib.filterAttrs (_: r: r.worker != null) cfg.repositories;
+  dispatchedRepositories = lib.filterAttrs (_: r: r.on.ticket != null) cfg.repositories;
   hasDispatch = dispatchedRepositories != { };
 
   backstopMarginSeconds = 30 * 60;
@@ -202,7 +208,7 @@ let
       serviceConfig.TimeoutStartSec = backstopSeconds w;
     }
   ) (lib.filterAttrs (_: w: w.timeout != null) cfg.workers);
-  dispatchingBackstops = map (r: backstopSeconds cfg.workers.${r.worker}) (
+  dispatchingBackstops = map (r: backstopSeconds cfg.workers.${r.on.ticket}) (
     lib.attrValues dispatchedRepositories
   );
   dispatchBackstop =
@@ -215,7 +221,7 @@ let
 
   gitIdentityAssertion = {
     assertion = !hasDispatch || cfg.dispatch.gitIdentity != null;
-    message = "forge.runtime.dispatch.gitIdentity must be set when a repository declares a worker: dispatched workloads commit as that identity";
+    message = "forge.runtime.dispatch.gitIdentity must be set when a repository declares on.ticket: dispatched workloads commit as that identity";
   };
 
   workerPairingAssertions = lib.concatLists (
@@ -241,25 +247,30 @@ let
     message = "forge.runtime.workers.${name} must have a name of only letters, digits, `_` and `-`: it names the unit instance forge-runner@${name} and its backstop drop-in";
   }) cfg.workers;
 
+  removedWorkerAssertions = lib.mapAttrsToList (name: r: {
+    assertion = r.worker == null;
+    message = "forge.runtime.repositories.${name}.worker was removed: name the worker per trigger with forge.runtime.repositories.${name}.on.ticket instead";
+  }) cfg.repositories;
+
   dispatchAssertions = lib.concatLists (
     lib.mapAttrsToList (
       name: r:
       let
-        option = "forge.runtime.repositories.${name}.worker";
-        declared = cfg.workers ? ${r.worker};
+        option = "forge.runtime.repositories.${name}.on.ticket";
+        declared = cfg.workers ? ${r.on.ticket};
       in
       [
         {
           assertion = builtins.match "[A-Za-z0-9_-]+" name != null;
-          message = "forge.runtime.repositories.${name} declares a worker, so its name must use only letters, digits, `_` and `-`: it names the repository in forge-dispatch and its unit";
+          message = "forge.runtime.repositories.${name} declares on.ticket, so its name must use only letters, digits, `_` and `-`: it names the repository in forge-dispatch and its unit";
         }
         {
           assertion = declared;
-          message = "${option} names undeclared worker '${r.worker}'";
+          message = "${option} names undeclared worker '${r.on.ticket}'";
         }
         {
-          assertion = !declared || hasTicketPlaceholder cfg.workers.${r.worker}.prompt;
-          message = "worker '${r.worker}', named by ${option}, has no ticket placeholder: its prompt must hold {issue} or {url}";
+          assertion = !declared || hasTicketPlaceholder cfg.workers.${r.on.ticket}.prompt;
+          message = "worker '${r.on.ticket}', named by ${option}, has no ticket placeholder: its prompt must hold {issue} or {url}";
         }
       ]
     ) dispatchedRepositories
@@ -409,7 +420,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests, Issues and Workflows of every managed repository) when a repository declares a worker. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch and the frontier sync read only GITHUB_TOKEN, as data.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests, Issues and Workflows of every managed repository) when a repository declares on.ticket. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch and the frontier sync read only GITHUB_TOKEN, as data.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -512,6 +523,7 @@ in
       ]
       ++ workerNameAssertions
       ++ workerPairingAssertions
+      ++ removedWorkerAssertions
       ++ dispatchAssertions;
 
       security.allowUserNamespaces = true;

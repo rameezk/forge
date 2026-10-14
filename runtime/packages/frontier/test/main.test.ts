@@ -70,7 +70,7 @@ const replaying = (responses: Record<string, RecordedPage[]>) => {
 };
 
 const declaring = (
-  repositories: Record<string, { github: string; worker?: string }>,
+  repositories: Record<string, { github: string; on?: { ticket?: string } }>,
   dispatch?: { gitIdentity: { name: string; email: string } },
 ) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-frontier-'));
@@ -766,7 +766,7 @@ const storedDispatches = (stateDir: string) => {
 };
 
 test('given a repository with a worker whose forge:running tickets are one with a dispatch that stopped beating and one with a live dispatch, when sync runs with a GitHub write-token file, then the stale one becomes forge:failed as interrupted, losing forge:running and forge:ready, and the live one is left alone', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedEarlier(stateDir, { 114: '2026-09-01T09:00:00.000Z', 123: new Date().toISOString() });
   const github = labelling(
     runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), [114, 123]),
@@ -795,7 +795,7 @@ test('given a repository with a worker whose forge:running tickets are one with 
 });
 
 test('given a stale forge:running ticket GitHub refuses to relabel, when sync runs with a GitHub write-token file, then the frontier is still stored, and the refusal is reported with a non-zero exit code', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedEarlier(stateDir, { 114: '2026-09-01T09:00:00.000Z' });
   const labels = labelling(
     runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), [114]),
@@ -820,7 +820,7 @@ test('given a stale forge:running ticket GitHub refuses to relabel, when sync ru
 });
 
 test('given a repository with a worker and a GitHub write-token file that sets no token, when sync runs, then the frontier is still stored, and the missing write token is reported for the labels and the forge:running tickets with a non-zero exit code', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   const github = labelling(replaying({ 'rameezk/forge': recorded('frontier') }), {});
   const stderr: string[] = [];
   t.mock.method(console, 'error', (line: string) => stderr.push(line));
@@ -933,7 +933,7 @@ const storedPullRequests = (stateDir: string) => {
 };
 
 test('given a dispatch with an open pull request that GitHub reports merged with two commits by forge\'s identity and one by another author, when sync runs, then the pull request is merged with its merge time as settled time and a rework count of 1', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
     143: aPullRequest('MERGED', ['forge@example.com', 'FORGE@example.com', 'human@example.com']),
@@ -959,7 +959,7 @@ test('given a dispatch with an open pull request that GitHub reports merged with
 });
 
 test('given a dispatch with an open pull request that GitHub reports closed without merging, when sync runs, then the pull request is closed and settled at its close time', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
     143: aPullRequest('CLOSED', ['forge@example.com']),
@@ -976,7 +976,7 @@ test('given a dispatch with an open pull request that GitHub reports closed with
 });
 
 test('given a dispatch whose pull request is already merged, when sync runs, then GitHub is not asked about that pull request', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const first = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
     143: aPullRequest('MERGED', ['forge@example.com']),
@@ -992,7 +992,7 @@ test('given a dispatch whose pull request is already merged, when sync runs, the
 });
 
 test('given a pull request whose commits span two pages, when sync runs, then its rework counts the commits of both pages', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const graphql = replaying({ 'rameezk/forge': recorded('frontier') });
   const firstPage = aPullRequest('MERGED', ['forge@example.com', 'human@example.com']);
@@ -1024,7 +1024,7 @@ test('given a pull request whose commits span two pages, when sync runs, then it
 });
 
 test('given three dispatches whose pull requests GitHub fails for, reports in an unknown state, and reports merged, when sync runs, then only the merged one settles, and the other two stay open with each failure reported and a non-zero exit code', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
   dispatchedWithPullRequest(stateDir, 114, 144);
   dispatchedWithPullRequest(stateDir, 115, 145);
@@ -1070,7 +1070,7 @@ test('given a dispatch with an open pull request in a repository that no longer 
 });
 
 test('given a dispatch with an open pull request and a runtime config with no git identity, when sync runs, then the missing identity is reported with a non-zero exit code, GitHub is not asked, and the pull request stays open', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', worker: 'builder' } });
+  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {});
   const stderr: string[] = [];
