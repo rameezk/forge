@@ -158,21 +158,6 @@ let
     };
   };
 
-  gitIdentityModule = lib.types.submodule {
-    options = {
-      name = lib.mkOption {
-        type = lib.types.str;
-        example = "Forge";
-        description = "Name a dispatched workload's commits carry as their git author and committer.";
-      };
-      email = lib.mkOption {
-        type = lib.types.str;
-        example = "forge@example.com";
-        description = "Email a dispatched workload's commits carry as their git author and committer.";
-      };
-    };
-  };
-
   runtimeConfig = {
     harnesses = lib.mapAttrs (_: h: { inherit (h) command args; }) cfg.harnesses;
     workers = lib.mapAttrs (
@@ -192,11 +177,10 @@ let
       }
     ) cfg.repositories;
   }
-  // lib.optionalAttrs (hasDispatch || hasRevision || cfg.dispatch.gitIdentity != null) {
+  // lib.optionalAttrs (hasDispatch || hasRevision) {
     dispatch = {
       inherit (cfg.dispatch) maxConcurrent;
-    }
-    // lib.optionalAttrs (cfg.dispatch.gitIdentity != null) { inherit (cfg.dispatch) gitIdentity; };
+    };
   };
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
@@ -208,7 +192,6 @@ let
   hasDispatch = dispatchedRepositories != { };
   revisedRepositories = lib.filterAttrs (_: r: r.on.feedback != null) cfg.repositories;
   hasRevision = revisedRepositories != { };
-  declaresWorkloads = hasDispatch || hasRevision;
 
   backstopMarginSeconds = 30 * 60;
   backstopSeconds = w: if w.timeout == null then null else timeSpanSeconds w.timeout + backstopMarginSeconds;
@@ -240,9 +223,9 @@ let
 
   hasTicketPlaceholder = prompt: lib.hasInfix "{issue}" prompt || lib.hasInfix "{url}" prompt;
 
-  gitIdentityAssertion = {
-    assertion = !declaresWorkloads || cfg.dispatch.gitIdentity != null;
-    message = "forge.runtime.dispatch.gitIdentity must be set when a repository declares on.ticket or on.feedback: dispatched and revising workloads commit as that identity";
+  removedGitIdentityAssertion = {
+    assertion = cfg.dispatch.gitIdentity == null;
+    message = "forge.runtime.dispatch.gitIdentity was removed: commits are authored by the GitHub App's bot, so drop the option";
   };
 
   workerPairingAssertions = lib.concatLists (
@@ -473,10 +456,10 @@ in
     };
 
     dispatch.gitIdentity = lib.mkOption {
-      type = lib.types.nullOr gitIdentityModule;
+      type = lib.types.nullOr lib.types.attrs;
       default = null;
-      example = lib.literalExpression ''{ name = "Forge"; email = "forge@example.com"; }'';
-      description = "Git author and committer identity of every dispatched workload, set through its environment and never written to a file. Required when any repository declares on.ticket. Scheduled workloads get no identity.";
+      visible = false;
+      description = "Removed: commits are authored by the GitHub App's bot. Setting it fails evaluation.";
     };
 
     dispatch.maxConcurrent = lib.mkOption {
@@ -567,7 +550,7 @@ in
   config = lib.mkMerge [
     {
       assertions = [
-        gitIdentityAssertion
+        removedGitIdentityAssertion
         untrustedAssertion
       ]
       ++ workerNameAssertions

@@ -143,9 +143,6 @@ const runClaude = async ({
           ...worker,
         },
       },
-      dispatch: {
-        gitIdentity: { name: 'Forge Operator', email: 'operator@example.com' },
-      },
     }),
   );
   const openRouter = await fakeOpenRouter(billedAt({}), models);

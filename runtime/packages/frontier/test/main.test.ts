@@ -9,6 +9,7 @@ import type { PolledFrontier, Ticket } from '@forge/shared';
 import { main } from '../src/main.ts';
 import {
   APP_ID,
+  BOT_EMAIL,
   fakeGithubApp,
   routedThrough,
   tokenFor,
@@ -78,7 +79,6 @@ const replaying = (responses: Record<string, RecordedPage[]>) => {
 
 const declaring = (
   repositories: Record<string, { github: string; on?: { ticket?: string } }>,
-  dispatch?: { gitIdentity: { name: string; email: string } },
   notInstalled: string[] = [],
 ) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-frontier-'));
@@ -96,7 +96,6 @@ const declaring = (
       harnesses: {},
       workers: {},
       repositories,
-      ...(dispatch === undefined ? {} : { dispatch }),
     }),
   );
   return {
@@ -827,7 +826,6 @@ test('given a repository with a worker and no private key, when sync runs, then 
 test('given a managed repository the App is not installed on, when sync runs, then that repository shows a frontier error saying so, GitHub is not asked about it and the other repository syncs normally', async (t) => {
   const { stateDir, env, app } = declaring(
     { forge: { github: 'rameezk/forge' }, stray: { github: 'rameezk/stray' } },
-    undefined,
     ['rameezk/stray'],
   );
   const github = replaying({ 'rameezk/forge': recorded('frontier') });
@@ -856,7 +854,6 @@ interface RecordedPullRequest {
   };
 }
 
-const FORGE_IDENTITY = { name: 'Forge Operator', email: 'forge@example.com' };
 
 const aPullRequest = (
   state: 'MERGED' | 'CLOSED',
@@ -940,10 +937,10 @@ const storedPullRequests = (stateDir: string) => {
 };
 
 test('given a dispatch with an open pull request that GitHub reports merged with two commits by forge\'s identity and one by another author, when sync runs, then the pull request is merged with its merge time as settled time and a rework count of 1', async () => {
-  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const github = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {
-    143: aPullRequest('MERGED', ['forge@example.com', 'FORGE@example.com', 'human@example.com']),
+    143: aPullRequest('MERGED', [BOT_EMAIL, BOT_EMAIL.toUpperCase(), 'human@example.com']),
   });
 
   const code = await run(app, ['sync'], env, github.fetch);
@@ -966,10 +963,10 @@ test('given a dispatch with an open pull request that GitHub reports merged with
 });
 
 test('given a dispatch with an open pull request that GitHub reports closed without merging, when sync runs, then the pull request is closed and settled at its close time', async () => {
-  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const github = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {
-    143: aPullRequest('CLOSED', ['forge@example.com']),
+    143: aPullRequest('CLOSED', [BOT_EMAIL]),
   });
 
   await run(app, ['sync'], env, github.fetch);
@@ -983,10 +980,10 @@ test('given a dispatch with an open pull request that GitHub reports closed with
 });
 
 test('given a dispatch whose pull request is already merged, when sync runs, then GitHub is not asked about that pull request', async () => {
-  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const first = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {
-    143: aPullRequest('MERGED', ['forge@example.com']),
+    143: aPullRequest('MERGED', [BOT_EMAIL]),
   });
   await run(app, ['sync'], env, first.fetch);
   const second = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {});
@@ -999,11 +996,11 @@ test('given a dispatch whose pull request is already merged, when sync runs, the
 });
 
 test('given a pull request whose commits span two pages, when sync runs, then its rework counts the commits of both pages', async () => {
-  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const graphql = quiet(replaying({ 'rameezk/forge': recorded('frontier') }));
-  const firstPage = aPullRequest('MERGED', ['forge@example.com', 'human@example.com']);
-  const secondPage = aPullRequest('MERGED', ['human@example.com', 'forge@example.com']);
+  const firstPage = aPullRequest('MERGED', [BOT_EMAIL, 'human@example.com']);
+  const secondPage = aPullRequest('MERGED', ['human@example.com', BOT_EMAIL]);
   const pages = [firstPage, secondPage].map((page, index, all) => ({
     ...page,
     data: {
@@ -1032,7 +1029,7 @@ test('given a pull request whose commits span two pages, when sync runs, then it
 });
 
 test('given three dispatches whose pull requests GitHub fails for, reports in an unknown state, and reports merged, when sync runs, then only the merged one settles, and the other two stay open with each failure reported and a non-zero exit code', async (t) => {
-  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedWithPullRequest(stateDir, 113, 143);
   dispatchedWithPullRequest(stateDir, 114, 144);
   dispatchedWithPullRequest(stateDir, 115, 145);
@@ -1042,7 +1039,7 @@ test('given three dispatches whose pull requests GitHub fails for, reports in an
     const body = JSON.parse(String(init.body)) as Request['body'];
     if (!body.query.includes('query PullRequest')) return graphql.fetch(input, init);
     if (body.variables.number === 143) return new Response('{}', { status: 502 });
-    const pullRequest = aPullRequest('MERGED', ['forge@example.com']);
+    const pullRequest = aPullRequest('MERGED', [BOT_EMAIL]);
     if (body.variables.number === 144) pullRequest.data.repository.pullRequest.state = 'DRAFT';
     return new Response(JSON.stringify(pullRequest), { headers: { 'content-type': 'application/json' } });
   };
@@ -1067,28 +1064,13 @@ test('given three dispatches whose pull requests GitHub fails for, reports in an
 });
 
 test('given a dispatch with an open pull request in a repository that no longer declares a worker, when sync runs, then its pull request is still refreshed', async () => {
-  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
   dispatchedWithPullRequest(stateDir, 113, 143);
   const github = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {
-    143: aPullRequest('MERGED', ['forge@example.com']),
+    143: aPullRequest('MERGED', [BOT_EMAIL]),
   });
 
   await run(app, ['sync'], env, github.fetch);
 
   assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'merged');
-});
-
-test('given a dispatch with an open pull request and a runtime config with no git identity, when sync runs, then the missing identity is reported with a non-zero exit code, GitHub is not asked, and the pull request stays open', async (t) => {
-  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
-  dispatchedWithPullRequest(stateDir, 113, 143);
-  const github = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {});
-  const stderr: string[] = [];
-  t.mock.method(console, 'error', (line: string) => stderr.push(line));
-
-  const code = await run(app, ['sync'], env, github.fetch);
-
-  assert.notEqual(code, 0);
-  assert.deepEqual(github.asked, []);
-  assert.deepEqual(stderr, ['forge: could not refresh pull requests: forge.runtime.dispatch.gitIdentity is not set']);
-  assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'open');
 });

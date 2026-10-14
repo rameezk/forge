@@ -725,14 +725,10 @@
           repositoryModule = {
             forge.runtime.repositories.forge.github = "rameezk/forge";
           };
-          gitIdentity = {
-            name = "Forge Operator";
-            email = "operator@example.com";
-          };
           dispatchModuleWith =
             {
               prompt ? "/work-on {url}",
-              dispatch ? { inherit gitIdentity; },
+              dispatch ? { },
             }:
             {
               forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
@@ -776,27 +772,31 @@
                 forge.github = "rameezk/forge";
               }
           ) "the generated runtime config must carry a repository's worker only when it declares one";
-          dispatchConfigReflectsGitIdentity =
+          dispatchConfigReflectsDefaultLimit =
             lib.asserts.assertMsg
               (
                 dispatchHost.config.forge.runtime.settings.dispatch == {
-                  inherit gitIdentity;
                   maxConcurrent = 1;
                 }
                 && !(workerAndRepositoryHost.config.forge.runtime.settings ? dispatch)
               )
-              "the generated runtime config must carry the dispatch git identity and a concurrency limit of 1 by default on a host that dispatches, and no dispatch settings on one that does not";
-          identityWithoutWorkerHost = secretsHost exampleSecretsFile {
-            forge.runtime.repositories.forge.github = "rameezk/forge";
-            forge.runtime.dispatch.gitIdentity = gitIdentity;
+              "the generated runtime config must carry a concurrency limit of 1 by default on a host that dispatches, and no dispatch settings on one that does not";
+          removedGitIdentityHost = secretsHost exampleSecretsFile {
+            forge.runtime.dispatch.gitIdentity = {
+              name = "Forge Operator";
+              email = "operator@example.com";
+            };
           };
-          dispatchConfigKeepsGitIdentityWithoutWorker =
-            lib.asserts.assertMsg
-              (identityWithoutWorkerHost.config.forge.runtime.settings.dispatch.gitIdentity == gitIdentity)
-              "the generated runtime config must keep the dispatch git identity when no repository declares on.ticket, so the frontier sync can still count rework on pull requests dispatched earlier";
+          setGitIdentityFails = lib.asserts.assertMsg (
+            !(evaluates removedGitIdentityHost)
+            && lib.any (
+              message:
+              lib.hasInfix "forge.runtime.dispatch.gitIdentity was removed" message
+              && lib.hasInfix "authored by the GitHub App" message
+            ) (failedAssertions removedGitIdentityHost)
+          ) "a config that sets dispatch.gitIdentity must fail evaluation, saying it was removed and commits are authored by the App";
           concurrentDispatchHost = dispatchHostWith {
             dispatch = {
-              inherit gitIdentity;
               maxConcurrent = 3;
             };
           };
@@ -807,7 +807,6 @@
                 && concurrentDispatchHost.config.forge.runtime.settings.dispatch.maxConcurrent == 3
                 && !(evaluates (dispatchHostWith {
                   dispatch = {
-                    inherit gitIdentity;
                     maxConcurrent = 0;
                   };
                 }))
@@ -864,16 +863,6 @@
                 && !(lib.hasInfix "forge-runtime" workerAndRepositoryHost.config.security.polkit.extraConfig)
               )
               "on a host that dispatches, polkit must let forge-runtime only start forge-dispatch@ units of declared repositories, and a host that does not dispatch must grant it nothing";
-          missingGitIdentityFails =
-            let
-              host = dispatchHostWith { dispatch = { }; };
-            in
-            lib.asserts.assertMsg
-              (
-                !(evaluates host)
-                && lib.any (lib.hasInfix "forge.runtime.dispatch.gitIdentity") (failedAssertions host)
-              )
-              "a repository that declares on.ticket on a host with no dispatch git identity must fail evaluation";
           dispatchHostEvaluates = lib.asserts.assertMsg (
             evaluates dispatchHost
             && evaluates (dispatchHostWith {
@@ -1038,7 +1027,6 @@
                 github = "rameezk/forge";
                 on.feedback = "reviser";
               };
-              forge.runtime.dispatch.gitIdentity = gitIdentity;
             };
           reviseHostWith = args: secretsHost exampleSecretsFile (reviseModuleWith args);
           reviseHost = reviseHostWith { };
@@ -1299,7 +1287,6 @@
                 github = "rameezk/forge";
                 on.ticket = worker;
               }) repositories;
-              forge.runtime.dispatch = { inherit gitIdentity; };
             };
           startTimeoutOf =
             host: unit: (host.config.systemd.services.${unit}.serviceConfig or { }).TimeoutStartSec or null;
@@ -1575,13 +1562,12 @@
 
           runtime-dispatch =
             assert dispatchConfigReflectsWorker;
-            assert dispatchConfigReflectsGitIdentity;
-            assert dispatchConfigKeepsGitIdentityWithoutWorker;
+            assert dispatchConfigReflectsDefaultLimit;
+            assert setGitIdentityFails;
             assert dispatchConfigReflectsMaxConcurrent;
             assert dispatchPassFollowsSync;
             assert dispatchPassStartsUnits;
             assert dispatchPassMayStartOnlyDispatchUnits;
-            assert missingGitIdentityFails;
             assert dispatchHostEvaluates;
             assert placeholderlessWorkerFails;
             assert undeclaredWorkerFails;

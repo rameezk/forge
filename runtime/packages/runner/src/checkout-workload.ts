@@ -1,6 +1,6 @@
 import { join } from 'node:path';
-import { errorMessage, type GithubApp, type RunTicket } from '@forge/shared';
-import type { GitIdentity, RuntimeConfig } from './config.ts';
+import { errorMessage, type BotIdentity, type GithubApp, type RunTicket } from '@forge/shared';
+import type { RuntimeConfig } from './config.ts';
 import { cloneCheckout, headCommit, loadPiSkills, resolveCheckout } from './checkout.ts';
 import { enterDevShell } from './devshell.ts';
 import { gitEnvironment } from './git.ts';
@@ -45,7 +45,7 @@ export const launchInCheckout = async ({
   instruction?: string;
   app: GithubApp;
   gitEnv: Record<string, string>;
-  identity: GitIdentity;
+  identity: BotIdentity;
   ticket?: RunTicket;
   runId: string;
 }): Promise<LaunchResult> => {

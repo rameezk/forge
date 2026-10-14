@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   errorMessage,
+  appIdentity,
   ensureLabels,
   installationTokens,
   oldestFirst,
@@ -43,13 +44,16 @@ const refreshPullRequests = async (
   store: Store,
   name: string,
   github: string,
-  forgeEmail: string | undefined,
+  forgeEmail: () => Promise<string>,
   pullRequest: PullRequestPoll,
 ): Promise<boolean> => {
   const unsettled = store.unsettledPullRequests(name);
   if (unsettled.length === 0) return true;
-  if (forgeEmail === undefined) {
-    console.error(`${name}: could not refresh pull requests: forge.runtime.dispatch.gitIdentity is not set`);
+  let email: string;
+  try {
+    email = await forgeEmail();
+  } catch (error) {
+    console.error(`${name}: could not refresh pull requests: ${errorMessage(error)}`);
     return false;
   }
   let refreshed = true;
@@ -59,7 +63,7 @@ const refreshPullRequests = async (
       store.recordPullRequest(id, {
         state,
         settledAt,
-        rework: reworkOf(commitAuthors, forgeEmail),
+        rework: reworkOf(commitAuthors, email),
       });
     } catch (error) {
       console.error(`${name}: could not refresh pull request #${number}: ${errorMessage(error)}`);
@@ -100,6 +104,7 @@ const sync = async (
   env: NodeJS.ProcessEnv,
   poll: Poll,
   pullRequest: PullRequestPoll,
+  forgeEmail: () => Promise<string>,
   writes: GithubWrites | null,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
@@ -136,7 +141,7 @@ const sync = async (
           store,
           name,
           github,
-          config.dispatch?.gitIdentity?.email,
+          forgeEmail,
           pullRequest,
         ))
       ) {
@@ -211,8 +216,16 @@ export const main = async (
   const config = readConfig(env);
   const tokens = installationTokens(env, fetch);
   const poll = polling(tokens, fetch);
+  let forgeEmail: Promise<string> | undefined;
   return command === 'sync'
-    ? sync(config, env, poll, pullRequestPolling(tokens, fetch), githubWrites(config, tokens, fetch))
+    ? sync(
+        config,
+        env,
+        poll,
+        pullRequestPolling(tokens, fetch),
+        () => (forgeEmail ??= appIdentity(env, fetch).then(({ email }) => email)),
+        githubWrites(config, tokens, fetch),
+      )
     : list(config, poll);
 };
 

@@ -463,16 +463,14 @@ forge.runtime.repositories.forge = {
   github = "rameezk/forge";
   on.ticket = "builder";
 };
-forge.runtime.dispatch.gitIdentity = {
-  name = "Forge";
-  email = "forge@example.com";
-};
 ```
 
-A host with a repository that declares `on.ticket` must also set
-`dispatch.gitIdentity`, or it does not evaluate. Every commit a dispatched
-workload makes carries it as author and committer, while pushes and pull
-requests show as the GitHub App's bot account.
+Every commit a dispatched workload makes is authored by the GitHub App's bot,
+`<app-slug>[bot]` with its `users.noreply.github.com` email, as author and
+committer, so everything forge leaves on GitHub links to one account. Forge
+looks the identity up from the App, and `dispatch.gitIdentity` was removed: a
+config that still sets it does not evaluate, so drop it. Rework counts the
+commits on a pull request not authored by the App.
 
 Label a ticket `forge:ready` and forge dispatches it by itself. Straight after
 every frontier sync, a dispatch pass starts a `forge-dispatch@` unit for each
@@ -558,9 +556,8 @@ forge.runtime.repositories.forge = {
 };
 ```
 
-A host with a repository that declares `on.feedback` must also set
-`dispatch.gitIdentity` and provide `github_app_id` and `github_app_private_key`,
-as for `on.ticket`.
+A host with a repository that declares `on.feedback` must provide
+`github_app_id` and `github_app_private_key`, as for `on.ticket`.
 
 To revise a pull request by hand, run:
 

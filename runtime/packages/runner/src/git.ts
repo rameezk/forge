@@ -1,4 +1,4 @@
-import type { GitIdentity } from './config.ts';
+import type { BotIdentity } from '@forge/shared';
 import { GITHUB_TOKEN_FILE_ENV } from './github-token-file.ts';
 
 const GITHUB_CREDENTIAL_HELPER = `!f() { test "$1" = get || exit 0; token="$(cat "$${GITHUB_TOKEN_FILE_ENV}")" || exit 1; printf 'username=x-access-token\\npassword=%s\\n' "$token"; }; f`;
@@ -27,7 +27,7 @@ const gitConfigEnvironment = (
 
 export const gitEnvironment = (
   env: NodeJS.ProcessEnv,
-  identity: GitIdentity,
+  identity: BotIdentity,
 ): Record<string, string> => ({
   ...gitConfigEnvironment(env),
   GIT_AUTHOR_NAME: identity.name,
