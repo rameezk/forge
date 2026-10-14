@@ -90,6 +90,7 @@ test('given a workload whose calls are billed, estimated and flagged as cache mi
   );
 
   await page.goto('/runs/run-01');
+  await page.locator('[data-calls-summary]').click();
 
   await expect(page.locator('[data-calls] [data-badge="billed"]')).toHaveCount(1);
   await expect(page.locator('[data-calls] [data-badge="estimated"]')).toHaveCount(2);
@@ -109,6 +110,7 @@ test('given a workload with message, compaction and cache-warm generations, when
   );
 
   await page.goto('/runs/run-01');
+  await page.locator('[data-calls-summary]').click();
 
   const rows = page.locator('[data-calls] [data-call]');
   await expect(rows).toHaveCount(4);
@@ -221,6 +223,8 @@ test('given a claude-code run on subscription, when its page is opened, then the
 
   await page.goto('/runs/run-01');
 
+  await page.locator('[data-run-details] summary').click();
+
   await expect(page.locator('[data-harness]')).toHaveText('claude-code');
   await expect(page.getByText('anthropic', { exact: true })).toBeVisible();
 });
@@ -301,4 +305,42 @@ test.describe('on a laptop screen', () => {
     await expect(page.getByPlaceholder('Worker or ticket number')).toBeVisible();
     await expect(page.locator('[data-filters] summary')).toBeHidden();
   });
+});
+
+test('given a failed workload with a long error, when its page is opened and the error is clicked, then the error is cut off on one line until it is expanded to its full text', async ({
+  dashboard,
+  page,
+}) => {
+  const error = `build failed: ${'the compiler gave up after a very long chain of errors, '.repeat(12)}done`;
+  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, status: 'error', error });
+
+  await page.goto('/runs/run-01');
+
+  const summary = page.locator('[data-run-error] summary');
+  const lineHeight = await summary.evaluate((element) => parseFloat(element.ownerDocument.defaultView!.getComputedStyle(element).lineHeight));
+  const paddedHeight = await summary.evaluate((element) => element.getBoundingClientRect().height);
+  expect(await summary.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(paddedHeight).toBeLessThan(lineHeight * 2 + 20);
+
+  await summary.click();
+
+  expect(await summary.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(lineHeight * 2);
+  await expect(summary).toHaveText(error);
+});
+
+test('given a finished workload, when its page is opened, then Run details and Calls start collapsed and open on click', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null });
+  dashboard.store.recordGeneration({ runId: 'run-01', generationId: 'gen-01', subagent: null, kind: 'message', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, estimatedCostUsd: 0.01, createdAt: '2026-09-21T10:01:00.000Z' });
+
+  await page.goto('/runs/run-01');
+
+  await expect(page.locator('[data-harness]')).toBeHidden();
+  await expect(page.locator('[data-calls]')).toBeHidden();
+  await page.locator('[data-run-details] summary').click();
+  await expect(page.locator('[data-harness]')).toBeVisible();
+  await page.locator('[data-calls-summary]').click();
+  await expect(page.locator('[data-calls]')).toBeVisible();
 });

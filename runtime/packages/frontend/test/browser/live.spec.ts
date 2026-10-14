@@ -409,7 +409,7 @@ test('given a live detail page showing Live, when the workload\'s cost settles a
     '2026-09-21T10:05:00.000Z',
   );
 
-  await expect(page.getByText('$0.250000', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-tile="cost"]').getByText('$0.250000', { exact: true })).toBeVisible();
   await expect(page.getByRole('status')).toHaveCount(0);
   dashboard.appendEvents('run-01.jsonl', say('Written after the run settled.'));
   await page.waitForTimeout(4_000);
@@ -466,6 +466,7 @@ test('given a running workload\'s detail page open in a browser, when its genera
     });
 
   record('gen-01', 0, 1000, 0.01);
+  await page.locator('[data-calls-summary]').click();
   const rows = page.locator('[data-calls] tr[data-call]');
   await expect(rows).toHaveCount(1);
   await expect(rows.first().locator('[data-cost]')).toContainText('estimated');
