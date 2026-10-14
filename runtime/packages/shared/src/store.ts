@@ -1764,20 +1764,27 @@ export class Store {
       .run({ id, state, ended_at: endedAt });
   }
 
-  #revisionsOf(dispatchId: number, now: string): AttemptRevision[] {
+  #selectRevisions(where: string, params: Record<string, string | number>, now: string): RevisionRecord[] {
     const rows = this.#db
       .prepare(
         `SELECT
-          v.id, v.repository, v.number, v.url, v.run_id, v.dispatch_id,
-          CASE WHEN v.state = 'running' AND v.alive_at < $live_since THEN 'interrupted' ELSE v.state END AS state,
-          v.started_at, v.alive_at, v.ended_at
-        FROM revisions v
-        JOIN runs r ON r.id = v.run_id
-        WHERE v.dispatch_id = $dispatch_id
-        ORDER BY v.id`,
+          id, repository, number, url, run_id, dispatch_id,
+          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
+          started_at, alive_at, ended_at
+        FROM revisions
+        ${where}
+        ORDER BY id`,
       )
-      .all({ dispatch_id: dispatchId, live_since: liveSince(now) }) as RevisionRow[];
-    return rows.map((row) => ({ revision: revisionFromRow(row), run: this.getRun(row.run_id)! }));
+      .all({ ...params, live_since: liveSince(now) }) as RevisionRow[];
+    return rows.map(revisionFromRow);
+  }
+
+  #revisionsOf(dispatchId: number, now: string): AttemptRevision[] {
+    return this.#selectRevisions(
+      'WHERE dispatch_id = $dispatch_id AND EXISTS (SELECT 1 FROM runs WHERE runs.id = revisions.run_id)',
+      { dispatch_id: dispatchId },
+      now,
+    ).map((revision) => ({ revision, run: this.getRun(revision.runId)! }));
   }
 
   revisedPullRequestOfRun(runId: string): RevisedPullRequest | null {
@@ -1788,17 +1795,7 @@ export class Store {
   }
 
   listRevisions(now: string): RevisionRecord[] {
-    const rows = this.#db
-      .prepare(
-        `SELECT
-          id, repository, number, url, run_id, dispatch_id,
-          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
-          started_at, alive_at, ended_at
-        FROM revisions
-        ORDER BY id`,
-      )
-      .all({ live_since: liveSince(now) }) as RevisionRow[];
-    return rows.map(revisionFromRow);
+    return this.#selectRevisions('', {}, now);
   }
 
   reconcileDispatch(
