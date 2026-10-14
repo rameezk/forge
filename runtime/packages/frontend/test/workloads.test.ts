@@ -162,3 +162,72 @@ test('given a ticketed and a manual workload, when opened, then the columns foll
   assert.equal(textOf(cell('ticketed')), 'forge #5');
   assert.match(cell('by-hand'), /<span class="text-muted">manual<\/span>/);
 });
+
+const numbered = (count: number, overrides: (index: number) => Partial<RunRecord> = () => ({})): RunRecord[] =>
+  Array.from({ length: count }, (_, index) =>
+    sampleRun({
+      id: `run-${String(index).padStart(3, '0')}`,
+      startTime: new Date(Date.UTC(2026, 0, 1) + index * 60_000).toISOString(),
+      ...overrides(index),
+    }),
+  );
+
+const pageLink = (body: string, direction: 'newer' | 'older'): { href: string | undefined; available: boolean } => {
+  const element = body.match(new RegExp(`<(?:a|span)[^>]*\\sdata-page-link="${direction}"[^>]*>`))?.[0];
+  assert.ok(element, `${direction} control missing`);
+  return { href: element.match(/\shref="([^"]*)"/)?.[1]?.replaceAll('&amp;', '&'), available: element.startsWith('<a') };
+};
+
+test('given 120 workloads, when Workloads is opened, then the newest 50 list, Newer is unavailable and Older leads to the next 50', async () => {
+  const runs = numbered(120);
+  const body = await open(runs);
+
+  assert.deepEqual(listed(body), runs.slice(70).reverse().map((run) => run.id));
+  assert.equal(pageLink(body, 'newer').available, false);
+  const older = pageLink(body, 'older');
+  assert.equal(older.available, true);
+
+  const next = await open(runs, older.href);
+  assert.deepEqual(listed(next), runs.slice(20, 70).reverse().map((run) => run.id));
+  assert.equal(pageLink(next, 'newer').available, true);
+});
+
+test('given 120 workloads, when the third page is opened, then the oldest 20 list and Older is unavailable', async () => {
+  const runs = numbered(120);
+  const body = await open(runs, '/?page=3');
+
+  assert.deepEqual(listed(body), runs.slice(0, 20).reverse().map((run) => run.id));
+  assert.equal(pageLink(body, 'older').available, false);
+  assert.equal(pageLink(body, 'newer').available, true);
+});
+
+test('given more than 50 errored workloads among others, when filtered to Error and Older is followed, then the second page lists only errored workloads and Error stays selected', async () => {
+  const runs = numbered(130, (index) => ({ status: index % 2 === 0 ? 'error' : 'success' }));
+  const first = await open(runs, '/?status=error');
+  const older = pageLink(first, 'older');
+  assert.equal(older.available, true);
+
+  const second = await open(runs, older.href);
+  const ids = listed(second);
+  assert.equal(ids.length, 15);
+  assert.ok(ids.every((id) => runs.find((run) => run.id === id)?.status === 'error'));
+  assert.match(second, /data-status-chip="error"[^>]*aria-current="true"/);
+  assert.equal(pageLink(second, 'older').available, false);
+  assert.match(pageLink(second, 'newer').href ?? '', /status=error/);
+});
+
+test('given more than 50 matching workloads, when the second page is opened, then the counts and the header cover every matching workload', async () => {
+  const runs = numbered(120, (index) => ({ costUsd: 1, status: index < 100 ? 'success' : 'error' }));
+  const body = await open(runs, '/?page=2');
+
+  assert.equal(listed(body).length, 50);
+  assert.equal(showing(body), 'Showing 120 of 120 workloads, $120.0000 of $120.0000 billed');
+  assert.match(chip(body, 'all'), /120/);
+  assert.match(chip(body, 'error'), /20/);
+});
+
+test('given a page beyond the last, when opened, then the last page lists', async () => {
+  const runs = numbered(120);
+  assert.equal(listed(await open(runs, '/?page=9')).length, 20);
+  assert.equal(listed(await open(runs, '/?page=abc')).length, 50);
+});
