@@ -59,6 +59,13 @@ export interface CompactionEvent {
   subagent?: string;
 }
 
+export interface CacheWarmEvent {
+  type: 'cache_warm';
+  generationId: string | null;
+  usage: TokenUsage;
+  subagent?: string;
+}
+
 export interface ResultEvent {
   type: 'result';
   status: 'success' | 'error';
@@ -87,6 +94,7 @@ export type HarnessEvent =
   | ToolResultEvent
   | RetryEvent
   | CompactionEvent
+  | CacheWarmEvent
   | ResultEvent;
 
 export type HarnessOutput = HarnessEvent | SkillLoadEvent;

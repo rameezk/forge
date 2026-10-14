@@ -11,12 +11,13 @@ import { piArgs, subagentInvocation } from '../../src/pi.ts';
 import { PI_PROVIDER, providerSpec } from '../../src/provider.ts';
 import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { REQUEST_RECORD_FD } from '../../src/sandbox.ts';
-import { PI_EXTENSIONS } from '../helpers.ts';
+import { FORCE_CACHE_WARM_EXTENSION, PI_EXTENSIONS } from '../helpers.ts';
 import {
   childScenarios,
   serve,
   SUBAGENT_TASKS,
   scenarios,
+  WARMING_MODEL_OVERRIDES,
   type Respond,
 } from './fake-provider.ts';
 
@@ -35,6 +36,7 @@ const runPi = async (
   args: string[],
   files: Record<string, string> = {},
   settings: Record<string, unknown> = {},
+  modelOverrides: Record<string, unknown> = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> => {
   const home = mkdtempSync(join(tmpdir(), 'forge-record-home-'));
   const work = mkdtempSync(join(tmpdir(), 'forge-record-work-'));
@@ -46,7 +48,7 @@ const runPi = async (
   writeFileSync(
     join(home, '.pi', 'agent', 'models.json'),
     JSON.stringify({
-      providers: { [PI_PROVIDER]: { baseUrl } },
+      providers: { [PI_PROVIDER]: { baseUrl, modelOverrides } },
     }),
   );
   writeFileSync(
@@ -84,6 +86,7 @@ const recordRun = async (
   out: string,
   files: Record<string, string> = {},
   settings: Record<string, unknown> = {},
+  modelOverrides: Record<string, unknown> = {},
 ): Promise<void> => {
   const server = await serve(respond);
   const { port } = server.address() as AddressInfo;
@@ -95,6 +98,7 @@ const recordRun = async (
     args,
     files,
     settings,
+    modelOverrides,
   );
   server.close();
   if (run.code !== 0) {
@@ -125,16 +129,27 @@ const record = async (
   mkdirSync(outDir, { recursive: true });
   for (const [
     name,
-    { respond, prompt = INVOCATION.prompt, files, messages = [], settings },
+    {
+      respond,
+      prompt = INVOCATION.prompt,
+      files,
+      messages = [],
+      settings,
+      warming: warms = false,
+    },
   ] of Object.entries(scenarios)) {
     await recordRun(
       pi,
       INVOCATION,
       respond,
-      piArgs({ ...INVOCATION, prompt }, PI_EXTENSIONS, messages),
+      [
+        ...(warms ? ['-e', FORCE_CACHE_WARM_EXTENSION] : []),
+        ...piArgs({ ...INVOCATION, prompt }, PI_EXTENSIONS, messages),
+      ],
       join(outDir, `${name}.jsonl`),
       files,
       settings,
+      warms ? WARMING_MODEL_OVERRIDES : {},
     );
   }
   const preflight = await runPi(

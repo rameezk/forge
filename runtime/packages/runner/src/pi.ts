@@ -5,6 +5,7 @@ import type { Readable } from 'node:stream';
 import {
   errorMessage,
   SkillLoadTracker,
+  type CacheWarmEvent,
   type CompactionCall,
   type CompactionEvent,
   type HarnessEvent,
@@ -233,8 +234,16 @@ interface PiCompactionResult {
   estimatedTokensAfter?: unknown;
 }
 
+interface PiUsageEntry {
+  type?: string;
+  kind?: string;
+  usage?: Partial<PiUsage>;
+  responseId?: unknown;
+}
+
 interface PiLine {
   type?: string;
+  entry?: PiUsageEntry;
   id?: string;
   message?: PiMessage;
   willRetry?: boolean;
@@ -389,6 +398,21 @@ const compaction = (
   ...scoped(subagent),
 });
 
+const cacheWarm = (
+  entry: PiUsageEntry | undefined,
+  subagent: string | undefined,
+): CacheWarmEvent[] =>
+  entry?.type === 'usage' && entry.kind === 'cache_warm'
+    ? [
+        {
+          type: 'cache_warm',
+          generationId: generationIdOf(entry.responseId),
+          usage: tokenUsage(entry.usage),
+          ...scoped(subagent),
+        },
+      ]
+    : [];
+
 const parseLine = (line: string): PiLine | null => {
   try {
     return JSON.parse(line) as PiLine;
@@ -452,6 +476,8 @@ class PiStream {
         return [retry(event, undefined)];
       case 'compaction_end':
         return [compaction(event, undefined)];
+      case 'entry_appended':
+        return cacheWarm(event.entry, undefined);
       case 'agent_start':
         this.#ended = false;
         return [];
@@ -479,6 +505,8 @@ class PiStream {
         return [retry(child, event.toolCallId)];
       case 'compaction_end':
         return [compaction(child, event.toolCallId)];
+      case 'entry_appended':
+        return cacheWarm(child.entry, event.toolCallId);
       case 'message_end':
         return child.message?.role === 'assistant'
           ? this.#assistant(child.message, event.toolCallId)

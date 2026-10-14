@@ -24,6 +24,7 @@ buildNpmPackage (finalAttrs: {
   patches = [
     ./pi-read-only-agent-dir.patch
     ./pi-compaction-generations.patch
+    ./pi-cache-warm-generations.patch
   ];
 
   npmDepsHash = "sha256-ndEvWdB6sa5nNNtabk2OMZKUFG9x3op185deZHxFnXk=";

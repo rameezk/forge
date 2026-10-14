@@ -87,6 +87,9 @@ const BILLED_BY_ID = {
   'gen-attempt-2': 0.003,
   'gen-attempt-summary-failed': 0.004,
   'gen-attempt-summary-1': 0.02,
+  'gen-cache-1': 0.01,
+  'gen-cache-2': 0.02,
+  'gen-cache-warm-1': 0.0005,
 };
 
 const billed = billedAt(BILLED_BY_ID);
@@ -699,6 +702,104 @@ test('given a listed model and recorded pi output where a compaction reports usa
       unidentified?.estimatedCostUsd,
       estimateAt('z-ai/glm-5', [3000, 20, 0, 0]),
     );
+    assert.equal(run.costStatus, 'unconfirmed');
+  } finally {
+    openRouter.close();
+  }
+});
+
+const WARM_USAGE: [number, number, number, number] = [0, 1, 1200, 0];
+
+test('given recorded pi output where pi warmed the prompt cache while busy, when the workload ends and billing settles, then a cache_warm generation is recorded with the warm request\'s id and billed at OpenRouter\'s cost, and the workload\'s tokens and cost include it', async () => {
+  const { run, stateDir, lookups } = await settled({ output: fixture('cache-warm.jsonl') });
+
+  assert.deepEqual(generationKinds(stateDir, run.id), [
+    ['gen-cache-1', 'message', null],
+    ['gen-cache-warm-1', 'cache_warm', null],
+    ['gen-cache-2', 'message', null],
+  ]);
+  assert.deepEqual(lookups.map(({ id }) => id).sort(), [
+    'gen-cache-1',
+    'gen-cache-2',
+    'gen-cache-warm-1',
+  ]);
+  assert.equal(run.costStatus, 'billed');
+  assertCost(run.costUsd, 0.01 + 0.0005 + 0.02);
+  assert.equal(run.inputTokens, 200 + 0 + 100);
+  assert.equal(run.outputTokens, 40 + 1 + 25);
+  assert.equal(run.cacheReadTokens, 0 + 1200 + 1000);
+  assert.equal(
+    storedGenerations(stateDir, run.id).find(({ kind }) => kind === 'cache_warm')
+      ?.billedCostUsd,
+    0.0005,
+  );
+});
+
+test('given a budget that the first generation stays under and the cache warm takes over, and a pi that keeps running, when the warm completes, then the workload is stopped as exceeded without waiting for the next message', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), LISTED_MODELS);
+  try {
+    const turn = estimateAt('z-ai/glm-5', [200, 40, 0, 1000]);
+    const warm = estimateAt('z-ai/glm-5', WARM_USAGE);
+    const { run, pi, stateDir } = await runWorker({
+      output: fixture('cache-warm.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      lingerMs: 10_000,
+      worker: { maxCostUsd: turn + warm / 2 },
+    });
+
+    assert.equal(run.status, 'exceeded');
+    assert.equal(run.exceededLimit, 'budget');
+    assert.equal(isAlive(pi.pid), false);
+    assert.deepEqual(generationKinds(stateDir, run.id), [
+      ['gen-cache-1', 'message', null],
+      ['gen-cache-warm-1', 'cache_warm', null],
+    ]);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given recorded pi output where a subagent\'s requests were warmed, when the workload ends, then the cache_warm generation is recorded under that subagent', async () => {
+  const childEvent =
+    readFileSync(fixture('cache-warm.jsonl'), 'utf8')
+      .split('\n')
+      .find((line) => line.startsWith('{"type":"entry_appended"')) ?? assert.fail('no entry_appended');
+  const wrapped = (event: string): string =>
+    `{"type":"tool_execution_update","toolCallId":"call_alpha","toolName":"subagent","args":{"task":"Run echo alpha and report what it printed."},"partialResult":{"content":[],"details":{"event":${event}}}}`;
+  const lines = readFileSync(fixture('subagents.jsonl'), 'utf8').split('\n');
+  const started = lines.findIndex((line) => line === wrapped('{"type":"agent_start"}'));
+  assert.ok(started > 0);
+  lines.splice(started + 1, 0, wrapped(childEvent));
+
+  const { run, stateDir } = await settled({ output: outputFile(lines.join('\n')) });
+
+  assert.deepEqual(
+    generationKinds(stateDir, run.id).filter(([, kind]) => kind === 'cache_warm'),
+    [['gen-cache-warm-1', 'cache_warm', 'call_alpha']],
+  );
+});
+
+test('given a listed model and recorded pi output where a cache warm reports usage but no id, when the workload ends, then the cache_warm generation carries forge\'s estimated cost and is given up, and the run\'s cost status is unconfirmed', async () => {
+  const openRouter = await fakeOpenRouter(billed, LISTED_MODELS);
+  try {
+    const { run, stateDir } = await journaled(() =>
+      runWorker({
+        output: outputFile(
+          readFileSync(fixture('cache-warm.jsonl'), 'utf8').replace(
+            ',"responseId":"gen-cache-warm-1"',
+            '',
+          ),
+        ),
+        openRouterBaseUrl: openRouter.baseUrl,
+      }),
+    ).then(({ result }) => result);
+
+    const [unidentified] = storedGenerations(stateDir, run.id).filter(
+      ({ kind }) => kind === 'cache_warm',
+    );
+    assert.equal(unidentified?.generationId, null);
+    assert.notEqual(unidentified?.givenUpAt, null);
+    assertCost(unidentified?.estimatedCostUsd, estimateAt('z-ai/glm-5', WARM_USAGE));
     assert.equal(run.costStatus, 'unconfirmed');
   } finally {
     openRouter.close();

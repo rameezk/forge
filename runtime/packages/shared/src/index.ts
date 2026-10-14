@@ -30,6 +30,7 @@ export type {
 } from './dispatch.ts';
 export type {
   CompactionCall,
+  CacheWarmEvent,
   CompactionEvent,
   HarnessEvent,
   HarnessOutput,

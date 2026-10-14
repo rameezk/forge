@@ -1,0 +1,48 @@
+diff --git a/packages/coding-agent/src/core/cache-warmer.ts b/packages/coding-agent/src/core/cache-warmer.ts
+index f4f885f..727efbd 100644
+--- a/packages/coding-agent/src/core/cache-warmer.ts
++++ b/packages/coding-agent/src/core/cache-warmer.ts
+@@ -345,6 +345,7 @@ export class CacheWarmer {
+ 					message.responseModel ?? message.model,
+ 					message.usage,
+ 					extensionOverride ? "extension override" : undefined,
++					message.responseId,
+ 				);
+ 				this.onWarmed?.(entry);
+ 			}
+diff --git a/packages/coding-agent/src/core/session-manager.ts b/packages/coding-agent/src/core/session-manager.ts
+index df5281a..65b8bad 100644
+--- a/packages/coding-agent/src/core/session-manager.ts
++++ b/packages/coding-agent/src/core/session-manager.ts
+@@ -86,6 +86,7 @@ export interface UsageEntry extends SessionEntryBase {
+ 	usage: Usage;
+ 	/** Optional human-readable qualifier for usage notices. */
+ 	note?: string;
++	responseId?: string;
+ }
+ 
+ export interface CompactionEntry<T = unknown> extends SessionEntryBase {
+@@ -1241,7 +1242,14 @@ export class SessionManager {
+ 	}
+ 
+ 	/** Append model-attributed usage that does not participate in LLM context. Returns the appended entry. */
+-	appendUsage(kind: string, provider: string, model: string, usage: Usage, note?: string): UsageEntry {
++	appendUsage(
++		kind: string,
++		provider: string,
++		model: string,
++		usage: Usage,
++		note?: string,
++		responseId?: string,
++	): UsageEntry {
+ 		const entry: UsageEntry = {
+ 			type: "usage",
+ 			id: generateId(this.byId),
+@@ -1252,6 +1260,7 @@ export class SessionManager {
+ 			model,
+ 			usage,
+ 			...(note ? { note } : {}),
++			...(responseId ? { responseId } : {}),
+ 		};
+ 		this._appendEntry(entry);
+ 		return entry;
