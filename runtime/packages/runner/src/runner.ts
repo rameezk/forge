@@ -2,6 +2,7 @@ import {
   errorMessage,
   startHeartbeat,
   type ExceededLimit,
+  type GenerationKind,
   type HarnessEvent,
   type ListPrice,
   type RunStatus,
@@ -50,6 +51,7 @@ export interface WorkloadResult {
 }
 
 interface BilledCall {
+  kind: GenerationKind;
   generationId: string | null;
   subagent: string | null;
   usage: TokenUsage;
@@ -59,24 +61,27 @@ const hasUsage = (usage: TokenUsage): boolean =>
   Object.values(usage).some((count) => count > 0);
 
 const callOf = (
+  kind: GenerationKind,
   generationId: string | null,
   subagent: string | undefined,
   usage: TokenUsage,
-): BilledCall | null =>
+): BilledCall[] =>
   generationId !== null || hasUsage(usage)
-    ? { generationId, subagent: subagent ?? null, usage }
-    : null;
+    ? [{ kind, generationId, subagent: subagent ?? null, usage }]
+    : [];
 
-const billedCall = (event: HarnessEvent): BilledCall | null => {
+const billedCalls = (event: HarnessEvent): BilledCall[] => {
   if (event.type === 'message') {
     return event.role === 'assistant'
-      ? callOf(event.generationId, event.subagent, event.usage)
-      : null;
+      ? callOf('message', event.generationId, event.subagent, event.usage)
+      : [];
   }
-  if (event.type === 'compaction' && event.usage !== undefined) {
-    return callOf(event.generationId ?? null, event.subagent, event.usage);
+  if (event.type === 'compaction') {
+    return (event.calls ?? []).flatMap(({ generationId, usage }) =>
+      callOf('compaction', generationId, event.subagent, usage),
+    );
   }
-  return null;
+  return [];
 };
 
 const estimatedCost = (price: ListPrice | null, usage: TokenUsage): number | null => {
@@ -164,7 +169,7 @@ export const runWorkload = async (
       runId: id,
       generationId: call.generationId,
       subagent: call.subagent,
-      kind: 'message',
+      kind: call.kind,
       usage: call.usage,
       estimatedCostUsd: subscription ? null : priced,
       listPriceEquivalentUsd: subscription ? priced : null,
@@ -242,9 +247,9 @@ export const runWorkload = async (
       const event = policy.record(harnessEvent);
       await transcript.append(event);
       countEvent(counters, event);
-      const call = billedCall(event);
-      if (call !== null) {
-        recordGeneration(call);
+      const calls = billedCalls(event);
+      if (calls.length > 0) {
+        calls.forEach(recordGeneration);
         if (exceeded === null && worker.maxCostUsd != null) {
           const spend = store.workloadSpend(id);
           if (spend.unpriced || spend.costUsd > worker.maxCostUsd) {

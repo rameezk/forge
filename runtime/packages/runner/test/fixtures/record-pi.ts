@@ -34,6 +34,7 @@ const runPi = async (
   key: string | undefined,
   args: string[],
   files: Record<string, string> = {},
+  settings: Record<string, unknown> = {},
 ): Promise<{ stdout: string; stderr: string; code: number | null }> => {
   const home = mkdtempSync(join(tmpdir(), 'forge-record-home-'));
   const work = mkdtempSync(join(tmpdir(), 'forge-record-work-'));
@@ -50,7 +51,7 @@ const runPi = async (
   );
   writeFileSync(
     join(home, '.pi', 'agent', 'settings.json'),
-    JSON.stringify({ compaction: { keepRecentTokens: 1 } }),
+    JSON.stringify({ compaction: { keepRecentTokens: 1 }, ...settings }),
   );
   const child = spawn(pi, args, {
     cwd: work,
@@ -82,6 +83,7 @@ const recordRun = async (
   args: string[],
   out: string,
   files: Record<string, string> = {},
+  settings: Record<string, unknown> = {},
 ): Promise<void> => {
   const server = await serve(respond);
   const { port } = server.address() as AddressInfo;
@@ -92,6 +94,7 @@ const recordRun = async (
     'sk-fake',
     args,
     files,
+    settings,
   );
   server.close();
   if (run.code !== 0) {
@@ -122,15 +125,16 @@ const record = async (
   mkdirSync(outDir, { recursive: true });
   for (const [
     name,
-    { respond, prompt = INVOCATION.prompt, files },
+    { respond, prompt = INVOCATION.prompt, files, messages = [], settings },
   ] of Object.entries(scenarios)) {
     await recordRun(
       pi,
       INVOCATION,
       respond,
-      piArgs({ ...INVOCATION, prompt }, PI_EXTENSIONS),
+      piArgs({ ...INVOCATION, prompt }, PI_EXTENSIONS, messages),
       join(outDir, `${name}.jsonl`),
       files,
+      settings,
     );
   }
   const preflight = await runPi(

@@ -29,6 +29,7 @@ export type {
   PullRequestState,
 } from './dispatch.ts';
 export type {
+  CompactionCall,
   CompactionEvent,
   HarnessEvent,
   HarnessOutput,

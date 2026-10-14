@@ -456,9 +456,59 @@ export const truncatedRead: Respond = (_call, res, request) =>
 
 export const TRUNCATED_PROMPT = 'Read the work-on skill.';
 
+export const SUMMARIZING = 'context summarization assistant';
+
+export const EARLIER_MESSAGE = 'Say hello first.';
+
+export const COMPACTION_SETTINGS = {
+  compaction: { keepRecentTokens: 1 },
+  retry: { baseDelayMs: 1 },
+};
+
+export const compacting = (
+  prefix: string,
+  { split, failFirst }: { split: boolean; failFirst: boolean },
+): Respond => {
+  let summaries = 0;
+  let turns = 0;
+  return (_call, res, request) => {
+    if (mentions(request, SUMMARIZING)) {
+      summaries += 1;
+      const failing = failFirst && summaries === 1;
+      sse(
+        res,
+        failing
+          ? [
+              chunk(`${prefix}-summary-failed`, { role: 'assistant', content: '## Goal' }),
+              usageChunk(`${prefix}-summary-failed`, usage(3000, 0, 5)),
+              { error: { code: 502, message: 'Provider returned error' } },
+            ]
+          : textReply(
+              `${prefix}-summary-${failFirst ? summaries - 1 : summaries}`,
+              '## Goal\nRun echo forge and report what it printed.',
+              usage(3000, 0, 20),
+            ),
+        !failing,
+      );
+      return;
+    }
+    turns += 1;
+    const id = `${prefix}-${turns}`;
+    const heavy = turns === (split ? 2 : 1);
+    sse(
+      res,
+      heavy
+        ? toolCallReply(id, 'Let me look.', [bash('echo forge')], usage(190000, 0, 30))
+        : textReply(id, turns === 1 ? 'Hello.' : 'The command printed forge.', usage(2000, 0, 10)),
+    );
+  };
+};
+
 export interface Scenario {
   respond: Respond;
   prompt?: string;
+  messages?: string[];
+  settings?: Record<string, unknown>;
   files?: Record<string, string>;
 }
 
@@ -530,6 +580,15 @@ export const scenarios: Record<string, Scenario> = {
                 usage(2000, 0, 10),
               ),
       ),
+  },
+  'compaction-split': {
+    respond: compacting('gen-split', { split: true, failFirst: false }),
+    messages: [EARLIER_MESSAGE],
+    settings: COMPACTION_SETTINGS,
+  },
+  'compaction-retry': {
+    respond: compacting('gen-attempt', { split: false, failFirst: true }),
+    settings: COMPACTION_SETTINGS,
   },
   subagents: {
     respond: delegating(alphaChild, 'Both sub-agents reported back.'),

@@ -473,3 +473,47 @@ for (const { name, billedFirst, budget, outcome } of [
     assert.equal(store.getRun('run-1')?.status, outcome);
   });
 }
+
+test('given a subscription run whose context compacts, when the workload ends, then the compaction generation has its list-price equivalent, is never billed, and the cost status stays subscription', async () => {
+  const store = Store.open(':memory:');
+
+  await runWorkload({
+    store,
+    harness: fakeHarness([
+      message({ generationId: 'req-1' }),
+      {
+        type: 'compaction',
+        reason: 'auto',
+        tokensBefore: 190000,
+        tokensAfter: 1000,
+        summary: null,
+        error: null,
+        calls: [
+          {
+            generationId: 'req-summary',
+            usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          },
+        ],
+      },
+      result({ status: 'success' }),
+    ]),
+    worker: aWorker({ harness: 'claude-code', provider: 'anthropic' }),
+    openTranscript: arrayTranscripts().open,
+    openRawEvents: discardLines,
+    openRequestRecord: discardLines,
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
+    now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
+    newId: () => 'run-1',
+    ...withoutModelEntry,
+    lookUpModel: pricedModel,
+  });
+
+  const compaction = store
+    .listGenerations('run-1')
+    .find(({ kind }) => kind === 'compaction');
+  assert.equal(compaction?.generationId, 'req-summary');
+  assert.equal(compaction?.estimatedCostUsd, null);
+  assert.ok(Math.abs((compaction?.listPriceEquivalentUsd ?? 0) - 0.003) < 1e-12);
+  assert.equal(compaction?.billedCostUsd, null);
+  assert.equal(store.getRun('run-1')?.costStatus, 'subscription');
+});

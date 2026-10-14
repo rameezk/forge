@@ -716,8 +716,10 @@ test('given a claude-code worker on a recording where claude compacted its conte
   assert.equal(run.cacheWriteTokens, 1300);
   const compaction = parseTranscript(transcript).find(({ type }) => type === 'compaction');
   assert.deepEqual(
-    compaction?.type === 'compaction' ? compaction.generationId : undefined,
-    'req_forge_compaction_summary',
+    compaction?.type === 'compaction'
+      ? compaction.calls?.map(({ generationId }) => generationId)
+      : undefined,
+    ['req_forge_compaction_summary'],
   );
 });
 
@@ -734,7 +736,10 @@ test('given a claude-code worker on a recording where a subagent compacted its c
   assert.equal(compaction?.type, 'compaction');
   if (compaction?.type === 'compaction') {
     assert.equal(compaction.subagent, 'toolu_alpha');
-    assert.equal(compaction.generationId, 'req_forge_subagent_compaction_summary');
+    assert.deepEqual(
+      compaction.calls?.map(({ generationId }) => generationId),
+      ['req_forge_subagent_compaction_summary'],
+    );
     assert.equal(compaction.tokensBefore, 6000);
   }
   assert.equal(run.counters?.compactions, 1);

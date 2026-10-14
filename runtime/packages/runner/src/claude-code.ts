@@ -590,8 +590,7 @@ class ClaudeCodeStream {
       tokensAfter: known.tokensAfter ?? null,
       summary: null,
       error: null,
-      usage,
-      generationId: recorded.requestId,
+      calls: [{ generationId: recorded.requestId, usage }],
     };
     yield scoped(compaction, scope);
   }
