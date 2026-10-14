@@ -169,7 +169,7 @@ test('given a harness that throws with a secret in its message, when the run is 
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
     ...withoutModelEntry,
-    secrets: ['sk-or-secret'],
+    secrets: () => ['sk-or-secret'],
   });
 
   assert.equal(store.getRun(id)?.error, 'spawn failed for [redacted]');
@@ -293,7 +293,7 @@ test('given a worker whose prompt contains a secret, when it is run, then the fi
     now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
     newId: () => 'run-1',
     ...withoutModelEntry,
-    secrets: ['sk-or-secret'],
+    secrets: () => ['sk-or-secret'],
   });
 
   const [first, second] = transcripts.events('run-1');

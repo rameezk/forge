@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { dirname } from 'node:path';
 import type { Readable } from 'node:stream';
+import { GITHUB_TOKEN_FILE_ENV } from './github-token-file.ts';
 
 export interface Sandbox {
   bwrap: string;
@@ -19,6 +21,7 @@ export const sandboxArgs = (
   workDir: string,
   agentDir?: string,
   writableDirs: string[] = [],
+  readOnlyDirs: string[] = [],
 ): string[] => [
   '--unshare-user',
   '--disable-userns',
@@ -41,6 +44,7 @@ export const sandboxArgs = (
   '--tmpfs',
   home,
   ...(agentDir === undefined ? [] : readOnly(agentDir)),
+  ...readOnlyDirs.flatMap(readOnly),
   ...writableDirs.flatMap((dir) => ['--bind', dir, dir]),
   '--bind',
   workDir,
@@ -142,9 +146,21 @@ export const spawnSandboxed = (
     env: NodeJS.ProcessEnv;
   },
 ): SandboxedProcess => {
+  const tokenFile = env[GITHUB_TOKEN_FILE_ENV];
   const child = spawn(
     sandbox.bwrap,
-    [...sandboxArgs(sandbox, workDir, agentDir, writableDirs), '--', command, ...args],
+    [
+      ...sandboxArgs(
+        sandbox,
+        workDir,
+        agentDir,
+        writableDirs,
+        tokenFile === undefined ? [] : [dirname(tokenFile)],
+      ),
+      '--',
+      command,
+      ...args,
+    ],
     {
       cwd: workDir,
       env: { ...env, ...NIXOS_ENVIRONMENT_MARKER, HOME: sandbox.home },

@@ -38,7 +38,7 @@ export interface RunWorkloadOptions {
   now: () => string;
   newId: () => string;
   lookUpModel: LookUpModel;
-  secrets?: string[];
+  secrets?: () => readonly string[];
   ticket?: RunTicket;
   forgeGitSha?: string | null;
 }
@@ -100,7 +100,7 @@ export const runWorkload = async (
 ): Promise<WorkloadResult> => {
   const { store, harness, worker, openTranscript, openWorkspace, now, newId } =
     options;
-  const policy = transcriptPolicy(options.secrets ?? []);
+  const policy = transcriptPolicy(options.secrets ?? (() => []));
   const id = newId();
   const startTime = now();
   const subscription = providerSpec(worker.provider).subscription;

@@ -493,7 +493,7 @@
             && runnerSettings.workers.refiner.reasoningEffort == "max"
             && runnerSettings.harnesses.pi.command == "/run/current-system/sw/bin/pi"
           ) "the generated runtime config must reflect the declared harness and worker";
-          ghInToolset = lib.asserts.assertMsg (lib.elem workerHost.pkgs.gh workerHost.config.forge.runtime.toolset) "the base workload toolset must carry gh, so a dispatched agent can open pull requests with its GITHUB_TOKEN";
+          ghInToolset = lib.asserts.assertMsg (lib.any (package: package.name == "gh") workerHost.config.forge.runtime.toolset) "the base workload toolset must carry a gh that reads the workload's GitHub token file, so a dispatched agent can open pull requests";
           runnerDefaultEffortOmitted =
             lib.asserts.assertMsg (!(runnerSettings.workers.builder ? reasoningEffort))
               "a worker with no reasoning effort must omit it from the config so the harness runs at the provider default";

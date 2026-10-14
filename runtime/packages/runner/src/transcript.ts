@@ -18,13 +18,13 @@ export interface TranscriptPolicy {
   redactValue<T>(value: T): T;
 }
 
-export const transcriptPolicy = (secrets: string[]): TranscriptPolicy => {
-  const hidden = secrets.filter((secret) => secret.length > 0);
+export const transcriptPolicy = (
+  secrets: () => readonly string[],
+): TranscriptPolicy => {
   const redact = (text: string): string =>
-    hidden.reduce(
-      (redacted, secret) => redacted.replaceAll(secret, REDACTED),
-      text,
-    );
+    secrets()
+      .filter((secret) => secret.length > 0)
+      .reduce((redacted, secret) => redacted.replaceAll(secret, REDACTED), text);
   const redactUnknown = (value: unknown): unknown => {
     if (typeof value === 'string') {
       return redact(value);

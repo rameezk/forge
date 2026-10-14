@@ -141,7 +141,7 @@ let
         type = lib.types.nullOr lib.types.str;
         default = null;
         example = "builder";
-        description = "Worker that `forge-dispatch` runs against this repository's tickets, in a fresh clone of its default branch, or null to only poll its frontier. Its prompt is a template filled in for each ticket: `{repo}` becomes the repository's `owner/name`, `{issue}` the ticket's number and `{url}` its URL, and it must hold `{issue}` or `{url}`. A leading `/<name>` runs the checkout's skill of that name, and the dispatch fails if the checkout has none. If the checkout has a `flake.nix`, the workload runs in its flake's default devShell for the box's system: its variables apply over the box's locale and under forge's deliberate ones (the GitHub and OpenRouter credentials, the git environment and pi's own), its path comes ahead of the workload toolset, and the dispatch fails if nix cannot print it, including when the flake has no `devShells.<system>.default`.";
+        description = "Worker that `forge-dispatch` runs against this repository's tickets, in a fresh clone of its default branch, or null to only poll its frontier. Its prompt is a template filled in for each ticket: `{repo}` becomes the repository's `owner/name`, `{issue}` the ticket's number and `{url}` its URL, and it must hold `{issue}` or `{url}`. A leading `/<name>` runs the checkout's skill of that name, and the dispatch fails if the checkout has none. If the checkout has a `flake.nix`, the workload runs in its flake's default devShell for the box's system: its variables apply over the box's locale and under forge's deliberate ones (the path of the GitHub token file, the OpenRouter credential, the git environment and pi's own), its path comes ahead of the workload toolset, and the dispatch fails if nix cannot print it, including when the flake has no `devShells.<system>.default`.";
       };
     };
   };
@@ -362,8 +362,15 @@ let
     "ripgrep"
     "jq"
     "curl"
-    "gh"
   ];
+
+  githubCli = pkgs.writeShellScriptBin "gh" ''
+    if [ -n "''${FORGE_GITHUB_TOKEN_FILE-}" ]; then
+      GH_TOKEN="$(cat "$FORGE_GITHUB_TOKEN_FILE")" || exit 1
+      export GH_TOKEN
+    fi
+    exec ${lib.getExe pkgs.gh} "$@"
+  '';
 in
 {
   options.forge.runtime = {
@@ -452,10 +459,13 @@ in
 
     toolset = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = map (name: pkgs.${name}) baseToolset ++ [ config.nix.package ];
-      defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ] ++ [ config.nix.package ]";
+      default = map (name: pkgs.${name}) baseToolset ++ [
+        githubCli
+        config.nix.package
+      ];
+      defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ] ++ [ githubCli config.nix.package ]";
       example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
-      description = "Workload toolset: the packages that make up a workload's `PATH`. It is not a limit on what a workload can run, since the Nix store and the nix daemon are reachable from the sandbox (ADR-0024, ADR-0027). A dispatched workload whose checkout has a flake gets its devShell's path ahead of these. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
+      description = "Workload toolset: the packages that make up a workload's `PATH`. It is not a limit on what a workload can run, since the Nix store and the nix daemon are reachable from the sandbox (ADR-0024, ADR-0027). A dispatched workload whose checkout has a flake gets its devShell's path ahead of these. The base set carries a `gh` that reads the workload's GitHub token from its token file. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
     };
 
     harnesses = lib.mkOption {

@@ -51,7 +51,7 @@ export interface LaunchOptions {
   harnessEnv?: Record<string, string>;
   harnesses?: HarnessRegistry;
   ticket?: RunTicket;
-  secrets?: string[];
+  secrets?: () => readonly string[];
   runId?: string;
 }
 
@@ -69,7 +69,7 @@ export const launchWorkload = async ({
   harnessEnv = {},
   harnesses = builtInHarnesses,
   ticket,
-  secrets = [],
+  secrets = () => [],
   runId = randomUUID(),
 }: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
@@ -108,7 +108,7 @@ export const launchWorkload = async ({
       now: () => new Date().toISOString(),
       newId: () => runId,
       lookUpModel,
-      secrets: [env[providerSpec(worker.provider).credentialEnv] ?? '', ...secrets],
+      secrets: () => [env[providerSpec(worker.provider).credentialEnv] ?? '', ...secrets()],
       forgeGitSha: env.FORGE_GIT_SHA === undefined || env.FORGE_GIT_SHA === '' ? null : env.FORGE_GIT_SHA,
       ...(ticket === undefined ? {} : { ticket }),
     });

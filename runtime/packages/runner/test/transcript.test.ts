@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@forge/shared';
 import { JsonLinesFile } from '../src/index.ts';
+import { transcriptPolicy } from '../src/transcript.ts';
 import { message, result } from './helpers.ts';
 
 const readLines = (path: string): HarnessEvent[] =>
@@ -38,4 +39,16 @@ test('given an open transcript, when an event is appended, then it is flushed to
     message({ text: 'first' }),
   ]);
   transcript.close();
+});
+
+test('given a redaction list that grows after the policy was made, when text holds a token added later, then it is redacted like the first one', () => {
+  const secrets = ['first-token'];
+  const policy = transcriptPolicy(() => secrets);
+
+  assert.equal(policy.redact('first-token second-token'), '[redacted] second-token');
+
+  secrets.push('second-token');
+
+  assert.equal(policy.redact('first-token second-token'), '[redacted] [redacted]');
+  assert.deepEqual(policy.redactValue({ text: 'second-token' }), { text: '[redacted]' });
 });
