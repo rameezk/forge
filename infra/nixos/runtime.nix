@@ -458,7 +458,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runtime package providing the forge-run, forge-dispatch, forge-dispatch-pass, forge-billing, forge-frontier and forge-frontend entry points.";
+      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-dispatch-pass, forge-billing, forge-frontier and forge-frontend entry points.";
     };
 
     dashboardPort = lib.mkOption {
@@ -469,7 +469,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests, Issues and Workflows of every managed repository) when a repository declares on.ticket. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch and the frontier sync read only GITHUB_TOKEN, as data.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests, Issues and Workflows of every managed repository) when a repository declares on.ticket or on.feedback. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch, forge-revise and the frontier sync read only GITHUB_TOKEN, as data.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -483,7 +483,7 @@ in
       type = lib.types.ints.positive;
       default = 1;
       example = 2;
-      description = "How many dispatched workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch over it is refused.";
+      description = "How many workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync, or running a revision started with `forge-revise`. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch or revision over it is refused.";
     };
 
     frontier.pollInterval = lib.mkOption {

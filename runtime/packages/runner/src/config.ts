@@ -122,3 +122,22 @@ export const gitIdentityOf = (config: RuntimeConfig): GitIdentity => {
   }
   return identity;
 };
+
+export const repositoryTriggeredBy = (
+  repositories: Record<string, RepositoryConfig> | undefined,
+  name: string,
+  trigger: 'ticket' | 'feedback',
+): { github: string; worker: string } => {
+  const repository =
+    repositories !== undefined && Object.hasOwn(repositories, name)
+      ? repositories[name]
+      : undefined;
+  if (repository === undefined) {
+    throw new Error(`unknown repository '${name}'`);
+  }
+  const worker = repository.on?.[trigger];
+  if (worker === undefined) {
+    throw new Error(`repository '${name}' declares no on.${trigger} worker`);
+  }
+  return { github: repository.github, worker };
+};

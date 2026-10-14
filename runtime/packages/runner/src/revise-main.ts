@@ -14,8 +14,8 @@ import {
 import {
   gitIdentityOf,
   maxConcurrentOf,
+  repositoryTriggeredBy,
   resolveWorker,
-  type RepositoryConfig,
 } from './config.ts';
 import { launchInCheckout } from './checkout-workload.ts';
 import { gitEnvironment } from './git.ts';
@@ -25,24 +25,6 @@ import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts'
 const now = (): string => new Date().toISOString();
 
 const USAGE = 'usage: forge-revise <repository> <pull-request>';
-
-const repositoryNamed = (
-  repositories: Record<string, RepositoryConfig> | undefined,
-  name: string,
-): { github: string; worker: string } => {
-  const repository =
-    repositories !== undefined && Object.hasOwn(repositories, name)
-      ? repositories[name]
-      : undefined;
-  if (repository === undefined) {
-    throw new Error(`unknown repository '${name}'`);
-  }
-  const worker = repository.on?.feedback;
-  if (worker === undefined) {
-    throw new Error(`repository '${name}' declares no on.feedback worker`);
-  }
-  return { github: repository.github, worker };
-};
 
 const fillPrompt = (
   template: string,
@@ -90,7 +72,7 @@ export const main = async (
     throw new Error(USAGE);
   }
   const config = readRuntimeConfig(env);
-  const repository = repositoryNamed(config.repositories, name);
+  const repository = repositoryTriggeredBy(config.repositories, name, 'feedback');
   const worker = resolveWorker(config, repository.worker);
   const identity = gitIdentityOf(config);
   const gitEnv = gitEnvironment(env, identity);

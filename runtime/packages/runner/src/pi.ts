@@ -114,7 +114,9 @@ const contractArgs = (
   ...reasoningArgs(invocation, extensions),
   '-e',
   extensions.requestRecord,
-  ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout, invocation.instruction ?? UNATTENDED_INSTRUCTION)),
+  ...(invocation.checkout === undefined
+    ? []
+    : checkoutArgs(invocation.checkout, invocation.instruction ?? UNATTENDED_INSTRUCTION)),
   ...appended(NARRATION_INSTRUCTION),
 ];
 

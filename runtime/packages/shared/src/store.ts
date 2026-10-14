@@ -1630,7 +1630,7 @@ export class Store {
     return row.id;
   }
 
-  #liveWorkloads(now: string): number {
+  liveWorkloads(now: string): number {
     const { live } = this.#db
       .prepare(
         `SELECT
@@ -1652,7 +1652,7 @@ export class Store {
     this.#transaction(() => {
       const latest = this.#latestDispatch(ticket);
       if (latest?.state === 'running' && latest.alive_at >= liveSince(startedAt)) return;
-      const live = this.#liveWorkloads(startedAt);
+      const live = this.liveWorkloads(startedAt);
       if (live >= maxConcurrent) {
         start = { refused: 'full', live };
         return;
@@ -1708,7 +1708,7 @@ export class Store {
         start = { refused: 'dispatching' };
         return;
       }
-      const live = this.#liveWorkloads(startedAt);
+      const live = this.liveWorkloads(startedAt);
       if (live >= maxConcurrent) {
         start = { refused: 'full', live };
         return;

@@ -25,6 +25,7 @@ import {
 import {
   gitIdentityOf,
   maxConcurrentOf,
+  repositoryTriggeredBy,
   resolveWorker,
   type RepositoryConfig,
 } from './config.ts';
@@ -86,24 +87,6 @@ const outcomeOf = (
   return { state: 'failed', reason: 'no-pull-request', detail: finalMessage };
 };
 
-const repositoryNamed = (
-  repositories: Record<string, RepositoryConfig> | undefined,
-  name: string,
-): { github: string; worker: string } => {
-  const repository =
-    repositories !== undefined && Object.hasOwn(repositories, name)
-      ? repositories[name]
-      : undefined;
-  if (repository === undefined) {
-    throw new Error(`unknown repository '${name}'`);
-  }
-  const worker = repository.on?.ticket;
-  if (worker === undefined) {
-    throw new Error(`repository '${name}' declares no on.ticket worker`);
-  }
-  return { github: repository.github, worker };
-};
-
 const settleAllRunningTickets = async (
   store: Store,
   repositories: Record<string, RepositoryConfig> | undefined,
@@ -139,7 +122,7 @@ export const main = async (
     throw new Error(USAGE);
   }
   const config = readRuntimeConfig(env);
-  const repository = repositoryNamed(config.repositories, name);
+  const repository = repositoryTriggeredBy(config.repositories, name, 'ticket');
   const worker = resolveWorker(config, repository.worker);
   const identity = gitIdentityOf(config);
   const gitEnv = gitEnvironment(env, identity);

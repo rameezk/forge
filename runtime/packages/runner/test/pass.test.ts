@@ -106,7 +106,7 @@ test('given maxConcurrent = 1 and two dispatchable tickets, when the pass runs, 
 
   const first = await pass({ maxConcurrent: 1, frontier: [forge([older]), dotfiles] });
   assert.deepEqual(first.started, ['start --no-block --no-ask-password -- forge-dispatch@forge:113.service']);
-  assert.match(first.journal, /dotfiles#5: waits, 1 of 1 dispatched workloads would be running/);
+  assert.match(first.journal, /dotfiles#5: waits, 1 of 1 workloads would be running/);
 
   const running = await pass({
     frontier: [forge([older]), dotfiles],
@@ -167,4 +167,24 @@ test('given maxConcurrent = 1 and an older forge:ready ticket in a repository wh
   });
 
   assert.deepEqual(started, ['start --no-block --no-ask-password -- forge-dispatch@dotfiles:5.service']);
+});
+
+test('given maxConcurrent = 1, a revision of a pull request still running and a dispatchable ticket, when the pass runs, then nothing is dispatched and the ticket waits for the slot', async () => {
+  const { started, journal } = await pass({
+    maxConcurrent: 1,
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)])],
+    seed: (store) => {
+      const start = store.startRevision(
+        { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
+        [],
+        'run-revision',
+        new Date().toISOString(),
+        1,
+      );
+      assert.ok('started' in start);
+    },
+  });
+
+  assert.deepEqual(started, []);
+  assert.match(journal, /forge#113: waits, 1 of 1 workloads would be running/);
 });

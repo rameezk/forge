@@ -539,6 +539,9 @@ default branch, and a leading `/<name>` in the prompt runs the branch's skill
 of that name, failing the revision before the harness starts if the branch has
 none. The revision records the branch's head at its start as its base commit.
 It is refused for a pull request that is not open or whose branch is on a fork.
+The worker therefore runs whatever skills and instructions the branch holds,
+with the write token available to it, so `forge-revise` trusts everyone who can
+push a branch of the repository.
 
 The revision is told that a person reviews the pull request. Where the
 feedback settles a confirmation a skill asks for, it proceeds; otherwise it
