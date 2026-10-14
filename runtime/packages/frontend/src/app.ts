@@ -5,7 +5,12 @@ import { rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, ty
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
-import { isSettled, NAV_PAGES, renderCohortPage, renderDetail, renderInsights, renderList, renderTicketAttempts, renderUnknownCohortPage, renderWork, type AssetHrefs, type Downloads } from './views.ts';
+import { renderTicketAttempts } from './views/attempts.ts';
+import { renderWork } from './views/frontier.ts';
+import { renderCohortPage, renderInsights, renderUnknownCohortPage } from './views/insights.ts';
+import { isSettled, renderDetail, type Downloads } from './views/run.ts';
+import { NAV_PAGES, type AssetHrefs } from './views/shared.ts';
+import { renderList } from './views/workloads.ts';
 
 const TICKET_NUMBER = /^[1-9]\d*$/;
 
