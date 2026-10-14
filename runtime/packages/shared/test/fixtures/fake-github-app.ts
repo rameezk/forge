@@ -31,10 +31,16 @@ export interface Mint {
 
 export interface FakeGithubApp {
   fetch: typeof globalThis.fetch;
+  authenticate: (input: string | URL | Request, init?: RequestInit) => Response | null;
   privateKey: string;
   mints: Mint[];
   now: { value: number | null };
 }
+
+const isAppRoute = (pathname: string): boolean =>
+  pathname === '/app' ||
+  pathname.startsWith('/app/') ||
+  /^\/repos\/[^/]+\/[^/]+\/installation$/.test(pathname);
 
 const base64url = (value: string): Buffer => Buffer.from(value, 'base64url');
 
@@ -67,25 +73,37 @@ export const fakeGithubApp = (
       status,
       headers: { 'content-type': 'application/json' },
     });
+  const issued = new Set<string>();
+  const bearerOf = (init?: RequestInit): string =>
+    (new Headers(init?.headers).get('authorization') ?? '').replace(/^bearer /i, '');
+  const authenticate = (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Response | null => {
+    const bearer = bearerOf(init);
+    if (!isAppRoute(new URL(String(input)).pathname)) {
+      return issued.has(bearer) ? null : json({ message: 'Bad credentials' }, 401);
+    }
+    if (issued.has(bearer)) return json({ message: 'Bad credentials' }, 401);
+    const claims = jwtClaims(bearer, publicKey);
+    const seconds = (now.value ?? Date.now()) / 1000;
+    return claims === null ||
+      claims.iss !== APP_ID ||
+      claims.iat > seconds ||
+      claims.exp <= seconds ||
+      claims.exp - claims.iat > 600
+      ? json({ message: 'A JSON web token could not be decoded' }, 401)
+      : null;
+  };
   const fetch = async (
     input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> => {
     const url = new URL(String(input));
-    const authorization = new Headers(init?.headers).get('authorization') ?? '';
-    const jwt = authorization.replace(/^Bearer /, '');
-    const claims = jwtClaims(jwt, publicKey);
+    const rejected = authenticate(input, init);
+    if (rejected !== null) return rejected;
+    const jwt = bearerOf(init);
     const current = now.value ?? Date.now();
-    const seconds = current / 1000;
-    if (
-      claims === null ||
-      claims.iss !== APP_ID ||
-      claims.iat > seconds ||
-      claims.exp <= seconds ||
-      claims.exp - claims.iat > 600
-    ) {
-      return json({ message: 'A JSON web token could not be decoded' }, 401);
-    }
     if (url.pathname === '/app') {
       return json({ id: Number(APP_ID), slug: APP_SLUG, name: 'Forge Test' });
     }
@@ -105,10 +123,12 @@ export const fakeGithubApp = (
       const repository = `${INSTALLATION_OWNER}/${body.repositories?.[0] ?? ''}`;
       const nth = mints.filter((mint) => mint.kind === kind && mint.repository === repository).length + 1;
       mints.push({ installation: mintFor[1] ?? '', body, jwt, kind, repository });
+      const token = tokenFor(kind, repository, nth);
+      issued.add(token);
       return json(
         {
           ...fixture('token'),
-          token: tokenFor(kind, repository, nth),
+          token,
           expires_at: new Date(current + lifetimeSeconds * 1000).toISOString().replace('.000Z', 'Z'),
         },
         201,
@@ -118,6 +138,7 @@ export const fakeGithubApp = (
   };
   return {
     fetch,
+    authenticate,
     privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     mints,
     now,
@@ -127,6 +148,8 @@ export const fakeGithubApp = (
 export const routedThrough = (app: FakeGithubApp, other: typeof globalThis.fetch): typeof globalThis.fetch =>
   async (input, init) => {
     const { pathname } = new URL(String(input));
+    const rejected = app.authenticate(input, init);
+    if (rejected !== null) return rejected;
     return /^\/(app(\/|$)|users\/[^/]+(\[bot\]|%5Bbot%5D)$|repos\/[^/]+\/[^/]+\/installation$)/.test(pathname)
       ? app.fetch(input, init)
       : other(input, init);

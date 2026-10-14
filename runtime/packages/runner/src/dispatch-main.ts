@@ -126,7 +126,7 @@ export const main = async (
   const repository = repositoryTriggeredBy(config.repositories, name, 'ticket');
   const worker = resolveWorker(config, repository.worker);
   const app = githubAppFromEnv(env, fetch);
-  const identity = await app.identity();
+  const identity = await app.identity(repository.github);
   const gitEnv = gitEnvironment(env, identity);
   const tokens = cachedTokens(app);
 

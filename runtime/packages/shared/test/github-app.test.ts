@@ -100,3 +100,31 @@ test('given a mint that failed once, when the same token is asked for again, the
   assert.equal(await tokens(INSTALLED, 'read'), tokenFor('read', INSTALLED));
   assert.equal(github.mints.length, 1);
 });
+
+const appJwt = async (github: ReturnType<typeof fakeGithubApp>): Promise<string> => {
+  await appOn(github).mint(INSTALLED, 'read');
+  return github.mints[0]?.jwt ?? '';
+};
+
+test('given the stricter fake, when the App signs a request to a route outside /app, then GitHub answers 401 Bad credentials', async () => {
+  const github = fakeGithubApp();
+
+  const response = await github.fetch(`https://api.github.com/repos/${INSTALLED}/issues`, {
+    headers: { authorization: `Bearer ${await appJwt(github)}` },
+  });
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { message: 'Bad credentials' });
+});
+
+test('given the stricter fake, when an installation token is sent to an /app route, then GitHub answers 401 Bad credentials', async () => {
+  const github = fakeGithubApp();
+  const { token } = await appOn(github).mint(INSTALLED, 'read');
+
+  const response = await github.fetch('https://api.github.com/app', {
+    headers: { authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { message: 'Bad credentials' });
+});

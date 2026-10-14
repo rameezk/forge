@@ -74,7 +74,7 @@ export const main = async (
   const repository = repositoryTriggeredBy(config.repositories, name, 'feedback');
   const worker = resolveWorker(config, repository.worker);
   const app = githubAppFromEnv(env, fetch);
-  const identity = await app.identity();
+  const identity = await app.identity(repository.github);
   const gitEnv = gitEnvironment(env, identity);
   const token = (await app.mint(repository.github, 'write')).token;
 
