@@ -81,19 +81,20 @@ const dashboard = () => {
 const anchorsTo = (body: string, href: string): string[] =>
   [...body.matchAll(/<a\s[^>]*>/g)].map(([tag]) => tag).filter((tag) => tag.includes(` href="${href}"`));
 
-const assertOpensInNewTab = (body: string, href: string, rel: string, where: string): void => {
+const assertOpensInNewTab = (body: string, href: string, rel: string, where: string, times = 1): void => {
   const anchors = anchorsTo(body, href);
-  assert.equal(anchors.length, 1, `${where} links ${href} once`);
-  assert.match(anchors[0] ?? '', /\starget="_blank"/, `${where} opens ${href} in a new tab`);
-  assert.match(anchors[0] ?? '', new RegExp(`\\srel="${rel}"`), `${where} sets rel on ${href}`);
+  assert.equal(anchors.length, times, `${where} links ${href} ${times} time(s)`);
+  for (const anchor of anchors) {
+    assert.match(anchor, /\starget="_blank"/, `${where} opens ${href} in a new tab`);
+    assert.match(anchor, new RegExp(`\\srel="${rel}"`), `${where} sets rel on ${href}`);
+  }
 };
 
 test('given a stored frontier ticket and a run tied to a ticket, both with GitHub URLs, when the work and runs pages are requested, then each ticket number links to its URL in a new tab', async () => {
   const page = dashboard();
 
-  for (const path of ['/work', '/']) {
-    assertOpensInNewTab(await page(path), TICKET_URL, 'noopener noreferrer', path);
-  }
+  assertOpensInNewTab(await page('/work'), TICKET_URL, 'noopener noreferrer', '/work');
+  assertOpensInNewTab(await page('/'), TICKET_URL, 'noopener noreferrer', '/', 2);
 });
 
 test('given a stored repository whose github is owner/name, when the work page is requested, then the repository link opens in a new tab', async () => {

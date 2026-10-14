@@ -54,8 +54,8 @@ test('given a running workload with an estimated cost and a finished one whose c
 
   await page.goto('/');
 
-  await expect(page.locator('[data-badge="estimated"]')).toHaveCount(2);
-  await expect(page.locator('[data-badge="unconfirmed"]')).toBeVisible();
+  await expect(page.locator('table [data-badge="estimated"]')).toHaveCount(2);
+  await expect(page.locator('table [data-badge="unconfirmed"]')).toBeVisible();
   const card = page.locator('table').locator('..');
   expect(await card.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
@@ -223,4 +223,82 @@ test('given a claude-code run on subscription, when its page is opened, then the
 
   await expect(page.locator('[data-harness]')).toHaveText('claude-code');
   await expect(page.getByText('anthropic', { exact: true })).toBeVisible();
+});
+
+const seedWorkloads = (dashboard: { store: { insertRun: (run: RunRecord) => void } }) => {
+  dashboard.store.insertRun({ ...recordedRun, id: 'run-a', startTime: '2026-09-21T10:00:00.000Z', reasoningEffort: 'high', cacheReadTokens: 9000, ticket: { repository: 'forge', number: 377, url: 'https://github.com/rameezk/forge/issues/377' } });
+  dashboard.store.insertRun({ ...recordedRun, id: 'run-b', worker: 'reviewer', status: 'error', startTime: '2026-09-22T10:00:00.000Z', model: 'anthropic/claude-sonnet-5.5', costUsd: 0.5 });
+};
+
+test.describe('on a phone screen', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('given recorded workloads, when Workloads is opened, then each is a card with its fields linking to the run and no table is shown', async ({ dashboard, page }) => {
+    seedWorkloads(dashboard);
+
+    await page.goto('/');
+
+    await expect(page.locator('table')).toBeHidden();
+    const cards = page.locator('[data-run-card]');
+    await expect(cards).toHaveCount(2);
+    const card = page.locator('[data-run-card="run-a"]');
+    await expect(card).toBeVisible();
+    await expect(card).toContainText('2026-09-21');
+    await expect(card.locator('[data-status="success"]')).toBeVisible();
+    await expect(card).toContainText('#377');
+    await expect(card).toContainText('refiner');
+    await expect(card).toContainText('anthropic/claude-opus-4');
+    await expect(card.locator('[data-effort]')).toHaveText('high');
+    await expect(card.locator('[data-duration]')).toHaveText('3m 20s');
+    await expect(card.locator('[data-cache-hit]')).toContainText('68.2%');
+    await expect(card.locator('[data-cost]')).toContainText('$0.1234');
+    await expect(card.getByRole('link', { name: /refiner/ }).first()).toHaveAttribute('href', '/runs/run-a');
+    const box = await card.boundingBox();
+    const link = await card.locator('a[data-card-link]').boundingBox();
+    expect(link).toEqual(box);
+  });
+
+  test('given status chips wider than the screen, when Workloads is opened, then the chips scroll sideways in one row and the page does not', async ({ dashboard, page }) => {
+    seedWorkloads(dashboard);
+
+    await page.goto('/');
+
+    const chips = page.locator('[data-status-chips]');
+    expect(await chips.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    const tops = await page.locator('[data-status-chip]').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(1);
+    expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+  });
+
+  test('given a started range in the address, when Workloads is opened, then the other filters are behind a collapsed Filters toggle showing the range, and opening it reveals them', async ({ dashboard, page }) => {
+    seedWorkloads(dashboard);
+
+    await page.goto('/?from=2026-09-20&to=2026-09-30');
+
+    const toggle = page.locator('details[data-filters]');
+    await expect(toggle.locator('summary')).toContainText('Filters');
+    await expect(toggle.locator('summary')).toContainText('2026-09-20 to 2026-09-30');
+    await expect(page.getByPlaceholder('Worker or ticket number')).toBeHidden();
+    await expect(page.getByLabel('Model')).toBeHidden();
+    await toggle.locator('summary').click();
+    await expect(page.getByPlaceholder('Worker or ticket number')).toBeVisible();
+    await expect(page.getByLabel('Worker')).toBeVisible();
+    await expect(page.getByLabel('Repository')).toBeVisible();
+    await expect(page.getByLabel('Model')).toBeVisible();
+  });
+});
+
+test.describe('on a laptop screen', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test('given recorded workloads, when Workloads is opened, then they are in the table and not cards, with the filters open', async ({ dashboard, page }) => {
+    seedWorkloads(dashboard);
+
+    await page.goto('/');
+
+    await expect(page.locator('table')).toBeVisible();
+    await expect(page.locator('[data-run-card]').first()).toBeHidden();
+    await expect(page.getByPlaceholder('Worker or ticket number')).toBeVisible();
+    await expect(page.locator('[data-filters] summary')).toBeHidden();
+  });
 });
