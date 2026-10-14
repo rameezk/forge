@@ -1,6 +1,7 @@
 import { createSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { requireGithubRepository, type Fetch } from './frontier.ts';
+import { isHeaderValue } from './http.ts';
 import { GITHUB_REST_API } from './labels.ts';
 
 export type TokenAccess = 'read' | 'write' | 'workload';
@@ -13,6 +14,8 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
     issues: 'write',
     pull_requests: 'write',
     workflows: 'write',
+    checks: 'read',
+    actions: 'read',
   },
 };
 
@@ -93,7 +96,15 @@ export class GithubApp {
       `/app/installations/${installation.id}/access_tokens`,
       { repositories: [name], permissions: PERMISSIONS[access] },
     );
-    const minted = (await ok(response)) as { token: string; expires_at: string };
+    const minted = (await ok(response)) as { token?: unknown; expires_at?: unknown };
+    if (
+      typeof minted.token !== 'string' ||
+      !isHeaderValue(minted.token) ||
+      typeof minted.expires_at !== 'string' ||
+      Number.isNaN(Date.parse(minted.expires_at))
+    ) {
+      throw new Error(`GitHub returned a malformed installation token for ${github}`);
+    }
     return { token: minted.token, expiresAt: minted.expires_at };
   }
 }
@@ -126,6 +137,7 @@ export const cachedTokens = (app: GithubApp): InstallationTokens => {
     if (existing !== undefined) return existing;
     const token = app.mint(github, access).then(({ token }) => token);
     minted.set(key, token);
+    token.catch(() => minted.delete(key));
     return token;
   };
 };

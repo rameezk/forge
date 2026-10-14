@@ -383,14 +383,16 @@ repositories forge manages, and give the box its id and private key.
    - Workflows: read and write. GitHub rejects any push that adds or changes a
      file under `.github/workflows/` without it, so a run that sets up CI
      cannot push.
+   - Checks: read and Actions: read, so the agent can watch a pull request's
+     required checks and read the logs of the ones that fail.
    - Metadata: read, which GitHub always grants.
 2. Create the App, note its **App ID**, and generate a private key. GitHub
    downloads a `.pem` file once.
 3. Install the App on your account or organisation and select **only** the
    repositories forge manages. Onboarding another repository is selecting it
    in the installation. A declared repository the App is not installed on
-   shows a frontier error, "the GitHub App is not installed on it", while the
-   others sync normally.
+   shows a frontier error, "the GitHub App is not installed on" that
+   repository, while the others sync normally.
 4. Add the id and the key to `secrets/runtime.yaml` with
    `sops edit secrets/runtime.yaml`, commit, and deploy. The build fails,
    naming the missing key, if you declare a managed repository without them:

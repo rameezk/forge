@@ -55,6 +55,7 @@ export class GithubTokenFile {
 }
 
 const MIN_REFRESH_DELAY_MS = 1000;
+const MAX_RETRY_DELAY_MS = 60_000;
 
 export const keepFresh = (
   file: GithubTokenFile,
@@ -65,25 +66,26 @@ export const keepFresh = (
 ): (() => void) => {
   let stopped = false;
   let timer: NodeJS.Timeout | undefined;
-  const schedule = (expiresAt: string): void => {
-    const remaining = Date.parse(expiresAt) - now();
-    const delay = Math.max(MIN_REFRESH_DELAY_MS, remaining / 2);
+  const schedule = (expiresAt: string, failures: number): void => {
+    const delay =
+      failures === 0
+        ? Math.max(MIN_REFRESH_DELAY_MS, (Date.parse(expiresAt) - now()) / 2)
+        : Math.min(MAX_RETRY_DELAY_MS, MIN_REFRESH_DELAY_MS * 2 ** (failures - 1));
     timer = setTimeout(() => {
-      mint().then(
-        (next) => {
+      mint()
+        .then((next) => {
           if (stopped) return;
           file.replace(next.token);
-          schedule(next.expiresAt);
-        },
-        (error: unknown) => {
+          schedule(next.expiresAt, 0);
+        })
+        .catch((error: unknown) => {
           if (stopped) return;
           missed(error);
-          schedule(expiresAt);
-        },
-      );
+          schedule(expiresAt, failures + 1);
+        });
     }, delay);
   };
-  schedule(first.expiresAt);
+  schedule(first.expiresAt, 0);
   return () => {
     stopped = true;
     clearTimeout(timer);

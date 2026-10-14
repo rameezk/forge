@@ -1251,7 +1251,7 @@ test('given a ticket labelled forge:ready that has an open blocker, one that is 
     { issue: 109, fixture: 'closed-ticket', label: true, forgeLabels: true, reason: /forge#109 is not dispatchable: it is closed/ },
     { issue: 112, fixture: 'spec-ticket', label: true, forgeLabels: true, reason: /forge#112 is not dispatchable: it is not labelled ready-for-agent/ },
     { issue: 113, fixture: 'frontier-ticket', label: false, forgeLabels: true, reason: /forge#113 is not dispatchable: it is not labelled forge:ready/ },
-    { issue: 113, fixture: 'frontier-ticket', label: false, forgeLabels: false, reason: /forge#113 is not dispatchable: the forge labels are missing from rameezk\/forge, and the frontier sync creates them once it has the GitHub write token/ },
+    { issue: 113, fixture: 'frontier-ticket', label: false, forgeLabels: false, reason: /forge#113 is not dispatchable: the forge labels are missing from rameezk\/forge, and the frontier sync creates them once it can write to GitHub as the App/ },
   ];
   for (const { issue, fixture, label, forgeLabels, reason } of cases) {
     const response = label
@@ -1521,7 +1521,14 @@ test('given a dispatched workload, when its token is minted, then it is scoped t
   assert.deepEqual(others, []);
   assert.deepEqual(workload?.body, {
     repositories: ['forge'],
-    permissions: { contents: 'write', issues: 'write', pull_requests: 'write', workflows: 'write' },
+    permissions: {
+      contents: 'write',
+      issues: 'write',
+      pull_requests: 'write',
+      workflows: 'write',
+      checks: 'read',
+      actions: 'read',
+    },
   });
 });
 
