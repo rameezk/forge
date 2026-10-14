@@ -13,6 +13,10 @@ Every command below is written in that in-environment form. If you do not use
 direnv, run each one through `nix develop -c <command>` instead; nothing here
 depends on the auto-activation.
 
+On macOS, `just deploy` fails from a `nix develop` shell, because the shell's
+temporary directory makes the deploy's SSH socket path too long for macOS.
+Deploy through direnv, or run `nix develop -c env TMPDIR=/tmp just deploy`.
+
 ## First run
 
 1. Fill in your config:
