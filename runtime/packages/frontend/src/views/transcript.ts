@@ -35,6 +35,7 @@ const MARKDOWN = [
   '[--tw-prose-hr:var(--color-line)] [--tw-prose-quote-borders:var(--color-line)] [--tw-prose-th-borders:var(--color-line)] [--tw-prose-td-borders:var(--color-line)]',
   '[--tw-prose-links:var(--color-accent-text)] [--tw-prose-pre-bg:var(--color-raised)]',
   'prose-pre:overflow-x-auto prose-table:my-0 [&>div]:my-6 [&>:first-child]:mt-0 [&>:last-child]:mb-0',
+  '[&>:is(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6)]:max-w-[80ch]',
   'prose-th:min-w-32 prose-td:min-w-32',
   'prose-code:before:content-none prose-code:after:content-none',
   '[&_blockquote_p]:before:content-none [&_blockquote_p]:after:content-none',
@@ -71,7 +72,7 @@ const renderMessageMeta = ({ timestamp, stopReason }: MessageEvent): Rendered =>
   return html`<span class="${MESSAGE_META}" data-message-meta>${parts.map((part, index) => (index === 0 ? part : html` · ${part}`))}</span>`;
 };
 
-const THINKING = 'm-0 mt-1.5 whitespace-pre-wrap break-words border-l-2 border-line pl-3 font-sans text-[0.85rem] text-muted';
+const THINKING = 'm-0 mt-1.5 max-w-[80ch] whitespace-pre-wrap break-words border-l-2 border-line pl-3 font-sans text-[0.85rem] text-muted';
 
 const renderThinking = (thinking: string | undefined): Rendered =>
   thinking === undefined

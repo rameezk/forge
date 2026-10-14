@@ -71,7 +71,7 @@ const renderHeader = (
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
-    <div class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-2">
+    <div class="mx-auto flex max-w-[100rem] items-center gap-6 px-4 py-2">
       <a href="/" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
@@ -100,7 +100,7 @@ export const layout = (
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}">
         ${renderHeader(current, live, assets)}
-        <main class="mx-auto max-w-6xl px-4 py-8">${body}</main>
+        <main class="mx-auto max-w-[100rem] px-4 py-8">${body}</main>
       </body>
     </html>`;
 
