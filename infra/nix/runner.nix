@@ -65,6 +65,14 @@ buildNpmPackage {
       ${sandboxFlags} \
       --set FORGE_PI_PACKAGE "${piPackage}" \
       --set FORGE_NIX_SYSTEM "${stdenv.hostPlatform.system}"
+    makeWrapper ${nodejs}/bin/node "$out/bin/forge-revise" \
+      --add-flags "$out/lib/forge-runtime/packages/runner/src/revise-main.ts" \
+      --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
+      --set FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION "$out/${modelDefaultReasoningExtension}" \
+      --set FORGE_PI_REQUEST_RECORD_EXTENSION "$out/${requestRecordExtension}" \
+      ${sandboxFlags} \
+      --set FORGE_PI_PACKAGE "${piPackage}" \
+      --set FORGE_NIX_SYSTEM "${stdenv.hostPlatform.system}"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-dispatch-pass" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/pass-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-billing" \
@@ -87,7 +95,7 @@ buildNpmPackage {
   };
 
   meta = {
-    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), starts a dispatch for each forge:ready frontier ticket up to the concurrency limit (forge-dispatch-pass), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
+    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), revises one pull request of a managed repository on its own branch (forge-revise), starts a dispatch for each forge:ready frontier ticket up to the concurrency limit (forge-dispatch-pass), settles runs' billed cost from OpenRouter (forge-billing), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
     mainProgram = "forge-run";
     platforms = nodejs.meta.platforms;
   };

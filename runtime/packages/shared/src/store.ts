@@ -19,6 +19,12 @@ import {
   type PullRequestState,
 } from './dispatch.ts';
 import type {
+  RevisedPullRequest,
+  RevisionRecord,
+  RevisionStart,
+  RevisionState,
+} from './revision.ts';
+import type {
   GenerationKind,
   GenerationRecord,
   LookupResult,
@@ -551,6 +557,50 @@ const CREATE_DISPATCHES = `
   CREATE INDEX IF NOT EXISTS dispatches_ticket ON dispatches (repository, number, id);
 `;
 
+type RevisionRow = {
+  id: number;
+  repository: string;
+  number: number;
+  url: string;
+  run_id: string;
+  dispatch_id: number | null;
+  state: string;
+  started_at: string;
+  alive_at: string;
+  ended_at: string | null;
+};
+
+const CREATE_REVISIONS = `
+  CREATE TABLE IF NOT EXISTS revisions (
+    id          INTEGER PRIMARY KEY,
+    repository  TEXT NOT NULL,
+    number      INTEGER NOT NULL,
+    url         TEXT NOT NULL,
+    run_id      TEXT NOT NULL,
+    dispatch_id INTEGER,
+    state       TEXT NOT NULL,
+    started_at  TEXT NOT NULL,
+    alive_at    TEXT NOT NULL,
+    ended_at    TEXT
+  ) STRICT;
+
+  CREATE INDEX IF NOT EXISTS revisions_pull_request ON revisions (repository, number, id);
+  CREATE UNIQUE INDEX IF NOT EXISTS revisions_run ON revisions (run_id);
+`;
+
+const revisionFromRow = (row: RevisionRow): RevisionRecord => ({
+  id: row.id,
+  repository: row.repository,
+  number: row.number,
+  url: row.url,
+  runId: row.run_id,
+  dispatchId: row.dispatch_id,
+  state: row.state as RevisionState,
+  startedAt: row.started_at,
+  aliveAt: row.alive_at,
+  endedAt: row.ended_at,
+});
+
 const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
   id: row.id,
   repository: row.repository,
@@ -802,6 +852,7 @@ export class Store {
     }
     db.exec(CREATE_FRONTIER);
     db.exec(CREATE_DISPATCHES);
+    db.exec(CREATE_REVISIONS);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
   }
 
@@ -1579,11 +1630,13 @@ export class Store {
     return row.id;
   }
 
-  #liveDispatches(now: string): number {
+  liveWorkloads(now: string): number {
     const { live } = this.#db
       .prepare(
-        `SELECT COUNT(*) AS live FROM dispatches
-        WHERE state = 'running' AND alive_at >= $live_since`,
+        `SELECT
+          (SELECT COUNT(*) FROM dispatches WHERE state = 'running' AND alive_at >= $live_since)
+          + (SELECT COUNT(*) FROM revisions WHERE state = 'running' AND alive_at >= $live_since)
+          AS live`,
       )
       .get({ live_since: liveSince(now) }) as { live: number };
     return live;
@@ -1599,7 +1652,7 @@ export class Store {
     this.#transaction(() => {
       const latest = this.#latestDispatch(ticket);
       if (latest?.state === 'running' && latest.alive_at >= liveSince(startedAt)) return;
-      const live = this.#liveDispatches(startedAt);
+      const live = this.liveWorkloads(startedAt);
       if (live >= maxConcurrent) {
         start = { refused: 'full', live };
         return;
@@ -1608,6 +1661,120 @@ export class Store {
       start = { started: this.#insertDispatch(ticket, runId, 'running', null, startedAt) };
     });
     return start;
+  }
+
+  #latestRevision(pullRequest: RevisedPullRequest): RevisionRow | undefined {
+    return this.#db
+      .prepare(
+        `SELECT * FROM revisions
+        WHERE repository = $repository AND number = $number
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({ repository: pullRequest.repository, number: pullRequest.number }) as
+      | RevisionRow
+      | undefined;
+  }
+
+  #openingDispatchLive(
+    pullRequest: RevisedPullRequest,
+    tickets: readonly number[],
+    now: string,
+  ): boolean {
+    const latest = this.#db.prepare(
+      `SELECT state, alive_at FROM dispatches
+      WHERE repository = $repository AND number = $number
+      ORDER BY id DESC LIMIT 1`,
+    );
+    return tickets.some((number) => {
+      const row = latest.get({ repository: pullRequest.repository, number }) as
+        | { state: string; alive_at: string }
+        | undefined;
+      return row?.state === 'running' && row.alive_at >= liveSince(now);
+    });
+  }
+
+  startRevision(
+    pullRequest: RevisedPullRequest,
+    openedBy: readonly number[],
+    runId: string,
+    startedAt: string,
+    maxConcurrent: number,
+  ): RevisionStart {
+    let start: RevisionStart = { refused: 'revising' };
+    this.#transaction(() => {
+      const latest = this.#latestRevision(pullRequest);
+      if (latest?.state === 'running' && latest.alive_at >= liveSince(startedAt)) return;
+      if (this.#openingDispatchLive(pullRequest, openedBy, startedAt)) {
+        start = { refused: 'dispatching' };
+        return;
+      }
+      const live = this.liveWorkloads(startedAt);
+      if (live >= maxConcurrent) {
+        start = { refused: 'full', live };
+        return;
+      }
+      if (latest?.state === 'running') {
+        this.#db
+          .prepare(
+            `UPDATE revisions SET state = 'interrupted', ended_at = $ended_at WHERE id = $id`,
+          )
+          .run({ id: latest.id, ended_at: startedAt });
+      }
+      const opening = this.#db
+        .prepare(
+          `SELECT id FROM dispatches
+          WHERE repository = $repository AND pr_number = $number
+          ORDER BY id DESC LIMIT 1`,
+        )
+        .get({ repository: pullRequest.repository, number: pullRequest.number }) as
+        | { id: number }
+        | undefined;
+      const row = this.#db
+        .prepare(
+          `INSERT INTO revisions (
+            repository, number, url, run_id, dispatch_id, state, started_at, alive_at
+          ) VALUES (
+            $repository, $number, $url, $run_id, $dispatch_id, 'running', $now, $now
+          )
+          RETURNING id`,
+        )
+        .get({
+          repository: pullRequest.repository,
+          number: pullRequest.number,
+          url: pullRequest.url,
+          run_id: runId,
+          dispatch_id: opening?.id ?? null,
+          now: startedAt,
+        }) as { id: number };
+      start = { started: row.id };
+    });
+    return start;
+  }
+
+  touchRevision(id: number, now: string): void {
+    this.#db
+      .prepare(`UPDATE revisions SET alive_at = $now WHERE id = $id AND state = 'running'`)
+      .run({ id, now });
+  }
+
+  endRevision(id: number, state: Exclude<RevisionState, 'running'>, endedAt: string): void {
+    this.#db
+      .prepare(`UPDATE revisions SET state = $state, ended_at = $ended_at WHERE id = $id`)
+      .run({ id, state, ended_at: endedAt });
+  }
+
+  listRevisions(now: string): RevisionRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT
+          id, repository, number, url, run_id, dispatch_id,
+          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
+          started_at, alive_at, ended_at
+        FROM revisions
+        ORDER BY id`,
+      )
+      .all({ live_since: liveSince(now) }) as RevisionRow[];
+    return rows.map(revisionFromRow);
   }
 
   reconcileDispatch(

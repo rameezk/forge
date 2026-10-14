@@ -20,6 +20,13 @@ export const UNATTENDED_INSTRUCTION = [
   'A command killed with exit 137 most likely hit the workload memory limit, so choose a narrower check rather than retrying it.',
 ].join(' ');
 
+export const REVISION_INSTRUCTION = [
+  'A person reviews this pull request and will read your replies on it.',
+  'Where a skill asks you to confirm something their feedback already settles, proceed without asking.',
+  'Otherwise ask the question as a reply on the pull request and end your run at once, without waiting or polling for an answer.',
+  'A command killed with exit 137 most likely hit the workload memory limit, so choose a narrower check rather than retrying it.',
+].join(' ');
+
 export const NARRATION_INSTRUCTION = [
   'Narrate your work: before your first tool call, and whenever you change direction or learn something that changes your plan, say in a sentence or two what you are about to do and why.',
   'Do not write a sentence before every tool call.',
@@ -27,6 +34,7 @@ export const NARRATION_INSTRUCTION = [
 
 export interface Workspace {
   workDir: string;
+  instruction?: string;
   baseCommit?: string;
   checkout?: Checkout;
   devShell?: DevShell;

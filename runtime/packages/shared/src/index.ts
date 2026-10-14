@@ -29,6 +29,12 @@ export type {
   PullRequestState,
 } from './dispatch.ts';
 export type {
+  RevisedPullRequest,
+  RevisionRecord,
+  RevisionStart,
+  RevisionState,
+} from './revision.ts';
+export type {
   CompactionCall,
   CacheWarmEvent,
   CompactionEvent,
@@ -46,6 +52,7 @@ export type {
   Fetch,
   LabelledIssue,
   PolledFrontier,
+  PullRequestHead,
   PullRequestSnapshot,
   PollFailure,
   RepositoryFrontier,
@@ -65,6 +72,7 @@ export {
   queryFrontier,
   queryLabelled,
   queryPullRequest,
+  queryPullRequestHead,
   queryTicket,
   reworkOf,
   requestFrontierPage,

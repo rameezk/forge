@@ -69,7 +69,12 @@ export const createApp = ({
   serveImmutable(assets.idiomorph, idiomorph, 'text/javascript; charset=utf-8');
   serveImmutable(assets.client, client, 'text/javascript; charset=utf-8');
 
-  app.get('/', (c) => c.html(renderList(store.listRuns(), store.listPriceEquivalents(), assets)));
+  app.get('/', (c) => {
+    const revisions = new Map(
+      store.listRevisions(new Date().toISOString()).map((revision) => [revision.runId, revision]),
+    );
+    return c.html(renderList(store.listRuns(), store.listPriceEquivalents(), revisions, assets));
+  });
 
   app.get('/work', (c) =>
     c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), store.attemptedTickets(), assets)),

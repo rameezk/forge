@@ -1,0 +1,23 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "number": 143,
+        "url": "https://github.com/rameezk/forge/pull/143",
+        "state": "OPEN",
+        "isCrossRepository": false,
+        "headRefName": "feature",
+        "closingIssuesReferences": {
+          "nodes": [
+            {
+              "number": 113,
+              "repository": {
+                "nameWithOwner": "rameezk/forge"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

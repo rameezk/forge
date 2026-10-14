@@ -46,6 +46,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   const maxConcurrent = maxConcurrentOf(config);
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   let running: Set<string>;
+  let live: number;
   let candidates: Dispatchable[];
   try {
     running = new Set(
@@ -54,15 +55,16 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
         .filter(({ state }) => state === 'running')
         .map(({ repository, number }) => ticketKey(repository, number)),
     );
+    live = store.liveWorkloads(new Date().toISOString());
     candidates = dispatchable(config, store, running);
   } finally {
     store.close();
   }
 
-  const slots = Math.max(0, maxConcurrent - running.size);
+  const slots = Math.max(0, maxConcurrent - live);
   for (const { repository, number } of candidates.slice(slots)) {
     console.error(
-      `${repository}#${number}: waits, ${maxConcurrent} of ${maxConcurrent} dispatched workloads would be running`,
+      `${repository}#${number}: waits, ${maxConcurrent} of ${maxConcurrent} workloads would be running`,
     );
   }
 

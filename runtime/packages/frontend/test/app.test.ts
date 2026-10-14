@@ -179,7 +179,42 @@ test('given a run dispatched for a ticket and a run started by hand, when the li
   assert.equal(textOf(ticketCell('dispatched')), 'forge #113');
   assert.match(ticketCell('dispatched'), /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/113"[^>]*>#113<\/a>/);
   assert.equal(textOf(ticketCell('by-hand')), '');
-  assert.match(body, /<th[^>]*>Ticket<\/th>/);
+  assert.match(body, /<th[^>]*>Ticket \/ PR<\/th>/);
+});
+
+test('given a revision that ended ok and one that ended in error, when the list is requested, then both rows show their repository and pull request linked to it, and their outcome', async () => {
+  const revised = (store: Store, runId: string, number: number, state: 'ok' | 'error'): void => {
+    const start = store.startRevision(
+      { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
+      [],
+      runId,
+      '2026-09-21T10:00:00.000Z',
+      10,
+    );
+    assert.ok('started' in start);
+    store.endRevision(start.started, state, '2026-09-21T10:03:20.000Z');
+  };
+  const app = appWith(
+    [
+      sampleRun({ id: 'revision-ok', worker: 'reviser' }),
+      sampleRun({ id: 'revision-error', worker: 'reviser', status: 'error', error: 'harness exited' }),
+    ],
+    undefined,
+    (store) => {
+      revised(store, 'revision-ok', 143, 'ok');
+      revised(store, 'revision-error', 150, 'error');
+    },
+  );
+
+  const body = await (await app.request('/')).text();
+  const ticketCell = (id: string): string =>
+    rowFor(body, id).match(/<td[^>]*\sdata-run-ticket(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? 'missing';
+
+  assert.equal(textOf(ticketCell('revision-ok')), 'forge PR #143');
+  assert.match(ticketCell('revision-ok'), /<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/143"[^>]*>PR #143<\/a>/);
+  assert.equal(textOf(ticketCell('revision-error')), 'forge PR #150');
+  assert.equal(textOf(statusIn(rowFor(body, 'revision-ok'))), 'success');
+  assert.equal(textOf(statusIn(rowFor(body, 'revision-error'))), 'error');
 });
 
 const PULL_REQUEST_URL = 'https://github.com/rameezk/forge/pull/143';

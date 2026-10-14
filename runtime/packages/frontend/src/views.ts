@@ -29,6 +29,7 @@ import type {
   RunSkillLoad,
   RunStatus,
   SkillCoverage,
+  RevisionRecord,
   RunTicket,
   SpecRef,
   Ticket,
@@ -209,6 +210,13 @@ const renderRunTicket = (ticket: RunTicket | null): Rendered =>
     : html`<span class="text-muted">${ticket.repository}</span> ${isGithubUrl(ticket.url)
         ? externalLink(ticket.url, `#${ticket.number}`)
         : html`#${ticket.number}`}`;
+
+const renderRunPullRequest = (revision: RevisionRecord | undefined): Rendered =>
+  revision === undefined
+    ? ''
+    : html`<span class="text-muted">${revision.repository}</span> ${isGithubUrl(revision.url)
+    ? externalLink(revision.url, `PR #${revision.number}`)
+    : html`PR #${revision.number}`}`;
 
 const NOT_RECORDED = html`<span class="${PENDING}">not recorded</span>`;
 
@@ -404,6 +412,7 @@ const renderListPriceTotal = (
 export const renderList = (
   runs: RunRecord[],
   equivalents: Map<string, ListPriceEquivalent>,
+  revisions: ReadonlyMap<string, RevisionRecord>,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body =
@@ -416,7 +425,7 @@ export const renderList = (
               <thead>
                 <tr>
                   <th class="${TH}">Worker</th>
-                  <th class="${TH}">Ticket</th>
+                  <th class="${TH}">Ticket / PR</th>
                   <th class="${TH}">Model</th>
                   <th class="${TH}">Effort</th>
                   <th class="${TH}">Started</th>
@@ -430,7 +439,7 @@ export const renderList = (
                 ${runs.map(
                   (run) => html`<tr class="${ROW}" data-run="${run.id}">
                     <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK}">${run.worker}</a></td>
-                    <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderRunTicket(run.ticket)}</td>
+                    <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderRunTicket(run.ticket)}${renderRunPullRequest(revisions.get(run.id))}</td>
                     <td class="${TD} wrap-anywhere text-muted">${run.model}</td>
                     <td class="${TD} whitespace-nowrap" data-effort>${configuredEffort(run)}</td>
                     <td class="${TD}">${renderTimestamp(run.startTime)}</td>
