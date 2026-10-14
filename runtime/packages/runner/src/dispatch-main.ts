@@ -1,20 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import {
+  cachedTokens,
   errorMessage,
   FORGE_DONE,
   FORGE_FAILED,
   FORGE_READY,
   FORGE_RUNNING,
   findOpenClosingPullRequest,
+  githubAppFromEnv,
   labelExists,
-  githubWriteToken,
   offFrontier,
   queryTicket,
   Store,
   relabel,
   settleRunningTickets,
   startHeartbeat,
+  type InstallationTokens,
   type DispatchOutcome,
   type DispatchStart,
   type PullRequestRef,
@@ -49,7 +51,7 @@ const refusal = async (
   if (ticket.labels.includes(FORGE_READY)) return null;
   return (await forgeLabelsExist())
     ? `it is not labelled ${FORGE_READY}`
-    : `the forge labels are missing from ${github}, and the frontier sync creates them once it has the GitHub write token`;
+    : `the forge labels are missing from ${github}, and the frontier sync creates them once it can write to GitHub as the App`;
 };
 
 const startRefusal = (start: Exclude<DispatchStart, { started: number }>): string =>
@@ -91,14 +93,14 @@ const settleAllRunningTickets = async (
   store: Store,
   repositories: Record<string, RepositoryConfig> | undefined,
   fetch: Fetch,
-  token: string,
+  tokens: InstallationTokens,
 ): Promise<void> => {
   for (const [name, { github, on }] of Object.entries(repositories ?? {})) {
     if (on?.ticket === undefined) continue;
     await settleRunningTickets({
       store,
       fetch,
-      token: () => token,
+      token: () => tokens(github, 'write'),
       repository: name,
       github,
       now,
@@ -126,21 +128,23 @@ export const main = async (
   const worker = resolveWorker(config, repository.worker);
   const identity = gitIdentityOf(config);
   const gitEnv = gitEnvironment(env, identity);
-  const token = githubWriteToken(env);
+  const app = githubAppFromEnv(env, fetch);
+  const tokens = cachedTokens(app);
 
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   try {
-    await settleAllRunningTickets(store, config.repositories, fetch, token);
+    await settleAllRunningTickets(store, config.repositories, fetch, tokens);
 
     const ticket = await queryTicket(
       fetch,
-      token,
+      await tokens(repository.github, 'write'),
       repository.github,
       Number(issue),
     );
     const refused = await refusal(
       ticket,
-      () => labelExists(fetch, token, repository.github, FORGE_READY),
+      async () =>
+        labelExists(fetch, await tokens(repository.github, 'write'), repository.github, FORGE_READY),
       repository.github,
     );
     if (refused !== null) {
@@ -174,9 +178,14 @@ export const main = async (
       };
 
       try {
-        await relabel(fetch, token, repository.github, ticket.number, FORGE_RUNNING, [
-          FORGE_READY,
-        ]);
+        await relabel(
+          fetch,
+          await tokens(repository.github, 'write'),
+          repository.github,
+          ticket.number,
+          FORGE_RUNNING,
+          [FORGE_READY],
+        );
       } catch (error) {
         return failAs('could not claim the ticket', error);
       }
@@ -192,7 +201,7 @@ export const main = async (
             promptTemplate: worker.prompt,
           },
           github: repository.github,
-          token,
+          app,
           gitEnv,
           identity,
           ticket: dispatched,
@@ -202,11 +211,12 @@ export const main = async (
         return failAs('could not start the workload', error);
       }
 
+      const afterTokens = cachedTokens(app);
       let pullRequest: PullRequestRef | null;
       try {
         pullRequest = await findOpenClosingPullRequest(
           fetch,
-          token,
+          await afterTokens(repository.github, 'write'),
           repository.github,
           ticket.number,
         );
@@ -218,7 +228,7 @@ export const main = async (
       store.endDispatch(dispatchId, outcome, now());
       await relabel(
         fetch,
-        token,
+        await afterTokens(repository.github, 'write'),
         repository.github,
         ticket.number,
         outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,

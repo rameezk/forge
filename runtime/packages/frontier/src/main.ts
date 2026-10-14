@@ -3,8 +3,7 @@ import { join } from 'node:path';
 import {
   errorMessage,
   ensureLabels,
-  githubWriteToken,
-  isHeaderValue,
+  installationTokens,
   oldestFirst,
   queryFrontier,
   queryPullRequest,
@@ -12,6 +11,7 @@ import {
   settleRunningTickets,
   Store,
   type Fetch,
+  type InstallationTokens,
   type PullRequestSnapshot,
   type Ticket,
 } from '@forge/shared';
@@ -29,28 +29,15 @@ const readConfig = (env: NodeJS.ProcessEnv): FrontierConfig => {
   return JSON.parse(readFileSync(configPath, 'utf8')) as FrontierConfig;
 };
 
-const failing = (message: string) => () => Promise.reject(new Error(message));
+const polling =
+  (tokens: InstallationTokens, fetch: Fetch): Poll =>
+  async (github) =>
+    queryFrontier(fetch, await tokens(github, 'read'), github);
 
-const readToken = (env: NodeJS.ProcessEnv): string | Error => {
-  const token = env.GITHUB_TOKEN?.trim() ?? '';
-  if (token === '') return new Error('GitHub token missing');
-  if (!isHeaderValue(token)) return new Error('GitHub token malformed');
-  return token;
-};
-
-const polling = (env: NodeJS.ProcessEnv, fetch: Fetch): Poll => {
-  const token = readToken(env);
-  return token instanceof Error
-    ? failing(token.message)
-    : (github) => queryFrontier(fetch, token, github);
-};
-
-const pullRequestPolling = (env: NodeJS.ProcessEnv, fetch: Fetch): PullRequestPoll => {
-  const token = readToken(env);
-  return token instanceof Error
-    ? failing(token.message)
-    : (github, number) => queryPullRequest(fetch, token, github, number);
-};
+const pullRequestPolling =
+  (tokens: InstallationTokens, fetch: Fetch): PullRequestPoll =>
+  async (github, number) =>
+    queryPullRequest(fetch, await tokens(github, 'read'), github, number);
 
 const refreshPullRequests = async (
   store: Store,
@@ -87,16 +74,20 @@ interface GithubWrites {
   settle: (store: Store, repository: string, github: string) => Promise<boolean>;
 }
 
-const githubWrites = (env: NodeJS.ProcessEnv, fetch: Fetch): GithubWrites | null =>
-  env.FORGE_GITHUB_WRITE_TOKEN_FILE === undefined
+const githubWrites = (
+  config: FrontierConfig,
+  tokens: InstallationTokens,
+  fetch: Fetch,
+): GithubWrites | null =>
+  Object.values(config.repositories).every(({ on }) => on?.ticket === undefined)
     ? null
     : {
-        ensure: (github) => ensureLabels(fetch, githubWriteToken(env), github),
+        ensure: async (github) => ensureLabels(fetch, await tokens(github, 'write'), github),
         settle: (store, repository, github) =>
           settleRunningTickets({
             store,
             fetch,
-            token: () => githubWriteToken(env),
+            token: () => tokens(github, 'write'),
             repository,
             github,
             now: () => new Date().toISOString(),
@@ -218,9 +209,10 @@ export const main = async (
     throw new Error('usage: forge-frontier sync|list');
   }
   const config = readConfig(env);
-  const poll = polling(env, fetch);
+  const tokens = installationTokens(env, fetch);
+  const poll = polling(tokens, fetch);
   return command === 'sync'
-    ? sync(config, env, poll, pullRequestPolling(env, fetch), githubWrites(env, fetch))
+    ? sync(config, env, poll, pullRequestPolling(tokens, fetch), githubWrites(config, tokens, fetch))
     : list(config, poll);
 };
 

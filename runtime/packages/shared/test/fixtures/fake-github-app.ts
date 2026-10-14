@@ -9,18 +9,27 @@ const fixture = (name: string): Record<string, unknown> =>
 
 export const APP_ID = '5313638';
 export const INSTALLED = 'rameezk/forge-app-test';
+const INSTALLATION_OWNER = 'rameezk';
+
+export const tokenFor = (kind: 'read' | 'write' | 'workload', github: string, nth = 1): string =>
+  `ghs_${kind}_${github.replace('/', '_')}_${nth}`;
+
+const kindOf = (permissions: Record<string, string> = {}): 'read' | 'write' | 'workload' =>
+  'contents' in permissions ? 'workload' : permissions.issues === 'write' ? 'write' : 'read';
 
 export interface Mint {
   installation: string;
   body: { repositories?: string[]; permissions?: Record<string, string> };
   jwt: string;
+  kind: 'read' | 'write' | 'workload';
+  repository: string;
 }
 
 export interface FakeGithubApp {
   fetch: typeof globalThis.fetch;
   privateKey: string;
   mints: Mint[];
-  now: { value: number };
+  now: { value: number | null };
 }
 
 const base64url = (value: string): Buffer => Buffer.from(value, 'base64url');
@@ -42,10 +51,13 @@ const jwtClaims = (
   };
 };
 
-export const fakeGithubApp = (installed: string[] = [INSTALLED]): FakeGithubApp => {
+export const fakeGithubApp = (
+  installed: string[] = [INSTALLED],
+  lifetimeSeconds = 3600,
+): FakeGithubApp => {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const mints: Mint[] = [];
-  const now = { value: Date.parse('2026-10-14T10:00:00Z') };
+  const now: { value: number | null } = { value: null };
   const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), {
       status,
@@ -59,7 +71,8 @@ export const fakeGithubApp = (installed: string[] = [INSTALLED]): FakeGithubApp 
     const authorization = new Headers(init?.headers).get('authorization') ?? '';
     const jwt = authorization.replace(/^Bearer /, '');
     const claims = jwtClaims(jwt, publicKey);
-    const seconds = now.value / 1000;
+    const current = now.value ?? Date.now();
+    const seconds = current / 1000;
     if (
       claims === null ||
       claims.iss !== APP_ID ||
@@ -78,13 +91,15 @@ export const fakeGithubApp = (installed: string[] = [INSTALLED]): FakeGithubApp 
     const mintFor = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(url.pathname);
     if (mintFor !== null && init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as Mint['body'];
-      mints.push({ installation: mintFor[1] ?? '', body, jwt });
-      const minted = fixture('token');
+      const kind = kindOf(body.permissions);
+      const repository = `${INSTALLATION_OWNER}/${body.repositories?.[0] ?? ''}`;
+      const nth = mints.filter((mint) => mint.kind === kind && mint.repository === repository).length + 1;
+      mints.push({ installation: mintFor[1] ?? '', body, jwt, kind, repository });
       return json(
         {
-          ...minted,
-          token: `ghs_minted${mints.length}`,
-          expires_at: new Date(now.value + 3600_000).toISOString().replace('.000Z', 'Z'),
+          ...fixture('token'),
+          token: tokenFor(kind, repository, nth),
+          expires_at: new Date(current + lifetimeSeconds * 1000).toISOString().replace('.000Z', 'Z'),
         },
         201,
       );
@@ -98,3 +113,11 @@ export const fakeGithubApp = (installed: string[] = [INSTALLED]): FakeGithubApp 
     now,
   };
 };
+
+export const routedThrough = (app: FakeGithubApp, other: typeof globalThis.fetch): typeof globalThis.fetch =>
+  async (input, init) => {
+    const { pathname } = new URL(String(input));
+    return /^\/(app\/|repos\/[^/]+\/[^/]+\/installation$)/.test(pathname)
+      ? app.fetch(input, init)
+      : other(input, init);
+  };

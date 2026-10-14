@@ -1,4 +1,5 @@
 import { createSign } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { requireGithubRepository, type Fetch } from './frontier.ts';
 import { GITHUB_REST_API } from './labels.ts';
 
@@ -96,3 +97,43 @@ export class GithubApp {
     return { token: minted.token, expiresAt: minted.expires_at };
   }
 }
+
+const readPrivateKey = (path: string | undefined): string => {
+  if (path === undefined) return '';
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw error;
+  }
+};
+
+export const githubAppFromEnv = (env: NodeJS.ProcessEnv, fetch: Fetch): GithubApp => {
+  const appId = env.FORGE_GITHUB_APP_ID?.trim() ?? '';
+  if (appId === '') throw new Error('GitHub App id missing');
+  const privateKey = readPrivateKey(env.FORGE_GITHUB_APP_PRIVATE_KEY_FILE);
+  if (privateKey.trim() === '') throw new Error('GitHub App private key missing');
+  return new GithubApp({ appId, privateKey, fetch, now: Date.now });
+};
+
+export type InstallationTokens = (github: string, access: 'read' | 'write') => Promise<string>;
+
+export const cachedTokens = (app: GithubApp): InstallationTokens => {
+  const minted = new Map<string, Promise<string>>();
+  return (github, access) => {
+    const key = `${access} ${github}`;
+    const existing = minted.get(key);
+    if (existing !== undefined) return existing;
+    const token = app.mint(github, access).then(({ token }) => token);
+    minted.set(key, token);
+    return token;
+  };
+};
+
+export const installationTokens = (env: NodeJS.ProcessEnv, fetch: Fetch): InstallationTokens => {
+  try {
+    return cachedTokens(githubAppFromEnv(env, fetch));
+  } catch (error) {
+    return () => Promise.reject(error);
+  }
+};

@@ -1,22 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GithubApp } from '../src/index.ts';
-import { APP_ID, fakeGithubApp, INSTALLED } from './fixtures/fake-github-app.ts';
+import { APP_ID, fakeGithubApp, INSTALLED, tokenFor } from './fixtures/fake-github-app.ts';
 
 const appOn = (github: ReturnType<typeof fakeGithubApp>): GithubApp =>
   new GithubApp({
     appId: APP_ID,
     privateKey: github.privateKey,
     fetch: github.fetch,
-    now: () => github.now.value,
+    now: () => github.now.value ?? Date.now(),
   });
 
 test('given a repository the App is installed on, when a read token is minted, then GitHub is asked for a token on that repository alone and the token comes back with its expiry', async () => {
   const github = fakeGithubApp();
+  github.now.value = Date.parse('2026-10-14T10:00:00Z');
 
   const minted = await appOn(github).mint(INSTALLED, 'read');
 
-  assert.deepEqual(minted, { token: 'ghs_minted1', expiresAt: '2026-10-14T11:00:00Z' });
+  assert.deepEqual(minted, {
+    token: tokenFor('read', INSTALLED),
+    expiresAt: '2026-10-14T11:00:00Z',
+  });
   assert.equal(github.mints.length, 1);
   assert.deepEqual(github.mints[0]?.body.repositories, ['forge-app-test']);
 });

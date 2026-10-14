@@ -1,5 +1,6 @@
 import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { InstallationToken } from '@forge/shared';
 
 export const GITHUB_TOKEN_FILE_ENV = 'FORGE_GITHUB_TOKEN_FILE';
 
@@ -52,3 +53,39 @@ export class GithubTokenFile {
     rmSync(this.#dir, { recursive: true, force: true });
   }
 }
+
+const MIN_REFRESH_DELAY_MS = 1000;
+
+export const keepFresh = (
+  file: GithubTokenFile,
+  first: InstallationToken,
+  mint: () => Promise<InstallationToken>,
+  missed: (error: unknown) => void,
+  now: () => number = Date.now,
+): (() => void) => {
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+  const schedule = (expiresAt: string): void => {
+    const remaining = Date.parse(expiresAt) - now();
+    const delay = Math.max(MIN_REFRESH_DELAY_MS, remaining / 2);
+    timer = setTimeout(() => {
+      mint().then(
+        (next) => {
+          if (stopped) return;
+          file.replace(next.token);
+          schedule(next.expiresAt);
+        },
+        (error: unknown) => {
+          if (stopped) return;
+          missed(error);
+          schedule(expiresAt);
+        },
+      );
+    }, delay);
+  };
+  schedule(first.expiresAt);
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
+};

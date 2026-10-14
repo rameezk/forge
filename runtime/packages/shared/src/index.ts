@@ -136,10 +136,13 @@ export {
 } from './dispatch.ts';
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
-export { githubWriteToken } from './token.ts';
 export {
   GithubApp,
+  cachedTokens,
+  githubAppFromEnv,
+  installationTokens,
   type GithubAppOptions,
+  type InstallationTokens,
   type InstallationToken,
   type TokenAccess,
 } from './github-app.ts';
