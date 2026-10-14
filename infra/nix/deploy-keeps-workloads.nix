@@ -55,7 +55,7 @@ testers.runNixOSTest {
       };
       forge.runtime.repositories.forge = {
         github = "rameezk/forge";
-        worker = "builder";
+        on.ticket = "builder";
       };
       forge.runtime.dispatch.gitIdentity = {
         name = "Forge Operator";

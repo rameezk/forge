@@ -120,7 +120,7 @@ const sync = async (
   try {
     store.pruneFrontier(Object.keys(config.repositories));
     let failed = false;
-    for (const [name, { github, worker }] of Object.entries(config.repositories)) {
+    for (const [name, { github, on }] of Object.entries(config.repositories)) {
       try {
         const tickets = await poll(github);
         store.replaceFrontier({
@@ -158,7 +158,7 @@ const sync = async (
         console.error(`${name}: could not ensure the forge labels: ${errorMessage(error)}`);
         failed = true;
       }
-      if (worker !== undefined && !(await writes.settle(store, name, github))) {
+      if (on?.ticket !== undefined && !(await writes.settle(store, name, github))) {
         failed = true;
       }
     }

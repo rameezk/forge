@@ -122,7 +122,7 @@ const gitIdentityOf = (config: RuntimeConfig): GitIdentity => {
 const repositoryNamed = (
   repositories: Record<string, RepositoryConfig> | undefined,
   name: string,
-): RepositoryConfig & { worker: string } => {
+): { github: string; worker: string } => {
   const repository =
     repositories !== undefined && Object.hasOwn(repositories, name)
       ? repositories[name]
@@ -130,10 +130,11 @@ const repositoryNamed = (
   if (repository === undefined) {
     throw new Error(`unknown repository '${name}'`);
   }
-  if (repository.worker === undefined) {
-    throw new Error(`repository '${name}' declares no worker`);
+  const worker = repository.on?.ticket;
+  if (worker === undefined) {
+    throw new Error(`repository '${name}' declares no on.ticket worker`);
   }
-  return { github: repository.github, worker: repository.worker };
+  return { github: repository.github, worker };
 };
 
 const settleAllRunningTickets = async (
@@ -142,8 +143,8 @@ const settleAllRunningTickets = async (
   fetch: Fetch,
   token: string,
 ): Promise<void> => {
-  for (const [name, { github, worker }] of Object.entries(repositories ?? {})) {
-    if (worker === undefined) continue;
+  for (const [name, { github, on }] of Object.entries(repositories ?? {})) {
+    if (on?.ticket === undefined) continue;
     await settleRunningTickets({
       store,
       fetch,

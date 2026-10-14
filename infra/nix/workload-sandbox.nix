@@ -118,7 +118,7 @@ let
       };
     forge.runtime.repositories.forge = {
       github = "rameezk/forge";
-      worker = "probe";
+      on.ticket = "probe";
     };
     forge.runtime.dispatch.gitIdentity = {
       name = "Forge Operator";

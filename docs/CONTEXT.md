@@ -89,7 +89,7 @@ A workload's agent taking in one skill within one scope - the workload itself or
 _Avoid_: skill invocation, skill call, skill use
 
 **Managed repository**:
-A repository forge is configured to run workloads against, carrying its own skills that orchestrate the work. Operators declare managed repositories in the runtime config; forge currently supports only those whose tickets are tracked as GitHub issues (ADR-0010).
+A repository forge is configured to run workloads against, carrying its own skills that orchestrate the work. Operators declare managed repositories in the runtime config, naming the worker that runs a repository's tickets with `on.ticket`; forge currently supports only those whose tickets are tracked as GitHub issues (ADR-0010).
 
 **Ticket**:
 A unit of buildable work in a managed repository's tracker, sliced from a spec and carrying a status (`ready-for-agent`, `ready-for-human`, or done) and blocking edges to other tickets. On GitHub, a ticket is an issue: its status is a label, done means closed, and its edges are native issue dependencies.

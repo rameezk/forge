@@ -13,8 +13,8 @@ interface Dispatchable extends Ticket {
   repository: string;
 }
 
-const declaresWorker = ({ repositories = {} }: RuntimeConfig, name: string): boolean =>
-  Object.hasOwn(repositories, name) && repositories[name]?.worker !== undefined;
+const declaresTicketWorker = ({ repositories = {} }: RuntimeConfig, name: string): boolean =>
+  Object.hasOwn(repositories, name) && repositories[name]?.on?.ticket !== undefined;
 
 const dispatchable = (
   config: RuntimeConfig,
@@ -23,7 +23,7 @@ const dispatchable = (
 ): Dispatchable[] =>
   store
     .listFrontier()
-    .filter(({ repository, lastError }) => lastError === null && declaresWorker(config, repository))
+    .filter(({ repository, lastError }) => lastError === null && declaresTicketWorker(config, repository))
     .flatMap(({ repository, tickets }) =>
       tickets
         .filter(

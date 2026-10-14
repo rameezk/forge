@@ -73,7 +73,7 @@
       #           };
       #           forge.runtime.repositories.myrepo = {
       #             github = "your-org/your-repo";
-      #             worker = "builder";
+      #             on.ticket = "builder";
       #           };
       #           forge.runtime.dispatch.gitIdentity = {
       #             name = "Your Name";

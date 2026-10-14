@@ -42,8 +42,8 @@ const pass = async ({ frontier, maxConcurrent, seed, failingUnit, failedPolls = 
       harnesses: { pi: { command: '/bin/false' } },
       workers: { builder: { harness: 'pi', model: 'z-ai/glm-5', prompt: '/work-on {url}' } },
       repositories: {
-        forge: { github: 'rameezk/forge', worker: 'builder' },
-        dotfiles: { github: 'rameezk/dotfiles', worker: 'builder' },
+        forge: { github: 'rameezk/forge', on: { ticket: 'builder' } },
+        dotfiles: { github: 'rameezk/dotfiles', on: { ticket: 'builder' } },
         notes: { github: 'rameezk/notes' },
       },
       dispatch: maxConcurrent === undefined ? {} : { maxConcurrent },

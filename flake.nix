@@ -732,7 +732,7 @@
               };
               forge.runtime.repositories.forge = {
                 github = "rameezk/forge";
-                worker = "builder";
+                on.ticket = "builder";
               };
               forge.runtime.dispatch = dispatch;
             };
@@ -757,7 +757,7 @@
             dispatchHost.config.forge.runtime.settings.repositories == {
               forge = {
                 github = "rameezk/forge";
-                worker = "builder";
+                on.ticket = "builder";
               };
             }
             &&
@@ -782,7 +782,7 @@
           dispatchConfigKeepsGitIdentityWithoutWorker =
             lib.asserts.assertMsg
               (identityWithoutWorkerHost.config.forge.runtime.settings.dispatch.gitIdentity == gitIdentity)
-              "the generated runtime config must keep the dispatch git identity when no repository declares a worker, so the frontier sync can still count rework on pull requests dispatched earlier";
+              "the generated runtime config must keep the dispatch git identity when no repository declares on.ticket, so the frontier sync can still count rework on pull requests dispatched earlier";
           concurrentDispatchHost = dispatchHostWith {
             dispatch = {
               inherit gitIdentity;
@@ -862,7 +862,7 @@
                 !(evaluates host)
                 && lib.any (lib.hasInfix "forge.runtime.dispatch.gitIdentity") (failedAssertions host)
               )
-              "a repository that declares a worker on a host with no dispatch git identity must fail evaluation";
+              "a repository that declares on.ticket on a host with no dispatch git identity must fail evaluation";
           dispatchHostEvaluates = lib.asserts.assertMsg (
             evaluates dispatchHost
             && evaluates (dispatchHostWith {
@@ -885,7 +885,7 @@
                   {
                     forge.runtime.repositories.forge = {
                       github = "rameezk/forge";
-                      worker = "missing";
+                      on.ticket = "missing";
                     };
                   }
                 ];
@@ -894,13 +894,31 @@
             lib.asserts.assertMsg (
               !(evaluates host) && lib.any (lib.hasInfix "undeclared worker 'missing'") (failedAssertions host)
             ) "a repository naming an undeclared worker must fail evaluation";
+          workerOptionRefused =
+            let
+              host = mkHost {
+                configFile = exampleConfigFile;
+                secretsFile = exampleSecretsFile;
+                modules = [
+                  {
+                    forge.runtime.repositories.forge = {
+                      github = "rameezk/forge";
+                      worker = "builder";
+                    };
+                  }
+                ];
+              };
+            in
+            lib.asserts.assertMsg (
+              !(evaluates host) && lib.any (lib.hasInfix "on.ticket") (failedAssertions host)
+            ) "a repository setting the removed worker option must fail evaluation naming on.ticket";
           dispatchUnitDeclared =
             lib.asserts.assertMsg
               (
                 (dispatchHost.config.systemd.services ? "forge-dispatch@")
                 && !(workerAndRepositoryHost.config.systemd.services ? "forge-dispatch@")
               )
-              "declaring a repository with a worker must define the forge-dispatch@ template, and a host without one must not";
+              "declaring a repository with on.ticket must define the forge-dispatch@ template, and a host without one must not";
           dispatchUnitRunsDispatch =
             lib.asserts.assertMsg
               (
@@ -982,7 +1000,7 @@
           dispatchCommandInstalled =
             lib.asserts.assertMsg
               (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))
-              "declaring a repository with a worker must put the forge-dispatch command on the box's path, and a host without one must not";
+              "declaring a repository with on.ticket must put the forge-dispatch command on the box's path, and a host without one must not";
 
           billingService = workerHost.config.systemd.services.forge-billing;
           billingTimer = workerHost.config.systemd.timers.forge-billing;
@@ -1197,7 +1215,7 @@
               ) workers;
               forge.runtime.repositories = lib.mapAttrs (_: worker: {
                 github = "rameezk/forge";
-                inherit worker;
+                on.ticket = worker;
               }) repositories;
               forge.runtime.dispatch = { inherit gitIdentity; };
             };
@@ -1485,6 +1503,7 @@
             assert dispatchHostEvaluates;
             assert placeholderlessWorkerFails;
             assert undeclaredWorkerFails;
+            assert workerOptionRefused;
             assert dispatchUnitDeclared;
             assert dispatchUnitRunsDispatch;
             assert dispatchUnitKnowsForgeGitSha;
