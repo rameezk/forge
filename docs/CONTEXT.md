@@ -111,6 +111,10 @@ _Avoid_: assignment, scheduling
 A dispatch of a ticket, with the workload it ran. A ticket may have several, one per dispatch.
 _Avoid_: try
 
+**Failed start**:
+A dispatch that ended before its workload ran, so it is not an attempt. A ticket's consecutive failed starts are kept as one, with a count of how many times it failed to start.
+_Avoid_: failed attempt, try
+
 **Rework**:
 The commits on a dispatch's pull request authored by anyone other than forge's GitHub App (ADR-0051), as of the last time forge refreshed the pull request, which stops once it is merged or closed.
 
