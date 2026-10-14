@@ -64,6 +64,14 @@ const CHIP_IDLE = 'border-line';
 const renderOptions = (values: string[], selected: string | undefined): Rendered =>
   html`${values.map((value) => html`<option value="${value}"${value === selected ? html` selected` : ''}>${value}</option>`)}`;
 
+const renderSelect = (label: string, name: string, values: string[], selected: string | undefined): Rendered =>
+  html`<label class="${FIELD}">${label}
+    <select name="${name}" class="${CONTROL}">
+      <option value="">All</option>
+      ${renderOptions(values, selected)}
+    </select>
+  </label>`;
+
 const unique = (values: (string | undefined)[]): string[] =>
   [...new Set(values.filter((value): value is string => value !== undefined))].sort();
 
@@ -93,24 +101,9 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered =>
     <label class="${FIELD}">Search
       <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-60" />
     </label>
-    <label class="${FIELD}">Worker
-      <select name="worker" class="${CONTROL}">
-        <option value="">All</option>
-        ${renderOptions(unique(all.map((run) => run.worker)), filter.worker)}
-      </select>
-    </label>
-    <label class="${FIELD}">Repository
-      <select name="repository" class="${CONTROL}">
-        <option value="">All</option>
-        ${renderOptions(unique(all.map((run) => run.ticket?.repository)), filter.repository)}
-      </select>
-    </label>
-    <label class="${FIELD}">Model
-      <select name="model" class="${CONTROL}">
-        <option value="">All</option>
-        ${renderOptions(unique(all.map((run) => run.model)), filter.model)}
-      </select>
-    </label>
+    ${renderSelect('Worker', 'worker', unique(all.map((run) => run.worker)), filter.worker)}
+    ${renderSelect('Repository', 'repository', unique(all.map((run) => run.ticket?.repository)), filter.repository)}
+    ${renderSelect('Model', 'model', unique(all.map((run) => run.model)), filter.model)}
     <label class="${FIELD}">Started from
       <input type="date" name="from" value="${filter.from ?? ''}" class="${CONTROL}" />
     </label>
