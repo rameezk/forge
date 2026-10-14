@@ -234,7 +234,7 @@ const ticketUrl = (url: string): string => {
   return url;
 };
 
-const pullRequestUrl = (url: string): string => {
+export const pullRequestUrl = (url: string): string => {
   if (!isGithubUrl(url)) {
     throw new Error(`GitHub returned an unexpected pull request URL '${url}'`);
   }
@@ -258,7 +258,7 @@ const toTicket = (issue: IssueNode): Ticket => ({
   blocked: issue.issueDependenciesSummary.blockedBy > 0,
 });
 
-const requestGraphql = (
+export const requestGraphql = (
   fetch: Fetch,
   token: string,
   query: string,

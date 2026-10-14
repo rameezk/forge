@@ -153,7 +153,7 @@ let
         type = lib.types.nullOr lib.types.str;
         default = null;
         example = "reviser";
-        description = "Worker that `forge-revise` runs against this repository's pull requests, in a fresh clone of the pull request's head branch, or null to turn revisions off for the repository. Its prompt is a template filled in for each pull request: `{repo}` becomes the repository's `owner/name`, `{pr}` the pull request's number, `{url}` its URL and `{branch}` its head branch, and it must hold `{pr}` or `{url}`. A leading `/<name>` runs the branch's skill of that name, and the revision fails before the harness starts if the branch has none. Skills, project instructions and the devShell come from the branch, as for `on.ticket`. The worker is told that a person reviews the pull request: it proceeds where the feedback settles a skill's confirmation, and otherwise asks its question as a reply on the pull request and ends its run at once. Budget and timeout come from the worker.";
+        description = "Worker that revises this repository's pull requests, whether the dispatch pass starts it when feedback on a pull request forge's App opened has been quiet for `forge.runtime.feedback.quietPeriod` or an operator runs `forge-revise`, in a fresh clone of the pull request's head branch, or null to turn revisions off for the repository. Its prompt is a template filled in for each pull request: `{repo}` becomes the repository's `owner/name`, `{pr}` the pull request's number, `{url}` its URL and `{branch}` its head branch, and it must hold `{pr}` or `{url}`. A leading `/<name>` runs the branch's skill of that name, and the revision fails before the harness starts if the branch has none. Skills, project instructions and the devShell come from the branch, as for `on.ticket`. The worker is told that a person reviews the pull request: it proceeds where the feedback settles a skill's confirmation, and otherwise asks its question as a reply on the pull request and ends its run at once. Budget and timeout come from the worker.";
       };
     };
   };
@@ -181,6 +181,9 @@ let
     dispatch = {
       inherit (cfg.dispatch) maxConcurrent;
     };
+  }
+  // lib.optionalAttrs hasRevision {
+    feedback.quietPeriodSeconds = timeSpanSeconds cfg.feedback.quietPeriod;
   };
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
@@ -329,7 +332,12 @@ let
     message = "${cfg.user} must never be a trusted nix user, by name, by group or through a wildcard in nix.settings.trusted-users or nix.settings.extra-trusted-users, and nix.extraOptions must not set either, since evaluation cannot check it there: a trusted user can add unsigned paths and change substituters, so one workload could plant a tool for a later one through the store";
   };
 
-  dispatchUnitPattern = "^forge-dispatch@(?:${lib.concatStringsSep "|" (lib.attrNames dispatchedRepositories)}):[1-9][0-9]*\\.service$";
+  startableUnits =
+    lib.optional hasDispatch "forge-dispatch@(?:${lib.concatStringsSep "|" (lib.attrNames dispatchedRepositories)})"
+    ++ lib.optional hasRevision "forge-revise@(?:${lib.concatStringsSep "|" (lib.attrNames revisedRepositories)})";
+  startableUnitPattern = "^${
+    if lib.length startableUnits == 1 then lib.head startableUnits else "(?:${lib.concatStringsSep "|" startableUnits})"
+  }:[1-9][0-9]*\\.service$";
 
   reviseInstance = pkgs.writeShellScript "forge-revise-instance" ''
     exec ${cfg.package}/bin/forge-revise "''${1%:*}" "''${1##*:}"
@@ -467,6 +475,13 @@ in
       default = 1;
       example = 2;
       description = "How many workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync, or running a revision started with `forge-revise`. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch or revision over it is refused.";
+    };
+
+    feedback.quietPeriod = lib.mkOption {
+      type = timeSpan;
+      default = "10min";
+      example = "2min";
+      description = "How long a pull request's newest feedback must have been quiet before the dispatch pass starts a revision for it, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"10min\"`. Feedback that keeps arriving, a review and then a comment, becomes one revision. `forge-revise` skips it. A revision starts within roughly this period plus a frontier poll interval of feedback being left.";
     };
 
     frontier.pollInterval = lib.mkOption {
@@ -709,11 +724,7 @@ in
       };
     })
 
-    (lib.mkIf (hasWorkers && hasDispatch) {
-      environment.systemPackages = [
-        (pkgs.callPackage ../nix/dispatch-command.nix { })
-      ];
-
+    (lib.mkIf (hasWorkers && (hasDispatch || hasRevision)) {
       security.polkit.enable = true;
       security.polkit.extraConfig = ''
         polkit.addRule(function (action, subject) {
@@ -721,7 +732,7 @@ in
             action.id == "org.freedesktop.systemd1.manage-units" &&
             subject.user == "${cfg.user}" &&
             action.lookup("verb") == "start" &&
-            /${dispatchUnitPattern}/.test(action.lookup("unit"))
+            /${startableUnitPattern}/.test(action.lookup("unit"))
           ) {
             return polkit.Result.YES;
           }
@@ -762,6 +773,12 @@ in
         }
         // hardening;
       };
+    })
+
+    (lib.mkIf (hasWorkers && hasDispatch) {
+      environment.systemPackages = [
+        (pkgs.callPackage ../nix/dispatch-command.nix { })
+      ];
 
       systemd.services."forge-dispatch@" = {
         description = "Forge dispatch of ticket %i";
