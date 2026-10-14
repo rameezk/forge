@@ -1,19 +1,19 @@
 diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
-index 63aa588..788e730 100644
+index 63aa588..df415f4 100644
 --- a/packages/coding-agent/src/core/agent-session.ts
 +++ b/packages/coding-agent/src/core/agent-session.ts
-@@ -187,6 +187,11 @@ type WithParentToolCallId<E> = E extends {
+@@ -186,6 +186,11 @@ type WithParentToolCallId<E> = E extends {
+ 	? E & { parentToolCallId?: string }
  	: E;
  
- /** Session-specific events that extend the core AgentEvent */
 +export interface SummaryCall {
 +	responseId?: string;
 +	usage: Usage;
 +}
 +
+ /** Session-specific events that extend the core AgentEvent */
  export type AgentSessionEvent =
  	| WithParentToolCallId<Exclude<AgentEvent, { type: "agent_end" }>>
- 	| {
 @@ -211,6 +216,7 @@ export type AgentSessionEvent =
  			aborted: boolean;
  			willRetry: boolean;
@@ -94,21 +94,22 @@ index 63aa588..788e730 100644
  					result: undefined,
  					aborted,
 diff --git a/packages/coding-agent/src/core/compaction/compaction.ts b/packages/coding-agent/src/core/compaction/compaction.ts
-index 6bcfbb2..3a54add 100644
+index 6bcfbb2..17d5545 100644
 --- a/packages/coding-agent/src/core/compaction/compaction.ts
 +++ b/packages/coding-agent/src/core/compaction/compaction.ts
-@@ -616,13 +616,18 @@ function createSummarizationOptions(
-  * the whole compaction on the first attempt. Deterministic errors and aborts return
-  * immediately (see {@link retryAssistantCall}).
-  */
+@@ -609,6 +609,11 @@ function createSummarizationOptions(
+ 	return options;
+ }
+ 
 +export interface SummarizationCallbacks extends RetryCallbacks {
 +	onPayload?: SimpleStreamOptions["onPayload"];
 +	onResponse?: (response: AssistantMessage) => void;
 +}
 +
- export async function completeSummarization(
- 	model: Model<any>,
- 	context: TranscriptContext,
+ /**
+  * Shared choke point for every compaction/branch-summary summarization call. Wraps the
+  * single LLM call in {@link retryAssistantCall} so transient stream drops (e.g.
+@@ -622,7 +627,7 @@ export async function completeSummarization(
  	options: SimpleStreamOptions,
  	streamFn?: StreamFn,
  	retry?: RetryPolicy,
