@@ -76,11 +76,16 @@ export class GithubApp {
     return `${unsigned}.${base64url(signature)}`;
   }
 
-  async #request(method: string, path: string, body?: unknown): Promise<Response> {
+  async #request(
+    method: string,
+    path: string,
+    body?: unknown,
+    token: string = this.#jwt(),
+  ): Promise<Response> {
     return this.#options.fetch(`${GITHUB_REST_API}${path}`, {
       method,
       headers: {
-        authorization: `Bearer ${this.#jwt()}`,
+        authorization: `Bearer ${token}`,
         accept: 'application/vnd.github+json',
         'x-github-api-version': '2022-11-28',
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
@@ -105,13 +110,7 @@ export class GithubApp {
     const login = `${app.slug}[bot]`;
     const { token } = await this.mint(github, 'read');
     const bot = (await ok(
-      await this.#options.fetch(`${GITHUB_REST_API}/users/${encodeURIComponent(login)}`, {
-        headers: {
-          authorization: `Bearer ${token}`,
-          accept: 'application/vnd.github+json',
-          'x-github-api-version': '2022-11-28',
-        },
-      }),
+      await this.#request('GET', `/users/${encodeURIComponent(login)}`, undefined, token),
     )) as { id?: unknown };
     if (typeof bot.id !== 'number' || !Number.isSafeInteger(bot.id) || bot.id < 1) {
       throw new Error(`GitHub returned a malformed bot user for ${login}`);
