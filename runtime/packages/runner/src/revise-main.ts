@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import {
   errorMessage,
-  githubWriteToken,
+  githubAppFromEnv,
   queryPullRequestHead,
   startHeartbeat,
   Store,
@@ -76,7 +76,8 @@ export const main = async (
   const worker = resolveWorker(config, repository.worker);
   const identity = gitIdentityOf(config);
   const gitEnv = gitEnvironment(env, identity);
-  const token = githubWriteToken(env);
+  const app = githubAppFromEnv(env, fetch);
+  const token = (await app.mint(repository.github, 'write')).token;
 
   const pullRequest = await queryPullRequestHead(fetch, token, repository.github, Number(number));
   const refused = headRefusal(pullRequest);
@@ -122,7 +123,7 @@ export const main = async (
           github: repository.github,
           branch: pullRequest.branch,
           instruction: REVISION_INSTRUCTION,
-          token,
+          app,
           gitEnv,
           identity,
           runId,

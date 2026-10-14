@@ -8,23 +8,23 @@
   secretsHostKey,
 }:
 let
-  frontierToken = "/run/secrets/rendered/forge-github.env";
-  writeToken = "/run/secrets/rendered/forge-github-write.env";
+  appIdFile = "/run/secrets/rendered/forge-github-app.env";
+  appKeyFile = "/run/secrets/github_app_private_key";
 
   probe =
     name:
     writeShellScriptBin name ''
       probe() {
-        echo "env=''${GITHUB_TOKEN-unset}"
-        for file in ${frontierToken} ${writeToken}; do
+        echo "env=''${FORGE_GITHUB_APP_ID-unset}"
+        for file in ${appIdFile} ${appKeyFile}; do
           if contents="$(cat "$file" 2>/dev/null)"; then
             echo "read $(basename "$file") $contents"
           else
             echo "denied $(basename "$file")"
           fi
         done
-        if [ -n "''${FORGE_GITHUB_WRITE_TOKEN_FILE-}" ]; then
-          echo "credential $(cat "$FORGE_GITHUB_WRITE_TOKEN_FILE")"
+        if [ -n "''${FORGE_GITHUB_APP_PRIVATE_KEY_FILE-}" ]; then
+          echo "credential $(cat "$FORGE_GITHUB_APP_PRIVATE_KEY_FILE")"
         fi
       }
       out="/var/lib/forge/${name}''${1:+-$1}"
@@ -49,7 +49,7 @@ let
   };
 in
 testers.runNixOSTest {
-  name = "github-tokens";
+  name = "github-app";
 
   nodes.box = {
     imports = [
@@ -81,32 +81,34 @@ testers.runNixOSTest {
   };
 
   testScript = builtins.readFile ./oneshot.py + ''
-    frontier = "env=github_pat_fixture_frontier_not_a_real_token"
-    write_credential = "credential GITHUB_TOKEN=github_pat_fixture_write_not_a_real_token"
-    denied = ["env=unset", "denied forge-github.env", "denied forge-github-write.env"]
+    app = "env=123456"
+    key_credential = "credential github_app_private_key_fixture_not_a_real_key"
+    denied = ["env=unset", "denied forge-github-app.env", "denied github_app_private_key"]
 
     def probe(name):
         return box.succeed(f"cat /var/lib/forge/{name}.out").splitlines()
 
     box.wait_for_unit("multi-user.target")
 
-    with subtest("both rendered token files are owned by forge-runtime and readable only by it"):
-        for path in ["${frontierToken}", "${writeToken}"]:
+    with subtest("the rendered App id and the App private key are owned by forge-runtime and readable only by it"):
+        for path in ["${appIdFile}", "${appKeyFile}"]:
             assert box.succeed(f"stat -L -c '%U %a' {path}").strip() == "forge-runtime 400", path
 
-    with subtest("frontier sync loads the frontier token and reads the write token as data from its credential"):
+    with subtest("frontier sync loads the App id and reads the private key as data from its credential"):
         box.succeed("systemctl start forge-frontier-sync.service")
-        assert probe("forge-frontier-sync") == [frontier, "denied forge-github.env", "denied forge-github-write.env", write_credential], probe("forge-frontier-sync")
+        assert probe("forge-frontier-sync") == [app, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-frontier-sync")
 
-    with subtest("forge-frontier list reads the frontier token from its rendered file"):
+    with subtest("forge-frontier list reads the App id from its rendered file and the private key from its secret"):
         box.succeed("sudo -u forge-runtime forge-frontier list")
-        assert probe("forge-frontier-list")[0] == frontier, probe("forge-frontier-list")
+        listed = probe("forge-frontier-list")
+        assert listed[0] == app, listed
+        assert listed[-1] == key_credential, listed
 
-    with subtest("dispatch reads the write token only as data from its credential and never sees the frontier token"):
+    with subtest("dispatch loads the App id and reads the private key only as data from its credential"):
         box.succeed("forge-dispatch forge 148")
-        assert probe("forge-dispatch-forge") == denied + [write_credential], probe("forge-dispatch-forge")
+        assert probe("forge-dispatch-forge") == [app, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-dispatch-forge")
 
-    with subtest("the units that do not use a token cannot read either"):
+    with subtest("the units that do not use the App cannot read either"):
         box.succeed("systemctl start forge-runner@builder.service forge-billing.service")
         box.wait_for_file("/var/lib/forge/forge-dispatch-pass.out")
         for name in ["forge-run-builder", "forge-billing", "forge-frontend", "forge-dispatch-pass"]:

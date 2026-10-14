@@ -53,8 +53,8 @@ let
           attempt "write another run" "touch /var/lib/forge/work/other-run/planted"
           attempt "read secrets" "ls /run/secrets"
           attempt "read runner key" "cat /run/secrets/rendered/forge-runner.env"
-          attempt "read frontier token" "cat /run/secrets/rendered/forge-github.env"
-          attempt "read write token" "cat /run/secrets/rendered/forge-github-write.env"
+          attempt "read app id" "cat /run/secrets/rendered/forge-github-app.env"
+          attempt "read app private key" "cat /run/secrets/github_app_private_key"
           attempt "read credentials" "ls /run/credentials"
           attempt "write root" "touch /planted"
           attempt "write etc" "touch /etc/planted"
@@ -196,7 +196,7 @@ testers.runNixOSTest {
         assert box.succeed("cat /var/lib/forge/work/other-run/report.md").strip() == "report"
 
     with subtest("the harness cannot read secret files, and still holds the OpenRouter key"):
-        for name in ["read secrets", "read runner key", "read frontier token", "read write token", "read credentials"]:
+        for name in ["read secrets", "read runner key", "read app id", "read app private key", "read credentials"]:
             assert seen[name] == "denied", (name, seen)
         assert box.succeed(f"cat {run_dir}/openrouter.out").strip() == "present"
 

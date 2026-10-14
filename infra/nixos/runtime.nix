@@ -371,11 +371,11 @@ let
     secret = "openrouter_api_key";
   };
 
-  writeTokenCredentialId = "github-write-token";
-  writeTokenCredential = {
-    LoadCredential = [ "${writeTokenCredentialId}:${envFile "forge-github-write.env"}" ];
+  appKeyCredentialId = "github-app-private-key";
+  appKeyCredential = {
+    LoadCredential = [ "${appKeyCredentialId}:${config.sops.secrets.github_app_private_key.path}" ];
   };
-  writeTokenFileVariable = "FORGE_GITHUB_WRITE_TOKEN_FILE=%d/${writeTokenCredentialId}";
+  appKeyFileVariable = "FORGE_GITHUB_APP_PRIVATE_KEY_FILE=%d/${appKeyCredentialId}";
 
   hardening = {
     NoNewPrivileges = true;
@@ -469,7 +469,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, `github_token` (the frontier's read-only token) when any repository is declared, and `github_write_token` (the write token on Contents, Pull requests, Issues and Workflows of every managed repository) when a repository declares on.ticket or on.feedback. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the write token, a credential from which forge-dispatch, forge-revise and the frontier sync read only GITHUB_TOKEN, as data.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, and `github_app_id` and `github_app_private_key` (the id and private key of the operator's GitHub App, installed on every managed repository) when any repository is declared. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the App private key, a credential only the frontier sync and forge-dispatch are given.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -678,14 +678,20 @@ in
     })
 
     (lib.mkIf hasRepositories {
-      sops.secrets.github_token.sopsFile = cfg.secretsFile;
-      sops.templates."forge-github.env" = envTemplate "GITHUB_TOKEN" "github_token";
+      sops.secrets.github_app_id.sopsFile = cfg.secretsFile;
+      sops.secrets.github_app_private_key = {
+        sopsFile = cfg.secretsFile;
+        owner = cfg.user;
+        mode = "0400";
+      };
+      sops.templates."forge-github-app.env" = envTemplate "FORGE_GITHUB_APP_ID" "github_app_id";
 
       environment.systemPackages = [
         (pkgs.callPackage ../nix/frontier-command.nix {
           forge-runner = cfg.package;
           inherit (cfg) configFile user;
-          githubTokenFile = envFile "forge-github.env";
+          githubAppIdFile = envFile "forge-github-app.env";
+          githubAppPrivateKeyFile = config.sops.secrets.github_app_private_key.path;
         })
       ];
 
@@ -698,15 +704,15 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = envFile "forge-github.env";
+          EnvironmentFile = envFile "forge-github-app.env";
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
-          ]
-          ++ lib.optional hasDispatch writeTokenFileVariable;
+            appKeyFileVariable
+          ];
           ExecStart = "${cfg.package}/bin/forge-frontier sync";
         }
-        // lib.optionalAttrs hasDispatch writeTokenCredential
+        // appKeyCredential
         // hardening;
       };
 
@@ -718,11 +724,6 @@ in
           OnUnitActiveSec = cfg.frontier.pollInterval;
         };
       };
-    })
-
-    (lib.mkIf declaresWorkloads {
-      sops.secrets.github_write_token.sopsFile = cfg.secretsFile;
-      sops.templates."forge-github-write.env" = envTemplate "GITHUB_TOKEN" "github_write_token";
     })
 
     (lib.mkIf (hasWorkers && hasDispatch) {
@@ -791,18 +792,21 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = envFile "forge-runner.env";
+          EnvironmentFile = [
+            (envFile "forge-runner.env")
+            (envFile "forge-github-app.env")
+          ];
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
-            writeTokenFileVariable
+            appKeyFileVariable
           ]
           ++ forgeGitShaVariable;
           ExecStart = "${dispatchInstance} %i";
         }
         // startTimeout dispatchBackstop
         // workloadMemory
-        // writeTokenCredential
+        // appKeyCredential
         // workloadHardening;
       };
     })
@@ -824,18 +828,21 @@ in
           User = cfg.user;
           Group = cfg.user;
           WorkingDirectory = cfg.stateDir;
-          EnvironmentFile = envFile "forge-runner.env";
+          EnvironmentFile = [
+            (envFile "forge-runner.env")
+            (envFile "forge-github-app.env")
+          ];
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
-            writeTokenFileVariable
+            appKeyFileVariable
           ]
           ++ forgeGitShaVariable;
           ExecStart = "${reviseInstance} %i";
         }
         // startTimeout revisionBackstop
         // workloadMemory
-        // writeTokenCredential
+        // appKeyCredential
         // workloadHardening;
       };
     })

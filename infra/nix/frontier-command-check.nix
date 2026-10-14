@@ -13,7 +13,8 @@ let
       echo "argv=$*"
       echo "config=$FORGE_RUNTIME_CONFIG"
       echo "state=''${FORGE_STATE_DIR-unset}"
-      echo "token=''${GITHUB_TOKEN-unset}"
+      echo "app=''${FORGE_GITHUB_APP_ID-unset}"
+      echo "key=''${FORGE_GITHUB_APP_PRIVATE_KEY_FILE-unset}"
       echo "node_options=''${NODE_OPTIONS-unset}"
     '';
   };
@@ -21,14 +22,15 @@ let
   command = callPackage ./frontier-command.nix {
     inherit forge-runner configFile;
     user = "forge-runtime";
-    githubTokenFile = "tokens/github.env";
+    githubAppIdFile = "secrets/app.env";
+    githubAppPrivateKeyFile = "secrets/app-key.pem";
   };
 
   forgeFrontier = lib.getExe command;
 in
 runCommand "frontier-command"
   {
-    meta.description = "Runs the box's forge-frontier command over a stub runtime, checking it only lists, points at the runtime config, and reads GITHUB_TOKEN from the token file as data, never as shell.";
+    meta.description = "Runs the box's forge-frontier command over a stub runtime, checking it only lists, points at the runtime config, and reads FORGE_GITHUB_APP_ID from the App id file as data, never as shell, and points the runtime at the private key file.";
   }
   ''
     cd "$(mktemp -d)"
@@ -50,60 +52,72 @@ runCommand "frontier-command"
     expect 'argv=list' no-dir.out
     expect 'config=${configFile}' no-dir.out
     expect 'state=unset' no-dir.out
-    expect 'token=unset' no-dir.out
+    expect 'app=unset' no-dir.out
+    expect 'key=secrets/app-key.pem' no-dir.out
 
-    mkdir tokens
-    GITHUB_TOKEN=from_the_shell ${forgeFrontier} list > no-file.out
-    expect 'token=unset' no-file.out
+    mkdir secrets
+    FORGE_GITHUB_APP_ID=from_the_shell FORGE_GITHUB_APP_PRIVATE_KEY_FILE=/from/the/shell ${forgeFrontier} list > no-file.out
+    expect 'app=unset' no-file.out
+    expect 'key=secrets/app-key.pem' no-file.out
 
-    printf 'GITHUB_TOKEN=%s\n' github_pat_test > tokens/github.env
+    printf 'FORGE_GITHUB_APP_ID=%s\n' 5313638 > secrets/app.env
     ${forgeFrontier} list > present.out
-    expect 'token=github_pat_test' present.out
+    expect 'app=5313638' present.out
 
     {
       echo 'touch sourced'
       echo 'NODE_OPTIONS=--require=./injected.js'
-      echo 'GITHUB_TOKEN=github_pat_test$(touch expanded)'
-    } > tokens/github.env
+      echo 'FORGE_GITHUB_APP_ID=5313638$(touch expanded)'
+    } > secrets/app.env
     ${forgeFrontier} list > data.out
     if [ -e sourced ] || [ -e expanded ]; then
-      echo "the token file was run as shell"; exit 1
+      echo "the App id file was run as shell"; exit 1
     fi
-    expect 'token=github_pat_test$(touch expanded)' data.out
+    expect 'app=5313638$(touch expanded)' data.out
     expect 'node_options=unset' data.out
 
-    printf 'GITHUB_TOKEN="github_pat_double"\n' > tokens/github.env
+    printf 'FORGE_GITHUB_APP_ID="5313638"\n' > secrets/app.env
     ${forgeFrontier} list > double.out
-    expect 'token=github_pat_double' double.out
-    printf "GITHUB_TOKEN='github_pat_single'\\n" > tokens/github.env
+    expect 'app=5313638' double.out
+    printf "FORGE_GITHUB_APP_ID='5313638'\\n" > secrets/app.env
     ${forgeFrontier} list > single.out
-    expect 'token=github_pat_single' single.out
-    printf '  GITHUB_TOKEN=github_pat_crlf\r\n' > tokens/github.env
+    expect 'app=5313638' single.out
+    printf '  FORGE_GITHUB_APP_ID=5313638\r\n' > secrets/app.env
     ${forgeFrontier} list > crlf.out
-    expect 'token=github_pat_crlf' crlf.out
-    printf 'GITHUB_TOKEN = "github_pat_spaced" \t\n' > tokens/github.env
+    expect 'app=5313638' crlf.out
+    printf 'FORGE_GITHUB_APP_ID = "5313638" \t\n' > secrets/app.env
     ${forgeFrontier} list > spaced.out
-    expect 'token=github_pat_spaced' spaced.out
+    expect 'app=5313638' spaced.out
 
-    rm tokens/github.env
-    ln -s /dev/null tokens/github.env
+    rm secrets/app.env
+    ln -s /dev/null secrets/app.env
     refused list
-    expect 'forge-frontier: tokens/github.env is not a regular file' refused.out
-    rm tokens/github.env
-    printf 'GITHUB_TOKEN=%s\n' github_pat_test > tokens/github.env
+    expect 'forge-frontier: secrets/app.env is not a regular file' refused.out
+    rm secrets/app.env
+    printf 'FORGE_GITHUB_APP_ID=%s\n' 5313638 > secrets/app.env
+
+    ln -s /dev/null secrets/app-key.pem
+    refused list
+    expect 'forge-frontier: secrets/app-key.pem is not a regular file' refused.out
+    rm secrets/app-key.pem
+    printf 'not a key\n' > secrets/app-key.pem
 
     refused sync
     refused
     refused list extra
 
-    chmod 000 tokens/github.env
+    chmod 000 secrets/app.env
     refused list
-    expect 'forge-frontier: cannot read tokens/github.env; run it as the forge-runtime user: sudo -u forge-runtime forge-frontier list' refused.out
-    chmod 600 tokens/github.env
-    chmod 000 tokens
+    expect 'forge-frontier: cannot read secrets/app.env; run it as the forge-runtime user: sudo -u forge-runtime forge-frontier list' refused.out
+    chmod 600 secrets/app.env
+    chmod 000 secrets/app-key.pem
     refused list
-    expect 'forge-frontier: cannot read tokens/github.env; run it as the forge-runtime user: sudo -u forge-runtime forge-frontier list' refused.out
-    chmod 700 tokens
+    expect 'forge-frontier: cannot read secrets/app-key.pem; run it as the forge-runtime user: sudo -u forge-runtime forge-frontier list' refused.out
+    chmod 600 secrets/app-key.pem
+    chmod 000 secrets
+    refused list
+    expect 'forge-frontier: cannot read secrets/app.env; run it as the forge-runtime user: sudo -u forge-runtime forge-frontier list' refused.out
+    chmod 700 secrets
 
-    echo "the box's forge-frontier command only lists, and reads GITHUB_TOKEN from the token file as data" > $out
+    echo "the box's forge-frontier command only lists, reads FORGE_GITHUB_APP_ID from the App id file as data, and points the runtime at the private key file" > $out
   ''
