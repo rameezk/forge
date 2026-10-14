@@ -22,6 +22,13 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import { main } from '../src/dispatch-main.ts';
+import {
+  APP_ID,
+  fakeGithubApp,
+  routedThrough,
+  type FakeGithubApp,
+  tokenFor,
+} from '../../shared/test/fixtures/fake-github-app.ts';
 import { NARRATION_INSTRUCTION, UNATTENDED_INSTRUCTION } from '../src/harness.ts';
 import {
   COVERAGE_PROMPT,
@@ -61,7 +68,11 @@ const {
   requestRecord: REQUEST_RECORD_EXTENSION,
 } = PI_EXTENSIONS;
 
-const GITHUB_TOKEN = 'github_pat_test';
+const WRITE_TOKEN = tokenFor('write', 'rameezk/forge');
+
+const WRITE_TOKEN_AFTER = tokenFor('write', 'rameezk/forge', 2);
+
+const WORKLOAD_TOKEN = tokenFor('workload', 'rameezk/forge');
 
 const TICKET_URL = 'https://github.com/rameezk/forge/issues/113';
 
@@ -271,7 +282,10 @@ interface Scenario {
   failing?: boolean;
   seed?: (store: Store) => void;
   prompt?: string;
-  tokenFile?: string | null;
+  installed?: string[];
+  lifetimeSeconds?: number;
+  appId?: string | null;
+  privateKey?: string | null;
   piOutput?: string;
   gitIdentity?: typeof GIT_IDENTITY | null;
   maxConcurrent?: number;
@@ -349,6 +363,8 @@ interface Outcome {
   runs: RunRecord[];
   dispatches: DispatchRecord[];
   pi: PiCall | null;
+  piLater: { githubTokenFileContents: string; credential: string } | null;
+  app: FakeGithubApp;
   bwrap: BwrapCall | null;
   nix: NixCall[];
   requests: GraphqlRequest[];
@@ -410,13 +426,11 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       },
     }),
   );
-  const tokenFile = join(stateDir, 'github-write.env');
-  const tokenFileContents =
-    scenario.tokenFile === undefined
-      ? `GITHUB_TOKEN=${GITHUB_TOKEN}\n`
-      : scenario.tokenFile;
-  if (tokenFileContents !== null) {
-    writeFileSync(tokenFile, tokenFileContents);
+  const app = fakeGithubApp(scenario.installed ?? ['rameezk/forge'], scenario.lifetimeSeconds);
+  const privateKeyFile = join(stateDir, 'github-app-private-key.pem');
+  const privateKey = scenario.privateKey === undefined ? app.privateKey : scenario.privateKey;
+  if (privateKey !== null) {
+    writeFileSync(privateKeyFile, privateKey);
   }
   const github = fakeGithub(
     scenario.responses ?? {
@@ -464,8 +478,8 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         },
         ...(scenario.bwrapFailure === undefined ? {} : { failure: scenario.bwrapFailure }),
       }),
-      FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
-      GITHUB_TOKEN: 'github_pat_from_the_environment',
+      ...(scenario.appId === null ? {} : { FORGE_GITHUB_APP_ID: scenario.appId ?? APP_ID }),
+      FORGE_GITHUB_APP_PRIVATE_KEY_FILE: privateKeyFile,
       OPENROUTER_API_KEY: 'sk-or-test',
       ...(scenario.subscription === true
         ? { CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN }
@@ -478,7 +492,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       }),
       ...scenario.env,
     },
-    github.fetch,
+    routedThrough(app, github.fetch),
   )
     .catch((error: unknown) => {
       if (scenario.failing !== true) throw error;
@@ -504,6 +518,12 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       pi: existsSync(record)
         ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall)
         : null,
+      piLater: existsSync(`${record}.later`)
+        ? (JSON.parse(readFileSync(`${record}.later`, 'utf8')) as {
+            githubTokenFileContents: string;
+            credential: string;
+          })
+        : null,
       bwrap: existsSync(bwrapRecord)
         ? (JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall)
         : null,
@@ -515,6 +535,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         : [],
       requests: github.requests,
       labelWrites: github.labelWrites,
+      app,
     };
   } finally {
     store.close();
@@ -536,17 +557,17 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
   assert.deepEqual(requests, [
     {
       operation: 'LabelledIssues',
-      authorization: `bearer ${GITHUB_TOKEN}`,
+      authorization: `bearer ${WRITE_TOKEN}`,
       variables: { owner: 'rameezk', name: 'forge', label: 'forge:running', first: 100, after: null },
     },
     {
       operation: 'Ticket',
-      authorization: `bearer ${GITHUB_TOKEN}`,
+      authorization: `bearer ${WRITE_TOKEN}`,
       variables: { owner: 'rameezk', name: 'forge', number: 113 },
     },
     {
       operation: 'ClosingPullRequests',
-      authorization: `bearer ${GITHUB_TOKEN}`,
+      authorization: `bearer ${WRITE_TOKEN_AFTER}`,
       variables: { owner: 'rameezk', name: 'forge', number: 113 },
     },
   ]);
@@ -597,7 +618,7 @@ const githubCredential = (
 ): string => {
   assert.ok(pi.githubTokenFile);
   mkdirSync(dirname(pi.githubTokenFile), { recursive: true });
-  writeFileSync(pi.githubTokenFile, GITHUB_TOKEN);
+  writeFileSync(pi.githubTokenFile, WORKLOAD_TOKEN);
   return execFileSync('git', ['credential', 'fill'], {
     cwd: pi.cwd,
     env: { ...pi.env, GIT_TERMINAL_PROMPT: '0', ...env },
@@ -617,7 +638,7 @@ test('given a dispatched workload on a box whose system git config already has a
   assert.ok(pi);
   const credential = githubCredential(pi, { GIT_CONFIG_SYSTEM: systemConfig });
   assert.match(credential, /^username=x-access-token$/m);
-  assert.match(credential, new RegExp(`^password=${GITHUB_TOKEN}$`, 'm'));
+  assert.match(credential, new RegExp(`^password=${WORKLOAD_TOKEN}$`, 'm'));
   const home = pi.env.HOME;
   assert.ok(home);
   for (const file of ['.gitconfig', '.git-credentials', '.config/git']) {
@@ -639,7 +660,7 @@ test('given a managed repository, when it is dispatched, then its clone runs wit
 
   assert.ok(pi);
   assert.equal(readFileSync(credential, 'utf8'), githubCredential(pi));
-  assert.match(readFileSync(credential, 'utf8'), new RegExp(`^password=${GITHUB_TOKEN}$`, 'm'));
+  assert.match(readFileSync(credential, 'utf8'), new RegExp(`^password=${WORKLOAD_TOKEN}$`, 'm'));
 });
 
 test('given a subscription worker and a runner environment holding both provider credentials, when its repository is cloned, then no git process on the box sees either credential', async () => {
@@ -650,7 +671,6 @@ test('given a subscription worker and a runner environment holding both provider
   await dispatch({ subscription: true, gitConfig: { 'core.hooksPath': hooks } });
 
   const environment = readFileSync(seen, 'utf8');
-  assert.match(environment, /^GITHUB_TOKEN=/m);
   assert.doesNotMatch(environment, /CLAUDE_CODE_OAUTH_TOKEN|sk-ant-oat|OPENROUTER_API_KEY|sk-or-test/);
 });
 
@@ -661,14 +681,14 @@ test('given a frontier ticket labelled forge:ready, when it is dispatched, then 
     {
       method: 'POST',
       path: '/repos/rameezk/forge/issues/113/labels',
-      authorization: `bearer ${GITHUB_TOKEN}`,
+      authorization: `bearer ${WRITE_TOKEN}`,
       body: { labels: ['forge:running'] },
       piStarted: false,
     },
     {
       method: 'DELETE',
       path: '/repos/rameezk/forge/issues/113/labels/forge%3Aready',
-      authorization: `bearer ${GITHUB_TOKEN}`,
+      authorization: `bearer ${WRITE_TOKEN}`,
       body: null,
       piStarted: false,
     },
@@ -875,21 +895,21 @@ const finalLabelWrites = (label: string): LabelWrite[] => [
   {
     method: 'POST',
     path: '/repos/rameezk/forge/issues/113/labels',
-    authorization: `bearer ${GITHUB_TOKEN}`,
+    authorization: `bearer ${WRITE_TOKEN_AFTER}`,
     body: { labels: [label] },
     piStarted: true,
   },
   {
     method: 'DELETE',
     path: '/repos/rameezk/forge/issues/113/labels/forge%3Arunning',
-    authorization: `bearer ${GITHUB_TOKEN}`,
+    authorization: `bearer ${WRITE_TOKEN_AFTER}`,
     body: null,
     piStarted: true,
   },
   {
     method: 'DELETE',
     path: '/repos/rameezk/forge/issues/113/labels/forge%3Aready',
-    authorization: `bearer ${GITHUB_TOKEN}`,
+    authorization: `bearer ${WRITE_TOKEN_AFTER}`,
     body: null,
     piStarted: true,
   },
@@ -1018,21 +1038,21 @@ const interruptedLabelWrites = (number: number): LabelWrite[] => [
   {
     method: 'POST',
     path: `/repos/rameezk/forge/issues/${number}/labels`,
-    authorization: `bearer ${GITHUB_TOKEN}`,
+    authorization: `bearer ${WRITE_TOKEN}`,
     body: { labels: ['forge:failed'] },
     piStarted: false,
   },
   {
     method: 'DELETE',
     path: `/repos/rameezk/forge/issues/${number}/labels/forge%3Arunning`,
-    authorization: `bearer ${GITHUB_TOKEN}`,
+    authorization: `bearer ${WRITE_TOKEN}`,
     body: null,
     piStarted: false,
   },
   {
     method: 'DELETE',
     path: `/repos/rameezk/forge/issues/${number}/labels/forge%3Aready`,
-    authorization: `bearer ${GITHUB_TOKEN}`,
+    authorization: `bearer ${WRITE_TOKEN}`,
     body: null,
     piStarted: false,
   },
@@ -1231,7 +1251,7 @@ test('given a ticket labelled forge:ready that has an open blocker, one that is 
     { issue: 109, fixture: 'closed-ticket', label: true, forgeLabels: true, reason: /forge#109 is not dispatchable: it is closed/ },
     { issue: 112, fixture: 'spec-ticket', label: true, forgeLabels: true, reason: /forge#112 is not dispatchable: it is not labelled ready-for-agent/ },
     { issue: 113, fixture: 'frontier-ticket', label: false, forgeLabels: true, reason: /forge#113 is not dispatchable: it is not labelled forge:ready/ },
-    { issue: 113, fixture: 'frontier-ticket', label: false, forgeLabels: false, reason: /forge#113 is not dispatchable: the forge labels are missing from rameezk\/forge, and the frontier sync creates them once it has the GitHub write token/ },
+    { issue: 113, fixture: 'frontier-ticket', label: false, forgeLabels: false, reason: /forge#113 is not dispatchable: the forge labels are missing from rameezk\/forge, and the frontier sync creates them once it can write to GitHub as the App/ },
   ];
   for (const { issue, fixture, label, forgeLabels, reason } of cases) {
     const response = label
@@ -1477,19 +1497,39 @@ test('given an issue GitHub cannot find and a repository that is not declared, w
   );
 });
 
-test('given a GitHub write-token file that also sets NODE_OPTIONS and quotes the token, and a different GITHUB_TOKEN in the environment, when forge-dispatch runs, then every GitHub call uses the file token, and pi reads it from a file and gets nothing else from the file', async () => {
-  const { requests, labelWrites, pi } = await dispatch({
-    tokenFile: `NODE_OPTIONS=--require /var/lib/forge/planted.js\n  GITHUB_TOKEN = "${GITHUB_TOKEN}"  \n`,
-  });
+test('given an installed repository, when forge-dispatch runs, then every GitHub call forge makes uses a write token minted for that repository, and the workload gets its own token from a file and nothing else', async () => {
+  const { requests, labelWrites, pi, app } = await dispatch();
 
   assert.deepEqual(
     new Set([...requests, ...labelWrites].map((request) => request.authorization)),
-    new Set([`bearer ${GITHUB_TOKEN}`]),
+    new Set([`bearer ${WRITE_TOKEN}`, `bearer ${WRITE_TOKEN_AFTER}`]),
   );
   assert.ok(pi);
-  assert.equal(pi.githubTokenFileContents, GITHUB_TOKEN);
+  assert.equal(pi.githubTokenFileContents, WORKLOAD_TOKEN);
   assert.equal(pi.githubToken, undefined);
   assert.equal(pi.nodeOptions, undefined);
+  assert.deepEqual(
+    app.mints.map(({ kind, repository }) => `${kind} ${repository}`),
+    ['write rameezk/forge', 'workload rameezk/forge', 'write rameezk/forge'],
+  );
+});
+
+test('given a dispatched workload, when its token is minted, then it is scoped to its own repository alone with the workload permissions', async () => {
+  const { app } = await dispatch();
+
+  const [workload, ...others] = app.mints.filter((mint) => mint.kind === 'workload');
+  assert.deepEqual(others, []);
+  assert.deepEqual(workload?.body, {
+    repositories: ['forge'],
+    permissions: {
+      contents: 'write',
+      issues: 'write',
+      pull_requests: 'write',
+      workflows: 'write',
+      checks: 'read',
+      actions: 'read',
+    },
+  });
 });
 
 test('given a runner whose own environment holds its git config, the write-token file and more, when a ticket is dispatched, then the harness environment holds only the system settings, its HOME, the OpenRouter key, the path of the write-token file, the git identity and credential helper, the NixOS environment marker, and pi\'s own variables', async () => {
@@ -1527,9 +1567,9 @@ test('given a dispatched workload, when pi starts, then git authenticates with t
   assert.ok(pi);
   assert.ok(bwrap);
   assert.ok(pi.githubTokenFile);
-  assert.equal(pi.githubTokenFileContents, GITHUB_TOKEN);
+  assert.equal(pi.githubTokenFileContents, WORKLOAD_TOKEN);
   assert.match(pi.credential ?? '', /^username=x-access-token$/m);
-  assert.match(pi.credential ?? '', new RegExp(`^password=${GITHUB_TOKEN}$`, 'm'));
+  assert.match(pi.credential ?? '', new RegExp(`^password=${WORKLOAD_TOKEN}$`, 'm'));
   const dir = dirname(pi.githubTokenFile);
   const binds = bwrap.argv.flatMap((arg, index) =>
     bwrap.argv[index - 1] === '--ro-bind' && bwrap.argv[index + 1] === dir ? [arg] : [],
@@ -1538,10 +1578,41 @@ test('given a dispatched workload, when pi starts, then git authenticates with t
   assert.equal(existsSync(dir), false);
 });
 
-test('given no GitHub write-token file, or one that sets no token, when forge-dispatch runs, then it fails naming the missing write token without asking GitHub', async () => {
-  for (const tokenFile of [null, 'OTHER=value\n']) {
-    await assert.rejects(dispatch({ tokenFile }), /GitHub write token missing/);
+test('given no GitHub App id, or no private key, when forge-dispatch runs, then it fails naming what is missing without asking GitHub for anything', async () => {
+  for (const [scenario, missing] of [
+    [{ appId: null }, /GitHub App id missing/],
+    [{ privateKey: null }, /GitHub App private key missing/],
+    [{ privateKey: '' }, /GitHub App private key missing/],
+  ] as const) {
+    await assert.rejects(dispatch(scenario), missing);
   }
+});
+
+test('given a repository the GitHub App is not installed on, when forge-dispatch runs, then it fails saying so, without claiming the ticket or starting a workload', async () => {
+  const { failure, labelWrites, pi, app } = await dispatch({ installed: [], failing: true });
+
+  assert.match(String(failure), /the GitHub App is not installed on rameezk\/forge/);
+  assert.deepEqual(labelWrites, []);
+  assert.equal(pi, null);
+  assert.deepEqual(app.mints, []);
+});
+
+test('given a workload that outlives its token, when forge-dispatch runs, then the token file is replaced before the token expires, git authenticates with the newer token, and every token minted is redacted from the transcript', async () => {
+  const first = tokenFor('workload', 'rameezk/forge', 1);
+  const second = tokenFor('workload', 'rameezk/forge', 2);
+
+  const { pi, piLater, app, transcript } = await dispatch({
+    lifetimeSeconds: 2,
+    piLingerMs: 3500,
+  });
+
+  assert.equal(pi?.githubTokenFileContents, first);
+  assert.ok(piLater);
+  assert.notEqual(piLater.githubTokenFileContents, first);
+  assert.match(piLater.credential, new RegExp(`^password=${piLater.githubTokenFileContents}$`, 'm'));
+  assert.ok(app.mints.filter((mint) => mint.kind === 'workload').length >= 2);
+  assert.match(transcript, /token \[redacted\]/);
+  assert.ok(!transcript.includes(first) && !transcript.includes(second));
 });
 
 test('given a runtime config with no git identity, when forge-dispatch runs, then it fails naming the missing identity', async () => {
@@ -1568,13 +1639,13 @@ test('given an agent that reads the GitHub token from the state directory and re
   const piOutput = join(mkdtempSync(join(tmpdir(), 'forge-output-')), 'pi.jsonl');
   writeFileSync(
     piOutput,
-    readFileSync(PI_OUTPUT, 'utf8').replaceAll('All done.', `All done. ${GITHUB_TOKEN}`),
+    readFileSync(PI_OUTPUT, 'utf8').replaceAll('All done.', `All done. ${WORKLOAD_TOKEN}`),
   );
 
   const { transcript } = await dispatch({ piOutput });
 
   assert.match(transcript, /All done\. \[redacted\]/);
-  assert.ok(!transcript.includes(GITHUB_TOKEN));
+  assert.ok(!transcript.includes(WORKLOAD_TOKEN));
 });
 
 test('given work-on skill directories that pi would not load as work-on, because their frontmatter names another skill or gives no description, when forge-dispatch runs, then pi never starts and the skill is not found, while one naming itself only by its directory is found', async () => {

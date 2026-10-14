@@ -7,7 +7,7 @@ import type { Store } from './store.ts';
 export interface SettleRunningOptions {
   store: Store;
   fetch: Fetch;
-  token: () => string;
+  token: () => Promise<string>;
   repository: string;
   github: string;
   now: () => string;
@@ -24,7 +24,7 @@ export const settleRunningTickets = async ({
   log,
 }: SettleRunningOptions): Promise<boolean> => {
   try {
-    const writeToken = token();
+    const writeToken = await token();
     for (const issue of await queryLabelled(fetch, writeToken, github, FORGE_RUNNING)) {
       const settled = store.reconcileDispatch({ repository, ...issue }, now());
       if (settled === null) continue;

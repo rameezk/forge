@@ -177,7 +177,7 @@ process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
 if (env.FAKE_PI_REQUESTS) writeFileSync(Number(env.FORGE_PI_REQUEST_RECORD_FD), readFileSync(env.FAKE_PI_REQUESTS, 'utf8').replaceAll('$CWD', process.cwd()));
 if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
 process.exitCode = Number(env.FAKE_PI_EXIT ?? '0');
-if (env.FAKE_PI_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_PI_LINGER_MS));
+if (env.FAKE_PI_LINGER_MS) setTimeout(() => { if (env.FORGE_GITHUB_TOKEN_FILE && existsSync(env.FORGE_GITHUB_TOKEN_FILE)) writeFileSync(env.FAKE_PI_RECORD + '.later', JSON.stringify({ githubTokenFileContents: readFileSync(env.FORGE_GITHUB_TOKEN_FILE, 'utf8'), credential: spawnSync('git', ['credential', 'fill'], { input: 'protocol=https\\nhost=github.com\\n\\n', encoding: 'utf8', env: { ...env, GIT_TERMINAL_PROMPT: '0' } }).stdout })); if (env.FORGE_GITHUB_TOKEN_FILE && existsSync(env.FORGE_GITHUB_TOKEN_FILE)) process.stdout.write(JSON.stringify({ type: 'tool_execution_end', toolCallId: 'call_2', toolName: 'bash', result: { content: [{ type: 'text', text: 'token ' + readFileSync(env.FORGE_GITHUB_TOKEN_FILE, 'utf8') + '\\n' }] }, isError: false }) + '\\n'); }, Number(env.FAKE_PI_LINGER_MS));
 if (env.FAKE_BWRAP_STATUS_FD) process.on('exit', (code) => writeFileSync(Number(env.FAKE_BWRAP_STATUS_FD), JSON.stringify({ 'exit-code': code }) + '\\n'));
 `;
 

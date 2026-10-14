@@ -7,6 +7,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { GITHUB_GRAPHQL_API, Store } from '@forge/shared';
 import type { PolledFrontier, Ticket } from '@forge/shared';
 import { main } from '../src/main.ts';
+import {
+  APP_ID,
+  fakeGithubApp,
+  routedThrough,
+  tokenFor,
+  type FakeGithubApp,
+} from '../../shared/test/fixtures/fake-github-app.ts';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
 
@@ -29,7 +36,7 @@ const recorded = (name: string): RecordedPage[] =>
 const endCursor = (page: RecordedPage | undefined): string | null | undefined =>
   page?.data?.repository?.issues.pageInfo.endCursor;
 
-const GITHUB_TOKEN = 'github_pat_test';
+const GITHUB_TOKEN = tokenFor('read', 'rameezk/forge');
 
 interface Request {
   url: string;
@@ -72,9 +79,17 @@ const replaying = (responses: Record<string, RecordedPage[]>) => {
 const declaring = (
   repositories: Record<string, { github: string; on?: { ticket?: string } }>,
   dispatch?: { gitIdentity: { name: string; email: string } },
+  notInstalled: string[] = [],
 ) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-frontier-'));
   const configPath = join(stateDir, 'runtime.json');
+  const app = fakeGithubApp(
+    Object.values(repositories)
+      .map(({ github }) => github)
+      .filter((github) => !notInstalled.includes(github)),
+  );
+  const keyPath = join(stateDir, 'github-app-private-key');
+  writeFileSync(keyPath, app.privateKey);
   writeFileSync(
     configPath,
     JSON.stringify({
@@ -86,13 +101,22 @@ const declaring = (
   );
   return {
     stateDir,
+    app,
     env: {
       FORGE_RUNTIME_CONFIG: configPath,
       FORGE_STATE_DIR: stateDir,
-      GITHUB_TOKEN,
-    },
+      FORGE_GITHUB_APP_ID: APP_ID,
+      FORGE_GITHUB_APP_PRIVATE_KEY_FILE: keyPath,
+    } as Record<string, string | undefined>,
   };
 };
+
+const run = (
+  app: FakeGithubApp,
+  argv: string[],
+  env: Record<string, string | undefined>,
+  fetch: typeof globalThis.fetch,
+): Promise<number> => main(argv, env, routedThrough(app, fetch));
 
 const storedFrontier = (stateDir: string) => {
   const store = Store.open(join(stateDir, 'forge.db'));
@@ -104,11 +128,11 @@ const storedFrontier = (stateDir: string) => {
 };
 
 test('given a declared repository whose recorded response holds unblocked ready-for-agent issues and a blocked one labelled forge:ready, when sync runs, then the store holds the unblocked tickets, the blocked one as queued, which are labelled forge:ready, and when the repository was polled', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
   const github = replaying({ 'rameezk/forge': recorded('frontier') });
 
   const before = new Date().toISOString();
-  const code = await main(['sync'], env, github.fetch);
+  const code = await run(app, ['sync'], env, github.fetch);
   const after = new Date().toISOString();
 
   assert.equal(code, 0);
@@ -173,7 +197,7 @@ const FORGE_LABELS = [
   { name: 'forge:failed', color: 'd93f0b', description: "Forge's agent left no pull request; see forge's dashboard, and set forge:ready to retry" },
 ];
 
-const WRITE_TOKEN = 'github_pat_write';
+const WRITE_TOKEN = tokenFor('write', 'rameezk/forge');
 
 interface LabelCall {
   method: string;
@@ -219,24 +243,18 @@ const labelling = (
   return { fetch, calls };
 };
 
-const withWriteToken = (env: Record<string, string>, stateDir: string, contents: string) => {
-  const path = join(stateDir, 'github-write.env');
-  writeFileSync(path, contents);
-  return { ...env, FORGE_GITHUB_WRITE_TOKEN_FILE: path };
-};
-
-test('given a declared repository missing two forge labels and holding one with a stale colour, when sync runs with a GitHub write-token file, then all four forge labels exist with their fixed descriptions and colours, written with the write token', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
+test('given a declared repository missing two forge labels and holding one with a stale colour, when sync runs on a host that dispatches, then all four forge labels exist with their fixed descriptions and colours, written with a write token scoped to that repository alone', async () => {
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   const [ready, running, done, failed] = FORGE_LABELS;
   assert.ok(ready && running && done && failed);
-  const github = labelling(replaying({ 'rameezk/forge': recorded('frontier') }), {
+  const github = labelling(runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), []), {
     'forge:running': { color: 'ededed', description: running.description },
     'forge:done': { color: done.color.toUpperCase(), description: done.description },
   });
 
-  const code = await main(
+  const code = await run(app, 
     ['sync'],
-    withWriteToken(env, stateDir, `GITHUB_TOKEN=${WRITE_TOKEN}\n`),
+    env,
     github.fetch,
   );
 
@@ -256,32 +274,21 @@ test('given a declared repository missing two forge labels and holding one with 
     ],
   );
   assert.ok(github.calls.every(({ authorization }) => authorization === `bearer ${WRITE_TOKEN}`));
-});
-
-test('given a GitHub write-token file that sets no token, when sync runs, then the frontier is still stored, and the missing write token is reported with a non-zero exit code', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
-  const github = labelling(replaying({ 'rameezk/forge': recorded('frontier') }), {});
-  const stderr: string[] = [];
-  t.mock.method(console, 'error', (line: string) => stderr.push(line));
-
-  const code = await main(
-    ['sync'],
-    withWriteToken(env, stateDir, 'OTHER=value\n'),
-    github.fetch,
+  assert.deepEqual(
+    app.mints.map(({ kind, body }) => ({ kind, repositories: body.repositories })),
+    [
+      { kind: 'read', repositories: ['forge'] },
+      { kind: 'write', repositories: ['forge'] },
+    ],
   );
-
-  assert.notEqual(code, 0);
-  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 7);
-  assert.deepEqual(github.calls, []);
-  assert.deepEqual(stderr, ['forge: could not ensure the forge labels: GitHub write token missing']);
 });
 
 test('given a declared repository whose recorded response spans several pages, when sync runs, then tickets from every page are stored, and a blocked ticket not labelled forge:ready stays out', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
   const pages = recorded('frontier-paged');
   const github = replaying({ 'rameezk/forge': pages });
 
-  const code = await main(['sync'], env, github.fetch);
+  const code = await run(app, ['sync'], env, github.fetch);
 
   assert.equal(code, 0);
   const [forge] = storedFrontier(stateDir);
@@ -315,7 +322,7 @@ const staleTicket = (github: string, number: number): Ticket => ({
 });
 
 test('given two declared repositories with stored snapshots where GitHub now fails for one, when sync runs, then the healthy snapshot is replaced and the failing one keeps its previous tickets and polled time with the error as its last error', async () => {
-  const { stateDir, env } = declaring({
+  const { stateDir, env, app } = declaring({
     forge: { github: 'rameezk/forge' },
     gone: { github: 'rameezk/forge-does-not-exist' },
   });
@@ -340,7 +347,7 @@ test('given two declared repositories with stored snapshots where GitHub now fai
   });
 
   const before = new Date().toISOString();
-  const code = await main(['sync'], env, github.fetch);
+  const code = await run(app, ['sync'], env, github.fetch);
   const after = new Date().toISOString();
 
   assert.notEqual(code, 0);
@@ -366,12 +373,27 @@ test('given two declared repositories with stored snapshots where GitHub now fai
   });
 });
 
-for (const [absence, token] of [
-  ['no', undefined],
-  ['an empty', ''],
-] as const) {
-  test(`given ${absence} GITHUB_TOKEN, when sync runs, then every declared repository records a token-missing error, no GitHub request is made and the exit code is non-zero`, async () => {
-    const { stateDir, env } = declaring({
+const MISSING_APP = [
+  ['no App id', 'GitHub App id missing', () => ({ FORGE_GITHUB_APP_ID: undefined })],
+  [
+    'no private key file',
+    'GitHub App private key missing',
+    () => ({ FORGE_GITHUB_APP_PRIVATE_KEY_FILE: undefined }),
+  ],
+  [
+    'an empty private key file',
+    'GitHub App private key missing',
+    (stateDir: string) => {
+      const path = join(stateDir, 'empty-private-key');
+      writeFileSync(path, '');
+      return { FORGE_GITHUB_APP_PRIVATE_KEY_FILE: path };
+    },
+  ],
+] as const;
+
+for (const [absence, message, override] of MISSING_APP) {
+  test(`given ${absence}, when sync runs, then every declared repository records the missing App credential, no GitHub request is made and the exit code is non-zero`, async () => {
+    const { stateDir, env, app } = declaring({
       forge: { github: 'rameezk/forge' },
       fresh: { github: 'rameezk/fresh' },
     });
@@ -386,9 +408,9 @@ for (const [absence, token] of [
     ]);
     const github = replaying({ 'rameezk/forge': recorded('frontier') });
 
-    const code = await main(
+    const code = await run(app, 
       ['sync'],
-      { ...env, GITHUB_TOKEN: token },
+      { ...env, ...override(stateDir) },
       github.fetch,
     );
 
@@ -397,7 +419,7 @@ for (const [absence, token] of [
     const stored = storedFrontier(stateDir);
     assert.deepEqual(
       stored.map(({ lastError }) => lastError?.message),
-      ['GitHub token missing', 'GitHub token missing'],
+      [message, message],
     );
     assert.deepEqual(
       stored.map(({ repository, polledAt, tickets }) => ({
@@ -418,7 +440,7 @@ for (const [absence, token] of [
 }
 
 test('given stored rows for a repository no longer declared, when sync runs, then those rows are gone', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
   seeding(stateDir, [
     {
       repository: 'retired',
@@ -429,7 +451,7 @@ test('given stored rows for a repository no longer declared, when sync runs, the
   ]);
   const github = replaying({ 'rameezk/forge': recorded('frontier') });
 
-  const code = await main(['sync'], env, github.fetch);
+  const code = await run(app, ['sync'], env, github.fetch);
 
   assert.equal(code, 0);
   assert.deepEqual(
@@ -452,12 +474,12 @@ test('given stored rows for a repository no longer declared, when sync runs, the
 });
 
 test('given a repository whose paging never advances past its first cursor, when sync runs, then it records the stalled paging as its error instead of polling forever', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
   const [first] = recorded('frontier-paged');
   assert.ok(first);
   const github = replaying({ 'rameezk/forge': [first, first] });
 
-  const code = await main(['sync'], env, github.fetch);
+  const code = await run(app, ['sync'], env, github.fetch);
 
   assert.notEqual(code, 0);
   assert.equal(github.requests.length, 2);
@@ -492,7 +514,7 @@ const reshaped = (
   });
 
 test('given declared repositories and recorded responses with frontier tickets, when list runs, then the frontier is printed grouped by repository and ordered oldest first, and a repository with none says so', async (t) => {
-  const { env } = declaring({
+  const { env, app } = declaring({
     forge: { github: 'rameezk/forge' },
     mirror: { github: 'rameezk/forge-mirror' },
     quiet: { github: 'rameezk/quiet' },
@@ -509,7 +531,7 @@ test('given declared repositories and recorded responses with frontier tickets, 
   });
   const output = printing(t);
 
-  const code = await main(['list'], env, github.fetch);
+  const code = await run(app, ['list'], env, github.fetch);
 
   assert.equal(code, 0);
   assert.equal(output.stderr(), '');
@@ -551,7 +573,7 @@ test('given declared repositories and recorded responses with frontier tickets, 
 });
 
 test('given a store holding an existing snapshot, when list runs, then the store is unchanged', async (t) => {
-  const { stateDir, env } = declaring({
+  const { stateDir, env, app } = declaring({
     forge: { github: 'rameezk/forge' },
     fresh: { github: 'rameezk/fresh' },
   });
@@ -576,7 +598,7 @@ test('given a store holding an existing snapshot, when list runs, then the store
   });
   printing(t);
 
-  const code = await main(['list'], env, github.fetch);
+  const code = await run(app, ['list'], env, github.fetch);
 
   assert.equal(code, 0);
   assert.equal(github.requests.length, 2);
@@ -584,7 +606,7 @@ test('given a store holding an existing snapshot, when list runs, then the store
 });
 
 test('given GitHub fails for one of two declared repositories, when list runs, then the healthy frontier is printed, the failing repository shows its error and the exit code is non-zero', async (t) => {
-  const { env } = declaring({
+  const { env, app } = declaring({
     gone: { github: 'rameezk/forge-does-not-exist' },
     mirror: { github: 'rameezk/forge-mirror' },
   });
@@ -594,7 +616,7 @@ test('given GitHub fails for one of two declared repositories, when list runs, t
   });
   const output = printing(t);
 
-  const code = await main(['list'], env, github.fetch);
+  const code = await run(app, ['list'], env, github.fetch);
 
   assert.notEqual(code, 0);
   assert.equal(
@@ -611,21 +633,18 @@ test('given GitHub fails for one of two declared repositories, when list runs, t
   );
 });
 
-for (const [absence, token] of [
-  ['no', undefined],
-  ['an empty', ''],
-] as const) {
-  test(`given ${absence} GITHUB_TOKEN, when list runs, then every declared repository shows the token-missing error, no GitHub request is made and the exit code is non-zero`, async (t) => {
-    const { env } = declaring({
+for (const [absence, message, override] of MISSING_APP) {
+  test(`given ${absence}, when list runs, then every declared repository shows the missing App credential, no GitHub request is made and the exit code is non-zero`, async (t) => {
+    const { stateDir, env, app } = declaring({
       forge: { github: 'rameezk/forge' },
       fresh: { github: 'rameezk/fresh' },
     });
     const github = replaying({ 'rameezk/forge': recorded('frontier') });
     const output = printing(t);
 
-    const code = await main(
+    const code = await run(app, 
       ['list'],
-      { ...env, GITHUB_TOKEN: token },
+      { ...env, ...override(stateDir) },
       github.fetch,
     );
 
@@ -635,17 +654,17 @@ for (const [absence, token] of [
       output.stdout(),
       [
         'forge (rameezk/forge)',
-        '  error: GitHub token missing',
+        `  error: ${message}`,
         '',
         'fresh (rameezk/fresh)',
-        '  error: GitHub token missing',
+        `  error: ${message}`,
       ].join('\n'),
     );
   });
 }
 
 test('given GitHub text carrying terminal control characters, when list runs, then they and bidi or format characters are stripped before printing', async (t) => {
-  const { env } = declaring({ forge: { github: 'rameezk/forge' } });
+  const { env, app } = declaring({ forge: { github: 'rameezk/forge' } });
   const github = replaying({
     'rameezk/forge': reshaped('frontier', ([node]) => [
       {
@@ -659,7 +678,7 @@ test('given GitHub text carrying terminal control characters, when list runs, th
   });
   const output = printing(t);
 
-  const code = await main(['list'], env, github.fetch);
+  const code = await run(app, ['list'], env, github.fetch);
 
   assert.equal(code, 0);
   assert.equal(
@@ -670,43 +689,6 @@ test('given GitHub text carrying terminal control characters, when list runs, th
       '      https://github.com/rameezk/forge/issues/57[8m',
       '      spec #54 31mFrontier discovery, created 2026-09-28',
     ].join('\n'),
-  );
-});
-
-test('given a GITHUB_TOKEN carrying a control character, when list runs, then it reports a malformed token without echoing it and makes no GitHub request', async (t) => {
-  const { env } = declaring({ forge: { github: 'rameezk/forge' } });
-  const github = replaying({ 'rameezk/forge': recorded('frontier') });
-  const output = printing(t);
-
-  const code = await main(
-    ['list'],
-    { ...env, GITHUB_TOKEN: 'github_pat_se\rcret' },
-    github.fetch,
-  );
-
-  assert.notEqual(code, 0);
-  assert.deepEqual(github.requests, []);
-  assert.equal(
-    output.stdout(),
-    ['forge (rameezk/forge)', '  error: GitHub token malformed'].join('\n'),
-  );
-});
-
-test('given a GITHUB_TOKEN padded with whitespace, when list runs, then GitHub is asked with the trimmed token', async (t) => {
-  const { env } = declaring({ forge: { github: 'rameezk/forge' } });
-  const github = replaying({ 'rameezk/forge': recorded('frontier') });
-  printing(t);
-
-  const code = await main(
-    ['list'],
-    { ...env, GITHUB_TOKEN: ` ${GITHUB_TOKEN}\r\n` },
-    github.fetch,
-  );
-
-  assert.equal(code, 0);
-  assert.deepEqual(
-    github.requests.map(({ authorization }) => authorization),
-    [`bearer ${GITHUB_TOKEN}`],
   );
 });
 
@@ -765,17 +747,17 @@ const storedDispatches = (stateDir: string) => {
   }
 };
 
-test('given a repository with a worker whose forge:running tickets are one with a dispatch that stopped beating and one with a live dispatch, when sync runs with a GitHub write-token file, then the stale one becomes forge:failed as interrupted, losing forge:running and forge:ready, and the live one is left alone', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
+test('given a repository with a worker whose forge:running tickets are one with a dispatch that stopped beating and one with a live dispatch, when sync runs, then the stale one becomes forge:failed as interrupted, losing forge:running and forge:ready, and the live one is left alone', async () => {
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedEarlier(stateDir, { 114: '2026-09-01T09:00:00.000Z', 123: new Date().toISOString() });
   const github = labelling(
     runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), [114, 123]),
     allForgeLabels,
   );
 
-  const code = await main(
+  const code = await run(app, 
     ['sync'],
-    withWriteToken(env, stateDir, `GITHUB_TOKEN=${WRITE_TOKEN}\n`),
+    env,
     github.fetch,
   );
 
@@ -794,8 +776,8 @@ test('given a repository with a worker whose forge:running tickets are one with 
   ]);
 });
 
-test('given a stale forge:running ticket GitHub refuses to relabel, when sync runs with a GitHub write-token file, then the frontier is still stored, and the refusal is reported with a non-zero exit code', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
+test('given a stale forge:running ticket GitHub refuses to relabel, when sync runs, then the frontier is still stored, and the refusal is reported with a non-zero exit code', async (t) => {
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedEarlier(stateDir, { 114: '2026-09-01T09:00:00.000Z' });
   const labels = labelling(
     runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), [114]),
@@ -806,9 +788,9 @@ test('given a stale forge:running ticket GitHub refuses to relabel, when sync ru
   const stderr: string[] = [];
   t.mock.method(console, 'error', (line: string) => stderr.push(line));
 
-  const code = await main(
+  const code = await run(app, 
     ['sync'],
-    withWriteToken(env, stateDir, `GITHUB_TOKEN=${WRITE_TOKEN}\n`),
+    env,
     refusing,
   );
 
@@ -819,25 +801,46 @@ test('given a stale forge:running ticket GitHub refuses to relabel, when sync ru
   ]);
 });
 
-test('given a repository with a worker and a GitHub write-token file that sets no token, when sync runs, then the frontier is still stored, and the missing write token is reported for the labels and the forge:running tickets with a non-zero exit code', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
+test('given a repository with a worker and no private key, when sync runs, then the missing key is reported for the frontier, the labels and the forge:running tickets with a non-zero exit code', async (t) => {
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   const github = labelling(replaying({ 'rameezk/forge': recorded('frontier') }), {});
   const stderr: string[] = [];
   t.mock.method(console, 'error', (line: string) => stderr.push(line));
 
-  const code = await main(
+  const code = await run(
+    app,
     ['sync'],
-    withWriteToken(env, stateDir, 'OTHER=value\n'),
+    { ...env, FORGE_GITHUB_APP_PRIVATE_KEY_FILE: undefined },
     github.fetch,
   );
 
   assert.notEqual(code, 0);
-  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 7);
+  assert.equal(storedFrontier(stateDir)[0]?.lastError?.message, 'GitHub App private key missing');
   assert.deepEqual(github.calls, []);
   assert.deepEqual(stderr, [
-    'forge: could not ensure the forge labels: GitHub write token missing',
-    'forge: could not settle tickets labelled forge:running: GitHub write token missing',
+    'forge: GitHub App private key missing',
+    'forge: could not ensure the forge labels: GitHub App private key missing',
+    'forge: could not settle tickets labelled forge:running: GitHub App private key missing',
   ]);
+});
+
+test('given a managed repository the App is not installed on, when sync runs, then that repository shows a frontier error saying so, GitHub is not asked about it and the other repository syncs normally', async (t) => {
+  const { stateDir, env, app } = declaring(
+    { forge: { github: 'rameezk/forge' }, stray: { github: 'rameezk/stray' } },
+    undefined,
+    ['rameezk/stray'],
+  );
+  const github = replaying({ 'rameezk/forge': recorded('frontier') });
+  t.mock.method(console, 'error', () => undefined);
+
+  const code = await run(app, ['sync'], env, github.fetch);
+
+  assert.notEqual(code, 0);
+  const [forge, stray] = storedFrontier(stateDir);
+  assert.equal(forge?.lastError, null);
+  assert.equal(forge?.tickets.length, 7);
+  assert.equal(stray?.lastError?.message, 'the GitHub App is not installed on rameezk/stray');
+  assert.deepEqual(github.requests.map(({ body }) => body.variables.name), ['forge']);
 });
 
 interface RecordedPullRequest {
@@ -869,8 +872,11 @@ const aPullRequest = (
   return pullRequest;
 };
 
+const quiet = (graphql: ReturnType<typeof replaying>) =>
+  labelling(runningIssues(graphql, []), allForgeLabels);
+
 const pullRequestsOf = (
-  graphql: ReturnType<typeof replaying>,
+  graphql: Pick<ReturnType<typeof replaying>, 'fetch'>,
   responses: Record<number, RecordedPullRequest>,
 ) => {
   const asked: { operation: string | undefined; variables: Request['body']['variables'] }[] = [];
@@ -878,7 +884,8 @@ const pullRequestsOf = (
     input: string | URL | globalThis.Request,
     init?: RequestInit,
   ): Promise<Response> => {
-    const body = JSON.parse(String(init?.body)) as Request['body'];
+    if (init?.body === undefined) return graphql.fetch(input, init);
+    const body = JSON.parse(String(init.body)) as Request['body'];
     const operation = /query (\w+)/.exec(body.query)?.[1];
     if (operation !== 'PullRequest') return graphql.fetch(input, init);
     asked.push({ operation, variables: body.variables });
@@ -933,13 +940,13 @@ const storedPullRequests = (stateDir: string) => {
 };
 
 test('given a dispatch with an open pull request that GitHub reports merged with two commits by forge\'s identity and one by another author, when sync runs, then the pull request is merged with its merge time as settled time and a rework count of 1', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
-  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+  const github = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {
     143: aPullRequest('MERGED', ['forge@example.com', 'FORGE@example.com', 'human@example.com']),
   });
 
-  const code = await main(['sync'], env, github.fetch);
+  const code = await run(app, ['sync'], env, github.fetch);
 
   assert.equal(code, 0);
   assert.deepEqual(storedPullRequests(stateDir), [
@@ -959,13 +966,13 @@ test('given a dispatch with an open pull request that GitHub reports merged with
 });
 
 test('given a dispatch with an open pull request that GitHub reports closed without merging, when sync runs, then the pull request is closed and settled at its close time', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
-  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+  const github = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {
     143: aPullRequest('CLOSED', ['forge@example.com']),
   });
 
-  await main(['sync'], env, github.fetch);
+  await run(app, ['sync'], env, github.fetch);
 
   assert.deepEqual(storedPullRequests(stateDir)[0]?.pullRequest, {
     ...pullRequestOf(143),
@@ -976,15 +983,15 @@ test('given a dispatch with an open pull request that GitHub reports closed with
 });
 
 test('given a dispatch whose pull request is already merged, when sync runs, then GitHub is not asked about that pull request', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
-  const first = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+  const first = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {
     143: aPullRequest('MERGED', ['forge@example.com']),
   });
-  await main(['sync'], env, first.fetch);
-  const second = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {});
+  await run(app, ['sync'], env, first.fetch);
+  const second = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {});
 
-  const code = await main(['sync'], env, second.fetch);
+  const code = await run(app, ['sync'], env, second.fetch);
 
   assert.equal(code, 0);
   assert.deepEqual(second.asked, []);
@@ -992,9 +999,9 @@ test('given a dispatch whose pull request is already merged, when sync runs, the
 });
 
 test('given a pull request whose commits span two pages, when sync runs, then its rework counts the commits of both pages', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
-  const graphql = replaying({ 'rameezk/forge': recorded('frontier') });
+  const graphql = quiet(replaying({ 'rameezk/forge': recorded('frontier') }));
   const firstPage = aPullRequest('MERGED', ['forge@example.com', 'human@example.com']);
   const secondPage = aPullRequest('MERGED', ['human@example.com', 'forge@example.com']);
   const pages = [firstPage, secondPage].map((page, index, all) => ({
@@ -1012,25 +1019,27 @@ test('given a pull request whose commits span two pages, when sync runs, then it
     },
   }));
   const paged = async (input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
-    const body = JSON.parse(String(init?.body)) as Request['body'];
+    if (init?.body === undefined) return graphql.fetch(input, init);
+    const body = JSON.parse(String(init.body)) as Request['body'];
     if (!body.query.includes('query PullRequest')) return graphql.fetch(input, init);
     const page = pages[body.variables.after === null ? 0 : 1];
     return new Response(JSON.stringify(page), { headers: { 'content-type': 'application/json' } });
   };
 
-  await main(['sync'], env, paged);
+  await run(app, ['sync'], env, paged);
 
   assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.rework, 2);
 });
 
 test('given three dispatches whose pull requests GitHub fails for, reports in an unknown state, and reports merged, when sync runs, then only the merged one settles, and the other two stay open with each failure reported and a non-zero exit code', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
   dispatchedWithPullRequest(stateDir, 114, 144);
   dispatchedWithPullRequest(stateDir, 115, 145);
-  const graphql = replaying({ 'rameezk/forge': recorded('frontier') });
+  const graphql = quiet(replaying({ 'rameezk/forge': recorded('frontier') }));
   const answering = async (input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
-    const body = JSON.parse(String(init?.body)) as Request['body'];
+    if (init?.body === undefined) return graphql.fetch(input, init);
+    const body = JSON.parse(String(init.body)) as Request['body'];
     if (!body.query.includes('query PullRequest')) return graphql.fetch(input, init);
     if (body.variables.number === 143) return new Response('{}', { status: 502 });
     const pullRequest = aPullRequest('MERGED', ['forge@example.com']);
@@ -1040,7 +1049,7 @@ test('given three dispatches whose pull requests GitHub fails for, reports in an
   const stderr: string[] = [];
   t.mock.method(console, 'error', (line: string) => stderr.push(line));
 
-  const code = await main(['sync'], env, answering);
+  const code = await run(app, ['sync'], env, answering);
 
   assert.notEqual(code, 0);
   assert.deepEqual(
@@ -1058,25 +1067,25 @@ test('given three dispatches whose pull requests GitHub fails for, reports in an
 });
 
 test('given a dispatch with an open pull request in a repository that no longer declares a worker, when sync runs, then its pull request is still refreshed', async () => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge' } }, { gitIdentity: FORGE_IDENTITY });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } }, { gitIdentity: FORGE_IDENTITY });
   dispatchedWithPullRequest(stateDir, 113, 143);
-  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {
+  const github = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {
     143: aPullRequest('MERGED', ['forge@example.com']),
   });
 
-  await main(['sync'], env, github.fetch);
+  await run(app, ['sync'], env, github.fetch);
 
   assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'merged');
 });
 
 test('given a dispatch with an open pull request and a runtime config with no git identity, when sync runs, then the missing identity is reported with a non-zero exit code, GitHub is not asked, and the pull request stays open', async (t) => {
-  const { stateDir, env } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   dispatchedWithPullRequest(stateDir, 113, 143);
-  const github = pullRequestsOf(replaying({ 'rameezk/forge': recorded('frontier') }), {});
+  const github = pullRequestsOf(quiet(replaying({ 'rameezk/forge': recorded('frontier') })), {});
   const stderr: string[] = [];
   t.mock.method(console, 'error', (line: string) => stderr.push(line));
 
-  const code = await main(['sync'], env, github.fetch);
+  const code = await run(app, ['sync'], env, github.fetch);
 
   assert.notEqual(code, 0);
   assert.deepEqual(github.asked, []);

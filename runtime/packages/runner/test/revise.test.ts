@@ -16,6 +16,11 @@ import { Store, type RevisionRecord, type RunRecord } from '@forge/shared';
 import { main } from '../src/revise-main.ts';
 import { UNATTENDED_INSTRUCTION } from '../src/harness.ts';
 import {
+  APP_ID,
+  fakeGithubApp,
+  routedThrough,
+} from '../../shared/test/fixtures/fake-github-app.ts';
+import {
   billedAt,
   fakeOpenRouter,
   lockedPiPackage,
@@ -27,8 +32,6 @@ import {
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
 
 const PI_OUTPUT = join(import.meta.dirname, 'fixtures', 'pi', 'success.jsonl');
-
-const GITHUB_TOKEN = 'github_pat_test';
 
 const PULL_REQUEST_URL = 'https://github.com/rameezk/forge/pull/143';
 
@@ -148,8 +151,9 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       },
     }),
   );
-  const tokenFile = join(stateDir, 'github-write.env');
-  writeFileSync(tokenFile, `GITHUB_TOKEN=${GITHUB_TOKEN}\n`);
+  const app = fakeGithubApp(['rameezk/forge']);
+  const privateKeyFile = join(stateDir, 'github-app-private-key');
+  writeFileSync(privateKeyFile, app.privateKey);
   const pullRequest = scenario.pullRequest ?? pullRequestFixture();
   const fetch = async (input: string | URL | Request): Promise<Response> => {
     assert.equal(new URL(String(input)).pathname, '/graphql');
@@ -189,12 +193,13 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
         record: join(stateDir, 'bwrap-call.json'),
         harnessEnv: { FAKE_PI_RECORD: record, FAKE_PI_OUTPUT: PI_OUTPUT },
       }),
-      FORGE_GITHUB_WRITE_TOKEN_FILE: tokenFile,
+      FORGE_GITHUB_APP_ID: APP_ID,
+      FORGE_GITHUB_APP_PRIVATE_KEY_FILE: privateKeyFile,
       OPENROUTER_API_KEY: 'sk-or-test',
       OPENROUTER_BASE_URL: openRouter.baseUrl,
       ...gitConfig,
     },
-    fetch,
+    routedThrough(app, fetch),
   ).finally(() => {
     console.error = complain;
     return openRouter.close();

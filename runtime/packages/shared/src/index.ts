@@ -136,7 +136,16 @@ export {
 } from './dispatch.ts';
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
-export { githubWriteToken } from './token.ts';
+export {
+  GithubApp,
+  cachedTokens,
+  githubAppFromEnv,
+  installationTokens,
+  type GithubAppOptions,
+  type InstallationTokens,
+  type InstallationToken,
+  type TokenAccess,
+} from './github-app.ts';
 export { Store, type ListPriceEquivalent, type WorkloadSpend } from './store.ts';
 export {
   parseTranscript,
@@ -146,9 +155,9 @@ export {
   transcriptLine,
 } from './transcript.ts';
 export { settleRunningTickets, type SettleRunningOptions } from './settle.ts';
+export { GITHUB_REST_API } from './github-api.ts';
 export {
   FORGE_LABELS,
-  GITHUB_REST_API,
   ensureLabels,
   labelExists,
   relabel,

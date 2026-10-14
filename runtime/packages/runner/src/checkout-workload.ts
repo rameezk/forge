@@ -1,10 +1,10 @@
 import { join } from 'node:path';
-import type { RunTicket } from '@forge/shared';
+import { errorMessage, type GithubApp, type RunTicket } from '@forge/shared';
 import type { GitIdentity, RuntimeConfig } from './config.ts';
 import { cloneCheckout, headCommit, loadPiSkills, resolveCheckout } from './checkout.ts';
 import { enterDevShell } from './devshell.ts';
 import { gitEnvironment } from './git.ts';
-import { GithubTokenFile } from './github-token-file.ts';
+import { GithubTokenFile, keepFresh } from './github-token-file.ts';
 import type { Worker } from './harness.ts';
 import { withoutCredentials } from './provider.ts';
 import {
@@ -31,7 +31,7 @@ export const launchInCheckout = async ({
   github,
   branch,
   instruction,
-  token,
+  app,
   gitEnv,
   identity,
   ticket,
@@ -43,7 +43,7 @@ export const launchInCheckout = async ({
   github: string;
   branch?: string;
   instruction?: string;
-  token: string;
+  app: GithubApp;
   gitEnv: Record<string, string>;
   identity: GitIdentity;
   ticket?: RunTicket;
@@ -53,11 +53,19 @@ export const launchInCheckout = async ({
   const nixSystem = nixSystemOf(env);
   const hostEnv = withoutCredentials(env);
   const redactions: string[] = [];
+  const minted = await app.mint(github, 'workload');
   const tokenFile = GithubTokenFile.create(
     join(stateDirOf(env), 'credentials'),
     runId,
-    token,
+    minted.token,
     redactions,
+  );
+  const stopRefreshing = keepFresh(
+    tokenFile,
+    minted,
+    () => app.mint(github, 'workload'),
+    (error) =>
+      console.error(`could not refresh the workload's GitHub token: ${errorMessage(error)}`),
   );
   const cloneEnv = { ...hostEnv, ...tokenFile.environment, ...gitEnv };
   return launchWorkload({
@@ -86,5 +94,8 @@ export const launchInCheckout = async ({
         ...(devShell === undefined ? {} : { devShell }),
       };
     },
-  }).finally(() => tokenFile.remove());
+  }).finally(() => {
+    stopRefreshing();
+    tokenFile.remove();
+  });
 };

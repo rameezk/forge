@@ -653,30 +653,40 @@
             && !(frontierService.serviceConfig ? IPAddressDeny)
           ) "the sync service must run forge-frontier sync as the forge-runtime user with outbound network";
           frontierSandboxed = lib.asserts.assertMsg (isHardened frontierService) "the sync service must be sandboxed like the runner";
-          frontierTokenTemplate = repositoryHost.config.sops.templates."forge-github.env";
-          frontierTokenFromSops =
+          appIdTemplate = repositoryHost.config.sops.templates."forge-github-app.env";
+          appKeySecret = repositoryHost.config.sops.secrets.github_app_private_key;
+          frontierAppFromSops =
             lib.asserts.assertMsg
               (
-                frontierService.serviceConfig.EnvironmentFile == frontierTokenTemplate.path
-                && lib.hasPrefix "/run/secrets/" frontierTokenTemplate.path
-                && frontierTokenTemplate.owner == "forge-runtime"
-                && frontierTokenTemplate.mode == "0400"
+                frontierService.serviceConfig.EnvironmentFile == appIdTemplate.path
+                && lib.hasPrefix "/run/secrets/" appIdTemplate.path
+                && appIdTemplate.owner == "forge-runtime"
+                && appIdTemplate.mode == "0400"
                 &&
-                  frontierTokenTemplate.content
-                  == "GITHUB_TOKEN=${repositoryHost.config.sops.placeholder.github_token}\n"
-                && repositoryHost.config.sops.secrets.github_token.sopsFile == exampleSecretsFile
-                && !(workerHost.config.sops.secrets ? github_token)
+                  appIdTemplate.content
+                  == "FORGE_GITHUB_APP_ID=${repositoryHost.config.sops.placeholder.github_app_id}\n"
+                && repositoryHost.config.sops.secrets.github_app_id.sopsFile == exampleSecretsFile
+                && appKeySecret.sopsFile == exampleSecretsFile
+                && lib.hasPrefix "/run/secrets/" appKeySecret.path
+                && appKeySecret.owner == "forge-runtime"
+                && appKeySecret.mode == "0400"
+                && frontierService.serviceConfig.LoadCredential == [ "github-app-private-key:${appKeySecret.path}" ]
+                && lib.elem "FORGE_GITHUB_APP_PRIVATE_KEY_FILE=%d/github-app-private-key" frontierService.serviceConfig.Environment
+                && !(workerHost.config.sops.secrets ? github_app_id)
+                && !(workerHost.config.sops.secrets ? github_app_private_key)
               )
-              "the sync service must load only GITHUB_TOKEN as a required EnvironmentFile, from a sops template of the runtime secrets file's github_token under /run/secrets readable only by forge-runtime, and a host without repositories must not need github_token";
-          frontierCommandReadsSopsToken =
+              "the sync service must load only FORGE_GITHUB_APP_ID as a required EnvironmentFile, from a sops template of the runtime secrets file's github_app_id under /run/secrets readable only by forge-runtime, read the App private key as data through its own credential, and a host without repositories must need neither secret";
+          frontierCommandReadsSopsApp =
             let
               command = lib.findFirst (
                 package: lib.getName package == "forge-frontier"
               ) null repositoryHost.config.environment.systemPackages;
             in
             lib.asserts.assertMsg (
-              command != null && lib.hasInfix frontierTokenTemplate.path command.text
-            ) "the forge-frontier command must read GITHUB_TOKEN from the frontier token's sops template";
+              command != null
+              && lib.hasInfix appIdTemplate.path command.text
+              && lib.hasInfix appKeySecret.path command.text
+            ) "the forge-frontier command must read the App id from its sops template and point at the App private key's sops secret";
           frontierEnvWired = lib.asserts.assertMsg (
             lib.any (e: lib.hasInfix "FORGE_RUNTIME_CONFIG=" e) frontierService.serviceConfig.Environment
             && lib.any (e: e == "FORGE_STATE_DIR=/var/lib/forge") frontierService.serviceConfig.Environment
@@ -937,51 +947,59 @@
             forgeGitSha == null || lib.elem "FORGE_GIT_SHA=${forgeGitSha}" dispatchUnit.serviceConfig.Environment
           ) "the dispatch unit must carry the forge git sha the host was built from, for the workload's fingerprint";
           dispatchUnitSandboxed = lib.asserts.assertMsg (isWorkloadHardened dispatchUnit) "the dispatch unit must be sandboxed like the runner";
-          writeTokenTemplate = dispatchHost.config.sops.templates."forge-github-write.env";
-          readsWriteTokenAsCredential =
+          dispatchAppIdTemplate = dispatchHost.config.sops.templates."forge-github-app.env";
+          dispatchAppKey = dispatchHost.config.sops.secrets.github_app_private_key;
+          readsAppKeyAsCredential =
             unit:
-            unit.serviceConfig.LoadCredential == [ "github-write-token:${writeTokenTemplate.path}" ]
-            && lib.elem "FORGE_GITHUB_WRITE_TOKEN_FILE=%d/github-write-token" unit.serviceConfig.Environment;
-          dispatchFrontierToken = dispatchHost.config.sops.templates."forge-github.env".path;
-          writeTokenFromSops =
+            unit.serviceConfig.LoadCredential == [ "github-app-private-key:${dispatchAppKey.path}" ]
+            && lib.elem "FORGE_GITHUB_APP_PRIVATE_KEY_FILE=%d/github-app-private-key" unit.serviceConfig.Environment;
+          appCredentialsFromSops =
             lib.asserts.assertMsg
               (
-                lib.hasPrefix "/run/secrets/" writeTokenTemplate.path
-                && writeTokenTemplate.owner == "forge-runtime"
-                && writeTokenTemplate.mode == "0400"
-                &&
-                  writeTokenTemplate.content
-                  == "GITHUB_TOKEN=${dispatchHost.config.sops.placeholder.github_write_token}\n"
-                && dispatchHost.config.sops.secrets.github_write_token.sopsFile == exampleSecretsFile
-                && writeTokenTemplate.path != dispatchFrontierToken
-                && !(workerAndRepositoryHost.config.sops.secrets ? github_write_token)
+                lib.hasPrefix "/run/secrets/" dispatchAppKey.path
+                && dispatchAppKey.owner == "forge-runtime"
+                && dispatchAppKey.mode == "0400"
+                && dispatchAppKey.sopsFile == exampleSecretsFile
+                && dispatchHost.config.sops.secrets.github_app_id.sopsFile == exampleSecretsFile
+                && dispatchAppIdTemplate.owner == "forge-runtime"
+                && dispatchAppIdTemplate.mode == "0400"
               )
-              "the GitHub write token must be its own sops template of the runtime secrets file's github_write_token under /run/secrets, readable only by forge-runtime, and a host that does not dispatch must not need github_write_token";
+              "the GitHub App id and private key must come from the runtime secrets file's github_app_id and github_app_private_key under /run/secrets, readable only by forge-runtime";
           dispatchUnitEnvironmentFiles =
             lib.asserts.assertMsg
               (
-                dispatchUnit.serviceConfig.EnvironmentFile
-                == dispatchHost.config.sops.templates."forge-runner.env".path
-                && readsWriteTokenAsCredential dispatchUnit
+                dispatchUnit.serviceConfig.EnvironmentFile == [
+                  dispatchHost.config.sops.templates."forge-runner.env".path
+                  dispatchAppIdTemplate.path
+                ]
+                && readsAppKeyAsCredential dispatchUnit
               )
-              "the dispatch unit must load only the runner's OpenRouter key as an EnvironmentFile, and read the GitHub write token's sops template as data, through its own credential";
+              "the dispatch unit must load only the runner's OpenRouter key and the App id as EnvironmentFiles, and read the App private key as data, through its own credential";
           dispatchHostSync = dispatchHost.config.systemd.services.forge-frontier-sync;
-          frontierSyncEnsuresLabels =
+          frontierSyncReadsAppOnDispatchHost =
             lib.asserts.assertMsg
               (
-                readsWriteTokenAsCredential dispatchHostSync
-                && dispatchHostSync.serviceConfig.EnvironmentFile == dispatchFrontierToken
-                && !(lib.any (lib.hasInfix "FORGE_GITHUB_WRITE_TOKEN_FILE") frontierService.serviceConfig.Environment)
-                && !(frontierService.serviceConfig ? LoadCredential)
+                readsAppKeyAsCredential dispatchHostSync
+                && dispatchHostSync.serviceConfig.EnvironmentFile == dispatchAppIdTemplate.path
               )
-              "on a host that dispatches, the sync service must read the GitHub write token's sops template as data, through its own credential, to ensure the forge labels, while polling with the frontier's read-only token; a host that does not dispatch must not give it the write token";
+              "on a host that dispatches, the sync service must mint its read and label-writing tokens from the App id and private key through its own credential";
           forgeServices =
             host: lib.filterAttrs (name: _: lib.hasPrefix "forge" name) host.config.systemd.services;
           environmentFiles = unit: lib.toList (unit.serviceConfig.EnvironmentFile or [ ]);
-          writeTokenNeverLoaded = lib.asserts.assertMsg (lib.all
-            (unit: !(lib.elem writeTokenTemplate.path (environmentFiles unit)))
-            (lib.attrValues (forgeServices dispatchHost))
-          ) "no unit may load the GitHub write token as an EnvironmentFile: it is read only as data";
+          appKeyNeverLoadedByOthers =
+            let
+              holdsKey = unit: unit.serviceConfig ? LoadCredential;
+              keyHolders = lib.attrNames (lib.filterAttrs (_: holdsKey) (forgeServices dispatchHost));
+            in
+            lib.asserts.assertMsg (
+              lib.sort lib.lessThan keyHolders == [
+                "forge-dispatch@"
+                "forge-frontier-sync"
+              ]
+              && !(lib.any (lib.hasInfix dispatchAppKey.path) (
+                lib.concatMap environmentFiles (lib.attrValues (forgeServices dispatchHost))
+              ))
+            ) "only the frontier sync and forge-dispatch may be given the App private key, and no unit may load it as an EnvironmentFile: it is read only as data";
           noHandPlacedTokens =
             let
               mentionsHandPlacedPath =
@@ -995,9 +1013,11 @@
               (
                 !(dispatchHost.options.forge.runtime ? githubTokenFile)
                 && !(dispatchHost.options.forge.runtime ? githubWriteTokenFile)
+                && !(dispatchHost.config.sops.secrets ? github_token)
+                && !(dispatchHost.config.sops.secrets ? github_write_token)
                 && !(lib.any unitMentions (lib.attrValues (forgeServices dispatchHost)))
               )
-              "the githubTokenFile and githubWriteTokenFile options must be gone, and no unit may read a token from the state directory or /var/lib/forge-credentials: both GitHub tokens come only from sops";
+              "the githubTokenFile and githubWriteTokenFile options and the github_token and github_write_token secrets must be gone, and no unit may read a token from the state directory or /var/lib/forge-credentials: forge acts on GitHub only as its App";
           dispatchCommandInstalled =
             lib.asserts.assertMsg
               (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))
@@ -1053,12 +1073,16 @@
                 && reviseUnit.serviceConfig.Type == "oneshot"
                 && lib.hasInfix "%i" reviseUnit.serviceConfig.ExecStart
                 && lib.hasInfix "forge-revise-instance" reviseUnit.serviceConfig.ExecStart
-                && readsWriteTokenAsCredential reviseUnit
+                && readsAppKeyAsCredential reviseUnit
+                && reviseUnit.serviceConfig.EnvironmentFile == [
+                  reviseHost.config.sops.templates."forge-runner.env".path
+                  reviseHost.config.sops.templates."forge-github-app.env".path
+                ]
                 && isWorkloadHardened reviseUnit
                 && hasReviseCommand reviseHost
                 && !(hasReviseCommand dispatchHost)
               )
-              "declaring a repository with on.feedback must define a sandboxed forge-revise@ oneshot reading the GitHub write token as data and put the forge-revise command on the box's path, and a host without one must not";
+              "declaring a repository with on.feedback must define a sandboxed forge-revise@ oneshot loading the App id and reading the App private key as data, and put the forge-revise command on the box's path, and a host without one must not";
 
           billingService = workerHost.config.systemd.services.forge-billing;
           billingTimer = workerHost.config.systemd.timers.forge-billing;
@@ -1536,8 +1560,8 @@
             assert frontierDeclared;
             assert frontierSyncs;
             assert frontierSandboxed;
-            assert frontierTokenFromSops;
-            assert frontierCommandReadsSopsToken;
+            assert frontierAppFromSops;
+            assert frontierCommandReadsSopsApp;
             assert frontierEnvWired;
             assert frontierPollsAtInterval;
             assert frontierDefaultInterval;
@@ -1546,7 +1570,7 @@
             assert dashboardWithoutWorkers;
             assert frontierCommandInstalled;
             pkgs.runCommand "runtime-frontier" { } ''
-              echo "declaring a repository wires a forge-frontier-sync timer and service with the GitHub token from a sops template, puts forge-frontier on the path reading the same token, and runs the dashboard without workers" > $out
+              echo "declaring a repository wires a forge-frontier-sync timer and service with the GitHub App id from a sops template and its private key as a credential, puts forge-frontier on the path reading the same App, and runs the dashboard without workers" > $out
             '';
 
           runtime-dispatch =
@@ -1567,13 +1591,13 @@
             assert dispatchUnitKnowsForgeGitSha;
             assert dispatchUnitSandboxed;
             assert dispatchUnitEnvironmentFiles;
-            assert frontierSyncEnsuresLabels;
-            assert writeTokenFromSops;
-            assert writeTokenNeverLoaded;
+            assert frontierSyncReadsAppOnDispatchHost;
+            assert appCredentialsFromSops;
+            assert appKeyNeverLoadedByOthers;
             assert noHandPlacedTokens;
             assert dispatchCommandInstalled;
             pkgs.runCommand "runtime-dispatch" { } ''
-              echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command, the GitHub write token from sops, and a dispatch pass after every frontier sync that may start only forge-dispatch@ units, bounded by dispatch.maxConcurrent; a worker without a ticket placeholder fails evaluation" > $out
+              echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command, the GitHub App credentials from sops, and a dispatch pass after every frontier sync that may start only forge-dispatch@ units, bounded by dispatch.maxConcurrent; a worker without a ticket placeholder fails evaluation" > $out
             '';
 
           runtime-revise =
@@ -1646,18 +1670,19 @@
             inherit (sops-nix.packages.${system}) sops-install-secrets;
             cases = [
               {
-                name = "repository-without-github-token";
-                host = secretsHost ./tests/fixtures/runtime-secrets-without-github.yaml repositoryModule;
-                refusedKey = "github_token";
+                name = "repository-without-app-id";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-app-id.yaml repositoryModule;
+                refusedKey = "github_app_id";
               }
               {
-                name = "repository-without-write-token";
-                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-write.yaml repositoryModule;
+                name = "repository-without-app-private-key";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-app-private-key.yaml repositoryModule;
+                refusedKey = "github_app_private_key";
               }
               {
-                name = "dispatch-without-write-token";
-                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-write.yaml dispatchModule;
-                refusedKey = "github_write_token";
+                name = "dispatch-without-app-private-key";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-app-private-key.yaml dispatchModule;
+                refusedKey = "github_app_private_key";
               }
               {
                 name = "box-without-tailscale-key";
@@ -1678,7 +1703,7 @@
                 host = secretsHost ./tests/fixtures/runtime-secrets-without-anthropic.yaml dispatchModule;
               }
               {
-                name = "dispatch-with-every-token";
+                name = "dispatch-with-every-secret";
                 host = secretsHost exampleSecretsFile dispatchModule;
               }
             ];
@@ -1703,7 +1728,7 @@
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
-          github-tokens = pkgs.callPackage ./infra/nix/github-tokens.nix {
+          github-app = pkgs.callPackage ./infra/nix/github-app.nix {
             sopsModule = sops-nix.nixosModules.sops;
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;

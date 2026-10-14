@@ -35,5 +35,7 @@ export const withoutCredentials = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
   for (const { credentialEnv } of Object.values(SPECS)) {
     delete kept[credentialEnv];
   }
+  delete kept.FORGE_GITHUB_APP_ID;
+  delete kept.FORGE_GITHUB_APP_PRIVATE_KEY_FILE;
   return kept;
 };

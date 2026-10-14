@@ -1,7 +1,6 @@
 import { FORGE_DONE, FORGE_FAILED, FORGE_READY, FORGE_RUNNING } from './dispatch.ts';
 import { requireGithubRepository, type Fetch } from './frontier.ts';
-
-export const GITHUB_REST_API = 'https://api.github.com';
+import { GITHUB_REST_API } from './github-api.ts';
 
 export interface LabelDefinition {
   name: string;
