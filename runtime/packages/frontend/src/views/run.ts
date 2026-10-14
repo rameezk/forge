@@ -5,7 +5,7 @@ import { formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTo
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type AssetHrefs, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderTokens, renderCacheHitRate, ERROR_CALLOUT, EMPTY, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type AssetHrefs, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderTokens, renderCacheHitRate, ERROR_CALLOUT, EMPTY, NEW_ACTIVITY_BUTTON, layout } from './shared.ts';
 import { renderTranscript } from './transcript.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -152,8 +152,6 @@ const renderExceeded = (run: RunRecord): Rendered => {
   }
   return '';
 };
-
-const NEW_ACTIVITY = 'fixed bottom-6 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-full border border-line bg-surface px-4 py-1.5 text-sm font-semibold text-fg shadow-md hover:bg-raised';
 
 const META_TERM = 'text-muted';
 
@@ -336,6 +334,6 @@ export const renderDetail = (
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
       : html`<div class="${STACK}" data-transcript="${events.length}">${renderTranscript(events, generations, run.status, run.costStatus === 'subscription', skillLoads)}</div>`}
-    ${live ? html`<button type="button" id="new-activity" hidden class="${NEW_ACTIVITY}">↓ New activity</button>` : ''}`;
+    ${live ? NEW_ACTIVITY_BUTTON : ''}`;
   return layout(run.worker, null, live, assets, body);
 };

@@ -207,3 +207,11 @@ test('given a run with no transcript, when its full transcript page is opened, t
   assert.equal(response.status, 200);
   assert.match(textOf(await response.text()), /No transcript captured/);
 });
+
+test('given a filtered full transcript page, when it is opened, then the transcript length the live client watches counts only the events shown', async () => {
+  const lengthOf = (body: string): string | undefined => body.match(/\sdata-transcript="(\d+)"/)?.[1];
+
+  assert.equal(lengthOf(await pageOf(mixed)), '8');
+  assert.equal(lengthOf(await pageOf(mixed, '/runs/run-01/transcript?show=errors')), '2');
+  assert.equal(lengthOf(await pageOf(mixed, '/runs/run-01/transcript?show=subagents')), '1');
+});

@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import type { GenerationRecord, HarnessEvent, RunRecord, RunSkillLoad } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { isSettled } from './run.ts';
-import { EMPTY, LINK, PAGE_TITLE, STACK, layout, renderStatus, type AssetHrefs, type Rendered } from './shared.ts';
+import { EMPTY, LINK, NEW_ACTIVITY_BUTTON, PAGE_TITLE, STACK, layout, renderStatus, type AssetHrefs, type Rendered } from './shared.ts';
 import { transcriptItems, type TranscriptFilter } from './transcript.ts';
 
 export type TranscriptShow = 'all' | TranscriptFilter;
@@ -19,8 +19,6 @@ export const parseTranscriptShow = (value: string | undefined): TranscriptShow =
   FILTERS.find(({ show }) => show === value)?.show ?? 'all';
 
 const CHIP = 'flex shrink-0 items-baseline justify-between gap-3 rounded-md border px-3 py-1.5 text-[0.9rem] no-underline';
-
-const NEW_ACTIVITY = 'fixed bottom-6 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-full border border-line bg-surface px-4 py-1.5 text-sm font-semibold text-fg shadow-md hover:bg-raised';
 
 const hrefOf = (run: RunRecord, show: TranscriptShow): string =>
   `/runs/${encodeURIComponent(run.id)}/transcript${show === 'all' ? '' : `?show=${show}`}`;
@@ -49,7 +47,7 @@ export const renderFullTranscript = (
   const listed: Rendered =
     shown.length === 0
       ? html`<p class="${EMPTY}" data-empty>${events.length === 0 ? 'No transcript captured.' : 'No events match this filter.'}</p>`
-      : html`<div class="${STACK}" data-transcript="${events.length}">${shown.map(({ rendered }) => rendered)}</div>`;
+      : html`<div class="${STACK}" data-transcript="${shown.length}">${shown.map(({ rendered }) => rendered)}</div>`;
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/runs/${encodeURIComponent(run.id)}" data-back-to-run class="${LINK}">&larr; ${run.worker}</a></p>
     <h1 class="${PAGE_TITLE} flex flex-wrap items-baseline gap-3 break-words">Transcript ${renderStatus(run.status)}</h1>
     <div class="flex flex-col gap-4 md:flex-row md:items-start md:gap-8">
@@ -58,6 +56,6 @@ export const renderFullTranscript = (
       </nav>
       <div class="min-w-0 flex-1">${listed}</div>
     </div>
-    ${live ? html`<button type="button" id="new-activity" hidden class="${NEW_ACTIVITY}">↓ New activity</button>` : ''}`;
+    ${live ? NEW_ACTIVITY_BUTTON : ''}`;
   return layout(`${run.worker} transcript`, null, live, assets, body);
 };
