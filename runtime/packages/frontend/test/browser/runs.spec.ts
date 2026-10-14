@@ -70,7 +70,7 @@ test.describe('with JS disabled', () => {
 
     await expect(page.getByRole('heading', { name: 'Workloads' })).toBeVisible();
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
-    await expect(page.getByRole('row', { name: /Total/ })).toContainText('$0.1234');
+    await expect(page.getByText(/Showing 1 of 1 workloads/)).toContainText('$0.1234');
   });
 });
 
