@@ -45,7 +45,7 @@ depends on the auto-activation.
    OAuth client that deletes the box's old tailnet device, and
    `secrets/host.yaml`, the box's SSH host key, are for you only, and
    `secrets/runtime.yaml`, the Tailscale OAuth client secret, the OpenRouter
-   key and the GitHub tokens, is for you and the box.
+   key and the GitHub App's id and private key, is for you and the box.
 
    1. Create your age key at the sops default location, which is
       `$XDG_CONFIG_HOME/sops/age/keys.txt` when that is set, and otherwise
@@ -97,8 +97,9 @@ depends on the auto-activation.
       `secrets/operator.yaml`, and with
       `tailscale_auth_key: <the box's OAuth client secret>` and
       `openrouter_api_key: <your OpenRouter key>` in `secrets/runtime.yaml`.
-      If you declare managed repositories, also add their GitHub tokens to
-      `secrets/runtime.yaml`, as [GitHub tokens](#github-tokens) describes:
+      If you declare managed repositories, also add your GitHub App's id and
+      private key to `secrets/runtime.yaml`, as [The GitHub App](#the-github-app)
+      describes:
 
       ```bash
       jq -Rs '{ssh_host_ed25519_key: .}' "$host_key_dir/host_key" |
@@ -152,7 +153,7 @@ logged in to the tailnet with MagicDNS on before you run any of them, as
 Box state is the run store, frontier snapshot and transcripts under
 `/var/lib/forge`, and the box's tailnet device under `/var/lib/tailscale`. Only
 deploy keeps it. The Tailscale OAuth client secret, the OpenRouter key and the
-GitHub tokens are not box state: the box decrypts them from this repository on
+GitHub App's id and private key are not box state: the box decrypts them from this repository on
 every standup and deploy, though it uses the Tailscale secret only to join the
 tailnet.
 
@@ -339,9 +340,9 @@ as [Tailnet setup](#tailnet-setup) describes.
 
 ## Rotating a runtime secret
 
-Edit the OpenRouter key, the Anthropic token or a GitHub token with sops, commit, and deploy. The
+Edit the OpenRouter key, the Anthropic token or the GitHub App's private key with sops, commit, and deploy. The
 next workload, frontier sync or dispatch uses the new value. Then revoke the
-old one in OpenRouter or GitHub: every earlier version stays decryptable in
+old one in OpenRouter or GitHub (for the App, delete the old private key on its settings page): every earlier version stays decryptable in
 git history.
 
 ```bash
@@ -365,48 +366,78 @@ A timer then polls each repository's frontier - its open issues labelled
 `ready-for-agent` with no open blockers - every `pollInterval`, and the
 dashboard's Work page shows it.
 
-### GitHub tokens
+### The GitHub App
 
-Forge reads GitHub with tokens from `secrets/runtime.yaml`. Add them with
-`sops edit secrets/runtime.yaml`, commit, and deploy. The build fails, naming
-the missing key, if a token your repositories need is not there.
+Forge acts on GitHub as a GitHub App that you own, not as you. Its pull
+requests, pushes, comments and label changes show as the App's bot account, so
+you can review them like anyone else's. Create the App once, install it on the
+repositories forge manages, and give the box its id and private key.
 
-- `github_token`, needed when you declare any managed repository: a
-  fine-grained personal access token that is read-only on Issues and Metadata
-  for the managed repositories. The frontier sync and `forge-frontier list`
-  read the frontier with it.
-- `github_write_token`, needed when a repository declares `on.ticket`: a
-  separate fine-grained personal access token with read and write access on
-  Contents, Pull requests, Issues and Workflows. GitHub rejects any push that
-  adds or changes a file under `.github/workflows/` from a token without
-  Workflows, so a run that sets up CI cannot push. It must cover **every**
-  declared repository, not only those with `on.ticket`, because each frontier
-  sync makes sure all of them have the `forge:*` labels. Forge also uses it
-  to move dispatched tickets through those labels, and the dispatched agent
-  reads it from a read-only file, so the repository's skills can push branches and
-  open pull requests. It also needs read-only access on Checks and Actions,
-  so the agent can watch a pull request's required checks and read the logs
-  of the ones that fail.
+1. Create the App at <https://github.com/settings/apps/new> (or under your
+   organisation's settings). Give it any name, set the homepage URL to this
+   repository, untick **Webhook** since forge polls, and choose **Only on this
+   account**. Set these repository permissions and no others:
+   - Contents: read and write
+   - Issues: read and write
+   - Pull requests: read and write
+   - Workflows: read and write. GitHub rejects any push that adds or changes a
+     file under `.github/workflows/` without it, so a run that sets up CI
+     cannot push.
+   - Metadata: read, which GitHub always grants.
+2. Create the App, note its **App ID**, and generate a private key. GitHub
+   downloads a `.pem` file once.
+3. Install the App on your account or organisation and select **only** the
+   repositories forge manages. Onboarding another repository is selecting it
+   in the installation. A declared repository the App is not installed on
+   shows a frontier error, "the GitHub App is not installed on it", while the
+   others sync normally.
+4. Add the id and the key to `secrets/runtime.yaml` with
+   `sops edit secrets/runtime.yaml`, commit, and deploy. The build fails,
+   naming the missing key, if you declare a managed repository without them:
 
 ```yaml
 tailscale_auth_key: <the box's OAuth client secret>
 openrouter_api_key: <your OpenRouter key>
-github_token: <your read-only GitHub token>
-github_write_token: <your GitHub write token>
+github_app_id: "<the App ID>"
+github_app_private_key: |
+  -----BEGIN RSA PRIVATE KEY-----
+  ...
+  -----END RSA PRIVATE KEY-----
 ```
 
-A run can use the write token for anything it allows in every managed
-repository, including changing CI workflows, so protect each default branch
-and give the token a short expiry.
+Forge signs a short-lived JWT with the private key and exchanges it for an
+installation token that expires after an hour. It mints a read-only token for
+each frontier sync, a token that can write issues, for the labels it creates
+and the tickets it moves through them, and, for each dispatched workload, a token scoped to
+that workload's repository alone. It renews a workload's token while the run
+lasts, so a long run can still push, and it redacts every token it mints from
+the transcript.
+
+Only the frontier sync and a dispatch can read the private key, as a systemd
+credential. The workload, the dashboard and billing cannot. A workload holds
+only its own repository's token, so a compromised run reaches that repository
+alone, for at most an hour after it ends. Still protect each default branch,
+since a run can change CI workflows in its repository.
+
+#### Moving off the two personal tokens
+
+Earlier versions read `github_token` and `github_write_token`, two
+fine-grained personal access tokens. Nothing reads them now. To migrate:
+
+1. Create and install the App as above.
+2. Add `github_app_id` and `github_app_private_key` to `secrets/runtime.yaml`
+   and remove `github_token` and `github_write_token`.
+3. Deploy, then revoke both personal tokens on GitHub: every earlier version
+   stays decryptable in git history.
+
 No forge service can read the decrypted secrets on the box; each gets only
-the tokens it uses, from systemd. A workload's agent runs in a sandbox that
-sees neither the secrets nor any other process, so it holds only what forge
-hands it: the OpenRouter key, and the write token on a dispatch. Treat every
-dispatched workload as able to use the write token.
+what it uses, from systemd. A workload's agent runs in a sandbox that sees
+neither the secrets nor any other process, so it holds only what forge hands
+it: the OpenRouter key, and its repository's installation token on a dispatch.
 
 To see the frontier live, without waiting for the next poll, run
 `forge-frontier list` on the box as the `forge-runtime` user. It queries GitHub
-with the same token and writes nothing:
+with the App and writes nothing:
 
 ```bash
 just ssh sudo -u forge-runtime forge-frontier list
@@ -439,7 +470,7 @@ forge.runtime.dispatch.gitIdentity = {
 A host with a repository that declares `on.ticket` must also set
 `dispatch.gitIdentity`, or it does not evaluate. Every commit a dispatched
 workload makes carries it as author and committer, while pushes and pull
-requests show as the owner of the GitHub write token.
+requests show as the GitHub App's bot account.
 
 Label a ticket `forge:ready` and forge dispatches it by itself. Straight after
 every frontier sync, a dispatch pass starts a `forge-dispatch@` unit for each
@@ -466,11 +497,13 @@ Forge refuses a ticket that is not on the frontier or not labelled
 the ticket was dispatched. Otherwise it claims the ticket by replacing `forge:ready` with
 `forge:running`, clones the tip of the repository's default branch into a
 fresh run directory and runs the worker there. The clone and the workload
-authenticate to `https://github.com` with the write token, through a git
+authenticate to `https://github.com` with an installation token for the
+repository, through a git
 credential helper set only in their environment, so private repositories
 clone too, and the agent can push and open pull requests with `gh`. The
 helper and `gh` read the token from a file the sandbox binds read-only, so the
-workload's environment never holds it. Nothing
+workload's environment never holds it, and forge replaces it before it
+expires. Nothing
 is written to the workload's HOME or the checkout's `.git/config`, and
 scheduled workers get no identity, helper or token. The workload loads the
 checkout's `.claude/skills`, `.agents/skills` and `.pi/skills`, its root
