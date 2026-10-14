@@ -133,6 +133,28 @@ const PULL_REQUEST_QUERY = `
   }
 `;
 
+const PULL_REQUEST_HEAD_QUERY = `
+  query PullRequestHead($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        number
+        url
+        state
+        isCrossRepository
+        headRefName
+        closingIssuesReferences(first: 20) {
+          nodes {
+            number
+            repository {
+              nameWithOwner
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export type Fetch = typeof globalThis.fetch;
 
 export interface SpecRef {
@@ -562,6 +584,62 @@ export const queryPullRequest = async (
     state,
     settledAt: state === 'merged' ? first.mergedAt : state === 'closed' ? first.closedAt : null,
     commitAuthors,
+  };
+};
+
+export interface PullRequestHead extends PullRequestRef {
+  open: boolean;
+  fromFork: boolean;
+  branch: string;
+  closes: number[];
+}
+
+interface PullRequestHeadResponse {
+  data?: {
+    repository: {
+      pullRequest: {
+        number: number;
+        url: string;
+        state: string;
+        isCrossRepository: boolean;
+        headRefName: string;
+        closingIssuesReferences: {
+          nodes: { number: number; repository: { nameWithOwner: string } }[];
+        };
+      } | null;
+    } | null;
+  };
+  errors?: { message: string }[];
+}
+
+export const queryPullRequestHead = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+): Promise<PullRequestHead> => {
+  const response = await requestGraphql(fetch, token, PULL_REQUEST_HEAD_QUERY, github, { number });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
+  }
+  const { data, errors } = (await response.json()) as PullRequestHeadResponse;
+  const pullRequest = data?.repository?.pullRequest;
+  if (pullRequest === undefined || pullRequest === null) {
+    const reason =
+      errors === undefined || errors.length === 0
+        ? 'no such pull request'
+        : errors.map((error) => error.message).join('; ');
+    throw new Error(`GitHub found no pull request ${github}#${number}: ${reason}`);
+  }
+  return {
+    number: pullRequest.number,
+    url: pullRequestUrl(pullRequest.url),
+    open: pullRequest.state === 'OPEN',
+    fromFork: pullRequest.isCrossRepository,
+    branch: pullRequest.headRefName,
+    closes: pullRequest.closingIssuesReferences.nodes
+      .filter((issue) => issue.repository.nameWithOwner.toLowerCase() === github.toLowerCase())
+      .map((issue) => issue.number),
   };
 };
 

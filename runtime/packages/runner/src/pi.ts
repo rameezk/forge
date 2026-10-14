@@ -65,7 +65,7 @@ const projectInstructionArgs = (path: string): string[] => [
   ...appended('</project_instructions>\n\n</project_context>'),
 ];
 
-const checkoutArgs = (checkout: Checkout): string[] => [
+const checkoutArgs = (checkout: Checkout, instruction: string): string[] => [
   ...checkout.skillPaths.flatMap((path) => ['--skill', path]),
   ...(checkout.systemPrompt === null
     ? []
@@ -76,7 +76,7 @@ const checkoutArgs = (checkout: Checkout): string[] => [
   ...(checkout.projectInstructions === null
     ? []
     : projectInstructionArgs(checkout.projectInstructions)),
-  ...appended(UNATTENDED_INSTRUCTION),
+  ...appended(instruction),
 ];
 
 export interface PiExtensions {
@@ -114,7 +114,7 @@ const contractArgs = (
   ...reasoningArgs(invocation, extensions),
   '-e',
   extensions.requestRecord,
-  ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout)),
+  ...(invocation.checkout === undefined ? [] : checkoutArgs(invocation.checkout, invocation.instruction ?? UNATTENDED_INSTRUCTION)),
   ...appended(NARRATION_INSTRUCTION),
 ];
 

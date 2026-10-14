@@ -24,7 +24,7 @@ export interface WorkerConfig {
 
 export interface RepositoryConfig {
   github: string;
-  on?: { ticket?: string };
+  on?: { ticket?: string; feedback?: string };
 }
 
 export interface GitIdentity {
@@ -113,4 +113,12 @@ export const resolveWorker = (
     timeoutSeconds: worker.timeoutSeconds ?? null,
     maxCostUsd: worker.maxCostUsd ?? null,
   };
+};
+
+export const gitIdentityOf = (config: RuntimeConfig): GitIdentity => {
+  const identity = config.dispatch?.gitIdentity;
+  if (identity === undefined) {
+    throw new Error('forge.runtime.dispatch.gitIdentity is not set');
+  }
+  return identity;
 };

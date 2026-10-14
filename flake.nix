@@ -1003,6 +1003,63 @@
               (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))
               "declaring a repository with on.ticket must put the forge-dispatch command on the box's path, and a host without one must not";
 
+          reviseModuleWith =
+            {
+              prompt ? "/address-feedback {url}",
+            }:
+            {
+              forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+              forge.runtime.workers.reviser = {
+                harness = "pi";
+                model = "anthropic/claude-sonnet-4";
+                inherit prompt;
+              };
+              forge.runtime.repositories.forge = {
+                github = "rameezk/forge";
+                on.feedback = "reviser";
+              };
+              forge.runtime.dispatch.gitIdentity = gitIdentity;
+            };
+          reviseHostWith = args: secretsHost exampleSecretsFile (reviseModuleWith args);
+          reviseHost = reviseHostWith { };
+          reviseUnit = reviseHost.config.systemd.services."forge-revise@";
+          hasReviseCommand =
+            host:
+            lib.any (package: lib.getName package == "forge-revise") host.config.environment.systemPackages;
+          reviseConfigReflectsFeedbackWorker = lib.asserts.assertMsg (
+            reviseHost.config.forge.runtime.settings.repositories == {
+              forge = {
+                github = "rameezk/forge";
+                on.feedback = "reviser";
+              };
+            }
+          ) "the generated runtime config must carry a repository's feedback worker under on.feedback, and no on.ticket when it declares none";
+          reviseHostEvaluates = lib.asserts.assertMsg (
+            evaluates reviseHost
+            && evaluates (reviseHostWith { prompt = "Revise {repo}#{pr}"; })
+          ) "a repository whose feedback worker prompt holds {url} or {pr} must evaluate";
+          placeholderlessFeedbackWorkerFails =
+            let
+              host = reviseHostWith { prompt = "revise the thing"; };
+            in
+            lib.asserts.assertMsg (
+              !(evaluates host) && lib.any (lib.hasInfix "has no pull request placeholder") (failedAssertions host)
+            ) "a feedback worker whose prompt holds neither {pr} nor {url} must fail evaluation naming the rule";
+          reviseUnitRunsRevise =
+            lib.asserts.assertMsg
+              (
+                (reviseHost.config.systemd.services ? "forge-revise@")
+                && !(dispatchHost.config.systemd.services ? "forge-revise@")
+                && reviseUnit.serviceConfig.Type == "oneshot"
+                && lib.hasInfix "%i" reviseUnit.serviceConfig.ExecStart
+                && lib.hasInfix "forge-revise-instance" reviseUnit.serviceConfig.ExecStart
+                && readsWriteTokenAsCredential reviseUnit
+                && isWorkloadHardened reviseUnit
+                && hasReviseCommand reviseHost
+                && !(hasReviseCommand dispatchHost)
+              )
+              "declaring a repository with on.feedback must define a sandboxed forge-revise@ oneshot reading the GitHub write token as data and put the forge-revise command on the box's path, and a host without one must not";
+
           billingService = workerHost.config.systemd.services.forge-billing;
           billingTimer = workerHost.config.systemd.timers.forge-billing;
           billingDeclared = lib.asserts.assertMsg (
@@ -1517,6 +1574,15 @@
             assert dispatchCommandInstalled;
             pkgs.runCommand "runtime-dispatch" { } ''
               echo "a repository's worker wires a forge-dispatch@ oneshot, the forge-dispatch command, the GitHub write token from sops, and a dispatch pass after every frontier sync that may start only forge-dispatch@ units, bounded by dispatch.maxConcurrent; a worker without a ticket placeholder fails evaluation" > $out
+            '';
+
+          runtime-revise =
+            assert reviseConfigReflectsFeedbackWorker;
+            assert reviseHostEvaluates;
+            assert placeholderlessFeedbackWorkerFails;
+            assert reviseUnitRunsRevise;
+            pkgs.runCommand "runtime-revise" { } ''
+              echo "a repository's feedback worker wires a forge-revise@ oneshot and the forge-revise command; a feedback worker without a pull request placeholder fails evaluation" > $out
             '';
 
           runtime-workload-memory =

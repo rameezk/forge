@@ -499,6 +499,61 @@ the only thing forge writes to a ticket. On a host that dispatches, each
 frontier sync also makes sure every declared repository has the four `forge:*`
 labels, with their fixed descriptions and colours.
 
+### Revising a pull request
+
+Name a repository's feedback worker with `on.feedback`, beside `on.ticket`, to
+have a person's review of a pull request acted on. Its prompt is a template
+like the ticket worker's, filled in for each pull request with `{repo}` (the
+repository's `owner/name`), `{pr}` (the pull request's number), `{url}` (its
+URL) and `{branch}` (its head branch). It must hold `{pr}` or `{url}`, or the
+host does not evaluate. Forge hands the worker only the pull request's
+identity: the prompt, or the skill it starts with, reads and judges the
+feedback.
+
+```nix
+forge.runtime.workers.reviser = {
+  harness = "pi";
+  model = "z-ai/glm-5";
+  prompt = "/address-feedback {url}";
+};
+forge.runtime.repositories.forge = {
+  github = "rameezk/forge";
+  on.ticket = "builder";
+  on.feedback = "reviser";
+};
+```
+
+A host with a repository that declares `on.feedback` must also set
+`dispatch.gitIdentity` and provide `github_write_token`, as for `on.ticket`.
+
+To revise a pull request by hand, run:
+
+```bash
+just ssh sudo forge-revise forge 143
+```
+
+Forge clones the pull request's head branch into a fresh run directory and
+runs the feedback worker there, so a commit it pushes lands on that branch.
+The skills, project instructions and devShell come from the branch, not the
+default branch, and a leading `/<name>` in the prompt runs the branch's skill
+of that name, failing the revision before the harness starts if the branch has
+none. The revision records the branch's head at its start as its base commit.
+It is refused for a pull request that is not open or whose branch is on a fork.
+
+The revision is told that a person reviews the pull request. Where the
+feedback settles a confirmation a skill asks for, it proceeds; otherwise it
+asks its question as a reply on the pull request and ends its run at once,
+without waiting or polling for an answer. Forge itself writes nothing to
+GitHub for a revision: no labels, reactions or comments. Pushes and replies
+are the worker's.
+
+A pull request has at most one live workload: `forge-revise` refuses it while
+a revision of it is running or the dispatch that opened it still is, and says
+which. Revisions share `dispatch.maxConcurrent` with dispatches, so one is
+also refused while that many workloads run. The worker's timeout and budget
+apply as for any worker. A revision's outcome is its workload's end state, and
+it appears on the Runs page beside its repository and pull request.
+
 ## The workload sandbox
 
 Every workload's harness, and every subagent it spawns, runs in a bubblewrap

@@ -23,33 +23,16 @@ import {
   type TicketState,
 } from '@forge/shared';
 import {
+  gitIdentityOf,
   maxConcurrentOf,
   resolveWorker,
-  type GitIdentity,
   type RepositoryConfig,
-  type RuntimeConfig,
 } from './config.ts';
 import { gitEnvironment } from './git.ts';
-import type { Worker } from './harness.ts';
-import {
-  cloneCheckout,
-  headCommit,
-  loadPiSkills,
-  resolveCheckout,
-  SkillNotFound,
-} from './checkout.ts';
-import { DevShellFailed, enterDevShell, nixErrorOf } from './devshell.ts';
-import { GithubTokenFile } from './github-token-file.ts';
-import { withoutCredentials } from './provider.ts';
-import {
-  absolutePath,
-  launchWorkload,
-  readRuntimeConfig,
-  sandboxOf,
-  stateDirOf,
-  systemEnvironment,
-  type LaunchResult,
-} from './workload.ts';
+import { SkillNotFound } from './checkout.ts';
+import { launchInCheckout } from './checkout-workload.ts';
+import { DevShellFailed, nixErrorOf } from './devshell.ts';
+import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
 
@@ -103,22 +86,6 @@ const outcomeOf = (
   return { state: 'failed', reason: 'no-pull-request', detail: finalMessage };
 };
 
-const nixSystemOf = (env: NodeJS.ProcessEnv): string => {
-  const system = env.FORGE_NIX_SYSTEM;
-  if (system === undefined) {
-    throw new Error('FORGE_NIX_SYSTEM is not set');
-  }
-  return system;
-};
-
-const gitIdentityOf = (config: RuntimeConfig): GitIdentity => {
-  const identity = config.dispatch?.gitIdentity;
-  if (identity === undefined) {
-    throw new Error('forge.runtime.dispatch.gitIdentity is not set');
-  }
-  return identity;
-};
-
 const repositoryNamed = (
   repositories: Record<string, RepositoryConfig> | undefined,
   name: string,
@@ -155,61 +122,6 @@ const settleAllRunningTickets = async (
       log: (line) => console.error(line),
     });
   }
-};
-
-const launch = async ({
-  env,
-  config,
-  worker,
-  github,
-  token,
-  gitEnv,
-  identity,
-  ticket,
-  runId,
-}: {
-  env: NodeJS.ProcessEnv;
-  config: RuntimeConfig;
-  worker: Worker;
-  github: string;
-  token: string;
-  gitEnv: Record<string, string>;
-  identity: GitIdentity;
-  ticket: DispatchTicket;
-  runId: string;
-}): Promise<LaunchResult> => {
-  const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
-  const nixSystem = nixSystemOf(env);
-  const hostEnv = withoutCredentials(env);
-  const redactions: string[] = [];
-  const tokenFile = GithubTokenFile.create(
-    join(stateDirOf(env), 'credentials'),
-    runId,
-    token,
-    redactions,
-  );
-  const cloneEnv = { ...hostEnv, ...tokenFile.environment, ...gitEnv };
-  return launchWorkload({
-    config,
-    worker,
-    env,
-    harnessEnv: { ...tokenFile.environment, ...gitEnvironment({}, identity) },
-    secrets: () => redactions,
-    ticket,
-    runId,
-    openWorkspace: async (workDir) => {
-      await cloneCheckout(github, workDir, cloneEnv);
-      const baseCommit = await headCommit(workDir, { ...hostEnv, ...gitEnv });
-      const checkout = resolveCheckout(workDir, loadSkills);
-      const devShell = await enterDevShell({
-        sandbox: sandboxOf(env),
-        system: nixSystem,
-        root: checkout.root,
-        env: systemEnvironment(env),
-      });
-      return { workDir, baseCommit, checkout, ...(devShell === undefined ? {} : { devShell }) };
-    },
-  }).finally(() => tokenFile.remove());
 };
 
 export const main = async (
@@ -288,7 +200,7 @@ export const main = async (
 
       let launched: LaunchResult;
       try {
-        launched = await launch({
+        launched = await launchInCheckout({
           env,
           config,
           worker: {

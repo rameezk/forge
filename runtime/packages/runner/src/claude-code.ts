@@ -102,7 +102,8 @@ export interface ClaudeCodeArgsOptions {
   extraArgs: string[];
 }
 
-const FORGE_INSTRUCTIONS = [UNATTENDED_INSTRUCTION, NARRATION_INSTRUCTION].join('\n\n');
+const forgeInstructions = (invocation: HarnessInvocation): string =>
+  [invocation.instruction ?? UNATTENDED_INSTRUCTION, NARRATION_INSTRUCTION].join('\n\n');
 
 export const claudeCodeArgs = (
   invocation: HarnessInvocation,
@@ -115,9 +116,9 @@ export const claudeCodeArgs = (
   '--no-session-persistence',
   '--dangerously-skip-permissions',
   '--append-system-prompt',
-  FORGE_INSTRUCTIONS,
+  forgeInstructions(invocation),
   '--append-subagent-system-prompt',
-  FORGE_INSTRUCTIONS,
+  forgeInstructions(invocation),
   '--settings',
   RUN_SETTINGS,
   '--forward-subagent-text',

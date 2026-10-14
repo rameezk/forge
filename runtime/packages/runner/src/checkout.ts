@@ -53,6 +53,7 @@ export const cloneCheckout = (
   github: string,
   dir: string,
   env: NodeJS.ProcessEnv,
+  branch?: string,
 ): Promise<void> =>
   new Promise((resolve, reject) => {
     const child = spawn(
@@ -61,6 +62,7 @@ export const cloneCheckout = (
         'clone',
         '--quiet',
         '--filter=blob:none',
+        ...(branch === undefined ? [] : ['--branch', branch]),
         '--',
         `https://github.com/${github}.git`,
         dir,
