@@ -5,4 +5,6 @@ export { resolveServeConfig } from './config.ts';
 export type { TranscriptSource } from './transcript.ts';
 export { FileTranscriptSource } from './transcript.ts';
 export { formatCost, formatDuration } from './format.ts';
-export { renderDetail, renderList, renderWork } from './views.ts';
+export { renderWork } from './views/frontier.ts';
+export { renderDetail } from './views/run.ts';
+export { renderList } from './views/workloads.ts';
