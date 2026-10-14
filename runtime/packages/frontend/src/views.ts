@@ -697,6 +697,8 @@ const renderEvent = (
       return renderRetry(event);
     case 'compaction':
       return renderCompaction(event);
+    case 'cache_warm':
+      return '';
     case 'result':
       return html`<article class="${BLOCK} ${event.status === 'error' ? 'border-error' : 'border-line'} flex items-baseline gap-2.5 px-4 py-3" data-message="result">${renderStatus(event.status)}${event.error === null
         ? ''

@@ -81,6 +81,9 @@ const billedCalls = (event: HarnessEvent): BilledCall[] => {
       callOf('compaction', generationId, event.subagent, usage),
     );
   }
+  if (event.type === 'cache_warm') {
+    return callOf('cache_warm', event.generationId, event.subagent, event.usage);
+  }
   return [];
 };
 

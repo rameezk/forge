@@ -229,9 +229,10 @@
               (
                 lib.elem ./infra/nix/pi-read-only-agent-dir.patch (hostPi.patches or [ ])
                 && lib.elem ./infra/nix/pi-compaction-generations.patch (hostPi.patches or [ ])
+                && lib.elem ./infra/nix/pi-cache-warm-generations.patch (hostPi.patches or [ ])
                 && nixos.pkgs.forge-runner.piPackage == "${hostPi}/lib/node_modules/pi-monorepo"
               )
-              "a host's pkgs.pi-coding-agent, which operators install as the pi harness, must be the pi forge pins and patches to read credentials without writing its agent dir (ADR-0040) and to report the response id of compaction calls (ADR-0052), and the runner must load skills from that same pi";
+              "a host's pkgs.pi-coding-agent, which operators install as the pi harness, must be the pi forge pins and patches to read credentials without writing its agent dir (ADR-0040) and to report the response id of compaction and cache-warm calls (ADR-0052), and the runner must load skills from that same pi";
           nixInToolset = lib.asserts.assertMsg (lib.elem nixos.config.nix.package nixos.config.forge.runtime.toolset) "the base workload toolset must carry the box's nix, so a workload can use nix through the daemon";
           trustingHost =
             module:

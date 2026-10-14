@@ -8,6 +8,8 @@ import {
 
 export interface ChatRequest {
   messages: { role: string; content: unknown }[];
+  max_tokens?: number;
+  max_completion_tokens?: number;
 }
 
 export type Respond = (
@@ -504,8 +506,39 @@ export const compacting = (
   };
 };
 
+export const WARM_PROMPT_CACHE_SECONDS = 11;
+
+export const WARMING_MODEL_OVERRIDES = {
+  'z-ai/glm-5': { promptCache: { short: WARM_PROMPT_CACHE_SECONDS } },
+};
+
+export const warming = (prefix: string): Respond => {
+  let warms = 0;
+  let turns = 0;
+  return (_call, res, request) => {
+    if ((request.max_tokens ?? request.max_completion_tokens) === 1) {
+      warms += 1;
+      sse(res, textReply(`${prefix}-warm-${warms}`, '.', usage(1200, 1200, 1)));
+      return;
+    }
+    turns += 1;
+    sse(
+      res,
+      turns === 1
+        ? toolCallReply(
+            `${prefix}-${turns}`,
+            'Let me look.',
+            [bash('sleep 1.5; echo forge')],
+            usage(1200, 0, 40, 1000),
+          )
+        : textReply(`${prefix}-${turns}`, 'The command printed forge.', usage(1300, 1000, 25, 200)),
+    );
+  };
+};
+
 export interface Scenario {
   respond: Respond;
+  warming?: boolean;
   prompt?: string;
   messages?: string[];
   settings?: Record<string, unknown>;
@@ -585,6 +618,10 @@ export const scenarios: Record<string, Scenario> = {
     respond: compacting('gen-split', { split: true, failFirst: false }),
     messages: [EARLIER_MESSAGE],
     settings: COMPACTION_SETTINGS,
+  },
+  'cache-warm': {
+    respond: warming('gen-cache'),
+    warming: true,
   },
   'compaction-retry': {
     respond: compacting('gen-attempt', { split: false, failFirst: true }),

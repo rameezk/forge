@@ -517,3 +517,38 @@ test('given a subscription run whose context compacts, when the workload ends, t
   assert.equal(compaction?.billedCostUsd, null);
   assert.equal(store.getRun('run-1')?.costStatus, 'subscription');
 });
+
+test('given a subscription run whose cache is warmed, when the workload ends, then the cache_warm generation has its list-price equivalent, is never billed, and the cost status stays subscription', async () => {
+  const store = Store.open(':memory:');
+
+  await runWorkload({
+    store,
+    harness: fakeHarness([
+      message({ generationId: 'req-1' }),
+      {
+        type: 'cache_warm',
+        generationId: 'req-warm',
+        usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
+      result({ status: 'success' }),
+    ]),
+    worker: aWorker({ harness: 'claude-code', provider: 'anthropic' }),
+    openTranscript: arrayTranscripts().open,
+    openRawEvents: discardLines,
+    openRequestRecord: discardLines,
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
+    now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
+    newId: () => 'run-1',
+    ...withoutModelEntry,
+    lookUpModel: pricedModel,
+  });
+
+  const warm = store
+    .listGenerations('run-1')
+    .find(({ kind }) => kind === 'cache_warm');
+  assert.equal(warm?.generationId, 'req-warm');
+  assert.equal(warm?.estimatedCostUsd, null);
+  assert.ok(Math.abs((warm?.listPriceEquivalentUsd ?? 0) - 0.003) < 1e-12);
+  assert.equal(warm?.billedCostUsd, null);
+  assert.equal(store.getRun('run-1')?.costStatus, 'subscription');
+});

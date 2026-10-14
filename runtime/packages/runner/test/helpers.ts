@@ -306,6 +306,12 @@ export const PI_EXTENSIONS: PiExtensions = {
   requestRecord: join(PACKAGES, 'pi-request-record', 'src'),
 };
 
+export const FORCE_CACHE_WARM_EXTENSION = join(
+  import.meta.dirname,
+  'fixtures',
+  'force-cache-warm.ts',
+);
+
 export const PI_CONTRACT = [
   '--mode',
   'json',

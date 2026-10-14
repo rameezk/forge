@@ -13,7 +13,7 @@ import type { ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { CompactionEvent, HarnessEvent, MessageEvent } from '@forge/shared';
+import type { CacheWarmEvent, CompactionEvent, HarnessEvent, MessageEvent } from '@forge/shared';
 import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { PiHarness } from '../src/index.ts';
 import { loadPiSkills, resolveCheckout } from '../src/checkout.ts';
@@ -30,12 +30,15 @@ import {
   toolCallReply,
   usage,
   compacting,
+  warming,
+  WARMING_MODEL_OVERRIDES,
   COMPACTION_SETTINGS,
   EARLIER_MESSAGE,
   type Respond,
   type Usage,
 } from './fixtures/fake-provider.ts';
 import {
+  FORCE_CACHE_WARM_EXTENSION,
   PI_EXTENSIONS,
   PASSTHROUGH_BWRAP,
 } from './helpers.ts';
@@ -129,6 +132,7 @@ interface RealPiOptions {
   model?: string;
   settings?: Record<string, unknown>;
   messages?: string[];
+  warming?: boolean;
 }
 
 const runRealPi = async (
@@ -142,6 +146,7 @@ const runRealPi = async (
     model = 'z-ai/glm-5',
     settings,
     messages = [],
+    warming: warms = false,
   }: RealPiOptions = {},
 ): Promise<RealPiRun> => {
   const server = await serve(onTheWire(recording(respond, served, requested)));
@@ -156,7 +161,12 @@ const runRealPi = async (
   writeFileSync(
     join(agentDir, 'models.json'),
     JSON.stringify({
-      providers: { openrouter: { baseUrl: `http://127.0.0.1:${port}/v1` } },
+      providers: {
+        openrouter: {
+          baseUrl: `http://127.0.0.1:${port}/v1`,
+          ...(warms ? { modelOverrides: WARMING_MODEL_OVERRIDES } : {}),
+        },
+      },
     }),
   );
   if (settings === undefined) {
@@ -174,7 +184,7 @@ const runRealPi = async (
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
     env: { OPENROUTER_API_KEY: 'sk-fake' },
-    extraArgs: messages,
+    extraArgs: [...(warms ? ['-e', FORCE_CACHE_WARM_EXTENSION] : []), ...messages],
   });
   const events: HarnessEvent[] = [];
   const rawEvents: unknown[] = [];
@@ -505,6 +515,24 @@ test(
         (line) => (line as { type?: unknown }).type === 'request',
       ).length,
       served.length,
+    );
+  },
+);
+
+test(
+  'given the locked pi and a fake provider, when pi warms the prompt cache of a workload that stays busy, then its cache warm carries exactly the id and usage the provider served for the warm request',
+  { skip },
+  async () => {
+    const served: Served[] = [];
+    const { events } = await runRealPi(warming('gen-live'), { served, warming: true });
+
+    const warms = served.filter(({ id }) => id.includes('-warm-'));
+    assert.deepEqual(warms.map(({ id }) => id), ['gen-live-warm-1']);
+    assert.deepEqual(
+      events
+        .filter((event): event is CacheWarmEvent => event.type === 'cache_warm')
+        .map(({ generationId, usage: warmed }) => ({ generationId, usage: warmed })),
+      warms.map(servedCall),
     );
   },
 );
