@@ -427,7 +427,7 @@ in
       type = lib.types.nullOr gitIdentityModule;
       default = null;
       example = lib.literalExpression ''{ name = "Forge"; email = "forge@example.com"; }'';
-      description = "Git author and committer identity of every dispatched workload, set through its environment and never written to a file. Required when any repository declares a worker. Scheduled workloads get no identity.";
+      description = "Git author and committer identity of every dispatched workload, set through its environment and never written to a file. Required when any repository declares on.ticket. Scheduled workloads get no identity.";
     };
 
     dispatch.maxConcurrent = lib.mkOption {

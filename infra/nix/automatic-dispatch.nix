@@ -133,7 +133,7 @@ testers.runNixOSTest {
         box.succeed("systemctl start --no-block forge-billing.service")
         wait_until_oneshot_succeeded(box, "forge-billing.service", before_billing)
 
-    with subtest("forge-runtime may start a forge-dispatch unit of a repository that declares a worker, and nothing else"):
+    with subtest("forge-runtime may start a forge-dispatch unit of a repository that declares on.ticket, and nothing else"):
         box.succeed(f"{as_runtime} start forge-dispatch@forge:7.service")
         assert box.succeed("cat /var/lib/forge/dispatched-forge-7").strip() == "forge 7"
         box.fail(f"{as_runtime} start forge-dispatch@notes:7.service")

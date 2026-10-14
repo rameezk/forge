@@ -415,8 +415,8 @@ just ssh sudo -u forge-runtime forge-frontier list
 ### Dispatching a ticket
 
 Name a repository's ticket worker with `on.ticket` to run its tickets. The
-worker's prompt is written the way you would type it locally, with `{repo}` (the repository's
-`owner/name`), `{issue}` (the ticket's number) and `{url}` (its URL) filled in
+worker's prompt is written the way you would type it locally, with `{repo}`
+(the repository's `owner/name`), `{issue}` (the ticket's number) and `{url}` (its URL) filled in
 for each ticket. It must hold `{issue}` or `{url}`, or the host does not
 evaluate:
 

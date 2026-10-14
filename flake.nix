@@ -782,7 +782,7 @@
           dispatchConfigKeepsGitIdentityWithoutWorker =
             lib.asserts.assertMsg
               (identityWithoutWorkerHost.config.forge.runtime.settings.dispatch.gitIdentity == gitIdentity)
-              "the generated runtime config must keep the dispatch git identity when no repository declares a worker, so the frontier sync can still count rework on pull requests dispatched earlier";
+              "the generated runtime config must keep the dispatch git identity when no repository declares on.ticket, so the frontier sync can still count rework on pull requests dispatched earlier";
           concurrentDispatchHost = dispatchHostWith {
             dispatch = {
               inherit gitIdentity;
@@ -862,7 +862,7 @@
                 !(evaluates host)
                 && lib.any (lib.hasInfix "forge.runtime.dispatch.gitIdentity") (failedAssertions host)
               )
-              "a repository that declares a worker on a host with no dispatch git identity must fail evaluation";
+              "a repository that declares on.ticket on a host with no dispatch git identity must fail evaluation";
           dispatchHostEvaluates = lib.asserts.assertMsg (
             evaluates dispatchHost
             && evaluates (dispatchHostWith {
@@ -918,7 +918,7 @@
                 (dispatchHost.config.systemd.services ? "forge-dispatch@")
                 && !(workerAndRepositoryHost.config.systemd.services ? "forge-dispatch@")
               )
-              "declaring a repository with a worker must define the forge-dispatch@ template, and a host without one must not";
+              "declaring a repository with on.ticket must define the forge-dispatch@ template, and a host without one must not";
           dispatchUnitRunsDispatch =
             lib.asserts.assertMsg
               (
@@ -1000,7 +1000,7 @@
           dispatchCommandInstalled =
             lib.asserts.assertMsg
               (hasDispatchCommand dispatchHost && !(hasDispatchCommand workerAndRepositoryHost))
-              "declaring a repository with a worker must put the forge-dispatch command on the box's path, and a host without one must not";
+              "declaring a repository with on.ticket must put the forge-dispatch command on the box's path, and a host without one must not";
 
           billingService = workerHost.config.systemd.services.forge-billing;
           billingTimer = workerHost.config.systemd.timers.forge-billing;
