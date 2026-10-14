@@ -383,7 +383,7 @@ the missing key, if a token your repositories need is not there.
   declared repository, not only those with a worker, because each frontier
   sync makes sure all of them have the `forge:*` labels. Forge also uses it
   to move dispatched tickets through those labels, and the dispatched agent
-  gets it as `GITHUB_TOKEN`, so the repository's skills can push branches and
+  reads it from a read-only file, so the repository's skills can push branches and
   open pull requests. It also needs read-only access on Checks and Actions,
   so the agent can watch a pull request's required checks and read the logs
   of the ones that fail.
@@ -468,7 +468,9 @@ the ticket was dispatched. Otherwise it claims the ticket by replacing `forge:re
 fresh run directory and runs the worker there. The clone and the workload
 authenticate to `https://github.com` with the write token, through a git
 credential helper set only in their environment, so private repositories
-clone too, and the agent can push and open pull requests with `gh`. Nothing
+clone too, and the agent can push and open pull requests with `gh`. The
+helper and `gh` read the token from a file the sandbox binds read-only, so the
+workload's environment never holds it. Nothing
 is written to the workload's HOME or the checkout's `.git/config`, and
 scheduled workers get no identity, helper or token. The workload loads the
 checkout's `.claude/skills`, `.agents/skills` and `.pi/skills`, its root

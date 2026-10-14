@@ -1,7 +1,7 @@
 import type { GitIdentity } from './config.ts';
+import { GITHUB_TOKEN_FILE_ENV } from './github-token-file.ts';
 
-const GITHUB_CREDENTIAL_HELPER =
-  '!f() { test "$1" = get || exit 0; printf \'username=x-access-token\\npassword=%s\\n\' "$GITHUB_TOKEN"; }; f';
+const GITHUB_CREDENTIAL_HELPER = `!f() { test "$1" = get || exit 0; printf 'username=x-access-token\\npassword=%s\\n' "$(cat "$${GITHUB_TOKEN_FILE_ENV}")"; }; f`;
 
 const GIT_CONFIG: [string, string][] = [
   ['credential.https://github.com.helper', ''],

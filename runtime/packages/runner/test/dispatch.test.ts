@@ -333,6 +333,9 @@ interface PiCall {
   cwd: string;
   subagentInvocation: string | undefined;
   githubToken: string | undefined;
+  githubTokenFile: string | undefined;
+  githubTokenFileContents: string | null;
+  credential: string | null;
   nodeOptions: string | undefined;
   env: Record<string, string>;
 }
@@ -591,13 +594,17 @@ test('given a host whose git identity is set, when a ticket is dispatched, then 
 const githubCredential = (
   pi: PiCall,
   env: Record<string, string> = {},
-): string =>
-  execFileSync('git', ['credential', 'fill'], {
+): string => {
+  assert.ok(pi.githubTokenFile);
+  mkdirSync(dirname(pi.githubTokenFile), { recursive: true });
+  writeFileSync(pi.githubTokenFile, GITHUB_TOKEN);
+  return execFileSync('git', ['credential', 'fill'], {
     cwd: pi.cwd,
     env: { ...pi.env, GIT_TERMINAL_PROMPT: '0', ...env },
     input: 'protocol=https\nhost=github.com\n\n',
     encoding: 'utf8',
   });
+};
 
 test('given a dispatched workload on a box whose system git config already has a credential helper, when git asks for credentials for https://github.com, then it gets the write token, and neither its HOME nor the checkout\'s git config holds a credential', async () => {
   const systemConfig = join(mkdtempSync(join(tmpdir(), 'forge-etc-')), 'gitconfig');
@@ -690,7 +697,7 @@ test('given a checkout whose flake\'s default devShell provides a tool, when the
   ]);
   assert.equal(realpathSync(call.cwd), realpathSync(pi.cwd));
   assert.equal(call.env.FAKE_BWRAP_STATUS_FD, '3');
-  for (const name of ['GITHUB_TOKEN', 'OPENROUTER_API_KEY', 'GIT_CONFIG_COUNT', 'GIT_AUTHOR_NAME']) {
+  for (const name of ['FORGE_GITHUB_TOKEN_FILE', 'GITHUB_TOKEN', 'OPENROUTER_API_KEY', 'GIT_CONFIG_COUNT', 'GIT_AUTHOR_NAME']) {
     assert.equal(call.env[name], undefined, name);
   }
   assert.equal(pi.env.DEVSHELL_TOOL, 'devshell-stub');
@@ -699,7 +706,7 @@ test('given a checkout whose flake\'s default devShell provides a tool, when the
   assert.equal(pi.env.PATH, `${DEVSHELL_PATH}:${toolset}`);
 });
 
-test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author, pi\'s agent dir, its own locale, and the build-only variables nix develop leaves out, when the workload starts, then pi sees forge\'s deliberate values, the devShell\'s locale over the box\'s, its sandbox HOME, and none of the build-only or unexported variables', async () => {
+test('given a devShell that sets OPENROUTER_API_KEY, a git author, pi\'s agent dir, its own locale, and the build-only variables nix develop leaves out, when the workload starts, then pi sees forge\'s deliberate values, the devShell\'s locale over the box\'s, its sandbox HOME, and none of the build-only or unexported variables', async () => {
   const exported = (value: string) => ({ type: 'exported', value });
   const { pi } = await dispatch({
     origin: originWith({
@@ -709,7 +716,7 @@ test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author,
     nix: {
       variables: {
         ...DEVSHELL_VARIABLES,
-        GITHUB_TOKEN: exported('github_pat_from_the_devshell'),
+        FORGE_GITHUB_TOKEN_FILE: exported('/nix/store/00000000000000000000000000000000-planted/token'),
         OPENROUTER_API_KEY: exported('sk-or-from-the-devshell'),
         GIT_AUTHOR_NAME: exported('Devshell Author'),
         GIT_AUTHOR_EMAIL: exported('devshell@example.com'),
@@ -728,7 +735,7 @@ test('given a devShell that sets GITHUB_TOKEN, OPENROUTER_API_KEY, a git author,
   });
 
   assert.ok(pi);
-  assert.equal(pi.env.GITHUB_TOKEN, GITHUB_TOKEN);
+  assert.match(pi.env.FORGE_GITHUB_TOKEN_FILE ?? '', /\/credentials\/[0-9a-f-]{36}\/github-token$/);
   assert.equal(pi.env.OPENROUTER_API_KEY, 'sk-or-test');
   assert.equal(pi.env.GIT_AUTHOR_NAME, GIT_IDENTITY.name);
   assert.equal(pi.env.GIT_AUTHOR_EMAIL, GIT_IDENTITY.email);
@@ -1470,7 +1477,7 @@ test('given an issue GitHub cannot find and a repository that is not declared, w
   );
 });
 
-test('given a GitHub write-token file that also sets NODE_OPTIONS and quotes the token, and a different GITHUB_TOKEN in the environment, when forge-dispatch runs, then every GitHub call uses the file token, and pi gets it as GITHUB_TOKEN and nothing else from the file', async () => {
+test('given a GitHub write-token file that also sets NODE_OPTIONS and quotes the token, and a different GITHUB_TOKEN in the environment, when forge-dispatch runs, then every GitHub call uses the file token, and pi reads it from a file and gets nothing else from the file', async () => {
   const { requests, labelWrites, pi } = await dispatch({
     tokenFile: `NODE_OPTIONS=--require /var/lib/forge/planted.js\n  GITHUB_TOKEN = "${GITHUB_TOKEN}"  \n`,
   });
@@ -1480,20 +1487,21 @@ test('given a GitHub write-token file that also sets NODE_OPTIONS and quotes the
     new Set([`bearer ${GITHUB_TOKEN}`]),
   );
   assert.ok(pi);
-  assert.equal(pi.githubToken, GITHUB_TOKEN);
+  assert.equal(pi.githubTokenFileContents, GITHUB_TOKEN);
+  assert.equal(pi.githubToken, undefined);
   assert.equal(pi.nodeOptions, undefined);
 });
 
-test('given a runner whose own environment holds its git config, the write-token file and more, when a ticket is dispatched, then the harness environment holds only the system settings, its HOME, the OpenRouter key, the write token, the git identity and credential helper, the NixOS environment marker, and pi\'s own variables', async () => {
+test('given a runner whose own environment holds its git config, the write-token file and more, when a ticket is dispatched, then the harness environment holds only the system settings, its HOME, the OpenRouter key, the path of the write-token file, the git identity and credential helper, the NixOS environment marker, and pi\'s own variables', async () => {
   const { bwrap } = await dispatch({
     env: { NODE_OPTIONS: '--require /var/lib/forge/planted.js' },
   });
 
   assert.ok(bwrap);
   assert.deepEqual(Object.keys(bwrap.env).sort(), [
+    'FORGE_GITHUB_TOKEN_FILE',
     'FORGE_PI_REQUEST_RECORD_FD',
     'FORGE_PI_SUBAGENT_INVOCATION',
-    'GITHUB_TOKEN',
     'GIT_AUTHOR_EMAIL',
     'GIT_AUTHOR_NAME',
     'GIT_COMMITTER_EMAIL',
@@ -1509,8 +1517,25 @@ test('given a runner whose own environment holds its git config, the write-token
     'PI_CODING_AGENT_DIR',
     '__NIXOS_SET_ENVIRONMENT_DONE',
   ]);
-  assert.equal(bwrap.env.GITHUB_TOKEN, GITHUB_TOKEN);
   assert.equal(bwrap.env.GIT_CONFIG_COUNT, '2');
+  assert.equal(bwrap.env.GITHUB_TOKEN, undefined);
+});
+
+test('given a dispatched workload, when pi starts, then git authenticates with the write token read from a file the sandbox binds read-only, and the file is gone once the run ends', async () => {
+  const { pi, bwrap } = await dispatch();
+
+  assert.ok(pi);
+  assert.ok(bwrap);
+  assert.ok(pi.githubTokenFile);
+  assert.equal(pi.githubTokenFileContents, GITHUB_TOKEN);
+  assert.match(pi.credential ?? '', /^username=x-access-token$/m);
+  assert.match(pi.credential ?? '', new RegExp(`^password=${GITHUB_TOKEN}$`, 'm'));
+  const dir = dirname(pi.githubTokenFile);
+  const binds = bwrap.argv.flatMap((arg, index) =>
+    bwrap.argv[index - 1] === '--ro-bind' && bwrap.argv[index + 1] === dir ? [arg] : [],
+  );
+  assert.deepEqual(binds, [dir]);
+  assert.equal(existsSync(dir), false);
 });
 
 test('given no GitHub write-token file, or one that sets no token, when forge-dispatch runs, then it fails naming the missing write token without asking GitHub', async () => {

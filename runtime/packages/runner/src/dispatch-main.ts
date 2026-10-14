@@ -39,6 +39,7 @@ import {
   SkillNotFound,
 } from './checkout.ts';
 import { DevShellFailed, enterDevShell, nixErrorOf } from './devshell.ts';
+import { GithubTokenFile } from './github-token-file.ts';
 import { withoutCredentials } from './provider.ts';
 import {
   absolutePath,
@@ -179,13 +180,20 @@ const launch = async ({
   const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
   const nixSystem = nixSystemOf(env);
   const hostEnv = withoutCredentials(env);
-  const cloneEnv = { ...hostEnv, GITHUB_TOKEN: token, ...gitEnv };
+  const redactions: string[] = [];
+  const tokenFile = GithubTokenFile.create(
+    join(stateDirOf(env), 'credentials'),
+    runId,
+    token,
+    redactions,
+  );
+  const cloneEnv = { ...hostEnv, ...tokenFile.environment, ...gitEnv };
   return launchWorkload({
     config,
     worker,
     env,
-    harnessEnv: { GITHUB_TOKEN: token, ...gitEnvironment({}, identity) },
-    secrets: [token],
+    harnessEnv: { ...tokenFile.environment, ...gitEnvironment({}, identity) },
+    secrets: () => redactions,
     ticket,
     runId,
     openWorkspace: async (workDir) => {
@@ -200,7 +208,7 @@ const launch = async ({
       });
       return { workDir, baseCommit, checkout, ...(devShell === undefined ? {} : { devShell }) };
     },
-  });
+  }).finally(() => tokenFile.remove());
 };
 
 export const main = async (
