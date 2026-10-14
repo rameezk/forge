@@ -55,7 +55,7 @@ const CONTROL = 'h-9 rounded-md border border-line bg-surface px-2 py-1.5 text-[
 
 const FIELD = 'flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
-const CHIP = 'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[0.85rem] font-medium text-fg no-underline hover:bg-raised';
+const CHIP = 'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[0.85rem] font-medium text-fg no-underline hover:bg-raised';
 
 const CHIP_CURRENT = 'border-fg bg-raised font-semibold';
 
@@ -86,7 +86,7 @@ const renderChips = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
       count: scoped.filter((run) => run.status === status).length,
     })),
   ];
-  return html`<nav class="mb-3 flex flex-wrap gap-2" aria-label="Status" data-status-chips>
+  return html`<nav class="mb-3 flex gap-2 overflow-x-auto sm:flex-wrap" aria-label="Status" data-status-chips>
     ${chips.map(({ key, label, status, count }) => {
       const { status: _current, ...rest } = filter;
       const current = filter.status === status;
@@ -95,8 +95,14 @@ const renderChips = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
   </nav>`;
 };
 
-const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered =>
-  html`<form method="get" action="/" class="mb-4 flex flex-wrap items-end gap-3" data-filters>
+const startedRange = ({ from, to }: WorkloadFilter): string =>
+  from !== undefined && to !== undefined ? `${from} to ${to}` : from !== undefined ? `from ${from}` : to !== undefined ? `to ${to}` : '';
+
+const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
+  const range = startedRange(filter);
+  return html`<details class="mb-4 sm:[&:not([open])::details-content]:block sm:[&:not([open])::details-content]:[content-visibility:visible]" data-filters>
+  <summary class="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-line bg-surface px-3 text-[0.9rem] font-semibold text-fg sm:hidden [&::-webkit-details-marker]:hidden">Filters${range === '' ? '' : html` <span class="font-normal text-muted" data-started-range>${range}</span>`}</summary>
+  <form method="get" action="/" class="mt-3 flex flex-wrap items-end gap-3 sm:mt-0">
     ${filter.status === undefined ? '' : html`<input type="hidden" name="status" value="${filter.status}" />`}
     <label class="${FIELD}">Search
       <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-60" />
@@ -112,7 +118,9 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered =>
     </label>
     <button type="submit" class="h-9 rounded-md border border-line bg-raised px-3 text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
     ${isFiltered(filter) ? html`<a href="/" class="${LINK} py-2 text-[0.9rem]" data-clear-filters>Clear filters</a>` : ''}
-  </form>`;
+  </form>
+  </details>`;
+};
 
 const PAGE_LINK = 'rounded-md border px-3 py-1 text-[0.9rem] font-medium no-underline';
 
@@ -132,6 +140,21 @@ const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined):
   run.ticket === null && revision === undefined
     ? html`<span class="text-muted">manual</span>`
     : html`${renderRunTicket(run.ticket)}${renderRunPullRequest(revision)}`;
+
+const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
+
+const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>): Rendered =>
+  html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
+    <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
+    <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime)}${renderStatus(run.status)}</div>
+    <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, revision)}</span><span class="font-semibold">${run.worker}</span></div>
+    <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
+    <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">
+      <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Duration</dt><dd class="m-0 tabular-nums" data-duration>${renderDuration(run)}</dd></div>
+      <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Cache hit</dt><dd class="m-0 tabular-nums" data-cache-hit>${renderCacheHitRate(run)}</dd></div>
+      <div class="flex flex-col gap-0.5 text-right"><dt class="${STAT_LABEL}">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
+    </dl>
+  </article>`;
 
 export const renderList = (
   all: RunRecord[],
@@ -156,7 +179,10 @@ export const renderList = (
           ${renderFilters(all, filter)}
           ${runs.length === 0
             ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`
-            : html`<div class="${CARD}">
+            : html`<div class="flex flex-col gap-3 sm:hidden" data-run-cards>
+            ${runs.map((run) => renderRunCard(run, revisions.get(run.id), equivalents))}
+          </div>
+          <div class="${CARD} hidden sm:block">
             <table class="${TABLE}">
               <thead>
                 <tr>
