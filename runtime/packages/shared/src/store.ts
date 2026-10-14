@@ -31,7 +31,7 @@ import type {
   NewGeneration,
   UnsettledGeneration,
 } from './generation.ts';
-import type { TicketAttempt } from './attempts.ts';
+import type { AttemptRevision, TicketAttempt } from './attempts.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
@@ -1456,19 +1456,20 @@ export class Store {
     return { workers: column('worker'), repositories: column('repository') };
   }
 
-  listAttempts(ticket: { repository: string; number: number }): TicketAttempt[] {
+  listAttempts(ticket: { repository: string; number: number }, now: string): TicketAttempt[] {
     const rows = this.#db
       .prepare(
-        `SELECT d.run_id AS run_id FROM dispatches d
+        `SELECT d.id AS id, d.run_id AS run_id FROM dispatches d
         JOIN runs r ON r.id = d.run_id
         WHERE d.repository = $repository AND d.number = $number
         ORDER BY d.id DESC`,
       )
-      .all({ repository: ticket.repository, number: ticket.number }) as { run_id: string }[];
-    return rows.map(({ run_id }) => ({
+      .all({ repository: ticket.repository, number: ticket.number }) as { id: number; run_id: string }[];
+    return rows.map(({ id, run_id }) => ({
       run: this.getRun(run_id)!,
       config: this.getFingerprint(run_id),
       pullRequest: this.pullRequestOfRun(run_id),
+      revisions: this.#revisionsOf(id, now),
     }));
   }
 
@@ -1763,7 +1764,7 @@ export class Store {
       .run({ id, state, ended_at: endedAt });
   }
 
-  listRevisions(now: string): RevisionRecord[] {
+  #selectRevisions(where: string, params: Record<string, string | number>, now: string): RevisionRecord[] {
     const rows = this.#db
       .prepare(
         `SELECT
@@ -1771,10 +1772,30 @@ export class Store {
           CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
           started_at, alive_at, ended_at
         FROM revisions
+        ${where}
         ORDER BY id`,
       )
-      .all({ live_since: liveSince(now) }) as RevisionRow[];
+      .all({ ...params, live_since: liveSince(now) }) as RevisionRow[];
     return rows.map(revisionFromRow);
+  }
+
+  #revisionsOf(dispatchId: number, now: string): AttemptRevision[] {
+    return this.#selectRevisions(
+      'WHERE dispatch_id = $dispatch_id AND EXISTS (SELECT 1 FROM runs WHERE runs.id = revisions.run_id)',
+      { dispatch_id: dispatchId },
+      now,
+    ).map((revision) => ({ revision, run: this.getRun(revision.runId)! }));
+  }
+
+  revisedPullRequestOfRun(runId: string): RevisedPullRequest | null {
+    const row = this.#db
+      .prepare(`SELECT repository, number, url FROM revisions WHERE run_id = $run_id`)
+      .get({ run_id: runId }) as RevisedPullRequest | undefined;
+    return row ?? null;
+  }
+
+  listRevisions(now: string): RevisionRecord[] {
+    return this.#selectRevisions('', {}, now);
   }
 
   reconcileDispatch(

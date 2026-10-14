@@ -105,7 +105,7 @@ export {
   systemHashesOf,
   toolsHashOf,
 } from './request-record.ts';
-export type { TicketAttempt } from './attempts.ts';
+export type { AttemptRevision, TicketAttempt } from './attempts.ts';
 export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 export {
   DEFAULT_HARNESS,

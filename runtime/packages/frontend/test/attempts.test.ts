@@ -267,3 +267,67 @@ test('given a ticket with an earlier attempt that was dispatched again with no w
   assert.match(work, /data-dispatch="/);
   assert.match(work, /<a href="\/tickets\/forge\/42"[^>]*data-attempts[^>]*>/);
 });
+
+const revise = (store: Store, runId: string, start: string, state: 'ok' | 'error', pullRequest = 9): void => {
+  store.insertRun({
+    ...runOf({ ...THREE[0]!, id: runId, start, seconds: 120, cost: 0.5 }),
+    worker: 'reviser',
+    ticket: null,
+  });
+  const started = store.startRevision(
+    { repository: 'forge', number: pullRequest, url: `${GITHUB}forge/pull/${pullRequest}` },
+    [TICKET.number],
+    runId,
+    start,
+    10,
+  );
+  assert.ok('started' in started);
+  store.endRevision(started.started, state, new Date(Date.parse(start) + 120_000).toISOString());
+};
+
+const revisionRows = (page: string): Map<string, Record<string, string>> =>
+  new Map(
+    [...page.matchAll(/<tr[^>]*\sdata-revision="([^"]*)"[^>]*>([\s\S]*?)<\/tr>/g)].map(([, id, body]) => [
+      id!,
+      Object.fromEntries(
+        [...body!.matchAll(/<td[^>]*\sdata-field="([^"]*)"[^>]*>([\s\S]*?)<\/td>/g)].map(([, field, cell]) => [field!, cell!]),
+      ),
+    ]),
+  );
+
+test('given a ticket whose second attempt opened a pull request revised twice, when its attempts view is requested, then that attempt lists both revisions in order with outcome, cost and duration linking to their runs, and the first attempt lists none', async () => {
+  const { app, store } = dashboard([
+    { ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'closed' } },
+    { ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } },
+  ]);
+  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'ok');
+  revise(store, 'rev-error', '2026-09-25T10:00:00.000Z', 'error');
+
+  const page = await (await app.request('/tickets/forge/42')).text();
+
+  const rows = revisionRows(page);
+  assert.deepEqual([...rows.keys()], ['rev-ok', 'rev-error']);
+  assert.match(rows.get('rev-ok')!['run']!, /<a href="\/runs\/rev-ok"/);
+  assert.equal(textOf(rows.get('rev-ok')!['outcome']!), 'ok');
+  assert.equal(textOf(rows.get('rev-error')!['outcome']!), 'error');
+  assert.equal(textOf(rows.get('rev-ok')!['cost']!), '$0.500000');
+  assert.equal(textOf(rows.get('rev-ok')!['duration']!), '2m 0s');
+  const order = [...page.matchAll(/data-(attempt|revision)="([^"]*)"/g)].map(([, , id]) => id);
+  assert.deepEqual(order, ['second', 'rev-ok', 'rev-error', 'first']);
+});
+
+test('given a revision of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no revisions', async () => {
+  const { app, store } = dashboard([{ ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'open' } }]);
+  revise(store, 'manual-rev', '2026-09-24T10:00:00.000Z', 'ok', 99);
+
+  assert.deepEqual([...revisionRows(await (await app.request('/tickets/forge/42')).text()).keys()], []);
+});
+
+test('given a revision run, when its run detail page is requested, then it shows the pull request it revised linked to GitHub', async () => {
+  const { app, store } = dashboard([]);
+  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'ok', 143);
+
+  const detail = await (await app.request('/runs/rev-ok')).text();
+
+  assert.match(detail, /<dd[^>]*data-revised-pull-request[^>]*>[\s\S]*?<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/143"[^>]*>#143<\/a>/);
+});

@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type RunTicket, type Ticket } from '@forge/shared';
+import { isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RevisedPullRequest, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type RunTicket, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTokens } from '../format.ts';
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
@@ -214,6 +214,14 @@ const renderPullRequest = (pullRequest: PullRequestRecord | null): Rendered =>
         ? ''
         : html`<span>rework ${pullRequest.rework}</span>`}</dd>`;
 
+const renderRevisedPullRequest = (pullRequest: RevisedPullRequest | null): Rendered =>
+  pullRequest === null
+    ? ''
+    : html`<dt class="${META_TERM}">Revises</dt>
+      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" data-revised-pull-request><span class="text-muted">${pullRequest.repository}</span>${isGithubUrl(pullRequest.url)
+        ? externalLink(pullRequest.url, `#${pullRequest.number}`)
+        : html`#${pullRequest.number}`}</dd>`;
+
 const skillWhere = ({ prompt, parent, subagents }: SkillSummary): string =>
   [
     ...(prompt ? ['prompt'] : []),
@@ -282,6 +290,7 @@ export const renderDetail = (
   { context, efforts: recordedEfforts }: RequestRecordView,
   generations: GenerationRecord[],
   pullRequest: PullRequestRecord | null,
+  revised: RevisedPullRequest | null,
   skillLoads: RunSkillLoad[],
   downloads: Downloads,
   config: RunFingerprint | null,
@@ -321,6 +330,7 @@ export const renderDetail = (
       ${renderCounters(run.counters)}
       ${renderSkills(skillLoads)}
       ${renderPullRequest(pullRequest)}
+      ${renderRevisedPullRequest(revised)}
       ${renderTicketRow(run.ticket)}
       ${renderDownloads(run, downloads)}
     </dl>

@@ -117,7 +117,7 @@ export const createApp = ({
     const number = Number(c.req.param('number'));
     if (!TICKET_NUMBER.test(c.req.param('number')) || !Number.isSafeInteger(number)) return c.notFound();
     const ticket = { repository: c.req.param('repository'), number };
-    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket), assets));
+    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket, new Date().toISOString()), assets));
   });
 
   const downloadable = (ref: string | null): ref is string =>
@@ -135,7 +135,7 @@ export const createApp = ({
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), assets));
+    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.revisedPullRequestOfRun(run.id), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), assets));
   });
 
   app.get('/runs/:id/transcript', (c) => {
