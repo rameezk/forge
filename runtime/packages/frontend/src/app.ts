@@ -7,6 +7,7 @@ import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
 import { renderTicketAttempts } from './views/attempts.ts';
 import { renderWork } from './views/frontier.ts';
+import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
 import { renderCohortPage, renderInsights, renderUnknownCohortPage } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs } from './views/shared.ts';
@@ -19,7 +20,7 @@ const ATTEMPTS_PAGE = /^\/tickets\/[^/]+\/[1-9]\d*$/;
 
 const COHORT_PAGE = new RegExp(`^/cohorts/(?:${UNKNOWN_COHORT}|[0-9a-f]{64})(?:\\?.*)?$`);
 
-const DETAIL_PAGE = /^\/runs\/([^/]+)$/;
+const DETAIL_PAGE = /^\/runs\/([^/?]+)(?:\/transcript)?(?:\?.*)?$/;
 
 const runOfDetailPage = (page: string): string | undefined => {
   const encoded = DETAIL_PAGE.exec(page)?.[1];
@@ -137,6 +138,13 @@ export const createApp = ({
     return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), assets));
   });
 
+  app.get('/runs/:id/transcript', (c) => {
+    const run = store.getRun(c.req.param('id'));
+    if (run === undefined) return c.notFound();
+    const events = run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
+    return c.html(renderFullTranscript(run, events, store.listGenerations(run.id), store.listSkillLoads(run.id), parseTranscriptShow(c.req.query('show')), assets));
+  });
+
   const serveDownload = (path: `/runs/:id/${string}`, refOf: (run: RunRecord) => string | null): void => {
     app.get(path, (c) => {
       const run = store.getRun(c.req.param('id'));
@@ -150,7 +158,7 @@ export const createApp = ({
     });
   };
 
-  serveDownload('/runs/:id/transcript', (run) => run.transcriptRef);
+  serveDownload('/runs/:id/transcript.jsonl', (run) => run.transcriptRef);
   serveDownload('/runs/:id/raw-events', (run) => rawEventsRef(run.id));
   serveDownload('/runs/:id/request-record', (run) => requestRecordRef(run.id));
 

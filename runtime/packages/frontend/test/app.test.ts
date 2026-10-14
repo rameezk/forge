@@ -518,7 +518,7 @@ test('given a successful run and a failed run, when each run page is requested, 
     const body = await (await app.request(`/runs/${id}`)).text();
     return {
       header: body.match(/<dt[^>]*>Status<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '',
-      closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/div>\s*<\/main>/)?.[1] ?? '',
+      closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/div>\s*<\/div>\s*<\/main>/)?.[1] ?? '',
     };
   };
 
@@ -665,7 +665,7 @@ test('given parallel tool calls whose results arrive out of order, when a card i
   assert.doesNotMatch(second, /contents of a/);
 });
 
-test('given a run with a tool call that returned an error beside one that succeeded, when its run page is viewed, then only the failed card is highlighted and open by default', async () => {
+test('given a run with a tool call that returned an error beside one that succeeded, when its run page is viewed, then only the failed card is highlighted, and both start collapsed', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
     { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
@@ -677,7 +677,7 @@ test('given a run with a tool call that returned an error beside one that succee
   const [ok, failed] = toolCards(body) as [string, string];
   assert.doesNotMatch(openingTag(ok), /\sdata-failed[\s>]|\sopen[\s>]/);
   assert.match(openingTag(failed), /\sdata-failed[\s>]/);
-  assert.match(openingTag(failed), /\sopen[\s>]/);
+  assert.doesNotMatch(openingTag(failed), /\sopen[\s>]/);
   assert.match(failed, /No such file or directory/);
 });
 
@@ -857,7 +857,7 @@ test("given a subagent whose final message differs from the result the parent re
   assert.match(card, /<header[^>]*>report<\/header>\s*<div[^>]*>\s*<p>full sum\n\.\.\.cut<\/p>\s*<\/div>/);
 });
 
-test('given a subagent call that returned an error, when its run page is viewed, then its card is highlighted, its group is open and the error is its report', async () => {
+test('given a subagent call that returned an error, when its run page is viewed, then its card is highlighted, its group is collapsed and the error is its report', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Say alpha.' } },
     { type: 'tool_call', id: 'call_beta', name: 'subagent', arguments: { task: 'Say beta.' } },
@@ -871,7 +871,7 @@ test('given a subagent call that returned an error, when its run page is viewed,
   const [failed, ok] = subagentCalls(body) as [string, string];
   assert.match(openingTag(failed), /\sdata-failed[\s>]/);
   assert.match(failed, /<span[^>]*\sdata-badge="error"[^>]*>error<\/span>/);
-  assert.match(openingTag(subagentGroups(failed)[0] ?? ''), /\sopen[\s>]/);
+  assert.doesNotMatch(openingTag(subagentGroups(failed)[0] ?? ''), /\sopen[\s>]/);
   assert.match(failed, /<header[^>]*>assistant<\/header>\s*<div[^>]*>\s*<p>partial<\/p>\s*<\/div>/);
   assert.match(failed, /<article[^>]*\sdata-message="error"[^>]*>\s*<header[^>]*>error<\/header>\s*<pre[^>]*>Sub-agent failed: provider error<\/pre>/);
   assert.doesNotMatch(openingTag(ok), /\sdata-failed[\s>]/);
@@ -954,7 +954,7 @@ test('given a harness whose spawning tool has another name, when its run page is
   assert.equal(toolCards(body).length, 0);
 });
 
-test('given a subagent call that failed before its child produced any activity, when its run page is viewed, then it renders as an ordinary tool card that is highlighted and open', async () => {
+test('given a subagent call that failed before its child produced any activity, when its run page is viewed, then it renders as an ordinary tool card that is highlighted and collapsed', async () => {
   const body = await viewTranscript([
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'List the files.', cwd: '../outside' } },
     { type: 'tool_result', id: 'call_alpha', isError: true, text: 'working directory escapes the run directory' },
@@ -964,7 +964,7 @@ test('given a subagent call that failed before its child produced any activity, 
   assert.equal(subagentCalls(body).length, 0);
   const [card] = toolCards(body) as [string];
   assert.match(openingTag(card), /\sdata-failed[\s>]/);
-  assert.match(openingTag(card), /\sopen[\s>]/);
+  assert.doesNotMatch(openingTag(card), /\sopen[\s>]/);
   assert.match(card, /List the files\.[\s\S]*\.\.\/outside[\s\S]*working directory escapes the run directory/);
 });
 

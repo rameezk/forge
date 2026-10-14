@@ -315,7 +315,7 @@ test('given a detail page with a tool call the operator expanded without clickin
   await expect(call).toHaveAttribute('open', '');
 });
 
-test('given a detail page with a tool call awaiting its result that the operator has not toggled, when its result arrives as an error, then the tool call opens', async ({
+test('given a detail page with a tool call awaiting its result that the operator has not toggled, when its result arrives as an error, then the tool call is marked failed and stays collapsed', async ({
   dashboard,
   page,
 }) => {
@@ -327,8 +327,9 @@ test('given a detail page with a tool call awaiting its result that the operator
 
   dashboard.appendEvents('run-01.jsonl', toolResult('call-1', 'ENOENT: no such file', true));
 
-  await expect(call).toHaveAttribute('open', '');
-  await expect(call.getByText('ENOENT: no such file')).toBeVisible();
+  await expect(call).toHaveAttribute('data-failed', '');
+  await expect(call).not.toHaveAttribute('open');
+  await expect(call.getByText('ENOENT: no such file')).toBeHidden();
 });
 
 test('given a running workload\'s detail page scrolled to the bottom, when new transcript events arrive, then the page stays scrolled to the bottom', async ({

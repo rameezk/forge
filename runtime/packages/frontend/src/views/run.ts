@@ -166,7 +166,7 @@ export interface Downloads {
 }
 
 const DOWNLOADS: { key: keyof Downloads; path: string; label: string }[] = [
-  { key: 'transcript', path: 'transcript', label: 'Transcript' },
+  { key: 'transcript', path: 'transcript.jsonl', label: 'Transcript' },
   { key: 'rawEvents', path: 'raw-events', label: 'Raw events' },
   { key: 'requestRecord', path: 'request-record', label: 'Request record' },
 ];
@@ -329,7 +329,10 @@ export const renderDetail = (
     ${stopped !== '' ? stopped : run.error === null ? '' : html`<p class="${run.status === 'interrupted' || run.status === 'exceeded' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
     ${renderContext(context)}
     ${renderCalls(calls, efforts, run.costStatus === 'subscription')}
-    <h2 class="${SECTION_TITLE} mt-8 mb-3">Transcript</h2>
+    <div class="mt-8 mb-3 flex items-baseline gap-4">
+      <h2 class="${SECTION_TITLE}">Transcript</h2>
+      ${events.length === 0 ? '' : html`<a href="/runs/${encodeURIComponent(run.id)}/transcript" data-full-transcript class="${LINK} text-[0.9rem]">Full transcript</a>`}
+    </div>
     ${events.length === 0
       ? html`<p class="${EMPTY}">No transcript captured.</p>`
       : html`<div class="${STACK}" data-transcript="${events.length}">${renderTranscript(events, generations, run.status, run.costStatus === 'subscription', skillLoads)}</div>`}
