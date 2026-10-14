@@ -215,3 +215,26 @@ test('given a filtered full transcript page, when it is opened, then the transcr
   assert.equal(lengthOf(await pageOf(mixed, '/runs/run-01/transcript?show=errors')), '2');
   assert.equal(lengthOf(await pageOf(mixed, '/runs/run-01/transcript?show=subagents')), '1');
 });
+
+test('given a subagent whose own tool call failed while the subagent itself reported success, when the Errors filter is opened, then the subagent is listed and counted as an error', async () => {
+  const events = [
+    call('sub', 'delegate'),
+    message('child work', { subagent: 'sub' }),
+    call('inner', 'cat missing', 'sub'),
+    answer('inner', 'no such file', true, 'sub'),
+    answer('sub', 'child report'),
+    finished,
+  ];
+
+  const errors = await pageOf(events, '/runs/run-01/transcript?show=errors');
+
+  assert.deepEqual(railOf(errors).map(({ count }) => count), ['2', '0', '0', '1', '1']);
+  assert.match(errors, /data-subagent-call/);
+});
+
+test('given a transcript with events but none worth listing, when it is opened, then it does not claim a filter hides them', async () => {
+  const body = await pageOf([answer('lost', 'orphaned result')]);
+
+  assert.doesNotMatch(textOf(body), /No events match this filter/);
+  assert.match(textOf(body), /No events recorded/);
+});

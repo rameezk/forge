@@ -518,7 +518,9 @@ const failedCall = (call: ToolCallEvent | undefined, results: ToolResults): bool
 const kindsOf = (entry: TranscriptEntry, results: ToolResults): TranscriptFilter[] => {
   switch (entry.type) {
     case 'subagent':
-      return failedCall(entry.call, results) ? ['subagents', 'errors'] : ['subagents'];
+      return failedCall(entry.call, results) || entry.events.some((event) => kindsOf(event, results).includes('errors'))
+        ? ['subagents', 'errors']
+        : ['subagents'];
     case 'message':
       return entry.error === undefined ? ['messages'] : ['messages', 'errors'];
     case 'tool_call':
