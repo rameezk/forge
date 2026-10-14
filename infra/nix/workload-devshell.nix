@@ -56,6 +56,14 @@ let
         request.on('data', (chunk) => { body += chunk; });
         request.on('end', () => {
           response.setHeader('content-type', 'application/json');
+          if (request.url === '/app') {
+            response.end(JSON.stringify({ id: 123456, slug: 'forge-devshell' }));
+            return;
+          }
+          if (request.url === '/users/forge-devshell%5Bbot%5D') {
+            response.end(JSON.stringify({ id: 4242, login: 'forge-devshell[bot]' }));
+            return;
+          }
           if (request.url === '/repos/rameezk/forge/installation') {
             response.end(JSON.stringify({ id: 1 }));
             return;
@@ -140,10 +148,6 @@ testers.runNixOSTest {
     forge.runtime.repositories.forge = {
       github = "rameezk/forge";
       on.ticket = "builder";
-    };
-    forge.runtime.dispatch.gitIdentity = {
-      name = "Forge Operator";
-      email = "operator@example.com";
     };
   };
 

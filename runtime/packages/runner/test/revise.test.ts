@@ -19,6 +19,8 @@ import {
   APP_ID,
   fakeGithubApp,
   routedThrough,
+  BOT_EMAIL,
+  BOT_LOGIN,
 } from '../../shared/test/fixtures/fake-github-app.ts';
 import {
   billedAt,
@@ -35,7 +37,6 @@ const PI_OUTPUT = join(import.meta.dirname, 'fixtures', 'pi', 'success.jsonl');
 
 const PULL_REQUEST_URL = 'https://github.com/rameezk/forge/pull/143';
 
-const GIT_IDENTITY = { name: 'Forge Operator', email: 'operator@example.com' };
 
 interface PullRequestResponse {
   data: {
@@ -146,7 +147,6 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
         forge: { github: 'rameezk/forge', on: { feedback: 'reviser' } },
       },
       dispatch: {
-        gitIdentity: GIT_IDENTITY,
         ...(scenario.maxConcurrent === undefined ? {} : { maxConcurrent: scenario.maxConcurrent }),
       },
     }),
@@ -242,6 +242,10 @@ test('given a repository with on.feedback and an open pull request on branch fea
     env: { ...pi.env, ...gitConfig },
   });
   assert.equal(git(origin.path, 'log', '-1', '--format=%s', 'feature'), 'address feedback');
+  assert.equal(
+    git(origin.path, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>', 'feature'),
+    `${BOT_LOGIN} <${BOT_EMAIL}>\n${BOT_LOGIN} <${BOT_EMAIL}>`,
+  );
 });
 
 test('given a feedback worker whose prompt starts with /address-feedback, when the pull request\'s branch has no such skill, then the revision fails before pi starts, and when it has the skill, pi runs it', async () => {

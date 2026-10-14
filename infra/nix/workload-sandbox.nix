@@ -120,10 +120,6 @@ let
       github = "rameezk/forge";
       on.ticket = "probe";
     };
-    forge.runtime.dispatch.gitIdentity = {
-      name = "Forge Operator";
-      email = "operator@example.com";
-    };
   };
 in
 testers.runNixOSTest {

@@ -86,10 +86,6 @@ testers.runNixOSTest {
       on.ticket = "builder";
     };
     forge.runtime.repositories.notes.github = "rameezk/notes";
-    forge.runtime.dispatch.gitIdentity = {
-      name = "Forge Operator";
-      email = "operator@example.com";
-    };
   };
 
   testScript = builtins.readFile ./oneshot.py + ''

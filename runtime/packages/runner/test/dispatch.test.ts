@@ -26,6 +26,8 @@ import {
   APP_ID,
   fakeGithubApp,
   routedThrough,
+  BOT_EMAIL,
+  BOT_LOGIN,
   type FakeGithubApp,
   tokenFor,
 } from '../../shared/test/fixtures/fake-github-app.ts';
@@ -76,7 +78,7 @@ const WORKLOAD_TOKEN = tokenFor('workload', 'rameezk/forge');
 
 const TICKET_URL = 'https://github.com/rameezk/forge/issues/113';
 
-const GIT_IDENTITY = { name: 'Forge Operator', email: 'operator@example.com' };
+const GIT_IDENTITY = { name: BOT_LOGIN, email: BOT_EMAIL };
 
 interface IssueResponse {
   data: {
@@ -287,7 +289,6 @@ interface Scenario {
   appId?: string | null;
   privateKey?: string | null;
   piOutput?: string;
-  gitIdentity?: typeof GIT_IDENTITY | null;
   maxConcurrent?: number;
   gitConfig?: Record<string, string>;
   env?: Record<string, string>;
@@ -417,9 +418,6 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         forge: { github: 'rameezk/forge', on: { ticket: 'builder' } },
       },
       dispatch: {
-        ...(scenario.gitIdentity === null
-          ? {}
-          : { gitIdentity: scenario.gitIdentity ?? GIT_IDENTITY }),
         ...(scenario.maxConcurrent === undefined
           ? {}
           : { maxConcurrent: scenario.maxConcurrent }),
@@ -601,14 +599,14 @@ test('given a workload that leaves an open pull request closing the ticket, when
 const gitAs = (pi: PiCall, ...args: string[]): string =>
   execFileSync('git', args, { cwd: pi.cwd, env: pi.env, encoding: 'utf8' }).trim();
 
-test('given a host whose git identity is set, when a ticket is dispatched, then a commit the workload makes carries that identity as its author and committer', async () => {
+test('given a dispatched ticket, when its workload commits, then the commit carries the bot identity of the App as its author and committer', async () => {
   const { pi } = await dispatch();
 
   assert.ok(pi);
   gitAs(pi, 'commit', '--quiet', '--allow-empty', '-m', 'work');
   assert.equal(
     gitAs(pi, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>'),
-    'Forge Operator <operator@example.com>\nForge Operator <operator@example.com>',
+    `${BOT_LOGIN} <${BOT_EMAIL}>\n${BOT_LOGIN} <${BOT_EMAIL}>`,
   );
 });
 
@@ -1613,13 +1611,6 @@ test('given a workload that outlives its token, when forge-dispatch runs, then t
   assert.ok(app.mints.filter((mint) => mint.kind === 'workload').length >= 2);
   assert.match(transcript, /token \[redacted\]/);
   assert.ok(!transcript.includes(first) && !transcript.includes(second));
-});
-
-test('given a runtime config with no git identity, when forge-dispatch runs, then it fails naming the missing identity', async () => {
-  await assert.rejects(
-    dispatch({ gitIdentity: null }),
-    /forge\.runtime\.dispatch\.gitIdentity is not set/,
-  );
 });
 
 test('given a runner whose inherited GIT_CONFIG_COUNT is not a count, when forge-dispatch runs, then it fails naming it without claiming the ticket or starting a workload', async () => {

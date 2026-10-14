@@ -24,6 +24,11 @@ export interface InstallationToken {
   expiresAt: string;
 }
 
+export interface BotIdentity {
+  name: string;
+  email: string;
+}
+
 export interface GithubAppOptions {
   appId: string;
   privateKey: string;
@@ -48,6 +53,7 @@ const ok = async (response: Response): Promise<unknown> => {
 
 export class GithubApp {
   readonly #options: GithubAppOptions;
+  #identity: Promise<BotIdentity> | undefined;
 
   constructor(options: GithubAppOptions) {
     this.#options = options;
@@ -81,6 +87,29 @@ export class GithubApp {
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
+  }
+
+  identity(): Promise<BotIdentity> {
+    this.#identity ??= this.#lookUpIdentity();
+    this.#identity.catch(() => {
+      this.#identity = undefined;
+    });
+    return this.#identity;
+  }
+
+  async #lookUpIdentity(): Promise<BotIdentity> {
+    const app = (await ok(await this.#request('GET', '/app'))) as { slug?: unknown };
+    if (typeof app.slug !== 'string' || !/^[A-Za-z0-9-]+$/.test(app.slug)) {
+      throw new Error('GitHub returned a malformed GitHub App');
+    }
+    const login = `${app.slug}[bot]`;
+    const bot = (await ok(
+      await this.#request('GET', `/users/${encodeURIComponent(login)}`),
+    )) as { id?: unknown };
+    if (typeof bot.id !== 'number' || !Number.isSafeInteger(bot.id) || bot.id < 1) {
+      throw new Error(`GitHub returned a malformed bot user for ${login}`);
+    }
+    return { name: login, email: `${bot.id}+${login}@users.noreply.github.com` };
   }
 
   async mint(github: string, access: TokenAccess): Promise<InstallationToken> {
@@ -140,6 +169,14 @@ export const cachedTokens = (app: GithubApp): InstallationTokens => {
     token.catch(() => minted.delete(key));
     return token;
   };
+};
+
+export const appIdentity = (env: NodeJS.ProcessEnv, fetch: Fetch): Promise<BotIdentity> => {
+  try {
+    return githubAppFromEnv(env, fetch).identity();
+  } catch (error) {
+    return Promise.reject(error);
+  }
 };
 
 export const installationTokens = (env: NodeJS.ProcessEnv, fetch: Fetch): InstallationTokens => {

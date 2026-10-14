@@ -57,10 +57,6 @@ testers.runNixOSTest {
         github = "rameezk/forge";
         on.ticket = "builder";
       };
-      forge.runtime.dispatch.gitIdentity = {
-        name = "Forge Operator";
-        email = "operator@example.com";
-      };
       specialisation.newpackage.configuration = {
         forge.runtime.package = lib.mkForce (runtimeOf "new");
       };

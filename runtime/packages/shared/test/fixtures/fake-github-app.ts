@@ -8,6 +8,10 @@ const fixture = (name: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8')) as Record<string, unknown>;
 
 export const APP_ID = '5313638';
+export const APP_SLUG = 'forge-test-rameezk';
+export const BOT_USER_ID = 171311378;
+export const BOT_LOGIN = `${APP_SLUG}[bot]`;
+export const BOT_EMAIL = `${BOT_USER_ID}+${BOT_LOGIN}@users.noreply.github.com`;
 export const INSTALLED = 'rameezk/forge-app-test';
 const INSTALLATION_OWNER = 'rameezk';
 
@@ -82,6 +86,12 @@ export const fakeGithubApp = (
     ) {
       return json({ message: 'A JSON web token could not be decoded' }, 401);
     }
+    if (url.pathname === '/app') {
+      return json({ id: Number(APP_ID), slug: APP_SLUG, name: 'Forge Test' });
+    }
+    if (decodeURIComponent(url.pathname) === `/users/${BOT_LOGIN}`) {
+      return json({ login: BOT_LOGIN, id: BOT_USER_ID, type: 'Bot' });
+    }
     const installationOf = /^\/repos\/([^/]+\/[^/]+)\/installation$/.exec(url.pathname);
     if (installationOf !== null) {
       return installed.includes(installationOf[1] ?? '')
@@ -117,7 +127,7 @@ export const fakeGithubApp = (
 export const routedThrough = (app: FakeGithubApp, other: typeof globalThis.fetch): typeof globalThis.fetch =>
   async (input, init) => {
     const { pathname } = new URL(String(input));
-    return /^\/(app\/|repos\/[^/]+\/[^/]+\/installation$)/.test(pathname)
+    return /^\/(app(\/|$)|users\/[^/]+(\[bot\]|%5Bbot%5D)$|repos\/[^/]+\/[^/]+\/installation$)/.test(pathname)
       ? app.fetch(input, init)
       : other(input, init);
   };

@@ -25,7 +25,6 @@ import {
   type TicketState,
 } from '@forge/shared';
 import {
-  gitIdentityOf,
   maxConcurrentOf,
   repositoryTriggeredBy,
   resolveWorker,
@@ -126,9 +125,9 @@ export const main = async (
   const config = readRuntimeConfig(env);
   const repository = repositoryTriggeredBy(config.repositories, name, 'ticket');
   const worker = resolveWorker(config, repository.worker);
-  const identity = gitIdentityOf(config);
-  const gitEnv = gitEnvironment(env, identity);
   const app = githubAppFromEnv(env, fetch);
+  const identity = await app.identity();
+  const gitEnv = gitEnvironment(env, identity);
   const tokens = cachedTokens(app);
 
   const store = Store.open(join(stateDirOf(env), 'forge.db'));

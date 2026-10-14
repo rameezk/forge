@@ -137,7 +137,9 @@ export {
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export {
+  appIdentity,
   GithubApp,
+  type BotIdentity,
   cachedTokens,
   githubAppFromEnv,
   installationTokens,

@@ -229,9 +229,6 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
           ...scenario.worker,
         },
       },
-      dispatch: {
-        gitIdentity: { name: 'Forge Operator', email: 'operator@example.com' },
-      },
     }),
   );
 

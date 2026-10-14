@@ -27,13 +27,7 @@ export interface RepositoryConfig {
   on?: { ticket?: string; feedback?: string };
 }
 
-export interface GitIdentity {
-  name: string;
-  email: string;
-}
-
 export interface DispatchConfig {
-  gitIdentity?: GitIdentity;
   maxConcurrent?: number;
 }
 
@@ -113,14 +107,6 @@ export const resolveWorker = (
     timeoutSeconds: worker.timeoutSeconds ?? null,
     maxCostUsd: worker.maxCostUsd ?? null,
   };
-};
-
-export const gitIdentityOf = (config: RuntimeConfig): GitIdentity => {
-  const identity = config.dispatch?.gitIdentity;
-  if (identity === undefined) {
-    throw new Error('forge.runtime.dispatch.gitIdentity is not set');
-  }
-  return identity;
 };
 
 export const repositoryTriggeredBy = (

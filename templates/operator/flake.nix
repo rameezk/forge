@@ -75,10 +75,6 @@
       #             github = "your-org/your-repo";
       #             on.ticket = "builder";
       #           };
-      #           forge.runtime.dispatch.gitIdentity = {
-      #             name = "Your Name";
-      #             email = "you@example.com";
-      #           };
       #           environment.systemPackages = [ pkgs.pi-coding-agent ];
       #         }
       #       )
