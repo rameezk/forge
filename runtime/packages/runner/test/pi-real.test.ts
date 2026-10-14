@@ -13,7 +13,7 @@ import type { ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { HarnessEvent, MessageEvent } from '@forge/shared';
+import type { CompactionEvent, HarnessEvent, MessageEvent } from '@forge/shared';
 import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { PiHarness } from '../src/index.ts';
 import { loadPiSkills, resolveCheckout } from '../src/checkout.ts';
@@ -29,6 +29,9 @@ import {
   textReply,
   toolCallReply,
   usage,
+  compacting,
+  COMPACTION_SETTINGS,
+  EARLIER_MESSAGE,
   type Respond,
   type Usage,
 } from './fixtures/fake-provider.ts';
@@ -124,6 +127,8 @@ interface RealPiOptions {
   workload?: Workload;
   effort?: Pick<HarnessInvocation, 'reasoningEffort'>;
   model?: string;
+  settings?: Record<string, unknown>;
+  messages?: string[];
 }
 
 const runRealPi = async (
@@ -135,6 +140,8 @@ const runRealPi = async (
     workload = echoForge,
     effort = withEffort('high'),
     model = 'z-ai/glm-5',
+    settings,
+    messages = [],
   }: RealPiOptions = {},
 ): Promise<RealPiRun> => {
   const server = await serve(onTheWire(recording(respond, served, requested)));
@@ -152,7 +159,11 @@ const runRealPi = async (
       providers: { openrouter: { baseUrl: `http://127.0.0.1:${port}/v1` } },
     }),
   );
-  chmodSync(agentDir, 0o555);
+  if (settings === undefined) {
+    chmodSync(agentDir, 0o555);
+  } else {
+    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify(settings));
+  }
   const bwrap = join(root, 'passthrough-bwrap');
   writeFileSync(bwrap, PASSTHROUGH_BWRAP);
   chmodSync(bwrap, 0o755);
@@ -163,6 +174,7 @@ const runRealPi = async (
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
     env: { OPENROUTER_API_KEY: 'sk-fake' },
+    extraArgs: messages,
   });
   const events: HarnessEvent[] = [];
   const rawEvents: unknown[] = [];
@@ -196,23 +208,25 @@ const assistantMessages = (events: HarnessEvent[]): MessageEvent[] =>
       event.type === 'message' && event.role === 'assistant',
   );
 
+const servedCall = ({ id, usage: total }: Served) => {
+  const details = total.prompt_tokens_details;
+  return {
+    generationId: id,
+    usage: {
+      inputTokens:
+        total.prompt_tokens - details.cached_tokens - details.cache_write_tokens,
+      outputTokens: total.completion_tokens,
+      cacheReadTokens: details.cached_tokens,
+      cacheWriteTokens: details.cache_write_tokens,
+    },
+  };
+};
+
 const assertParsedAsServed = (
   events: HarnessEvent[],
   served: Served[],
 ): void => {
-  const expected = served.map(({ id, usage: total }) => {
-    const details = total.prompt_tokens_details;
-    return {
-      generationId: id,
-      usage: {
-        inputTokens:
-          total.prompt_tokens - details.cached_tokens - details.cache_write_tokens,
-        outputTokens: total.completion_tokens,
-        cacheReadTokens: details.cached_tokens,
-        cacheWriteTokens: details.cache_write_tokens,
-      },
-    };
-  });
+  const expected = served.map(servedCall);
   const parsed = assistantMessages(events).map(({ generationId, usage: u }) => ({
     generationId,
     usage: u,
@@ -462,6 +476,35 @@ test(
           message.role === 'system' ? message : { role: message.role, hash: hashOf(message) },
         ),
       })),
+    );
+  },
+);
+
+test(
+  'given the locked pi and a fake provider, when the context compacts through a split turn whose first summary attempt fails, then the compaction carries exactly the ids and usage the provider served for those three calls, and the request record holds every request',
+  { skip },
+  async () => {
+    const served: Served[] = [];
+    const { events, requestRecord } = await runRealPi(
+      compacting('gen-live', { split: true, failFirst: true }),
+      { served, settings: COMPACTION_SETTINGS, messages: [EARLIER_MESSAGE] },
+    );
+
+    const summaries = served.filter(({ id }) => id.includes('-summary-'));
+    assert.deepEqual(
+      summaries.map(({ id }) => id),
+      ['gen-live-summary-failed', 'gen-live-summary-1', 'gen-live-summary-2'],
+    );
+    const compactions = events.filter(
+      (event): event is CompactionEvent => event.type === 'compaction',
+    );
+    assert.equal(compactions.length, 1);
+    assert.deepEqual(compactions[0]?.calls, summaries.map(servedCall));
+    assert.equal(
+      requestRecord.filter(
+        (line) => (line as { type?: unknown }).type === 'request',
+      ).length,
+      served.length,
     );
   },
 );

@@ -1,0 +1,175 @@
+diff --git a/packages/coding-agent/src/core/agent-session.ts b/packages/coding-agent/src/core/agent-session.ts
+index 63aa588..788e730 100644
+--- a/packages/coding-agent/src/core/agent-session.ts
++++ b/packages/coding-agent/src/core/agent-session.ts
+@@ -187,6 +187,11 @@ type WithParentToolCallId<E> = E extends {
+ 	: E;
+ 
+ /** Session-specific events that extend the core AgentEvent */
++export interface SummaryCall {
++	responseId?: string;
++	usage: Usage;
++}
++
+ export type AgentSessionEvent =
+ 	| WithParentToolCallId<Exclude<AgentEvent, { type: "agent_end" }>>
+ 	| {
+@@ -211,6 +216,7 @@ export type AgentSessionEvent =
+ 			aborted: boolean;
+ 			willRetry: boolean;
+ 			errorMessage?: string;
++			calls: SummaryCall[];
+ 	  }
+ 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
+ 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+@@ -2668,6 +2674,14 @@ export class AgentSession {
+ 	// Compaction
+ 	// =========================================================================
+ 
++	private _summaryCalls: SummaryCall[] = [];
++
++	private _takeSummaryCalls(): SummaryCall[] {
++		const calls = this._summaryCalls;
++		this._summaryCalls = [];
++		return calls;
++	}
++
+ 	/** Generate Pi's built-in compaction summary for manual and automatic compaction. */
+ 	private async _runDefaultCompaction(
+ 		preparation: CompactionPreparation,
+@@ -2689,7 +2703,13 @@ export class AgentSession {
+ 			this.agent.streamFunction,
+ 			request.env,
+ 			this.settingsManager.getRetrySettings(),
+-			this._summarizationRetryCallbacks({ source: "compaction", reason }),
++			{
++				...this._summarizationRetryCallbacks({ source: "compaction", reason }),
++				onPayload: this.agent.onPayload,
++				onResponse: (response) => {
++					this._summaryCalls.push({ responseId: response.responseId, usage: response.usage });
++				},
++			},
+ 			undefined, // sessionId
+ 		);
+ 	}
+@@ -2829,6 +2849,7 @@ export class AgentSession {
+ 			this._clearManualCompactionState();
+ 			this._emit({
+ 				type: "compaction_end",
++				calls: this._takeSummaryCalls(),
+ 				reason: "manual",
+ 				result: compactionResult,
+ 				aborted: false,
+@@ -2842,6 +2863,7 @@ export class AgentSession {
+ 			this._clearManualCompactionState();
+ 			this._emit({
+ 				type: "compaction_end",
++				calls: this._takeSummaryCalls(),
+ 				reason: "manual",
+ 				result: undefined,
+ 				aborted,
+@@ -2975,6 +2997,7 @@ export class AgentSession {
+ 					: "Truncated response recovery failed after one compact-and-retry attempt.";
+ 				this._emit({
+ 					type: "compaction_end",
++					calls: this._takeSummaryCalls(),
+ 					reason: "overflow",
+ 					result: undefined,
+ 					aborted: false,
+@@ -3155,7 +3178,7 @@ export class AgentSession {
+ 				usage,
+ 				details,
+ 			};
+-			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });
++			this._emit({ type: "compaction_end", calls: this._takeSummaryCalls(), reason, result, aborted: false, willRetry });
+ 
+ 			if (willRetry) return true;
+ 
+@@ -3173,6 +3196,7 @@ export class AgentSession {
+ 						: `Auto-compaction failed: ${message}`;
+ 				this._emit({
+ 					type: "compaction_end",
++					calls: this._takeSummaryCalls(),
+ 					reason,
+ 					result: undefined,
+ 					aborted,
+diff --git a/packages/coding-agent/src/core/compaction/compaction.ts b/packages/coding-agent/src/core/compaction/compaction.ts
+index 6bcfbb2..3a54add 100644
+--- a/packages/coding-agent/src/core/compaction/compaction.ts
++++ b/packages/coding-agent/src/core/compaction/compaction.ts
+@@ -616,13 +616,18 @@ function createSummarizationOptions(
+  * the whole compaction on the first attempt. Deterministic errors and aborts return
+  * immediately (see {@link retryAssistantCall}).
+  */
++export interface SummarizationCallbacks extends RetryCallbacks {
++	onPayload?: SimpleStreamOptions["onPayload"];
++	onResponse?: (response: AssistantMessage) => void;
++}
++
+ export async function completeSummarization(
+ 	model: Model<any>,
+ 	context: TranscriptContext,
+ 	options: SimpleStreamOptions,
+ 	streamFn?: StreamFn,
+ 	retry?: RetryPolicy,
+-	callbacks?: RetryCallbacks,
++	callbacks?: SummarizationCallbacks,
+ ): Promise<AssistantMessage> {
+ 	// Avoid cache writes for one-off summaries. Reuse caller-supplied routing when available;
+ 	// callers without a session ID, including branch summaries, receive a fresh routing ID.
+@@ -630,11 +635,15 @@ export async function completeSummarization(
+ 		...options,
+ 		cacheRetention: "none",
+ 		sessionId: options.sessionId ?? uuidv7(),
++		onPayload: callbacks?.onPayload ?? options.onPayload,
++	};
++	const produce = async (): Promise<AssistantMessage> => {
++		const response = streamFn
++			? await (await streamFn(model, context, requestOptions)).result()
++			: await completeSimple(model, context, requestOptions);
++		callbacks?.onResponse?.(response);
++		return response;
+ 	};
+-	const produce = async (): Promise<AssistantMessage> =>
+-		streamFn
+-			? (await streamFn(model, context, requestOptions)).result()
+-			: completeSimple(model, context, requestOptions);
+ 	return retryAssistantCall(produce, retry, requestOptions.signal, callbacks);
+ }
+ 
+@@ -655,7 +664,7 @@ export async function generateSummary(
+ 	streamFn?: StreamFn,
+ 	env?: Record<string, string>,
+ 	retry?: RetryPolicy,
+-	callbacks?: RetryCallbacks,
++	callbacks?: SummarizationCallbacks,
+ 	sessionId?: string,
+ ): Promise<string> {
+ 	return (
+@@ -706,7 +715,7 @@ export async function generateSummaryWithUsage(
+ 	streamFn?: StreamFn,
+ 	env?: Record<string, string>,
+ 	retry?: RetryPolicy,
+-	callbacks?: RetryCallbacks,
++	callbacks?: SummarizationCallbacks,
+ 	sessionId?: string,
+ ): Promise<{ text: string; usage: Usage }> {
+ 	const maxTokens = Math.min(
+@@ -973,7 +982,7 @@ export async function compact(
+ 	streamFn?: StreamFn,
+ 	env?: Record<string, string>,
+ 	retry?: RetryPolicy,
+-	callbacks?: RetryCallbacks,
++	callbacks?: SummarizationCallbacks,
+ 	sessionId?: string,
+ ): Promise<CompactionResult> {
+ 	const {
+@@ -1084,7 +1093,7 @@ async function generateTurnPrefixSummary(
+ 	thinkingLevel?: ThinkingLevel,
+ 	streamFn?: StreamFn,
+ 	retry?: RetryPolicy,
+-	callbacks?: RetryCallbacks,
++	callbacks?: SummarizationCallbacks,
+ 	sessionId?: string,
+ ): Promise<{ text: string; usage: Usage }> {
+ 	const maxTokens = Math.min(

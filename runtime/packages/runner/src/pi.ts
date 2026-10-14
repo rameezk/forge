@@ -5,11 +5,13 @@ import type { Readable } from 'node:stream';
 import {
   errorMessage,
   SkillLoadTracker,
+  type CompactionCall,
   type CompactionEvent,
   type HarnessEvent,
   type HarnessOutput,
   type MessageEvent,
   type RetryEvent,
+  type TokenUsage,
   type ToolCallEvent,
   type ToolResultEvent,
 } from '@forge/shared';
@@ -220,6 +222,11 @@ interface PiToolResult {
   content?: PiContent[];
 }
 
+interface PiSummaryCall {
+  responseId?: unknown;
+  usage?: Partial<PiUsage>;
+}
+
 interface PiCompactionResult {
   summary?: unknown;
   tokensBefore?: unknown;
@@ -238,6 +245,7 @@ interface PiLine {
   reason?: unknown;
   aborted?: unknown;
   result?: PiToolResult & PiCompactionResult;
+  calls?: unknown;
   toolName?: string;
   toolCallId?: string;
   isError?: boolean;
@@ -286,16 +294,8 @@ const assistantMessage = (
     ...timestampOf(message.timestamp),
     ...(stopReason === null ? {} : { stopReason }),
     ...(error === null ? {} : { error }),
-    usage: {
-      inputTokens: tokenCount(message.usage.input) ?? 0,
-      outputTokens: tokenCount(message.usage.output) ?? 0,
-      cacheReadTokens: tokenCount(message.usage.cacheRead) ?? 0,
-      cacheWriteTokens: tokenCount(message.usage.cacheWrite) ?? 0,
-    },
-    generationId:
-      typeof message.responseId === 'string' && message.responseId.length > 0
-        ? message.responseId
-        : null,
+    usage: tokenUsage(message.usage),
+    generationId: generationIdOf(message.responseId),
     ...scoped(subagent),
   };
 };
@@ -350,6 +350,31 @@ const compactionError = (event: PiLine): string | null =>
     ? 'compaction was aborted'
     : nonEmpty(event.errorMessage);
 
+const tokenUsage = (usage: Partial<PiUsage> | undefined): TokenUsage => ({
+  inputTokens: tokenCount(usage?.input) ?? 0,
+  outputTokens: tokenCount(usage?.output) ?? 0,
+  cacheReadTokens: tokenCount(usage?.cacheRead) ?? 0,
+  cacheWriteTokens: tokenCount(usage?.cacheWrite) ?? 0,
+});
+
+const generationIdOf = (responseId: unknown): string | null =>
+  typeof responseId === 'string' && responseId.length > 0 ? responseId : null;
+
+const compactionCalls = (calls: unknown): CompactionCall[] =>
+  (Array.isArray(calls) ? (calls as PiSummaryCall[]) : []).flatMap((call) =>
+    typeof call === 'object' && call !== null
+      ? [
+          {
+            generationId: generationIdOf(call.responseId),
+            usage: tokenUsage(call.usage),
+          },
+        ]
+      : [],
+  );
+
+const withCalls = (calls: CompactionCall[]): { calls?: CompactionCall[] } =>
+  calls.length === 0 ? {} : { calls };
+
 const compaction = (
   event: PiLine,
   subagent: string | undefined,
@@ -360,6 +385,7 @@ const compaction = (
   tokensAfter: tokenCount(event.result?.estimatedTokensAfter),
   summary: nonEmpty(event.result?.summary),
   error: compactionError(event),
+  ...withCalls(compactionCalls(event.calls)),
   ...scoped(subagent),
 });
 

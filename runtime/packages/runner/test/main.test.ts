@@ -75,6 +75,18 @@ const BILLED_BY_ID = {
   'gen-child-alpha-1': 0.125,
   'gen-child-alpha-2': 0.0625,
   'gen-child-beta-1': 0.03125,
+  'gen-compaction-1': 0.1,
+  'gen-compaction-summary': 0.02,
+  'gen-compaction-2': 0.003,
+  'gen-split-1': 0.001,
+  'gen-split-2': 0.1,
+  'gen-split-3': 0.003,
+  'gen-split-summary-1': 0.02,
+  'gen-split-summary-2': 0.01,
+  'gen-attempt-1': 0.1,
+  'gen-attempt-2': 0.003,
+  'gen-attempt-summary-failed': 0.004,
+  'gen-attempt-summary-1': 0.02,
 };
 
 const billed = billedAt(BILLED_BY_ID);
@@ -470,7 +482,7 @@ test('given recorded pi output whose assistant turns think before and after thei
         role: 'assistant',
         text: 'Let me look.',
         thinking: 'I should run the command and read what it prints.',
-        timestamp: '2026-10-03T11:30:58.077Z',
+        timestamp: '2026-10-14T08:08:01.664Z',
         stopReason: 'toolUse',
         usage: { inputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 1000 },
       },
@@ -478,7 +490,7 @@ test('given recorded pi output whose assistant turns think before and after thei
         role: 'assistant',
         text: 'The command printed forge. All done.',
         thinking: 'The output is forge, so I can report it.',
-        timestamp: '2026-10-03T11:30:58.102Z',
+        timestamp: '2026-10-14T08:08:01.793Z',
         stopReason: 'stop',
         usage: { inputTokens: 100, outputTokens: 25, cacheReadTokens: 1000, cacheWriteTokens: 200 },
       },
@@ -535,13 +547,162 @@ test('given recorded pi output where pi compacted its context after a tool call,
         type: 'compaction',
         reason: 'threshold',
         tokensBefore: 190032,
-        tokensAfter: 1694,
+        tokensAfter: 1744,
         summary: 'No prior history for [redacted].\n\n---\n\n**Turn Context (split turn):**\n\n## GoalRun echo forge and report what it printed.',
         error: null,
+        calls: [
+          {
+            generationId: 'gen-compaction-summary',
+            usage: { inputTokens: 3000, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          },
+        ],
       },
       'The command printed forge.',
     ],
   );
+});
+
+const generationKinds = (
+  stateDir: string,
+  runId: string,
+): [string | null, string, string | null][] =>
+  storedGenerations(stateDir, runId).map(({ generationId, kind, subagent }) => [
+    generationId,
+    kind,
+    subagent,
+  ]);
+
+test('given recorded pi output where the context compacted once, when the workload ends and billing settles, then the summary call is a compaction generation with its id billed at OpenRouter\'s cost, and the workload\'s tokens and cost include it', async () => {
+  const { run, stateDir, lookups } = await settled({ output: fixture('compaction.jsonl') });
+
+  assert.deepEqual(generationKinds(stateDir, run.id), [
+    ['gen-compaction-1', 'message', null],
+    ['gen-compaction-summary', 'compaction', null],
+    ['gen-compaction-2', 'message', null],
+  ]);
+  assert.deepEqual(lookups.map(({ id }) => id).sort(), [
+    'gen-compaction-1',
+    'gen-compaction-2',
+    'gen-compaction-summary',
+  ]);
+  assert.equal(run.costStatus, 'billed');
+  assertCost(run.costUsd, 0.1 + 0.02 + 0.003);
+  assert.equal(run.inputTokens, 190000 + 3000 + 2000);
+  assert.equal(run.outputTokens, 30 + 20 + 10);
+  assert.equal(
+    storedGenerations(stateDir, run.id).find(({ kind }) => kind === 'compaction')
+      ?.billedCostUsd,
+    0.02,
+  );
+});
+
+test('given recorded pi output where a compaction split a turn, when the workload ends, then it has two compaction generations, one per summary call, each with its own id', async () => {
+  const { run, stateDir } = await settled({ output: fixture('compaction-split.jsonl') });
+
+  assert.deepEqual(
+    generationKinds(stateDir, run.id).filter(([, kind]) => kind === 'compaction'),
+    [
+      ['gen-split-summary-1', 'compaction', null],
+      ['gen-split-summary-2', 'compaction', null],
+    ],
+  );
+  assert.equal(run.costStatus, 'billed');
+  assertCost(run.costUsd, 0.001 + 0.1 + 0.003 + 0.02 + 0.01);
+});
+
+test('given recorded pi output where the first summary attempt of a compaction failed and was retried, when the workload ends and billing settles, then the failed attempt is a compaction generation of its own with its id, and billing settles it', async () => {
+  const { run, stateDir, lookups } = await settled({ output: fixture('compaction-retry.jsonl') });
+
+  assert.deepEqual(
+    generationKinds(stateDir, run.id).filter(([, kind]) => kind === 'compaction'),
+    [
+      ['gen-attempt-summary-failed', 'compaction', null],
+      ['gen-attempt-summary-1', 'compaction', null],
+    ],
+  );
+  assert.ok(lookups.some(({ id }) => id === 'gen-attempt-summary-failed'));
+  assert.equal(run.costStatus, 'billed');
+  assertCost(run.costUsd, 0.1 + 0.003 + 0.004 + 0.02);
+  assert.equal(
+    storedGenerations(stateDir, run.id).find(
+      ({ generationId }) => generationId === 'gen-attempt-summary-failed',
+    )?.billedCostUsd,
+    0.004,
+  );
+});
+
+test('given a budget that the first generation stays under and the compaction summary takes over, and a pi that keeps running, when the compaction ends, then the workload is stopped as exceeded without waiting for the next message', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), LISTED_MODELS);
+  try {
+    const turn = estimateAt('z-ai/glm-5', [190000, 30, 0, 0]);
+    const summary = estimateAt('z-ai/glm-5', [3000, 20, 0, 0]);
+    const { run, pi, stateDir } = await runWorker({
+      output: fixture('compaction.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      lingerMs: 10_000,
+      worker: { maxCostUsd: turn + summary / 2 },
+    });
+
+    assert.equal(run.status, 'exceeded');
+    assert.equal(run.exceededLimit, 'budget');
+    assert.equal(isAlive(pi.pid), false);
+    assert.deepEqual(generationKinds(stateDir, run.id), [
+      ['gen-compaction-1', 'message', null],
+      ['gen-compaction-summary', 'compaction', null],
+    ]);
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given recorded pi output where a subagent compacted its context, when the workload ends, then the compaction generation is recorded under that subagent', async () => {
+  const childEvent =
+    readFileSync(fixture('compaction.jsonl'), 'utf8')
+      .split('\n')
+      .find((line) => line.startsWith('{"type":"compaction_end"')) ?? assert.fail('no compaction_end');
+  const wrapped = (event: string): string =>
+    `{"type":"tool_execution_update","toolCallId":"call_alpha","toolName":"subagent","args":{"task":"Run echo alpha and report what it printed."},"partialResult":{"content":[],"details":{"event":${event}}}}`;
+  const lines = readFileSync(fixture('subagents.jsonl'), 'utf8').split('\n');
+  const started = lines.findIndex((line) => line === wrapped('{"type":"agent_start"}'));
+  assert.ok(started > 0);
+  lines.splice(started + 1, 0, wrapped(childEvent));
+
+  const { run, stateDir } = await settled({ output: outputFile(lines.join('\n')) });
+
+  assert.deepEqual(
+    generationKinds(stateDir, run.id).filter(([, kind]) => kind === 'compaction'),
+    [['gen-compaction-summary', 'compaction', 'call_alpha']],
+  );
+});
+
+test('given a listed model and recorded pi output where a compaction reports usage but no id, when the workload ends, then the compaction generation carries forge\'s estimated cost and is given up, and the run\'s cost status is unconfirmed', async () => {
+  const openRouter = await fakeOpenRouter(billed, LISTED_MODELS);
+  try {
+    const { run, stateDir } = await journaled(() =>
+      runWorker({
+        output: outputFile(
+          readFileSync(fixture('compaction.jsonl'), 'utf8').replace(
+            '{"responseId":"gen-compaction-summary",',
+            '{',
+          ),
+        ),
+        openRouterBaseUrl: openRouter.baseUrl,
+      }),
+    ).then(({ result }) => result);
+
+    const [unidentified] = storedGenerations(stateDir, run.id).filter(
+      ({ kind }) => kind === 'compaction',
+    );
+    assert.equal(unidentified?.generationId, null);
+    assert.notEqual(unidentified?.givenUpAt, null);
+    assertCost(
+      unidentified?.estimatedCostUsd,
+      estimateAt('z-ai/glm-5', [3000, 20, 0, 0]),
+    );
+    assert.equal(run.costStatus, 'unconfirmed');
+  } finally {
+    openRouter.close();
+  }
 });
 
 for (const [given, end, error] of [
@@ -622,8 +783,8 @@ test('given pi output whose assistant messages carry a time out of range or not 
   const { run, transcript } = await runWorker({
     output: outputFile(
       readFileSync(fixture('success.jsonl'), 'utf8')
-        .replaceAll('"timestamp":1791027058077', '"timestamp":1e20')
-        .replaceAll('"timestamp":1791027058102', '"timestamp":"soon"')
+        .replaceAll('"timestamp":1791965281664', '"timestamp":1e20')
+        .replaceAll('"timestamp":1791965281793', '"timestamp":"soon"')
         .replaceAll('"stopReason":"toolUse"', '"stopReason":7'),
     ),
   });
@@ -1925,7 +2086,7 @@ test('given a worker whose budget its main agent alone stays under but its subag
     assert.equal(isAlive(pi.pid), false);
     assert.deepEqual(
       storedGenerations(stateDir, run.id).map(({ generationId }) => generationId),
-      ['gen-subagents-1', 'gen-child-beta-1'],
+      ['gen-subagents-1', 'gen-child-alpha-1'],
     );
   } finally {
     openRouter.close();

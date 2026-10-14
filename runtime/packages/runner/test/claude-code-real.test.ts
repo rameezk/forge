@@ -444,13 +444,17 @@ test(
     const [compaction] = compactions;
     assert.equal(compaction?.reason, 'auto');
     assert.ok((compaction?.tokensBefore ?? 0) >= 190_000);
-    assert.equal(compaction?.generationId, 'req_forge_compaction_summary');
-    assert.deepEqual(compaction?.usage, {
-      inputTokens: 6000,
-      outputTokens: 300,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    });
+    assert.deepEqual(compaction?.calls, [
+      {
+        generationId: 'req_forge_compaction_summary',
+        usage: {
+          inputTokens: 6000,
+          outputTokens: 300,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+      },
+    ]);
   },
 );
 
@@ -468,6 +472,9 @@ test(
     const compactions = events.filter((event) => event.type === 'compaction');
     assert.equal(compactions.length, 1);
     assert.equal(compactions[0]?.subagent, 'toolu_alpha');
-    assert.equal(compactions[0]?.generationId, 'req_forge_subagent_compaction_summary');
+    assert.deepEqual(
+      compactions[0]?.calls?.map(({ generationId }) => generationId),
+      ['req_forge_subagent_compaction_summary'],
+    );
   },
 );

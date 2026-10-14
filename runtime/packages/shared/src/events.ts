@@ -43,6 +43,11 @@ export interface RetryEvent {
   subagent?: string;
 }
 
+export interface CompactionCall {
+  generationId: string | null;
+  usage: TokenUsage;
+}
+
 export interface CompactionEvent {
   type: 'compaction';
   reason: string | null;
@@ -50,8 +55,7 @@ export interface CompactionEvent {
   tokensAfter: number | null;
   summary: string | null;
   error: string | null;
-  usage?: TokenUsage;
-  generationId?: string | null;
+  calls?: CompactionCall[];
   subagent?: string;
 }
 

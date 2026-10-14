@@ -21,7 +21,10 @@ buildNpmPackage (finalAttrs: {
     hash = "sha256-CGznIVHXG6gr2F8vzHcR/v4P9xJgZHeMTt/CJ/kB78o=";
   };
 
-  patches = [ ./pi-read-only-agent-dir.patch ];
+  patches = [
+    ./pi-read-only-agent-dir.patch
+    ./pi-compaction-generations.patch
+  ];
 
   npmDepsHash = "sha256-ndEvWdB6sa5nNNtabk2OMZKUFG9x3op185deZHxFnXk=";
 
