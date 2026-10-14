@@ -1843,7 +1843,13 @@ test('given workers with and without a reasoning effort and a harness with opera
   assert.match(NARRATION_INSTRUCTION, /before your first tool call/);
   assert.match(NARRATION_INSTRUCTION, /changes your plan/);
   assert.match(withEffortChild.systemPrompt, /sub-agent/);
-  assert.match(withEffortChild.systemPrompt, /returned verbatim/);
+  assert.match(withEffortChild.systemPrompt, /narrate as instructed while you work/i);
+  assert.match(
+    withEffortChild.systemPrompt,
+    /only your final message is returned .* complete, self-contained report/i,
+  );
+  assert.doesNotMatch(withEffortChild.systemPrompt, /verbatim/);
+  assert.match(withEffortChild.systemPrompt, /nobody will answer questions/);
   assert.match(withEffortChild.systemPrompt, /cannot spawn sub-agents/);
 });
 

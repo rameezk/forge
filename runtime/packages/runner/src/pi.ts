@@ -181,7 +181,8 @@ export const piEnv = (agentDir: string): NodeJS.ProcessEnv => ({
 
 const SUBAGENT_SYSTEM_PROMPT = [
   'You are a sub-agent. Another agent delegated the task below to you, and nobody will answer questions while you work on it.',
-  'Your final message is returned verbatim to the agent that delegated the task, so make it a complete, self-contained report of what you did and found.',
+  'Narrate as instructed while you work.',
+  'Only your final message is returned to the agent that delegated the task, so make it a complete, self-contained report of what you did and found.',
   'You cannot spawn sub-agents.',
 ].join(' ');
 
