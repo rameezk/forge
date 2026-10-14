@@ -89,22 +89,29 @@ export class GithubApp {
     });
   }
 
-  identity(): Promise<BotIdentity> {
-    this.#identity ??= this.#lookUpIdentity();
+  identity(github: string): Promise<BotIdentity> {
+    this.#identity ??= this.#lookUpIdentity(github);
     this.#identity.catch(() => {
       this.#identity = undefined;
     });
     return this.#identity;
   }
 
-  async #lookUpIdentity(): Promise<BotIdentity> {
+  async #lookUpIdentity(github: string): Promise<BotIdentity> {
     const app = (await ok(await this.#request('GET', '/app'))) as { slug?: unknown };
     if (typeof app.slug !== 'string' || !/^[A-Za-z0-9-]+$/.test(app.slug)) {
       throw new Error('GitHub returned a malformed GitHub App');
     }
     const login = `${app.slug}[bot]`;
+    const { token } = await this.mint(github, 'read');
     const bot = (await ok(
-      await this.#request('GET', `/users/${encodeURIComponent(login)}`),
+      await this.#options.fetch(`${GITHUB_REST_API}/users/${encodeURIComponent(login)}`, {
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: 'application/vnd.github+json',
+          'x-github-api-version': '2022-11-28',
+        },
+      }),
     )) as { id?: unknown };
     if (typeof bot.id !== 'number' || !Number.isSafeInteger(bot.id) || bot.id < 1) {
       throw new Error(`GitHub returned a malformed bot user for ${login}`);
@@ -171,9 +178,13 @@ export const cachedTokens = (app: GithubApp): InstallationTokens => {
   };
 };
 
-export const appIdentity = (env: NodeJS.ProcessEnv, fetch: Fetch): Promise<BotIdentity> => {
+export const appIdentity = (
+  env: NodeJS.ProcessEnv,
+  fetch: Fetch,
+  github: string,
+): Promise<BotIdentity> => {
   try {
-    return githubAppFromEnv(env, fetch).identity();
+    return githubAppFromEnv(env, fetch).identity(github);
   } catch (error) {
     return Promise.reject(error);
   }

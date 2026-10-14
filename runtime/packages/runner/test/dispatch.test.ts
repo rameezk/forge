@@ -1508,7 +1508,7 @@ test('given an installed repository, when forge-dispatch runs, then every GitHub
   assert.equal(pi.nodeOptions, undefined);
   assert.deepEqual(
     app.mints.map(({ kind, repository }) => `${kind} ${repository}`),
-    ['write rameezk/forge', 'workload rameezk/forge', 'write rameezk/forge'],
+    ['read rameezk/forge', 'write rameezk/forge', 'workload rameezk/forge', 'write rameezk/forge'],
   );
 });
 

@@ -44,14 +44,14 @@ const refreshPullRequests = async (
   store: Store,
   name: string,
   github: string,
-  forgeEmail: () => Promise<string>,
+  forgeEmail: (github: string) => Promise<string>,
   pullRequest: PullRequestPoll,
 ): Promise<boolean> => {
   const unsettled = store.unsettledPullRequests(name);
   if (unsettled.length === 0) return true;
   let email: string;
   try {
-    email = await forgeEmail();
+    email = await forgeEmail(github);
   } catch (error) {
     console.error(`${name}: could not refresh pull requests: ${errorMessage(error)}`);
     return false;
@@ -104,7 +104,7 @@ const sync = async (
   env: NodeJS.ProcessEnv,
   poll: Poll,
   pullRequest: PullRequestPoll,
-  forgeEmail: () => Promise<string>,
+  forgeEmail: (github: string) => Promise<string>,
   writes: GithubWrites | null,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
@@ -223,7 +223,7 @@ export const main = async (
         env,
         poll,
         pullRequestPolling(tokens, fetch),
-        () => (forgeEmail ??= appIdentity(env, fetch).then(({ email }) => email)),
+        (github) => (forgeEmail ??= appIdentity(env, fetch, github).then(({ email }) => email)),
         githubWrites(config, tokens, fetch),
       )
     : list(config, poll);
