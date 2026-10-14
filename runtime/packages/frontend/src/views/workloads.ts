@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type RevisionRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { filterWorkloads, isFiltered, STATUSES, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
+import { filterWorkloads, isFiltered, paginate, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
 import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type AssetHrefs, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, NUMERIC_WRAPPING, layout } from './shared.ts';
 
@@ -114,6 +114,20 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered =>
     ${isFiltered(filter) ? html`<a href="/" class="${LINK} py-2 text-[0.9rem]" data-clear-filters>Clear filters</a>` : ''}
   </form>`;
 
+const PAGE_LINK = 'rounded-md border px-3 py-1 text-[0.9rem] font-medium no-underline';
+
+const renderPageLink = (direction: 'newer' | 'older', label: string, href: string | undefined): Rendered =>
+  href === undefined
+    ? html`<span class="${PAGE_LINK} border-line text-muted opacity-60" aria-disabled="true" data-page-link="${direction}">${label}</span>`
+    : html`<a href="${href}" class="${PAGE_LINK} border-line text-fg hover:bg-raised" data-page-link="${direction}" rel="${direction === 'newer' ? 'prev' : 'next'}">${label}</a>`;
+
+const renderPager = (paged: Page<RunRecord>, filter: WorkloadFilter): Rendered =>
+  html`<nav class="mt-4 flex items-center justify-between gap-3" aria-label="Pages" data-pager>
+    ${renderPageLink('newer', 'Newer', paged.hasNewer ? workloadsHref(filter, paged.page - 1) : undefined)}
+    <span class="text-[0.9rem] text-muted">Page ${paged.page}</span>
+    ${renderPageLink('older', 'Older', paged.hasOlder ? workloadsHref(filter, paged.page + 1) : undefined)}
+  </nav>`;
+
 const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered =>
   run.ticket === null && revision === undefined
     ? html`<span class="text-muted">manual</span>`
@@ -122,11 +136,13 @@ const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined):
 export const renderList = (
   all: RunRecord[],
   filter: WorkloadFilter,
+  requestedPage: number,
   equivalents: Map<string, ListPriceEquivalent>,
   revisions: ReadonlyMap<string, RevisionRecord>,
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const runs = filterWorkloads(all, filter);
+  const paged = paginate(runs, requestedPage);
   const body =
     all.length === 0
       ? html`<h1 class="${PAGE_TITLE}">Workloads</h1>
@@ -156,7 +172,7 @@ export const renderList = (
                 </tr>
               </thead>
               <tbody>
-                ${runs.map(
+                ${paged.items.map(
                   (run) => html`<tr class="${ROW}" data-run="${run.id}">
                     <td class="${TD}">${renderTimestamp(run.startTime)}</td>
                     <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderTicketCell(run, revisions.get(run.id))}</td>
@@ -171,6 +187,7 @@ export const renderList = (
                 )}
               </tbody>
             </table>
-          </div>`}`;
+          </div>
+          ${renderPager(paged, filter)}`}`;
   return layout('Workloads', 'runs', true, assets, body);
 };

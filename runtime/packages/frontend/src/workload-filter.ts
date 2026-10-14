@@ -51,7 +51,33 @@ export const filterWorkloads = (
 
 export const isFiltered = (filter: WorkloadFilter): boolean => Object.keys(filter).length > 0;
 
-export const workloadsHref = (filter: WorkloadFilter): string => {
-  const query = new URLSearchParams(Object.entries(filter) as [string, string][]).toString();
+export const PAGE_SIZE = 50;
+
+export const parsePage = (query: Record<string, string>): number => {
+  const page = Number(query['page']);
+  return Number.isInteger(page) && page > 1 ? page : 1;
+};
+
+export interface Page<T> {
+  items: T[];
+  page: number;
+  hasNewer: boolean;
+  hasOlder: boolean;
+}
+
+export const paginate = <T>(items: T[], requested: number): Page<T> => {
+  const last = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const page = Math.min(requested, last);
+  return {
+    items: items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    page,
+    hasNewer: page > 1,
+    hasOlder: page < last,
+  };
+};
+
+export const workloadsHref = (filter: WorkloadFilter, page = 1): string => {
+  const entries = Object.entries(filter) as [string, string][];
+  const query = new URLSearchParams(page > 1 ? [...entries, ['page', String(page)]] : entries).toString();
   return query === '' ? '/' : `/?${query}`;
 };
