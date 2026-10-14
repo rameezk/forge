@@ -24,7 +24,12 @@ export class GithubTokenFile {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     chmodSync(dir, 0o700);
     const file = new GithubTokenFile(dir, redactions);
-    file.replace(token);
+    try {
+      file.replace(token);
+    } catch (error) {
+      file.remove();
+      throw error;
+    }
     return file;
   }
 

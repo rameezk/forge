@@ -75,6 +75,15 @@ let
     set -u
     echo "$PATH" > path.out
     devshell-stub > devshell.out 2>&1
+    {
+      echo "environment ''${GITHUB_TOKEN-unset}"
+      echo "file $(cat "$FORGE_GITHUB_TOKEN_FILE")"
+      echo "gh $(gh auth token)"
+      echo "git $(printf 'protocol=https\nhost=github.com\n\n' | GIT_TERMINAL_PROMPT=0 git credential fill | sed -n 's/^password=//p')"
+      if echo tampered > "$FORGE_GITHUB_TOKEN_FILE" 2> /dev/null; then echo "write allowed"; else echo "write denied"; fi
+      echo replaced > "$FORGE_GITHUB_TOKEN_FILE.next" 2> /dev/null && mv "$FORGE_GITHUB_TOKEN_FILE.next" "$FORGE_GITHUB_TOKEN_FILE" 2> /dev/null && echo "replace allowed" || echo "replace denied"
+      echo "after $(cat "$FORGE_GITHUB_TOKEN_FILE")"
+    } > token.out
     echo '{"type":"agent_start"}'
     echo '{"type":"agent_end","willRetry":false}'
   '';
@@ -143,5 +152,13 @@ testers.runNixOSTest {
         first, rest = box.succeed("cat /var/lib/forge/work/*/path.out").strip().split(":", 1)
         assert first.startswith("/nix/store/") and first.endswith("-source/bin"), first
         assert "-git-" in rest, rest
+
+    with subtest("a dispatched workload authenticates git and gh from a token file it cannot write or replace, with no GITHUB_TOKEN in its environment"):
+        seen = dict(line.split(" ", 1) for line in box.succeed("cat /var/lib/forge/work/*/token.out").splitlines())
+        token = seen["file"]
+        assert token != "", seen
+        assert seen["environment"] == "unset", seen
+        assert seen["gh"] == token and seen["git"] == token and seen["after"] == token, seen
+        assert seen["write"] == "denied" and seen["replace"] == "denied", seen
   '';
 }

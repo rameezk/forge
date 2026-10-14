@@ -64,3 +64,10 @@ test('given a token file, when it is removed, then its directory is gone', () =>
 
   assert.equal(existsSync(dirname(file.path)), false);
 });
+
+test('given a token file that is gone, when git asks for GitHub credentials, then it fails instead of answering with an empty password', () => {
+  const file = open('github_pat_first');
+  file.remove();
+
+  assert.throws(() => credentialFor(file));
+});
