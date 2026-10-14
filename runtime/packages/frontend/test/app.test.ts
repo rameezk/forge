@@ -1310,6 +1310,23 @@ test('given an assistant turn with thinking but no text, followed by a tool call
   assert.ok(body.indexOf(card) < body.indexOf(toolCards(body)[0] ?? ''), 'the preview sits before the tool call it led to');
 });
 
+test('given an assistant turn with long text and thinking, when the run page is viewed, then its text blocks and thinking are held to 80ch while the markdown container and tool output keep the full width', async () => {
+  const body = await viewTranscript([
+    { type: 'message', role: 'assistant', text: 'A long paragraph.\n\n| a | b |\n|---|---|\n| 1 | 2 |', thinking: 'Considering the options.', usage, generationId: 'gen-1' },
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'echo forge' } },
+    { type: 'tool_result', id: 'call_1', isError: false, text: 'forge\n' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = messageCards(body) as [string];
+  const markdown = (card.match(/<div[^>]*\sdata-markdown[\s>][^>]*>/)?.[0] ?? '').replaceAll('&amp;', '&').replaceAll('&gt;', '>');
+  assert.match(markdown, /\[&>:is\(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6\)\]:max-w-\[80ch\]/, 'the text blocks are held to 80ch');
+  assert.match(markdown, /\bmax-w-none\b/, 'the container itself keeps the full width');
+  assert.doesNotMatch(markdown, /:is\([^)]*\b(table|pre)\b/, 'tables and code blocks are not narrowed');
+  assert.match(openingTag(thinkingOf(card).match(/<pre[^>]*>/)?.[0] ?? ''), /\bmax-w-\[80ch\]/, 'the thinking is held to 80ch');
+  assert.doesNotMatch(toolCards(body)[0] ?? '', /80ch/, 'tool output keeps the full width');
+});
+
 const messageErrorOf = (card: string): string => card.match(/<p[^>]*\sdata-message-error[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
 
 test('given a run that failed on a provider error in its last turn, when the run page is viewed, then the error appears once, in the result row, and the turn does not repeat it', async () => {
