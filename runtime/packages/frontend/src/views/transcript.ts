@@ -173,7 +173,7 @@ const renderToolCall = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const summary = argumentSummary(call.arguments);
   const failed = result?.isError === true;
-  return html`<details class="${BLOCK} ${failed ? 'border-error' : 'border-line'}" data-tool-call${failed ? html` data-failed open` : ''}>
+  return html`<details class="${BLOCK} ${failed ? 'border-error' : 'border-line'}" data-tool-call${failed ? html` data-failed` : ''}>
     <summary class="${DISCLOSURE}">
       ${toolName(call.name, failed)}
       <code class="${SUMMARY_CODE}" title="${summary}">${summary}</code>
@@ -416,10 +416,9 @@ const renderGroup = (
   frame: string,
   summary: Rendered,
   figures: Rendered,
-  open: boolean,
   body: Rendered[],
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<details class="${frame}" data-subagent-group${open ? html` open` : ''}>
+  html`<details class="${frame}" data-subagent-group>
     <summary class="${DISCLOSURE} flex-wrap">
       ${summary}
       ${figures}
@@ -451,7 +450,6 @@ const renderSubagentCall = (
       'border-t border-line',
       html`<span class="min-w-0 flex-1 basis-40 truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
       renderFigures(scope, events, shown, report, context),
-      failed,
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
         (givenTask(call.arguments) === undefined ? renderText : renderProse)('task', task),
@@ -478,7 +476,6 @@ const renderSubagent = (
     html`<span class="${LABEL} whitespace-nowrap">Subagent</span>
       <code class="${SUMMARY_CODE}" title="${scope}">${scope}</code>`,
     renderFigures(scope, events, shown, undefined, context),
-    false,
     shown.map((event) => renderEvent(event, results)),
   );
 };
@@ -493,7 +490,7 @@ const subagentKinds = (loads: RunSkillLoad[]): Map<string, string[]> => {
   return kinds;
 };
 
-const withoutErrorReportedByResult = (events: HarnessEvent[]): HarnessEvent[] => {
+const withoutErrorReportedByResult = (events: HarnessEvent[], positions: Map<HarnessEvent, number>): HarnessEvent[] => {
   const result = events.find((event): event is ResultEvent => event.type === 'result');
   if (result === undefined || result.error === null) return events;
   const failed = events.findLastIndex(
@@ -503,7 +500,76 @@ const withoutErrorReportedByResult = (events: HarnessEvent[]): HarnessEvent[] =>
   if (last?.type !== 'message' || last.error !== result.error) return events;
   const { error: _reported, ...unreported } = last;
   if (last.text === '' && last.thinking === undefined) return events.filter((event) => event !== last);
+  positions.set(unreported, positions.get(last) ?? 0);
   return events.map((event) => (event === last ? unreported : event));
+};
+
+export type TranscriptFilter = 'messages' | 'tools' | 'errors' | 'subagents';
+
+export interface TranscriptItem {
+  anchor: number;
+  kinds: TranscriptFilter[];
+  rendered: Rendered;
+}
+
+const failedCall = (call: ToolCallEvent | undefined, results: ToolResults): boolean =>
+  call !== undefined && results.get(call)?.isError === true;
+
+const kindsOf = (entry: TranscriptEntry, results: ToolResults): TranscriptFilter[] => {
+  switch (entry.type) {
+    case 'subagent':
+      return failedCall(entry.call, results) || entry.events.some((event) => kindsOf(event, results).includes('errors'))
+        ? ['subagents', 'errors']
+        : ['subagents'];
+    case 'message':
+      return entry.error === undefined ? ['messages'] : ['messages', 'errors'];
+    case 'tool_call':
+      return failedCall(entry, results) ? ['tools', 'errors'] : ['tools'];
+    case 'compaction':
+      return entry.error === null ? [] : ['errors'];
+    case 'result':
+      return entry.status === 'error' ? ['errors'] : [];
+    default:
+      return [];
+  }
+};
+
+const isListed = (entry: TranscriptEntry): boolean => entry.type !== 'tool_result' && entry.type !== 'cache_warm';
+
+const anchorOf = (entry: TranscriptEntry, positions: Map<HarnessEvent, number>): number => {
+  const origin = entry.type === 'subagent' ? (entry.call ?? entry.events[0]) : entry;
+  return (origin === undefined ? undefined : positions.get(origin)) ?? 0;
+};
+
+export const anchorId = (anchor: number): string => `event-${anchor}`;
+
+const renderAnchored = (anchor: number, rendered: Rendered): Rendered =>
+  html`<div id="${anchorId(anchor)}" data-event-anchor="${anchor}" class="scroll-mt-4">${rendered}</div>`;
+
+export const transcriptItems = (
+  events: HarnessEvent[],
+  generations: GenerationRecord[],
+  runStatus: RunStatus,
+  subscription: boolean,
+  skillLoads: RunSkillLoad[],
+): TranscriptItem[] => {
+  const positions = new Map(events.map((event, index) => [event, index]));
+  const results = toolResults(events);
+  const context: SubagentContext = { results, generations, runStatus, subscription, kinds: subagentKinds(skillLoads) };
+  const first = events[0];
+  const prompt = first?.type === 'message' && first.role === 'user' ? first : undefined;
+  return withoutToolOnlyPreambles(nestSubagents(withoutErrorReportedByResult(events, positions)))
+    .filter(isListed)
+    .map((entry) => {
+      const anchor = anchorOf(entry, positions);
+      const rendered =
+        entry.type === 'subagent'
+          ? renderSubagent(entry, context)
+          : entry === prompt
+            ? renderMessage('prompt', entry)
+            : renderEvent(entry, results);
+      return { anchor, kinds: kindsOf(entry, results), rendered: renderAnchored(anchor, rendered) };
+    });
 };
 
 export const renderTranscript = (
@@ -512,16 +578,5 @@ export const renderTranscript = (
   runStatus: RunStatus,
   subscription: boolean,
   skillLoads: RunSkillLoad[],
-): Rendered[] => {
-  const results = toolResults(events);
-  const context: SubagentContext = { results, generations, runStatus, subscription, kinds: subagentKinds(skillLoads) };
-  const first = events[0];
-  const prompt = first?.type === 'message' && first.role === 'user' ? first : undefined;
-  return withoutToolOnlyPreambles(nestSubagents(withoutErrorReportedByResult(events))).map((entry) =>
-    entry.type === 'subagent'
-      ? renderSubagent(entry, context)
-      : entry === prompt
-        ? renderMessage('prompt', entry)
-        : renderEvent(entry, results),
-  );
-};
+): Rendered[] =>
+  transcriptItems(events, generations, runStatus, subscription, skillLoads).map(({ rendered }) => rendered);

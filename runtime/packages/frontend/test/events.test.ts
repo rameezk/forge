@@ -170,6 +170,26 @@ test('given a client streaming events for a running workload\'s detail page, whe
   assert.equal(signal?.event, 'change');
 });
 
+test('given a client streaming events for a running workload\'s filtered full transcript page, when an event is appended to its transcript, then the stream emits a change signal', async (t) => {
+  const { app, writer, appendEvent, writeTranscript } = dashboard(t);
+  writer.insertRun(runningRun);
+  writeTranscript('run-01.jsonl');
+  const stream = await streamEvents(t, app, '/runs/run-01/transcript?show=messages');
+
+  appendEvent('run-01.jsonl', message('Reading the ticket.'));
+
+  const signal = await stream.next();
+  assert.equal(signal?.event, 'change');
+});
+
+test('given a client streaming events for a full transcript page of no such workload, when its events are requested, then they are not found', async (t) => {
+  const { app } = dashboard(t);
+
+  const res = await app.request(`/events?page=${encodeURIComponent('/runs/nope/transcript')}`);
+
+  assert.equal(res.status, 404);
+});
+
 const generation = {
   runId: 'run-01',
   generationId: 'gen-01',

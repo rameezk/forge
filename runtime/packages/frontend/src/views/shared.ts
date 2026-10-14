@@ -51,6 +51,8 @@ export const NUMERIC_WRAPPING = 'text-right tabular-nums';
 
 export const NUMERIC = `${NUMERIC_WRAPPING} whitespace-nowrap`;
 
+export const NEW_ACTIVITY_BUTTON = html`<button type="button" id="new-activity" hidden class="fixed bottom-6 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-full border border-line bg-surface px-4 py-1.5 text-sm font-semibold text-fg shadow-md hover:bg-raised">↓ New activity</button>`;
+
 export const PENDING = 'font-normal italic text-muted';
 
 const NAV_LINK = 'border-b-2 py-1.5 text-[0.9rem] no-underline';
