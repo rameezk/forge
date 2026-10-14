@@ -1073,12 +1073,16 @@
                 && reviseUnit.serviceConfig.Type == "oneshot"
                 && lib.hasInfix "%i" reviseUnit.serviceConfig.ExecStart
                 && lib.hasInfix "forge-revise-instance" reviseUnit.serviceConfig.ExecStart
-                && readsWriteTokenAsCredential reviseUnit
+                && readsAppKeyAsCredential reviseUnit
+                && reviseUnit.serviceConfig.EnvironmentFile == [
+                  reviseHost.config.sops.templates."forge-runner.env".path
+                  reviseHost.config.sops.templates."forge-github-app.env".path
+                ]
                 && isWorkloadHardened reviseUnit
                 && hasReviseCommand reviseHost
                 && !(hasReviseCommand dispatchHost)
               )
-              "declaring a repository with on.feedback must define a sandboxed forge-revise@ oneshot reading the GitHub write token as data and put the forge-revise command on the box's path, and a host without one must not";
+              "declaring a repository with on.feedback must define a sandboxed forge-revise@ oneshot loading the App id and reading the App private key as data, and put the forge-revise command on the box's path, and a host without one must not";
 
           billingService = workerHost.config.systemd.services.forge-billing;
           billingTimer = workerHost.config.systemd.timers.forge-billing;

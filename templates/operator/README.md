@@ -559,7 +559,8 @@ forge.runtime.repositories.forge = {
 ```
 
 A host with a repository that declares `on.feedback` must also set
-`dispatch.gitIdentity` and provide `github_write_token`, as for `on.ticket`.
+`dispatch.gitIdentity` and provide `github_app_id` and `github_app_private_key`,
+as for `on.ticket`.
 
 To revise a pull request by hand, run:
 
