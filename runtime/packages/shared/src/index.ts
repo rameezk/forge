@@ -155,9 +155,9 @@ export {
   transcriptLine,
 } from './transcript.ts';
 export { settleRunningTickets, type SettleRunningOptions } from './settle.ts';
+export { GITHUB_REST_API } from './github-api.ts';
 export {
   FORGE_LABELS,
-  GITHUB_REST_API,
   ensureLabels,
   labelExists,
   relabel,

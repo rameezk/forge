@@ -1,8 +1,8 @@
 import { createSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { requireGithubRepository, type Fetch } from './frontier.ts';
+import { GITHUB_REST_API } from './github-api.ts';
 import { isHeaderValue } from './http.ts';
-import { GITHUB_REST_API } from './labels.ts';
 
 export type TokenAccess = 'read' | 'write' | 'workload';
 
