@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { isGithubUrl, type RunFingerprint, type RunCounters, type TicketAttempt } from '@forge/shared';
+import { isGithubUrl, type AttemptRevision, type RevisionState, type RunFingerprint, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
 import { PULL_REQUEST_TONE, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type AssetHrefs, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
@@ -35,6 +35,26 @@ const renderBaseCommit = (config: RunFingerprint | null): Rendered =>
     ? NOT_RECORDED
     : html`<span title="${config.baseCommit}">${config.baseCommit.slice(0, SHORT_SHA_LENGTH)}</span>`;
 
+const REVISION_TONE: Record<RevisionState, string> = {
+  running: 'bg-raised text-fg',
+  ok: 'bg-success-soft text-success',
+  error: FAILED_TONE,
+  exceeded: 'bg-warning-soft text-warning',
+  interrupted: 'bg-warning-soft text-warning',
+};
+
+const renderRevision = ({ revision, run }: AttemptRevision): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<tr class="${ROW}" data-revision="${run.id}">
+    <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime)}</a> <span class="text-muted">revision</span></td>
+    <td class="${TD}"></td>
+    <td class="${TD}"></td>
+    <td class="${TD}" data-field="outcome"><span class="${PILL} ${REVISION_TONE[revision.state]}" data-outcome="${revision.state}">${revision.state}</span></td>
+    <td class="${TD} ${NUMERIC}" data-field="cost">${renderRunCost(run)}</td>
+    <td class="${TD} ${NUMERIC}" data-field="duration">${formatDuration(run.startTime, run.endTime)}</td>
+    <td class="${TD}"></td>
+    <td class="${TD}"></td>
+  </tr>`;
+
 const renderAttempt = (attempt: TicketAttempt): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { run, config, pullRequest } = attempt;
   return html`<tr class="${ROW}" data-attempt="${run.id}">
@@ -50,7 +70,7 @@ const renderAttempt = (attempt: TicketAttempt): HtmlEscapedString | Promise<Html
       : isGithubUrl(pullRequest.url)
         ? externalLink(pullRequest.url, `#${pullRequest.number}`)
         : html`#${pullRequest.number}`}</td>
-  </tr>`;
+  </tr>${attempt.revisions.map(renderRevision)}`;
 };
 
 export const renderTicketAttempts = (

@@ -31,7 +31,7 @@ import type {
   NewGeneration,
   UnsettledGeneration,
 } from './generation.ts';
-import type { TicketAttempt } from './attempts.ts';
+import type { AttemptRevision, TicketAttempt } from './attempts.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
@@ -1456,19 +1456,20 @@ export class Store {
     return { workers: column('worker'), repositories: column('repository') };
   }
 
-  listAttempts(ticket: { repository: string; number: number }): TicketAttempt[] {
+  listAttempts(ticket: { repository: string; number: number }, now: string): TicketAttempt[] {
     const rows = this.#db
       .prepare(
-        `SELECT d.run_id AS run_id FROM dispatches d
+        `SELECT d.id AS id, d.run_id AS run_id FROM dispatches d
         JOIN runs r ON r.id = d.run_id
         WHERE d.repository = $repository AND d.number = $number
         ORDER BY d.id DESC`,
       )
-      .all({ repository: ticket.repository, number: ticket.number }) as { run_id: string }[];
-    return rows.map(({ run_id }) => ({
+      .all({ repository: ticket.repository, number: ticket.number }) as { id: number; run_id: string }[];
+    return rows.map(({ id, run_id }) => ({
       run: this.getRun(run_id)!,
       config: this.getFingerprint(run_id),
       pullRequest: this.pullRequestOfRun(run_id),
+      revisions: this.#revisionsOf(id, now),
     }));
   }
 
@@ -1761,6 +1762,29 @@ export class Store {
     this.#db
       .prepare(`UPDATE revisions SET state = $state, ended_at = $ended_at WHERE id = $id`)
       .run({ id, state, ended_at: endedAt });
+  }
+
+  #revisionsOf(dispatchId: number, now: string): AttemptRevision[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT
+          v.id, v.repository, v.number, v.url, v.run_id, v.dispatch_id,
+          CASE WHEN v.state = 'running' AND v.alive_at < $live_since THEN 'interrupted' ELSE v.state END AS state,
+          v.started_at, v.alive_at, v.ended_at
+        FROM revisions v
+        JOIN runs r ON r.id = v.run_id
+        WHERE v.dispatch_id = $dispatch_id
+        ORDER BY v.id`,
+      )
+      .all({ dispatch_id: dispatchId, live_since: liveSince(now) }) as RevisionRow[];
+    return rows.map((row) => ({ revision: revisionFromRow(row), run: this.getRun(row.run_id)! }));
+  }
+
+  revisedPullRequestOfRun(runId: string): RevisedPullRequest | null {
+    const row = this.#db
+      .prepare(`SELECT repository, number, url FROM revisions WHERE run_id = $run_id`)
+      .get({ run_id: runId }) as RevisedPullRequest | undefined;
+    return row ?? null;
   }
 
   listRevisions(now: string): RevisionRecord[] {
