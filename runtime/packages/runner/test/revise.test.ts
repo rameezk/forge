@@ -159,13 +159,13 @@ const conversationComment = (
   ...overrides,
 });
 
-interface Reaction {
-  createdAt: string;
-  reactor: { __typename: string; login: string };
+interface ReactionGroup {
+  content: string;
+  reactors: { edges: { reactedAt: string; node: { __typename: string; login: string } }[] };
 }
 
 interface Reacted {
-  reactions: { nodes: Reaction[] };
+  reactionGroups: ReactionGroup[];
 }
 
 interface FeedbackAnswersResponse {
@@ -190,11 +190,20 @@ interface FeedbackAnswersResponse {
 
 const FORGE_APP: Actor = { __typename: 'Bot', login: APP_SLUG };
 
-const thumbsUp = (reactor: Actor = FORGE_APP, createdAt = '2026-09-22T11:00:00Z'): Reacted => ({
-  reactions: { nodes: [{ createdAt, reactor }] },
+const reactedWith = (
+  content: string,
+  reactor: Actor = FORGE_APP,
+  reactedAt = '2026-09-22T11:00:00Z',
+): Reacted => ({
+  reactionGroups: [{ content, reactors: { edges: [{ reactedAt, node: reactor }] } }],
 });
 
-const noReactions: Reacted = { reactions: { nodes: [] } };
+const thumbsUp = (reactor: Actor = FORGE_APP, reactedAt = '2026-09-22T11:00:00Z'): Reacted =>
+  reactedWith('THUMBS_UP', reactor, reactedAt);
+
+const noReactions: Reacted = {
+  reactionGroups: [{ content: 'THUMBS_UP', reactors: { edges: [] } }],
+};
 
 const feedbackAnswers = (
   after: {
@@ -772,6 +781,19 @@ test('given a revision handed a conversation comment, when the only response is 
           ...thumbsUp({ __typename: 'User', login: 'helper' }),
         },
       ],
+    }),
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'unanswered', detail: COMMENT_URL },
+  ]);
+});
+
+test('given a revision handed a conversation comment, when forge\'s App reacted with something other than a 👍, then the revision fails as unanswered', async () => {
+  const { code, revisions } = await revise({
+    answers: feedbackAnswers({
+      comments: [{ ...conversationComment(), ...reactedWith('HEART') }],
     }),
   });
 
