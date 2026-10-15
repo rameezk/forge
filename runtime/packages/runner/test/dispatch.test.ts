@@ -1899,7 +1899,7 @@ test('given a checkout whose .claude/skills links to .agents/skills, which links
   );
 });
 
-const runPage = async (stateDir: string, runId: string): Promise<string> => {
+const runPage = async (stateDir: string, runId: string, view = ''): Promise<string> => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     const app = createApp({
@@ -1910,7 +1910,7 @@ const runPage = async (stateDir: string, runId: string): Promise<string> => {
       idiomorph: '',
       client: '',
     });
-    const response = await app.request(`/runs/${runId}`);
+    const response = await app.request(`/runs/${runId}${view}`);
     assert.equal(response.status, 200);
     return await response.text();
   } finally {
@@ -2033,10 +2033,10 @@ const subagentKinds = (page: string): string[][] =>
     ),
   );
 
-test('given a run whose agent spawned one subagent reading code-review and two reading security-review, when the run page is opened, then each subagent header carries the chip for its skill', async () => {
+test('given a run whose agent spawned one subagent reading code-review and two reading security-review, when the full transcript page is opened, then each subagent header carries the chip for its skill', async () => {
   const { stateDir, runs } = await skillLoadsRun();
 
-  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id, '/transcript');
 
   assert.deepEqual(subagentKinds(page), [
     ['code-review'],
@@ -2045,13 +2045,13 @@ test('given a run whose agent spawned one subagent reading code-review and two r
   ]);
 });
 
-test('given a run whose subagents load no skill, when the run page is opened, then each subagent header shows unclassified', async () => {
+test('given a run whose subagents load no skill, when the full transcript page is opened, then each subagent header shows unclassified', async () => {
   const { stateDir, runs } = await dispatch({
     prompt: SUBAGENTS_PROMPT,
     piOutput: join(import.meta.dirname, 'fixtures', 'pi', 'subagents.jsonl'),
   });
 
-  const page = await runPage(stateDir, (runs[0] as RunRecord).id);
+  const page = await runPage(stateDir, (runs[0] as RunRecord).id, '/transcript');
 
   assert.deepEqual(subagentKinds(page), [['unclassified'], ['unclassified']]);
 });

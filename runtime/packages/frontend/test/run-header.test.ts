@@ -98,11 +98,12 @@ test('given workloads whose cost is pending, estimated, unconfirmed and subscrip
   assert.match(textOf(element(tile(subscription, 'cost'), 'span', 'data-list-price-equivalent')), /\$0\.250000/);
 });
 
-test('given a finished workload, when its run page is opened, then Run details is collapsed and holds harness, config, providers, breakdown, skills, counters and downloads', async () => {
+test('given a finished workload, when its run page is opened, then Run details is open on wide screens and holds harness, config, providers, breakdown, skills, counters and downloads', async () => {
   const body = await page({ costStatus: 'subscription', costUsd: 0 });
 
   const section = details(body);
-  assert.doesNotMatch(openingTag(section), /\sopen[\s>]/);
+  assert.match(openingTag(section), /\sopen[\s>]/);
+  assert.match(openingTag(section), /\sdata-collapsed-on-phone[\s>]/);
   assert.match(textOf(section), /Run details/);
   for (const term of ['Harness', 'Config', 'Providers', 'Cache', 'Retries', 'Compactions']) {
     assert.match(textOf(section), new RegExp(term));

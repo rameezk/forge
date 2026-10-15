@@ -455,7 +455,7 @@ test('given a run with a captured transcript, when its detail is requested, then
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
   const app = appWith([sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl' })], dir);
 
-  const res = await app.request('/runs/run-01');
+  const res = await app.request('/runs/run-01/transcript');
   assert.equal(res.status, 200);
   const body = await res.text();
 
@@ -517,9 +517,10 @@ test('given a successful run and a failed run, when each run page is requested, 
   const listBadge = (id: string): string => statusIn(rowFor(list, id));
   const page = async (id: string) => {
     const body = await (await app.request(`/runs/${id}`)).text();
+    const full = await (await app.request(`/runs/${id}/transcript`)).text();
     return {
       header: body.match(/<p[^>]*\sdata-summary[^>]*>\s*(<span[^>]*\sdata-status[^>]*>[^<]*<\/span>)/)?.[1] ?? '',
-      closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/div>\s*<\/div>\s*<\/main>/)?.[1] ?? '',
+      closing: full.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/main>/)?.[1] ?? '',
     };
   };
 
@@ -573,7 +574,7 @@ test('given a transcript written before subagent calls were recorded, when its t
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
   const app = appWith([sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl' })], dir);
 
-  const body = await (await app.request('/runs/run-01')).text();
+  const body = await (await app.request('/runs/run-01/transcript')).text();
   const groups = subagentGroups(body);
 
   assert.equal(groups.length, 2, 'each subagent scope renders as one group');
@@ -622,7 +623,7 @@ const viewTranscript = async (events: HarnessEvent[]): Promise<string> => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
   const app = appWith([sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl' })], dir);
-  return (await app.request('/runs/run-01')).text();
+  return (await app.request('/runs/run-01/transcript')).text();
 };
 
 test('given a run whose agent made a bash call in a turn with no text, when its run page is viewed, then a collapsed card shows the tool name and command and no empty assistant card renders', async () => {
@@ -1074,6 +1075,7 @@ const viewWithGenerations = async (
   run: Partial<RunRecord>,
   events: HarnessEvent[],
   generations: { generationId: string; subagent: string | null; outcome: 'billed' | 'unbilled' | 'given-up'; cost?: number; estimate?: number; provider?: string }[],
+  page = '/runs/run-01/transcript',
 ): Promise<string> => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
@@ -1091,7 +1093,7 @@ const viewWithGenerations = async (
   }
   store.recordLookups(lookups, '2026-09-21T10:02:00.000Z');
   const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
-  return (await app.request('/runs/run-01')).text();
+  return (await app.request(page)).text();
 };
 
 test('given a workload whose generations were served by two providers, one of them twice, with another generation not yet billed, a workload with no generation billed yet, a running workload with one generation given up and another not yet billed, and an ended workload whose only generation was given up, when their detail pages are requested, then the first summary lists both providers once each in the order they first served, the second and third show them as pending and the last as not recorded', async () => {
@@ -1100,18 +1102,18 @@ test('given a workload whose generations were served by two providers, one of th
     { generationId: 'g2', subagent: 'call_a', outcome: 'billed', provider: 'Novita' },
     { generationId: 'g3', subagent: null, outcome: 'billed', provider: 'Z.AI' },
     { generationId: 'g4', subagent: null, outcome: 'unbilled' },
-  ]);
+  ], '/runs/run-01');
   const unbilled = await viewWithGenerations({ status: 'running', endTime: null }, [], [
     { generationId: 'g1', subagent: null, outcome: 'unbilled' },
-  ]);
+  ], '/runs/run-01');
 
   const partlyGivenUp = await viewWithGenerations({ status: 'running', endTime: null }, [], [
     { generationId: 'g1', subagent: null, outcome: 'given-up' },
     { generationId: 'g2', subagent: null, outcome: 'unbilled' },
-  ]);
+  ], '/runs/run-01');
   const givenUp = await viewWithGenerations({}, [], [
     { generationId: 'g1', subagent: null, outcome: 'given-up' },
-  ]);
+  ], '/runs/run-01');
 
   assert.equal(summaryValue(served, 'Providers'), 'Z.AI, Novita');
   assert.equal(summaryValue(unbilled, 'Providers'), 'pending');
@@ -1224,7 +1226,7 @@ test('given a run whose transcript starts with a markdown prompt, when its run p
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
 
-  const transcript = body.slice(body.indexOf('Transcript</h2>'));
+  const transcript = body;
   const first = transcript.match(/<article[^>]*>[\s\S]*?<\/article>/)?.[0] ?? '';
   assert.match(first, /data-message="prompt"/);
   assert.match(first, /<header[^>]*>Prompt<\/header>/);
@@ -1241,7 +1243,7 @@ test('given a run recorded without a prompt event, when its run page is viewed, 
 });
 
 const messageCards = (body: string): string[] =>
-  body.slice(body.indexOf('Transcript</h2>')).match(/<article[^>]*\sdata-message="[^"]*"[\s\S]*?<\/article>/g) ?? [];
+  body.match(/<article[^>]*\sdata-message="[^"]*"[\s\S]*?<\/article>/g) ?? [];
 
 const metaOf = (card: string): string => card.match(/<span[^>]*\sdata-message-meta[^>]*>[\s\S]*?<\/span>\s*<\/header>/)?.[0] ?? '';
 
@@ -1374,7 +1376,7 @@ test('given a transcript where pi retried a failed response, compacted its conte
     { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
   ]);
 
-  const transcript = body.slice(body.indexOf('Transcript</h2>'));
+  const transcript = body;
   const retries = transcript.match(/<p[^>]*\sdata-event="retry"[^>]*>[\s\S]*?<\/p>/g) ?? [];
   const compactions = detailsBlocks(transcript, /<details[^>]*\sdata-event="compaction"[\s>]/g);
   const failedCompaction = transcript.match(/<p[^>]*\sdata-event="compaction"[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';

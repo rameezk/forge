@@ -5,8 +5,8 @@ import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, format
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type AssetHrefs, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, EMPTY, NEW_ACTIVITY_BUTTON, layout } from './shared.ts';
-import { renderTranscript } from './transcript.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type AssetHrefs, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
+import { renderWidget } from './widget.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
   run.endTime !== null && run.costStatus !== 'pending';
@@ -320,7 +320,7 @@ const renderTiles = (
   misses: number,
   hasCalls: boolean,
   pullRequest: PullRequestRecord | null,
-): Rendered => html`<div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6" data-tiles>
+): Rendered => html`<div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3" data-tiles>
     ${renderTile('cost', 'Cost', renderRunCost(run), renderListPriceTotal(run, generations))}
     ${renderTile('duration', 'Duration', html`<span data-duration>${renderDuration(run)}</span>`, run.endTime === null || run.timeoutSeconds === null ? '' : html`timeout ${formatSpan(run.timeoutSeconds)}`)}
     ${renderTile('tokens', 'Tokens', html`${formatTokens(run.inputTokens)} in`, html`${formatTokens(run.outputTokens)} out`)}
@@ -354,7 +354,7 @@ const renderRunDetails = (
   skillLoads: RunSkillLoad[],
   downloads: Downloads,
   config: RunFingerprint | null,
-): Rendered => html`<details class="${BLOCK} mb-4 border-line" data-run-details>
+): Rendered => html`<details open class="${BLOCK} mb-4 border-line" data-run-details data-collapsed-on-phone>
     <summary class="${DISCLOSURE}"><span class="${SECTION_TITLE}">Run details</span></summary>
     <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 border-t border-line px-4 py-3 text-[0.9rem]">
       <dt class="${META_TERM}">Harness</dt>
@@ -388,21 +388,18 @@ export const renderDetail = (
   const stopped = renderExceeded(run);
   const calls = generations.filter(isCall);
   const efforts = sentEfforts(calls, recordedEfforts);
-  const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
-    <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
-    ${renderSummary(run, summaryEffort(run, efforts))}
-    ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
-    ${stopped !== '' ? stopped : renderRunError(run)}
-    ${renderRunDetails(run, generations, revised, skillLoads, downloads, config)}
-    ${renderContext(context)}
-    ${renderCalls(calls, efforts, run.costStatus === 'subscription')}
-    <div class="mt-8 mb-3 flex items-baseline gap-4">
-      <h2 class="${SECTION_TITLE}">Transcript</h2>
-      ${events.length === 0 ? '' : html`<a href="/runs/${encodeURIComponent(run.id)}/transcript" data-full-transcript class="${LINK} text-[0.9rem]">Full transcript</a>`}
-    </div>
-    ${events.length === 0
-      ? html`<p class="${EMPTY}">No transcript captured.</p>`
-      : html`<div class="${STACK}" data-transcript="${events.length}">${renderTranscript(events, generations, run.status, run.costStatus === 'subscription', skillLoads)}</div>`}
-    ${live ? NEW_ACTIVITY_BUTTON : ''}`;
-  return layout(run.worker, null, live, assets, body);
+  const body = html`<div class="flex flex-col gap-2 lg:grid lg:gap-6 lg:h-full lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)]">
+      <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
+        <p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
+        <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
+        ${renderSummary(run, summaryEffort(run, efforts))}
+        ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
+        ${stopped !== '' ? stopped : renderRunError(run)}
+        ${renderRunDetails(run, generations, revised, skillLoads, downloads, config)}
+        ${renderContext(context)}
+        ${renderCalls(calls, efforts, run.costStatus === 'subscription')}
+      </div>
+      <div class="min-w-0 lg:min-h-0">${renderWidget(run, events)}</div>
+    </div>`;
+  return layout(run.worker, null, live, assets, body, true);
 };

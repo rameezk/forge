@@ -33,7 +33,17 @@ setInterval(tick, 1000);
 const toggled = new WeakSet();
 const rendered = new WeakMap();
 
+const phone = matchMedia('(max-width: 639px)');
+
+const collapseOnPhone = () => {
+  if (!phone.matches) return;
+  for (const details of document.querySelectorAll('details[data-collapsed-on-phone]')) {
+    if (!toggled.has(details)) details.open = false;
+  }
+};
+
 const rememberRendered = () => {
+  collapseOnPhone();
   for (const details of document.querySelectorAll('details')) {
     if (!toggled.has(details)) rendered.set(details, details.open);
   }
