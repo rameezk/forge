@@ -12,10 +12,15 @@ const renderRunPullRequest = (revision: RevisionRecord | undefined): Rendered =>
     ? externalLink(revision.url, `PR #${revision.number}`)
     : html`PR #${revision.number}`}`;
 
-const renderStatusCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered =>
-  revision?.state === 'error' && run.error !== null
-    ? html`${renderStatus(run.status)}<div class="mt-1 max-w-xs whitespace-normal wrap-anywhere text-[0.85rem] text-muted" data-run-error>${run.error}</div>`
-    : renderStatus(run.status);
+const revisionError = (run: RunRecord, revision: RevisionRecord | undefined): string | null =>
+  revision?.state === 'error' ? run.error : null;
+
+const renderStatusCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered => {
+  const error = revisionError(run, revision);
+  return error === null
+    ? renderStatus(run.status)
+    : html`${renderStatus(run.status)}<div class="mt-1 max-w-xs whitespace-normal wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`;
+};
 
 const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquivalent>): Rendered => {
   const equivalent = equivalents.get(run.id);
@@ -152,7 +157,7 @@ const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equ
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
     <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime)}${renderStatus(run.status)}</div>
-    ${revision?.state === 'error' && run.error !== null ? html`<div class="wrap-anywhere text-muted" data-run-error>${run.error}</div>` : ''}
+    ${revisionError(run, revision) === null ? '' : html`<div class="wrap-anywhere text-muted" data-run-error>${revisionError(run, revision)}</div>`}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, revision)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">
