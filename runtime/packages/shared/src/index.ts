@@ -30,6 +30,8 @@ export type {
 } from './dispatch.ts';
 export type {
   RevisedPullRequest,
+  RevisionFailure,
+  RevisionFailureRecord,
   RevisionRecord,
   RevisionStart,
   RevisionState,
@@ -136,6 +138,7 @@ export {
 } from './dispatch.ts';
 export {
   queryFeedbackWindow,
+  queryUnansweredFeedback,
   queryWatchedPullRequests,
   type FeedbackItem,
   type FeedbackKind,

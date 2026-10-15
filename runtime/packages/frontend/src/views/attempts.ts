@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { isGithubUrl, type AttemptRevision, type RevisionState, type RunFingerprint, type RunCounters, type TicketAttempt } from '@forge/shared';
+import { isGithubUrl, type AttemptRevision, type RevisionFailure, type RevisionRecord, type RevisionState, type RunFingerprint, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
 import { PULL_REQUEST_TONE, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type AssetHrefs, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
@@ -43,12 +43,23 @@ const REVISION_TONE: Record<RevisionState, string> = {
   interrupted: 'bg-warning-soft text-warning',
 };
 
+const REVISION_FAILURE_LABEL: Record<RevisionFailure, string> = {
+  unanswered: 'Unanswered',
+};
+
+const renderRevisionFailure = ({ reason, detail }: RevisionRecord): Rendered => {
+  if (reason === null) return '';
+  const label = REVISION_FAILURE_LABEL[reason];
+  const text = detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
+  return html`<p class="m-0 mt-1 max-w-64 text-xs break-all whitespace-pre-line text-muted" data-revision-failure>${text}</p>`;
+};
+
 const renderRevision = ({ revision, run }: AttemptRevision): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW}" data-revision="${run.id}">
     <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime)}</a> <span class="text-muted">revision</span></td>
     <td class="${TD}"></td>
     <td class="${TD}"></td>
-    <td class="${TD}" data-field="outcome"><span class="${PILL} ${REVISION_TONE[revision.state]}" data-outcome="${revision.state}">${revision.state}</span></td>
+    <td class="${TD}" data-field="outcome"><span class="${PILL} ${REVISION_TONE[revision.state]}" data-outcome="${revision.state}">${revision.state}</span>${renderRevisionFailure(revision)}</td>
     <td class="${TD} ${NUMERIC}" data-field="cost">${renderRunCost(run)}</td>
     <td class="${TD} ${NUMERIC}" data-field="duration">${formatDuration(run.startTime, run.endTime)}</td>
     <td class="${TD}"></td>

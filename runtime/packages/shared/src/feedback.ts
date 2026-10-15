@@ -348,3 +348,155 @@ export const queryFeedbackWindow = async (
   ];
   return items.sort((a, b) => instant(a.createdAt) - instant(b.createdAt));
 };
+
+const FEEDBACK_ANSWERS_QUERY = `
+  query FeedbackAnswers($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        reviews(last: 100) {
+          nodes {
+            url
+            ...ThumbsUp
+          }
+        }
+        reviewThreads(last: 100) {
+          nodes {
+            comments(first: 100) {
+              nodes {
+                url
+                createdAt
+                author {
+                  __typename
+                  login
+                }
+                ...ThumbsUp
+              }
+            }
+          }
+        }
+        comments(last: 100) {
+          nodes {
+            url
+            body
+            createdAt
+            author {
+              __typename
+              login
+            }
+            ...ThumbsUp
+          }
+        }
+      }
+    }
+  }
+
+  fragment ThumbsUp on Reactable {
+    reactions(content: THUMBS_UP, first: 100) {
+      nodes {
+        createdAt
+        reactor {
+          __typename
+          ... on Actor {
+            login
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface Reactions {
+  nodes: { createdAt: string; reactor: { __typename: string; login?: string } | null }[];
+}
+
+interface AnswerComment {
+  url: string;
+  createdAt: string;
+  author: Actor | null;
+  reactions: Reactions;
+}
+
+interface FeedbackAnswersResponse {
+  data?: {
+    repository: {
+      pullRequest: {
+        reviews: { nodes: { url: string; reactions: Reactions }[] };
+        reviewThreads: { nodes: { comments: { nodes: AnswerComment[] } }[] };
+        comments: { nodes: (AnswerComment & { body: string })[] };
+      } | null;
+    } | null;
+  };
+  errors?: { message: string }[];
+}
+
+const BOT_SUFFIX = '[bot]';
+
+const URL_CHARACTER = /[A-Za-z0-9_-]/;
+
+const mentions = (body: string, url: string): boolean => {
+  for (let at = body.indexOf(url); at !== -1; at = body.indexOf(url, at + 1)) {
+    if (!URL_CHARACTER.test(body[at + url.length] ?? '')) return true;
+  }
+  return false;
+};
+
+const botLoginOf = (name: string): string =>
+  (name.endsWith(BOT_SUFFIX) ? name.slice(0, -BOT_SUFFIX.length) : name).toLowerCase();
+
+export const queryUnansweredFeedback = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  appName: string,
+  items: readonly FeedbackItem[],
+): Promise<FeedbackItem[]> => {
+  const response = await requestGraphql(fetch, token, FEEDBACK_ANSWERS_QUERY, github, { number });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
+  }
+  const { data, errors } = (await response.json()) as FeedbackAnswersResponse;
+  const pullRequest = data?.repository?.pullRequest;
+  if (pullRequest === undefined || pullRequest === null) {
+    const reason =
+      errors === undefined || errors.length === 0
+        ? 'no such pull request'
+        : errors.map((error) => error.message).join('; ');
+    throw new Error(`GitHub found no pull request ${github}#${number}: ${reason}`);
+  }
+  const app = botLoginOf(appName);
+  const instant = (time: string): number => Date.parse(time);
+  const isApp = (actor: { __typename: string; login?: string } | null): boolean =>
+    actor !== null && actor.__typename === 'Bot' && actor.login?.toLowerCase() === app;
+  const reactedBy = (reactions: Reactions, since: string): boolean =>
+    reactions.nodes.some(
+      ({ createdAt, reactor }) => isApp(reactor) && instant(createdAt) > instant(since),
+    );
+  const reactionsByUrl = new Map<string, Reactions>([
+    ...pullRequest.reviews.nodes.map(({ url, reactions }): [string, Reactions] => [url, reactions]),
+    ...pullRequest.reviewThreads.nodes.flatMap(({ comments }) =>
+      comments.nodes.map(({ url, reactions }): [string, Reactions] => [url, reactions]),
+    ),
+    ...pullRequest.comments.nodes.map(({ url, reactions }): [string, Reactions] => [url, reactions]),
+  ]);
+  const linking = pullRequest.comments.nodes.filter(({ author }) => isApp(author));
+  const answered = (item: FeedbackItem): boolean => {
+    const since = item.createdAt;
+    const reacted = reactedBy(reactionsByUrl.get(item.url) ?? { nodes: [] }, since);
+    const linked = linking.some(
+      ({ body, createdAt }) => mentions(body, item.url) && instant(createdAt) > instant(since),
+    );
+    const replied =
+      item.kind === 'inline review comment' &&
+      pullRequest.reviewThreads.nodes.some(
+        ({ comments }) =>
+          comments.nodes.some(({ url }) => url === item.url) &&
+          comments.nodes.some(
+            ({ url, author, createdAt }) =>
+              url !== item.url && isApp(author) && instant(createdAt) > instant(since),
+          ),
+      );
+    return reacted || linked || replied;
+  };
+  return items.filter((item) => !answered(item));
+};

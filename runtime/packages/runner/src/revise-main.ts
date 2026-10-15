@@ -5,11 +5,13 @@ import {
   githubAppFromEnv,
   queryFeedbackWindow,
   queryPullRequestHead,
+  queryUnansweredFeedback,
   startHeartbeat,
   Store,
   type Fetch,
   type PullRequestHead,
   type RunRecord,
+  type RevisionFailureRecord,
   type RevisionStart,
   type RevisionState,
 } from '@forge/shared';
@@ -168,6 +170,7 @@ export const main = async (
     );
     try {
       let launched: LaunchResult;
+      let failure: RevisionFailureRecord | undefined;
       try {
         const feedback = await queryFeedbackWindow(
           fetch,
@@ -197,12 +200,32 @@ export const main = async (
           identity,
           runId,
         });
+        if (stateOf(launched) === 'ok') {
+          const unanswered = await queryUnansweredFeedback(
+            fetch,
+            (await app.mint(repository.github, 'read')).token,
+            repository.github,
+            pullRequest.number,
+            identity.name,
+            feedback,
+          );
+          if (unanswered.length > 0) {
+            failure = { reason: 'unanswered', detail: unanswered.map(({ url }) => url).join('\n') };
+          }
+        }
       } catch (error) {
         store.endRevision(revisionId, 'error', now());
         throw error;
       }
-      store.endRevision(revisionId, stateOf(launched), now());
-      return launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
+      store.endRevision(
+        revisionId,
+        failure === undefined ? stateOf(launched) : 'error',
+        now(),
+        failure,
+      );
+      return failure !== undefined || launched.run.status === 'error' || launched.run.status === 'exceeded'
+        ? 1
+        : 0;
     } finally {
       stopHeartbeat();
     }
