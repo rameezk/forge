@@ -1,11 +1,11 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RevisedPullRequest, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type RunTicket, type Ticket } from '@forge/shared';
+import { isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RevisedPullRequest, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTokens } from '../format.ts';
+import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTokens } from '../format.ts';
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type AssetHrefs, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderTokens, renderCacheHitRate, ERROR_CALLOUT, EMPTY, NEW_ACTIVITY_BUTTON, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type AssetHrefs, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, EMPTY, NEW_ACTIVITY_BUTTON, layout } from './shared.ts';
 import { renderTranscript } from './transcript.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -21,18 +21,22 @@ const renderCache = (run: RunRecord): Rendered =>
     ? NOT_RECORDED
     : html`${formatTokens(run.cacheReadTokens)} read / ${formatTokens(run.cacheWriteTokens)} write`;
 
-const renderListPriceEquivalent = (
-  run: RunRecord,
-  generations: GenerationRecord[],
-): Rendered => {
+const renderListPriceTotal = (run: RunRecord, generations: GenerationRecord[]): Rendered => {
   if (run.costStatus !== 'subscription') return '';
   const priced = generations.flatMap(({ listPriceEquivalentUsd }) =>
     listPriceEquivalentUsd === null ? [] : [listPriceEquivalentUsd],
   );
   if (priced.length === 0) return '';
   const total = priced.reduce((sum, usd) => sum + usd, 0);
-  return html`<dt class="${META_TERM}" title="What this workload would have cost at the model's list price. Not billed.">List-price equivalent</dt>
-      <dd class="${META_VALUE}" data-list-price-equivalent>${formatCost(total)}${priced.length < generations.length ? html`<wbr>${PARTIAL_BADGE}` : ''}</dd>`;
+  return html`<span data-list-price-equivalent title="What this workload would have cost at the model's list price. Not billed.">${formatCost(total)} list price${priced.length < generations.length ? html`<wbr>${PARTIAL_BADGE}` : ''}</span>`;
+};
+
+const renderListPriceEquivalent = (run: RunRecord, generations: GenerationRecord[]): Rendered => {
+  const total = renderListPriceTotal(run, generations);
+  return total === ''
+    ? ''
+    : html`<dt class="${META_TERM}">List-price equivalent</dt>
+      <dd class="${META_VALUE}">${total}</dd>`;
 };
 
 const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rendered => {
@@ -107,6 +111,28 @@ const sentEfforts = (calls: GenerationRecord[], efforts: CallEfforts): (string |
   });
 };
 
+const callCostUsd = (
+  { billedCostUsd, estimatedCostUsd, listPriceEquivalentUsd }: GenerationRecord,
+  subscription: boolean,
+): number => (subscription ? listPriceEquivalentUsd : (billedCostUsd ?? estimatedCostUsd)) ?? 0;
+
+const renderCallsSummary = (calls: GenerationRecord[], misses: number, subscription: boolean): Rendered => {
+  const measured = calls.flatMap(({ usage }) => (usage === null ? [] : [usage]));
+  const rate = cacheHitRate({
+    inputTokens: measured.reduce((sum, { inputTokens }) => sum + inputTokens, 0),
+    cacheReadTokens: measured.reduce((sum, { cacheReadTokens }) => sum + cacheReadTokens, 0),
+    cacheWriteTokens: measured.reduce((sum, { cacheWriteTokens }) => sum + cacheWriteTokens, 0),
+  });
+  const total = calls.reduce((sum, call) => sum + callCostUsd(call, subscription), 0);
+  return html`<summary class="${DISCLOSURE} flex-wrap" data-calls-summary>
+      <span class="${SECTION_TITLE}">Calls</span>
+      <span class="${SUMMARY_FIGURE}">${calls.length} ${calls.length === 1 ? 'call' : 'calls'}</span>
+      <span class="${SUMMARY_FIGURE}">${formatCost(total)}${subscription ? ' list price' : ''}</span>
+      ${rate === null ? '' : html`<span class="${SUMMARY_FIGURE}">${rate} cache hit</span>`}
+      ${misses === 0 ? '' : html`<span class="${BADGE} bg-warning-soft text-warning" data-badge="cache-miss" title="Calls whose cache read fell well below the previous call's prompt size">${misses} ${misses === 1 ? 'miss' : 'misses'}</span>`}
+    </summary>`;
+};
+
 const renderCalls = (
   calls: GenerationRecord[],
   efforts: (string | undefined)[],
@@ -114,8 +140,9 @@ const renderCalls = (
 ): Rendered => {
   if (calls.length === 0) return '';
   const misses = cacheMisses(calls);
-  return html`<h2 class="${SECTION_TITLE} mt-8 mb-3">Calls</h2>
-    <div class="${CARD}" data-calls>
+  return html`<details class="${BLOCK} mb-4 border-line" data-calls-section>
+    ${renderCallsSummary(calls, misses.size, subscription)}
+    <div class="${CARD} rounded-t-none border-x-0 border-b-0" data-calls>
       <table class="${TABLE}">
         <thead>
           <tr>
@@ -133,7 +160,8 @@ const renderCalls = (
         </thead>
         <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index], subscription))}</tbody>
       </table>
-    </div>`;
+    </div>
+  </details>`;
 };
 
 const summaryEffort = (run: Pick<RunRecord, 'reasoningEffort'>, sent: (string | undefined)[]): string =>
@@ -152,6 +180,8 @@ const renderExceeded = (run: RunRecord): Rendered => {
   }
   return '';
 };
+
+const SUMMARY_FIGURE = 'text-[0.9rem] tabular-nums text-muted';
 
 const META_TERM = 'text-muted';
 
@@ -204,15 +234,12 @@ const renderContext = ({ systemPrompt, tools }: WorkloadContext): Rendered =>
     ? ''
     : html`<div class="${STACK} mb-4" data-context>${renderSystemPrompt(systemPrompt)}${renderTools(tools)}</div>`;
 
-const renderPullRequest = (pullRequest: PullRequestRecord | null): Rendered =>
-  pullRequest === null
+const renderPullRequestValue = (pullRequest: PullRequestRecord): Rendered =>
+  html`<span class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" data-pull-request>${isGithubUrl(pullRequest.url)
+    ? externalLink(pullRequest.url, `#${pullRequest.number}`)
+    : html`#${pullRequest.number}`}<span class="${PILL} ${PULL_REQUEST_TONE[pullRequest.state]}" data-pull-request-state="${pullRequest.state}">${pullRequest.state}</span>${pullRequest.rework === null
     ? ''
-    : html`<dt class="${META_TERM}">Pull request</dt>
-      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" data-pull-request>${isGithubUrl(pullRequest.url)
-        ? externalLink(pullRequest.url, `#${pullRequest.number}`)
-        : html`#${pullRequest.number}`}<span class="${PILL} ${PULL_REQUEST_TONE[pullRequest.state]}" data-pull-request-state="${pullRequest.state}">${pullRequest.state}</span>${pullRequest.rework === null
-        ? ''
-        : html`<span>rework ${pullRequest.rework}</span>`}</dd>`;
+    : html`<span class="text-[0.9rem] text-muted">rework ${pullRequest.rework}</span>`}</span>`;
 
 const renderRevisedPullRequest = (pullRequest: RevisedPullRequest | null): Rendered =>
   pullRequest === null
@@ -268,12 +295,6 @@ const renderCounters = (counters: RunCounters | null): Rendered =>
       <dd class="${META_VALUE}" ${raw(attribute)}>${counters[key]}</dd>`,
       )}`;
 
-const renderTicketRow = (ticket: RunTicket | null): Rendered =>
-  ticket === null
-    ? ''
-    : html`<dt class="${META_TERM}">Ticket</dt>
-      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1">${renderRunTicket(ticket)}${renderAttemptsLink(ticket, 'All attempts')}</dd>`;
-
 const renderConfig = (config: RunFingerprint | null): Rendered =>
   html`<dt class="${META_TERM}">Config</dt>
     <dd class="${META_VALUE}" data-cohort>${renderCohortLink(config?.hash ?? null, config?.fingerprint ?? null)}</dd>
@@ -283,6 +304,73 @@ const renderConfig = (config: RunFingerprint | null): Rendered =>
         <dd class="${META_VALUE} tabular-nums" data-forge-sha>${config.forgeGitSha === null
           ? html`<span class="text-muted">unknown</span>`
           : html`<span title="${config.forgeGitSha}">${config.forgeGitSha.slice(0, SHORT_SHA_LENGTH)}</span>`}</dd>`}`;
+
+const TILE_LABEL = 'm-0 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
+
+const renderTile = (name: string, label: string, value: Rendered, note: Rendered = ''): Rendered =>
+  html`<div class="flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface px-4 py-3" data-tile="${name}">
+      <span class="${TILE_LABEL}">${label}</span>
+      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 break-words text-[1.15rem] font-semibold tabular-nums [&_[data-badge]]:ml-0" data-tile-value>${value}</div>
+      ${note === '' ? '' : html`<span class="${SUMMARY_FIGURE} break-words">${note}</span>`}
+    </div>`;
+
+const renderTiles = (
+  run: RunRecord,
+  generations: GenerationRecord[],
+  misses: number,
+  hasCalls: boolean,
+  pullRequest: PullRequestRecord | null,
+): Rendered => html`<div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6" data-tiles>
+    ${renderTile('cost', 'Cost', renderRunCost(run), renderListPriceTotal(run, generations))}
+    ${renderTile('duration', 'Duration', html`<span data-duration>${renderDuration(run)}</span>`, run.endTime === null || run.timeoutSeconds === null ? '' : html`timeout ${formatSpan(run.timeoutSeconds)}`)}
+    ${renderTile('tokens', 'Tokens', html`${formatTokens(run.inputTokens)} in`, html`${formatTokens(run.outputTokens)} out`)}
+    ${renderTile('cache-hit', 'Cache hit', renderCacheHitRate(run), hasCalls ? html`${misses} ${misses === 1 ? 'miss' : 'misses'}` : '')}
+    ${renderTile('tool-calls', 'Tool calls', run.counters === null ? NOT_RECORDED : html`${run.counters.toolCalls}`, run.counters === null ? '' : html`${run.counters.failedToolResults} failed`)}
+    ${renderTile('pull-request', 'Pull request', pullRequest === null ? html`<span class="text-muted">none</span>` : renderPullRequestValue(pullRequest))}
+  </div>`;
+
+const renderSummary = (run: RunRecord, effort: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
+    ${renderStatus(run.status)}
+    ${run.ticket === null
+      ? html`<span class="text-muted">manual</span>`
+      : html`<span class="flex flex-wrap items-baseline gap-x-3">${renderRunTicket(run.ticket)}${renderAttemptsLink(run.ticket, 'All attempts')}</span>`}
+    <span class="break-words">${run.model}</span>
+    <span><span class="text-muted">effort</span> <span data-summary-effort>${effort}</span></span>
+    ${renderTimestamp(run.startTime)}
+  </p>`;
+
+const renderRunError = (run: RunRecord): Rendered => {
+  if (run.error === null) return '';
+  const tone = run.status === 'interrupted' || run.status === 'exceeded' ? 'bg-warning-soft text-warning' : 'bg-error-soft text-error';
+  return html`<details class="mb-4 rounded-lg ${tone}" data-run-error>
+    <summary class="block cursor-pointer truncate px-4 py-2.5 before:mr-2.5 before:inline-block before:w-3 before:text-center before:text-[0.65rem] before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90 [[open]>&]:overflow-visible [[open]>&]:whitespace-normal [[open]>&]:break-words">${run.error}</summary>
+  </details>`;
+};
+
+const renderRunDetails = (
+  run: RunRecord,
+  generations: GenerationRecord[],
+  revised: RevisedPullRequest | null,
+  skillLoads: RunSkillLoad[],
+  downloads: Downloads,
+  config: RunFingerprint | null,
+): Rendered => html`<details class="${BLOCK} mb-4 border-line" data-run-details>
+    <summary class="${DISCLOSURE}"><span class="${SECTION_TITLE}">Run details</span></summary>
+    <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 border-t border-line px-4 py-3 text-[0.9rem]">
+      <dt class="${META_TERM}">Harness</dt>
+      <dd class="${META_VALUE}" data-harness>${run.harness}</dd>
+      ${renderConfig(config)}
+      <dt class="${META_TERM}">Providers</dt>
+      <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
+      <dt class="${META_TERM}">Cache</dt>
+      <dd class="${META_VALUE}">${renderCache(run)}</dd>
+      ${renderListPriceEquivalent(run, generations)}
+      ${renderCounters(run.counters)}
+      ${renderSkills(skillLoads)}
+      ${renderRevisedPullRequest(revised)}
+      ${renderDownloads(run, downloads)}
+    </dl>
+  </details>`;
 
 export const renderDetail = (
   run: RunRecord,
@@ -302,39 +390,10 @@ export const renderDetail = (
   const efforts = sentEfforts(calls, recordedEfforts);
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Workloads</a></p>
     <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
-    <dl class="m-0 mb-4 grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[0.9rem]">
-      <dt class="${META_TERM}">Harness</dt>
-      <dd class="${META_VALUE}" data-harness>${run.harness}</dd>
-      <dt class="${META_TERM}">Model</dt>
-      <dd class="${META_VALUE}">${run.model}</dd>
-      <dt class="${META_TERM}">Reasoning effort</dt>
-      <dd class="${META_VALUE}">${summaryEffort(run, efforts)}</dd>
-      ${renderConfig(config)}
-      <dt class="${META_TERM}">Status</dt>
-      <dd class="${META_VALUE}">${renderStatus(run.status)}</dd>
-      <dt class="${META_TERM}">Started</dt>
-      <dd class="${META_VALUE}">${renderTimestamp(run.startTime)}</dd>
-      <dt class="${META_TERM}">Duration</dt>
-      <dd class="${META_VALUE}" data-duration>${renderDuration(run)}</dd>
-      <dt class="${META_TERM}">Cost</dt>
-      <dd class="${META_VALUE}">${renderRunCost(run)}</dd>
-      ${renderListPriceEquivalent(run, generations)}
-      <dt class="${META_TERM}">Tokens</dt>
-      <dd class="${META_VALUE}">${renderTokens(run)}</dd>
-      <dt class="${META_TERM}">Cache</dt>
-      <dd class="${META_VALUE}">${renderCache(run)}</dd>
-      <dt class="${META_TERM}">Cache hit rate</dt>
-      <dd class="${META_VALUE}">${renderCacheHitRate(run)}</dd>
-      <dt class="${META_TERM}">Providers</dt>
-      <dd class="${META_VALUE}">${renderProviders(run, generations)}</dd>
-      ${renderCounters(run.counters)}
-      ${renderSkills(skillLoads)}
-      ${renderPullRequest(pullRequest)}
-      ${renderRevisedPullRequest(revised)}
-      ${renderTicketRow(run.ticket)}
-      ${renderDownloads(run, downloads)}
-    </dl>
-    ${stopped !== '' ? stopped : run.error === null ? '' : html`<p class="${run.status === 'interrupted' || run.status === 'exceeded' ? WARNING_CALLOUT : ERROR_CALLOUT} mb-4">${run.error}</p>`}
+    ${renderSummary(run, summaryEffort(run, efforts))}
+    ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
+    ${stopped !== '' ? stopped : renderRunError(run)}
+    ${renderRunDetails(run, generations, revised, skillLoads, downloads, config)}
     ${renderContext(context)}
     ${renderCalls(calls, efforts, run.costStatus === 'subscription')}
     <div class="mt-8 mb-3 flex items-baseline gap-4">

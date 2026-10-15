@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { HarnessEvent, LookupResult, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
-import { openingTag, textOf } from './html.ts';
+import { openingTag, textOf, tile, tileValue } from './html.ts';
 
 const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   id: 'run-01',
@@ -111,7 +111,7 @@ test('given one workload fully billed, one with an unbilled generation and one u
   const listed = (id: string): string =>
     rowFor(list, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
   const detailed = async (id: string): Promise<string> =>
-    (await (await app.request(`/runs/${id}`)).text()).match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '';
+    tileValue(await (await app.request(`/runs/${id}`)).text(), 'cost');
 
   for (const cost of [listed('estimated'), await detailed('estimated')]) {
     assert.equal(textOf(cost), '$0.050000 estimated');
@@ -150,7 +150,7 @@ test('given an interrupted run and a failed run, when each run page is viewed, t
     sampleRun({ id: 'failed', status: 'error', error: 'provider exploded', transcriptRef: null }),
   ]);
   const whyEnded = async (id: string, why: string): Promise<string> =>
-    (await (await app.request(`/runs/${id}`)).text()).match(new RegExp(`<p[^>]*>${why}</p>`))?.[0] ?? 'missing';
+    (await (await app.request(`/runs/${id}`)).text()).match(new RegExp(`<details[^>]*\\sdata-run-error[^>]*>\\s*<summary class="[^"]*">${why}</summary>`))?.[0] ?? 'missing';
 
   const interrupted = await whyEnded('interrupted', 'runner stopped without finishing, last seen at 2026-09-21T10:03:20.000Z');
   const failed = await whyEnded('failed', 'provider exploded');
@@ -233,7 +233,7 @@ const dispatchedWithPullRequest = (store: Store, runId: string, ticket: number, 
 };
 
 const pullRequestOn = async (app: ReturnType<typeof appWith>, id: string): Promise<string> =>
-  (await (await app.request(`/runs/${id}`)).text()).match(/<dd[^>]*\sdata-pull-request(?=[\s>])[^>]*>[\s\S]*?<\/dd>/)?.[0] ?? 'missing';
+  (await (await app.request(`/runs/${id}`)).text()).match(/<span[^>]*\sdata-pull-request(?=[\s>])[^>]*>[\s\S]*?<\/span>\s*<\/span>/)?.[0] ?? 'missing';
 
 test('given a dispatched workload whose pull request was merged with a rework count of 1, a dispatched one whose pull request is still open, and a workload started by hand, when each run page is requested, then the first shows the pull request link, its merged state and its rework count, the second its link as open with no rework, and the third no pull request', async () => {
   const app = appWith(
@@ -348,7 +348,7 @@ test('given a pending run billed $0.5 so far and an unconfirmed run, when each t
   ]);
   const cost = async (id: string): Promise<string> => {
     const body = await (await app.request(`/runs/${id}`)).text();
-    return body.match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '';
+    return tileValue(body, 'cost');
   };
 
   const pending = await cost('pending');
@@ -367,7 +367,7 @@ test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and it
   const detail = await (await app.request('/runs/run-01')).text();
 
   assert.match(rowFor(list, 'run-01').match(/<td[^>]*>(<time[\s\S]*?<\/time>)<\/td>/)?.[1] ?? '', started);
-  assert.match(detail.match(/<dt[^>]*>Started<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '', started);
+  assert.match(detail.match(/<p[^>]*\sdata-summary[^>]*>[\s\S]*?(<time[\s\S]*?<\/time>)\s*<\/p>/)?.[1] ?? '', started);
 });
 
 test('given a run whose recorded start time is not a date, when the list and its run page are requested, then both render and show the recorded value as is', async () => {
@@ -406,9 +406,10 @@ test('given a run with 44991 input, 3480 output, 120000 cache-read and 5009 cach
 
   const body = await (await app.request('/runs/run-01')).text();
 
-  assert.equal(summaryValue(body, 'Tokens'), '44,991 in / 3,480 out');
+  assert.equal(textOf(tileValue(body, 'tokens')), '44,991 in');
+  assert.match(textOf(tile(body, 'tokens')), /3,480 out$/);
   assert.equal(summaryValue(body, 'Cache'), '120,000 read / 5,009 write');
-  assert.equal(summaryValue(body, 'Cache hit rate'), '70.6%');
+  assert.equal(textOf(tileValue(body, 'cache-hit')), '70.6%');
 });
 
 test('given a run recorded before the cache split was kept, and a running run with no prompt tokens yet, when their run pages are requested, then neither shows a cache figure it does not have', async () => {
@@ -420,11 +421,11 @@ test('given a run recorded before the cache split was kept, and a running run wi
   const legacy = await (await app.request('/runs/legacy')).text();
   const fresh = await (await app.request('/runs/fresh')).text();
 
-  assert.equal(summaryValue(legacy, 'Tokens'), '4,200 in / 850 out');
+  assert.equal(textOf(tileValue(legacy, 'tokens')), '4,200 in');
   assert.equal(summaryValue(legacy, 'Cache'), 'not recorded');
-  assert.equal(summaryValue(legacy, 'Cache hit rate'), 'not recorded');
+  assert.equal(textOf(tileValue(legacy, 'cache-hit')), 'not recorded');
   assert.equal(summaryValue(fresh, 'Cache'), '0 read / 0 write');
-  assert.equal(summaryValue(fresh, 'Cache hit rate'), 'n/a');
+  assert.equal(textOf(tileValue(fresh, 'cache-hit')), 'n/a');
 });
 
 test('given runs with cache reads and writes, from before the cache split was kept, and with no prompt tokens yet, when the list is requested, then each row shows its cache hit rate', async () => {
@@ -517,7 +518,7 @@ test('given a successful run and a failed run, when each run page is requested, 
   const page = async (id: string) => {
     const body = await (await app.request(`/runs/${id}`)).text();
     return {
-      header: body.match(/<dt[^>]*>Status<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '',
+      header: body.match(/<p[^>]*\sdata-summary[^>]*>\s*(<span[^>]*\sdata-status[^>]*>[^<]*<\/span>)/)?.[1] ?? '',
       closing: body.match(/<article[^>]*\sdata-message="result"[^>]*>([\s\S]*?)<\/article>\s*<\/div>\s*<\/div>\s*<\/main>/)?.[1] ?? '',
     };
   };
@@ -612,7 +613,7 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
 
   assert.match(list, /<td[^>]*\sdata-cost(?=[\s>])[^>]*>\s*\$0\.750000/);
   assert.match(detail, /\$0\.750000/);
-  assert.match(detail, /1,000 in \/ 100 out/);
+  assert.match(textOf(tileValue(detail, 'tokens')), /1,000 in/);
 });
 
 const toolCards = (body: string): string[] => detailsBlocks(body, /<details[^>]*\sdata-tool-call[\s>]/g);

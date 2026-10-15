@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { GenerationKind, LookupResult, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
-import { textOf } from './html.ts';
+import { textOf, tileValue } from './html.ts';
 
 const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   id: 'run-01',
@@ -201,6 +201,9 @@ test('given a workload with a message, a compaction and a cache-warm generation,
   assert.deepEqual(rows.map(kindBadge), [null, 'compaction', 'cache warm']);
 });
 
+const summaryEffortOf = (body: string): string =>
+  textOf(body.match(/<span[^>]*\sdata-summary-effort[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? 'missing');
+
 const summaryOf = (body: string, term: string): string =>
   textOf(body.match(new RegExp(`<dt[^>]*>${term}</dt>\\s*<dd[^>]*>([\\s\\S]*?)</dd>`))?.[1] ?? 'missing');
 
@@ -230,8 +233,8 @@ test('given one workload whose calls all sent the configured effort and one whos
 
   assert.match(list, /<th[^>]*>Effort<\/th>/);
   assert.deepEqual([listEffort(list, 'steady'), listEffort(list, 'varied')], ['high', 'high']);
-  assert.equal(summaryOf(steady, 'Reasoning effort'), 'high');
-  assert.equal(summaryOf(varied, 'Reasoning effort'), 'varied');
+  assert.equal(summaryEffortOf(steady), 'high');
+  assert.equal(summaryEffortOf(varied), 'varied');
   assert.deepEqual(callRows(steady).map((row) => cellOf(row, 'data-effort')), ['high', 'high', 'high']);
   assert.deepEqual(callRows(varied).map((row) => cellOf(row, 'data-effort')), ['high', 'low', 'minimal', 'high']);
 });
@@ -249,11 +252,11 @@ test('given a workload with no configured effort whose calls sent none, one conf
   const legacy = await get('/runs/legacy');
 
   assert.deepEqual(['unset', 'off', 'legacy'].map((id) => listEffort(list, id)), ['default', 'off', 'medium']);
-  assert.equal(summaryOf(unset, 'Reasoning effort'), 'default');
+  assert.equal(summaryEffortOf(unset), 'default');
   assert.deepEqual(callRows(unset).map((row) => cellOf(row, 'data-effort')), ['default', 'default']);
-  assert.equal(summaryOf(off, 'Reasoning effort'), 'off');
+  assert.equal(summaryEffortOf(off), 'off');
   assert.deepEqual(callRows(off).map((row) => cellOf(row, 'data-effort')), ['off']);
-  assert.equal(summaryOf(legacy, 'Reasoning effort'), 'medium');
+  assert.equal(summaryEffortOf(legacy), 'medium');
   assert.deepEqual(callRows(legacy).map((row) => cellOf(row, 'data-effort')), ['', '']);
 });
 
@@ -293,7 +296,7 @@ test('given a workload with more generations than recorded requests, when its de
   const body = await callsPage({ reasoningEffort: 'high' }, [{ sentEffort: 'high' }, {}, {}]);
 
   assert.deepEqual(callRows(body).map((row) => cellOf(row, 'data-effort')), ['high', '', '']);
-  assert.equal(summaryOf(body, 'Reasoning effort'), 'high');
+  assert.equal(summaryEffortOf(body), 'high');
 });
 
 test('given a request record of a hundred thousand requests, when its detail page is requested, then it renders promptly', async () => {
@@ -324,12 +327,12 @@ test('given a finished subscription run with two priced calls and one the catalo
   assert.deepEqual(costs, ['$0.010000', '$0.020000', 'subscription']);
   assert.equal(textOf(page.match(/<th[^>]*>[^<]*<\/th>\s*<\/tr>\s*<\/thead>/)?.[0] ?? '').replace(/\s+/g, ' '), 'List price');
   assert.equal(
-    textOf(page.match(/<dt[^>]*>Cost<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
+    textOf(tileValue(page, 'cost')),
     'subscription',
   );
   assert.equal(
     textOf(page.match(/<dt[^>]*>List-price equivalent<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),
-    '$0.030000 partial',
+    '$0.030000 list price partial',
   );
   assert.equal(
     textOf(page.match(/<dt[^>]*>Providers<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? ''),

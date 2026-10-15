@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
-import { textOf } from './html.ts';
+import { textOf, tileValue } from './html.ts';
 
 const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   id: 'run-01',
@@ -59,7 +59,7 @@ const durationInRow = (body: string, id: string): string =>
   );
 
 const durationOnPage = (body: string): string =>
-  textOf(body.match(/<dt[^>]*>Duration<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/)?.[1] ?? '');
+  textOf(tileValue(body, 'duration'));
 
 const endingAfter = (seconds: number): Partial<RunRecord> => ({
   endTime: new Date(Date.parse('2026-09-21T10:00:00.000Z') + seconds * 1000).toISOString(),
@@ -95,7 +95,7 @@ test('given a running run and a finished one, when the list and run pages are re
   assert.equal(durationInRow(list, 'finished'), '3m 20s');
 
   const page = await (await app.request('/runs/running')).text();
-  assert.match(page, /<dd[^>]*\sdata-duration[^>]*>\s*<span[^>]*\sdata-elapsed-since="2026-09-21T10:00:00.000Z"[^>]*>running<\/span>/);
+  assert.match(page, /<span[^>]*\sdata-duration[^>]*>\s*<span[^>]*\sdata-elapsed-since="2026-09-21T10:00:00.000Z"[^>]*>running<\/span>/);
   assert.doesNotMatch(await (await app.request('/runs/finished')).text(), /data-elapsed-since/);
   assert.equal(await (await app.request('/runs/running')).text(), page);
 });
