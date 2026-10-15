@@ -117,6 +117,8 @@ test('given a workload that ended with a long error, when its run page is opened
   const disclosure = element(body, 'details', 'data-run-error');
   assert.doesNotMatch(openingTag(disclosure), /\sopen[\s>]/);
   assert.match(disclosure, /<summary[^>]*\btruncate\b/);
+  assert.match(disclosure, /<summary[^>]*before:content-\['▶'\]/);
+  assert.match(disclosure, /<summary[^>]*before:content-\['▶'\]/);
   assert.match(disclosure, /bg-error-soft/);
   assert.ok(disclosure.includes(error));
 });

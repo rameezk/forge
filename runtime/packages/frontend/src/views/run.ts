@@ -343,7 +343,7 @@ const renderRunError = (run: RunRecord): Rendered => {
   if (run.error === null) return '';
   const tone = run.status === 'interrupted' || run.status === 'exceeded' ? 'bg-warning-soft text-warning' : 'bg-error-soft text-error';
   return html`<details class="mb-4 rounded-lg ${tone}" data-run-error>
-    <summary class="block cursor-pointer truncate px-4 py-2.5 [[open]>&]:overflow-visible [[open]>&]:whitespace-normal [[open]>&]:break-words">${run.error}</summary>
+    <summary class="block cursor-pointer truncate px-4 py-2.5 before:mr-2.5 before:inline-block before:w-3 before:text-center before:text-[0.65rem] before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90 [[open]>&]:overflow-visible [[open]>&]:whitespace-normal [[open]>&]:break-words">${run.error}</summary>
   </details>`;
 };
 
