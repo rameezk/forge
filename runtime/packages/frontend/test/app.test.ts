@@ -1516,13 +1516,3 @@ test('given a request record whose system prompt is far longer than one read of 
 
   assert.equal(textOf(systemPromptSection(page).match(/<pre[^>]*>[\s\S]*?<\/pre>/)?.[0] ?? ''), systemPrompt);
 });
-
-test('given a bookmark to the old runs list, when / is requested with or without a query, then it redirects to /runs keeping the query', async () => {
-  const app = appWith([]);
-
-  for (const [from, to] of [['/', '/runs'], ['/?status=error', '/runs?status=error'], ['/?status=error&page=2', '/runs?status=error&page=2']] as const) {
-    const res = await app.request(from);
-    assert.equal(res.status, 302, from);
-    assert.equal(res.headers.get('location'), to, from);
-  }
-});

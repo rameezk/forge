@@ -58,7 +58,7 @@ const appWith = ({
   });
 };
 
-const PAGES = ['/runs', '/runs/run-01', '/work'] as const;
+const PAGES = ['/', '/runs', '/runs/run-01'] as const;
 
 const stylesheetLinks = (body: string): string[] =>
   [...body.matchAll(/<link[^>]*\srel="stylesheet"[^>]*>/g)].map(
@@ -133,14 +133,14 @@ const favicon = (body: string): string => body.match(/<link[^>]*\srel="icon"[^>]
 const brand = (body: string): string =>
   body.match(/<a[^>]*\sdata-brand(?=[\s>])[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
 
-test('given any dashboard page, when it is requested, then its header shows the Forge logo and wordmark linking to the Runs page, and the page declares the SVG logo as its favicon', async () => {
+test('given any dashboard page, when it is requested, then its header shows the Forge logo and wordmark linking to the Board, and the page declares the SVG logo as its favicon', async () => {
   const app = appWith({ logo: LOGO });
 
   for (const page of PAGES) {
     const body = await (await app.request(page)).text();
     const header = body.match(/<header[^>]*>[\s\S]*?<\/header>/)?.[0] ?? '';
     const link = brand(header);
-    assert.equal(attribute(openingTag(link), 'href'), '/runs', `${page} should link the brand to the Runs page`);
+    assert.equal(attribute(openingTag(link), 'href'), '/', `${page} should link the brand to the Board`);
     assert.equal(textOf(link), 'Forge', `${page} should show the Forge wordmark`);
 
     const logo = link.match(/<img[^>]*>/)?.[0] ?? '';
@@ -170,9 +170,9 @@ test('given the logo path the pages reference, when it is requested, then it ret
 test('given each dashboard page, when it is requested, then its title names the page followed by Forge', async () => {
   const app = appWith({});
   const titles: Record<(typeof PAGES)[number], string> = {
+    '/': 'Board | Forge',
     '/runs': 'Workloads | Forge',
     '/runs/run-01': 'refiner | Forge',
-    '/work': 'Frontier | Forge',
   };
 
   for (const page of PAGES) {

@@ -84,32 +84,33 @@ test('given a running workload whose elapsed time is ticking, when it ends, then
   await expect(duration).toHaveText('3m 20s');
 });
 
-test('given a running dispatch and a finished one, when the work page renders and time passes, then the running one\'s elapsed time advances beside its pill and the finished one shows its fixed duration', async ({
+test('given a running dispatch and a finished one, when the Board renders and time passes, then the running card\'s elapsed time and the in-review card\'s time open both advance', async ({
   dashboard,
   page,
 }) => {
   const ticket = (number: number) => ({ number, title: `Ticket ${number}`, url: `https://github.com/rameezk/forge/issues/${number}`, parent: null, createdAt: '2026-09-20T10:00:00Z', forgeReady: false, blocked: false });
   dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: START, tickets: [ticket(56), ticket(57)] });
+  const began = new Date();
   const dispatch = (number: number) => {
-    const started = dashboard.store.startDispatch({ repository: 'forge', number, url: ticket(number).url }, `run-${number}`, START, Number.POSITIVE_INFINITY);
+    const started = dashboard.store.startDispatch({ repository: 'forge', number, url: ticket(number).url }, `run-${number}`, began.toISOString(), Number.POSITIVE_INFINITY);
     if (!('started' in started)) throw new Error('dispatch refused');
     return started.started;
   };
   dispatch(56);
-  dashboard.store.endDispatch(dispatch(57), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, '2026-09-21T12:15:40.000Z');
-  await openAt(page, minutesAfterStart(125), '/work');
-  const running = page.getByRole('row', { name: /Ticket 56/ }).locator('[data-dispatch-elapsed]');
-  const finished = page.getByRole('row', { name: /Ticket 57/ }).locator('[data-dispatch-elapsed]');
+  dashboard.store.endDispatch(dispatch(57), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, new Date(began.getTime() + 5 * 60_000).toISOString());
+  await openAt(page, new Date(began.getTime() + 125 * 60_000), '/');
+  const running = page.locator('[data-ticket="56"] [data-elapsed-since]');
+  const open = page.locator('[data-ticket="57"] [data-elapsed-since]');
   await expect(running).toHaveText('2h 5m');
-  await expect(finished).toHaveText('2h 15m');
+  await expect(open).toHaveText('2h 0m');
 
   await page.clock.fastForward(10 * 60_000);
 
   await expect(running).toHaveText('2h 15m');
-  await expect(finished).toHaveText('2h 15m');
+  await expect(open).toHaveText('2h 10m');
   await page.clock.runFor(60_000);
   await expect(running).toHaveText('2h 16m');
-  await expect(finished).toHaveText('2h 15m');
+  await expect(open).toHaveText('2h 11m');
 });
 
 test('given running workloads at several elapsed times, when the browser counts them, then each reads exactly as the server renders the same duration', async ({

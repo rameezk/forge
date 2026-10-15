@@ -6,7 +6,7 @@ import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
 import { renderTicketAttempts } from './views/attempts.ts';
-import { renderWork } from './views/frontier.ts';
+import { renderBoard } from './views/board.ts';
 import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
 import { renderCohortPage, renderInsights, renderUnknownCohortPage } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
@@ -76,7 +76,11 @@ export const createApp = ({
   serveImmutable(assets.idiomorph, idiomorph, 'text/javascript; charset=utf-8');
   serveImmutable(assets.client, client, 'text/javascript; charset=utf-8');
 
-  app.get('/', (c) => c.redirect(`/runs${new URL(c.req.url).search}`));
+  app.get('/', (c) =>
+    c.html(renderBoard(store.listFrontier(), store.listDispatches(new Date().toISOString()), store.listRevisions(new Date().toISOString()), store.attemptedTickets(), assets)),
+  );
+
+  app.get('/work', (c) => c.redirect('/'));
 
   app.get('/runs', (c) => {
     const revisions = new Map(
@@ -84,10 +88,6 @@ export const createApp = ({
     );
     return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), revisions, assets));
   });
-
-  app.get('/work', (c) =>
-    c.html(renderWork(store.listFrontier(), store.listDispatches(new Date().toISOString()), store.attemptedTickets(), assets)),
-  );
 
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
 

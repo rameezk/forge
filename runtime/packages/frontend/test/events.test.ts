@@ -122,10 +122,10 @@ test('given a client streaming events for the runs list, when a new run is recor
   assert.equal(signal?.event, 'change');
 });
 
-test('given a client streaming events for the work page, when a generation is recorded for a running workload, then no change signal is emitted', async (t) => {
+test('given a client streaming events for the Board, when a generation is recorded for a running workload, then no change signal is emitted', async (t) => {
   const { app, writer } = dashboard(t);
   writer.insertRun(sampleRun({ status: 'running', endTime: null, costStatus: 'pending', costUsd: 0 }));
-  const stream = await streamEvents(t, app, '/work');
+  const stream = await streamEvents(t, app, '/');
 
   writer.recordGeneration({
     runId: 'run-01',

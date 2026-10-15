@@ -34,7 +34,7 @@ const runningRun: RunRecord = {
 
 const ticket: Ticket = {
   number: 137,
-  title: 'Live runs list and work page',
+  title: 'Live runs list and Board',
   url: 'https://github.com/rameezk/forge/issues/137',
   parent: { number: 135, title: 'Live dashboard updates', url: 'https://github.com/rameezk/forge/issues/135' },
   createdAt: '2026-09-30T10:00:00Z',
@@ -203,15 +203,15 @@ test('given the runs list open in a browser with an extension that added its own
   await expectNotReloaded(page);
 });
 
-test('given the work page open in a browser, when a frontier poll writes new tickets, then the page shows them without a reload', async ({
+test('given the Board open in a browser, when a frontier poll writes new tickets, then the page shows them without a reload', async ({
   dashboard,
   page,
 }) => {
-  await openLive(page, '/work');
+  await openLive(page, '/');
 
   dashboard.store.replaceFrontier(polledFrontier);
 
-  await expect(page.getByRole('row', { name: /Live runs list and work page/ })).toBeVisible();
+  await expect(page.locator('article', { hasText: 'Live runs list and Board' })).toBeVisible();
   await expectNotReloaded(page);
 });
 
@@ -423,7 +423,7 @@ test('given a live detail page showing Live, when the workload\'s cost settles a
 test.describe('with JS disabled', () => {
   test.use({ javaScriptEnabled: false });
 
-  test('given a browser with JS disabled, when the runs list, the work page or a running workload\'s detail page is loaded, then it renders fully with no live indicator', async ({
+  test('given a browser with JS disabled, when the runs list, the Board or a running workload\'s detail page is loaded, then it renders fully with no live indicator', async ({
     dashboard,
     page,
   }) => {
@@ -436,8 +436,8 @@ test.describe('with JS disabled', () => {
     await expect(page.getByRole('status')).toHaveCount(0);
     await expect(page.getByText('Live', { exact: true })).toHaveCount(0);
 
-    await page.goto('/work');
-    await expect(page.getByRole('row', { name: /Live runs list and work page/ })).toBeVisible();
+    await page.goto('/');
+    await expect(page.locator('article', { hasText: 'Live runs list and Board' })).toBeVisible();
     await expect(page.getByRole('status')).toHaveCount(0);
     await expect(page.getByText('Live', { exact: true })).toHaveCount(0);
 
