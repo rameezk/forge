@@ -104,7 +104,7 @@ The set of tickets that can be picked up now: open, marked ready, and with no op
 _Avoid_: backlog, queue
 
 **Dispatch**:
-Forge picking up a frontier ticket that carries the `forge:ready` label and running a workload against it; the ticket's `forge:*` label tracks the dispatch from claim to outcome (ADR-0016).
+Forge picking up a frontier ticket that carries the `forge:ready` label and running a workload against it; the ticket's `forge:*` label tracks the dispatch from claim to outcome (ADR-0016). It is done only when its run succeeds and leaves a ready pull request closing the ticket with every required check green, however the repository's skills get there; anything less fails, and forge closes the pull requests its App left for the ticket (ADR-0065, ADR-0066).
 _Avoid_: assignment, scheduling
 
 **Attempt**:
