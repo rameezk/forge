@@ -132,6 +132,10 @@ How long a pull request's newest feedback must have gone without more arriving b
 **Cursor**:
 The point in time a pull request's feedback has been consumed up to, set when a revision starts. Only feedback newer than it can start the next revision, so a failed revision is never retried automatically.
 
+**Display time zone**:
+The time zone the dashboard shows times and days in, set by `forge.runtime.dashboard.timeZone`. Only presentation uses it; the box and everything forge stores stay UTC (ADR-0067).
+_Avoid_: timezone, box timezone, local time
+
 **Queued**:
 A `ready-for-agent` ticket labelled `forge:ready` that still has open blockers, so it is not yet on the frontier. Forge's frontier snapshot keeps it beside the frontier, the Work page shows it as queued, and the first sync after its last blocker closes dispatches it.
 _Avoid_: pending, waiting
