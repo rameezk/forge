@@ -184,7 +184,9 @@ test('given a ticket with no attempts, when its attempts view is requested, then
   const { app } = dashboard([]);
   const res = await app.request('/tickets/forge/42');
   assert.equal(res.status, 200);
-  assert.match(textOf(await res.text()), /No attempts/);
+  const body = await res.text();
+  assert.match(textOf(body), /No attempts/);
+  assert.match(body, /<a href="\/"[^>]*>&larr; Board<\/a>/);
 });
 
 test('given a dispatched workload, when its run detail page and the Board are requested, then both link to its ticket attempts view', async () => {
