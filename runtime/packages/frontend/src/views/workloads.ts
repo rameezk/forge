@@ -112,7 +112,7 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
   const range = startedRange(filter);
   return html`<details class="mb-4 sm:[&:not([open])::details-content]:block sm:[&:not([open])::details-content]:[content-visibility:visible]" data-filters>
   <summary class="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-line bg-surface px-3 text-[0.9rem] font-semibold text-fg sm:hidden [&::-webkit-details-marker]:hidden">Filters${range === '' ? '' : html` <span class="font-normal text-muted" data-started-range>${range}</span>`}</summary>
-  <form method="get" action="/" class="mt-3 flex flex-wrap items-end gap-3 sm:mt-0">
+  <form method="get" action="/runs" class="mt-3 flex flex-wrap items-end gap-3 sm:mt-0">
     ${filter.status === undefined ? '' : html`<input type="hidden" name="status" value="${filter.status}" />`}
     <label class="${FIELD}">Search
       <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-60" />
@@ -127,7 +127,7 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
       <input type="date" name="to" value="${filter.to ?? ''}" class="${CONTROL}" />
     </label>
     <button type="submit" class="h-9 rounded-md border border-line bg-raised px-3 text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
-    ${isFiltered(filter) ? html`<a href="/" class="${LINK} py-2 text-[0.9rem]" data-clear-filters>Clear filters</a>` : ''}
+    ${isFiltered(filter) ? html`<a href="/runs" class="${LINK} py-2 text-[0.9rem]" data-clear-filters>Clear filters</a>` : ''}
   </form>
   </details>`;
 };

@@ -94,7 +94,7 @@ test('given a stored frontier ticket and a run tied to a ticket, both with GitHu
   const page = dashboard();
 
   assertOpensInNewTab(await page('/work'), TICKET_URL, 'noopener noreferrer', '/work');
-  assertOpensInNewTab(await page('/'), TICKET_URL, 'noopener noreferrer', '/', 2);
+  assertOpensInNewTab(await page('/runs'), TICKET_URL, 'noopener noreferrer', '/runs', 2);
 });
 
 test('given a stored repository whose github is owner/name, when the work page is requested, then the repository link opens in a new tab', async () => {
@@ -110,15 +110,15 @@ test('given the dashboard, when the runs, work and run pages are requested, then
   const sameSiteAnchors = async (path: string): Promise<string[]> =>
     [...(await page(path)).matchAll(/<a(?=\s)[^>]*\shref="\/[^"]*"[^>]*>[\s\S]*?<\/a>/g)].map(([anchor]) => anchor);
 
-  const runs = await sameSiteAnchors('/');
+  const runs = await sameSiteAnchors('/runs');
   const work = await sameSiteAnchors('/work');
   const run = await sameSiteAnchors('/runs/run-01');
 
-  for (const href of ['/', '/work', '/runs/run-01']) {
+  for (const href of ['/runs', '/work', '/runs/run-01']) {
     assert.ok(runs.some((anchor) => openingTag(anchor).includes(` href="${href}"`)), `the runs page links ${href}`);
     assert.ok(work.some((anchor) => openingTag(anchor).includes(` href="${href}"`)), `the work page links ${href}`);
   }
-  assert.ok(run.some((anchor) => openingTag(anchor).includes(' href="/"') && textOf(anchor) === '&larr; Workloads'), 'the run page has its back link');
+  assert.ok(run.some((anchor) => openingTag(anchor).includes(' href="/runs"') && textOf(anchor) === '&larr; Workloads'), 'the run page has its back link');
   for (const anchor of [...runs, ...work, ...run]) {
     assert.doesNotMatch(openingTag(anchor), /\starget=/);
   }

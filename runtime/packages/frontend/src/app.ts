@@ -76,7 +76,9 @@ export const createApp = ({
   serveImmutable(assets.idiomorph, idiomorph, 'text/javascript; charset=utf-8');
   serveImmutable(assets.client, client, 'text/javascript; charset=utf-8');
 
-  app.get('/', (c) => {
+  app.get('/', (c) => c.redirect(`/runs${new URL(c.req.url).search}`));
+
+  app.get('/runs', (c) => {
     const revisions = new Map(
       store.listRevisions(new Date().toISOString()).map((revision) => [revision.runId, revision]),
     );

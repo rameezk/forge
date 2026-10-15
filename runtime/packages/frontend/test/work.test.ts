@@ -130,8 +130,8 @@ test('given the dashboard, when the runs and work pages are requested, then both
   const nav = async (path: string): Promise<string> =>
     (await (await app.request(path)).text()).match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '';
 
-  assert.match(await nav('/'), /<a href="\/" aria-current="page"[^>]*>Runs<\/a>\s*<a href="\/work"(?![^>]*aria-current)[^>]*>Work<\/a>/);
-  assert.match(await nav('/work'), /<a href="\/"(?![^>]*aria-current)[^>]*>Runs<\/a>\s*<a href="\/work" aria-current="page"[^>]*>Work<\/a>/);
+  assert.match(await nav('/runs'), /<a href="\/runs" aria-current="page"[^>]*>Runs<\/a>\s*<a href="\/work"(?![^>]*aria-current)[^>]*>Work<\/a>/);
+  assert.match(await nav('/work'), /<a href="\/runs"(?![^>]*aria-current)[^>]*>Runs<\/a>\s*<a href="\/work" aria-current="page"[^>]*>Work<\/a>/);
 });
 
 test('given a stored ticket whose url is not a GitHub https link, when the work page is requested, then its number renders without a link', async () => {

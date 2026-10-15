@@ -58,7 +58,7 @@ const appWith = ({
   });
 };
 
-const PAGES = ['/', '/runs/run-01', '/work'] as const;
+const PAGES = ['/runs', '/runs/run-01', '/work'] as const;
 
 const stylesheetLinks = (body: string): string[] =>
   [...body.matchAll(/<link[^>]*\srel="stylesheet"[^>]*>/g)].map(
@@ -85,7 +85,7 @@ test('given any dashboard page, when it is requested, then it links exactly one 
 test('given the hashed stylesheet path a page links to, when it is requested, then it returns the CSS with an immutable, long-lived cache header', async () => {
   const css = 'body { color: red; }';
   const app = appWith({ css });
-  const [path] = stylesheetLinks(await (await app.request('/')).text());
+  const [path] = stylesheetLinks(await (await app.request('/runs')).text());
 
   const res = await app.request(path!);
 
@@ -140,7 +140,7 @@ test('given any dashboard page, when it is requested, then its header shows the 
     const body = await (await app.request(page)).text();
     const header = body.match(/<header[^>]*>[\s\S]*?<\/header>/)?.[0] ?? '';
     const link = brand(header);
-    assert.equal(attribute(openingTag(link), 'href'), '/', `${page} should link the brand to the Runs page`);
+    assert.equal(attribute(openingTag(link), 'href'), '/runs', `${page} should link the brand to the Runs page`);
     assert.equal(textOf(link), 'Forge', `${page} should show the Forge wordmark`);
 
     const logo = link.match(/<img[^>]*>/)?.[0] ?? '';
@@ -153,7 +153,7 @@ test('given any dashboard page, when it is requested, then its header shows the 
 
 test('given the logo path the pages reference, when it is requested, then it returns the SVG logo with an immutable, long-lived cache header', async () => {
   const app = appWith({ logo: LOGO });
-  const path = attribute(favicon(await (await app.request('/')).text()), 'href');
+  const path = attribute(favicon(await (await app.request('/runs')).text()), 'href');
 
   const res = await app.request(path!);
 
@@ -163,14 +163,14 @@ test('given the logo path the pages reference, when it is requested, then it ret
   assert.ok(cacheControl.includes('immutable'), 'the logo should be cached as immutable');
   assert.equal(await res.text(), LOGO);
 
-  const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/')).text()), 'href');
+  const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/runs')).text()), 'href');
   assert.notEqual(other, path, 'a different logo should get a different path');
 });
 
 test('given each dashboard page, when it is requested, then its title names the page followed by Forge', async () => {
   const app = appWith({});
   const titles: Record<(typeof PAGES)[number], string> = {
-    '/': 'Workloads | Forge',
+    '/runs': 'Workloads | Forge',
     '/runs/run-01': 'refiner | Forge',
     '/work': 'Frontier | Forge',
   };
@@ -205,7 +205,7 @@ test('given any dashboard page, when it is requested, then it loads the morph li
 test('given the script paths a page loads, when they are requested, then they return the scripts with an immutable, long-lived cache header', async () => {
   const scripts = { idiomorph: 'var Idiomorph = 1;', client: 'live();' };
   const app = appWith(scripts);
-  const [idiomorph, client] = scriptSources(await (await app.request('/')).text());
+  const [idiomorph, client] = scriptSources(await (await app.request('/runs')).text());
 
   for (const [path, body] of [[idiomorph!, scripts.idiomorph], [client!, scripts.client]] as const) {
     const res = await app.request(path);

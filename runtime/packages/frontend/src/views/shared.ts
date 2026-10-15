@@ -9,7 +9,7 @@ export type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 type Page = 'runs' | 'work' | 'insights';
 
 const NAV: { page: Page; href: string; label: string }[] = [
-  { page: 'runs', href: '/', label: 'Runs' },
+  { page: 'runs', href: '/runs', label: 'Runs' },
   { page: 'work', href: '/work', label: 'Work' },
   { page: 'insights', href: '/insights', label: 'Insights' },
 ];
@@ -74,7 +74,7 @@ const renderHeader = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
     <div class="mx-auto flex max-w-[100rem] items-center gap-6 px-4 py-2">
-      <a href="/" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
+      <a href="/runs" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
       </nav>
