@@ -134,7 +134,13 @@ export {
   FORGE_RUNNING,
   ticketKey,
 } from './dispatch.ts';
-export { queryWatchedPullRequests, type WatchedPullRequest } from './feedback.ts';
+export {
+  queryFeedbackWindow,
+  queryWatchedPullRequests,
+  type FeedbackItem,
+  type FeedbackKind,
+  type WatchedPullRequest,
+} from './feedback.ts';
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export {

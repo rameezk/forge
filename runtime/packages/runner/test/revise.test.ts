@@ -99,8 +99,71 @@ interface PiCall {
   env: Record<string, string>;
 }
 
+interface Actor {
+  __typename: string;
+  login: string;
+}
+
+interface Authored {
+  url: string;
+  author: Actor | null;
+  authorAssociation: string;
+  body: string;
+}
+
+interface FeedbackWindowResponse {
+  data: {
+    repository: {
+      pullRequest: {
+        reviews: {
+          nodes: (Authored & {
+            submittedAt: string;
+            comments: { nodes: (Authored & { createdAt: string; path: string; line: number | null })[] };
+          })[];
+        };
+        comments: { nodes: (Authored & { createdAt: string })[] };
+      };
+    };
+  };
+}
+
+const OWNER: Actor = { __typename: 'User', login: 'rameezk' };
+
+const feedbackWindow = (
+  window: {
+    reviews?: FeedbackWindowResponse['data']['repository']['pullRequest']['reviews']['nodes'];
+    comments?: FeedbackWindowResponse['data']['repository']['pullRequest']['comments']['nodes'];
+  } = {},
+): FeedbackWindowResponse => ({
+  data: {
+    repository: {
+      pullRequest: {
+        reviews: { nodes: window.reviews ?? [] },
+        comments: { nodes: window.comments ?? [] },
+      },
+    },
+  },
+});
+
+const conversationComment = (
+  overrides: Partial<Authored & { createdAt: string }> = {},
+): Authored & { createdAt: string } => ({
+  url: `${PULL_REQUEST_URL}#issuecomment-1`,
+  author: OWNER,
+  authorAssociation: 'OWNER',
+  body: 'Please rename the helper.',
+  createdAt: '2026-09-22T10:00:00Z',
+  ...overrides,
+});
+
+const instructionOf = (pi: PiCall | null): string =>
+  (pi?.argv ?? [])
+    .filter((_, index) => pi?.argv[index - 1] === '--append-system-prompt')
+    .join('\n');
+
 interface Scenario {
   origin?: Origin;
+  feedback?: FeedbackWindowResponse;
   prompt?: string;
   pullRequest?: PullRequestResponse;
   seed?: (store: Store) => void;
@@ -155,9 +218,13 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   const privateKeyFile = join(stateDir, 'github-app-private-key');
   writeFileSync(privateKeyFile, app.privateKey);
   const pullRequest = scenario.pullRequest ?? pullRequestFixture();
-  const fetch = async (input: string | URL | Request): Promise<Response> => {
+  const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     assert.equal(new URL(String(input)).pathname, '/graphql');
-    return new Response(JSON.stringify(pullRequest), {
+    const { query } = JSON.parse(String(init?.body)) as { query: string };
+    const answer = query.includes('query FeedbackWindow')
+      ? scenario.feedback ?? feedbackWindow({ comments: [conversationComment()] })
+      : pullRequest;
+    return new Response(JSON.stringify(answer), {
       headers: { 'content-type': 'application/json' },
     });
   };
@@ -376,4 +443,104 @@ test('given a live revision of another pull request filling dispatch.maxConcurre
   assert.equal(code, 1);
   assert.equal(pi, null);
   assert.match(complaints, /^forge#143 cannot be revised: 1 workload is already running/);
+});
+
+const previousRevisionAt = (startedAt: string) => (store: Store) => {
+  const start = store.startRevision(
+    { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
+    [],
+    'previous-run',
+    startedAt,
+    10,
+  );
+  assert.ok('started' in start);
+  store.endRevision(start.started, 'ok', startedAt);
+};
+
+test('given a window holding a review summary, an inline review comment and a conversation comment by the owner, when the revision runs, then the instruction lists all three with their kind, author, URL and body, and the inline comment with its file and line', async () => {
+  const { code, pi } = await revise({
+    feedback: feedbackWindow({
+      reviews: [
+        {
+          url: `${PULL_REQUEST_URL}#pullrequestreview-7`,
+          author: OWNER,
+          authorAssociation: 'OWNER',
+          body: 'Overall this needs a second look.',
+          submittedAt: '2026-09-22T09:00:00Z',
+          comments: {
+            nodes: [
+              {
+                url: `${PULL_REQUEST_URL}#discussion_r9`,
+                author: OWNER,
+                authorAssociation: 'OWNER',
+                body: 'This loop is off by one.',
+                createdAt: '2026-09-22T09:00:00Z',
+                path: 'src/loop.ts',
+                line: 42,
+              },
+            ],
+          },
+        },
+      ],
+      comments: [conversationComment()],
+    }),
+  });
+
+  const instruction = instructionOf(pi);
+  assert.equal(code, 0);
+  assert.match(instruction, /review summary by rameezk: .*#pullrequestreview-7/);
+  assert.match(instruction, /Overall this needs a second look\./);
+  assert.match(instruction, /inline review comment by rameezk on src\/loop\.ts:42: .*#discussion_r9/);
+  assert.match(instruction, /This loop is off by one\./);
+  assert.match(instruction, /conversation comment by rameezk: .*#issuecomment-1/);
+  assert.match(instruction, /Please rename the helper\./);
+  assert.match(instruction, /Address exactly these items and answer each one/);
+});
+
+test('given a comment from before the previous revision started and one from after, when the next revision runs, then only the later comment is in the instruction', async () => {
+  const { pi } = await revise({
+    seed: previousRevisionAt('2026-09-21T10:00:00.000Z'),
+    feedback: feedbackWindow({
+      comments: [
+        conversationComment({ body: 'Already handled earlier.', createdAt: '2026-09-21T09:59:00Z' }),
+        conversationComment({ body: 'Newly raised.', createdAt: '2026-09-21T10:01:00Z' }),
+      ],
+    }),
+  });
+
+  const instruction = instructionOf(pi);
+  assert.match(instruction, /Newly raised\./);
+  assert.doesNotMatch(instruction, /Already handled earlier\./);
+});
+
+test('given a window holding a collaborator\'s comment and one by an author with no association, when the revision runs, then only the collaborator\'s comment is in the instruction', async () => {
+  const { pi } = await revise({
+    feedback: feedbackWindow({
+      comments: [
+        conversationComment({
+          author: { __typename: 'User', login: 'helper' },
+          authorAssociation: 'COLLABORATOR',
+          body: 'From a collaborator.',
+        }),
+        conversationComment({
+          author: { __typename: 'User', login: 'stranger' },
+          authorAssociation: 'NONE',
+          body: 'From a stranger.',
+        }),
+      ],
+    }),
+  });
+
+  const instruction = instructionOf(pi);
+  assert.match(instruction, /From a collaborator\./);
+  assert.doesNotMatch(instruction, /From a stranger\./);
+});
+
+test('given a revision whose window holds no feedback, when it runs, then pi never starts and the revision ends ok', async () => {
+  const { code, pi, runs, revisions } = await revise({ feedback: feedbackWindow() });
+
+  assert.equal(code, 0);
+  assert.equal(pi, null);
+  assert.deepEqual(runs, []);
+  assert.deepEqual(revisions.map(({ state }) => state), ['ok']);
 });

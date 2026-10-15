@@ -187,3 +187,164 @@ export const queryWatchedPullRequests = async (
   } while (after !== null);
   return watched;
 };
+
+const FEEDBACK_WINDOW_QUERY = `
+  query FeedbackWindow($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        reviews(last: 100) {
+          nodes {
+            url
+            author {
+              __typename
+              login
+            }
+            authorAssociation
+            body
+            submittedAt
+            comments(first: 100) {
+              nodes {
+                url
+                author {
+                  __typename
+                  login
+                }
+                authorAssociation
+                body
+                createdAt
+                path
+                line
+                originalLine
+              }
+            }
+          }
+        }
+        comments(last: 100) {
+          nodes {
+            url
+            author {
+              __typename
+              login
+            }
+            authorAssociation
+            body
+            createdAt
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface AuthoredNode {
+  url: string;
+  author: Actor | null;
+  authorAssociation: string;
+  body: string;
+}
+
+interface FeedbackWindowResponse {
+  data?: {
+    repository: {
+      pullRequest: {
+        reviews: {
+          nodes: (AuthoredNode & {
+            submittedAt: string | null;
+            comments: {
+              nodes: (AuthoredNode & {
+                createdAt: string;
+                path: string;
+                line: number | null;
+                originalLine: number | null;
+              })[];
+            };
+          })[];
+        };
+        comments: { nodes: (AuthoredNode & { createdAt: string })[] };
+      } | null;
+    } | null;
+  };
+  errors?: { message: string }[];
+}
+
+export type FeedbackKind = 'review summary' | 'inline review comment' | 'conversation comment';
+
+export interface FeedbackItem {
+  kind: FeedbackKind;
+  author: string;
+  url: string;
+  body: string;
+  createdAt: string;
+  path: string | null;
+  line: number | null;
+}
+
+const authorOf = (author: Actor | null): string => author?.login ?? 'ghost';
+
+export const queryFeedbackWindow = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  after: string | null,
+  until: string,
+): Promise<FeedbackItem[]> => {
+  const response = await requestGraphql(fetch, token, FEEDBACK_WINDOW_QUERY, github, { number });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
+  }
+  const { data, errors } = (await response.json()) as FeedbackWindowResponse;
+  const pullRequest = data?.repository?.pullRequest;
+  if (pullRequest === undefined || pullRequest === null) {
+    const reason =
+      errors === undefined || errors.length === 0
+        ? 'no such pull request'
+        : errors.map((error) => error.message).join('; ');
+    throw new Error(`GitHub found no pull request ${github}#${number}: ${reason}`);
+  }
+  const instant = (time: string): number => Date.parse(time);
+  const inWindow = (time: string): boolean =>
+    (after === null || instant(time) > instant(after)) && instant(time) <= instant(until);
+  const counts = (node: AuthoredNode & { at: string | null }): boolean =>
+    node.at !== null && inWindow(node.at) && givesFeedback(node.author, node.authorAssociation);
+  const items: FeedbackItem[] = [
+    ...pullRequest.reviews.nodes.flatMap((review): FeedbackItem[] => [
+      ...(review.body.trim() !== '' && counts({ ...review, at: review.submittedAt })
+        ? [
+            {
+              kind: 'review summary' as const,
+              author: authorOf(review.author),
+              url: review.url,
+              body: review.body,
+              createdAt: review.submittedAt as string,
+              path: null,
+              line: null,
+            },
+          ]
+        : []),
+      ...review.comments.nodes
+        .filter((comment) => counts({ ...comment, at: comment.createdAt }))
+        .map((comment) => ({
+          kind: 'inline review comment' as const,
+          author: authorOf(comment.author),
+          url: comment.url,
+          body: comment.body,
+          createdAt: comment.createdAt,
+          path: comment.path,
+          line: comment.line ?? comment.originalLine,
+        })),
+    ]),
+    ...pullRequest.comments.nodes
+      .filter((comment) => counts({ ...comment, at: comment.createdAt }))
+      .map((comment) => ({
+        kind: 'conversation comment' as const,
+        author: authorOf(comment.author),
+        url: comment.url,
+        body: comment.body,
+        createdAt: comment.createdAt,
+        path: null,
+        line: null,
+      })),
+  ];
+  return items.sort((a, b) => instant(a.createdAt) - instant(b.createdAt));
+};
