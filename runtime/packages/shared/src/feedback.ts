@@ -36,6 +36,7 @@ const WATCHED_PULL_REQUESTS_QUERY = `
                 __typename
                 login
               }
+              authorAssociation
               body
               submittedAt
               comments {
@@ -49,6 +50,7 @@ const WATCHED_PULL_REQUESTS_QUERY = `
                 __typename
                 login
               }
+              authorAssociation
               createdAt
             }
           }
@@ -73,12 +75,13 @@ interface WatchedNode {
   reviews: {
     nodes: {
       author: Actor | null;
+      authorAssociation: string;
       body: string;
       submittedAt: string | null;
       comments: { totalCount: number };
     }[];
   };
-  comments: { nodes: { author: Actor | null; createdAt: string }[] };
+  comments: { nodes: { author: Actor | null; authorAssociation: string; createdAt: string }[] };
 }
 
 interface WatchedPage {
@@ -100,7 +103,10 @@ export interface WatchedPullRequest {
   newestFeedbackAt: string | null;
 }
 
-const isPerson = (author: Actor | null): boolean => author === null || author.__typename !== 'Bot';
+const FEEDBACK_ASSOCIATIONS = new Set(['OWNER', 'COLLABORATOR']);
+
+export const givesFeedback = (author: Actor | null, authorAssociation: string): boolean =>
+  (author === null || author.__typename !== 'Bot') && FEEDBACK_ASSOCIATIONS.has(authorAssociation);
 
 const newest = (times: string[]): string | null =>
   times.reduce<string | null>((latest, time) => (latest === null || time > latest ? time : latest), null);
@@ -109,12 +115,14 @@ const newestFeedback = (node: WatchedNode): string | null =>
   newest([
     ...node.reviews.nodes.flatMap((review) =>
       review.submittedAt !== null &&
-      isPerson(review.author) &&
+      givesFeedback(review.author, review.authorAssociation) &&
       (review.body.trim() !== '' || review.comments.totalCount > 0)
         ? [review.submittedAt]
         : [],
     ),
-    ...node.comments.nodes.flatMap((comment) => (isPerson(comment.author) ? [comment.createdAt] : [])),
+    ...node.comments.nodes.flatMap((comment) =>
+      givesFeedback(comment.author, comment.authorAssociation) ? [comment.createdAt] : [],
+    ),
   ]);
 
 const toWatched = (node: WatchedNode, github: string): WatchedPullRequest => ({
