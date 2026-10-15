@@ -119,7 +119,7 @@ _Avoid_: failed attempt, try
 The commits on a dispatch's pull request authored by anyone other than forge's GitHub App (ADR-0051), as of the last time forge refreshed the pull request, which stops once it is merged or closed.
 
 **Feedback**:
-The reviews and conversation comments on a pull request authored by forge's GitHub App, written by anyone other than forge's App or a bot (ADR-0050). A review with no body and no inline comments is not feedback.
+The review summaries, inline review comments and conversation comments on a pull request authored by forge's GitHub App, written by the repository's owner or an invited collaborator (ADR-0050, ADR-0063). A review with no body and no inline comments is not feedback.
 _Avoid_: review, comments
 
 **Revision**:
