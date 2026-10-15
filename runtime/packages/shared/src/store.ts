@@ -20,6 +20,8 @@ import {
 } from './dispatch.ts';
 import type {
   RevisedPullRequest,
+  RevisionFailure,
+  RevisionFailureRecord,
   RevisionRecord,
   RevisionStart,
   RevisionState,
@@ -566,6 +568,8 @@ type RevisionRow = {
   run_id: string;
   dispatch_id: number | null;
   state: string;
+  reason: string | null;
+  detail: string | null;
   started_at: string;
   alive_at: string;
   ended_at: string | null;
@@ -580,6 +584,8 @@ const CREATE_REVISIONS = `
     run_id      TEXT NOT NULL,
     dispatch_id INTEGER,
     state       TEXT NOT NULL,
+    reason      TEXT,
+    detail      TEXT,
     started_at  TEXT NOT NULL,
     alive_at    TEXT NOT NULL,
     ended_at    TEXT
@@ -587,6 +593,15 @@ const CREATE_REVISIONS = `
 
   CREATE INDEX IF NOT EXISTS revisions_pull_request ON revisions (repository, number, id);
   CREATE UNIQUE INDEX IF NOT EXISTS revisions_run ON revisions (run_id);
+`;
+
+const HAS_REVISION_FAILURE = `
+  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'reason'
+`;
+
+const ADD_REVISION_FAILURE = `
+  ALTER TABLE revisions ADD COLUMN reason TEXT;
+  ALTER TABLE revisions ADD COLUMN detail TEXT;
 `;
 
 const CREATE_FEEDBACK_WATCHES = `
@@ -616,6 +631,8 @@ const revisionFromRow = (row: RevisionRow): RevisionRecord => ({
   runId: row.run_id,
   dispatchId: row.dispatch_id,
   state: row.state as RevisionState,
+  reason: row.reason as RevisionFailure | null,
+  detail: row.detail,
   startedAt: row.started_at,
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
@@ -873,6 +890,7 @@ export class Store {
     db.exec(CREATE_FRONTIER);
     db.exec(CREATE_DISPATCHES);
     db.exec(CREATE_REVISIONS);
+    this.#addColumnsOnce(HAS_REVISION_FAILURE, ADD_REVISION_FAILURE);
     db.exec(CREATE_FEEDBACK_WATCHES);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
   }
@@ -1896,10 +1914,25 @@ export class Store {
       .run({ id, now });
   }
 
-  endRevision(id: number, state: Exclude<RevisionState, 'running'>, endedAt: string): void {
+  endRevision(
+    id: number,
+    state: Exclude<RevisionState, 'running'>,
+    endedAt: string,
+    failure?: RevisionFailureRecord,
+  ): void {
     this.#db
-      .prepare(`UPDATE revisions SET state = $state, ended_at = $ended_at WHERE id = $id`)
-      .run({ id, state, ended_at: endedAt });
+      .prepare(
+        `UPDATE revisions SET
+          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at
+        WHERE id = $id`,
+      )
+      .run({
+        id,
+        state,
+        reason: failure?.reason ?? null,
+        detail: boundedDetail(failure?.detail ?? null),
+        ended_at: endedAt,
+      });
   }
 
   #selectRevisions(where: string, params: Record<string, string | number>, now: string): RevisionRecord[] {
@@ -1908,7 +1941,7 @@ export class Store {
         `SELECT
           id, repository, number, url, run_id, dispatch_id,
           CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
-          started_at, alive_at, ended_at
+          reason, detail, started_at, alive_at, ended_at
         FROM revisions
         ${where}
         ORDER BY id`,

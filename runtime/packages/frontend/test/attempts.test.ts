@@ -268,7 +268,14 @@ test('given a ticket with an earlier attempt that was dispatched again with no w
   assert.match(work, /<a href="\/tickets\/forge\/42"[^>]*data-attempts[^>]*>/);
 });
 
-const revise = (store: Store, runId: string, start: string, state: 'ok' | 'error', pullRequest = 9): void => {
+const revise = (
+  store: Store,
+  runId: string,
+  start: string,
+  state: 'ok' | 'error',
+  pullRequest = 9,
+  failure?: { reason: 'unanswered'; detail: string },
+): void => {
   store.insertRun({
     ...runOf({ ...THREE[0]!, id: runId, start, seconds: 120, cost: 0.5 }),
     worker: 'reviser',
@@ -282,7 +289,7 @@ const revise = (store: Store, runId: string, start: string, state: 'ok' | 'error
     10,
   );
   assert.ok('started' in started);
-  store.endRevision(started.started, state, new Date(Date.parse(start) + 120_000).toISOString());
+  store.endRevision(started.started, state, new Date(Date.parse(start) + 120_000).toISOString(), failure);
 };
 
 const revisionRows = (page: string): Map<string, Record<string, string>> =>
@@ -314,6 +321,23 @@ test('given a ticket whose second attempt opened a pull request revised twice, w
   assert.equal(textOf(rows.get('rev-ok')!['duration']!), '2m 0s');
   const order = [...page.matchAll(/data-(attempt|revision)="([^"]*)"/g)].map(([, , id]) => id);
   assert.deepEqual(order, ['second', 'rev-ok', 'rev-error', 'first']);
+});
+
+test('given an attempt with a revision that failed as unanswered with a detail, when its attempts view is requested, then the revision shows its reason and detail beside its state, and a revision that ended ok shows neither', async () => {
+  const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
+  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'ok');
+  revise(store, 'rev-unanswered', '2026-09-25T10:00:00.000Z', 'error', 9, {
+    reason: 'unanswered',
+    detail: 'https://github.com/rameezk/forge/pull/9#issuecomment-1',
+  });
+
+  const rows = revisionRows(await (await app.request('/tickets/forge/42')).text());
+
+  assert.equal(
+    textOf(rows.get('rev-unanswered')!['outcome']!),
+    'error Unanswered: https://github.com/rameezk/forge/pull/9#issuecomment-1',
+  );
+  assert.equal(textOf(rows.get('rev-ok')!['outcome']!), 'ok');
 });
 
 test('given a revision of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no revisions', async () => {

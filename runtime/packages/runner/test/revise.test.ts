@@ -23,6 +23,7 @@ import {
   routedThrough,
   BOT_EMAIL,
   BOT_LOGIN,
+  APP_SLUG,
 } from '../../shared/test/fixtures/fake-github-app.ts';
 import {
   billedAt,
@@ -158,6 +159,68 @@ const conversationComment = (
   ...overrides,
 });
 
+interface Reaction {
+  createdAt: string;
+  reactor: { __typename: string; login: string };
+}
+
+interface Reacted {
+  reactions: { nodes: Reaction[] };
+}
+
+interface FeedbackAnswersResponse {
+  data: {
+    repository: {
+      pullRequest: {
+        reviews: { nodes: ({ url: string } & Reacted)[] };
+        reviewThreads: {
+          nodes: {
+            comments: {
+              nodes: ({ url: string; author: Actor | null; createdAt: string } & Reacted)[];
+            };
+          }[];
+        };
+        comments: {
+          nodes: ({ url: string; body: string; author: Actor | null; createdAt: string } & Reacted)[];
+        };
+      };
+    };
+  };
+}
+
+const FORGE_APP: Actor = { __typename: 'Bot', login: APP_SLUG };
+
+const thumbsUp = (reactor: Actor = FORGE_APP, createdAt = '2026-09-22T11:00:00Z'): Reacted => ({
+  reactions: { nodes: [{ createdAt, reactor }] },
+});
+
+const noReactions: Reacted = { reactions: { nodes: [] } };
+
+const feedbackAnswers = (
+  after: {
+    reviews?: FeedbackAnswersResponse['data']['repository']['pullRequest']['reviews']['nodes'];
+    threads?: FeedbackAnswersResponse['data']['repository']['pullRequest']['reviewThreads']['nodes'];
+    comments?: FeedbackAnswersResponse['data']['repository']['pullRequest']['comments']['nodes'];
+  } = {},
+): FeedbackAnswersResponse => ({
+  data: {
+    repository: {
+      pullRequest: {
+        reviews: { nodes: after.reviews ?? [] },
+        reviewThreads: { nodes: after.threads ?? [] },
+        comments: { nodes: after.comments ?? [] },
+      },
+    },
+  },
+});
+
+const repliedBy = (author: Actor, createdAt = '2026-09-22T11:00:00Z') => ({
+  url: `${PULL_REQUEST_URL}#discussion_r10`,
+  author,
+  createdAt,
+  ...noReactions,
+});
+
 const instructionOf = (pi: PiCall | null): string =>
   (pi?.argv ?? [])
     .filter((_, index) => pi?.argv[index - 1] === '--append-system-prompt')
@@ -166,6 +229,7 @@ const instructionOf = (pi: PiCall | null): string =>
 interface Scenario {
   origin?: Origin;
   feedback?: FeedbackWindowResponse;
+  answers?: FeedbackAnswersResponse;
   prompt?: string;
   pullRequest?: PullRequestResponse;
   seed?: (store: Store) => void;
@@ -238,7 +302,12 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
     const { query } = JSON.parse(String(init?.body)) as { query: string };
     const answer = query.includes('query FeedbackWindow')
       ? scenario.feedback ?? feedbackWindow({ comments: [conversationComment()] })
-      : pullRequest;
+      : query.includes('query FeedbackAnswers')
+        ? scenario.answers ??
+          feedbackAnswers({
+            comments: [{ ...conversationComment(), ...thumbsUp() }],
+          })
+        : pullRequest;
     return new Response(JSON.stringify(answer), {
       headers: { 'content-type': 'application/json' },
     });
@@ -490,7 +559,7 @@ const previousRevisionAt = (startedAt: string) => (store: Store) => {
 };
 
 test('given a window holding a review summary, an inline review comment and a conversation comment by the owner, when the revision runs, then the instruction lists all three with their kind, author, URL and body, and the inline comment with its file and line', async () => {
-  const { code, pi } = await revise({
+  const { pi } = await revise({
     feedback: feedbackWindow({
       reviews: [
         {
@@ -519,7 +588,6 @@ test('given a window holding a review summary, an inline review comment and a co
   });
 
   const instruction = instructionOf(pi);
-  assert.equal(code, 0);
   assert.match(instruction, /review summary by rameezk: .*#pullrequestreview-7/);
   assert.match(instruction, /Overall this needs a second look\./);
   assert.match(instruction, /inline review comment by rameezk on src\/loop\.ts:42: .*#discussion_r9/);
@@ -612,4 +680,120 @@ test('given a live revision of the pull request and a bot user lookup that answe
   assert.equal(code, 1);
   assert.deepEqual(revisions.map(({ state }) => state), ['running']);
   assert.deepEqual(runs, []);
+});
+
+const inlineReview = (comments: { url: string; createdAt: string }[]) => ({
+  url: `${PULL_REQUEST_URL}#pullrequestreview-7`,
+  author: OWNER,
+  authorAssociation: 'OWNER',
+  body: 'Overall this needs a second look.',
+  submittedAt: '2026-09-22T09:00:00Z',
+  comments: {
+    nodes: comments.map(({ url, createdAt }) => ({
+      url,
+      author: OWNER,
+      authorAssociation: 'OWNER',
+      body: 'This loop is off by one.',
+      createdAt,
+      path: 'src/loop.ts',
+      line: 42,
+    })),
+  },
+});
+
+const INLINE_URL = `${PULL_REQUEST_URL}#discussion_r9`;
+const REVIEW_URL = `${PULL_REQUEST_URL}#pullrequestreview-7`;
+const COMMENT_URL = `${PULL_REQUEST_URL}#issuecomment-1`;
+
+test('given a revision handed an inline comment, a review summary and a conversation comment, when after the run the thread has a reply, a conversation comment contains the summary\'s URL and forge\'s App has reacted 👍 to the conversation comment, then the revision ends ok', async () => {
+  const { code, revisions } = await revise({
+    feedback: feedbackWindow({
+      reviews: [inlineReview([{ url: INLINE_URL, createdAt: '2026-09-22T09:00:00Z' }])],
+      comments: [conversationComment()],
+    }),
+    answers: feedbackAnswers({
+      threads: [
+        {
+          comments: {
+            nodes: [
+              { url: INLINE_URL, author: OWNER, createdAt: '2026-09-22T09:00:00Z', ...noReactions },
+              repliedBy(FORGE_APP),
+            ],
+          },
+        },
+      ],
+      comments: [
+        { ...conversationComment(), ...thumbsUp() },
+        {
+          url: `${PULL_REQUEST_URL}#issuecomment-2`,
+          body: `Addressed ${REVIEW_URL}`,
+          author: FORGE_APP,
+          createdAt: '2026-09-22T11:00:00Z',
+          ...noReactions,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(revisions.map(({ state, reason }) => ({ state, reason })), [
+    { state: 'ok', reason: null },
+  ]);
+});
+
+test('given a revision handed two items, when after the run only one has been answered, then the revision fails as unanswered, its detail names the other item\'s URL', async () => {
+  const { code, revisions } = await revise({
+    feedback: feedbackWindow({
+      comments: [
+        conversationComment(),
+        conversationComment({ url: `${PULL_REQUEST_URL}#issuecomment-2`, body: 'And the name.' }),
+      ],
+    }),
+    answers: feedbackAnswers({
+      comments: [
+        { ...conversationComment(), ...thumbsUp() },
+        { ...conversationComment({ url: `${PULL_REQUEST_URL}#issuecomment-2` }), ...noReactions },
+      ],
+    }),
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'unanswered', detail: `${PULL_REQUEST_URL}#issuecomment-2` },
+  ]);
+});
+
+test('given a revision handed a conversation comment, when the only response is a 👍 from someone other than forge\'s App, then the revision fails as unanswered', async () => {
+  const { code, revisions } = await revise({
+    answers: feedbackAnswers({
+      comments: [
+        {
+          ...conversationComment(),
+          ...thumbsUp({ __typename: 'User', login: 'helper' }),
+        },
+      ],
+    }),
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'unanswered', detail: COMMENT_URL },
+  ]);
+});
+
+test('given a 👍 from forge\'s App made before the previous revision started, when the next revision runs, then it is not an answer', async () => {
+  const { code, revisions } = await revise({
+    seed: previousRevisionAt('2026-09-21T10:00:00.000Z'),
+    feedback: feedbackWindow({
+      comments: [conversationComment({ createdAt: '2026-09-21T10:01:00Z' })],
+    }),
+    answers: feedbackAnswers({
+      comments: [
+        { ...conversationComment(), ...thumbsUp(FORGE_APP, '2026-09-21T09:00:00Z') },
+      ],
+    }),
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(revisions.map(({ reason }) => reason).slice(-1), ['unanswered']);
 });
