@@ -1,4 +1,4 @@
-# 0062. Agents run a scoped local pass and leave the full suite to CI
+# 0064. Agents run a scoped local pass and leave the full suite to CI
 
 ## Status
 
