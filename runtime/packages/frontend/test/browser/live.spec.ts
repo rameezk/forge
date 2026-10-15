@@ -282,7 +282,7 @@ test('given a detail page with a tool call the operator expanded, when a new tra
     toolResult('call-1', longText),
     say(longText),
   );
-  await openLive(page, '/runs/run-01');
+  await openLive(page, '/runs/run-01/transcript');
   const call = page.locator('[data-tool-call]');
   await call.locator('summary').click();
   await expect(call).toHaveAttribute('open', '');
@@ -302,7 +302,7 @@ test('given a detail page with a tool call the operator expanded without clickin
 }) => {
   dashboard.store.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', toolCall('call-1', 'docs/CONTEXT.md'), toolResult('call-1', 'ok'));
-  await openLive(page, '/runs/run-01');
+  await openLive(page, '/runs/run-01/transcript');
   const call = page.locator('[data-tool-call]');
   await call.evaluate((details) => {
     (details as unknown as { open: boolean }).open = true;
@@ -321,7 +321,7 @@ test('given a detail page with a tool call awaiting its result that the operator
 }) => {
   dashboard.store.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', toolCall('call-1', 'docs/CONTEXT.md'));
-  await openLive(page, '/runs/run-01');
+  await openLive(page, '/runs/run-01/transcript');
   const call = page.locator('[data-tool-call]');
   await expect(call).not.toHaveAttribute('open');
 
@@ -338,7 +338,7 @@ test('given a running workload\'s detail page scrolled to the bottom, when new t
 }) => {
   dashboard.store.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', say(longText));
-  await openLive(page, '/runs/run-01');
+  await openLive(page, '/runs/run-01/transcript');
   await scrollTo(page, 1e6);
   expect(await distanceFromBottom(page)).toBe(0);
 
@@ -354,7 +354,7 @@ test('given a running workload\'s detail page scrolled up, when new transcript e
 }) => {
   dashboard.store.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', say(longText));
-  await openLive(page, '/runs/run-01');
+  await openLive(page, '/runs/run-01/transcript');
   await scrollTo(page, 300);
   const newActivity = page.getByRole('button', { name: '↓ New activity' });
   await expect(newActivity).toBeHidden();
@@ -370,18 +370,19 @@ test('given a running workload\'s detail page scrolled up, when new transcript e
   await expect(newActivity).toBeHidden();
 });
 
-test('given a running workload\'s detail page scrolled up, when the page grows without a new transcript event, then New activity stays hidden', async ({
+test('given a running workload\'s transcript page scrolled up with a tool call expanded, when its result arrives and the page grows without a new transcript event, then New activity stays hidden', async ({
   dashboard,
   page,
 }) => {
   dashboard.store.insertRun(transcribedRun);
-  dashboard.appendEvents('run-01.jsonl', say(longText));
-  await openLive(page, '/runs/run-01');
+  dashboard.appendEvents('run-01.jsonl', say(longText), toolCall('call-1', 'docs/CONTEXT.md'));
+  await openLive(page, '/runs/run-01/transcript');
+  await page.locator('[data-tool-call] summary').click();
   await scrollTo(page, 300);
 
-  dashboard.store.finalizeRun('run-01', { status: 'error', endTime: '2026-09-21T10:03:20.000Z', sessionId: null, error: 'The runner stopped heartbeating.' });
+  dashboard.appendEvents('run-01.jsonl', toolResult('call-1', `RESULT-ARRIVED\n${longText}`));
 
-  await expect(page.getByText('The runner stopped heartbeating.')).toBeVisible();
+  await expect(page.getByText('RESULT-ARRIVED')).toBeVisible();
   await expect(page.getByRole('button', { name: '↓ New activity' })).toBeHidden();
 });
 

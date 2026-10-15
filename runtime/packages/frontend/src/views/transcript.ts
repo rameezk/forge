@@ -546,6 +546,22 @@ export const anchorId = (anchor: number): string => `event-${anchor}`;
 const renderAnchored = (anchor: number, rendered: Rendered): Rendered =>
   html`<div id="${anchorId(anchor)}" data-event-anchor="${anchor}" class="scroll-mt-4">${rendered}</div>`;
 
+interface ListedEntries {
+  entries: TranscriptEntry[];
+  positions: Map<HarnessEvent, number>;
+  results: ToolResults;
+  prompt: MessageEvent | undefined;
+}
+
+const listedEntries = (events: HarnessEvent[]): ListedEntries => {
+  const positions = new Map(events.map((event, index) => [event, index]));
+  const results = toolResults(events);
+  const first = events[0];
+  const prompt = first?.type === 'message' && first.role === 'user' ? first : undefined;
+  const entries = withoutToolOnlyPreambles(nestSubagents(withoutErrorReportedByResult(events, positions))).filter(isListed);
+  return { entries, positions, results, prompt };
+};
+
 export const transcriptItems = (
   events: HarnessEvent[],
   generations: GenerationRecord[],
@@ -553,23 +569,63 @@ export const transcriptItems = (
   subscription: boolean,
   skillLoads: RunSkillLoad[],
 ): TranscriptItem[] => {
-  const positions = new Map(events.map((event, index) => [event, index]));
-  const results = toolResults(events);
+  const { entries, positions, results, prompt } = listedEntries(events);
   const context: SubagentContext = { results, generations, runStatus, subscription, kinds: subagentKinds(skillLoads) };
-  const first = events[0];
-  const prompt = first?.type === 'message' && first.role === 'user' ? first : undefined;
-  return withoutToolOnlyPreambles(nestSubagents(withoutErrorReportedByResult(events, positions)))
-    .filter(isListed)
-    .map((entry) => {
-      const anchor = anchorOf(entry, positions);
-      const rendered =
-        entry.type === 'subagent'
-          ? renderSubagent(entry, context)
-          : entry === prompt
-            ? renderMessage('prompt', entry)
-            : renderEvent(entry, results);
-      return { anchor, kinds: kindsOf(entry, results), rendered: renderAnchored(anchor, rendered) };
-    });
+  return entries.map((entry) => {
+    const anchor = anchorOf(entry, positions);
+    const rendered =
+      entry.type === 'subagent'
+        ? renderSubagent(entry, context)
+        : entry === prompt
+          ? renderMessage('prompt', entry)
+          : renderEvent(entry, results);
+    return { anchor, kinds: kindsOf(entry, results), rendered: renderAnchored(anchor, rendered) };
+  });
+};
+
+export interface WidgetRow {
+  anchor: number;
+  kind: string;
+  summary: string;
+  timestamp: string | undefined;
+  failed: boolean;
+}
+
+const messageRow = (event: MessageEvent, prompt: MessageEvent | undefined): Pick<WidgetRow, 'kind' | 'summary'> => {
+  if (event === prompt) return { kind: 'prompt', summary: firstLine(event.text) };
+  if (event.role === 'user') return { kind: 'user', summary: firstLine(event.text) };
+  if (isThinkingOnly(event)) return { kind: 'thinking', summary: firstLine(event.thinking) };
+  return { kind: 'assistant', summary: firstLine(event.text) || firstLine(event.error ?? '') };
+};
+
+const toolSummary = (call: ToolCallEvent): string => [call.name, argumentSummary(call.arguments)].filter((part) => part !== '').join(' ');
+
+const rowOf = (entry: TranscriptEntry, prompt: MessageEvent | undefined): Pick<WidgetRow, 'kind' | 'summary' | 'timestamp'> => {
+  switch (entry.type) {
+    case 'subagent':
+      return { kind: 'subagent', summary: entry.call === undefined ? entry.scope : oneLine(taskText(entry.call.arguments)), timestamp: undefined };
+    case 'message':
+      return { ...messageRow(entry, prompt), timestamp: entry.timestamp };
+    case 'tool_call':
+      return { kind: 'tool', summary: toolSummary(entry), timestamp: undefined };
+    case 'retry':
+      return { kind: 'retry', summary: retryLabel(entry), timestamp: undefined };
+    case 'compaction':
+      return { kind: 'compaction', summary: entry.error === null ? 'Compacted context' : `Compaction failed: ${firstLine(entry.error)}`, timestamp: undefined };
+    case 'result':
+      return { kind: 'result', summary: entry.error === null ? entry.status : `${entry.status}: ${firstLine(entry.error)}`, timestamp: undefined };
+    default:
+      return { kind: entry.type, summary: '', timestamp: undefined };
+  }
+};
+
+export const widgetRows = (events: HarnessEvent[]): WidgetRow[] => {
+  const { entries, positions, results, prompt } = listedEntries(events);
+  return entries.map((entry) => ({
+    anchor: anchorOf(entry, positions),
+    ...rowOf(entry, prompt),
+    failed: kindsOf(entry, results).includes('errors'),
+  }));
 };
 
 export const renderTranscript = (

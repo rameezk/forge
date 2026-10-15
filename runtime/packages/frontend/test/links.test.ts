@@ -102,7 +102,7 @@ test('given a stored repository whose github is owner/name, when the work page i
 });
 
 test('given a run whose assistant message contains a markdown link, when the run page is requested, then the link opens in a new tab and keeps nofollow', async () => {
-  assertOpensInNewTab(await dashboard()('/runs/run-01'), 'https://example.com/docs', 'noopener noreferrer nofollow', '/runs/run-01');
+  assertOpensInNewTab(await dashboard()('/runs/run-01/transcript'), 'https://example.com/docs', 'noopener noreferrer nofollow', '/runs/run-01/transcript');
 });
 
 test('given the dashboard, when the runs, work and run pages are requested, then nav links, run links, dispatch badges and the back link open in the same tab', async () => {

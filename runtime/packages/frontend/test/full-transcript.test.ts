@@ -121,7 +121,7 @@ test('given a run with a transcript, when its run page is opened, then it links 
   const app = appWith(mixed);
 
   const page = await (await app.request('/runs/run-01')).text();
-  const link = page.match(/<a[^>]*\sdata-full-transcript[^>]*>/)?.[0] ?? '';
+  const link = page.match(/<a[^>]*\sdata-widget-expand[^>]*>/)?.[0] ?? '';
   const download = page.match(/<a[^>]*\sdata-download="transcript.jsonl"[^>]*>/)?.[0] ?? '';
 
   assert.match(link, /\shref="\/runs\/run-01\/transcript"/);

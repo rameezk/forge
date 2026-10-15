@@ -74,7 +74,7 @@ test.describe('with JS disabled', () => {
   });
 });
 
-test('given a workload whose calls are billed, estimated and flagged as cache misses with long served model names, when its detail page is opened on a desktop screen, then every cost badge shows without the per-call table scrolling sideways', async ({
+test('given a workload whose calls are billed, estimated and flagged as cache misses with long served model names, when its detail page is opened on a desktop screen, then every cost badge shows and the page does not scroll sideways', async ({
   dashboard,
   page,
 }) => {
@@ -95,11 +95,10 @@ test('given a workload whose calls are billed, estimated and flagged as cache mi
   await expect(page.locator('[data-calls] [data-badge="billed"]')).toHaveCount(1);
   await expect(page.locator('[data-calls] [data-badge="estimated"]')).toHaveCount(2);
   await expect(page.locator('[data-calls] [data-badge="cache-miss"]')).toHaveCount(1);
-  const card = page.locator('[data-calls]');
-  expect(await card.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
 
-test('given a workload with message, compaction and cache-warm generations, when its detail page is opened, then compaction and cache-warm rows carry a kind badge, message rows carry none, and the per-call table does not scroll sideways', async ({
+test('given a workload with message, compaction and cache-warm generations, when its detail page is opened, then compaction and cache-warm rows carry a kind badge, message rows carry none, and the page does not scroll sideways', async ({
   dashboard,
   page,
 }) => {
@@ -118,8 +117,7 @@ test('given a workload with message, compaction and cache-warm generations, when
   await expect(rows.nth(1).locator('[data-badge="compaction"]')).toHaveText('compaction');
   await expect(rows.nth(2).locator('[data-badge]')).toHaveCount(1);
   await expect(rows.nth(3).locator('[data-badge="cache-warm"]')).toHaveText('cache warm');
-  const card = page.locator('[data-calls]');
-  expect(await card.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
 
 test('given a run whose agent loaded skills from its prompt, in the parent and in review subagents, when its page is opened on a phone screen, then the Skills section lists each skill with where it loaded, badges the partial one and the page does not scroll sideways', async ({
@@ -164,7 +162,7 @@ test('given a run with a subagent that loaded two skills and one that loaded non
   load('code-review', 'call_1');
   await page.setViewportSize({ width: 390, height: 800 });
 
-  await page.goto('/runs/run-01');
+  await page.goto('/runs/run-01/transcript');
 
   const headers = page.locator('[data-subagent-call] summary');
   await expect(headers.nth(0).locator('[data-subagent-kind]')).toHaveText(['code-review', 'security-review']);
@@ -198,15 +196,18 @@ test('given a claude-code run whose two Agent subagents loaded a skill and none,
   dashboard.store.recordSkillLoad({ runId: 'run-01', skill: 'code-review', source: 'read', subagent: 'toolu_alpha', loadedAt: '2026-09-21T10:00:01.000Z', coverage: { coveredLines: 142, totalLines: 142 } });
   await page.setViewportSize({ width: 390, height: 800 });
 
-  await page.goto('/runs/run-01');
+  await page.goto('/runs/run-01/transcript');
 
   const headers = page.locator('[data-subagent-call] > details > summary');
   await expect(headers.nth(0).locator('[data-subagent-task]')).toHaveText('Review the change for standards');
   await expect(headers.nth(0).locator('[data-subagent-kind]')).toHaveText(['code-review']);
   await expect(headers.nth(1).locator('[data-subagent-task]')).toHaveText('Summarise the change');
   await expect(headers.nth(1).locator('[data-subagent-kind]')).toHaveText(['unclassified']);
-  await expect(page.locator('[data-skills] [data-skill]')).toHaveText([/code-review\s*1 subagent/]);
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+
+  await page.goto('/runs/run-01');
+
+  await expect(page.locator('[data-skills] [data-skill]')).toHaveText([/code-review\s*1 subagent/]);
 });
 
 test('given a claude-code run on subscription, when its page is opened, then the summary shows the claude-code harness and the anthropic provider', async ({
@@ -222,8 +223,6 @@ test('given a claude-code run on subscription, when its page is opened, then the
   });
 
   await page.goto('/runs/run-01');
-
-  await page.locator('[data-run-details] summary').click();
 
   await expect(page.locator('[data-harness]')).toHaveText('claude-code');
   await expect(page.getByText('anthropic', { exact: true })).toBeVisible();
@@ -328,7 +327,7 @@ test('given a failed workload with a long error, when its page is opened and the
   await expect(summary).toHaveText(error);
 });
 
-test('given a finished workload, when its page is opened, then Run details and Calls start collapsed and open on click', async ({
+test('given a finished workload, when its page is opened at laptop width, then Run details starts open and Calls starts collapsed and opens on click', async ({
   dashboard,
   page,
 }) => {
@@ -337,10 +336,8 @@ test('given a finished workload, when its page is opened, then Run details and C
 
   await page.goto('/runs/run-01');
 
-  await expect(page.locator('[data-harness]')).toBeHidden();
-  await expect(page.locator('[data-calls]')).toBeHidden();
-  await page.locator('[data-run-details] summary').click();
   await expect(page.locator('[data-harness]')).toBeVisible();
+  await expect(page.locator('[data-calls]')).toBeHidden();
   await page.locator('[data-calls-summary]').click();
   await expect(page.locator('[data-calls]')).toBeVisible();
 });
