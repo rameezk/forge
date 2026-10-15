@@ -413,6 +413,28 @@ for (const { given, effort, then, reasoning } of [
   );
 }
 
+test(
+  'given a worker whose model calls the subagent tool, when its workload runs against the locked pi, then every sub-agent request carries the narration instruction and the prompt to report once',
+  { skip },
+  async () => {
+    const requested: Requested[] = [];
+    await runRealPi(
+      delegating(alphaChild, 'Both sub-agents reported back.'),
+      { requested, workload: delegateTwo },
+    );
+
+    const children = requested.filter((request) =>
+      mentions(request, 'You are a sub-agent'),
+    );
+    assert.equal(children.length, 3);
+    for (const child of children) {
+      assert.ok(mentions(child, 'Narrate your work'));
+      assert.ok(mentions(child, 'Only your final message is returned'));
+      assert.ok(!mentions(child, 'returned verbatim'));
+    }
+  },
+);
+
 const canonical = (value: unknown): string =>
   Array.isArray(value)
     ? `[${value.map(canonical).join(',')}]`
