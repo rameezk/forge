@@ -1726,6 +1726,15 @@ export class Store {
     });
   }
 
+  feedbackCursor(pullRequest: RevisedPullRequest): string | null {
+    const row = this.#db
+      .prepare(`SELECT cursor FROM feedback_watches WHERE repository = $repository AND number = $number`)
+      .get({ repository: pullRequest.repository, number: pullRequest.number }) as
+      | { cursor: string | null }
+      | undefined;
+    return row?.cursor ?? null;
+  }
+
   startRevision(
     pullRequest: RevisedPullRequest,
     openedBy: readonly number[],

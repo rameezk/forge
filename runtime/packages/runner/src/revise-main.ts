@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import {
   errorMessage,
   githubAppFromEnv,
+  queryFeedbackWindow,
   queryPullRequestHead,
   startHeartbeat,
   Store,
@@ -18,7 +19,7 @@ import {
 } from './config.ts';
 import { launchInCheckout } from './checkout-workload.ts';
 import { gitEnvironment } from './git.ts';
-import { REVISION_INSTRUCTION } from './harness.ts';
+import { revisionInstruction } from './harness.ts';
 import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
@@ -89,11 +90,13 @@ export const main = async (
   try {
     const revised = { repository: name, number: pullRequest.number, url: pullRequest.url };
     const runId = randomUUID();
+    const startedAt = now();
+    const after = store.feedbackCursor(revised);
     const start = store.startRevision(
       revised,
       pullRequest.closes,
       runId,
-      now(),
+      startedAt,
       maxConcurrentOf(config),
     );
     if ('refused' in start) {
@@ -111,6 +114,18 @@ export const main = async (
     try {
       let launched: LaunchResult;
       try {
+        const feedback = await queryFeedbackWindow(
+          fetch,
+          token,
+          repository.github,
+          pullRequest.number,
+          after,
+          startedAt,
+        );
+        if (feedback.length === 0) {
+          store.endRevision(revisionId, 'ok', now());
+          return 0;
+        }
         launched = await launchInCheckout({
           env,
           config,
@@ -121,7 +136,7 @@ export const main = async (
           },
           github: repository.github,
           branch: pullRequest.branch,
-          instruction: REVISION_INSTRUCTION,
+          instruction: revisionInstruction(feedback),
           app,
           gitEnv,
           identity,

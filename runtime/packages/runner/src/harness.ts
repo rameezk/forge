@@ -1,4 +1,4 @@
-import type { HarnessOutput } from '@forge/shared';
+import type { FeedbackItem, HarnessOutput } from '@forge/shared';
 import type { DevShell } from './devshell.ts';
 import type { ListedModel } from './openrouter.ts';
 import type { Provider } from './provider.ts';
@@ -20,12 +20,24 @@ export const UNATTENDED_INSTRUCTION = [
   'A command killed with exit 137 most likely hit the workload memory limit, so choose a narrower check rather than retrying it.',
 ].join(' ');
 
-export const REVISION_INSTRUCTION = [
+const REVISION_INSTRUCTION = [
   'A person reviews this pull request and will read your replies on it.',
   'Where a skill asks you to confirm something their feedback already settles, proceed without asking.',
   'Otherwise ask the question as a reply on the pull request and end your run at once, without waiting or polling for an answer.',
   'A command killed with exit 137 most likely hit the workload memory limit, so choose a narrower check rather than retrying it.',
 ].join(' ');
+
+export const revisionInstruction = (feedback: readonly FeedbackItem[]): string =>
+  [
+    REVISION_INSTRUCTION,
+    'This revision exists because of the feedback below. Address exactly these items and answer each one on the pull request, linking its URL in your answer.',
+    ...feedback.map(
+      (item, index) =>
+        `${index + 1}. ${item.kind} by ${item.author}${
+          item.path === null ? '' : ` on ${item.path}${item.line === null ? '' : `:${item.line}`}`
+        }: ${item.url}\n${item.body}`,
+    ),
+  ].join('\n\n');
 
 export const NARRATION_INSTRUCTION = [
   'Narrate your work: before your first tool call, and whenever you change direction or learn something that changes your plan, say in a sentence or two what you are about to do and why.',
