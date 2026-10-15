@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
-import type { HarnessEvent, PolledFrontier, RunRecord, Ticket } from '@forge/shared';
+import { fingerprintHash } from '@forge/shared';
+import type { ConfigFingerprint, HarnessEvent, PolledFrontier, RunRecord, Store, Ticket } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
 const runningRun: RunRecord = {
@@ -488,4 +489,104 @@ test('given a running workload\'s detail page open in a browser, when its genera
   await expect(rows.first().locator('[data-cost]')).toContainText('billed');
 
   await expectNotReloaded(page);
+});
+
+const cohortFingerprint = (skills: string): ConfigFingerprint => ({
+  model: 'anthropic/claude-sonnet-5.5',
+  reasoningEffort: 'high',
+  harnessArgs: ['--thinking', 'high'],
+  harnessVersion: '1.0.0',
+  promptTemplate: '3fa2c9d1',
+  systemPrompt: 'a'.repeat(64),
+  tools: 'b'.repeat(64),
+  skills: skills.repeat(64),
+});
+
+const firstCohort = cohortFingerprint('c');
+const secondCohort = cohortFingerprint('d');
+const thirdCohort = cohortFingerprint('e');
+
+const recordCohort = (store: Store, id: string, config: ConfigFingerprint): void => {
+  store.insertRun({ ...runningRun, id, worker: 'builder', status: 'success', endTime: '2026-09-21T10:03:00.000Z', costStatus: 'billed' });
+  store.recordFingerprint(id, { fingerprint: config, hash: fingerprintHash(config), forgeGitSha: null, baseCommit: null });
+};
+
+const respondWith = async (page: Page, rewrite: (body: string) => string): Promise<void> => {
+  await page.route(
+    (url) => url.pathname !== '/events',
+    async (route) => {
+      if (route.request().resourceType() !== 'fetch') return route.fallback();
+      const response = await route.fetch();
+      await route.fulfill({ response, body: rewrite(await response.text()) });
+    },
+    { times: 1 },
+  );
+};
+
+test('given a cohort page with another cohort chosen in Compare against but not submitted, when a store write adds a cohort and the page refreshes live, then the chosen cohort stays selected, the new cohort is offered, and submitting compares against the chosen one', async ({
+  dashboard,
+  page,
+}) => {
+  recordCohort(dashboard.store, 'one', firstCohort);
+  recordCohort(dashboard.store, 'two', secondCohort);
+  await openLive(page, `/cohorts/${fingerprintHash(firstCohort)}`);
+  const against = page.getByLabel('Compare against');
+  await against.selectOption(fingerprintHash(secondCohort));
+
+  recordCohort(dashboard.store, 'three', thirdCohort);
+
+  await expect(against.locator(`option[value="${fingerprintHash(thirdCohort)}"]`)).toBeAttached();
+  await expect(against).toHaveValue(fingerprintHash(secondCohort));
+  await page.getByRole('button', { name: 'Compare' }).click();
+  await expect(page).toHaveURL(new RegExp(`against=${fingerprintHash(secondCohort)}$`));
+});
+
+test('given the insights page with the manual workloads filter toggled but not submitted, when a store write changes the data and the page refreshes live, then the checkbox keeps the operator\'s state and the page shows the new data', async ({
+  dashboard,
+  page,
+}) => {
+  recordCohort(dashboard.store, 'one', firstCohort);
+  await openLive(page, '/insights?manual=1');
+  const manual = page.getByLabel('Include manual workloads');
+  await expect(manual).toBeChecked();
+  await manual.uncheck();
+
+  recordCohort(dashboard.store, 'two', secondCohort);
+
+  await expect(page.locator(`tr[data-cohort="${fingerprintHash(secondCohort)}"]`)).toBeAttached();
+  await expect(manual).not.toBeChecked();
+});
+
+test('given a form control the operator changed and changed back to its rendered value, when a live refresh renders it in a new server state, then the control shows the new server state', async ({
+  dashboard,
+  page,
+}) => {
+  recordCohort(dashboard.store, 'one', firstCohort);
+  await openLive(page, '/insights?manual=1');
+  const manual = page.getByLabel('Include manual workloads');
+  await manual.uncheck();
+  await manual.check();
+  await respondWith(page, (body) => body.replace('value="1" checked', 'value="1"'));
+
+  recordCohort(dashboard.store, 'two', secondCohort);
+
+  await expect(page.locator(`tr[data-cohort="${fingerprintHash(secondCohort)}"]`)).toBeAttached();
+  await expect(manual).not.toBeChecked();
+});
+
+test('given a select whose chosen option the operator changed but did not submit, when a live refresh renders the select without that option, then the select shows the server\'s choice', async ({
+  dashboard,
+  page,
+}) => {
+  recordCohort(dashboard.store, 'one', firstCohort);
+  recordCohort(dashboard.store, 'two', secondCohort);
+  await openLive(page, `/cohorts/${fingerprintHash(firstCohort)}`);
+  const against = page.getByLabel('Compare against');
+  await against.selectOption(fingerprintHash(secondCohort));
+  await respondWith(page, (body) => body.replace(new RegExp(`<option value="${fingerprintHash(secondCohort)}"[^>]*>[^<]*</option>`), ''));
+
+  recordCohort(dashboard.store, 'three', thirdCohort);
+
+  await expect(against.locator(`option[value="${fingerprintHash(thirdCohort)}"]`)).toBeAttached();
+  await expect(against).toHaveValue('');
 });
