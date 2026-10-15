@@ -120,7 +120,9 @@ const newestFeedback = (node: WatchedNode): string | null =>
         ? [review.submittedAt]
         : [],
     ),
-    ...node.comments.nodes.flatMap((comment) => (givesFeedback(comment.author, comment.authorAssociation) ? [comment.createdAt] : [])),
+    ...node.comments.nodes.flatMap((comment) =>
+      givesFeedback(comment.author, comment.authorAssociation) ? [comment.createdAt] : [],
+    ),
   ]);
 
 const toWatched = (node: WatchedNode, github: string): WatchedPullRequest => ({

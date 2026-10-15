@@ -93,11 +93,13 @@ const graphqlNode = (pull: FakePullRequest) => ({
       comments: { totalCount: r.inline },
     })),
   },
-  comments: { nodes: pull.comments.map((c) => ({
+  comments: {
+    nodes: pull.comments.map((c) => ({
       author: actor(c.author),
       authorAssociation: c.author.association,
       createdAt: c.at,
-    })), },
+    })),
+  },
 });
 
 const github = (pulls: () => FakePullRequest[]): typeof globalThis.fetch =>
