@@ -381,7 +381,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
           logo: '',
           idiomorph: '',
           client: '',
-        }).request('/')
+        }).request('/runs')
       ).text(),
     };
   } finally {
