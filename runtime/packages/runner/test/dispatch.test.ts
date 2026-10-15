@@ -31,7 +31,7 @@ import {
   type FakeGithubApp,
   tokenFor,
 } from '../../shared/test/fixtures/fake-github-app.ts';
-import { NARRATION_INSTRUCTION, UNATTENDED_INSTRUCTION } from '../src/harness.ts';
+import { NARRATION_INSTRUCTION, UNATTENDED_INSTRUCTION, revisionInstruction } from '../src/harness.ts';
 import {
   COVERAGE_PROMPT,
   COVERAGE_SKILL_FILES,
@@ -1280,7 +1280,7 @@ const projectInstructions = (path: string): string[] => [
 const childArgv = (pi: PiCall): string[] =>
   (JSON.parse(pi.subagentInvocation ?? 'null') as { argv: string[] }).argv;
 
-test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.md and .pi/SYSTEM.md and no .agents/skills, when the workload starts, then pi and the subagent invocation get the two skill paths, the system prompt file, AGENTS.md framed as project instructions, and the unattended instruction, which explains exit 137, and nothing for what does not exist', async () => {
+test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.md and .pi/SYSTEM.md and no .agents/skills, when the workload starts, then pi and the subagent invocation get the two skill paths, the system prompt file, AGENTS.md framed as project instructions, and the unattended instruction, which gives the scoped-check rule, and nothing for what does not exist', async () => {
   const { pi } = await dispatch({
     origin: originWith({
       '.claude/skills/work-on/SKILL.md': SKILL,
@@ -1293,10 +1293,16 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
 
   assert.ok(pi);
   assert.match(UNATTENDED_INSTRUCTION, /no human will answer/);
-  assert.match(
-    UNATTENDED_INSTRUCTION,
-    /exit 137 most likely hit the workload memory limit.*narrower check rather than retrying it/,
-  );
+  for (const instruction of [UNATTENDED_INSTRUCTION, revisionInstruction([])]) {
+    assert.match(instruction, /only the scoped local commands AGENTS\.md lists/);
+    assert.match(instruction, /never the full `make check-no-vm`/);
+    assert.match(instruction, /one line naming the local commands that passed.*"full suite: CI"/);
+    assert.match(
+      instruction,
+      /required scoped command is killed or cannot run, stop and report that instead of running a narrower or different check/,
+    );
+    assert.doesNotMatch(instruction, /choose a narrower check/);
+  }
   const root = realpathSync(pi.cwd);
   const flags = [
     ...PI_CONTRACT,

@@ -26,8 +26,18 @@
   not directly related to the task.
 - Hold the same standard for lint errors, test failures, and flaky tests: fix
   them when you see them, even if your change did not cause them.
-- The NixOS VM tests are part of "tests pass", and CI runs them. Locally,
-  run `make check-no-vm` and leave the VM tests to CI.
+- CI is the full gate: it runs `make check-no-vm` and every NixOS VM test.
+  Never run the full `make check-no-vm` locally. Run only the scoped commands
+  for the areas you changed:
+  - a TypeScript package: `npm run typecheck` and `node --test` for that
+    package
+  - OpenTofu: `tofu test`
+  - repo and template scripts: the matching `tests/*.sh` script
+  - a single nix check: `nix build .#checks.<system>.<check>`
+- End your report with one line naming the local commands that passed,
+  followed by "full suite: CI".
+- When a required scoped command is killed or cannot run, stop and report it.
+  Do not substitute a narrower or different check.
 - When a VM test fails in CI, start from its log. Run only that test locally,
   with `nix build .#checks.<system>.<test>`, if the log does not explain the
   failure.

@@ -13,18 +13,24 @@ export interface Checkout {
   skillLines: ReadonlyMap<string, number>;
 }
 
+const SCOPED_CHECK_RULE = [
+  'Run only the scoped local commands AGENTS.md lists for the areas you changed, never the full `make check-no-vm`.',
+  'End your report with one line naming the local commands that passed, followed by "full suite: CI".',
+  'When a required scoped command is killed or cannot run, stop and report that instead of running a narrower or different check.',
+];
+
 export const UNATTENDED_INSTRUCTION = [
   'You are running unattended: no human will answer questions or confirm anything while you work.',
   'Where a skill asks you to confirm something the ticket or its spec already settles, proceed without asking.',
   'Otherwise stop, and end with the question you need answered.',
-  'A command killed with exit 137 most likely hit the workload memory limit, so choose a narrower check rather than retrying it.',
+  ...SCOPED_CHECK_RULE,
 ].join(' ');
 
 const REVISION_INSTRUCTION = [
   'A person reviews this pull request and will read your replies on it.',
   'Where a skill asks you to confirm something their feedback already settles, proceed without asking.',
   'Otherwise ask the question as a reply on the pull request and end your run at once, without waiting or polling for an answer.',
-  'A command killed with exit 137 most likely hit the workload memory limit, so choose a narrower check rather than retrying it.',
+  ...SCOPED_CHECK_RULE,
 ].join(' ');
 
 export const revisionInstruction = (feedback: readonly FeedbackItem[]): string =>
