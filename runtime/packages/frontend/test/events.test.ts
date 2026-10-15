@@ -114,7 +114,7 @@ const streamEvents = async (t: TestContext, app: ReturnType<typeof createApp>, p
 
 test('given a client streaming events for the runs list, when a new run is recorded in the store, then the stream emits a change signal', async (t) => {
   const { app, writer } = dashboard(t);
-  const stream = await streamEvents(t, app, '/');
+  const stream = await streamEvents(t, app, '/runs');
 
   writer.insertRun(sampleRun());
 
@@ -143,7 +143,7 @@ test('given a client streaming events for the work page, when a generation is re
 test('given a client opening a page\'s stream, when it connects, then the stream emits a change signal at once, so the client catches up with any write since it loaded the page', async (t) => {
   const { app } = dashboard(t);
 
-  const stream = await streamEvents(t, app, '/');
+  const stream = await streamEvents(t, app, '/runs');
 
   assert.equal(stream.connected?.event, 'change');
 });

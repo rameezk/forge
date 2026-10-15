@@ -44,7 +44,7 @@ const ticketIn = (repository: string, number: number) => ({
   url: `https://github.com/rameezk/${repository}/issues/${number}`,
 });
 
-const open = async (runs: RunRecord[], path = '/'): Promise<string> => {
+const open = async (runs: RunRecord[], path = '/runs'): Promise<string> => {
   const store = Store.open(':memory:');
   for (const run of runs) store.insertRun(run);
   const app = createApp({
@@ -75,7 +75,7 @@ const mixed = [
 ];
 
 test('given workloads across statuses and repositories, when opened with Error and one repository, then only that repository\'s errored workloads list, the chips count within the repository and the header reads filtered of all', async () => {
-  const body = await open(mixed, '/?status=error&repository=forge');
+  const body = await open(mixed, '/runs?status=error&repository=forge');
 
   assert.deepEqual(listed(body), ['forge-err']);
   assert.equal(chip(body, 'all'), 'All 2');
@@ -93,9 +93,9 @@ test('given workloads for several workers and tickets, when searched for a ticke
     sampleRun({ id: 'c', worker: 'refiner', ticket: ticketIn('forge', 7) }),
   ];
 
-  assert.deepEqual(listed(await open(runs, '/?search=12')), ['a']);
-  assert.deepEqual(listed(await open(runs, '/?search=%2312')), ['a']);
-  assert.deepEqual(listed(await open(runs, '/?search=refin')).sort(), ['b', 'c']);
+  assert.deepEqual(listed(await open(runs, '/runs?search=12')), ['a']);
+  assert.deepEqual(listed(await open(runs, '/runs?search=%2312')), ['a']);
+  assert.deepEqual(listed(await open(runs, '/runs?search=refin')).sort(), ['b', 'c']);
 });
 
 test('given workloads from several workers and models, when filtered by worker and by model, then each dropdown narrows the list and offers every value', async () => {
@@ -104,8 +104,8 @@ test('given workloads from several workers and models, when filtered by worker a
     sampleRun({ id: 'b', worker: 'refiner', model: 'x/two' }),
   ];
 
-  assert.deepEqual(listed(await open(runs, '/?worker=refiner')), ['b']);
-  const body = await open(runs, '/?model=x%2Fone');
+  assert.deepEqual(listed(await open(runs, '/runs?worker=refiner')), ['b']);
+  const body = await open(runs, '/runs?model=x%2Fone');
   assert.deepEqual(listed(body), ['a']);
   assert.match(body, /<option value="x\/two">/);
 });
@@ -114,8 +114,8 @@ test('given workloads started today and two weeks ago, when filtered to the last
   const day = (daysAgo: number): string => new Date(Date.now() - daysAgo * 86_400_000).toISOString();
   const runs = [sampleRun({ id: 'today', startTime: day(0) }), sampleRun({ id: 'old', startTime: day(14) })];
 
-  assert.deepEqual(listed(await open(runs, `/?from=${day(7).slice(0, 10)}`)), ['today']);
-  assert.deepEqual(listed(await open(runs, `/?to=${day(7).slice(0, 10)}`)), ['old']);
+  assert.deepEqual(listed(await open(runs, `/runs?from=${day(7).slice(0, 10)}`)), ['today']);
+  assert.deepEqual(listed(await open(runs, `/runs?to=${day(7).slice(0, 10)}`)), ['old']);
 });
 
 test('given billed and subscription workloads, when filtered to the subscription ones, then the header also shows the list-price equivalent in filtered of all shape', async () => {
@@ -134,7 +134,7 @@ test('given billed and subscription workloads, when filtered to the subscription
   });
   const app = createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
 
-  const body = await (await app.request('/?model=x%2Fsub')).text();
+  const body = await (await app.request('/runs?model=x%2Fsub')).text();
 
   assert.equal(
     showing(body),
@@ -144,12 +144,12 @@ test('given billed and subscription workloads, when filtered to the subscription
 });
 
 test('given a filtered view, when it lists nothing or "Clear filters" is followed, then the empty state shows and the link returns to every workload', async () => {
-  const empty = await open(mixed, '/?status=running');
+  const empty = await open(mixed, '/runs?status=running');
   assert.deepEqual(listed(empty), []);
   assert.match(empty, /No workloads match/);
-  assert.match(empty, /<a href="\/"[^>]*data-clear-filters/);
+  assert.match(empty, /<a href="\/runs"[^>]*data-clear-filters/);
   assert.doesNotMatch(await open(mixed), /data-clear-filters/);
-  assert.equal(listed(await open(mixed, '/')).length, 4);
+  assert.equal(listed(await open(mixed, '/runs')).length, 4);
 });
 
 test('given a ticketed and a manual workload, when opened, then the columns follow the agreed order and the manual one shows a muted manual', async () => {
@@ -194,7 +194,7 @@ test('given 120 workloads, when Workloads is opened, then the newest 50 list, Ne
 
 test('given 120 workloads, when the third page is opened, then the oldest 20 list and Older is unavailable', async () => {
   const runs = numbered(120);
-  const body = await open(runs, '/?page=3');
+  const body = await open(runs, '/runs?page=3');
 
   assert.deepEqual(listed(body), runs.slice(0, 20).reverse().map((run) => run.id));
   assert.equal(pageLink(body, 'older').available, false);
@@ -203,7 +203,7 @@ test('given 120 workloads, when the third page is opened, then the oldest 20 lis
 
 test('given more than 50 errored workloads among others, when filtered to Error and Older is followed, then the second page lists only errored workloads and Error stays selected', async () => {
   const runs = numbered(130, (index) => ({ status: index % 2 === 0 ? 'error' : 'success' }));
-  const first = await open(runs, '/?status=error');
+  const first = await open(runs, '/runs?status=error');
   const older = pageLink(first, 'older');
   assert.equal(older.available, true);
 
@@ -218,7 +218,7 @@ test('given more than 50 errored workloads among others, when filtered to Error 
 
 test('given more than 50 matching workloads, when the second page is opened, then the counts and the header cover every matching workload', async () => {
   const runs = numbered(120, (index) => ({ costUsd: 1, status: index < 100 ? 'success' : 'error' }));
-  const body = await open(runs, '/?page=2');
+  const body = await open(runs, '/runs?page=2');
 
   assert.equal(listed(body).length, 50);
   assert.equal(showing(body), 'Showing 120 of 120 workloads, $120.0000 of $120.0000 billed');
@@ -228,6 +228,17 @@ test('given more than 50 matching workloads, when the second page is opened, the
 
 test('given a page beyond the last, when opened, then the last page lists', async () => {
   const runs = numbered(120);
-  assert.equal(listed(await open(runs, '/?page=9')).length, 20);
-  assert.equal(listed(await open(runs, '/?page=abc')).length, 50);
+  assert.equal(listed(await open(runs, '/runs?page=9')).length, 20);
+  assert.equal(listed(await open(runs, '/runs?page=abc')).length, 50);
+});
+
+test('given a filtered, paged runs list, when its links are read, then the filter form, status chips and paging links stay under /runs', async () => {
+  const runs = numbered(130, (index) => ({ status: index % 2 === 0 ? 'error' : 'success' }));
+  const body = await open(runs, '/runs?status=error');
+
+  assert.match(body, /<form[^>]*\saction="\/runs"/);
+  const chipHrefs = [...body.matchAll(/<a[^>]*\sdata-status-chip="[^"]*"[^>]*>/g)].map(([tag]) => tag.match(/\shref="([^"]*)"/)?.[1]);
+  assert.ok(chipHrefs.length > 0);
+  assert.ok(chipHrefs.every((href) => href === '/runs' || href?.startsWith('/runs?')), chipHrefs.join(' '));
+  assert.match(pageLink(body, 'older').href ?? '', /^\/runs\?status=error&page=2$/);
 });

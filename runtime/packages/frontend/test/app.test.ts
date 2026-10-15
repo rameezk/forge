@@ -58,7 +58,7 @@ test('given several finished runs, when the list is requested, then they render 
     sampleRun({ id: 'oldest', worker: 'oldest-worker', startTime: '2026-09-21T09:00:00.000Z', costUsd: 0.3 }),
   ]);
 
-  const res = await app.request('/');
+  const res = await app.request('/runs');
   assert.equal(res.status, 200);
   const body = await res.text();
 
@@ -84,7 +84,7 @@ test('given a billed run costing $0.00093252, an unconfirmed run, a pending run 
     sampleRun({ id: 'unbilled', worker: 'unbilled-worker', costStatus: 'pending', costUsd: 0 }),
   ]);
 
-  const body = await (await app.request('/')).text();
+  const body = await (await app.request('/runs')).text();
   const cost = (id: string): string =>
     textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '');
 
@@ -107,7 +107,7 @@ test('given one workload fully billed, one with an unbilled generation and one u
     sampleRun({ id: 'given-up', costStatus: 'unconfirmed', costUsd: 0.01, costEstimated: true, transcriptRef: null }),
   ]);
 
-  const list = await (await app.request('/')).text();
+  const list = await (await app.request('/runs')).text();
   const listed = (id: string): string =>
     rowFor(list, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
   const detailed = async (id: string): Promise<string> =>
@@ -135,7 +135,7 @@ test('given a successful, a failed, a running and an interrupted run, when the l
     sampleRun({ id: 'interrupted', status: 'interrupted', costStatus: 'unconfirmed' }),
   ]);
 
-  const body = await (await app.request('/')).text();
+  const body = await (await app.request('/runs')).text();
   for (const [id, status] of [['ok', 'success'], ['failed', 'error'], ['running', 'running'], ['interrupted', 'interrupted']] as const) {
     const badge = statusIn(rowFor(body, id));
     assert.match(badge, new RegExp(`\\sdata-status="${status}"`));
@@ -168,7 +168,7 @@ test('given a run dispatched for a ticket and a run started by hand, when the li
     sampleRun({ id: 'by-hand' }),
   ]);
 
-  const body = await (await app.request('/')).text();
+  const body = await (await app.request('/runs')).text();
   const ticketCell = (id: string): string =>
     rowFor(body, id).match(/<td[^>]*\sdata-run-ticket(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? 'missing';
 
@@ -202,7 +202,7 @@ test('given a revision that ended ok and one that ended in error, when the list 
     },
   );
 
-  const body = await (await app.request('/')).text();
+  const body = await (await app.request('/runs')).text();
   const ticketCell = (id: string): string =>
     rowFor(body, id).match(/<td[^>]*\sdata-run-ticket(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? 'missing';
 
@@ -268,7 +268,7 @@ test('given only settled runs, when the list is requested, then the total carrie
     sampleRun({ id: 'unconfirmed', costStatus: 'unconfirmed', costUsd: 0.1 }),
   ]);
 
-  const body = await (await app.request('/')).text();
+  const body = await (await app.request('/runs')).text();
 
   assert.equal(textOf(body.match(/<p[^>]*\sdata-showing[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), 'Showing 2 of 2 workloads, $0.3000 of $0.3000 billed');
 });
@@ -279,7 +279,7 @@ test('given a billed run and a finished subscription run, when the list is reque
     sampleRun({ id: 'subscribed', costStatus: 'subscription', costUsd: 0 }),
   ]);
 
-  const body = await (await app.request('/')).text();
+  const body = await (await app.request('/runs')).text();
   const cost = textOf(
     rowFor(body, 'subscribed').match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '',
   );
@@ -320,7 +320,7 @@ test('given billed OpenRouter runs, a subscription run and a subscription run wi
     },
   );
 
-  const body = await (await app.request('/')).text();
+  const body = await (await app.request('/runs')).text();
   const cell = (id: string): string =>
     textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '');
   const header = body.match(/<p[^>]*\sdata-showing[\s>][\s\S]*?<\/p>/)?.[0] ?? '';
@@ -336,7 +336,7 @@ test('given billed OpenRouter runs, a subscription run and a subscription run wi
 });
 
 test('given only billed runs, when the list is requested, then the header carries no list-price equivalent total', async () => {
-  const body = await (await appWith([sampleRun({ id: 'billed', costUsd: 0.2 })]).request('/')).text();
+  const body = await (await appWith([sampleRun({ id: 'billed', costUsd: 0.2 })]).request('/runs')).text();
 
   assert.doesNotMatch(body, /list-price-equivalent/);
 });
@@ -363,7 +363,7 @@ test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and it
   const app = appWith([sampleRun({ id: 'run-01', startTime: '2026-09-28T14:43:24.584Z', transcriptRef: null })]);
   const started = /^<time datetime="2026-09-28T14:43:24\.584Z" title="2026-09-28T14:43:24\.584Z"[^>]*>2026-09-28 14:43:24 UTC<\/time>$/;
 
-  const list = await (await app.request('/')).text();
+  const list = await (await app.request('/runs')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
   assert.match(rowFor(list, 'run-01').match(/<td[^>]*>(<time[\s\S]*?<\/time>)<\/td>/)?.[1] ?? '', started);
@@ -373,7 +373,7 @@ test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and it
 test('given a run whose recorded start time is not a date, when the list and its run page are requested, then both render and show the recorded value as is', async () => {
   const app = appWith([sampleRun({ id: 'run-01', startTime: 'not-a-date', transcriptRef: null })]);
 
-  const list = await app.request('/');
+  const list = await app.request('/runs');
   const detail = await app.request('/runs/run-01');
 
   assert.equal(list.status, 200);
@@ -435,7 +435,7 @@ test('given runs with cache reads and writes, from before the cache split was ke
     sampleRun({ id: 'fresh', startTime: '2026-09-21T10:00:00.000Z', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }),
   ]);
 
-  const body = await (await app.request('/')).text();
+  const body = await (await app.request('/runs')).text();
   const cell = (id: string, name: string): string =>
     textOf(rowFor(body, id).match(new RegExp(`<td[^>]*\\s${name}(?=[\\s>])[^>]*>([\\s\\S]*?)</td>`))?.[1] ?? 'missing');
 
@@ -513,7 +513,7 @@ test('given a successful run and a failed run, when each run page is requested, 
     sampleRun({ id: 'ok', worker: 'ok-worker', status: 'success', transcriptRef: 'ok.jsonl' }),
     sampleRun({ id: 'failed', worker: 'failed-worker', status: 'error', error: 'provider exploded', transcriptRef: 'failed.jsonl' }),
   ], dir);
-  const list = await (await app.request('/')).text();
+  const list = await (await app.request('/runs')).text();
   const listBadge = (id: string): string => statusIn(rowFor(list, id));
   const page = async (id: string) => {
     const body = await (await app.request(`/runs/${id}`)).text();
@@ -609,7 +609,7 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
     dir,
   );
 
-  const list = await (await app.request('/')).text();
+  const list = await (await app.request('/runs')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
   assert.match(list, /<td[^>]*\sdata-cost(?=[\s>])[^>]*>\s*\$0\.750000/);
@@ -1515,4 +1515,14 @@ test('given a request record whose system prompt is far longer than one read of 
   const page = await (await app.request('/runs/run-01')).text();
 
   assert.equal(textOf(systemPromptSection(page).match(/<pre[^>]*>[\s\S]*?<\/pre>/)?.[0] ?? ''), systemPrompt);
+});
+
+test('given a bookmark to the old runs list, when / is requested with or without a query, then it redirects to /runs keeping the query', async () => {
+  const app = appWith([]);
+
+  for (const [from, to] of [['/', '/runs'], ['/?status=error', '/runs?status=error'], ['/?status=error&page=2', '/runs?status=error&page=2']] as const) {
+    const res = await app.request(from);
+    assert.equal(res.status, 302, from);
+    assert.equal(res.headers.get('location'), to, from);
+  }
 });

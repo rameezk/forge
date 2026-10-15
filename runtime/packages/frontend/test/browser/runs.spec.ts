@@ -36,7 +36,7 @@ test('given a dashboard serving a real store with one recorded run, when the run
 }) => {
   dashboard.store.insertRun(recordedRun);
 
-  await page.goto('/');
+  await page.goto('/runs');
 
   const row = page.getByRole('row', { name: /refiner/ });
   await expect(row).toBeVisible();
@@ -52,7 +52,7 @@ test('given a running workload with an estimated cost and a finished one whose c
   dashboard.store.insertRun({ ...recordedRun, id: 'running', status: 'running', endTime: null, costStatus: 'pending', costUsd: 1.234567, costEstimated: true });
   dashboard.store.insertRun({ ...recordedRun, id: 'given-up', model: 'anthropic/claude-opus-5.5', costStatus: 'unconfirmed', costUsd: 0.5, costEstimated: true, ticket: { repository: 'forge', number: 158, url: 'https://github.com/rameezk/forge/issues/158' } });
 
-  await page.goto('/');
+  await page.goto('/runs');
 
   await expect(page.locator('table [data-badge="estimated"]')).toHaveCount(2);
   await expect(page.locator('table [data-badge="unconfirmed"]')).toBeVisible();
@@ -66,7 +66,7 @@ test.describe('with JS disabled', () => {
   test('given the same dashboard, when the runs list is opened, then it renders fully', async ({ dashboard, page }) => {
     dashboard.store.insertRun(recordedRun);
 
-    await page.goto('/');
+    await page.goto('/runs');
 
     await expect(page.getByRole('heading', { name: 'Workloads' })).toBeVisible();
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
@@ -239,7 +239,7 @@ test.describe('on a phone screen', () => {
   test('given recorded workloads, when Workloads is opened, then each is a card with its fields linking to the run and no table is shown', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/');
+    await page.goto('/runs');
 
     await expect(page.locator('table')).toBeHidden();
     const cards = page.locator('[data-run-card]');
@@ -264,7 +264,7 @@ test.describe('on a phone screen', () => {
   test('given status chips wider than the screen, when Workloads is opened, then the chips scroll sideways in one row and the page does not', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/');
+    await page.goto('/runs');
 
     const chips = page.locator('[data-status-chips]');
     expect(await chips.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
@@ -276,7 +276,7 @@ test.describe('on a phone screen', () => {
   test('given a started range in the address, when Workloads is opened, then the other filters are behind a collapsed Filters toggle showing the range, and opening it reveals them', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/?from=2026-09-20&to=2026-09-30');
+    await page.goto('/runs?from=2026-09-20&to=2026-09-30');
 
     const toggle = page.locator('details[data-filters]');
     await expect(toggle.locator('summary')).toContainText('Filters');
@@ -297,7 +297,7 @@ test.describe('on a laptop screen', () => {
   test('given recorded workloads, when Workloads is opened, then they are in the table and not cards, with the filters open', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/');
+    await page.goto('/runs');
 
     await expect(page.locator('table')).toBeVisible();
     await expect(page.locator('[data-run-card]').first()).toBeHidden();

@@ -79,5 +79,5 @@ export const paginate = <T>(items: T[], requested: number): Page<T> => {
 export const workloadsHref = (filter: WorkloadFilter, page = 1): string => {
   const entries = Object.entries(filter) as [string, string][];
   const query = new URLSearchParams(page > 1 ? [...entries, ['page', String(page)]] : entries).toString();
-  return query === '' ? '/' : `/?${query}`;
+  return query === '' ? '/runs' : `/runs?${query}`;
 };
