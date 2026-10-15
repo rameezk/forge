@@ -9,6 +9,7 @@ import {
   Store,
   type Fetch,
   type PullRequestHead,
+  type RunRecord,
   type RevisionStart,
   type RevisionState,
 } from '@forge/shared';
@@ -19,7 +20,8 @@ import {
 } from './config.ts';
 import { launchInCheckout } from './checkout-workload.ts';
 import { gitEnvironment } from './git.ts';
-import { revisionInstruction } from './harness.ts';
+import { revisionInstruction, type Worker } from './harness.ts';
+import { providerSpec } from './provider.ts';
 import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
@@ -57,6 +59,40 @@ const startRefusal = (start: Exclude<RevisionStart, { started: number }>): strin
 const stateOf = ({ run }: LaunchResult): Exclude<RevisionState, 'running'> =>
   run.status === 'success' ? 'ok' : run.status === 'running' ? 'error' : run.status;
 
+const notStartedRun = (
+  worker: Worker,
+  id: string,
+  at: string,
+  error: string,
+): RunRecord => ({
+  id,
+  worker: worker.name,
+  harness: worker.harness,
+  model: worker.model,
+  reasoningEffort: worker.reasoningEffort ?? null,
+  startTime: at,
+  endTime: at,
+  status: 'error',
+  costStatus: providerSpec(worker.provider).subscription ? 'subscription' : 'pending',
+  costUsd: 0,
+  costEstimated: false,
+  listPrice: null,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  transcriptRef: null,
+  sessionId: null,
+  error,
+  ticket: null,
+  aliveAt: null,
+  harnessStartTime: null,
+  timeoutSeconds: worker.timeoutSeconds ?? null,
+  maxCostUsd: worker.maxCostUsd ?? null,
+  exceededLimit: null,
+  counters: null,
+});
+
 export const main = async (
   argv: string[],
   env: NodeJS.ProcessEnv,
@@ -75,19 +111,38 @@ export const main = async (
   const repository = repositoryTriggeredBy(config.repositories, name, 'feedback');
   const worker = resolveWorker(config, repository.worker);
   const app = githubAppFromEnv(env, fetch);
-  const identity = await app.identity(repository.github);
-  const gitEnv = gitEnvironment(env, identity);
-  const token = (await app.mint(repository.github, 'write')).token;
-
-  const pullRequest = await queryPullRequestHead(fetch, token, repository.github, Number(number));
-  const refused = headRefusal(pullRequest);
-  if (refused !== null) {
-    console.error(`${name}#${pullRequest.number} cannot be revised: ${refused}`);
-    return 1;
-  }
 
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   try {
+    let prepared;
+    try {
+      const identity = await app.identity(repository.github);
+      const token = (await app.mint(repository.github, 'write')).token;
+      prepared = {
+        identity,
+        gitEnv: gitEnvironment(env, identity),
+        token,
+        pullRequest: await queryPullRequestHead(fetch, token, repository.github, Number(number)),
+      };
+    } catch (error) {
+      const at = now();
+      store.recordFailedRevision(
+        {
+          repository: name,
+          number: Number(number),
+          url: `https://github.com/${repository.github}/pull/${number}`,
+        },
+        notStartedRun(worker, randomUUID(), at, errorMessage(error)),
+      );
+      throw error;
+    }
+    const { identity, gitEnv, token, pullRequest } = prepared;
+    const refused = headRefusal(pullRequest);
+    if (refused !== null) {
+      console.error(`${name}#${pullRequest.number} cannot be revised: ${refused}`);
+      return 1;
+    }
+
     const revised = { repository: name, number: pullRequest.number, url: pullRequest.url };
     const runId = randomUUID();
     const startedAt = now();

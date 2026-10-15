@@ -12,6 +12,16 @@ const renderRunPullRequest = (revision: RevisionRecord | undefined): Rendered =>
     ? externalLink(revision.url, `PR #${revision.number}`)
     : html`PR #${revision.number}`}`;
 
+const revisionError = (run: RunRecord, revision: RevisionRecord | undefined): string | null =>
+  revision?.state === 'error' ? run.error : null;
+
+const renderStatusCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered => {
+  const error = revisionError(run, revision);
+  return error === null
+    ? renderStatus(run.status)
+    : html`${renderStatus(run.status)}<div class="mt-1 max-w-xs whitespace-normal wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`;
+};
+
 const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquivalent>): Rendered => {
   const equivalent = equivalents.get(run.id);
   if (!isSubscription(run) || equivalent === undefined) return renderRunCost(run);
@@ -143,10 +153,14 @@ const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined):
 
 const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
+const renderCardError = (error: string | null): Rendered =>
+  error === null ? '' : html`<div class="wrap-anywhere text-muted" data-run-error>${error}</div>`;
+
 const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>): Rendered =>
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
     <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime)}${renderStatus(run.status)}</div>
+    ${renderCardError(revisionError(run, revision))}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, revision)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">
@@ -202,7 +216,7 @@ export const renderList = (
                   (run) => html`<tr class="${ROW}" data-run="${run.id}">
                     <td class="${TD}">${renderTimestamp(run.startTime)}</td>
                     <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderTicketCell(run, revisions.get(run.id))}</td>
-                    <td class="${TD}">${renderStatus(run.status)}</td>
+                    <td class="${TD}">${renderStatusCell(run, revisions.get(run.id))}</td>
                     <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK}">${run.worker}</a></td>
                     <td class="${TD} wrap-anywhere text-muted">${run.model}</td>
                     <td class="${TD} whitespace-nowrap" data-effort>${configuredEffort(run)}</td>
