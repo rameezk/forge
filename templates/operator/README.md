@@ -660,7 +660,8 @@ use at most `forge.runtime.workload.memoryMax` of memory, 80% of the box's by
 default. Set it to a size such as `"6G"` or another percentage. A workload
 that reaches it does not stop: the kernel kills its largest process, in
 practice the command that ran away, and the agent sees that command exit with
-137 and is told to choose a narrower check. The box has no swap.
+137. The agent is told to stop and report a required command that is killed
+rather than substitute another check. The box has no swap.
 
 The limit is per workload. Workloads running at once, up to
 `dispatch.maxConcurrent` dispatches plus any scheduled ones, can together use
