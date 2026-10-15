@@ -22,11 +22,15 @@ const ago = (minutes: number): string => new Date(Date.now() - minutes * MINUTE)
 interface Author {
   login: string;
   type: 'User' | 'Bot';
+  association: string;
 }
 
-const PERSON: Author = { login: 'reviewer', type: 'User' };
-const FORGE: Author = { login: APP_SLUG, type: 'Bot' };
-const OTHER_BOT: Author = { login: 'dependabot', type: 'Bot' };
+const PERSON: Author = { login: 'reviewer', type: 'User', association: 'COLLABORATOR' };
+const OWNER: Author = { login: 'rameezk', type: 'User', association: 'OWNER' };
+const MEMBER: Author = { login: 'colleague', type: 'User', association: 'MEMBER' };
+const OUTSIDER: Author = { login: 'stranger', type: 'User', association: 'NONE' };
+const FORGE: Author = { login: APP_SLUG, type: 'Bot', association: 'NONE' };
+const OTHER_BOT: Author = { login: 'dependabot', type: 'Bot', association: 'NONE' };
 
 interface Review {
   author: Author;
@@ -83,12 +87,17 @@ const graphqlNode = (pull: FakePullRequest) => ({
   reviews: {
     nodes: pull.reviews.map((r) => ({
       author: actor(r.author),
+      authorAssociation: r.author.association,
       body: r.body,
       submittedAt: r.at,
       comments: { totalCount: r.inline },
     })),
   },
-  comments: { nodes: pull.comments.map((c) => ({ author: actor(c.author), createdAt: c.at })) },
+  comments: { nodes: pull.comments.map((c) => ({
+      author: actor(c.author),
+      authorAssociation: c.author.association,
+      createdAt: c.at,
+    })), },
 });
 
 const github = (pulls: () => FakePullRequest[]): typeof globalThis.fetch =>
@@ -244,6 +253,48 @@ test('given a watched pull request with only App replies, a bot review and an ap
       }),
     ]),
     [],
+  );
+});
+
+test('given a pull request and an outsider\'s review and comment, when sync and the pass run long past the quiet period, then no revision starts', async () => {
+  const setup = forge();
+  assert.deepEqual(
+    await setup.syncAndPass([
+      pullRequest(143, {
+        reviews: [review(ago(60), { author: OUTSIDER })],
+        comments: [comment(ago(60), OUTSIDER)],
+      }),
+    ]),
+    [],
+  );
+});
+
+test('given a collaborator\'s comment about to pass its quiet period, when an outsider comments before it does, then a revision starts once the collaborator\'s comment has been quiet for the quiet period', async () => {
+  const setup = forge();
+  assert.deepEqual(
+    await setup.syncAndPass([
+      pullRequest(143, { comments: [comment(ago(11)), comment(ago(2), OUTSIDER)] }),
+    ]),
+    [REVISE_UNIT],
+  );
+});
+
+test('given a review summary by an organisation member who is not a collaborator, when it has been quiet past the quiet period, then no revision starts', async () => {
+  const setup = forge();
+  assert.deepEqual(
+    await setup.syncAndPass([pullRequest(143, { reviews: [review(ago(60), { author: MEMBER })] })]),
+    [],
+  );
+});
+
+test('given a review summary by the owner or a conversation comment by a collaborator, when it has been quiet past the quiet period, then a revision starts', async () => {
+  assert.deepEqual(
+    await forge().syncAndPass([pullRequest(143, { reviews: [review(ago(60), { author: OWNER })] })]),
+    [REVISE_UNIT],
+  );
+  assert.deepEqual(
+    await forge().syncAndPass([pullRequest(143, { comments: [comment(ago(60))] })]),
+    [REVISE_UNIT],
   );
 });
 
