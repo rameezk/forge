@@ -56,6 +56,49 @@ const operatorChose = (details) => {
   return toggled.has(details);
 };
 
+const renderedControls = new WeakMap();
+
+const FORM_CONTROLS = 'input:not([type="file"]):not([type="hidden"]), select, textarea';
+
+const controlState = (control) => {
+  if (control.type === 'checkbox' || control.type === 'radio') return String(control.checked);
+  if (control.tagName === 'SELECT') return JSON.stringify([...control.selectedOptions].map((option) => option.value));
+  return control.value;
+};
+
+const restoreControl = (control, state) => {
+  if (control.type === 'checkbox') {
+    control.checked = state === 'true';
+  } else if (control.type === 'radio') {
+    if (state === 'true') control.checked = true;
+  } else if (control.tagName === 'SELECT') {
+    const chosen = JSON.parse(state);
+    const remaining = [...control.options].filter((option) => chosen.includes(option.value));
+    if (remaining.length === 0) return;
+    for (const option of control.options) option.selected = remaining.includes(option);
+  } else {
+    control.value = state;
+  }
+};
+
+const editedControls = () => {
+  const edits = new Map();
+  for (const control of document.querySelectorAll(FORM_CONTROLS)) {
+    const state = controlState(control);
+    if (renderedControls.has(control) && state !== renderedControls.get(control)) edits.set(control, state);
+  }
+  return edits;
+};
+
+const rememberControls = (edits = new Map()) => {
+  for (const control of document.querySelectorAll(FORM_CONTROLS)) {
+    renderedControls.set(control, controlState(control));
+    if (edits.has(control)) restoreControl(control, edits.get(control));
+  }
+};
+
+rememberControls();
+
 const scroller = document.scrollingElement;
 
 const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
@@ -86,6 +129,7 @@ const refresh = async () => {
   document.title = next.title;
   const following = newActivity !== null && atBottom();
   const length = transcriptLength();
+  const edits = editedControls();
   Idiomorph.morph(document.body, next.body, {
     morphStyle: 'innerHTML',
     callbacks: {
@@ -95,6 +139,7 @@ const refresh = async () => {
     },
   });
   rememberRendered();
+  rememberControls(edits);
   tick();
   if (following) {
     scrollToBottom();
