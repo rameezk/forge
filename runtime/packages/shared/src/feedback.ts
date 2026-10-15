@@ -356,17 +356,7 @@ const FEEDBACK_ANSWERS_QUERY = `
         reviews(last: 100) {
           nodes {
             url
-            reactions(content: THUMBS_UP, first: 100) {
-              nodes {
-                createdAt
-                reactor {
-                  __typename
-                  ... on Actor {
-                    login
-                  }
-                }
-              }
-            }
+            ...ThumbsUp
           }
         }
         reviewThreads(last: 100) {
@@ -379,17 +369,7 @@ const FEEDBACK_ANSWERS_QUERY = `
                   __typename
                   login
                 }
-                reactions(content: THUMBS_UP, first: 100) {
-                  nodes {
-                    createdAt
-                    reactor {
-                      __typename
-                      ... on Actor {
-                        login
-                      }
-                    }
-                  }
-                }
+                ...ThumbsUp
               }
             }
           }
@@ -403,17 +383,21 @@ const FEEDBACK_ANSWERS_QUERY = `
               __typename
               login
             }
-            reactions(content: THUMBS_UP, first: 100) {
-              nodes {
-                createdAt
-                reactor {
-                  __typename
-                  ... on Actor {
-                    login
-                  }
-                }
-              }
-            }
+            ...ThumbsUp
+          }
+        }
+      }
+    }
+  }
+
+  fragment ThumbsUp on Reactable {
+    reactions(content: THUMBS_UP, first: 100) {
+      nodes {
+        createdAt
+        reactor {
+          __typename
+          ... on Actor {
+            login
           }
         }
       }
@@ -446,6 +430,15 @@ interface FeedbackAnswersResponse {
 }
 
 const BOT_SUFFIX = '[bot]';
+
+const URL_CHARACTER = /[A-Za-z0-9_-]/;
+
+const mentions = (body: string, url: string): boolean => {
+  for (let at = body.indexOf(url); at !== -1; at = body.indexOf(url, at + 1)) {
+    if (!URL_CHARACTER.test(body[at + url.length] ?? '')) return true;
+  }
+  return false;
+};
 
 const botLoginOf = (name: string): string =>
   (name.endsWith(BOT_SUFFIX) ? name.slice(0, -BOT_SUFFIX.length) : name).toLowerCase();
@@ -491,7 +484,7 @@ export const queryUnansweredFeedback = async (
     const since = item.createdAt;
     const reacted = reactedBy(reactionsByUrl.get(item.url) ?? { nodes: [] }, since);
     const linked = linking.some(
-      ({ body, createdAt }) => body.includes(item.url) && instant(createdAt) > instant(since),
+      ({ body, createdAt }) => mentions(body, item.url) && instant(createdAt) > instant(since),
     );
     const replied =
       item.kind === 'inline review comment' &&

@@ -797,3 +797,25 @@ test('given a 👍 from forge\'s App made before the previous revision started, 
   assert.equal(code, 1);
   assert.deepEqual(revisions.map(({ reason }) => reason).slice(-1), ['unanswered']);
 });
+
+test('given forge\'s App commented with a URL that only starts with an unanswered item\'s URL, when the revision ends, then the item is still unanswered', async () => {
+  const { code, revisions } = await revise({
+    answers: feedbackAnswers({
+      comments: [
+        { ...conversationComment(), ...noReactions },
+        {
+          url: `${PULL_REQUEST_URL}#issuecomment-2`,
+          body: `Addressed ${COMMENT_URL}0`,
+          author: FORGE_APP,
+          createdAt: '2026-09-22T11:00:00Z',
+          ...noReactions,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(revisions.map(({ reason, detail }) => ({ reason, detail })), [
+    { reason: 'unanswered', detail: COMMENT_URL },
+  ]);
+});
