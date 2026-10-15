@@ -32,6 +32,24 @@ export const FORGE_LABELS: readonly LabelDefinition[] = [
   },
 ];
 
+export const STATUS_LABELS: readonly LabelDefinition[] = [
+  {
+    name: 'ready-for-refinement',
+    color: 'd4c5f9',
+    description: 'Waiting for refinement: the spec is not settled yet',
+  },
+  {
+    name: 'ready-for-human',
+    color: 'f9d0c4',
+    description: 'Ready, but needs a human to build it',
+  },
+  {
+    name: 'ready-for-agent',
+    color: 'c2e0c6',
+    description: 'Ready for an agent to build',
+  },
+];
+
 const requestRest = async (
   fetch: Fetch,
   token: string,
@@ -155,7 +173,7 @@ export const ensureLabels = async (
   token: string,
   github: string,
 ): Promise<void> => {
-  for (const label of FORGE_LABELS) {
+  for (const label of [...FORGE_LABELS, ...STATUS_LABELS]) {
     await ensureLabel(fetch, token, github, label);
   }
 };
