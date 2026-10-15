@@ -119,12 +119,18 @@ _Avoid_: failed attempt, try
 The commits on a dispatch's pull request authored by anyone other than forge's GitHub App (ADR-0051), as of the last time forge refreshed the pull request, which stops once it is merged or closed.
 
 **Feedback**:
-The reviews and conversation comments on a pull request authored by forge's GitHub App, written by anyone other than forge's App or a bot (ADR-0050).
+The reviews and conversation comments on a pull request authored by forge's GitHub App, written by anyone other than forge's App or a bot (ADR-0050). A review with no body and no inline comments is not feedback.
 _Avoid_: review, comments
 
 **Revision**:
 A workload forge runs against a pull request's new feedback, on the pull request's own branch. A pull request may have several (ADR-0050).
 _Avoid_: iteration, round, follow-up
+
+**Quiet period**:
+How long a pull request's newest feedback must have gone without more arriving before forge starts a revision for it, set by `forge.runtime.feedback.quietPeriod`. `forge-revise` skips it (ADR-0050).
+
+**Cursor**:
+The point in time a pull request's feedback has been consumed up to, set when a revision starts. Only feedback newer than it can start the next revision, so a failed revision is never retried automatically.
 
 **Queued**:
 A `ready-for-agent` ticket labelled `forge:ready` that still has open blockers, so it is not yet on the frontier. Forge's frontier snapshot keeps it beside the frontier, the Work page shows it as queued, and the first sync after its last blocker closes dispatches it.

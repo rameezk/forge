@@ -1,0 +1,181 @@
+import { pullRequestUrl, requestGraphql, type Fetch } from './frontier.ts';
+
+export const WATCHED_PAGE_SIZE = 50;
+
+const WATCHED_PULL_REQUESTS_QUERY = `
+  query WatchedPullRequests($owner: String!, $name: String!, $first: Int!, $after: String) {
+    repository(owner: $owner, name: $name) {
+      pullRequests(
+        first: $first
+        after: $after
+        states: OPEN
+        orderBy: { field: CREATED_AT, direction: ASC }
+      ) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          number
+          url
+          author {
+            __typename
+            login
+          }
+          closingIssuesReferences(first: 10) {
+            nodes {
+              number
+              repository {
+                nameWithOwner
+              }
+            }
+          }
+          reviews(last: 100) {
+            nodes {
+              author {
+                __typename
+                login
+              }
+              body
+              submittedAt
+              comments {
+                totalCount
+              }
+            }
+          }
+          comments(last: 100) {
+            nodes {
+              author {
+                __typename
+                login
+              }
+              createdAt
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface Actor {
+  __typename: string;
+  login: string;
+}
+
+interface WatchedNode {
+  number: number;
+  url: string;
+  author: Actor | null;
+  closingIssuesReferences: {
+    nodes: { number: number; repository: { nameWithOwner: string } }[];
+  };
+  reviews: {
+    nodes: {
+      author: Actor | null;
+      body: string;
+      submittedAt: string | null;
+      comments: { totalCount: number };
+    }[];
+  };
+  comments: { nodes: { author: Actor | null; createdAt: string }[] };
+}
+
+interface WatchedPage {
+  pullRequests: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: WatchedNode[];
+  };
+}
+
+interface WatchedResponse {
+  data?: { repository: WatchedPage | null };
+  errors?: { message: string }[];
+}
+
+export interface WatchedPullRequest {
+  number: number;
+  url: string;
+  closes: number[];
+  newestFeedbackAt: string | null;
+}
+
+const isPerson = (author: Actor | null): boolean => author === null || author.__typename !== 'Bot';
+
+const newest = (times: string[]): string | null =>
+  times.reduce<string | null>((latest, time) => (latest === null || time > latest ? time : latest), null);
+
+const newestFeedback = (node: WatchedNode): string | null =>
+  newest([
+    ...node.reviews.nodes.flatMap((review) =>
+      review.submittedAt !== null &&
+      isPerson(review.author) &&
+      (review.body.trim() !== '' || review.comments.totalCount > 0)
+        ? [review.submittedAt]
+        : [],
+    ),
+    ...node.comments.nodes.flatMap((comment) => (isPerson(comment.author) ? [comment.createdAt] : [])),
+  ]);
+
+const toWatched = (node: WatchedNode, github: string): WatchedPullRequest => ({
+  number: node.number,
+  url: pullRequestUrl(node.url),
+  closes: node.closingIssuesReferences.nodes
+    .filter((issue) => issue.repository.nameWithOwner.toLowerCase() === github.toLowerCase())
+    .map((issue) => issue.number),
+  newestFeedbackAt: newestFeedback(node),
+});
+
+const queryWatchedPage = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  after: string | null,
+): Promise<WatchedPage> => {
+  const response = await requestGraphql(fetch, token, WATCHED_PULL_REQUESTS_QUERY, github, {
+    first: WATCHED_PAGE_SIZE,
+    after,
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${github}`);
+  }
+  const { data, errors } = (await response.json()) as WatchedResponse;
+  if (errors !== undefined && errors.length > 0) {
+    throw new Error(
+      `GitHub rejected the pull request query for ${github}: ${errors.map((error) => error.message).join('; ')}`,
+    );
+  }
+  const repository = data?.repository;
+  if (repository === undefined || repository === null) {
+    throw new Error(`GitHub found no repository ${github}`);
+  }
+  return repository;
+};
+
+export const queryWatchedPullRequests = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  appLogin: string,
+): Promise<WatchedPullRequest[]> => {
+  const watched: WatchedPullRequest[] = [];
+  const cursors = new Set<string>();
+  let after: string | null = null;
+  do {
+    const { pullRequests } = await queryWatchedPage(fetch, token, github, after);
+    watched.push(
+      ...pullRequests.nodes
+        .filter(
+          ({ author }) =>
+            author?.__typename === 'Bot' && author.login.toLowerCase() === appLogin.toLowerCase(),
+        )
+        .map((node) => toWatched(node, github)),
+    );
+    after = pullRequests.pageInfo.hasNextPage ? pullRequests.pageInfo.endCursor : null;
+    if (after !== null && cursors.has(after)) {
+      throw new Error(`GitHub paging did not advance for ${github}`);
+    }
+    if (after !== null) cursors.add(after);
+  } while (after !== null);
+  return watched;
+};

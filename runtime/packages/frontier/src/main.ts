@@ -8,19 +8,24 @@ import {
   oldestFirst,
   queryFrontier,
   queryPullRequest,
+  queryWatchedPullRequests,
   reworkOf,
   settleRunningTickets,
   Store,
+  type BotIdentity,
   type Fetch,
   type InstallationTokens,
   type PullRequestSnapshot,
   type Ticket,
+  type WatchedPullRequest,
 } from '@forge/shared';
 import type { FrontierConfig } from './config.ts';
 
 type Poll = (github: string) => Promise<Ticket[]>;
 
 type PullRequestPoll = (github: string, number: number) => Promise<PullRequestSnapshot>;
+
+type WatchedPoll = (github: string) => Promise<WatchedPullRequest[]>;
 
 const readConfig = (env: NodeJS.ProcessEnv): FrontierConfig => {
   const configPath = env.FORGE_RUNTIME_CONFIG;
@@ -39,6 +44,20 @@ const pullRequestPolling =
   (tokens: InstallationTokens, fetch: Fetch): PullRequestPoll =>
   async (github, number) =>
     queryPullRequest(fetch, await tokens(github, 'read'), github, number);
+
+const BOT_SUFFIX = '[bot]';
+
+const watchedPolling =
+  (
+    tokens: InstallationTokens,
+    fetch: Fetch,
+    identity: (github: string) => Promise<{ name: string }>,
+  ): WatchedPoll =>
+  async (github) => {
+    const { name } = await identity(github);
+    const login = name.endsWith(BOT_SUFFIX) ? name.slice(0, -BOT_SUFFIX.length) : name;
+    return queryWatchedPullRequests(fetch, await tokens(github, 'read'), github, login);
+  };
 
 const refreshPullRequests = async (
   store: Store,
@@ -105,6 +124,7 @@ const sync = async (
   poll: Poll,
   pullRequest: PullRequestPoll,
   forgeEmail: (github: string) => Promise<string>,
+  watched: WatchedPoll,
   writes: GithubWrites | null,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
@@ -146,6 +166,14 @@ const sync = async (
         ))
       ) {
         failed = true;
+      }
+      if (on?.feedback !== undefined) {
+        try {
+          store.recordWatchedPullRequests(name, await watched(github));
+        } catch (error) {
+          console.error(`${name}: could not poll pull requests for feedback: ${errorMessage(error)}`);
+          failed = true;
+        }
       }
       if (writes === null) continue;
       try {
@@ -216,14 +244,22 @@ export const main = async (
   const config = readConfig(env);
   const tokens = installationTokens(env, fetch);
   const poll = polling(tokens, fetch);
-  let forgeEmail: Promise<string> | undefined;
+  const identities = new Map<string, Promise<BotIdentity>>();
+  const identity = (github: string): Promise<BotIdentity> => {
+    const known = identities.get(github);
+    if (known !== undefined) return known;
+    const fetched = appIdentity(env, fetch, github);
+    identities.set(github, fetched);
+    return fetched;
+  };
   return command === 'sync'
     ? sync(
         config,
         env,
         poll,
         pullRequestPolling(tokens, fetch),
-        (github) => (forgeEmail ??= appIdentity(env, fetch, github).then(({ email }) => email)),
+        async (github) => (await identity(github)).email,
+        watchedPolling(tokens, fetch, identity),
         githubWrites(config, tokens, fetch),
       )
     : list(config, poll);

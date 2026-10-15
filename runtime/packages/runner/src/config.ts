@@ -36,11 +36,21 @@ export const DEFAULT_MAX_CONCURRENT = 1;
 export const maxConcurrentOf = (config: RuntimeConfig): number =>
   config.dispatch?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
 
+export interface FeedbackConfig {
+  quietPeriodSeconds?: number;
+}
+
+export const DEFAULT_QUIET_PERIOD_SECONDS = 600;
+
+export const quietPeriodOf = (config: RuntimeConfig): number =>
+  config.feedback?.quietPeriodSeconds ?? DEFAULT_QUIET_PERIOD_SECONDS;
+
 export interface RuntimeConfig {
   harnesses: Record<string, HarnessConfig>;
   workers: Record<string, WorkerConfig>;
   repositories?: Record<string, RepositoryConfig>;
   dispatch?: DispatchConfig;
+  feedback?: FeedbackConfig;
 }
 
 const effortsOf = (harness: string): readonly string[] | undefined =>

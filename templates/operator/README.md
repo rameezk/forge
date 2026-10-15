@@ -487,8 +487,9 @@ queue a whole spec, label all of its tickets.
 dispatched workloads run at once across every repository, and tickets from the
 same repository may run in parallel. A ticket over the limit stays
 `forge:ready` until a pass after one of the running workloads finishes. The
-pass may start only `forge-dispatch@` units of repositories that declare a
-worker, which polkit allows the forge-runtime user and nothing else.
+pass may start only `forge-dispatch@` units of repositories that declare
+`on.ticket` and `forge-revise@` units of repositories that declare
+`on.feedback`, which polkit allows the forge-runtime user and nothing else.
 
 To dispatch a ticket straight away rather than waiting for the next sync, run:
 
@@ -563,7 +564,27 @@ forge.runtime.repositories.forge = {
 A host with a repository that declares `on.feedback` must provide
 `github_app_id` and `github_app_private_key`, as for `on.ticket`.
 
-To revise a pull request by hand, run:
+Feedback starts a revision without anyone running a command. Forge watches the
+open pull requests its App authored in repositories with `on.feedback`, drafts
+included: watching starts when the App opens the pull request, stops when it is
+merged or closed, and resumes if it is reopened. Feedback is a review or a
+conversation comment written by anyone other than the App or a bot; a review
+with no body and no inline comments is not feedback. Each frontier sync records
+feedback newer than the pull request's cursor, the newest feedback a revision
+started from, and the dispatch pass starts a revision once the newest new
+feedback has been quiet for `forge.runtime.feedback.quietPeriod` (default
+`"10min"`, a time span in the format of `workload.timeout`), a slot is free in
+the `dispatch.maxConcurrent` pool, and no workload is live on the pull request,
+the dispatch that opened it included. A review followed by a comment becomes
+one revision, and a revision therefore starts within roughly the quiet period
+plus the `frontier.pollInterval` of feedback being left.
+
+Feedback is consumed when a revision starts, so a failed revision is never
+retried automatically, and feedback that arrives during a revision waits for
+the next one. Leave new feedback to start another, or run `forge-revise`.
+
+To revise a pull request by hand, covering all feedback since the last
+successful revision and without waiting out the quiet period, run:
 
 ```bash
 just ssh sudo forge-revise forge 143

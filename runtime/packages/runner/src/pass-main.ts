@@ -1,8 +1,15 @@
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { errorMessage, oldestFirst, Store, ticketKey, type Ticket } from '@forge/shared';
-import { maxConcurrentOf, type RuntimeConfig } from './config.ts';
+import {
+  errorMessage,
+  oldestFirst,
+  Store,
+  ticketKey,
+  type RevisedPullRequest,
+  type Ticket,
+} from '@forge/shared';
+import { maxConcurrentOf, quietPeriodOf, type RuntimeConfig } from './config.ts';
 import { absolutePath, readRuntimeConfig, stateDirOf } from './workload.ts';
 
 const run = promisify(execFile);
@@ -15,6 +22,9 @@ interface Dispatchable extends Ticket {
 
 const declaresTicketWorker = ({ repositories = {} }: RuntimeConfig, name: string): boolean =>
   Object.hasOwn(repositories, name) && repositories[name]?.on?.ticket !== undefined;
+
+const declaresFeedbackWorker = ({ repositories = {} }: RuntimeConfig, name: string): boolean =>
+  Object.hasOwn(repositories, name) && repositories[name]?.on?.feedback !== undefined;
 
 const dispatchable = (
   config: RuntimeConfig,
@@ -36,8 +46,12 @@ const dispatchable = (
     )
     .toSorted(oldestFirst);
 
-const unitOf = ({ repository, number }: Dispatchable): string =>
-  `forge-dispatch@${repository}:${number}.service`;
+type Pending =
+  | ({ kind: 'dispatch' } & Dispatchable)
+  | ({ kind: 'revision' } & RevisedPullRequest);
+
+const unitOf = (pending: Pending): string =>
+  `forge-${pending.kind === 'dispatch' ? 'dispatch' : 'revise'}@${pending.repository}:${pending.number}.service`;
 
 export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<number> => {
   if (argv.length > 0) throw new Error(USAGE);
@@ -47,16 +61,23 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   let running: Set<string>;
   let live: number;
-  let candidates: Dispatchable[];
+  let candidates: Pending[];
   try {
+    const now = new Date().toISOString();
     running = new Set(
       store
-        .listDispatches(new Date().toISOString())
+        .listDispatches(now)
         .filter(({ state }) => state === 'running')
         .map(({ repository, number }) => ticketKey(repository, number)),
     );
-    live = store.liveWorkloads(new Date().toISOString());
-    candidates = dispatchable(config, store, running);
+    live = store.liveWorkloads(now);
+    candidates = [
+      ...store
+        .feedbackDue(now, quietPeriodOf(config))
+        .filter(({ repository }) => declaresFeedbackWorker(config, repository))
+        .map((pull): Pending => ({ kind: 'revision', ...pull })),
+      ...dispatchable(config, store, running).map((ticket): Pending => ({ kind: 'dispatch', ...ticket })),
+    ];
   } finally {
     store.close();
   }
@@ -69,13 +90,13 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   }
 
   let failed = false;
-  for (const ticket of candidates.slice(0, slots)) {
-    const unit = unitOf(ticket);
+  for (const pending of candidates.slice(0, slots)) {
+    const unit = unitOf(pending);
     try {
       await run(systemctl, ['start', '--no-block', '--no-ask-password', '--', unit], { env });
-      console.error(`${ticket.repository}#${ticket.number}: started ${unit}`);
+      console.error(`${pending.repository}#${pending.number}: started ${unit}`);
     } catch (error) {
-      console.error(`${ticket.repository}#${ticket.number}: could not start ${unit}: ${errorMessage(error)}`);
+      console.error(`${pending.repository}#${pending.number}: could not start ${unit}: ${errorMessage(error)}`);
       failed = true;
     }
   }

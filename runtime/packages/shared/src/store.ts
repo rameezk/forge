@@ -31,6 +31,7 @@ import type {
   NewGeneration,
   UnsettledGeneration,
 } from './generation.ts';
+import type { WatchedPullRequest } from './feedback.ts';
 import type { AttemptRevision, TicketAttempt } from './attempts.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
@@ -588,6 +589,25 @@ const CREATE_REVISIONS = `
   CREATE UNIQUE INDEX IF NOT EXISTS revisions_run ON revisions (run_id);
 `;
 
+const CREATE_FEEDBACK_WATCHES = `
+  CREATE TABLE IF NOT EXISTS feedback_watches (
+    repository TEXT NOT NULL,
+    number     INTEGER NOT NULL,
+    url        TEXT NOT NULL,
+    closes     TEXT NOT NULL,
+    cursor     TEXT,
+    newest     TEXT,
+    PRIMARY KEY (repository, number)
+  ) STRICT;
+`;
+
+type FeedbackWatchRow = {
+  repository: string;
+  number: number;
+  url: string;
+  closes: string;
+};
+
 const revisionFromRow = (row: RevisionRow): RevisionRecord => ({
   id: row.id,
   repository: row.repository,
@@ -853,6 +873,7 @@ export class Store {
     db.exec(CREATE_FRONTIER);
     db.exec(CREATE_DISPATCHES);
     db.exec(CREATE_REVISIONS);
+    db.exec(CREATE_FEEDBACK_WATCHES);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
   }
 
@@ -1553,6 +1574,12 @@ export class Store {
   pruneFrontier(declared: string[]): void {
     this.#db
       .prepare(
+        `DELETE FROM feedback_watches
+        WHERE repository NOT IN (SELECT value FROM json_each($declared))`,
+      )
+      .run({ declared: JSON.stringify(declared) });
+    this.#db
+      .prepare(
         `DELETE FROM frontier_repositories
         WHERE repository NOT IN (SELECT value FROM json_each($declared))`,
       )
@@ -1676,6 +1703,11 @@ export class Store {
       | undefined;
   }
 
+  #revisionLive(pullRequest: RevisedPullRequest, now: string): boolean {
+    const latest = this.#latestRevision(pullRequest);
+    return latest?.state === 'running' && latest.alive_at >= liveSince(now);
+  }
+
   #openingDispatchLive(
     pullRequest: RevisedPullRequest,
     tickets: readonly number[],
@@ -1704,7 +1736,7 @@ export class Store {
     let start: RevisionStart = { refused: 'revising' };
     this.#transaction(() => {
       const latest = this.#latestRevision(pullRequest);
-      if (latest?.state === 'running' && latest.alive_at >= liveSince(startedAt)) return;
+      if (this.#revisionLive(pullRequest, startedAt)) return;
       if (this.#openingDispatchLive(pullRequest, openedBy, startedAt)) {
         start = { refused: 'dispatching' };
         return;
@@ -1747,9 +1779,77 @@ export class Store {
           dispatch_id: opening?.id ?? null,
           now: startedAt,
         }) as { id: number };
+      this.#db
+        .prepare(
+          `INSERT INTO feedback_watches (repository, number, url, closes, cursor)
+          VALUES ($repository, $number, $url, $closes, $now)
+          ON CONFLICT (repository, number) DO UPDATE SET
+            cursor = $now,
+            newest = CASE
+              WHEN newest IS NOT NULL AND unixepoch(newest) > unixepoch($now) THEN newest
+            END`,
+        )
+        .run({
+          repository: pullRequest.repository,
+          number: pullRequest.number,
+          url: pullRequest.url,
+          closes: JSON.stringify(openedBy),
+          now: startedAt,
+        });
       start = { started: row.id };
     });
     return start;
+  }
+
+  recordWatchedPullRequests(repository: string, watched: readonly WatchedPullRequest[]): void {
+    this.#transaction(() => {
+      this.#db
+        .prepare(
+          `UPDATE feedback_watches SET newest = NULL
+          WHERE repository = $repository
+            AND number NOT IN (SELECT value FROM json_each($numbers))`,
+        )
+        .run({ repository, numbers: JSON.stringify(watched.map(({ number }) => number)) });
+      const upsert = this.#db.prepare(
+        `INSERT INTO feedback_watches (repository, number, url, closes, newest)
+        VALUES ($repository, $number, $url, $closes, $newest)
+        ON CONFLICT (repository, number) DO UPDATE SET
+          url = excluded.url,
+          closes = excluded.closes,
+          newest = CASE
+            WHEN excluded.newest IS NOT NULL
+              AND (cursor IS NULL OR unixepoch(excluded.newest) > unixepoch(cursor))
+            THEN excluded.newest
+          END`,
+      );
+      for (const pull of watched) {
+        upsert.run({
+          repository,
+          number: pull.number,
+          url: pull.url,
+          closes: JSON.stringify(pull.closes),
+          newest: pull.newestFeedbackAt,
+        });
+      }
+    });
+  }
+
+  feedbackDue(now: string, quietSeconds: number): RevisedPullRequest[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT repository, number, url, closes FROM feedback_watches
+        WHERE newest IS NOT NULL AND unixepoch(newest) <= unixepoch($now) - $quiet
+        ORDER BY unixepoch(newest), repository, number`,
+      )
+      .all({ now, quiet: quietSeconds }) as FeedbackWatchRow[];
+    return rows
+      .filter((row) => {
+        return (
+          !this.#revisionLive(row, now) &&
+          !this.#openingDispatchLive(row, JSON.parse(row.closes) as number[], now)
+        );
+      })
+      .map(({ repository, number, url }) => ({ repository, number, url }));
   }
 
   touchRevision(id: number, now: string): void {
