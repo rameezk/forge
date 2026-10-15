@@ -593,3 +593,23 @@ test('given a pull request with feedback and a bot user lookup that answers 401 
   assert.match(textOf(row), /error/);
   assert.match(textOf(row), /GitHub answered 401: Bad credentials/);
 });
+
+test('given a live revision of the pull request and a bot user lookup that answers 401, when forge-revise runs, then the live revision stays the latest and no failed revision is recorded over it', async () => {
+  const { code, revisions, runs } = await revise({
+    botLookupFails: true,
+    seed: (store) => {
+      const start = store.startRevision(
+        { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
+        [],
+        'earlier-run',
+        new Date().toISOString(),
+        10,
+      );
+      assert.ok('started' in start);
+    },
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(revisions.map(({ state }) => state), ['running']);
+  assert.deepEqual(runs, []);
+});

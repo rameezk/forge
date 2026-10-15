@@ -1868,6 +1868,7 @@ export class Store {
   recordFailedRevision(pullRequest: RevisedPullRequest, run: RunRecord): void {
     const at = run.startTime;
     this.#transaction(() => {
+      if (this.#revisionLive(pullRequest, at)) return;
       this.insertRun(run);
       this.#settleRun(run.id);
       this.#db

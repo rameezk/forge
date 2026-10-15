@@ -153,11 +153,14 @@ const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined):
 
 const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
+const renderCardError = (error: string | null): Rendered =>
+  error === null ? '' : html`<div class="wrap-anywhere text-muted" data-run-error>${error}</div>`;
+
 const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>): Rendered =>
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
     <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime)}${renderStatus(run.status)}</div>
-    ${revisionError(run, revision) === null ? '' : html`<div class="wrap-anywhere text-muted" data-run-error>${revisionError(run, revision)}</div>`}
+    ${renderCardError(revisionError(run, revision))}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, revision)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">
