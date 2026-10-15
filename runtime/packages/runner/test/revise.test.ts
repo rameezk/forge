@@ -13,8 +13,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, type RevisionRecord, type RunRecord } from '@forge/shared';
+import { createApp, FileTranscriptSource } from '@forge/frontend';
 import { main } from '../src/revise-main.ts';
 import { UNATTENDED_INSTRUCTION } from '../src/harness.ts';
+import { textOf } from '../../frontend/test/html.ts';
 import {
   APP_ID,
   fakeGithubApp,
@@ -168,6 +170,7 @@ interface Scenario {
   pullRequest?: PullRequestResponse;
   seed?: (store: Store) => void;
   maxConcurrent?: number;
+  botLookupFails?: boolean;
 }
 
 interface Outcome {
@@ -178,6 +181,8 @@ interface Outcome {
   complaints: string;
   pi: PiCall | null;
   gitConfig: Record<string, string>;
+  runsList: string;
+  thrown: string | null;
 }
 
 const gitConfigOf = (entries: Record<string, string>): Record<string, string> =>
@@ -188,6 +193,16 @@ const gitConfigOf = (entries: Record<string, string>): Record<string, string> =>
       [`GIT_CONFIG_VALUE_${index}`, value],
     ]),
   ]);
+
+const botLookupRejected =
+  (next: typeof globalThis.fetch): typeof globalThis.fetch =>
+  async (input, init) =>
+    /^\/users\/[^/]+(\[bot\]|%5Bbot%5D)$/.test(new URL(String(input)).pathname)
+      ? new Response(JSON.stringify({ message: 'Bad credentials' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })
+      : next(input, init);
 
 const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin =
@@ -244,6 +259,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   const complaints: string[] = [];
   const complain = console.error;
   console.error = (line: string) => complaints.push(line);
+  let thrown: string | null = null;
   const code = await main(
     ['forge', '143'],
     {
@@ -266,11 +282,16 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       OPENROUTER_BASE_URL: openRouter.baseUrl,
       ...gitConfig,
     },
-    routedThrough(app, fetch),
-  ).finally(() => {
-    console.error = complain;
-    return openRouter.close();
-  });
+    scenario.botLookupFails === true ? botLookupRejected(routedThrough(app, fetch)) : routedThrough(app, fetch),
+  )
+    .catch((error: unknown) => {
+      thrown = error instanceof Error ? error.message : String(error);
+      return 1;
+    })
+    .finally(() => {
+      console.error = complain;
+      return openRouter.close();
+    });
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
@@ -282,6 +303,17 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       complaints: complaints.join('\n'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
       gitConfig,
+      thrown,
+      runsList: await (
+        await createApp({
+          store,
+          transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
+          css: '',
+          logo: '',
+          idiomorph: '',
+          client: '',
+        }).request('/')
+      ).text(),
     };
   } finally {
     store.close();
@@ -543,4 +575,21 @@ test('given a revision whose window holds no feedback, when it runs, then pi nev
   assert.equal(pi, null);
   assert.deepEqual(runs, []);
   assert.deepEqual(revisions.map(({ state }) => state), ['ok']);
+});
+
+test('given a pull request with feedback and a bot user lookup that answers 401 Bad credentials, when forge-revise runs, then the runs list shows a failed revision for the pull request carrying the error', async () => {
+  const { code, thrown, pi, revisions, runs, runsList } = await revise({ botLookupFails: true });
+
+  assert.equal(code, 1);
+  assert.equal(thrown, 'GitHub answered 401: Bad credentials');
+  assert.equal(pi, null);
+  assert.deepEqual(revisions.map(({ repository, number, state }) => ({ repository, number, state })), [
+    { repository: 'forge', number: 143, state: 'error' },
+  ]);
+  assert.equal(runs[0]?.status, 'error');
+  assert.equal(runs[0]?.error, 'GitHub answered 401: Bad credentials');
+  const row = /<tr[^>]*data-run="[^"]*"[^>]*>[\s\S]*?<\/tr>/.exec(runsList)?.[0] ?? '';
+  assert.match(textOf(row), /forge PR #143/);
+  assert.match(textOf(row), /error/);
+  assert.match(textOf(row), /GitHub answered 401: Bad credentials/);
 });

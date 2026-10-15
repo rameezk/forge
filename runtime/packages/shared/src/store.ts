@@ -1726,6 +1726,19 @@ export class Store {
     });
   }
 
+  #openingDispatchId(pullRequest: RevisedPullRequest): number | null {
+    const opening = this.#db
+      .prepare(
+        `SELECT id FROM dispatches
+        WHERE repository = $repository AND pr_number = $number
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({ repository: pullRequest.repository, number: pullRequest.number }) as
+      | { id: number }
+      | undefined;
+    return opening?.id ?? null;
+  }
+
   feedbackCursor(pullRequest: RevisedPullRequest): string | null {
     const row = this.#db
       .prepare(`SELECT cursor FROM feedback_watches WHERE repository = $repository AND number = $number`)
@@ -1762,15 +1775,6 @@ export class Store {
           )
           .run({ id: latest.id, ended_at: startedAt });
       }
-      const opening = this.#db
-        .prepare(
-          `SELECT id FROM dispatches
-          WHERE repository = $repository AND pr_number = $number
-          ORDER BY id DESC LIMIT 1`,
-        )
-        .get({ repository: pullRequest.repository, number: pullRequest.number }) as
-        | { id: number }
-        | undefined;
       const row = this.#db
         .prepare(
           `INSERT INTO revisions (
@@ -1785,7 +1789,7 @@ export class Store {
           number: pullRequest.number,
           url: pullRequest.url,
           run_id: runId,
-          dispatch_id: opening?.id ?? null,
+          dispatch_id: this.#openingDispatchId(pullRequest),
           now: startedAt,
         }) as { id: number };
       this.#db
@@ -1859,6 +1863,30 @@ export class Store {
         );
       })
       .map(({ repository, number, url }) => ({ repository, number, url }));
+  }
+
+  recordFailedRevision(pullRequest: RevisedPullRequest, run: RunRecord): void {
+    const at = run.startTime;
+    this.#transaction(() => {
+      this.insertRun(run);
+      this.#settleRun(run.id);
+      this.#db
+        .prepare(
+          `INSERT INTO revisions (
+            repository, number, url, run_id, dispatch_id, state, started_at, alive_at, ended_at
+          ) VALUES (
+            $repository, $number, $url, $run_id, $dispatch_id, 'error', $at, $at, $at
+          )`,
+        )
+        .run({
+          repository: pullRequest.repository,
+          number: pullRequest.number,
+          url: pullRequest.url,
+          run_id: run.id,
+          dispatch_id: this.#openingDispatchId(pullRequest),
+          at,
+        });
+    });
   }
 
   touchRevision(id: number, now: string): void {
