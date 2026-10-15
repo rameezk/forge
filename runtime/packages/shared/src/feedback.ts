@@ -2,7 +2,7 @@ import { pullRequestUrl, requestGraphql, type Fetch } from './frontier.ts';
 
 export const WATCHED_PAGE_SIZE = 50;
 
-const WATCHED_PULL_REQUESTS_QUERY = `
+export const WATCHED_PULL_REQUESTS_QUERY = `
   query WatchedPullRequests($owner: String!, $name: String!, $first: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
       pullRequests(
@@ -188,7 +188,7 @@ export const queryWatchedPullRequests = async (
   return watched;
 };
 
-const FEEDBACK_WINDOW_QUERY = `
+export const FEEDBACK_WINDOW_QUERY = `
   query FeedbackWindow($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
       pullRequest(number: $number) {
@@ -349,7 +349,7 @@ export const queryFeedbackWindow = async (
   return items.sort((a, b) => instant(a.createdAt) - instant(b.createdAt));
 };
 
-const FEEDBACK_ANSWERS_QUERY = `
+export const FEEDBACK_ANSWERS_QUERY = `
   query FeedbackAnswers($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
       pullRequest(number: $number) {
@@ -361,7 +361,7 @@ const FEEDBACK_ANSWERS_QUERY = `
         }
         reviewThreads(last: 100) {
           nodes {
-            comments(first: 100) {
+            comments(first: 40) {
               nodes {
                 url
                 createdAt
@@ -391,13 +391,16 @@ const FEEDBACK_ANSWERS_QUERY = `
   }
 
   fragment ThumbsUp on Reactable {
-    reactions(content: THUMBS_UP, first: 100) {
-      nodes {
-        createdAt
-        reactor {
-          __typename
-          ... on Actor {
-            login
+    reactionGroups {
+      content
+      reactors(first: 100) {
+        edges {
+          reactedAt
+          node {
+            __typename
+            ... on Actor {
+              login
+            }
           }
         }
       }
@@ -405,22 +408,27 @@ const FEEDBACK_ANSWERS_QUERY = `
   }
 `;
 
-interface Reactions {
-  nodes: { createdAt: string; reactor: { __typename: string; login?: string } | null }[];
+interface ReactionGroup {
+  content: string;
+  reactors: {
+    edges: { reactedAt: string; node: { __typename: string; login?: string } | null }[];
+  };
 }
+
+type Reactions = ReactionGroup[];
 
 interface AnswerComment {
   url: string;
   createdAt: string;
   author: Actor | null;
-  reactions: Reactions;
+  reactionGroups: Reactions;
 }
 
 interface FeedbackAnswersResponse {
   data?: {
     repository: {
       pullRequest: {
-        reviews: { nodes: { url: string; reactions: Reactions }[] };
+        reviews: { nodes: { url: string; reactionGroups: Reactions }[] };
         reviewThreads: { nodes: { comments: { nodes: AnswerComment[] } }[] };
         comments: { nodes: (AnswerComment & { body: string })[] };
       } | null;
@@ -469,20 +477,30 @@ export const queryUnansweredFeedback = async (
   const isApp = (actor: { __typename: string; login?: string } | null): boolean =>
     actor !== null && actor.__typename === 'Bot' && actor.login?.toLowerCase() === app;
   const reactedBy = (reactions: Reactions, since: string): boolean =>
-    reactions.nodes.some(
-      ({ createdAt, reactor }) => isApp(reactor) && instant(createdAt) > instant(since),
+    reactions.some(
+      ({ content, reactors }) =>
+        content === 'THUMBS_UP' &&
+        reactors.edges.some(
+          ({ reactedAt, node }) => isApp(node) && instant(reactedAt) > instant(since),
+        ),
     );
   const reactionsByUrl = new Map<string, Reactions>([
-    ...pullRequest.reviews.nodes.map(({ url, reactions }): [string, Reactions] => [url, reactions]),
+    ...pullRequest.reviews.nodes.map(({ url, reactionGroups }): [string, Reactions] => [
+      url,
+      reactionGroups,
+    ]),
     ...pullRequest.reviewThreads.nodes.flatMap(({ comments }) =>
-      comments.nodes.map(({ url, reactions }): [string, Reactions] => [url, reactions]),
+      comments.nodes.map(({ url, reactionGroups }): [string, Reactions] => [url, reactionGroups]),
     ),
-    ...pullRequest.comments.nodes.map(({ url, reactions }): [string, Reactions] => [url, reactions]),
+    ...pullRequest.comments.nodes.map(({ url, reactionGroups }): [string, Reactions] => [
+      url,
+      reactionGroups,
+    ]),
   ]);
   const linking = pullRequest.comments.nodes.filter(({ author }) => isApp(author));
   const answered = (item: FeedbackItem): boolean => {
     const since = item.createdAt;
-    const reacted = reactedBy(reactionsByUrl.get(item.url) ?? { nodes: [] }, since);
+    const reacted = reactedBy(reactionsByUrl.get(item.url) ?? [], since);
     const linked = linking.some(
       ({ body, createdAt }) => mentions(body, item.url) && instant(createdAt) > instant(since),
     );

@@ -44,7 +44,7 @@ export const FRONTIER_QUERY = `
   }
 `;
 
-const LABELLED_QUERY = `
+export const LABELLED_QUERY = `
   query LabelledIssues($owner: String!, $name: String!, $label: String!, $first: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
       issues(
@@ -67,7 +67,7 @@ const LABELLED_QUERY = `
   }
 `;
 
-const TICKET_QUERY = `
+export const TICKET_QUERY = `
   query Ticket($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
       issue(number: $number) {
@@ -88,7 +88,7 @@ const TICKET_QUERY = `
   }
 `;
 
-const CLOSING_PULL_REQUESTS_QUERY = `
+export const CLOSING_PULL_REQUESTS_QUERY = `
   query ClosingPullRequests($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
       issue(number: $number) {
@@ -108,7 +108,7 @@ const CLOSING_PULL_REQUESTS_QUERY = `
   }
 `;
 
-const PULL_REQUEST_QUERY = `
+export const PULL_REQUEST_QUERY = `
   query PullRequest($owner: String!, $name: String!, $number: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
       pullRequest(number: $number) {
@@ -133,7 +133,7 @@ const PULL_REQUEST_QUERY = `
   }
 `;
 
-const PULL_REQUEST_HEAD_QUERY = `
+export const PULL_REQUEST_HEAD_QUERY = `
   query PullRequestHead($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
       pullRequest(number: $number) {

@@ -12,7 +12,9 @@
     "test:browser": "npm run test:browser -w @forge/frontend"
   },
   "devDependencies": {
+    "@octokit/graphql-schema": "^15.26.1",
     "@types/node": "^22.9.0",
+    "graphql": "^16.14.2",
     "typescript": "^5.6.0"
   }
 }
