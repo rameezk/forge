@@ -95,6 +95,10 @@ _Avoid_: skill invocation, skill call, skill use
 **Managed repository**:
 A repository forge is configured to run workloads against, carrying its own skills that orchestrate the work. Operators declare managed repositories in the runtime config, naming the worker that runs a repository's tickets with `on.ticket`; forge currently supports only those whose tickets are tracked as GitHub issues (ADR-0010).
 
+**Request**:
+Something someone wants done in a managed repository - a feature, a fix or a change - that has not yet been refined into a spec and tickets. On GitHub, a request is an open issue labelled `ready-for-refinement`, a label forge enforces (ADR-0068).
+_Avoid_: idea, draft, ticket
+
 **Ticket**:
 A unit of buildable work in a managed repository's tracker, sliced from a spec and carrying a status (`ready-for-agent`, `ready-for-human`, or done) and blocking edges to other tickets. On GitHub, a ticket is an issue: its status is a label, done means closed, and its edges are native issue dependencies.
 _Avoid_: issue (the tracker's container, not the concept), job, task
@@ -137,8 +141,16 @@ The time zone the dashboard shows times and days in, set by `forge.runtime.dashb
 _Avoid_: timezone, box timezone, local time
 
 **Queued**:
-A `ready-for-agent` ticket labelled `forge:ready` that still has open blockers, so it is not yet on the frontier. Forge's frontier snapshot keeps it beside the frontier, the Work page shows it as queued, and the first sync after its last blocker closes dispatches it.
+A `ready-for-agent` ticket labelled `forge:ready` that still has open blockers, so it is not yet on the frontier. Forge's frontier snapshot keeps it beside the frontier, the Board shows it as queued in its Blocked column, and the first sync after its last blocker closes dispatches it.
 _Avoid_: pending, waiting
+
+**Blocked**:
+A ticket with open blockers, whichever status it carries; a queued ticket is the blocked ticket forge will dispatch once its blockers close.
+_Avoid_: waiting, held
+
+**Board**:
+The dashboard's home page: a read-only kanban view of every managed repository's requests and tickets, one swimlane per repository and one column per stage from refinement to done. A person icon marks the columns where a human in the loop acts: refining, building a `ready-for-human` ticket, and reviewing.
+_Avoid_: Work page, frontier page, kanban
 
 **Operator**:
 A person who stands up and runs their own forge deployment - the reuser of forge, distinct from its author.
