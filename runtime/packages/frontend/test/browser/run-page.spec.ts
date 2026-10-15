@@ -81,6 +81,11 @@ test('given a workload with a long transcript, when its run page is opened at la
   const overflowOf = (selector: string) => page.locator(selector).evaluate((element) => (globalThis as unknown as Styled).getComputedStyle(element).overflowY);
   expect(await overflowOf('[data-widget-rows]')).toBe('auto');
   expect(await overflowOf('[data-figures]')).toBe('auto');
+
+  await page.setViewportSize({ width: 1280, height: 420 });
+  const figures = page.locator('[data-figures]');
+  expect(await figures.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  expect(await pageScrolls(page)).toEqual({ vertical: false, sideways: false });
 });
 
 test('given a finished workload, when its run page is opened at laptop width and at phone width, then Run details is open on the laptop and collapsed on the phone', async ({ dashboard, page }) => {
