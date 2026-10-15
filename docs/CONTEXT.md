@@ -130,6 +130,10 @@ _Avoid_: review, comments
 A workload forge runs against a pull request's new feedback, on the pull request's own branch. A pull request may have several (ADR-0050).
 _Avoid_: iteration, round, follow-up
 
+**Conflict resolution**:
+A workload forge runs on a pull request's own branch when GitHub reports the pull request as conflicting with the default branch, merging the default branch in. A pull request may have several (ADR-0069).
+_Avoid_: conflict, resolution, merge-up, rebase
+
 **Quiet period**:
 How long a pull request's newest feedback must have gone without more arriving before forge starts a revision for it, set by `forge.runtime.feedback.quietPeriod`. `forge-revise` skips it (ADR-0050).
 
