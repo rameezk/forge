@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workloads mockup</title>
+<style>
+:root {
+  --bg: #ECEFF4;
+  --surface: #FFFFFF;
+  --raised: #F5F7FA;
+  --line: #D8DEE9;
+  --fg: #2E3440;
+  --muted: #4C566A;
+  --accent-text: #AE4A0A;
+  --warning: #8A6512;
+  --warning-soft: #F8EED6;
+  --success: #3F6B2B;
+  --success-soft: #E4EEDC;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #2E3440; --surface: #3B4252; --raised: #434C5E; --line: #4C566A; --fg: #ECEFF4; --muted: #AEB7C7;
+    --accent-text: #F79A63; --warning: #EBCB8B; --warning-soft: #4B4843; --success: #A3BE8C; --success-soft: #3E4A42;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #2E3440; --surface: #3B4252; --raised: #434C5E; --line: #4C566A; --fg: #ECEFF4; --muted: #AEB7C7;
+  --accent-text: #F79A63; --warning: #EBCB8B; --warning-soft: #4B4843; --success: #A3BE8C; --success-soft: #3E4A42;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; }
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
+.gutter { padding-left: 16px; padding-right: 16px; }
+.nav { background: var(--surface); border-bottom: 1px solid var(--line); }
+.nav-inner { display: flex; align-items: center; gap: 20px; padding-block: 12px; }
+.brand { font-weight: 700; font-size: 16px; }
+.nav-links { display: flex; gap: 16px; color: var(--muted); }
+.nav-links [aria-current] { color: var(--fg); font-weight: 600; }
+.live { margin-left: auto; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+.main { padding-block: 24px 40px; display: flex; flex-direction: column; gap: 12px; }
+h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+.showing { margin: 0; font-size: 0.9rem; }
+.k { color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; vertical-align: middle; }
+.pill.running { background: var(--raised); color: var(--fg); }
+.pill.running::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.pill.success { background: var(--success-soft); color: var(--success); }
+.pill.revision { background: var(--warning-soft); color: var(--warning); }
+.table-card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th { text-align: left; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--raised); white-space: nowrap; }
+td { padding: 8px 12px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; vertical-align: middle; }
+tbody tr:first-child td { border-top: 0; }
+.num { text-align: right; }
+.nowrap { white-space: nowrap; }
+.started { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.cards { display: none; flex-direction: column; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem; }
+.card-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.card-start { display: inline-flex; align-items: center; gap: 8px; }
+.card-stats { margin: 0; display: grid; grid-template-columns: auto auto 1fr; gap: 4px 20px; border-top: 1px solid var(--line); padding-top: 8px; }
+.card-stats div { display: flex; flex-direction: column; gap: 2px; }
+.card-stats div:last-child { text-align: right; }
+.card-stats dt { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.card-stats dd { margin: 0; font-variant-numeric: tabular-nums; }
+@media (max-width: 639px) {
+  .cards { display: flex; }
+  .table-card { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="nav"><div class="nav-inner gutter">
+  <span class="brand">Forge</span>
+  <span class="nav-links"><span>Board</span><span aria-current="page">Workloads</span><span>Insights</span></span>
+  <span class="live">Live</span>
+</div></div>
+
+<div class="main gutter">
+  <h1>Workloads</h1>
+  <p class="showing">Showing 3 of 3 workloads, $1.84 billed</p>
+  <div class="table-card" id="table"></div>
+  <div class="cards" id="cards"></div>
+</div>
+
+<script>
+const RUNS = [
+  { started: '2026-10-16 14:40:43', revision: true, ticket: 447, pr: 489, status: 'running', worker: 'sonnet-builder', model: 'claude-sonnet-5-5', effort: 'medium', duration: '4m 12s / 2h', cache: '91.4%', cost: '$0.00' },
+  { started: '2026-10-16 14:38:02', revision: false, ticket: 460, status: 'running', worker: 'sonnet-builder', model: 'claude-sonnet-5-5', effort: 'medium', duration: '3m / 2h', cache: '92.9%', cost: '$0.00' },
+  { started: '2026-10-16 11:02:19', revision: false, ticket: 447, status: 'success', worker: 'sonnet-builder', model: 'claude-sonnet-5-5', effort: 'medium', duration: '38m', cache: '88.0%', cost: '$1.84' },
+];
+const issue = (n) => `https://github.com/rameezk/forge/issues/${n}`;
+const pull = (n) => `https://github.com/rameezk/forge/pull/${n}`;
+const started = (r) => `<span class="started"><span>${r.started}</span>${r.revision ? '<span class="pill revision">revision</span>' : ''}</span>`;
+const ticket = (r) => `<span class="k">forge</span> <a href="${issue(r.ticket)}">#${r.ticket}</a>${r.pr ? ` <span class="k">forge</span> <a href="${pull(r.pr)}">PR #${r.pr}</a>` : ''}`;
+const status = (r) => `<span class="pill ${r.status}">${r.status}</span>`;
+document.getElementById('table').innerHTML = `<table>
+  <thead><tr><th>Started</th><th>Ticket</th><th>Status</th><th>Worker</th><th>Model</th><th>Effort</th><th>Duration</th><th class="num">Cache hit</th><th class="num">Cost</th></tr></thead>
+  <tbody>${RUNS.map((r) => `<tr>
+    <td>${started(r)}</td>
+    <td class="nowrap">${ticket(r)}</td>
+    <td>${status(r)}</td>
+    <td class="nowrap"><a href="run.html">${r.worker}</a></td>
+    <td class="k">${r.model}</td>
+    <td class="nowrap">${r.effort}</td>
+    <td class="nowrap">${r.duration}</td>
+    <td class="num">${r.cache}</td>
+    <td class="num">${r.cost}</td>
+  </tr>`).join('')}</tbody>
+</table>`;
+document.getElementById('cards').innerHTML = RUNS.map((r) => `<article class="card">
+  <div class="card-row"><span class="card-start"><span>${r.started}</span>${r.revision ? '<span class="pill revision">revision</span>' : ''}</span>${status(r)}</div>
+  <div class="card-row"><span>${ticket(r)}</span><strong>${r.worker}</strong></div>
+  <div class="card-row"><span class="k">${r.model}</span><span>${r.effort}</span></div>
+  <dl class="card-stats">
+    <div><dt>Duration</dt><dd>${r.duration}</dd></div>
+    <div><dt>Cache hit</dt><dd>${r.cache}</dd></div>
+    <div><dt>Cost</dt><dd>${r.cost}</dd></div>
+  </dl>
+</article>`).join('');
+</script>
+</body>
+</html>
