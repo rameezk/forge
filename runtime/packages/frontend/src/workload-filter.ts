@@ -1,5 +1,5 @@
 import type { RunRecord, RunStatus } from '@forge/shared';
-import { nextDay, startOfDay } from './days.ts';
+import { dayRange, parseDay } from './days.ts';
 
 export const STATUSES: readonly RunStatus[] = ['running', 'success', 'error', 'interrupted', 'exceeded'];
 
@@ -13,10 +13,10 @@ export interface WorkloadFilter {
   to?: string;
 }
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-
 export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilter => {
   const status = STATUSES.find((candidate) => candidate === query['status']);
+  const from = parseDay(query['from']);
+  const to = parseDay(query['to']);
   const search = (query['search'] ?? '').trim().replace(/^#/, '');
   return {
     ...(status === undefined ? {} : { status }),
@@ -24,8 +24,8 @@ export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilt
     ...(query['worker'] ? { worker: query['worker'] } : {}),
     ...(query['repository'] ? { repository: query['repository'] } : {}),
     ...(query['model'] ? { model: query['model'] } : {}),
-    ...(DATE.test(query['from'] ?? '') ? { from: query['from']! } : {}),
-    ...(DATE.test(query['to'] ?? '') ? { to: query['to']! } : {}),
+    ...(from === undefined ? {} : { from }),
+    ...(to === undefined ? {} : { to }),
   };
 };
 
@@ -40,8 +40,7 @@ export const filterWorkloads = (
   timeZone: string,
   ignoreStatus = false,
 ): RunRecord[] => {
-  const startedFrom = filter.from === undefined ? undefined : startOfDay(filter.from, timeZone);
-  const startedBefore = filter.to === undefined ? undefined : startOfDay(nextDay(filter.to), timeZone);
+  const { startedFrom, startedBefore } = dayRange(filter.from, filter.to, timeZone);
   return runs.filter(
     (run) =>
       (ignoreStatus || filter.status === undefined || run.status === filter.status) &&
