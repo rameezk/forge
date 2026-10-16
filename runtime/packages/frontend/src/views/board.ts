@@ -124,6 +124,7 @@ const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: s
   return html`<section class="group border-t border-line" data-repository="${lane.repository}"${empty ? html` data-empty data-collapsed` : ''}${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
     <header data-lane-toggle role="button" tabindex="0" aria-expanded="${empty ? 'false' : 'true'}" class="flex cursor-pointer flex-wrap items-baseline gap-x-4 gap-y-1 px-3 py-2">
+      <span data-lane-chevron aria-hidden="true" class="inline-block w-3 shrink-0 rotate-90 text-center text-[0.65rem] text-muted transition-transform group-data-[collapsed]:rotate-0">▶</span>
       <h2 class="${SECTION_TITLE}">${lane.repository}</h2>
       ${isGithubRepository(lane.github)
         ? externalLink(`https://github.com/${lane.github}`, lane.github)

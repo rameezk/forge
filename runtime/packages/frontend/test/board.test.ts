@@ -362,6 +362,7 @@ test('given a repository with cards, when the Board is requested, then its lane 
   assert.match(header, /role="button"/);
   assert.match(header, /tabindex="0"/);
   assert.match(header, /aria-expanded="true"/);
+  assert.match(header, /<span[^>]*\sdata-lane-chevron[^>]*\saria-hidden="true"[^>]*>▶<\/span>/);
   assert.doesNotMatch(openingTag(lane), /data-empty/);
   assert.deepEqual(
     [...header.matchAll(/<span[^>]*data-lane-count="([^"]*)"[^>]*>([\s\S]*?)<\/span>/g)].map(([, key, text]) => [key, textOf(text ?? '')]),
