@@ -140,6 +140,10 @@ How long a pull request's newest feedback must have gone without more arriving b
 **Cursor**:
 The point in time a pull request's feedback has been consumed up to, set when a revision starts and put back when that revision does not end ok (ADR-0070). Only feedback newer than it can start the next revision, so a failed revision is never retried automatically.
 
+**Outcome**:
+What a dispatch, revision or conflict resolution achieved, with the reason when it did not succeed, as opposed to its run's status, which says only whether the harness finished cleanly. The dashboard shows the two side by side (ADR-0071).
+_Avoid_: result, run result
+
 **Display time zone**:
 The time zone the dashboard shows times and days in, set by `forge.runtime.dashboard.timeZone`. Only presentation uses it; the box and everything forge stores stay UTC (ADR-0067).
 _Avoid_: timezone, box timezone, local time
