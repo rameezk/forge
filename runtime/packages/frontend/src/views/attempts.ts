@@ -54,7 +54,7 @@ const renderRevisionFailure = ({ reason, detail }: RevisionRecord): Rendered => 
   return html`<p class="m-0 mt-1 max-w-64 text-xs break-all whitespace-pre-line text-muted" data-revision-failure>${text}</p>`;
 };
 
-const renderRevision = (timeZone: string, { revision, run }: AttemptRevision): HtmlEscapedString | Promise<HtmlEscapedString> =>
+const renderRevision = ({ revision, run }: AttemptRevision, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW}" data-revision="${run.id}">
     <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime, timeZone)}</a> <span class="text-muted">revision</span></td>
     <td class="${TD}"></td>
@@ -66,7 +66,7 @@ const renderRevision = (timeZone: string, { revision, run }: AttemptRevision): H
     <td class="${TD}"></td>
   </tr>`;
 
-const renderAttempt = (timeZone: string, attempt: TicketAttempt): HtmlEscapedString | Promise<HtmlEscapedString> => {
+const renderAttempt = (attempt: TicketAttempt, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { run, config, pullRequest } = attempt;
   return html`<tr class="${ROW}" data-attempt="${run.id}">
     <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime, timeZone)}</a></td>
@@ -81,7 +81,7 @@ const renderAttempt = (timeZone: string, attempt: TicketAttempt): HtmlEscapedStr
       : isGithubUrl(pullRequest.url)
         ? externalLink(pullRequest.url, `#${pullRequest.number}`)
         : html`#${pullRequest.number}`}</td>
-  </tr>${attempt.revisions.map((revision) => renderRevision(timeZone, revision))}`;
+  </tr>${attempt.revisions.map((revision) => renderRevision(revision, timeZone))}`;
 };
 
 export const renderTicketAttempts = (
@@ -107,7 +107,7 @@ export const renderTicketAttempts = (
                 <th class="${TH}">Pull request</th>
               </tr>
             </thead>
-            <tbody>${attempts.map((attempt) => renderAttempt(display.timeZone, attempt))}</tbody>
+            <tbody>${attempts.map((attempt) => renderAttempt(attempt, display.timeZone))}</tbody>
           </table>
         </div>`}`;
   return layout(`${ticket.repository} #${ticket.number}`, null, true, display, body);

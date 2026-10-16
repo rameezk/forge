@@ -484,7 +484,7 @@ in
       type = lib.types.str;
       default = "UTC";
       example = "Africa/Johannesburg";
-      description = "IANA time zone the dashboard shows every time in, including date filters and chart days. The box, the store and all time logic stay UTC; hovering a time on the dashboard still shows its exact UTC instant.";
+      description = "IANA time zone the dashboard shows every time in. Date filters and chart days stay UTC. The box, the store and all time logic stay UTC; hovering a time on the dashboard still shows its exact UTC instant.";
     };
 
     secretsFile = lib.mkOption {

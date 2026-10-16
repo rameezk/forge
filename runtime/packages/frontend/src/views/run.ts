@@ -82,11 +82,11 @@ const kindBadge = ({ kind }: GenerationRecord): Rendered =>
   kind === 'message' ? '' : html`<wbr><div>${KIND_BADGES[kind]}</div>`;
 
 const renderCall = (
-  timeZone: string,
   generation: GenerationRecord,
   miss: boolean,
   effort: string | undefined,
   subscription: boolean,
+  timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { usage } = generation;
   return html`<tr class="${miss ? 'bg-warning-soft' : ROW}" data-call${miss ? html` data-cache-miss` : ''}>
@@ -135,10 +135,10 @@ const renderCallsSummary = (calls: GenerationRecord[], misses: number, subscript
 };
 
 const renderCalls = (
-  timeZone: string,
   calls: GenerationRecord[],
   efforts: (string | undefined)[],
   subscription: boolean,
+  timeZone: string,
 ): Rendered => {
   if (calls.length === 0) return '';
   const misses = cacheMisses(calls);
@@ -160,7 +160,7 @@ const renderCalls = (
             <th class="${TH} text-right">${subscription ? 'List price' : 'Cost'}</th>
           </tr>
         </thead>
-        <tbody>${calls.map((call, index) => renderCall(timeZone, call, misses.has(call), efforts[index], subscription))}</tbody>
+        <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index], subscription, timeZone))}</tbody>
       </table>
     </div>
   </details>`;
@@ -399,7 +399,7 @@ export const renderDetail = (
         ${stopped !== '' ? stopped : renderRunError(run)}
         ${renderRunDetails(run, generations, revised, skillLoads, downloads, config)}
         ${renderContext(context)}
-        ${renderCalls(display.timeZone, calls, efforts, run.costStatus === 'subscription')}
+        ${renderCalls(calls, efforts, run.costStatus === 'subscription', display.timeZone)}
       </div>
       <div class="min-w-0 lg:min-h-0">${renderWidget(run, events, display.timeZone)}</div>
     </div>`;
