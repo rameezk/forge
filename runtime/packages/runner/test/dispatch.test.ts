@@ -461,6 +461,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     }
   }
 
+  const routed = routedThrough(app, github.fetch);
   let failure: unknown = null;
   const openRouter = await fakeOpenRouter(billedAt({}), scenario.models ?? null);
   const code = await main(
@@ -501,7 +502,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       }),
       ...scenario.env,
     },
-    scenario.rejectBotLookup === true ? rejectingBotLookup(routedThrough(app, github.fetch)) : routedThrough(app, github.fetch),
+    scenario.rejectBotLookup === true ? rejectingBotLookup(routed) : routed,
   )
     .catch((error: unknown) => {
       if (scenario.failing !== true) throw error;
@@ -2203,14 +2204,13 @@ test('given a forge:ready ticket and a GitHub that answers the bot user lookup w
 test('given a ticket whose latest dispatch is a failed start, when forge-dispatch fails to start it again several times, then the work page still shows one failed dispatch reading Did not start with the count, the time of the last one and the latest error', async () => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-dispatch-'));
   await dispatch({ stateDir, rejectBotLookup: true, failing: true, seed: polledTicket });
-  const page = async (): Promise<string> => workPage(stateDir);
-  assert.doesNotMatch(cardOf(await page(), 113).text, /times/);
+  assert.doesNotMatch(cardOf(await workPage(stateDir), 113).text, /times/);
 
   for (let attempt = 0; attempt < 2; attempt++) {
     await dispatch({ stateDir, rejectBotLookup: true, failing: true });
   }
 
-  const board = await page();
+  const board = await workPage(stateDir);
   const card = cardOf(board, 113);
   assert.equal(board.match(/data-ticket="113"/g)?.length, 1);
   assert.match(card.text, new RegExp(`Did not start \\(3 times, last \\S+(?: \\S+)? ago\\): ${BAD_CREDENTIALS}$`));
@@ -2227,6 +2227,7 @@ test('given a ticket whose latest dispatch is a failed start, when the cause is 
   const card = cardOf(await workPage(stateDir), 113);
   assert.equal(dispatches.length, 1);
   assert.notEqual(dispatches[0]?.reason, 'not-started');
+  assert.notEqual(dispatches[0]?.runId, null);
   assert.equal(dispatches[0]?.failedStarts, null);
   assert.doesNotMatch(card.text, /Did not start/);
   assert.match(card.html, /data-attempts/);

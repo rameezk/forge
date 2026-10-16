@@ -38,13 +38,16 @@ const FAILURE_LABEL: Record<DispatchFailure, string> = {
 const repeatedStart = ({ reason, failedStarts }: DispatchRecord): number | null =>
   reason === 'not-started' && failedStarts !== null && failedStarts > 1 ? failedStarts : null;
 
+const detailSuffix = ({ detail }: DispatchRecord): string =>
+  detail === null || detail.trim() === '' ? '' : `: ${detail}`;
+
 const failureText = (dispatch: DispatchRecord): string | null => {
   const { reason, detail } = dispatch;
   if (reason === null) return null;
   const times = repeatedStart(dispatch);
   const label = times === null ? FAILURE_LABEL[reason] : `${FAILURE_LABEL[reason]} (${times} times)`;
   if (reason === 'exceeded') return detail === null ? label : `${label} ${detail}`;
-  return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
+  return `${label}${detailSuffix(dispatch)}`;
 };
 
 const specTooltip = (parent: SpecRef | null): string | null => (parent === null ? null : `#${parent.number} ${parent.title}`);
@@ -70,8 +73,7 @@ const renderInReview = ({ dispatch, revising }: BoardCard): Rendered => {
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
   const times = repeatedStart(dispatch);
   const since = dispatch.endedAt ?? dispatch.startedAt;
-  const detail = dispatch.detail === null || dispatch.detail.trim() === '' ? '' : `: ${dispatch.detail}`;
-  return html`<p class="${FAILURE_LINE}" title="${text}">Did not start (${times} times, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${detail}</p>`;
+  return html`<p class="${FAILURE_LINE}" title="${text}">Did not start (${times} times, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${detailSuffix(dispatch)}</p>`;
 };
 
 const renderFailure = ({ dispatch }: BoardCard): Rendered => {
