@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run page mockup</title>
+<style>
+:root {
+  --bg: #ECEFF4;
+  --surface: #FFFFFF;
+  --raised: #F5F7FA;
+  --line: #D8DEE9;
+  --fg: #2E3440;
+  --muted: #4C566A;
+  --accent-text: #AE4A0A;
+  --warning: #8A6512;
+  --warning-soft: #F8EED6;
+  --success: #3F6B2B;
+  --code-bg: #ECEFF4;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #2E3440; --surface: #3B4252; --raised: #434C5E; --line: #4C566A; --fg: #ECEFF4; --muted: #AEB7C7;
+    --accent-text: #F79A63; --warning: #EBCB8B; --warning-soft: #4B4843; --success: #A3BE8C; --code-bg: #2E3440;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #2E3440; --surface: #3B4252; --raised: #434C5E; --line: #4C566A; --fg: #ECEFF4; --muted: #AEB7C7;
+  --accent-text: #F79A63; --warning: #EBCB8B; --warning-soft: #4B4843; --success: #A3BE8C; --code-bg: #2E3440;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; }
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
+.gutter { padding-left: 16px; padding-right: 16px; }
+.nav { background: var(--surface); border-bottom: 1px solid var(--line); }
+.nav-inner { display: flex; align-items: center; gap: 20px; padding-block: 12px; }
+.brand { font-weight: 700; font-size: 16px; }
+.nav-links { display: flex; gap: 16px; color: var(--muted); }
+.nav-links [aria-current] { color: var(--fg); font-weight: 600; }
+.live { margin-left: auto; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+.main { padding-block: 20px 40px; display: flex; flex-direction: column; gap: 16px; }
+.example { display: flex; align-items: center; gap: 8px; }
+.example-label { font-size: 12px; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-size: 13px; color: var(--muted); background: transparent; border: 0; padding: 5px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
+.run-head { display: grid; gap: 8px; }
+.back { margin: 0; font-size: 0.9rem; }
+h1 { margin: 0; font-size: 1.5rem; font-weight: 700; overflow-wrap: anywhere; }
+.summary { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; font-size: 0.9rem; }
+.summary .k { color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+.pill.running { background: var(--raised); color: var(--fg); }
+.pill.running::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.pill.revision { background: var(--warning-soft); color: var(--warning); }
+.revises { display: inline-flex; align-items: baseline; gap: 6px; }
+.split { display: grid; gap: 24px; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+.left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.tile-label { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.tile-value { margin: 0; font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tile-value.empty { font-weight: 400; font-style: italic; color: var(--muted); }
+.tile-sub { margin: 0; font-size: 0.95rem; color: var(--muted); }
+details.block { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+details.block > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px; padding: 10px 16px; }
+details.block > summary::-webkit-details-marker { display: none; }
+details.block > summary::before { content: "▶"; display: inline-block; width: 12px; font-size: 0.65rem; color: var(--muted); transition: transform 0.15s; text-align: center; flex-shrink: 0; }
+details.block[open] > summary::before { transform: rotate(90deg); }
+.section-title { font-size: 1.1rem; font-weight: 700; }
+.section-meta { font-size: 0.95rem; color: var(--muted); font-variant-numeric: tabular-nums; display: inline-flex; gap: 12px; flex-wrap: wrap; }
+.block-body { border-top: 1px solid var(--line); padding: 12px 16px; }
+.block-body > p { margin: 0; color: var(--muted); }
+dl.meta { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 24px; font-size: 0.9rem; align-items: baseline; }
+dl.meta dt { color: var(--muted); }
+dl.meta dd { margin: 0; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+dl.meta .k { color: var(--muted); }
+code { font-family: var(--mono); font-size: 0.85rem; font-weight: 600; }
+pre { margin: 0; font-family: var(--mono); font-size: 0.85rem; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code-bg); border-radius: 6px; padding: 10px 12px; }
+.transcript { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; min-width: 0; overflow: hidden; }
+.transcript-head { display: flex; align-items: baseline; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.transcript-head h2 { margin: 0; font-size: 1.1rem; font-weight: 700; }
+.t-row { display: grid; grid-template-columns: 4.5rem 5.5rem minmax(0, 1fr); gap: 12px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 0.9rem; }
+.t-row:first-of-type { border-top: 0; }
+.t-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.t-kind { color: var(--muted); font-weight: 600; }
+.t-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1023px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  dl.meta { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
+  dl.meta dd { margin-bottom: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { details.block > summary::before { transition: none; } }
+</style>
+</head>
+<body>
+<div class="nav"><div class="nav-inner gutter">
+  <span class="brand">Forge</span>
+  <span class="nav-links"><span>Board</span><span>Workloads</span><span>Insights</span></span>
+  <span class="live">Live</span>
+</div></div>
+
+<div class="main gutter">
+  <div class="example"><span class="example-label" id="ex-label">Example</span>
+    <div class="seg" role="group" aria-labelledby="ex-label">
+      <button type="button" id="ex-build" aria-pressed="true">First build</button>
+      <button type="button" id="ex-rev" aria-pressed="false">Revision</button>
+    </div>
+  </div>
+
+  <header class="run-head">
+    <p class="back"><a href="workloads.html">&larr; Workloads</a></p>
+    <h1>sonnet-builder</h1>
+    <p class="summary" id="summary"></p>
+  </header>
+
+  <div class="split">
+    <div class="left">
+      <div class="tiles" id="tiles"></div>
+
+      <details class="block" open>
+        <summary><span class="section-title">Run details</span></summary>
+        <div class="block-body"><dl class="meta" id="details"></dl></div>
+      </details>
+
+      <details class="block">
+        <summary><span class="section-title">System prompt</span></summary>
+        <div class="block-body"><pre>You are forge's builder. Work on the ticket you are given, test-first, in an isolated worktree, and open a pull request when the required checks pass.</pre></div>
+      </details>
+
+      <details class="block">
+        <summary><span class="section-title">Tools</span><span class="section-meta">12</span></summary>
+        <div class="block-body"><pre>Bash, Read, Edit, Write, Glob, Grep, WebFetch, Skill, Agent, TodoWrite, NotebookEdit, ToolSearch</pre></div>
+      </details>
+
+      <details class="block">
+        <summary><span class="section-title">Calls</span><span class="section-meta"><span>17 calls</span><span>$0.310783 list price</span><span>92.9% cache hit</span></span></summary>
+        <div class="block-body"><p>Per-call table, unchanged.</p></div>
+      </details>
+    </div>
+
+    <section class="transcript" aria-label="Transcript">
+      <div class="transcript-head"><h2>Transcript</h2><a href="#expand">Expand</a></div>
+      <div id="transcript"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const TRANSCRIPT = [
+  ['', 'tool', 'Bash for p in shared runner frontier; do (cd $p && echo ...'],
+  ['', 'tool', 'Bash cd /var/lib/forge/work/a14a3da8-c79f-46da-9d28-...'],
+  ['', 'tool', "Bash python3 - <<'E' import re p='shared/src/frontier.ts'..."],
+  ['14:42:34', 'assistant', 'Now fix the remaining two response interfaces and feed...'],
+  ['', 'tool', "Bash python3 - <<'E' p='shared/src/frontier.ts' s=open(p..."],
+  ['', 'tool', 'Bash sed -n 165,345p runner/test/revise.test.ts'],
+  ['', 'tool', 'Bash grep -n "errors\\|no such\\|found no" runner/test/...'],
+  ['', 'tool', 'Bash git fetch -q origin && git status -sb | head -3'],
+  ['14:41:14', 'assistant', 'Setting up the worktree and reading the tdd and commit ...'],
+  ['', 'tool', 'Bash gh issue view 460 --repo rameezk/forge --json titl...'],
+  ['', 'tool', 'Bash cat .tracker.toml; gh issue view 460 --comments'],
+  ['14:40:43', 'prompt', '/work-on https://github.com/rameezk/forge/issues/460'],
+];
+const EXAMPLES = {
+  build: { ticket: 460, revises: null, pr: null },
+  rev: { ticket: 447, revises: 489, pr: 489 },
+};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const pull = (n) => `https://github.com/rameezk/forge/pull/${n}`;
+const render = (ex) => {
+  const e = EXAMPLES[ex];
+  $('summary').innerHTML = `<span class="pill running">running</span>${e.revises ? `<span class="revises"><span class="pill revision">revision</span><span>revises <a href="${pull(e.revises)}">PR #${e.revises}</a></span></span>` : ''}<span><span class="k">forge</span> <a href="#ticket">#${e.ticket}</a> <a href="#attempts">All attempts</a></span><span>claude-sonnet-5-5</span><span><span class="k">effort</span> medium</span><span>2026-10-16 14:40:43</span>`;
+  const tile = (label, value, sub, empty) => `<div class="tile"><p class="tile-label">${label}</p><p class="tile-value${empty ? ' empty' : ''}">${value}</p>${sub ? `<p class="tile-sub">${sub}</p>` : ''}</div>`;
+  $('tiles').innerHTML = [
+    tile('Cost', '$0.00 / $10', '$0.310783 list price'),
+    tile('Duration', '3m / 2h'),
+    tile('Tokens', '34 in', '9,950 out'),
+    tile('Cache hit', '92.9%', '0 misses'),
+    tile('Tool calls', 'not recorded', '', true),
+    e.pr ? tile('Pull request', `<a href="${pull(e.pr)}">#${e.pr}</a>`, 'open') : tile('Pull request', 'none', '', true),
+  ].join('');
+  const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+  $('details').innerHTML = [
+    row('Harness', 'claude-code'),
+    row('Config', '<a href="#cohort">sonnet-5-5 · medium · prompt#24e0</a>'),
+    row('Forge', '57f3619'),
+    e.revises ? row('Revises', `<span class="k">forge</span><a href="${pull(e.revises)}">#${e.revises}</a>`) : '',
+    row('Providers', 'anthropic'),
+    row('Cache', '729,370 read / 55,311 write'),
+    row('List-price equivalent', '$0.310783 list price'),
+    row('Skills', '<code>work-on</code><span class="k">prompt</span>'),
+    row('Downloads', '<a href="#download">Transcript</a><a href="#download">Raw events</a><a href="#download">Request record</a>'),
+  ].join('');
+  $('transcript').innerHTML = TRANSCRIPT.map(([t, k, x]) => `<div class="t-row"><span class="t-time">${t}</span><span class="t-kind">${k}</span><span class="t-text">${esc(x)}</span></div>`).join('');
+};
+const press = (on, off) => { on.setAttribute('aria-pressed', 'true'); off.setAttribute('aria-pressed', 'false'); };
+$('ex-build').addEventListener('click', () => { press($('ex-build'), $('ex-rev')); render('build'); });
+$('ex-rev').addEventListener('click', () => { press($('ex-rev'), $('ex-build')); render('rev'); });
+render('build');
+</script>
+</body>
+</html>

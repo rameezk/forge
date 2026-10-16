@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board mockup</title>
+<style>
+:root {
+  --bg: #ECEFF4;
+  --surface: #FFFFFF;
+  --raised: #F5F7FA;
+  --line: #D8DEE9;
+  --fg: #2E3440;
+  --muted: #4C566A;
+  --accent-text: #AE4A0A;
+  --accent-soft: #FDE7DA;
+  --warning: #8A6512;
+  --warning-soft: #F8EED6;
+  --success: #3F6B2B;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #2E3440; --surface: #3B4252; --raised: #434C5E; --line: #4C566A; --fg: #ECEFF4; --muted: #AEB7C7;
+    --accent-text: #F79A63; --accent-soft: #4A3A35; --warning: #EBCB8B; --warning-soft: #4B4843; --success: #A3BE8C;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #2E3440; --surface: #3B4252; --raised: #434C5E; --line: #4C566A; --fg: #ECEFF4; --muted: #AEB7C7;
+  --accent-text: #F79A63; --accent-soft: #4A3A35; --warning: #EBCB8B; --warning-soft: #4B4843; --success: #A3BE8C;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; display: flex; flex-direction: column; }
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
+.gutter { padding-left: 16px; padding-right: 16px; }
+.nav { background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.nav-inner { display: flex; align-items: center; gap: 20px; padding-block: 12px; }
+.brand { font-weight: 700; font-size: 16px; }
+.nav-links { display: flex; gap: 16px; color: var(--muted); }
+.nav-links [aria-current] { color: var(--fg); font-weight: 600; }
+.live { margin-left: auto; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+.page { flex: 1; min-height: 0; padding-block: 24px 16px; display: flex; flex-direction: column; gap: 14px; }
+.title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+.title-end { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.control { display: flex; align-items: center; gap: 8px; }
+.control-label { font-size: 12px; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-size: 13px; color: var(--muted); background: transparent; border: 0; padding: 5px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--fg); font-weight: 600; }
+.slots { font-size: 13px; font-weight: 600; color: var(--warning); background: var(--warning-soft); border-radius: 999px; padding: 3px 10px; display: inline-flex; gap: 6px; align-items: center; }
+.slots::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.board { flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: auto; }
+.inner { min-width: 96rem; }
+.grid { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.heads { background: var(--raised); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--line); }
+.head { padding: 8px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; }
+.head-top { display: flex; align-items: center; gap: 4px; height: 16px; }
+.head-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.head-end { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.person { display: block; width: 12px; height: 12px; color: var(--accent-text); }
+.head-total { font-size: 12px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.head-sub { font-size: 11px; color: var(--muted); line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.head-sub[title] { text-decoration: underline dotted; text-decoration-color: var(--line); text-underline-offset: 3px; cursor: help; }
+.lane { border-top: 1px solid var(--line); }
+.lane:first-of-type { border-top: 0; }
+.lane-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding: 8px 12px; cursor: pointer; }
+.lane-head:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.chevron { align-self: center; display: inline-block; width: 12px; flex-shrink: 0; text-align: center; font-size: 0.65rem; line-height: 1; color: var(--muted); transform: rotate(90deg); transition: transform 0.15s; }
+.lane.collapsed .chevron { transform: rotate(0deg); }
+.lane-counts { display: none; flex-wrap: wrap; gap: 0 12px; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lane.collapsed .lane-counts { display: flex; }
+.lane.collapsed .lane-body { display: none; }
+@media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
+.lane-head h2 { margin: 0; font-size: 1.1rem; font-weight: 700; }
+.polled { margin-left: auto; font-size: 13px; color: var(--muted); }
+.group-head { display: flex; align-items: baseline; gap: 10px; padding: 6px 12px; border-top: 1px dashed var(--line); background: var(--bg); font-size: 13px; }
+.group-head .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.group-head .nospec { color: var(--muted); font-weight: 600; }
+.group-head .spec-title { font-weight: 600; }
+.col { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-left: 1px solid var(--line); min-height: 48px; min-width: 0; }
+.col:first-child { border-left: 0; }
+.card { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 8px; font-size: 14px; display: grid; gap: 4px; }
+.card p { margin: 0; }
+.num { font-variant-numeric: tabular-nums; }
+.num .att { margin-left: 6px; font-size: 12px; }
+.ttl { overflow-wrap: anywhere; line-height: 1.35; }
+.spec { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spec a { color: var(--muted); font-variant-numeric: tabular-nums; }
+.spec a:hover { color: var(--accent-text); }
+.meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+.pill.running { background: var(--raised); color: var(--fg); }
+.pill.running::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.pill.revising { background: var(--warning-soft); color: var(--warning); }
+.pill.queued { background: var(--accent-soft); color: var(--accent-text); }
+a.pill:hover { text-decoration: none; opacity: 0.85; }
+.elapsed { font-variant-numeric: tabular-nums; }
+.run-state { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.fail { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="nav"><div class="nav-inner gutter">
+  <span class="brand">Forge</span>
+  <span class="nav-links"><span aria-current="page">Board</span><span>Workloads</span><span>Insights</span></span>
+  <span class="live">Live</span>
+</div></div>
+
+<div class="page gutter">
+  <div class="title-row">
+    <h1>Board</h1>
+    <div class="title-end">
+      <div class="control"><span class="control-label" id="grp-label">Group by</span>
+        <div class="seg" role="group" aria-labelledby="grp-label">
+          <button type="button" id="grp-none" aria-pressed="true">None</button>
+          <button type="button" id="grp-spec" aria-pressed="false">Spec</button>
+        </div>
+      </div>
+      <span class="slots">Running 1 / 1</span>
+    </div>
+  </div>
+
+  <div class="board" id="board"><div class="inner" id="inner"></div></div>
+</div>
+
+<script>
+const PERSON = '<svg class="person" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Needs a human in the loop"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5z"/></svg>';
+const HUMAN = 'Needs a human in the loop';
+const COLUMNS = [
+  { key: 'to-refine', title: 'To refine', sub: HUMAN, person: true },
+  { key: 'blocked', title: 'Blocked', sub: 'Waiting on open blockers' },
+  { key: 'ready-for-human', title: 'Ready for human', sub: HUMAN, person: true },
+  { key: 'ready-for-agent', title: 'Ready for agent', sub: 'Not handed off yet', hint: 'Add forge:ready to hand off' },
+  { key: 'waiting-for-slot', title: 'Waiting for slot', sub: 'Handed off, waiting for a slot' },
+  { key: 'running', title: 'Running', sub: 'An agent is building it' },
+  { key: 'in-review', title: 'In review', sub: HUMAN, person: true },
+  { key: 'failed', title: 'Failed', sub: 'Agent run failed', hint: 'Set forge:ready to retry' },
+  { key: 'done', title: 'Done', sub: 'Closed in the last 7 days' },
+];
+const SPECS = {
+  440: 'Board as the home page',
+  455: 'Live dashboard updates',
+  470: 'Dispatch reliability',
+};
+const now = Date.now();
+const ago = (s) => new Date(now - s * 1000).toISOString();
+const LANES = [
+  { repo: 'forge', github: 'rameezk/forge', polled: '2026-10-16 14:42:19', tickets: [
+    { n: 498, t: 'Export a run transcript as Markdown', c: 'to-refine', date: '2026-10-16' },
+    { n: 412, t: 'Board column headers stay visible while scrolling', c: 'blocked', spec: 440, queued: true },
+    { n: 431, t: 'Rotate the GitHub App private key', c: 'ready-for-human', spec: 470, date: '2026-10-12' },
+    { n: 373, t: 'Live pages skip the refresh on connect when nothing changed', c: 'ready-for-agent', spec: 455, date: '2026-10-14' },
+    { n: 387, t: 'pi calls every model with the same effort', c: 'ready-for-agent', spec: 470, date: '2026-10-14' },
+    { n: 401, t: 'Board lanes remember their collapsed state', c: 'ready-for-agent', spec: 440, date: '2026-10-15' },
+    { n: 405, t: 'Insights cohort chart shows empty weeks', c: 'ready-for-agent', date: '2026-10-15' },
+    { n: 408, t: 'Live widget reconnects after the box sleeps', c: 'ready-for-agent', spec: 455, date: '2026-10-15' },
+    { n: 409, t: 'Dispatch skips tickets whose PR is already open', c: 'ready-for-agent', spec: 470, date: '2026-10-15' },
+    { n: 414, t: 'Board cards link to the spec issue', c: 'ready-for-agent', spec: 440, date: '2026-10-16' },
+    { n: 419, t: 'Runs list paginates past 200 runs', c: 'ready-for-agent', date: '2026-10-16' },
+    { n: 436, t: 'Board shows queued tickets in Blocked', c: 'waiting-for-slot', spec: 440 },
+    { n: 460, t: 'A GraphQL error reads as GitHub rejecting the query, not as a missing pull request', c: 'running', spec: 470, since: ago(102), attempts: true },
+    { n: 452, t: 'Board lanes collapse per repository', c: 'in-review', spec: 440, pr: 496, attempts: true },
+    { n: 447, t: 'Dispatch timeout counts from harness start', c: 'in-review', spec: 470, pr: 489, revising: ago(252), attempts: true },
+    { n: 439, t: 'Workloads page filters by workload', c: 'failed', fail: 'Run stopped at the 2h limit', attempts: true },
+    { n: 430, t: 'Dashboard times use the display time zone', c: 'done', spec: 455, date: '2026-10-15' },
+  ] },
+  { repo: 'rebind', github: 'rameezk/rebind.koplugin', polled: '2026-10-16 14:42:11', tickets: [] },
+  { repo: 'dotfiles', github: 'rameezk/dotfiles', polled: '2026-10-16 14:42:07', tickets: [
+    { n: 12, t: 'Pin nixpkgs for the work laptop', c: 'ready-for-agent', date: '2026-10-13' },
+    { n: 14, t: 'Move fish abbreviations into home-manager', c: 'ready-for-agent', date: '2026-10-16' },
+    { n: 9, t: 'Drop the unused tmux config', c: 'done', date: '2026-10-11' },
+  ] },
+];
+
+let grouped = false;
+const collapsed = new Set(LANES.filter((l) => l.tickets.length === 0).map((l) => l.repo));
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
+const issue = (repo, n) => `https://github.com/rameezk/${repo}/issues/${n}`;
+const fmt = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${r}s` : `${r}s`;
+};
+const timer = (since) => `<span class="elapsed" data-since="${since}">${fmt(Date.now() - Date.parse(since))}</span>`;
+
+const details = (lane, tk) => {
+  switch (tk.c) {
+    case 'blocked':
+      return `<p class="meta">${tk.queued ? '<span class="pill queued">queued</span>' : ''}blocked</p>`;
+    case 'running':
+      return `<p class="meta"><span class="run-state"><a class="pill running" href="#run">running</a>${timer(tk.since)}</span></p>`;
+    case 'in-review':
+      return `<p class="meta"><a href="https://github.com/${lane.github}/pull/${tk.pr}">PR #${tk.pr}</a>${tk.revising ? `<span class="run-state"><a class="pill revising" href="#run">revising</a>${timer(tk.revising)}</span>` : ''}</p>`;
+    case 'failed':
+      return `<p class="fail">${esc(tk.fail)}</p>`;
+    case 'waiting-for-slot':
+      return '';
+    default:
+      return tk.date ? `<p class="meta">${tk.date}</p>` : '';
+  }
+};
+
+const card = (lane, tk) => `<article class="card">
+  <p class="num"><a href="${issue(lane.repo, tk.n)}">#${tk.n}</a>${tk.attempts ? '<a class="att" href="#attempts">attempts</a>' : ''}</p>
+  <p class="ttl">${esc(tk.t)}</p>
+  ${!grouped && tk.spec ? `<p class="spec" title="#${tk.spec} ${esc(SPECS[tk.spec])}">&#8627; <a href="${issue(lane.repo, tk.spec)}">#${tk.spec}</a> ${esc(SPECS[tk.spec])}</p>` : ''}
+  ${details(lane, tk)}
+</article>`;
+
+const row = (lane, tickets) => `<div class="grid">${COLUMNS.map(({ key }) =>
+  `<div class="col">${tickets.filter((tk) => tk.c === key).map((tk) => card(lane, tk)).join('')}</div>`).join('')}</div>`;
+
+const groupsOf = (tickets) => {
+  const ids = [...new Set(tickets.filter((tk) => tk.spec).map((tk) => tk.spec))].sort((a, b) => a - b);
+  const groups = ids.map((id) => ({ id, tickets: tickets.filter((tk) => tk.spec === id) }));
+  const loose = tickets.filter((tk) => !tk.spec);
+  return loose.length ? [...groups, { id: null, tickets: loose }] : groups;
+};
+
+const plural = (n) => `${n} ticket${n === 1 ? '' : 's'}`;
+const groupHead = (lane, g) => g.id === null
+  ? `<div class="group-head"><span class="nospec">No spec</span><span class="count">${plural(g.tickets.length)}</span></div>`
+  : `<div class="group-head"><a class="num" href="${issue(lane.repo, g.id)}">#${g.id}</a><span class="spec-title">${esc(SPECS[g.id])}</span><span class="count">${plural(g.tickets.length)}</span></div>`;
+
+const render = () => {
+  const totals = Object.fromEntries(COLUMNS.map(({ key }) => [key, LANES.reduce((n, l) => n + l.tickets.filter((tk) => tk.c === key).length, 0)]));
+  const heads = `<div class="grid heads">${COLUMNS.map((col) => `<div class="head">
+    <div class="head-top"><span class="head-title">${col.title}</span><span class="head-end">${col.person ? PERSON : ''}<span class="head-total">${totals[col.key]}</span></span></div>
+    <span class="head-sub"${col.hint ? ` title="${col.hint}"` : ''}>${col.sub}</span>
+  </div>`).join('')}</div>`;
+  const counts = (lane) => {
+    const populated = COLUMNS.filter(({ key }) => lane.tickets.some((tk) => tk.c === key));
+    return populated.length === 0 ? '<span>Nothing in flight</span>' : populated.map(({ key, title }) => `<span>${title} ${lane.tickets.filter((tk) => tk.c === key).length}</span>`).join('');
+  };
+  const lanes = LANES.map((lane) => `<section class="lane${collapsed.has(lane.repo) ? ' collapsed' : ''}" data-repo="${lane.repo}">
+    <header class="lane-head" role="button" tabindex="0" aria-expanded="${!collapsed.has(lane.repo)}"><span class="chevron" aria-hidden="true">&#9654;</span><h2>${lane.repo}</h2><a href="https://github.com/${lane.github}">${lane.github}</a><span class="lane-counts">${counts(lane)}</span><span class="polled">Last polled ${lane.polled}</span></header>
+    <div class="lane-body">${grouped ? groupsOf(lane.tickets).map((g) => groupHead(lane, g) + row(lane, g.tickets)).join('') : row(lane, lane.tickets)}</div>
+  </section>`).join('');
+  document.getElementById('inner').innerHTML = heads + lanes;
+};
+
+const $ = (id) => document.getElementById(id);
+const press = (on, off) => { on.setAttribute('aria-pressed', 'true'); off.setAttribute('aria-pressed', 'false'); };
+$('grp-none').addEventListener('click', () => { grouped = false; press($('grp-none'), $('grp-spec')); render(); });
+$('grp-spec').addEventListener('click', () => { grouped = true; press($('grp-spec'), $('grp-none')); render(); });
+
+const toggleLane = (head) => {
+  const lane = head.closest('.lane');
+  const repo = lane.dataset.repo;
+  if (collapsed.has(repo)) collapsed.delete(repo); else collapsed.add(repo);
+  lane.classList.toggle('collapsed', collapsed.has(repo));
+  head.setAttribute('aria-expanded', String(!collapsed.has(repo)));
+};
+$('inner').addEventListener('click', (event) => {
+  const head = event.target.closest('.lane-head');
+  if (head && !event.target.closest('a')) toggleLane(head);
+});
+$('inner').addEventListener('keydown', (event) => {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('.lane-head')) { event.preventDefault(); toggleLane(event.target); }
+});
+
+render();
+setInterval(() => {
+  for (const el of document.querySelectorAll('[data-since]')) el.textContent = fmt(Date.now() - Date.parse(el.dataset.since));
+}, 1000);
+</script>
+</body>
+</html>
