@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
@@ -19,6 +19,8 @@ const TICKET_NUMBER = /^[1-9]\d*$/;
 const ATTEMPTS_PAGE = /^\/tickets\/[^/]+\/[1-9]\d*$/;
 
 const COHORT_PAGE = new RegExp(`^/cohorts/(?:${UNKNOWN_COHORT}|[0-9a-f]{64})(?:\\?.*)?$`);
+
+const VERSION_ATTRIBUTE = / data-version="[^"]*"/;
 
 const DETAIL_PAGE = /^\/runs\/([^/?]+)(?:\/transcript)?(?:\?.*)?$/;
 
@@ -69,6 +71,27 @@ export const createApp = ({
   };
   const display: Display = { assets, timeZone };
 
+  const watch = (page: string | undefined): (() => Check) | undefined => {
+    if (page === undefined) return undefined;
+    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page) || COHORT_PAGE.test(page)) return () => ({ version: String(store.dataVersion()), finished: false });
+    const runId = runOfDetailPage(page);
+    if (runId === undefined || store.getRun(runId) === undefined) return undefined;
+    return () => {
+      const run = store.getRun(runId);
+      const ref = run?.transcriptRef ?? null;
+      return {
+        version: JSON.stringify([store.dataVersion(), ref === null ? undefined : transcripts.size(ref)]),
+        finished: run !== undefined && isSettled(run),
+      };
+    };
+  };
+
+  const displayOf = (c: Context): Display => {
+    const { pathname, search } = new URL(c.req.url);
+    const version = watch(pathname + search)?.().version;
+    return version === undefined ? display : { ...display, version };
+  };
+
   const serveImmutable = (href: string, body: string, contentType: string): void => {
     app.get(href, (c) => {
       c.header('Cache-Control', 'public, max-age=31536000, immutable');
@@ -82,17 +105,19 @@ export const createApp = ({
   serveImmutable(assets.client, client, 'text/javascript; charset=utf-8');
 
   app.get('/', (c) => {
+    const shown = displayOf(c);
     const now = new Date().toISOString();
-    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, display));
+    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, shown));
   });
 
   app.get('/work', (c) => c.redirect('/'));
 
   app.get('/runs', (c) => {
+    const shown = displayOf(c);
     const revisions = new Map(
       store.listRevisions(new Date().toISOString()).map((revision) => [revision.runId, revision]),
     );
-    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), revisions, display));
+    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), revisions, shown));
   });
 
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -106,26 +131,32 @@ export const createApp = ({
   });
 
   app.get('/insights', (c) => {
+    const shown = displayOf(c);
     const filter = filterOf(c.req.query());
-    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), filter, store.insightsOptions(), display));
+    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), filter, store.insightsOptions(), shown));
   });
 
-  app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => (store.hasUnknownConfigRuns() ? c.html(renderUnknownCohortPage(display)) : c.notFound()));
+  app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => {
+    const shown = displayOf(c);
+    return store.hasUnknownConfigRuns() ? c.html(renderUnknownCohortPage(shown)) : c.notFound();
+  });
 
   app.get('/cohorts/:hash', (c) => {
+    const shown = displayOf(c);
     const hash = c.req.param('hash');
     const fingerprint = store.getCohortFingerprint(hash);
     if (fingerprint === null) return c.notFound();
     const againstHash = c.req.query('against') ?? '';
     const against = againstHash === hash ? null : store.getCohortFingerprint(againstHash);
-    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.listCohortFingerprints(), display));
+    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.listCohortFingerprints(), shown));
   });
 
   app.get('/tickets/:repository/:number', (c) => {
+    const shown = displayOf(c);
     const number = Number(c.req.param('number'));
     if (!TICKET_NUMBER.test(c.req.param('number')) || !Number.isSafeInteger(number)) return c.notFound();
     const ticket = { repository: c.req.param('repository'), number };
-    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket, new Date().toISOString()), display));
+    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket, new Date().toISOString()), shown));
   });
 
   const downloadable = (ref: string | null): ref is string =>
@@ -138,19 +169,21 @@ export const createApp = ({
   });
 
   app.get('/runs/:id', (c) => {
+    const shown = displayOf(c);
     const run = store.getRun(c.req.param('id'));
     if (run === undefined) return c.notFound();
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.revisedPullRequestOfRun(run.id), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), display));
+    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.revisedPullRequestOfRun(run.id), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), shown));
   });
 
   app.get('/runs/:id/transcript', (c) => {
+    const shown = displayOf(c);
     const run = store.getRun(c.req.param('id'));
     if (run === undefined) return c.notFound();
     const events = run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
-    return c.html(renderFullTranscript(run, events, store.listGenerations(run.id), store.listSkillLoads(run.id), parseTranscriptShow(c.req.query('show')), display));
+    return c.html(renderFullTranscript(run, events, store.listGenerations(run.id), store.listSkillLoads(run.id), parseTranscriptShow(c.req.query('show')), shown));
   });
 
   const serveDownload = (path: `/runs/:id/${string}`, refOf: (run: RunRecord) => string | null): void => {
@@ -172,33 +205,19 @@ export const createApp = ({
 
   const renderedHash = async (page: string): Promise<string> =>
     createHash('sha256')
-      .update(await (await app.request(page)).text())
+      .update((await (await app.request(page)).text()).replace(VERSION_ATTRIBUTE, ''))
       .digest('hex');
-
-  const watch = (page: string | undefined): (() => Check) | undefined => {
-    if (page === undefined) return undefined;
-    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page) || COHORT_PAGE.test(page)) return () => ({ version: String(store.dataVersion()), finished: false });
-    const runId = runOfDetailPage(page);
-    if (runId === undefined || store.getRun(runId) === undefined) return undefined;
-    return () => {
-      const run = store.getRun(runId);
-      const ref = run?.transcriptRef ?? null;
-      return {
-        version: JSON.stringify([store.dataVersion(), ref === null ? undefined : transcripts.size(ref)]),
-        finished: run !== undefined && isSettled(run),
-      };
-    };
-  };
 
   app.get('/events', (c) => {
     const page = c.req.query('page');
     const check = watch(page);
     if (page === undefined || check === undefined) return c.notFound();
+    const renderedVersion = c.req.query('version');
     return streamSSE(c, async (stream) => {
       const signal = () => stream.writeSSE({ event: 'change', data: page });
       let checked = check();
       let sent = await renderedHash(page);
-      await signal();
+      if (checked.version !== renderedVersion) await signal();
       while (!checked.finished) {
         await stream.sleep(checkIntervalMs);
         if (stream.aborted) return;

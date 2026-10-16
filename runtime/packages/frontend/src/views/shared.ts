@@ -37,6 +37,7 @@ export interface AssetHrefs {
 export interface Display {
   assets: AssetHrefs;
   timeZone: string;
+  version?: string;
 }
 
 const FOCUS_RINGS = '[&_:where(:focus-visible)]:outline-2 [&_:where(:focus-visible)]:outline-offset-2 [&_:where(:focus-visible)]:outline-accent';
@@ -87,6 +88,7 @@ const renderHeader = (
   current: Page | null,
   live: boolean,
   assets: AssetHrefs,
+  version: string | undefined,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
     <div class="mx-auto flex max-w-[100rem] items-center gap-6 px-4 py-2">
@@ -94,7 +96,7 @@ const renderHeader = (
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
       </nav>
-      ${live ? html`<span id="live" role="status" data-live hidden class="${LIVE_INDICATOR}"></span>` : ''}
+      ${live ? html`<span id="live" role="status" data-live${version === undefined ? '' : html` data-version="${version}"`} hidden class="${LIVE_INDICATOR}"></span>` : ''}
     </div>
   </header>`;
 
@@ -102,7 +104,7 @@ export const layout = (
   title: string,
   current: Page | null,
   live: boolean,
-  { assets, timeZone }: Display,
+  { assets, timeZone, version }: Display,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
   fitsViewport = false,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -118,7 +120,7 @@ export const layout = (
         <script src="${assets.client}" defer></script>
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${fitsViewport ? ' lg:flex lg:h-dvh lg:flex-col' : ''}">
-        ${renderHeader(current, live, assets)}
+        ${renderHeader(current, live, assets, version)}
         <main class="mx-auto w-full max-w-[100rem] px-4 ${fitsViewport ? 'py-8 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:py-4' : 'py-8'}">${body}</main>
         <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="mx-auto w-full max-w-[100rem] px-4 py-4">Times in ${timeZone}</div></footer>
       </body>

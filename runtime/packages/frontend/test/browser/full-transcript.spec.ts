@@ -56,10 +56,8 @@ const scrollsSideways = (page: Page): Promise<boolean> =>
   });
 
 const openLive = async (page: Page, path: string): Promise<void> => {
-  const caughtUp = page.waitForResponse((response) => response.request().resourceType() === 'fetch');
   await page.goto(path);
   await expect(page.getByRole('status')).toHaveText('Live');
-  await caughtUp;
 };
 
 test('given a run whose third tool call failed behind long failed messages, when the Errors filter is opened with that event\'s anchor, then the page scrolls to that event', async ({
