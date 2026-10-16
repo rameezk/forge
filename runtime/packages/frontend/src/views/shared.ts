@@ -1,10 +1,21 @@
 import { html } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type PullRequestState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type PullRequestState, type RevisionFailure, type RevisionRecord, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
 import { DEFAULT_EFFORT } from '../request-record.ts';
 
 export type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
+
+const REVISION_FAILURE_LABEL: Record<RevisionFailure, string> = {
+  unanswered: 'Unanswered',
+  crashed: 'Crashed',
+};
+
+export const revisionFailureText = ({ reason, detail }: RevisionRecord): string | null => {
+  if (reason === null) return null;
+  const label = REVISION_FAILURE_LABEL[reason];
+  return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
+};
 
 type Page = 'board' | 'runs' | 'insights';
 

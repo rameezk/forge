@@ -242,13 +242,14 @@ interface FeedbackAnswersRejection {
 
 interface Scenario {
   origin?: Origin;
-  feedback?: FeedbackWindowResponse;
+  feedback?: FeedbackWindowResponse | FeedbackAnswersRejection;
   answers?: FeedbackAnswersResponse | FeedbackAnswersRejection;
   prompt?: string;
   pullRequest?: PullRequestResponse;
   seed?: (store: Store) => void;
   maxConcurrent?: number;
   botLookupFails?: boolean;
+  piPackage?: string;
 }
 
 interface Outcome {
@@ -354,7 +355,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_PI_SUBAGENT_EXTENSION: PI_EXTENSIONS.subagent,
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: PI_EXTENSIONS.modelDefaultReasoning,
       FORGE_PI_REQUEST_RECORD_EXTENSION: PI_EXTENSIONS.requestRecord,
-      FORGE_PI_PACKAGE: lockedPiPackage(),
+      FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
       FORGE_BWRAP: writeFakeBwrap(stateDir, {
         record: join(stateDir, 'bwrap-call.json'),
         harnessEnv: { FAKE_PI_RECORD: record, FAKE_PI_OUTPUT: PI_OUTPUT },
@@ -756,18 +757,20 @@ test('given a revision handed an inline comment, a review summary and a conversa
 });
 
 test('given GitHub answers the answered check with errors and no pull request, when forge-revise runs and the worker succeeds, then the error says GitHub rejected the FeedbackAnswers query', async () => {
-  const { code, thrown } = await revise({
+  const { code, thrown, revisions } = await revise({
     answers: {
       data: { repository: { pullRequest: null } },
       errors: [{ message: "Field 'reactor' doesn't exist on type 'Reaction'" }],
     },
   });
 
+  const message =
+    "GitHub rejected the FeedbackAnswers query for rameezk/forge#143: Field 'reactor' doesn't exist on type 'Reaction'";
   assert.equal(code, 1);
-  assert.equal(
-    thrown,
-    "GitHub rejected the FeedbackAnswers query for rameezk/forge#143: Field 'reactor' doesn't exist on type 'Reaction'",
-  );
+  assert.equal(thrown, message);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'crashed', detail: message },
+  ]);
 });
 
 test('given GitHub answers the answered check with a complete answer and errors, when forge-revise runs and the worker succeeds, then the revision fails as rejected rather than using the data', async () => {
@@ -778,12 +781,41 @@ test('given GitHub answers the answered check with a complete answer and errors,
     },
   });
 
+  const message =
+    'GitHub rejected the FeedbackAnswers query for rameezk/forge#143: Something went wrong; Again';
   assert.equal(code, 1);
-  assert.equal(
-    thrown,
-    'GitHub rejected the FeedbackAnswers query for rameezk/forge#143: Something went wrong; Again',
-  );
-  assert.deepEqual(revisions.map(({ state }) => state), ['error']);
+  assert.equal(thrown, message);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'crashed', detail: message },
+  ]);
+});
+
+test('given GitHub rejects the feedback window query, when forge-revise runs, then no worker starts and the revision ends error as crashed with the message as detail', async () => {
+  const { code, thrown, pi, revisions } = await revise({
+    feedback: {
+      data: { repository: { pullRequest: null } },
+      errors: [{ message: 'Window query rejected' }],
+    },
+  });
+
+  const message = 'GitHub rejected the FeedbackWindow query for rameezk/forge#143: Window query rejected';
+  assert.equal(code, 1);
+  assert.equal(thrown, message);
+  assert.equal(pi, null);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'crashed', detail: message },
+  ]);
+});
+
+test('given launching the worker throws, when forge-revise runs, then the revision ends error as crashed with the message as detail', async () => {
+  const { code, thrown, pi, revisions } = await revise({ piPackage: join(tmpdir(), 'forge-missing-pi-package') });
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.notEqual(thrown, null);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'crashed', detail: thrown },
+  ]);
 });
 
 test('given GitHub answers the answered check with a null pull request and no errors, when forge-revise runs and the worker succeeds, then the error says GitHub found no pull request', async () => {

@@ -3,7 +3,7 @@ import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, 
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
-import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, NUMERIC_WRAPPING, layout } from './shared.ts';
+import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, revisionFailureText, NUMERIC_WRAPPING, layout } from './shared.ts';
 
 const renderRunPullRequest = (revision: RevisionRecord | undefined): Rendered =>
   revision === undefined
@@ -13,13 +13,13 @@ const renderRunPullRequest = (revision: RevisionRecord | undefined): Rendered =>
     : html`PR #${revision.number}`}`;
 
 const revisionError = (run: RunRecord, revision: RevisionRecord | undefined): string | null =>
-  revision?.state === 'error' ? run.error : null;
+  revision === undefined ? null : revisionFailureText(revision) ?? (revision.state === 'error' ? run.error : null);
 
 const renderStatusCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered => {
   const error = revisionError(run, revision);
   return error === null
     ? renderStatus(run.status)
-    : html`${renderStatus(run.status)}<div class="mt-1 max-w-xs whitespace-normal wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`;
+    : html`${renderStatus(run.status)}<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`;
 };
 
 const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquivalent>): Rendered => {
@@ -154,7 +154,7 @@ const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined):
 const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
 const renderCardError = (error: string | null): Rendered =>
-  error === null ? '' : html`<div class="wrap-anywhere text-muted" data-run-error>${error}</div>`;
+  error === null ? '' : html`<div class="whitespace-pre-line wrap-anywhere text-muted" data-run-error>${error}</div>`;
 
 const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered =>
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">

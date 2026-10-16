@@ -1,8 +1,8 @@
 import { html } from 'hono/html';
-import { isGithubUrl, type AttemptRevision, type RevisionFailure, type RevisionRecord, type RevisionState, type RunFingerprint, type RunCounters, type TicketAttempt } from '@forge/shared';
+import { isGithubUrl, type AttemptRevision, type RevisionRecord, type RevisionState, type RunFingerprint, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
-import { PULL_REQUEST_TONE, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
+import { PULL_REQUEST_TONE, revisionFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
 
 const FAILED_TONE = 'bg-error-soft text-error';
 
@@ -43,14 +43,9 @@ const REVISION_TONE: Record<RevisionState, string> = {
   interrupted: 'bg-warning-soft text-warning',
 };
 
-const REVISION_FAILURE_LABEL: Record<RevisionFailure, string> = {
-  unanswered: 'Unanswered',
-};
-
-const renderRevisionFailure = ({ reason, detail }: RevisionRecord): Rendered => {
-  if (reason === null) return '';
-  const label = REVISION_FAILURE_LABEL[reason];
-  const text = detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
+const renderRevisionFailure = (revision: RevisionRecord): Rendered => {
+  const text = revisionFailureText(revision);
+  if (text === null) return '';
   return html`<p class="m-0 mt-1 max-w-64 text-xs break-all whitespace-pre-line text-muted" data-revision-failure>${text}</p>`;
 };
 

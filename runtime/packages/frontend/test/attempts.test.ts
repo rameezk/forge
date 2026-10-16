@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fingerprintHash, Store } from '@forge/shared';
-import type { ConfigFingerprint, PullRequestState, RunRecord, RunStatus } from '@forge/shared';
+import type { ConfigFingerprint, PullRequestState, RevisionFailureRecord, RunRecord, RunStatus } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { textOf } from './html.ts';
 
@@ -276,7 +276,7 @@ const revise = (
   start: string,
   state: 'ok' | 'error',
   pullRequest = 9,
-  failure?: { reason: 'unanswered'; detail: string },
+  failure?: RevisionFailureRecord,
 ): void => {
   store.insertRun({
     ...runOf({ ...THREE[0]!, id: runId, start, seconds: 120, cost: 0.5 }),
@@ -340,6 +340,19 @@ test('given an attempt with a revision that failed as unanswered with a detail, 
     'error Unanswered: https://github.com/rameezk/forge/pull/9#issuecomment-1',
   );
   assert.equal(textOf(rows.get('rev-ok')!['outcome']!), 'ok');
+});
+
+test('given an attempt with a revision that crashed with a multi-line detail, when its attempts view is requested, then the revision shows the same Crashed: detail text as the workloads list', async () => {
+  const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
+  const detail = 'GitHub rejected the FeedbackAnswers query\nfor rameezk/forge#9: boom';
+  revise(store, 'rev-crashed', '2026-09-25T10:00:00.000Z', 'error', 9, { reason: 'crashed', detail });
+
+  const rows = revisionRows(await (await app.request('/tickets/forge/42')).text());
+
+  assert.equal(
+    textOf(rows.get('rev-crashed')!['outcome']!),
+    'error Crashed: GitHub rejected the FeedbackAnswers query for rameezk/forge#9: boom',
+  );
 });
 
 test('given a revision of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no revisions', async () => {

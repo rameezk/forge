@@ -178,6 +178,46 @@ test('given a run dispatched for a ticket and a run started by hand, when the li
   assert.match(body, /<th[^>]*>Ticket<\/th>/);
 });
 
+test('given a succeeded run whose revision crashed with a multi-line detail and an errored run whose revision has no reason, when the list is requested, then the first row shows its success pill with the Label: detail text under it and the second shows the run\'s own error', async () => {
+  const revised = (store: Store, runId: string, number: number, failure?: { reason: 'crashed'; detail: string }): void => {
+    const start = store.startRevision(
+      { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
+      [],
+      runId,
+      '2026-09-21T10:00:00.000Z',
+      10,
+    );
+    assert.ok('started' in start);
+    store.endRevision(start.started, 'error', '2026-09-21T10:03:20.000Z', failure);
+  };
+  const app = appWith(
+    [
+      sampleRun({ id: 'crashed', worker: 'reviser' }),
+      sampleRun({ id: 'reasonless', worker: 'reviser', status: 'error', error: 'harness exited' }),
+    ],
+    undefined,
+    (store) => {
+      revised(store, 'crashed', 143, { reason: 'crashed', detail: 'GitHub rejected the FeedbackAnswers query\nfor rameezk/forge#143: boom' });
+      revised(store, 'reasonless', 150);
+    },
+  );
+
+  const body = await (await app.request('/runs')).text();
+  const statusCell = (id: string): string =>
+    rowFor(body, id).match(/<td[^>]*>(?:(?!<\/td>)[\s\S])*data-status[\s\S]*?<\/td>/)?.[0] ?? 'missing';
+
+  assert.match(statusCell('crashed'), /\sdata-status="success"/);
+  assert.equal(
+    textOf(statusCell('crashed').match(/<div[^>]*\sdata-run-error[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
+    'Crashed: GitHub rejected the FeedbackAnswers query for rameezk/forge#143: boom',
+  );
+  assert.match(statusCell('reasonless'), /\sdata-status="error"/);
+  assert.equal(
+    textOf(statusCell('reasonless').match(/<div[^>]*\sdata-run-error[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
+    'harness exited',
+  );
+});
+
 test('given a revision that ended ok and one that ended in error, when the list is requested, then both rows show their repository and pull request linked to it, and their outcome', async () => {
   const revised = (store: Store, runId: string, number: number, state: 'ok' | 'error'): void => {
     const start = store.startRevision(
