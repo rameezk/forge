@@ -99,6 +99,48 @@ const rememberControls = (edits = new Map()) => {
 
 rememberControls();
 
+const LANE_KEY = (lane) => `forge:lane-collapsed:${lane.dataset.repository}`;
+
+const readLane = (lane) => {
+  try {
+    const stored = localStorage.getItem(LANE_KEY(lane));
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return lane.hasAttribute('data-empty');
+};
+
+const showLane = (lane, collapsed) => {
+  lane.toggleAttribute('data-collapsed', collapsed);
+  lane.querySelector('[data-lane-toggle]')?.setAttribute('aria-expanded', String(!collapsed));
+};
+
+const applyLanes = () => {
+  for (const lane of document.querySelectorAll('section[data-repository]')) showLane(lane, readLane(lane));
+};
+
+applyLanes();
+
+const toggleLane = (header) => {
+  const lane = header.closest('section[data-repository]');
+  const collapsed = !lane.hasAttribute('data-collapsed');
+  showLane(lane, collapsed);
+  try {
+    localStorage.setItem(LANE_KEY(lane), String(collapsed));
+  } catch {}
+};
+
+document.addEventListener('click', (event) => {
+  const header = event.target.closest?.('[data-lane-toggle]');
+  if (header !== null && header !== undefined && !event.target.closest('a')) toggleLane(header);
+});
+
+document.addEventListener('keydown', (event) => {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('[data-lane-toggle]')) {
+    event.preventDefault();
+    toggleLane(event.target);
+  }
+});
+
 const scroller = document.scrollingElement;
 
 const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
@@ -138,6 +180,7 @@ const refresh = async () => {
       beforeAttributeUpdated: (name, node) => !(name === 'open' && operatorChose(node)),
     },
   });
+  applyLanes();
   rememberRendered();
   rememberControls(edits);
   tick();

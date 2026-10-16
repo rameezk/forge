@@ -350,3 +350,31 @@ test('given no repositories and no configured limit, when the Board is requested
 
   assert.equal(textOf(header).replace(/\s+/g, ' ').trim(), 'Running 0 / 1');
 });
+
+test('given a repository with cards, when the Board is requested, then its lane header is a focusable expanded button carrying the non-zero column counts', async () => {
+  const app = appWith([
+    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets: [ticket({ number: 1 }), ticket({ number: 2 }), ticket({ number: 3, blocked: true })] },
+  ]);
+
+  const lane = laneOf(await (await app.request('/')).text(), 'forge');
+  const header = lane.match(/<header[^>]*\sdata-lane-toggle[^>]*>[\s\S]*?<\/header>/)?.[0] ?? '';
+
+  assert.match(header, /role="button"/);
+  assert.match(header, /tabindex="0"/);
+  assert.match(header, /aria-expanded="true"/);
+  assert.doesNotMatch(openingTag(lane), /data-empty/);
+  assert.deepEqual(
+    [...header.matchAll(/<span[^>]*data-lane-count="([^"]*)"[^>]*>([\s\S]*?)<\/span>/g)].map(([, key, text]) => [key, textOf(text ?? '')]),
+    [['blocked', 'Blocked 1'], ['ready-for-agent', 'Ready for agent 2']],
+  );
+});
+
+test('given a repository with nothing on the board, when the Board is requested, then its lane is marked empty and says it has nothing in flight', async () => {
+  const app = appWith([{ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets: [] }]);
+
+  const lane = laneOf(await (await app.request('/')).text(), 'forge');
+
+  assert.match(openingTag(lane), /data-empty/);
+  assert.match(lane, /data-lane-empty[^>]*>\s*Nothing in flight\s*</);
+  assert.doesNotMatch(lane, /data-lane-count/);
+});

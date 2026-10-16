@@ -77,3 +77,54 @@ test.describe('on a desktop screen', () => {
     });
   }
 });
+
+test.describe('lane collapsing', () => {
+  test.use({ viewport: { width: 1600, height: 800 } });
+
+  const seed = (store: Parameters<Parameters<typeof test>[2]>[0]['dashboard']['store'], tickets: ReturnType<typeof ticket>[]) =>
+    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', tickets });
+
+  test('given a lane with cards, when its header is clicked and later activated with Enter, then it collapses to its non-zero counts and expands again', async ({ dashboard, page }) => {
+    seed(dashboard.store, [ticket(1), ticket(2)]);
+    await page.goto('/');
+    const header = page.locator('[data-lane-toggle]');
+
+    await expect(page.locator('[data-ticket]:visible')).toHaveCount(2);
+    await header.click();
+    await expect(page.locator('[data-ticket]:visible')).toHaveCount(0);
+    await expect(header).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('[data-lane-count]')).toHaveText(['Ready for agent 2']);
+
+    await header.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-ticket]:visible')).toHaveCount(2);
+    await expect(header).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-lane-count]')).toBeHidden();
+
+    await page.keyboard.press('Space');
+    await expect(page.locator('[data-ticket]:visible')).toHaveCount(0);
+  });
+
+  test('given a collapsed lane, when the page reloads and a live update adds a ticket, then the lane stays collapsed', async ({ dashboard, page }) => {
+    seed(dashboard.store, [ticket(1)]);
+    await page.goto('/');
+    await page.locator('[data-lane-toggle]').click();
+
+    await page.reload();
+    await expect(page.locator('[data-lane-toggle]')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('[data-ticket]:visible')).toHaveCount(0);
+
+    seed(dashboard.store, [ticket(1), ticket(2)]);
+    await expect(page.locator('[data-lane-count]')).toHaveText(['Ready for agent 2']);
+    await expect(page.locator('[data-ticket]:visible')).toHaveCount(0);
+  });
+
+  test('given a repository with nothing on the board and no remembered state, when the Board loads, then its lane is collapsed and says it has nothing in flight', async ({ dashboard, page }) => {
+    seed(dashboard.store, []);
+    await page.goto('/');
+
+    await expect(page.locator('[data-lane-toggle]')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('[data-lane-empty]')).toBeVisible();
+    await expect(page.locator('[data-column="done"]')).toBeHidden();
+  });
+});
