@@ -29,8 +29,10 @@
 - CI is the full gate: it runs `make check-no-vm` and every NixOS VM test.
   Never run the full `make check-no-vm` locally. Run only the scoped commands
   for the areas you changed:
-  - a TypeScript package: `npm run typecheck` and `node --test` for that
-    package
+  - a TypeScript package under `runtime/packages`: run `npm ci` in `runtime/`
+    first if `runtime/node_modules` is missing, then `npm run typecheck` in
+    `runtime/` and `npm test` in that package's directory, which runs
+    `node --test` over its unit tests
   - OpenTofu: `tofu test`
   - repo and template scripts: the matching `tests/*.sh` script
   - a single nix check: `nix build .#checks.<system>.<check>`
