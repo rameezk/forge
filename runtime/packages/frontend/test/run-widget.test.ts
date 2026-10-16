@@ -94,7 +94,7 @@ test('given a transcript of messages, thinking and tool calls, when its run page
   assert.equal(textOf(okCall!), 'tool bash echo fine');
   assert.doesNotMatch(okCall!, /data-badge="error"/);
   assert.equal(textOf(thinking!), 'thinking Weighing the options');
-  assert.equal(textOf(message!), '10:00:05 UTC assistant Looking at the build.');
+  assert.equal(textOf(message!), '10:00:05 assistant Looking at the build.');
 });
 
 test('given a workload with a failed tool call, when the widget links are read, then Expand opens the full transcript, First error its errors filter and the failed row its event', async () => {

@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { isGithubUrl, type AttemptRevision, type RevisionFailure, type RevisionRecord, type RevisionState, type RunFingerprint, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
-import { PULL_REQUEST_TONE, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type AssetHrefs, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
+import { PULL_REQUEST_TONE, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
 
 const FAILED_TONE = 'bg-error-soft text-error';
 
@@ -54,9 +54,9 @@ const renderRevisionFailure = ({ reason, detail }: RevisionRecord): Rendered => 
   return html`<p class="m-0 mt-1 max-w-64 text-xs break-all whitespace-pre-line text-muted" data-revision-failure>${text}</p>`;
 };
 
-const renderRevision = ({ revision, run }: AttemptRevision): HtmlEscapedString | Promise<HtmlEscapedString> =>
+const renderRevision = (timeZone: string, { revision, run }: AttemptRevision): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW}" data-revision="${run.id}">
-    <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime)}</a> <span class="text-muted">revision</span></td>
+    <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime, timeZone)}</a> <span class="text-muted">revision</span></td>
     <td class="${TD}"></td>
     <td class="${TD}"></td>
     <td class="${TD}" data-field="outcome"><span class="${PILL} ${REVISION_TONE[revision.state]}" data-outcome="${revision.state}">${revision.state}</span>${renderRevisionFailure(revision)}</td>
@@ -66,10 +66,10 @@ const renderRevision = ({ revision, run }: AttemptRevision): HtmlEscapedString |
     <td class="${TD}"></td>
   </tr>`;
 
-const renderAttempt = (attempt: TicketAttempt): HtmlEscapedString | Promise<HtmlEscapedString> => {
+const renderAttempt = (timeZone: string, attempt: TicketAttempt): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { run, config, pullRequest } = attempt;
   return html`<tr class="${ROW}" data-attempt="${run.id}">
-    <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime)}</a></td>
+    <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime, timeZone)}</a></td>
     <td class="${TD}" data-field="cohort">${renderCohortLink(config?.hash ?? null, config?.fingerprint ?? null)}</td>
     <td class="${TD} whitespace-nowrap tabular-nums" data-field="base-commit">${renderBaseCommit(config)}</td>
     <td class="${TD}" data-field="outcome">${renderOutcome(attempt)}</td>
@@ -81,13 +81,13 @@ const renderAttempt = (attempt: TicketAttempt): HtmlEscapedString | Promise<Html
       : isGithubUrl(pullRequest.url)
         ? externalLink(pullRequest.url, `#${pullRequest.number}`)
         : html`#${pullRequest.number}`}</td>
-  </tr>${attempt.revisions.map(renderRevision)}`;
+  </tr>${attempt.revisions.map((revision) => renderRevision(timeZone, revision))}`;
 };
 
 export const renderTicketAttempts = (
   ticket: { repository: string; number: number },
   attempts: TicketAttempt[],
-  assets: AssetHrefs,
+  display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Board</a></p>
     <h1 class="${PAGE_TITLE} break-words">${ticket.repository} #${ticket.number}</h1>
@@ -107,8 +107,8 @@ export const renderTicketAttempts = (
                 <th class="${TH}">Pull request</th>
               </tr>
             </thead>
-            <tbody>${attempts.map(renderAttempt)}</tbody>
+            <tbody>${attempts.map((attempt) => renderAttempt(display.timeZone, attempt))}</tbody>
           </table>
         </div>`}`;
-  return layout(`${ticket.repository} #${ticket.number}`, null, true, assets, body);
+  return layout(`${ticket.repository} #${ticket.number}`, null, true, display, body);
 };

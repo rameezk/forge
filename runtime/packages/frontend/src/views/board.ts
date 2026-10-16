@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type SpecRef } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { buildLanes, COLUMNS, totals, type BoardCard, type BoardLane, type ColumnKey } from '../board.ts';
-import { type Rendered, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type AssetHrefs, PAGE_TITLE, layout } from './shared.ts';
+import { type Rendered, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'grid grid-cols-9';
 
@@ -68,7 +68,7 @@ const renderFailure = ({ dispatch }: BoardCard): Rendered => {
 const renderBlocked = ({ ticket }: BoardCard): Rendered =>
   html`<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}blocked</p>`;
 
-const renderDetails = (card: BoardCard): Rendered => {
+const renderDetails = (card: BoardCard, timeZone: string): Rendered => {
   switch (card.column) {
     case 'blocked':
       return renderBlocked(card);
@@ -79,11 +79,11 @@ const renderDetails = (card: BoardCard): Rendered => {
     case 'failed':
       return renderFailure(card);
     default:
-      return html`<p class="${MUTED_LINE}">${renderDate(card.ticket.createdAt)}</p>`;
+      return html`<p class="${MUTED_LINE}">${renderDate(card.ticket.createdAt, timeZone)}</p>`;
   }
 };
 
-const renderCard = (repository: string, card: BoardCard, attempted: ReadonlySet<string>): Rendered => {
+const renderCard = (repository: string, card: BoardCard, attempted: ReadonlySet<string>, timeZone: string): Rendered => {
   const { ticket } = card;
   const tooltip = specTooltip(ticket.parent);
   return html`<article data-ticket="${ticket.number}"${tooltip === null ? '' : html` title="${tooltip}"`} class="rounded-md border border-line bg-surface p-2 text-sm">
@@ -91,14 +91,14 @@ const renderCard = (repository: string, card: BoardCard, attempted: ReadonlySet<
       ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
       : ''}</p>
     <p class="m-0 mt-1 break-words">${ticket.title}</p>
-    ${renderDetails(card)}
+    ${renderDetails(card, timeZone)}
   </article>`;
 };
 
-const renderPolled = (polledAt: string | null): Rendered =>
+const renderPolled = (polledAt: string | null, timeZone: string): Rendered =>
   polledAt === null
     ? html`<span class="${POLLED}">Never polled</span>`
-    : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt)}</span>`;
+    : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt, timeZone)}</span>`;
 
 const PERSON_ICON = html`<svg data-person role="img" aria-label="A person acts here" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" class="text-accent-text"><title>A person acts here</title><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5z" /></svg>`;
 
@@ -110,7 +110,7 @@ const renderColumnHeaders = (counts: Record<ColumnKey, number>): Rendered =>
     </div>`,
   )}</div>`;
 
-const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>): HtmlEscapedString | Promise<HtmlEscapedString> =>
+const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<section class="border-t border-line" data-repository="${lane.repository}"${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
     <header class="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-3 py-2">
@@ -118,14 +118,14 @@ const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>): HtmlEscape
       ${isGithubRepository(lane.github)
         ? externalLink(`https://github.com/${lane.github}`, lane.github)
         : html`<span class="text-muted">${lane.github}</span>`}
-      ${renderPolled(lane.polledAt)}
+      ${renderPolled(lane.polledAt, timeZone)}
     </header>
     ${lane.lastError === null
       ? ''
-      : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt)}: ${lane.lastError.message}</p>`}
+      : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
     </div>
     <div class="${ROW_GRID}">${COLUMNS.map(
-      ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${lane.columns[key].map((card) => renderCard(lane.repository, card, attempted))}</div>`,
+      ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${lane.columns[key].map((card) => renderCard(lane.repository, card, attempted, timeZone))}</div>`,
     )}</div>
   </section>`;
 
@@ -134,7 +134,7 @@ export const renderBoard = (
   dispatches: DispatchRecord[],
   revisions: RevisionRecord[],
   attempted: ReadonlySet<string>,
-  assets: AssetHrefs,
+  display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions);
   const body = html`<h1 class="${PAGE_TITLE}">Board</h1>
@@ -143,8 +143,8 @@ export const renderBoard = (
       : html`<div data-board class="overflow-x-auto rounded-lg border border-line bg-surface">
           <div class="min-w-[96rem]">
             ${renderColumnHeaders(totals(lanes))}
-            ${lanes.map((lane) => renderLane(lane, attempted))}
+            ${lanes.map((lane) => renderLane(lane, attempted, display.timeZone))}
           </div>
         </div>`}`;
-  return layout('Board', 'board', true, assets, body);
+  return layout('Board', 'board', true, display, body);
 };

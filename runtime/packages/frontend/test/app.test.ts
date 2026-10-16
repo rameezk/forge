@@ -359,9 +359,9 @@ test('given a pending run billed $0.5 so far and an unconfirmed run, when each t
   assert.match(unconfirmed, /<span[^>]*\sdata-badge="unconfirmed"[^>]*\stitle="[^"]+"[^>]*>unconfirmed<\/span>/);
 });
 
-test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and its run page are requested, then both show the start as absolute UTC to the second with the ISO value as a tooltip', async () => {
+test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and its run page are requested, then both show the start to the second in the display time zone with the ISO value as a tooltip', async () => {
   const app = appWith([sampleRun({ id: 'run-01', startTime: '2026-09-28T14:43:24.584Z', transcriptRef: null })]);
-  const started = /^<time datetime="2026-09-28T14:43:24\.584Z" title="2026-09-28T14:43:24\.584Z"[^>]*>2026-09-28 14:43:24 UTC<\/time>$/;
+  const started = /^<time datetime="2026-09-28T14:43:24\.584Z" title="2026-09-28T14:43:24\.584Z"[^>]*>2026-09-28 14:43:24<\/time>$/;
 
   const list = await (await app.request('/runs')).text();
   const detail = await (await app.request('/runs/run-01')).text();
@@ -1247,7 +1247,7 @@ const messageCards = (body: string): string[] =>
 
 const metaOf = (card: string): string => card.match(/<span[^>]*\sdata-message-meta[^>]*>[\s\S]*?<\/span>\s*<\/header>/)?.[0] ?? '';
 
-test('given a transcript whose prompt and assistant messages carry their times and stop reasons, when the run page is viewed, then the prompt shows its time in UTC and each assistant message its time in UTC and stop reason, with the full time as a tooltip', async () => {
+test('given a transcript whose prompt and assistant messages carry their times and stop reasons, when the run page is viewed, then the prompt shows its time and each assistant message its time and stop reason, with the full time as a tooltip', async () => {
   const body = await viewTranscript([
     { type: 'message', role: 'user', text: 'run echo forge', timestamp: '2026-10-03T11:30:57.948Z', usage, generationId: null },
     { type: 'message', role: 'assistant', text: 'Let me look.', timestamp: '2026-10-03T11:30:58.077Z', stopReason: 'toolUse', usage, generationId: 'gen-1' },
@@ -1259,9 +1259,9 @@ test('given a transcript whose prompt and assistant messages carry their times a
 
   const [prompt, first, second] = messageCards(body) as [string, string, string];
   assert.match(prompt, /data-message="prompt"/);
-  assert.equal(textOf(metaOf(prompt)), '11:30:57 UTC');
-  assert.equal(textOf(metaOf(first)), '11:30:58 UTC · toolUse');
-  assert.equal(textOf(metaOf(second)), '11:30:58 UTC · stop');
+  assert.equal(textOf(metaOf(prompt)), '11:30:57');
+  assert.equal(textOf(metaOf(first)), '11:30:58 · toolUse');
+  assert.equal(textOf(metaOf(second)), '11:30:58 · stop');
   assert.match(metaOf(first), /<time datetime="2026-10-03T11:30:58\.077Z" title="2026-10-03T11:30:58\.077Z"[^>]*>/);
 });
 
@@ -1443,7 +1443,7 @@ test('given a subagent whose final message is its report and carries thinking, a
   const reports = group.match(/<article[^>]*\sdata-message="report"[\s\S]*?<\/article>/g) ?? [];
   assert.equal(reports.length, 1);
   const [report] = reports as [string];
-  assert.equal(textOf(metaOf(report)), '11:32:30 UTC · stop');
+  assert.equal(textOf(metaOf(report)), '11:32:30 · stop');
   assert.match(thinkingOf(report), /I should just say alpha\./);
 });
 

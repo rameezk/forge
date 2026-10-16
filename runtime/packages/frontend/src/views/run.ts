@@ -5,7 +5,7 @@ import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, format
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type AssetHrefs, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
 import { renderWidget } from './widget.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -13,8 +13,8 @@ export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boole
 
 const WARNING_CALLOUT = `${CALLOUT} bg-warning-soft text-warning`;
 
-const renderClock = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<time datetime="${iso}" title="${iso}">${formatTime(iso)}</time>`;
+const renderClock = (iso: string, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<time datetime="${iso}" title="${iso}">${formatTime(iso, timeZone)}</time>`;
 
 const renderCache = (run: RunRecord): Rendered =>
   run.cacheReadTokens === null || run.cacheWriteTokens === null
@@ -82,6 +82,7 @@ const kindBadge = ({ kind }: GenerationRecord): Rendered =>
   kind === 'message' ? '' : html`<wbr><div>${KIND_BADGES[kind]}</div>`;
 
 const renderCall = (
+  timeZone: string,
   generation: GenerationRecord,
   miss: boolean,
   effort: string | undefined,
@@ -89,7 +90,7 @@ const renderCall = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { usage } = generation;
   return html`<tr class="${miss ? 'bg-warning-soft' : ROW}" data-call${miss ? html` data-cache-miss` : ''}>
-    <td class="${TD} whitespace-nowrap" data-time>${renderClock(generation.createdAt)}${kindBadge(generation)}</td>
+    <td class="${TD} whitespace-nowrap" data-time>${renderClock(generation.createdAt, timeZone)}${kindBadge(generation)}</td>
     <td class="${TD} whitespace-nowrap" data-provider>${generation.provider ?? ''}</td>
     <td class="${TD} wrap-anywhere" data-served-model>${generation.servedModel ?? ''}</td>
     <td class="${TD} whitespace-nowrap" data-effort>${effort ?? ''}</td>
@@ -134,6 +135,7 @@ const renderCallsSummary = (calls: GenerationRecord[], misses: number, subscript
 };
 
 const renderCalls = (
+  timeZone: string,
   calls: GenerationRecord[],
   efforts: (string | undefined)[],
   subscription: boolean,
@@ -158,7 +160,7 @@ const renderCalls = (
             <th class="${TH} text-right">${subscription ? 'List price' : 'Cost'}</th>
           </tr>
         </thead>
-        <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index], subscription))}</tbody>
+        <tbody>${calls.map((call, index) => renderCall(timeZone, call, misses.has(call), efforts[index], subscription))}</tbody>
       </table>
     </div>
   </details>`;
@@ -329,14 +331,14 @@ const renderTiles = (
     ${renderTile('pull-request', 'Pull request', pullRequest === null ? html`<span class="text-muted">none</span>` : renderPullRequestValue(pullRequest))}
   </div>`;
 
-const renderSummary = (run: RunRecord, effort: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
+const renderSummary = (run: RunRecord, effort: string, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
     ${renderStatus(run.status)}
     ${run.ticket === null
       ? html`<span class="text-muted">manual</span>`
       : html`<span class="flex flex-wrap items-baseline gap-x-3">${renderRunTicket(run.ticket)}${renderAttemptsLink(run.ticket, 'All attempts')}</span>`}
     <span class="break-words">${run.model}</span>
     <span><span class="text-muted">effort</span> <span data-summary-effort>${effort}</span></span>
-    ${renderTimestamp(run.startTime)}
+    ${renderTimestamp(run.startTime, timeZone)}
   </p>`;
 
 const renderRunError = (run: RunRecord): Rendered => {
@@ -382,7 +384,7 @@ export const renderDetail = (
   skillLoads: RunSkillLoad[],
   downloads: Downloads,
   config: RunFingerprint | null,
-  assets: AssetHrefs,
+  display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
   const stopped = renderExceeded(run);
@@ -392,14 +394,14 @@ export const renderDetail = (
       <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
         <p class="m-0 mb-4 text-[0.9rem]"><a href="/runs" class="${LINK}">&larr; Workloads</a></p>
         <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
-        ${renderSummary(run, summaryEffort(run, efforts))}
+        ${renderSummary(run, summaryEffort(run, efforts), display.timeZone)}
         ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
         ${stopped !== '' ? stopped : renderRunError(run)}
         ${renderRunDetails(run, generations, revised, skillLoads, downloads, config)}
         ${renderContext(context)}
-        ${renderCalls(calls, efforts, run.costStatus === 'subscription')}
+        ${renderCalls(display.timeZone, calls, efforts, run.costStatus === 'subscription')}
       </div>
-      <div class="min-w-0 lg:min-h-0">${renderWidget(run, events)}</div>
+      <div class="min-w-0 lg:min-h-0">${renderWidget(run, events, display.timeZone)}</div>
     </div>`;
-  return layout(run.worker, null, live, assets, body, true);
+  return layout(run.worker, null, live, display, body, true);
 };

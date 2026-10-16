@@ -281,7 +281,7 @@ test('given two repositories, one with a poll error, when the Board is requested
   assert.match(forge, /<a href="https:\/\/github\.com\/rameezk\/forge"[^>]*>rameezk\/forge<\/a>/);
   assert.match(forge, /Last polled <time datetime="2026-09-29T08:15:00.000Z"/);
   assert.match(openingTag(forge), /\sdata-stale[\s>]/);
-  assert.match(forge, /<p[^>]*\sdata-poll-error[^>]*>Last poll failed <time datetime="2026-09-29T08:20:00.000Z"[^>]*>2026-09-29 08:20:00 UTC<\/time>: GitHub answered 401 for rameezk\/forge<\/p>/);
+  assert.match(forge, /<p[^>]*\sdata-poll-error[^>]*>Last poll failed <time datetime="2026-09-29T08:20:00.000Z"[^>]*>2026-09-29 08:20:00<\/time>: GitHub answered 401 for rameezk\/forge<\/p>/);
   assert.deepEqual(populated(cardsByColumn(forge)), { 'ready-for-agent': ['1'], 'waiting-for-slot': ['2'] });
 
   const totals = columnHeaders(body).map((header) => /data-column-total[^>]*>([^<]*)</.exec(header)?.[1]);

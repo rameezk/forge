@@ -63,10 +63,10 @@ const renderProse = (
 
 const MESSAGE_META = 'ml-auto shrink-0 whitespace-nowrap text-xs font-normal normal-case tracking-normal text-muted tabular-nums';
 
-const renderMessageMeta = ({ timestamp, stopReason }: MessageEvent): Rendered => {
+const renderMessageMeta = ({ timestamp, stopReason }: MessageEvent, timeZone: string): Rendered => {
   if (timestamp === undefined && stopReason === undefined) return '';
   const parts = [
-    timestamp === undefined ? '' : html`<time datetime="${timestamp}" title="${timestamp}">${formatTime(timestamp)}</time>`,
+    timestamp === undefined ? '' : html`<time datetime="${timestamp}" title="${timestamp}">${formatTime(timestamp, timeZone)}</time>`,
     stopReason === undefined ? '' : html`<span data-stop-reason>${stopReason}</span>`,
   ].filter((part) => part !== '');
   return html`<span class="${MESSAGE_META}" data-message-meta>${parts.map((part, index) => (index === 0 ? part : html` · ${part}`))}</span>`;
@@ -108,14 +108,16 @@ const messageBody = (event: MessageEvent): Rendered => {
 const renderMessage = (
   kind: string,
   event: MessageEvent,
+  timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  renderCard(kind, renderMessageMeta(event), html`${messageBody(event)}${renderMessageError(event.error)}`);
+  renderCard(kind, renderMessageMeta(event, timeZone), html`${messageBody(event)}${renderMessageError(event.error)}`);
 
 const renderReport = (
   report: ToolResultEvent,
   message: MessageEvent | undefined,
+  timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  message === undefined ? renderProse('report', report.text) : renderMessage('report', message);
+  message === undefined ? renderProse('report', report.text) : renderMessage('report', message, timeZone);
 
 const SUMMARY_KEYS = ['command', 'path', 'pattern', 'task'];
 
@@ -229,10 +231,11 @@ const renderCompaction = (event: CompactionEvent): HtmlEscapedString | Promise<H
 const renderEvent = (
   event: HarnessEvent,
   results: ToolResults,
+  timeZone: string,
 ): Rendered => {
   switch (event.type) {
     case 'message':
-      return renderMessage(event.role, event);
+      return renderMessage(event.role, event, timeZone);
     case 'tool_call':
       return renderToolCall(event, results.get(event));
     case 'tool_result':
@@ -341,6 +344,7 @@ interface SubagentContext {
   runStatus: RunStatus;
   subscription: boolean;
   kinds: ReadonlyMap<string, string[]>;
+  timeZone: string;
 }
 
 const subagentStatus = (
@@ -435,7 +439,7 @@ const renderSubagentCall = (
   context: SubagentContext,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const report = context.results.get(call);
-  const { results } = context;
+  const { results, timeZone } = context;
   const failed = report?.isError === true;
   const task = taskText(call.arguments);
   const { cwd } = argumentFields(call.arguments);
@@ -453,10 +457,10 @@ const renderSubagentCall = (
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
         (givenTask(call.arguments) === undefined ? renderText : renderProse)('task', task),
-        ...shown.filter((event) => event !== reported).map((event) => renderEvent(event, results)),
+        ...shown.filter((event) => event !== reported).map((event) => renderEvent(event, results, timeZone)),
         report === undefined
           ? html`<p class="${EMPTY}">No report recorded.</p>`
-          : failed ? renderText('error', report.text) : renderReport(report, reported),
+          : failed ? renderText('error', report.text) : renderReport(report, reported, timeZone),
       ],
     )}
   </section>`;
@@ -469,14 +473,14 @@ const renderSubagent = (
   if (call !== undefined) {
     return renderSubagentCall(call, scope, events, context);
   }
-  const { results } = context;
+  const { results, timeZone } = context;
   const shown = withoutToolOnlyPreambles(events);
   return renderGroup(
     `${BLOCK} border-line`,
     html`<span class="${LABEL} whitespace-nowrap">Subagent</span>
       <code class="${SUMMARY_CODE}" title="${scope}">${scope}</code>`,
     renderFigures(scope, events, shown, undefined, context),
-    shown.map((event) => renderEvent(event, results)),
+    shown.map((event) => renderEvent(event, results, timeZone)),
   );
 };
 
@@ -568,17 +572,18 @@ export const transcriptItems = (
   runStatus: RunStatus,
   subscription: boolean,
   skillLoads: RunSkillLoad[],
+  timeZone: string,
 ): TranscriptItem[] => {
   const { entries, positions, results, prompt } = listedEntries(events);
-  const context: SubagentContext = { results, generations, runStatus, subscription, kinds: subagentKinds(skillLoads) };
+  const context: SubagentContext = { results, generations, runStatus, subscription, kinds: subagentKinds(skillLoads), timeZone };
   return entries.map((entry) => {
     const anchor = anchorOf(entry, positions);
     const rendered =
       entry.type === 'subagent'
         ? renderSubagent(entry, context)
         : entry === prompt
-          ? renderMessage('prompt', entry)
-          : renderEvent(entry, results);
+          ? renderMessage('prompt', entry, timeZone)
+          : renderEvent(entry, results, timeZone);
     return { anchor, kinds: kindsOf(entry, results), rendered: renderAnchored(anchor, rendered) };
   });
 };
@@ -634,5 +639,6 @@ export const renderTranscript = (
   runStatus: RunStatus,
   subscription: boolean,
   skillLoads: RunSkillLoad[],
+  timeZone: string,
 ): Rendered[] =>
-  transcriptItems(events, generations, runStatus, subscription, skillLoads).map(({ rendered }) => rendered);
+  transcriptItems(events, generations, runStatus, subscription, skillLoads, timeZone).map(({ rendered }) => rendered);

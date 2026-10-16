@@ -10,7 +10,7 @@ import { renderBoard } from './views/board.ts';
 import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
 import { renderCohortPage, renderInsights, renderUnknownCohortPage } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
-import { NAV_PAGES, type AssetHrefs } from './views/shared.ts';
+import { NAV_PAGES, type AssetHrefs, type Display } from './views/shared.ts';
 import { parsePage, parseWorkloadFilter } from './workload-filter.ts';
 import { renderList } from './views/workloads.ts';
 
@@ -44,6 +44,7 @@ export interface AppOptions {
   logo: string;
   idiomorph: string;
   client: string;
+  timeZone?: string;
   checkIntervalMs?: number;
 }
 
@@ -54,6 +55,7 @@ export const createApp = ({
   logo,
   idiomorph,
   client,
+  timeZone = 'UTC',
   checkIntervalMs = 1000,
 }: AppOptions): Hono => {
   const app = new Hono();
@@ -63,6 +65,7 @@ export const createApp = ({
     idiomorph: assetPath('idiomorph', 'js', idiomorph),
     client: assetPath('live', 'js', client),
   };
+  const display: Display = { assets, timeZone };
 
   const serveImmutable = (href: string, body: string, contentType: string): void => {
     app.get(href, (c) => {
@@ -78,7 +81,7 @@ export const createApp = ({
 
   app.get('/', (c) => {
     const now = new Date().toISOString();
-    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), assets));
+    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), display));
   });
 
   app.get('/work', (c) => c.redirect('/'));
@@ -87,7 +90,7 @@ export const createApp = ({
     const revisions = new Map(
       store.listRevisions(new Date().toISOString()).map((revision) => [revision.runId, revision]),
     );
-    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), revisions, assets));
+    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), revisions, display));
   });
 
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -102,10 +105,10 @@ export const createApp = ({
 
   app.get('/insights', (c) => {
     const filter = filterOf(c.req.query());
-    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), filter, store.insightsOptions(), assets));
+    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), filter, store.insightsOptions(), display));
   });
 
-  app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => (store.hasUnknownConfigRuns() ? c.html(renderUnknownCohortPage(assets)) : c.notFound()));
+  app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => (store.hasUnknownConfigRuns() ? c.html(renderUnknownCohortPage(display)) : c.notFound()));
 
   app.get('/cohorts/:hash', (c) => {
     const hash = c.req.param('hash');
@@ -113,14 +116,14 @@ export const createApp = ({
     if (fingerprint === null) return c.notFound();
     const againstHash = c.req.query('against') ?? '';
     const against = againstHash === hash ? null : store.getCohortFingerprint(againstHash);
-    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.listCohortFingerprints(), assets));
+    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.listCohortFingerprints(), display));
   });
 
   app.get('/tickets/:repository/:number', (c) => {
     const number = Number(c.req.param('number'));
     if (!TICKET_NUMBER.test(c.req.param('number')) || !Number.isSafeInteger(number)) return c.notFound();
     const ticket = { repository: c.req.param('repository'), number };
-    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket, new Date().toISOString()), assets));
+    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket, new Date().toISOString()), display));
   });
 
   const downloadable = (ref: string | null): ref is string =>
@@ -138,14 +141,14 @@ export const createApp = ({
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.revisedPullRequestOfRun(run.id), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), assets));
+    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.revisedPullRequestOfRun(run.id), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), display));
   });
 
   app.get('/runs/:id/transcript', (c) => {
     const run = store.getRun(c.req.param('id'));
     if (run === undefined) return c.notFound();
     const events = run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
-    return c.html(renderFullTranscript(run, events, store.listGenerations(run.id), store.listSkillLoads(run.id), parseTranscriptShow(c.req.query('show')), assets));
+    return c.html(renderFullTranscript(run, events, store.listGenerations(run.id), store.listSkillLoads(run.id), parseTranscriptShow(c.req.query('show')), display));
   });
 
   const serveDownload = (path: `/runs/:id/${string}`, refOf: (run: RunRecord) => string | null): void => {

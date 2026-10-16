@@ -23,6 +23,11 @@ export interface AssetHrefs {
   client: string;
 }
 
+export interface Display {
+  assets: AssetHrefs;
+  timeZone: string;
+}
+
 const FOCUS_RINGS = '[&_:where(:focus-visible)]:outline-2 [&_:where(:focus-visible)]:outline-offset-2 [&_:where(:focus-visible)]:outline-accent';
 
 export const PAGE_TITLE = 'm-0 mb-3 text-xl font-bold';
@@ -86,7 +91,7 @@ export const layout = (
   title: string,
   current: Page | null,
   live: boolean,
-  assets: AssetHrefs,
+  { assets, timeZone }: Display,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
   fitsViewport = false,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -104,6 +109,7 @@ export const layout = (
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${fitsViewport ? ' lg:flex lg:h-dvh lg:flex-col' : ''}">
         ${renderHeader(current, live, assets)}
         <main class="mx-auto w-full max-w-[100rem] px-4 ${fitsViewport ? 'py-8 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:py-4' : 'py-8'}">${body}</main>
+        <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="mx-auto w-full max-w-[100rem] px-4 py-4">Times in ${timeZone}</div></footer>
       </body>
     </html>`;
 
@@ -152,11 +158,11 @@ const STATUS_TONE: Record<RunStatus, string> = {
 export const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;
 
-export const renderTimestamp = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatStarted(iso)}</time>`;
+export const renderTimestamp = (iso: string, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatStarted(iso, timeZone)}</time>`;
 
-export const renderDate = (iso: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatDate(iso)}</time>`;
+export const renderDate = (iso: string, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatDate(iso, timeZone)}</time>`;
 
 export const renderRunTicket = (ticket: RunTicket | null): Rendered =>
   ticket === null

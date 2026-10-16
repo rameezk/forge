@@ -249,6 +249,28 @@ let
     ) cfg.workers
   );
 
+  tzdataNames =
+    let
+      fields = line: lib.splitString " " line;
+      nameOf =
+        line:
+        let
+          f = fields line;
+        in
+        if builtins.elemAt f 0 == "Z" then
+          [ (builtins.elemAt f 1) ]
+        else if builtins.elemAt f 0 == "L" then
+          [ (builtins.elemAt f 2) ]
+        else
+          [ ];
+    in
+    lib.concatMap nameOf (lib.splitString "\n" (builtins.readFile "${pkgs.tzdata}/share/zoneinfo/tzdata.zi"));
+
+  dashboardTimeZoneAssertion = {
+    assertion = lib.elem cfg.dashboard.timeZone tzdataNames;
+    message = "forge.runtime.dashboard.timeZone is '${cfg.dashboard.timeZone}', which is not an IANA time zone in tzdata: use a name such as 'Africa/Johannesburg' or 'UTC'";
+  };
+
   workerNameAssertions = lib.mapAttrsToList (name: _: {
     assertion = builtins.match "[A-Za-z0-9_-]+" name != null;
     message = "forge.runtime.workers.${name} must have a name of only letters, digits, `_` and `-`: it names the unit instance forge-runner@${name} and its backstop drop-in";
@@ -458,6 +480,13 @@ in
       description = "Localhost TCP port the read-only dashboard binds to; reached over the tailnet through tailscale serve, never exposed publicly.";
     };
 
+    dashboard.timeZone = lib.mkOption {
+      type = lib.types.str;
+      default = "UTC";
+      example = "Africa/Johannesburg";
+      description = "IANA time zone the dashboard shows every time in, including date filters and chart days. The box, the store and all time logic stay UTC; hovering a time on the dashboard still shows its exact UTC instant.";
+    };
+
     secretsFile = lib.mkOption {
       type = lib.types.path;
       description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, and `github_app_id` and `github_app_private_key` (the id and private key of the operator's GitHub App, installed on every managed repository) when any repository is declared. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the App private key, a credential only the frontier sync and forge-dispatch are given.";
@@ -567,6 +596,7 @@ in
       assertions = [
         removedGitIdentityAssertion
         untrustedAssertion
+        dashboardTimeZoneAssertion
       ]
       ++ workerNameAssertions
       ++ workerPairingAssertions
@@ -863,6 +893,7 @@ in
             "FORGE_STATE_DIR=${cfg.stateDir}"
             "FORGE_FRONTEND_HOST=127.0.0.1"
             "FORGE_FRONTEND_PORT=${toString cfg.dashboardPort}"
+            "FORGE_DASHBOARD_TIME_ZONE=${cfg.dashboard.timeZone}"
           ];
           ExecStart = "${cfg.package}/bin/forge-frontend";
           Restart = "on-failure";

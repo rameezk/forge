@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import type { GenerationRecord, HarnessEvent, RunRecord, RunSkillLoad } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { isSettled } from './run.ts';
-import { EMPTY, LINK, NEW_ACTIVITY_BUTTON, PAGE_TITLE, STACK, layout, renderStatus, type AssetHrefs, type Rendered } from './shared.ts';
+import { EMPTY, LINK, NEW_ACTIVITY_BUTTON, PAGE_TITLE, STACK, layout, renderStatus, type Display, type Rendered } from './shared.ts';
 import { transcriptItems, type TranscriptFilter, type TranscriptItem } from './transcript.ts';
 
 export type TranscriptShow = 'all' | TranscriptFilter;
@@ -42,10 +42,10 @@ export const renderFullTranscript = (
   generations: GenerationRecord[],
   skillLoads: RunSkillLoad[],
   show: TranscriptShow,
-  assets: AssetHrefs,
+  display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
-  const items = transcriptItems(events, generations, run.status, run.costStatus === 'subscription', skillLoads);
+  const items = transcriptItems(events, generations, run.status, run.costStatus === 'subscription', skillLoads, display.timeZone);
   const ofKind = (filter: TranscriptShow): TranscriptItem[] =>
     filter === 'all' ? items : items.filter(({ kinds }) => kinds.includes(filter));
   const shown = ofKind(show);
@@ -62,5 +62,5 @@ export const renderFullTranscript = (
       <div class="min-w-0 flex-1">${listed}</div>
     </div>
     ${live ? NEW_ACTIVITY_BUTTON : ''}`;
-  return layout(`${run.worker} transcript`, null, live, assets, body);
+  return layout(`${run.worker} transcript`, null, live, display, body);
 };

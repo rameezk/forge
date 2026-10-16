@@ -12,22 +12,42 @@ export const formatBudget = (usd: number): string => {
 
 export const formatTotal = (usd: number): string => `$${usd.toFixed(4)}`;
 
-export const formatStarted = (iso: string): string => {
-  const time = Date.parse(iso);
-  return Number.isNaN(time)
-    ? iso
-    : `${new Date(time).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+const partsIn = (time: number, timeZone: string): Record<string, string> => {
+  let formatter = formatters.get(timeZone);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    formatters.set(timeZone, formatter);
+  }
+  return Object.fromEntries(formatter.formatToParts(time).map(({ type, value }) => [type, value]));
 };
 
-export const formatTime = (iso: string): string => {
+export const formatDate = (iso: string, timeZone: string): string => {
   const time = Date.parse(iso);
-  return Number.isNaN(time) ? iso : `${new Date(time).toISOString().slice(11, 19)} UTC`;
+  if (Number.isNaN(time)) return iso;
+  const { year, month, day } = partsIn(time, timeZone);
+  return `${year}-${month}-${day}`;
 };
 
-export const formatDate = (iso: string): string => {
+export const formatTime = (iso: string, timeZone: string): string => {
   const time = Date.parse(iso);
-  return Number.isNaN(time) ? iso : new Date(time).toISOString().slice(0, 10);
+  if (Number.isNaN(time)) return iso;
+  const { hour, minute, second } = partsIn(time, timeZone);
+  return `${hour}:${minute}:${second}`;
 };
+
+export const formatStarted = (iso: string, timeZone: string): string =>
+  Number.isNaN(Date.parse(iso)) ? iso : `${formatDate(iso, timeZone)} ${formatTime(iso, timeZone)}`;
 
 const tokenCount = new Intl.NumberFormat('en-US');
 

@@ -11,7 +11,7 @@ import { FileTranscriptSource } from './transcript.ts';
 export const createDashboard = (
   stateDir: string,
   store: Store,
-  options: Pick<AppOptions, 'checkIntervalMs'> = {},
+  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs'> = {},
 ): ReturnType<typeof createApp> =>
   createApp({
     store,
@@ -24,9 +24,9 @@ export const createDashboard = (
   });
 
 export const main = (env: NodeJS.ProcessEnv): void => {
-  const { stateDir, hostname, port } = resolveServeConfig(env);
+  const { stateDir, hostname, port, timeZone } = resolveServeConfig(env);
 
-  const app = createDashboard(stateDir, Store.open(join(stateDir, 'forge.db')));
+  const app = createDashboard(stateDir, Store.open(join(stateDir, 'forge.db')), { timeZone });
 
   serve({ fetch: app.fetch, hostname, port }, (info) => {
     console.log(`forge dashboard listening on http://${info.address}:${info.port}`);
