@@ -778,6 +778,38 @@ test('given a checkout with no flake, when the ticket is dispatched, then nix is
   assert.equal(pi.env.DEVSHELL_TOOL, undefined);
 });
 
+const CREDENTIAL_TOOLS = '/nix/store/00000000000000000000000000000000-forge-gh/bin';
+
+test('given forge\'s credential tools directory and a devShell whose path has its own tools, when the ticket is dispatched, then pi\'s path starts with that directory, ahead of the devShell and the toolset, and its variable does not reach pi', async () => {
+  const { pi, nix } = await dispatch({
+    origin: originWith({
+      '.claude/skills/work-on/SKILL.md': SKILL,
+      'flake.nix': FLAKE,
+    }),
+    env: { FORGE_CREDENTIAL_TOOLS: CREDENTIAL_TOOLS },
+  });
+
+  assert.ok(pi);
+  const toolset = nix[0]?.env.PATH;
+  assert.ok(toolset);
+  assert.equal(pi.env.PATH, `${CREDENTIAL_TOOLS}:${DEVSHELL_PATH}:${toolset}`);
+  assert.equal(pi.env.FORGE_CREDENTIAL_TOOLS, undefined);
+});
+
+test('given forge\'s credential tools directory and a checkout with no flake, when the ticket is dispatched, then pi\'s path starts with that directory, ahead of the toolset', async () => {
+  const { pi, nix } = await dispatch({
+    env: { FORGE_CREDENTIAL_TOOLS: CREDENTIAL_TOOLS },
+  });
+
+  assert.ok(pi);
+  assert.deepEqual(nix, []);
+  const entries = pi.env.PATH?.split(':') ?? [];
+  assert.equal(entries[0], CREDENTIAL_TOOLS);
+  assert.equal(entries.filter((entry) => entry === CREDENTIAL_TOOLS).length, 1);
+  assert.ok(entries.length > 1);
+  assert.equal(pi.env.FORGE_CREDENTIAL_TOOLS, undefined);
+});
+
 const NIX_ERROR = [
   "error: undefined variable 'mkShel'",
   '       at /nix/store/00000000000000000000000000000000-source/flake.nix:1:60:',

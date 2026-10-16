@@ -163,15 +163,18 @@ testers.runNixOSTest {
     box.succeed("install -o forge-runtime -g forge-runtime -m 0644 ${flake} /srv/origin/flake.nix")
     box.succeed("printf '#!/bin/sh\\necho devshell stub ran\\n' > /srv/origin/bin/devshell-stub")
     box.succeed("chown forge-runtime:forge-runtime /srv/origin/bin/devshell-stub && chmod 0755 /srv/origin/bin/devshell-stub")
+    box.succeed("printf '#!/bin/sh\\necho unwrapped gh\\nexit 1\\n' > /srv/origin/bin/gh")
+    box.succeed("chown forge-runtime:forge-runtime /srv/origin/bin/gh && chmod 0755 /srv/origin/bin/gh")
     box.succeed(f"{git} init --quiet --initial-branch main")
     box.succeed(f"{git} add .")
     box.succeed(f"{git} commit --quiet -m devshell")
 
-    with subtest("a dispatched workload finds its repository's devShell tool on its path, ahead of the workload toolset"):
+    with subtest("a dispatched workload finds its repository's devShell tool on its path, ahead of the workload toolset and behind forge's gh"):
         box.succeed("systemctl start forge-dispatch@forge:113.service")
         assert box.succeed("cat /var/lib/forge/work/*/devshell.out").strip() == "devshell stub ran"
-        first, rest = box.succeed("cat /var/lib/forge/work/*/path.out").strip().split(":", 1)
-        assert first.startswith("/nix/store/") and first.endswith("-source/bin"), first
+        first, second, rest = box.succeed("cat /var/lib/forge/work/*/path.out").strip().split(":", 2)
+        assert first.startswith("/nix/store/") and first.endswith("-gh/bin"), first
+        assert second.startswith("/nix/store/") and second.endswith("-source/bin"), second
         assert "-git-" in rest, rest
 
     with subtest("a dispatched workload authenticates git and gh from a token file it cannot write or replace, with no GITHUB_TOKEN in its environment"):

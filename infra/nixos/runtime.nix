@@ -444,6 +444,8 @@ let
     fi
     exec ${lib.getExe pkgs.gh} "$@"
   '';
+
+  credentialToolsVariable = "FORGE_CREDENTIAL_TOOLS=${githubCli}/bin";
 in
 {
   options.forge.runtime = {
@@ -546,13 +548,10 @@ in
 
     toolset = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = map (name: pkgs.${name}) baseToolset ++ [
-        githubCli
-        config.nix.package
-      ];
-      defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ] ++ [ githubCli config.nix.package ]";
+      default = map (name: pkgs.${name}) baseToolset ++ [ config.nix.package ];
+      defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ] ++ [ config.nix.package ]";
       example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
-      description = "Workload toolset: the packages that make up a workload's `PATH`. It is not a limit on what a workload can run, since the Nix store and the nix daemon are reachable from the sandbox (ADR-0024, ADR-0027). A dispatched workload whose checkout has a flake gets its devShell's path ahead of these. The base set carries a `gh` that reads the workload's GitHub token from its token file. Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
+      description = "Workload toolset: the packages that make up a workload's `PATH`. It is not a limit on what a workload can run, since the Nix store and the nix daemon are reachable from the sandbox (ADR-0024, ADR-0027). A dispatched workload whose checkout has a flake gets its devShell's path ahead of these. Forge's own `gh`, which reads the workload's GitHub token from its token file, is not part of the toolset: it is always present, ahead of the devShell and the toolset (ADR-0073). Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
     };
 
     harnesses = lib.mkOption {
@@ -671,6 +670,7 @@ in
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
+            credentialToolsVariable
           ]
           ++ forgeGitShaVariable;
           ExecStart = "${cfg.package}/bin/forge-run %i";
@@ -829,6 +829,7 @@ in
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
+            credentialToolsVariable
             appKeyFileVariable
           ]
           ++ forgeGitShaVariable;
@@ -865,6 +866,7 @@ in
           Environment = [
             "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
             "FORGE_STATE_DIR=${cfg.stateDir}"
+            credentialToolsVariable
             appKeyFileVariable
           ]
           ++ forgeGitShaVariable;
