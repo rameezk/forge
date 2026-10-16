@@ -1,6 +1,6 @@
 ---
 name: git-pr-address-comments
-description: Address the open feedback on a GitHub PR end-to-end - unresolved review threads, review summaries and conversation comments - fix what each asks through a test-first loop, push, see the required checks go green, then answer every item. Use when the user asks to "address the PR comments" / "handle review feedback" on a pull request.
+description: Address the open feedback on a GitHub PR end-to-end - unresolved review threads, review summaries and conversation comments - fix what each asks through a test-first loop, push, see the required checks go green, refresh before/after screenshots of any UI the fixes changed, then answer every item. Use when the user asks to "address the PR comments" / "handle review feedback" on a pull request.
 disable-model-invocation: true
 ---
 
@@ -56,13 +56,32 @@ gh repo view --json owner,name -q '.owner.login + " " + .name'
 Assumes `gh` is authenticated. If `gh auth status` fails, stop and ask the user
 to run `gh auth login`.
 
-Check out the PR's branch so fixes land on the right ref, if not already on it:
+## Work in the PR branch's worktree
+
+Do the work in a worktree on the PR's existing branch, set up with
+[[git-worktree]], so the user's current checkout is never touched. A fresh clone
+an orchestrator started you in, already on the PR's branch, counts as that
+worktree.
+
+Before changing anything, check the worktree is clean (`git status --short`) and
+bring it up to date with the pushed branch, which a reviewer or CI may have
+added to:
 
 ```bash
-gh pr checkout <number>
+git fetch origin <headRefName>
+git merge --ff-only origin/<headRefName>
 ```
 
-No worktree ceremony - the branch already exists; just be on it.
+If it has uncommitted changes, or local commits that diverge from the pushed
+branch, stop and report it rather than stashing, resetting or merging over
+someone's work.
+
+Note the head you start from - it is what the PR looked like before this run's
+fixes, and *Show what changed in the UI* compares against it:
+
+```bash
+pre_fix_head="$(git rev-parse HEAD)"
+```
 
 ## Fetch the open feedback
 
@@ -204,9 +223,10 @@ The author - human or bot - does not change the triage.
 
 For the actionable items, follow [[work-on]]'s recipe, driving the sibling
 skills rather than reimplementing them. Work one item's concern at a time.
-Each `[[name]]` here is another skill: when a step hands work to one, load that
-skill and follow its instructions in full before doing the step. Never do the
-step from the summary here.
+Each `[[name]]` here is another skill, whose file is `../<name>/SKILL.md`
+beside this skill's own: when a step hands work to one, load that skill by
+reading that file and follow its instructions in full before doing the step.
+Never do the step from the summary here.
 
 1. **Fix it test-first, when there is behaviour to test.** A change with a
    testable seam goes through a fresh [[tdd]] cycle - not a patch that skips the
@@ -265,15 +285,53 @@ back to *Address end-to-end*'s review step, then push and wait for the checks
 again. Change only that section; the rest of the description is the author's.
 If the PR has no `## Reviews` section, do not add one.
 
+## Show what changed in the UI
+
+A fix that changes what a user sees leaves the PR's screenshots describing an
+older head, and leaves the reviewer imagining the fix from the diff. Both steps
+below are [[before-after]]'s work, never a capture of your own: read
+`../before-after/SKILL.md` and the [`screenshots.md`](../before-after/screenshots.md)
+beside it, and follow them in full for each run, once the checks are green.
+Its rules bind every image this skill posts - in the PR body or in a reply -
+above all its no-sensitive-data rule and its review of every image before
+publishing.
+
+1. **Refresh the PR's `## Before / After` section.** Run [[before-after]] on the
+   open PR with its usual before ref, the PR's base, and the pushed head as
+   after. It replaces the section, adds one when a fix made a previously
+   invisible change visible, and removes a stale one when a fix took the visual
+   change back out.
+2. **Capture each visual fix.** For every item whose fix changed something a
+   user sees, run [[before-after]] with `pre_fix_head` as the before ref and the
+   pushed head as after, limited to the surfaces that item's fix touched, and
+   have it hand the pairs back for that item's answer. A surface several items'
+   fixes touched shows all of them; one capture can serve each of those items.
+
+Run both only when this run's commits changed something visual - fixes,
+conflict resolutions, or CI fixes alike. Otherwise [[before-after]]'s escape
+hatch applies and there is nothing to do. Being unable to capture a visual
+change is a blocker to report, never a reason to answer without it.
+
 ## Answer every item
 
 Answer only now - once the fixes are pushed, the required checks are green, and
-the PR description is current - so the reviewer is notified about a commit they
-can see on a PR that is ready to look at. Every item gets an answer; none is
-left silent.
+the PR description and its screenshots are current - so the reviewer is
+notified about a commit they can see on a PR that is ready to look at. Every
+item gets an answer; none is left silent.
 
 Say what was done (name the fix commit), answer the question, or - for a
-declined note - say why not.
+declined note - say why not. An item whose fix changed the UI carries the pairs
+[[before-after]] handed back for it below that line, so the reviewer sees the
+fix without checking the branch out:
+
+```markdown
+Fixed in <sha>: <short description>.
+
+### Settings - save button
+| Before | After |
+| --- | --- |
+| ![Settings save button before](<before-url>) | ![Settings save button after](<after-url>) |
+```
 
 For a **review thread**, reply to its first comment's `databaseId`, and always
 in writing, even for an acknowledgement:
@@ -332,7 +390,9 @@ comment, or exactly the listed items when your instructions gave a list - has
 been addressed and answered (fix committed, pushed, replied), explicitly
 declined with a reply, or acknowledged, the repo's checks are clean, the reviews
 that ran came back signed off, the PR's required checks are green on the pushed
-head, and any `## Reviews` section covers that head. Threads are left open for
-the reviewer to resolve. Report the PR URL, each item's disposition, the fix
-commit SHAs, the final test and check results, and the required checks' final
-state.
+head, any `## Reviews` section covers that head, and when the run changed the
+UI, the `## Before / After` section shows that head and every visual fix's
+answer carries its pairs. Threads are left open for the reviewer to resolve.
+Report the PR URL, each item's disposition, the fix commit SHAs, the final test
+and check results, the required checks' final state, and the before/after
+assets commit SHAs.

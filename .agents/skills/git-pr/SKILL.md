@@ -13,9 +13,10 @@ description: Prepare and open a GitHub pull request cleanly and consistently. Us
 Assumes commits are already made via [[git-committing]] and the branch
 follows [[git-branching]]'s naming convention.
 
-Each `[[name]]` here is another skill: when a step hands work to one, load that
-skill and follow its instructions in full before doing the step. Never do the
-step from the summary here.
+Each `[[name]]` here is another skill, whose file is `../<name>/SKILL.md`
+beside this skill's own: when a step hands work to one, load that skill by
+reading that file and follow its instructions in full before doing the step.
+Never do the step from the summary here.
 
 ## Title format
 
