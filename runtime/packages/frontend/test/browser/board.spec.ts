@@ -32,9 +32,11 @@ test.describe('on a desktop screen', () => {
 
     await page.goto('/');
 
-    const header = await page.getByRole('banner').boundingBox();
-    const title = await page.locator('h1').boundingBox();
-    expect(title!.y - (header!.y + header!.height)).toBeGreaterThanOrEqual(24);
+    await expect.poll(async () => {
+      const header = await page.getByRole('banner').boundingBox();
+      const title = await page.locator('h1').boundingBox();
+      return header && title ? title.y - (header.y + header.height) : -1;
+    }).toBeGreaterThanOrEqual(24);
   });
 
   test('given the Board on a desktop screen, when it is opened, then the person icon leads the title in every column that has one', async ({ dashboard, page }) => {
