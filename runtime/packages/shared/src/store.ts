@@ -474,6 +474,7 @@ type DispatchRow = {
   state: string;
   reason: string | null;
   detail: string | null;
+  failed_starts: number | null;
   started_at: string;
   alive_at: string;
   ended_at: string | null;
@@ -540,6 +541,14 @@ const ADD_DISPATCH_PULL_REQUEST = `
   ALTER TABLE dispatches ADD COLUMN pr_state TEXT;
   ALTER TABLE dispatches ADD COLUMN pr_settled_at TEXT;
   ALTER TABLE dispatches ADD COLUMN pr_rework INTEGER;
+`;
+
+const HAS_DISPATCH_FAILED_STARTS = `
+  SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'failed_starts'
+`;
+
+const ADD_DISPATCH_FAILED_STARTS = `
+  ALTER TABLE dispatches ADD COLUMN failed_starts INTEGER;
 `;
 
 const CREATE_DISPATCHES = `
@@ -647,6 +656,7 @@ const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
   state: row.state as DispatchState,
   reason: row.reason as DispatchFailure | null,
   detail: row.detail,
+  failedStarts: row.failed_starts,
   startedAt: row.started_at,
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
@@ -893,6 +903,7 @@ export class Store {
     this.#addColumnsOnce(HAS_REVISION_FAILURE, ADD_REVISION_FAILURE);
     db.exec(CREATE_FEEDBACK_WATCHES);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
+    this.#addColumnsOnce(HAS_DISPATCH_FAILED_STARTS, ADD_DISPATCH_FAILED_STARTS);
   }
 
   #useWriteAheadLog(): void {
@@ -1676,6 +1687,31 @@ export class Store {
     return row.id;
   }
 
+  recordFailedStart(ticket: DispatchTicket, detail: string, at: string): void {
+    this.#transaction(() => {
+      const latest = this.#latestDispatch(ticket);
+      if (latest?.state === 'running') {
+        if (latest.alive_at >= liveSince(at)) return;
+        this.#interruptStale(latest, at);
+      }
+      if (latest?.state === 'failed' && latest.reason === 'not-started') {
+        this.#db
+          .prepare(
+            `UPDATE dispatches SET
+              detail = $detail, failed_starts = COALESCE(failed_starts, 0) + 1,
+              started_at = $at, alive_at = $at, ended_at = $at
+            WHERE id = $id`,
+          )
+          .run({ id: latest.id, detail: boundedDetail(detail), at });
+        return;
+      }
+      const id = this.#insertDispatch(ticket, null, 'failed', 'not-started', at);
+      this.#db
+        .prepare(`UPDATE dispatches SET detail = $detail, failed_starts = 1 WHERE id = $id`)
+        .run({ id, detail: boundedDetail(detail) });
+    });
+  }
+
   liveWorkloads(now: string): number {
     const { live } = this.#db
       .prepare(
@@ -2064,7 +2100,7 @@ export class Store {
           CASE WHEN EXISTS (SELECT 1 FROM runs WHERE id = d.run_id) THEN d.run_id END AS run_id,
           CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'failed' ELSE d.state END AS state,
           CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'interrupted' ELSE d.reason END AS reason,
-          d.detail, d.started_at, d.alive_at, d.ended_at,
+          d.detail, d.failed_starts, d.started_at, d.alive_at, d.ended_at,
           d.pr_number, d.pr_url, d.pr_state, d.pr_settled_at, d.pr_rework
         FROM dispatches d
         WHERE d.id = (

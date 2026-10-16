@@ -13,7 +13,8 @@ export type DispatchFailure =
   | 'skill-not-found'
   | 'devshell-failed'
   | 'interrupted'
-  | 'exceeded';
+  | 'exceeded'
+  | 'not-started';
 
 export const ticketKey = (repository: string, number: number): string =>
   `${repository}#${number}`;
@@ -43,6 +44,7 @@ export interface DispatchRecord extends DispatchTicket {
   state: DispatchState;
   reason: DispatchFailure | null;
   detail: string | null;
+  failedStarts: number | null;
   startedAt: string;
   aliveAt: string;
   endedAt: string | null;

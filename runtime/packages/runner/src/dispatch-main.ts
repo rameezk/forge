@@ -126,39 +126,51 @@ export const main = async (
   const repository = repositoryTriggeredBy(config.repositories, name, 'ticket');
   const worker = resolveWorker(config, repository.worker);
   const app = githubAppFromEnv(env, fetch);
-  const identity = await app.identity(repository.github);
-  const gitEnv = gitEnvironment(env, identity);
   const tokens = cachedTokens(app);
+  const unstarted = {
+    repository: name,
+    number: Number(issue),
+    url: `https://github.com/${repository.github}/issues/${issue}`,
+  };
 
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   try {
-    await settleAllRunningTickets(store, config.repositories, fetch, tokens);
+    let prepared;
+    try {
+      const identity = await app.identity(repository.github);
+      await settleAllRunningTickets(store, config.repositories, fetch, tokens);
 
-    const ticket = await queryTicket(
-      fetch,
-      await tokens(repository.github, 'write'),
-      repository.github,
-      Number(issue),
-    );
-    const refused = await refusal(
-      ticket,
-      async () =>
-        labelExists(fetch, await tokens(repository.github, 'write'), repository.github, FORGE_READY),
-      repository.github,
-    );
-    if (refused !== null) {
-      console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
-      return 1;
-    }
+      const ticket = await queryTicket(
+        fetch,
+        await tokens(repository.github, 'write'),
+        repository.github,
+        Number(issue),
+      );
+      const refused = await refusal(
+        ticket,
+        async () =>
+          labelExists(fetch, await tokens(repository.github, 'write'), repository.github, FORGE_READY),
+        repository.github,
+      );
+      if (refused !== null) {
+        console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
+        return 1;
+      }
 
-    const dispatched = { repository: name, number: ticket.number, url: ticket.url };
-    const runId = randomUUID();
-    const start = store.startDispatch(dispatched, runId, now(), maxConcurrentOf(config));
-    if ('refused' in start) {
-      console.error(`${name}#${ticket.number} is not dispatchable: ${startRefusal(start)}`);
-      return 1;
+      const dispatched = { ...unstarted, url: ticket.url };
+      const runId = randomUUID();
+      const start = store.startDispatch(dispatched, runId, now(), maxConcurrentOf(config));
+      if ('refused' in start) {
+        console.error(`${name}#${ticket.number} is not dispatchable: ${startRefusal(start)}`);
+        return 1;
+      }
+      prepared = { identity, ticket, dispatched, runId, dispatchId: start.started };
+    } catch (error) {
+      store.recordFailedStart(unstarted, errorMessage(error), now());
+      throw error;
     }
-    const dispatchId = start.started;
+    const { identity, ticket, dispatched, runId, dispatchId } = prepared;
+    const gitEnv = gitEnvironment(env, identity);
     const stopHeartbeat = startHeartbeat(
       () => store.touchDispatch(dispatchId, now()),
       (error) =>

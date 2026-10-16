@@ -300,6 +300,8 @@ interface Scenario {
   piLingerMs?: number;
   subscription?: boolean;
   claudeFixture?: string;
+  stateDir?: string;
+  rejectBotLookup?: boolean;
 }
 
 interface FakeNix {
@@ -324,7 +326,7 @@ const DEVSHELL_VARIABLES = {
 
 const writeFakeNix = (dir: string, record: string, nix: FakeNix): string => {
   const bin = join(dir, 'fake-nix-bin');
-  mkdirSync(bin);
+  mkdirSync(bin, { recursive: true });
   const stdout =
     nix.stdout ??
     JSON.stringify({ variables: nix.variables ?? DEVSHELL_VARIABLES, bashFunctions: {} });
@@ -383,11 +385,20 @@ const gitConfigOf = (
     ]),
   ]);
 
+const rejectingBotLookup = (fetch: typeof globalThis.fetch): typeof globalThis.fetch =>
+  async (input, init) =>
+    /^\/users\/[^/]+(\[bot\]|%5Bbot%5D)$/.test(new URL(String(input)).pathname)
+      ? new Response(JSON.stringify({ message: 'Bad credentials' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })
+      : fetch(input, init);
+
 const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin =
     scenario.origin ??
     originWith({ '.claude/skills/work-on/SKILL.md': SKILL });
-  const stateDir = mkdtempSync(join(tmpdir(), 'forge-dispatch-'));
+  const stateDir = scenario.stateDir ?? mkdtempSync(join(tmpdir(), 'forge-dispatch-'));
   const record = join(stateDir, 'pi-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
   const nixRecord = join(stateDir, 'nix-calls.jsonl');
@@ -490,7 +501,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       }),
       ...scenario.env,
     },
-    routedThrough(app, github.fetch),
+    scenario.rejectBotLookup === true ? rejectingBotLookup(routedThrough(app, github.fetch)) : routedThrough(app, github.fetch),
   )
     .catch((error: unknown) => {
       if (scenario.failing !== true) throw error;
@@ -2135,4 +2146,101 @@ test('given a checkout whose skills directory holds a dangling symlink, when the
 
   assert.equal(outcome.runs[0]?.status, 'success');
   assert.equal(typeof fingerprintOf(outcome)?.fingerprint.skills, 'string');
+});
+
+const polledTicket = (store: Store): void =>
+  store.replaceFrontier({
+    repository: 'forge',
+    github: 'rameezk/forge',
+    polledAt: new Date().toISOString(),
+    tickets: [
+      { number: 113, title: 'Ticket', url: TICKET_URL, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, blocked: false },
+    ],
+  });
+
+const workPage = async (stateDir: string): Promise<string> => {
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    const app = createApp({
+      store,
+      transcripts: new FileTranscriptSource(join(stateDir, 'transcripts')),
+      css: '',
+      logo: '',
+      idiomorph: '',
+      client: '',
+    });
+    const response = await app.request('/');
+    assert.equal(response.status, 200);
+    return await response.text();
+  } finally {
+    store.close();
+  }
+};
+
+const cardOf = (page: string, number: number): { html: string; text: string } => {
+  const html = new RegExp(`<article[^>]*data-ticket="${number}"[\\s\\S]*?</article>`).exec(page)?.[0] ?? '';
+  return { html, text: html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() };
+};
+
+const BAD_CREDENTIALS = 'GitHub answered 401: Bad credentials';
+
+test('given a forge:ready ticket and a GitHub that answers the bot user lookup with 401 Bad credentials, when forge-dispatch runs for it, then the work page shows the ticket failed with Did not start and the error, with no run link and no attempts link', async () => {
+  const { failure, stateDir, pi, runs } = await dispatch({
+    rejectBotLookup: true,
+    failing: true,
+    seed: polledTicket,
+  });
+
+  const card = cardOf(await workPage(stateDir), 113);
+
+  assert.match(String(failure), new RegExp(BAD_CREDENTIALS));
+  assert.equal(pi, null);
+  assert.deepEqual(runs, []);
+  assert.match(card.text, new RegExp(`Did not start: ${BAD_CREDENTIALS}`));
+  assert.doesNotMatch(card.html, /href="\/runs\/|data-attempts/);
+});
+
+test('given a ticket whose latest dispatch is a failed start, when forge-dispatch fails to start it again several times, then the work page still shows one failed dispatch reading Did not start with the count, the time of the last one and the latest error', async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'forge-dispatch-'));
+  await dispatch({ stateDir, rejectBotLookup: true, failing: true, seed: polledTicket });
+  const page = async (): Promise<string> => workPage(stateDir);
+  assert.doesNotMatch(cardOf(await page(), 113).text, /times/);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await dispatch({ stateDir, rejectBotLookup: true, failing: true });
+  }
+
+  const board = await page();
+  const card = cardOf(board, 113);
+  assert.equal(board.match(/data-ticket="113"/g)?.length, 1);
+  assert.match(card.text, new RegExp(`Did not start \\(3 times, last \\S+(?: \\S+)? ago\\): ${BAD_CREDENTIALS}$`));
+  assert.match(card.html, /data-elapsed-since="\d{4}-/);
+  assert.doesNotMatch(card.html, /href="\/runs\/|data-attempts/);
+});
+
+test('given a ticket whose latest dispatch is a failed start, when the cause is fixed and forge-dispatch runs again, then the failed start is gone from the work page and the ticket links to its attempt', async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'forge-dispatch-'));
+  await dispatch({ stateDir, rejectBotLookup: true, failing: true, seed: polledTicket });
+
+  const { dispatches } = await dispatch({ stateDir });
+
+  const card = cardOf(await workPage(stateDir), 113);
+  assert.equal(dispatches.length, 1);
+  assert.notEqual(dispatches[0]?.reason, 'not-started');
+  assert.equal(dispatches[0]?.failedStarts, null);
+  assert.doesNotMatch(card.text, /Did not start/);
+  assert.match(card.html, /data-attempts/);
+});
+
+test('given a ticket that is no longer dispatchable when forge-dispatch checks it, when it runs for it, then no dispatch is recorded and the work page shows nothing new for it', async () => {
+  const { code, dispatches, stateDir } = await dispatch({
+    responses: { 113: recorded('frontier-ticket') },
+    seed: polledTicket,
+  });
+
+  const card = cardOf(await workPage(stateDir), 113);
+
+  assert.equal(code, 1);
+  assert.deepEqual(dispatches, []);
+  assert.doesNotMatch(card.text, /Did not start/);
 });
