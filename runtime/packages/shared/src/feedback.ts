@@ -1,4 +1,4 @@
-import { pullRequestUrl, requestGraphql, type Fetch } from './frontier.ts';
+import { pullRequestUrl, readGraphql, requestGraphql, type Fetch } from './frontier.ts';
 
 export const WATCHED_PAGE_SIZE = 50;
 
@@ -92,8 +92,7 @@ interface WatchedPage {
 }
 
 interface WatchedResponse {
-  data?: { repository: WatchedPage | null };
-  errors?: { message: string }[];
+  repository: WatchedPage | null;
 }
 
 export interface WatchedPullRequest {
@@ -144,15 +143,7 @@ const queryWatchedPage = async (
     first: WATCHED_PAGE_SIZE,
     after,
   });
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for ${github}`);
-  }
-  const { data, errors } = (await response.json()) as WatchedResponse;
-  if (errors !== undefined && errors.length > 0) {
-    throw new Error(
-      `GitHub rejected the pull request query for ${github}: ${errors.map((error) => error.message).join('; ')}`,
-    );
-  }
+  const data = await readGraphql<WatchedResponse>(response, WATCHED_PULL_REQUESTS_QUERY, github);
   const repository = data?.repository;
   if (repository === undefined || repository === null) {
     throw new Error(`GitHub found no repository ${github}`);
@@ -244,27 +235,24 @@ interface AuthoredNode {
 }
 
 interface FeedbackWindowResponse {
-  data?: {
-    repository: {
-      pullRequest: {
-        reviews: {
-          nodes: (AuthoredNode & {
-            submittedAt: string | null;
-            comments: {
-              nodes: (AuthoredNode & {
-                createdAt: string;
-                path: string;
-                line: number | null;
-                originalLine: number | null;
-              })[];
-            };
-          })[];
-        };
-        comments: { nodes: (AuthoredNode & { createdAt: string })[] };
-      } | null;
+  repository: {
+    pullRequest: {
+      reviews: {
+        nodes: (AuthoredNode & {
+          submittedAt: string | null;
+          comments: {
+            nodes: (AuthoredNode & {
+              createdAt: string;
+              path: string;
+              line: number | null;
+              originalLine: number | null;
+            })[];
+          };
+        })[];
+      };
+      comments: { nodes: (AuthoredNode & { createdAt: string })[] };
     } | null;
-  };
-  errors?: { message: string }[];
+  } | null;
 }
 
 export type FeedbackKind = 'review summary' | 'inline review comment' | 'conversation comment';
@@ -289,18 +277,14 @@ export const queryFeedbackWindow = async (
   after: string | null,
   until: string,
 ): Promise<FeedbackItem[]> => {
-  const response = await requestGraphql(fetch, token, FEEDBACK_WINDOW_QUERY, github, { number });
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
-  }
-  const { data, errors } = (await response.json()) as FeedbackWindowResponse;
+  const data = await readGraphql<FeedbackWindowResponse>(
+    await requestGraphql(fetch, token, FEEDBACK_WINDOW_QUERY, github, { number }),
+    FEEDBACK_WINDOW_QUERY,
+    `${github}#${number}`,
+  );
   const pullRequest = data?.repository?.pullRequest;
   if (pullRequest === undefined || pullRequest === null) {
-    const reason =
-      errors === undefined || errors.length === 0
-        ? 'no such pull request'
-        : errors.map((error) => error.message).join('; ');
-    throw new Error(`GitHub found no pull request ${github}#${number}: ${reason}`);
+    throw new Error(`GitHub found no pull request ${github}#${number}`);
   }
   const instant = (time: string): number => Date.parse(time);
   const inWindow = (time: string): boolean =>
@@ -425,16 +409,13 @@ interface AnswerComment {
 }
 
 interface FeedbackAnswersResponse {
-  data?: {
-    repository: {
-      pullRequest: {
-        reviews: { nodes: { url: string; reactionGroups: Reactions }[] };
-        reviewThreads: { nodes: { comments: { nodes: AnswerComment[] } }[] };
-        comments: { nodes: (AnswerComment & { body: string })[] };
-      } | null;
+  repository: {
+    pullRequest: {
+      reviews: { nodes: { url: string; reactionGroups: Reactions }[] };
+      reviewThreads: { nodes: { comments: { nodes: AnswerComment[] } }[] };
+      comments: { nodes: (AnswerComment & { body: string })[] };
     } | null;
-  };
-  errors?: { message: string }[];
+  } | null;
 }
 
 const BOT_SUFFIX = '[bot]';
@@ -459,18 +440,14 @@ export const queryUnansweredFeedback = async (
   appName: string,
   items: readonly FeedbackItem[],
 ): Promise<FeedbackItem[]> => {
-  const response = await requestGraphql(fetch, token, FEEDBACK_ANSWERS_QUERY, github, { number });
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
-  }
-  const { data, errors } = (await response.json()) as FeedbackAnswersResponse;
+  const data = await readGraphql<FeedbackAnswersResponse>(
+    await requestGraphql(fetch, token, FEEDBACK_ANSWERS_QUERY, github, { number }),
+    FEEDBACK_ANSWERS_QUERY,
+    `${github}#${number}`,
+  );
   const pullRequest = data?.repository?.pullRequest;
   if (pullRequest === undefined || pullRequest === null) {
-    const reason =
-      errors === undefined || errors.length === 0
-        ? 'no such pull request'
-        : errors.map((error) => error.message).join('; ');
-    throw new Error(`GitHub found no pull request ${github}#${number}: ${reason}`);
+    throw new Error(`GitHub found no pull request ${github}#${number}`);
   }
   const app = botLoginOf(appName);
   const instant = (time: string): number => Date.parse(time);

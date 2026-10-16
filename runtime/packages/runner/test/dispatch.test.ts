@@ -1525,7 +1525,7 @@ test('given a repository whose clone fails, when forge-dispatch runs, then pi ne
 test('given an issue GitHub cannot find and a repository that is not declared, when forge-dispatch runs for each, then it fails naming the problem', async () => {
   await assert.rejects(
     dispatch({ issue: 99999, responses: { 99999: recorded('missing-ticket') } }),
-    /GitHub found no ticket rameezk\/forge#99999: Could not resolve to an Issue with the number of 99999\./,
+    /GitHub rejected the Ticket query for rameezk\/forge#99999: Could not resolve to an Issue with the number of 99999\./,
   );
   await assert.rejects(
     dispatch({ repository: 'elsewhere' }),

@@ -394,7 +394,7 @@ test('given two declared repositories with stored snapshots where GitHub now fai
     polledAt: previousPoll,
     lastError: {
       message:
-        "GitHub rejected the frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
+        "GitHub rejected the Frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
       failedAt,
     },
     tickets: [staleTicket('rameezk/forge-does-not-exist', 2)],
@@ -651,7 +651,7 @@ test('given GitHub fails for one of two declared repositories, when list runs, t
     output.stdout(),
     [
       'gone (rameezk/forge-does-not-exist)',
-      "  error: GitHub rejected the frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
+      "  error: GitHub rejected the Frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
       '',
       'mirror (rameezk/forge-mirror)',
       '  #57 Frontier sync survives real-world GitHub',
