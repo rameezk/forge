@@ -439,7 +439,7 @@ let
 
   githubCli = pkgs.writeShellScriptBin "gh" ''
     if [ -n "''${FORGE_GITHUB_TOKEN_FILE-}" ]; then
-      GH_TOKEN="$(cat "$FORGE_GITHUB_TOKEN_FILE")" || exit 1
+      GH_TOKEN="$(< "$FORGE_GITHUB_TOKEN_FILE")" || exit 1
       export GH_TOKEN
     fi
     exec ${lib.getExe pkgs.gh} "$@"
