@@ -27,6 +27,8 @@ import {
 } from '../../shared/test/fixtures/fake-github-app.ts';
 import {
   billedAt,
+  git,
+  gitConfigOf,
   fakeOpenRouter,
   lockedPiPackage,
   PI_EXTENSIONS,
@@ -58,13 +60,6 @@ const pullRequestFixture = (): PullRequestResponse =>
   JSON.parse(
     readFileSync(join(GITHUB_FIXTURES, 'pull-request.json'), 'utf8'),
   ) as PullRequestResponse;
-
-const git = (cwd: string, ...args: string[]): string =>
-  execFileSync(
-    'git',
-    ['-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.com', ...args],
-    { cwd, encoding: 'utf8' },
-  ).trim();
 
 const SKILL =
   '---\nname: address-feedback\ndescription: Address review feedback on a pull request.\n---\n\nAddress it.\n';
@@ -263,15 +258,6 @@ interface Outcome {
   runsList: string;
   thrown: string | null;
 }
-
-const gitConfigOf = (entries: Record<string, string>): Record<string, string> =>
-  Object.fromEntries([
-    ['GIT_CONFIG_COUNT', String(Object.keys(entries).length)],
-    ...Object.entries(entries).flatMap(([key, value], index) => [
-      [`GIT_CONFIG_KEY_${index}`, key],
-      [`GIT_CONFIG_VALUE_${index}`, value],
-    ]),
-  ]);
 
 const botLookupRejected =
   (next: typeof globalThis.fetch): typeof globalThis.fetch =>
@@ -520,6 +506,26 @@ test('given a live revision of the pull request, when forge-revise runs, then no
   assert.equal(pi, null);
   assert.equal(revisions.length, 1);
   assert.equal(complaints, 'forge#143 cannot be revised: a revision of it is already running');
+});
+
+test('given a live conflict resolution of the pull request, when forge-revise runs, then no revision starts and the command says why', async () => {
+  const { code, pi, revisions, complaints } = await revise({
+    seed: (store) => {
+      const start = store.startConflictResolution(
+        { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
+        [],
+        'earlier-run',
+        new Date().toISOString(),
+        10,
+      );
+      assert.ok('started' in start);
+    },
+  });
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.deepEqual(revisions, []);
+  assert.equal(complaints, 'forge#143 cannot be revised: a conflict resolution of it is already running');
 });
 
 test('given dispatch.maxConcurrent workloads already live, when forge-revise runs, then no workload starts until a slot frees', async () => {

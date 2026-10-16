@@ -29,6 +29,14 @@ export type {
   PullRequestState,
 } from './dispatch.ts';
 export type {
+  ConflictResolutionFailure,
+  ConflictResolutionFailureRecord,
+  ConflictResolutionRecord,
+  ConflictResolutionStart,
+  ConflictResolutionState,
+  PullRequestWorkloadRecord,
+} from './conflict-resolution.ts';
+export type {
   RevisedPullRequest,
   RevisionFailure,
   RevisionFailureRecord,
@@ -54,6 +62,8 @@ export type {
   Fetch,
   LabelledIssue,
   PolledFrontier,
+  Mergeable,
+  PullRequestConflict,
   PullRequestHead,
   PullRequestSnapshot,
   PollFailure,
@@ -74,6 +84,7 @@ export {
   queryFrontier,
   queryLabelled,
   queryPullRequest,
+  queryPullRequestConflict,
   queryPullRequestHead,
   queryTicket,
   reworkOf,

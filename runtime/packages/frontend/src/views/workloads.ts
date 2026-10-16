@@ -1,26 +1,26 @@
 import { html } from 'hono/html';
-import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type RevisionRecord } from '@forge/shared';
+import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type PullRequestWorkloadRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
-import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, revisionFailureText, NUMERIC_WRAPPING, layout } from './shared.ts';
+import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, pullRequestFailureText, NUMERIC_WRAPPING, layout } from './shared.ts';
 
-const renderRunPullRequest = (revision: RevisionRecord | undefined): Rendered =>
-  revision === undefined
+const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
+  pullRequestWorkload === undefined
     ? ''
-    : html`<span class="text-muted">${revision.repository}</span> ${isGithubUrl(revision.url)
-    ? externalLink(revision.url, `PR #${revision.number}`)
-    : html`PR #${revision.number}`}`;
+    : html`<span class="text-muted">${pullRequestWorkload.repository}</span> ${isGithubUrl(pullRequestWorkload.url)
+    ? externalLink(pullRequestWorkload.url, `PR #${pullRequestWorkload.number}`)
+    : html`PR #${pullRequestWorkload.number}`}`;
 
-const failureOf = (run: RunRecord, revision: RevisionRecord | undefined): string | null => {
-  if (revision === undefined) return null;
-  const text = revisionFailureText(revision);
+const failureOf = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): string | null => {
+  if (pullRequestWorkload === undefined) return null;
+  const text = pullRequestFailureText(pullRequestWorkload);
   if (text !== null) return text;
-  return revision.state === 'error' ? run.error : null;
+  return pullRequestWorkload.state === 'error' ? run.error : null;
 };
 
-const renderStatusCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered => {
-  const error = failureOf(run, revision);
+const renderStatusCell = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered => {
+  const error = failureOf(run, pullRequestWorkload);
   return error === null
     ? renderStatus(run.status)
     : html`${renderStatus(run.status)}<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`;
@@ -150,22 +150,22 @@ const renderPager = (paged: Page<RunRecord>, filter: WorkloadFilter): Rendered =
     ${renderPageLink('older', 'Older', paged.hasOlder ? workloadsHref(filter, paged.page + 1) : undefined)}
   </nav>`;
 
-const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered =>
-  run.ticket === null && revision === undefined
+const renderTicketCell = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
+  run.ticket === null && pullRequestWorkload === undefined
     ? html`<span class="text-muted">manual</span>`
-    : html`${renderRunTicket(run.ticket)}${renderRunPullRequest(revision)}`;
+    : html`${renderRunTicket(run.ticket)}${renderRunPullRequest(pullRequestWorkload)}`;
 
 const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
 const renderCardError = (error: string | null): Rendered =>
   error === null ? '' : html`<div class="whitespace-pre-line wrap-anywhere text-muted" data-run-error>${error}</div>`;
 
-const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered =>
+const renderRunCard = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered =>
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
     <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime, timeZone)}${renderStatus(run.status)}</div>
-    ${renderCardError(failureOf(run, revision))}
-    <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, revision)}</span><span class="font-semibold">${run.worker}</span></div>
+    ${renderCardError(failureOf(run, pullRequestWorkload))}
+    <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, pullRequestWorkload)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">
       <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Duration</dt><dd class="m-0 tabular-nums" data-duration>${renderDuration(run)}</dd></div>
@@ -179,7 +179,7 @@ export const renderList = (
   filter: WorkloadFilter,
   requestedPage: number,
   equivalents: Map<string, ListPriceEquivalent>,
-  revisions: ReadonlyMap<string, RevisionRecord>,
+  pullRequestWorkloads: ReadonlyMap<string, PullRequestWorkloadRecord>,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const runs = filterWorkloads(all, filter);
@@ -198,7 +198,7 @@ export const renderList = (
           ${runs.length === 0
             ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`
             : html`<div class="flex flex-col gap-3 sm:hidden" data-run-cards>
-            ${runs.map((run) => renderRunCard(run, revisions.get(run.id), equivalents, display.timeZone))}
+            ${runs.map((run) => renderRunCard(run, pullRequestWorkloads.get(run.id), equivalents, display.timeZone))}
           </div>
           <div class="${CARD} hidden sm:block">
             <table class="${TABLE}">
@@ -219,8 +219,8 @@ export const renderList = (
                 ${paged.items.map(
                   (run) => html`<tr class="${ROW}" data-run="${run.id}">
                     <td class="${TD}">${renderTimestamp(run.startTime, display.timeZone)}</td>
-                    <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderTicketCell(run, revisions.get(run.id))}</td>
-                    <td class="${TD}">${renderStatusCell(run, revisions.get(run.id))}</td>
+                    <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderTicketCell(run, pullRequestWorkloads.get(run.id))}</td>
+                    <td class="${TD}">${renderStatusCell(run, pullRequestWorkloads.get(run.id))}</td>
                     <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK}">${run.worker}</a></td>
                     <td class="${TD} wrap-anywhere text-muted">${run.model}</td>
                     <td class="${TD} whitespace-nowrap" data-effort>${configuredEffort(run)}</td>

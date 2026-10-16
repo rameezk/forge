@@ -35,6 +35,7 @@ test('given the query constants the feedback and frontier code exports, then for
       'FEEDBACK_WINDOW_QUERY',
       'FRONTIER_QUERY',
       'LABELLED_QUERY',
+      'PULL_REQUEST_CONFLICT_QUERY',
       'PULL_REQUEST_HEAD_QUERY',
       'PULL_REQUEST_QUERY',
       'TICKET_QUERY',

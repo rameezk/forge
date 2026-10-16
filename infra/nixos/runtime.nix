@@ -155,6 +155,12 @@ let
         example = "reviser";
         description = "Worker that revises this repository's pull requests in a fresh clone of the pull request's head branch, or null to turn revisions off for the repository. The dispatch pass starts it when feedback on a pull request forge's App opened has been quiet for `forge.runtime.feedback.quietPeriod`, and `forge-revise` starts it by hand. Its prompt is a template filled in for each pull request: `{repo}` becomes the repository's `owner/name`, `{pr}` the pull request's number, `{url}` its URL and `{branch}` its head branch, and it must hold `{pr}` or `{url}`. A leading `/<name>` runs the branch's skill of that name, and the revision fails before the harness starts if the branch has none. Skills, project instructions and the devShell come from the branch, as for `on.ticket`. The worker is told that a person reviews the pull request: it proceeds where the feedback settles a skill's confirmation, and otherwise asks its question as a reply on the pull request and ends its run at once. Budget and timeout come from the worker.";
       };
+      on.conflict = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "resolver";
+        description = "Worker that resolves merge conflicts on this repository's pull requests in a fresh clone of the pull request's head branch, or null to turn conflict resolutions off for the repository. `forge-resolve-conflicts` starts it by hand. Its prompt is a template filled in for each pull request as for `on.feedback`, and it must hold `{pr}` or `{url}`. A leading `/<name>` runs the branch's skill of that name, and the conflict resolution fails before the harness starts if the branch has none. Forge first trial-merges the default branch into the branch: a clean merge ends the conflict resolution ok without starting the worker. Otherwise the prompt ends with the pull request, the default branch, the sha it must merge and the files that conflicted. The conflict resolution is ok only once GitHub reports the pull request's head as containing that sha and not conflicting with it. Any other outcome leaves the pull request open and untouched. Budget and timeout come from the worker.";
+      };
     };
   };
 
@@ -172,12 +178,12 @@ let
     repositories = lib.mapAttrs (
       _: r:
       { inherit (r) github; }
-      // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null) {
-        on = lib.filterAttrs (_: worker: worker != null) { inherit (r.on) ticket feedback; };
+      // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null || r.on.conflict != null) {
+        on = lib.filterAttrs (_: worker: worker != null) { inherit (r.on) ticket feedback conflict; };
       }
     ) cfg.repositories;
   }
-  // lib.optionalAttrs (hasDispatch || hasRevision) {
+  // lib.optionalAttrs (hasDispatch || hasRevision || hasConflictResolution) {
     dispatch = {
       inherit (cfg.dispatch) maxConcurrent;
     };
@@ -195,6 +201,8 @@ let
   hasDispatch = dispatchedRepositories != { };
   revisedRepositories = lib.filterAttrs (_: r: r.on.feedback != null) cfg.repositories;
   hasRevision = revisedRepositories != { };
+  resolvedRepositories = lib.filterAttrs (_: r: r.on.conflict != null) cfg.repositories;
+  hasConflictResolution = resolvedRepositories != { };
 
   backstopMarginSeconds = 30 * 60;
   backstopSeconds = w: if w.timeout == null then null else timeSpanSeconds w.timeout + backstopMarginSeconds;
@@ -219,6 +227,12 @@ let
   revisionBackstop =
     let
       backstops = map (r: backstopSeconds cfg.workers.${r.on.feedback}) (lib.attrValues revisedRepositories);
+    in
+    if lib.elem null backstops || backstops == [ ] then null else lib.foldl' lib.max 0 backstops;
+
+  conflictResolutionBackstop =
+    let
+      backstops = map (r: backstopSeconds cfg.workers.${r.on.conflict}) (lib.attrValues resolvedRepositories);
     in
     if lib.elem null backstops || backstops == [ ] then null else lib.foldl' lib.max 0 backstops;
 
@@ -329,6 +343,30 @@ let
     ) revisedRepositories
   );
 
+  conflictResolutionAssertions = lib.concatLists (
+    lib.mapAttrsToList (
+      name: r:
+      let
+        option = "forge.runtime.repositories.${name}.on.conflict";
+        declared = cfg.workers ? ${r.on.conflict};
+      in
+      [
+        {
+          assertion = builtins.match "[A-Za-z0-9_-]+" name != null;
+          message = "forge.runtime.repositories.${name} declares on.conflict, so its name must use only letters, digits, `_` and `-`: it names the repository in forge-resolve-conflicts and its unit";
+        }
+        {
+          assertion = declared;
+          message = "${option} names undeclared worker '${r.on.conflict}'";
+        }
+        {
+          assertion = !declared || hasPullRequestPlaceholder cfg.workers.${r.on.conflict}.prompt;
+          message = "worker '${r.on.conflict}', named by ${option}, has no pull request placeholder: its prompt must hold {pr} or {url}";
+        }
+      ]
+    ) resolvedRepositories
+  );
+
   runtimeUser = config.users.users.${cfg.user};
   runtimeGroups = lib.unique (
     [ runtimeUser.group ]
@@ -356,13 +394,18 @@ let
 
   startableUnits =
     lib.optional hasDispatch "forge-dispatch@(?:${lib.concatStringsSep "|" (lib.attrNames dispatchedRepositories)})"
-    ++ lib.optional hasRevision "forge-revise@(?:${lib.concatStringsSep "|" (lib.attrNames revisedRepositories)})";
+    ++ lib.optional hasRevision "forge-revise@(?:${lib.concatStringsSep "|" (lib.attrNames revisedRepositories)})"
+    ++ lib.optional hasConflictResolution "forge-resolve-conflicts@(?:${lib.concatStringsSep "|" (lib.attrNames resolvedRepositories)})";
   startableUnitPattern = "^${
     if lib.length startableUnits == 1 then lib.head startableUnits else "(?:${lib.concatStringsSep "|" startableUnits})"
   }:[1-9][0-9]*\\.service$";
 
   reviseInstance = pkgs.writeShellScript "forge-revise-instance" ''
     exec ${cfg.package}/bin/forge-revise "''${1%:*}" "''${1##*:}"
+  '';
+
+  resolveConflictsInstance = pkgs.writeShellScript "forge-resolve-conflicts-instance" ''
+    exec ${cfg.package}/bin/forge-resolve-conflicts "''${1%:*}" "''${1##*:}"
   '';
 
   dispatchInstance = pkgs.writeShellScript "forge-dispatch-instance" ''
@@ -473,7 +516,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-dispatch-pass, forge-billing, forge-frontier and forge-frontend entry points.";
+      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-resolve-conflicts, forge-dispatch-pass, forge-billing, forge-frontier and forge-frontend entry points.";
     };
 
     dashboardPort = lib.mkOption {
@@ -505,7 +548,7 @@ in
       type = lib.types.ints.positive;
       default = 1;
       example = 2;
-      description = "How many workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync, or running a revision started with `forge-revise`. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch or revision over it is refused.";
+      description = "How many workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync, or running a revision started with `forge-revise` or a conflict resolution started with `forge-resolve-conflicts`. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch, revision or conflict resolution over it is refused.";
     };
 
     feedback.quietPeriod = lib.mkOption {
@@ -601,7 +644,8 @@ in
       ++ workerPairingAssertions
       ++ removedWorkerAssertions
       ++ dispatchAssertions
-      ++ revisionAssertions;
+      ++ revisionAssertions
+      ++ conflictResolutionAssertions;
 
       security.allowUserNamespaces = true;
 
@@ -754,7 +798,7 @@ in
       };
     })
 
-    (lib.mkIf (hasWorkers && (hasDispatch || hasRevision)) {
+    (lib.mkIf (hasWorkers && (hasDispatch || hasRevision || hasConflictResolution)) {
       security.polkit.enable = true;
       security.polkit.extraConfig = ''
         polkit.addRule(function (action, subject) {
@@ -873,6 +917,43 @@ in
           ExecStart = "${reviseInstance} %i";
         }
         // startTimeout revisionBackstop
+        // workloadMemory
+        // appKeyCredential
+        // workloadHardening;
+      };
+    })
+
+    (lib.mkIf (hasWorkers && hasConflictResolution) {
+      environment.systemPackages = [
+        (pkgs.callPackage ../nix/resolve-conflicts-command.nix { })
+      ];
+
+      systemd.services."forge-resolve-conflicts@" = {
+        description = "Forge conflict resolution of pull request %i";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        restartIfChanged = false;
+        stopIfChanged = false;
+        path = lib.mkForce cfg.toolset;
+        serviceConfig = {
+          Type = "oneshot";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          EnvironmentFile = [
+            (envFile "forge-runner.env")
+            (envFile "forge-github-app.env")
+          ];
+          Environment = [
+            "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
+            "FORGE_STATE_DIR=${cfg.stateDir}"
+            credentialToolsVariable
+            appKeyFileVariable
+          ]
+          ++ forgeGitShaVariable;
+          ExecStart = "${resolveConflictsInstance} %i";
+        }
+        // startTimeout conflictResolutionBackstop
         // workloadMemory
         // appKeyCredential
         // workloadHardening;

@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { isGithubUrl, type AttemptRevision, type RevisionRecord, type RevisionState, type RunFingerprint, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
-import { PULL_REQUEST_TONE, revisionFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
+import { PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
 
 const FAILED_TONE = 'bg-error-soft text-error';
 
@@ -44,7 +44,7 @@ const REVISION_TONE: Record<RevisionState, string> = {
 };
 
 const renderRevisionFailure = (revision: RevisionRecord): Rendered => {
-  const text = revisionFailureText(revision);
+  const text = pullRequestFailureText(revision);
   if (text === null) return '';
   return html`<p class="m-0 mt-1 max-w-64 text-xs wrap-anywhere whitespace-pre-line text-muted" data-revision-failure>${text}</p>`;
 };

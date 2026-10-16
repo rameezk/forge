@@ -24,7 +24,7 @@ export interface WorkerConfig {
 
 export interface RepositoryConfig {
   github: string;
-  on?: { ticket?: string; feedback?: string };
+  on?: { ticket?: string; feedback?: string; conflict?: string };
 }
 
 export interface DispatchConfig {
@@ -122,7 +122,7 @@ export const resolveWorker = (
 export const repositoryTriggeredBy = (
   repositories: Record<string, RepositoryConfig> | undefined,
   name: string,
-  trigger: 'ticket' | 'feedback',
+  trigger: 'ticket' | 'feedback' | 'conflict',
 ): { github: string; worker: string } => {
   const repository =
     repositories !== undefined && Object.hasOwn(repositories, name)

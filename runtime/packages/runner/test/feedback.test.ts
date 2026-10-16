@@ -353,6 +353,27 @@ test('given feedback past its quiet period while a revision of the pull request 
   assert.deepEqual(await setup.syncAndPass(held), [REVISE_UNIT]);
 });
 
+test('given feedback past its quiet period while a conflict resolution of the pull request is running, when the pass runs, then no revision starts, and once it ends the next pass starts one', async () => {
+  const setup = forge({ maxConcurrent: 5 });
+  const pulls = [pullRequest(143, { reviews: [review(ago(60))] })];
+  const running = setup.withStore((store) => {
+    const start = store.startConflictResolution(
+      { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
+      [],
+      'run-conflict',
+      new Date().toISOString(),
+      5,
+    );
+    assert.ok('started' in start);
+    return start.started;
+  });
+
+  assert.deepEqual(await setup.syncAndPass(pulls), []);
+
+  setup.withStore((store) => store.endConflictResolution(running, 'ok', new Date().toISOString()));
+  assert.deepEqual(await setup.syncAndPass(pulls), [REVISE_UNIT]);
+});
+
 test('given dispatch.maxConcurrent live workloads, when a pull request\'s feedback passes its quiet period, then no revision starts until a slot frees', async () => {
   const setup = forge({ maxConcurrent: 1 });
   const pulls = [pullRequest(143, { reviews: [review(ago(60))] })];

@@ -1128,6 +1128,76 @@
               )
               "declaring a repository with on.feedback must define a sandboxed forge-revise@ oneshot loading the App id and reading the App private key as data, and put the forge-revise command on the box's path, and a host without one must not";
 
+          resolveModuleWith =
+            {
+              prompt ? "/git-pr-resolve-conflicts {url}",
+              worker ? "resolver",
+            }:
+            {
+              forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+              forge.runtime.workers.resolver = {
+                harness = "pi";
+                model = "anthropic/claude-sonnet-4";
+                inherit prompt;
+              };
+              forge.runtime.repositories.forge = {
+                github = "rameezk/forge";
+                on.conflict = worker;
+              };
+            };
+          resolveHostWith = args: secretsHost exampleSecretsFile (resolveModuleWith args);
+          resolveHost = resolveHostWith { };
+          resolveUnit = resolveHost.config.systemd.services."forge-resolve-conflicts@";
+          hasResolveCommand =
+            host:
+            lib.any (package: lib.getName package == "forge-resolve-conflicts") host.config.environment.systemPackages;
+          resolveConfigReflectsConflictWorker = lib.asserts.assertMsg (
+            resolveHost.config.forge.runtime.settings.repositories == {
+              forge = {
+                github = "rameezk/forge";
+                on.conflict = "resolver";
+              };
+            }
+          ) "the generated runtime config must carry a repository's conflict worker under on.conflict";
+          resolveHostEvaluates = lib.asserts.assertMsg (
+            evaluates resolveHost
+            && evaluates (resolveHostWith { prompt = "Resolve {repo}#{pr}"; })
+          ) "a repository whose conflict worker prompt holds {url} or {pr} must evaluate";
+          placeholderlessConflictWorkerFails =
+            let
+              host = resolveHostWith { prompt = "resolve the thing"; };
+            in
+            lib.asserts.assertMsg (
+              !(evaluates host) && lib.any (lib.hasInfix "has no pull request placeholder") (failedAssertions host)
+            ) "a conflict worker whose prompt holds neither {pr} nor {url} must fail evaluation naming the rule";
+          undeclaredConflictWorkerFails =
+            let
+              host = resolveHostWith { worker = "missing"; };
+            in
+            lib.asserts.assertMsg (
+              !(evaluates host) && lib.any (lib.hasInfix "undeclared worker 'missing'") (failedAssertions host)
+            ) "a repository naming an undeclared worker in on.conflict must fail evaluation";
+          resolveUnitRunsResolveConflicts =
+            lib.asserts.assertMsg
+              (
+                (resolveHost.config.systemd.services ? "forge-resolve-conflicts@")
+                && !(dispatchHost.config.systemd.services ? "forge-resolve-conflicts@")
+                && resolveUnit.serviceConfig.Type == "oneshot"
+                && lib.hasInfix "%i" resolveUnit.serviceConfig.ExecStart
+                && lib.hasInfix "forge-resolve-conflicts-instance" resolveUnit.serviceConfig.ExecStart
+                && readsAppKeyAsCredential resolveUnit
+                && resolveUnit.serviceConfig.EnvironmentFile == [
+                  resolveHost.config.sops.templates."forge-runner.env".path
+                  resolveHost.config.sops.templates."forge-github-app.env".path
+                ]
+                && isWorkloadHardened resolveUnit
+                && hasResolveCommand resolveHost
+                && !(hasResolveCommand dispatchHost)
+                && resolveHost.config.security.polkit.enable
+                && lib.hasInfix ''/^forge-resolve-conflicts@(?:forge):[1-9][0-9]*\.service$/'' resolveHost.config.security.polkit.extraConfig
+              )
+              "declaring a repository with on.conflict must define a sandboxed forge-resolve-conflicts@ oneshot loading the App id and reading the App private key as data, let forge-runtime start it, and put the forge-resolve-conflicts command on the box's path, and a host without one must not";
+
           billingService = workerHost.config.systemd.services.forge-billing;
           billingTimer = workerHost.config.systemd.timers.forge-billing;
           billingDeclared = lib.asserts.assertMsg (
@@ -1652,6 +1722,16 @@
             assert reviseUnitRunsRevise;
             pkgs.runCommand "runtime-revise" { } ''
               echo "a repository's feedback worker wires a forge-revise@ oneshot and the forge-revise command; a feedback worker without a pull request placeholder fails evaluation" > $out
+            '';
+
+          runtime-resolve-conflicts =
+            assert resolveConfigReflectsConflictWorker;
+            assert resolveHostEvaluates;
+            assert placeholderlessConflictWorkerFails;
+            assert undeclaredConflictWorkerFails;
+            assert resolveUnitRunsResolveConflicts;
+            pkgs.runCommand "runtime-resolve-conflicts" { } ''
+              echo "a repository's conflict worker wires a forge-resolve-conflicts@ oneshot, its polkit rule and the forge-resolve-conflicts command; an undeclared worker or one without a pull request placeholder fails evaluation" > $out
             '';
 
           runtime-workload-memory =
