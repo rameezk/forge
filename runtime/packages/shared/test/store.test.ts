@@ -1007,3 +1007,39 @@ test('given a billed run and a subscription run each with a generation, when the
     ['gen-of-run-billed'],
   );
 });
+
+const CONFLICTING_PULL_REQUEST = {
+  repository: 'forge',
+  number: 143,
+  url: 'https://github.com/rameezk/forge/pull/143',
+};
+
+test('given a conflict resolution left running past the heartbeat window, when conflict resolutions are listed, then it reads as interrupted, and it no longer counts toward the pool or holds the pull request', () => {
+  const store = Store.open(':memory:');
+  const started = '2026-09-21T10:00:00.000Z';
+  const start = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', started, 1);
+  assert.ok('started' in start);
+  assert.equal(store.liveWorkloads(started), 1);
+
+  const later = '2026-09-21T11:00:00.000Z';
+
+  assert.deepEqual(store.listConflictResolutions(later).map(({ state }) => state), ['interrupted']);
+  assert.equal(store.liveWorkloads(later), 0);
+  assert.ok('started' in store.startRevision(CONFLICTING_PULL_REQUEST, [], 'run-02', later, 1));
+});
+
+test('given a conflict resolution that ends in failure, when conflict resolutions are listed, then its state, reason and detail read back', () => {
+  const store = Store.open(':memory:');
+  const start = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', '2026-09-21T10:00:00.000Z', 1);
+  assert.ok('started' in start);
+
+  store.endConflictResolution(start.started, 'error', '2026-09-21T10:05:00.000Z', {
+    reason: 'not-merged',
+    detail: 'the head does not contain abc',
+  });
+
+  assert.deepEqual(
+    store.listConflictResolutions('2026-09-21T10:06:00.000Z').map(({ state, reason, detail, endedAt }) => ({ state, reason, detail, endedAt })),
+    [{ state: 'error', reason: 'not-merged', detail: 'the head does not contain abc', endedAt: '2026-09-21T10:05:00.000Z' }],
+  );
+});

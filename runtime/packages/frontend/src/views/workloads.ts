@@ -1,25 +1,25 @@
 import { html } from 'hono/html';
-import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type RevisionRecord } from '@forge/shared';
+import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type PullRequestWorkloadRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
-import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, revisionFailureText, NUMERIC_WRAPPING, layout } from './shared.ts';
+import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, pullRequestFailureText, NUMERIC_WRAPPING, layout } from './shared.ts';
 
-const renderRunPullRequest = (revision: RevisionRecord | undefined): Rendered =>
+const renderRunPullRequest = (revision: PullRequestWorkloadRecord | undefined): Rendered =>
   revision === undefined
     ? ''
     : html`<span class="text-muted">${revision.repository}</span> ${isGithubUrl(revision.url)
     ? externalLink(revision.url, `PR #${revision.number}`)
     : html`PR #${revision.number}`}`;
 
-const failureOf = (run: RunRecord, revision: RevisionRecord | undefined): string | null => {
+const failureOf = (run: RunRecord, revision: PullRequestWorkloadRecord | undefined): string | null => {
   if (revision === undefined) return null;
-  const text = revisionFailureText(revision);
+  const text = pullRequestFailureText(revision);
   if (text !== null) return text;
   return revision.state === 'error' ? run.error : null;
 };
 
-const renderStatusCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered => {
+const renderStatusCell = (run: RunRecord, revision: PullRequestWorkloadRecord | undefined): Rendered => {
   const error = failureOf(run, revision);
   return error === null
     ? renderStatus(run.status)
@@ -150,7 +150,7 @@ const renderPager = (paged: Page<RunRecord>, filter: WorkloadFilter): Rendered =
     ${renderPageLink('older', 'Older', paged.hasOlder ? workloadsHref(filter, paged.page + 1) : undefined)}
   </nav>`;
 
-const renderTicketCell = (run: RunRecord, revision: RevisionRecord | undefined): Rendered =>
+const renderTicketCell = (run: RunRecord, revision: PullRequestWorkloadRecord | undefined): Rendered =>
   run.ticket === null && revision === undefined
     ? html`<span class="text-muted">manual</span>`
     : html`${renderRunTicket(run.ticket)}${renderRunPullRequest(revision)}`;
@@ -160,7 +160,7 @@ const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted
 const renderCardError = (error: string | null): Rendered =>
   error === null ? '' : html`<div class="whitespace-pre-line wrap-anywhere text-muted" data-run-error>${error}</div>`;
 
-const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered =>
+const renderRunCard = (run: RunRecord, revision: PullRequestWorkloadRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered =>
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
     <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime, timeZone)}${renderStatus(run.status)}</div>
@@ -179,7 +179,7 @@ export const renderList = (
   filter: WorkloadFilter,
   requestedPage: number,
   equivalents: Map<string, ListPriceEquivalent>,
-  revisions: ReadonlyMap<string, RevisionRecord>,
+  revisions: ReadonlyMap<string, PullRequestWorkloadRecord>,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const runs = filterWorkloads(all, filter);

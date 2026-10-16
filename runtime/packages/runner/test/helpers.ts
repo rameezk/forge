@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { accessSync, chmodSync, constants, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -173,6 +174,7 @@ const env = process.env;
 if (process.argv[2] === '--version') { process.stdout.write(${JSON.stringify((version ?? '') + '\n')}); process.exit(${version === null ? 1 : 0}); }
 const modelsPath = env.PI_CODING_AGENT_DIR + '/models.json';
 writeFileSync(env.FAKE_PI_RECORD, JSON.stringify({ modelsJson: existsSync(modelsPath) ? readFileSync(modelsPath, 'utf8') : null, argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, subagentInvocation: env.FORGE_PI_SUBAGENT_INVOCATION, agentDir: env.PI_CODING_AGENT_DIR, githubToken: env.GITHUB_TOKEN, githubTokenFile: env.FORGE_GITHUB_TOKEN_FILE, githubTokenFileContents: env.FORGE_GITHUB_TOKEN_FILE && existsSync(env.FORGE_GITHUB_TOKEN_FILE) ? readFileSync(env.FORGE_GITHUB_TOKEN_FILE, 'utf8') : null, credential: env.FORGE_GITHUB_TOKEN_FILE ? spawnSync('git', ['credential', 'fill'], { input: 'protocol=https\\nhost=github.com\\n\\n', encoding: 'utf8', env: { ...env, GIT_TERMINAL_PROMPT: '0' } }).stdout : null, nodeOptions: env.NODE_OPTIONS, env }));
+if (env.FAKE_PI_ACTION) spawnSync('sh', ['-c', env.FAKE_PI_ACTION], { stdio: ['ignore', 2, 2] });
 process.stdout.write(readFileSync(env.FAKE_PI_OUTPUT, 'utf8'));
 if (env.FAKE_PI_REQUESTS) writeFileSync(Number(env.FORGE_PI_REQUEST_RECORD_FD), readFileSync(env.FAKE_PI_REQUESTS, 'utf8').replaceAll('$CWD', process.cwd()));
 if (env.FAKE_PI_STDERR) process.stderr.write(readFileSync(env.FAKE_PI_STDERR, 'utf8'));
@@ -490,3 +492,19 @@ export const isAlive = (pid: number): boolean => {
     return false;
   }
 };
+
+export const git = (cwd: string, ...args: string[]): string =>
+  execFileSync(
+    'git',
+    ['-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.com', ...args],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+
+export const gitConfigOf = (entries: Record<string, string>): Record<string, string> =>
+  Object.fromEntries([
+    ['GIT_CONFIG_COUNT', String(Object.keys(entries).length)],
+    ...Object.entries(entries).flatMap(([key, value], index) => [
+      [`GIT_CONFIG_KEY_${index}`, key],
+      [`GIT_CONFIG_VALUE_${index}`, value],
+    ]),
+  ]);

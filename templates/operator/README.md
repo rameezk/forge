@@ -489,7 +489,9 @@ same repository may run in parallel. A ticket over the limit stays
 `forge:ready` until a pass after one of the running workloads finishes. The
 pass may start only `forge-dispatch@` units of repositories that declare
 `on.ticket` and `forge-revise@` units of repositories that declare
-`on.feedback`, which polkit allows the forge-runtime user and nothing else.
+`on.feedback`, which polkit allows the forge-runtime user and nothing else,
+together with the `forge-resolve-conflicts@` units of repositories that declare
+`on.conflict`.
 
 To dispatch a ticket straight away rather than waiting for the next sync, run:
 
@@ -609,11 +611,70 @@ GitHub for a revision: no labels, reactions or comments. Pushes and replies
 are the worker's.
 
 A pull request has at most one live workload: `forge-revise` refuses it while
-a revision of it is running or the dispatch that opened it still is, and says
-which. Revisions share `dispatch.maxConcurrent` with dispatches, so one is
+a revision or conflict resolution of it is running or the dispatch that opened
+it still is, and says which. Revisions share `dispatch.maxConcurrent` with dispatches, so one is
 also refused while that many workloads run. The worker's timeout and budget
 apply as for any worker. A revision's outcome is its workload's end state, and
 it appears on the Runs page beside its repository and pull request.
+
+### Resolving merge conflicts on a pull request
+
+Name a repository's conflict worker with `on.conflict`, beside `on.ticket` and
+`on.feedback`, to have a pull request that conflicts with the default branch
+brought back to mergeable. Its prompt is a template filled in as for
+`on.feedback`, and must hold `{pr}` or `{url}`, or the host does not evaluate.
+The worker must be declared, or the host does not evaluate either.
+
+```nix
+forge.runtime.workers.resolver = {
+  harness = "pi";
+  model = "z-ai/glm-5";
+  prompt = "/git-pr-resolve-conflicts {url}";
+};
+forge.runtime.repositories.forge = {
+  github = "rameezk/forge";
+  on.ticket = "builder";
+  on.conflict = "resolver";
+};
+```
+
+A host with a repository that declares `on.conflict` must provide
+`github_app_id` and `github_app_private_key`, as for `on.ticket`.
+
+To resolve the conflicts on a pull request, run:
+
+```bash
+just ssh sudo forge-resolve-conflicts forge 143
+```
+
+Forge clones the pull request's head branch into a fresh run directory, records
+its head as the base commit, and trial-merges the default branch at its current
+sha. A clean merge ends the conflict resolution ok without starting the worker,
+and nothing is pushed: GitHub's conflicting flag was stale. A conflicting merge
+is aborted and the worker starts, with the prompt followed by the pull request,
+the default branch, the sha it must merge and the files that conflicted, so the
+transcript shows exactly what it was told. The worker merges that sha into the
+branch and pushes, and never rebases or force-pushes. As for a revision, the
+skills, project instructions and devShell come from the branch, and a leading
+`/<name>` in the prompt runs the branch's skill of that name, failing the
+conflict resolution before the harness starts if the branch has none.
+
+After a successful run forge reads the pull request itself. The conflict
+resolution is ok only when the pull request's head contains the sha it was
+given and GitHub no longer reports the pull request as conflicting with that
+sha; otherwise it fails and records which condition was not met. The default
+branch moving on during the run is not a failure. A conflict resolution ends
+ok, error, exceeded or interrupted, as a revision does, and any outcome other
+than ok leaves the pull request open and untouched: forge writes no comment,
+label or close.
+
+`forge-resolve-conflicts` is refused, before the harness starts, for a pull
+request that is not open, whose branch is on a fork, or that has a live
+dispatch, revision or conflict resolution, and while `dispatch.maxConcurrent`
+workloads are running. It says which. A live conflict resolution counts toward
+that limit and holds off a revision of the same pull request, whether started
+by the dispatch pass or by `forge-revise`. Its run appears on the Runs page
+beside its repository and pull request.
 
 ## The workload sandbox
 

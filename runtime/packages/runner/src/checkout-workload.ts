@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { errorMessage, type BotIdentity, type GithubApp, type RunTicket } from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
@@ -98,4 +99,38 @@ export const launchInCheckout = async ({
     stopRefreshing();
     tokenFile.remove();
   });
+};
+
+export const inspectCheckout = async <Result>({
+  env,
+  github,
+  branch,
+  app,
+  gitEnv,
+  id,
+  inspect,
+}: {
+  env: NodeJS.ProcessEnv;
+  github: string;
+  branch: string;
+  app: GithubApp;
+  gitEnv: Record<string, string>;
+  id: string;
+  inspect: (dir: string, env: NodeJS.ProcessEnv) => Promise<Result>;
+}): Promise<Result> => {
+  const tokenFile = GithubTokenFile.create(
+    join(stateDirOf(env), 'credentials'),
+    id,
+    (await app.mint(github, 'workload')).token,
+    [],
+  );
+  const dir = join(stateDirOf(env), 'inspections', id);
+  const gitEnvWithCredentials = { ...withoutCredentials(env), ...tokenFile.environment, ...gitEnv };
+  try {
+    await cloneCheckout(github, dir, gitEnvWithCredentials, branch);
+    return await inspect(dir, gitEnvWithCredentials);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    tokenFile.remove();
+  }
 };

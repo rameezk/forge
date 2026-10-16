@@ -155,6 +155,24 @@ export const PULL_REQUEST_HEAD_QUERY = `
   }
 `;
 
+export const PULL_REQUEST_CONFLICT_QUERY = `
+  query PullRequestConflict($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      defaultBranchRef {
+        name
+        target {
+          oid
+        }
+      }
+      pullRequest(number: $number) {
+        mergeable
+        headRefOid
+        baseRefOid
+      }
+    }
+  }
+`;
+
 export type Fetch = typeof globalThis.fetch;
 
 export interface SpecRef {
@@ -626,6 +644,55 @@ export const queryPullRequestHead = async (
     closes: pullRequest.closingIssuesReferences.nodes
       .filter((issue) => issue.repository.nameWithOwner.toLowerCase() === github.toLowerCase())
       .map((issue) => issue.number),
+  };
+};
+
+export type Mergeable = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+
+export interface PullRequestConflict {
+  defaultBranch: string;
+  defaultSha: string;
+  mergeable: Mergeable;
+  headSha: string;
+  baseSha: string;
+}
+
+interface PullRequestConflictResponse {
+  repository: {
+    defaultBranchRef: { name: string; target: { oid: string } | null } | null;
+    pullRequest: {
+      mergeable: Mergeable;
+      headRefOid: string;
+      baseRefOid: string;
+    } | null;
+  } | null;
+}
+
+export const queryPullRequestConflict = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+): Promise<PullRequestConflict> => {
+  const data = await readGraphql<PullRequestConflictResponse>(
+    await requestGraphql(fetch, token, PULL_REQUEST_CONFLICT_QUERY, github, { number }),
+    PULL_REQUEST_CONFLICT_QUERY,
+    `${github}#${number}`,
+  );
+  const pullRequest = data?.repository?.pullRequest;
+  if (pullRequest === undefined || pullRequest === null) {
+    throw new Error(`GitHub found no pull request ${github}#${number}`);
+  }
+  const branch = data?.repository?.defaultBranchRef;
+  if (branch === undefined || branch === null || branch.target === null) {
+    throw new Error(`GitHub reported no default branch for ${github}`);
+  }
+  return {
+    defaultBranch: branch.name,
+    defaultSha: branch.target.oid,
+    mergeable: pullRequest.mergeable,
+    headSha: pullRequest.headRefOid,
+    baseSha: pullRequest.baseRefOid,
   };
 };
 

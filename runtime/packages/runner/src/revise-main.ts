@@ -9,11 +9,9 @@ import {
   startHeartbeat,
   Store,
   type Fetch,
-  type PullRequestHead,
   type RunRecord,
   type RevisionFailureRecord,
   type RevisionStart,
-  type RevisionState,
 } from '@forge/shared';
 import {
   maxConcurrentOf,
@@ -21,6 +19,7 @@ import {
   resolveWorker,
 } from './config.ts';
 import { launchInCheckout } from './checkout-workload.ts';
+import { fillPrompt, headRefusal, stateOf } from './pull-request-workload.ts';
 import { gitEnvironment } from './git.ts';
 import { revisionInstruction, type Worker } from './harness.ts';
 import { providerSpec } from './provider.ts';
@@ -30,36 +29,18 @@ const now = (): string => new Date().toISOString();
 
 const USAGE = 'usage: forge-revise <repository> <pull-request>';
 
-const fillPrompt = (
-  template: string,
-  github: string,
-  pullRequest: PullRequestHead,
-): string =>
-  template
-    .replaceAll('{repo}', github)
-    .replaceAll('{pr}', String(pullRequest.number))
-    .replaceAll('{url}', pullRequest.url)
-    .replaceAll('{branch}', pullRequest.branch);
-
-const headRefusal = (pullRequest: PullRequestHead): string | null => {
-  if (!pullRequest.open) return 'it is not open';
-  if (pullRequest.fromFork) return 'its branch is on a fork';
-  return null;
-};
-
 const startRefusal = (start: Exclude<RevisionStart, { started: number }>): string => {
   switch (start.refused) {
     case 'revising':
       return 'a revision of it is already running';
     case 'dispatching':
       return 'the dispatch that opened it is still running';
+    case 'resolving':
+      return 'a conflict resolution of it is already running';
     case 'full':
       return `${start.live} ${start.live === 1 ? 'workload is' : 'workloads are'} already running, the most forge.runtime.dispatch.maxConcurrent allows`;
   }
 };
-
-const stateOf = ({ run }: LaunchResult): Exclude<RevisionState, 'running'> =>
-  run.status === 'success' ? 'ok' : run.status === 'running' ? 'error' : run.status;
 
 const notStartedRun = (
   worker: Worker,

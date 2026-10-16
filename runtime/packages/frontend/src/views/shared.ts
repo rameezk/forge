@@ -1,19 +1,21 @@
 import { html } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type PullRequestState, type RevisionFailure, type RevisionRecord, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
 import { DEFAULT_EFFORT } from '../request-record.ts';
 
 export type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
-const REVISION_FAILURE_LABEL: Record<RevisionFailure, string> = {
+const FAILURE_LABEL: Record<RevisionFailure | ConflictResolutionFailure, string> = {
   unanswered: 'Unanswered',
   crashed: 'Crashed',
+  'not-merged': 'Not merged',
+  'still-conflicting': 'Still conflicting',
 };
 
-export const revisionFailureText = ({ reason, detail }: RevisionRecord): string | null => {
+export const pullRequestFailureText = ({ reason, detail }: PullRequestWorkloadRecord): string | null => {
   if (reason === null) return null;
-  const label = REVISION_FAILURE_LABEL[reason];
+  const label = FAILURE_LABEL[reason];
   return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
 };
 

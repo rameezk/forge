@@ -19,6 +19,13 @@ import {
   type PullRequestState,
 } from './dispatch.ts';
 import type {
+  ConflictResolutionFailure,
+  ConflictResolutionFailureRecord,
+  ConflictResolutionRecord,
+  ConflictResolutionStart,
+  ConflictResolutionState,
+} from './conflict-resolution.ts';
+import type {
   RevisedPullRequest,
   RevisionFailure,
   RevisionFailureRecord,
@@ -604,6 +611,53 @@ const ADD_REVISION_FAILURE = `
   ALTER TABLE revisions ADD COLUMN detail TEXT;
 `;
 
+const CREATE_CONFLICT_RESOLUTIONS = `
+  CREATE TABLE IF NOT EXISTS conflict_resolutions (
+    id         INTEGER PRIMARY KEY,
+    repository TEXT NOT NULL,
+    number     INTEGER NOT NULL,
+    url        TEXT NOT NULL,
+    run_id     TEXT NOT NULL,
+    state      TEXT NOT NULL,
+    reason     TEXT,
+    detail     TEXT,
+    started_at TEXT NOT NULL,
+    alive_at   TEXT NOT NULL,
+    ended_at   TEXT
+  ) STRICT;
+
+  CREATE INDEX IF NOT EXISTS conflict_resolutions_pull_request ON conflict_resolutions (repository, number, id);
+  CREATE UNIQUE INDEX IF NOT EXISTS conflict_resolutions_run ON conflict_resolutions (run_id);
+`;
+
+type ConflictResolutionRow = {
+  id: number;
+  repository: string;
+  number: number;
+  url: string;
+  run_id: string;
+  state: string;
+  reason: string | null;
+  detail: string | null;
+  started_at: string;
+  alive_at: string;
+  ended_at: string | null;
+};
+
+const conflictResolutionFromRow = (row: ConflictResolutionRow): ConflictResolutionRecord => ({
+  id: row.id,
+  repository: row.repository,
+  number: row.number,
+  url: row.url,
+  runId: row.run_id,
+  state: row.state as ConflictResolutionState,
+  reason: row.reason as ConflictResolutionFailure | null,
+  detail: row.detail,
+  startedAt: row.started_at,
+  aliveAt: row.alive_at,
+  endedAt: row.ended_at,
+});
+
 const CREATE_FEEDBACK_WATCHES = `
   CREATE TABLE IF NOT EXISTS feedback_watches (
     repository TEXT NOT NULL,
@@ -891,6 +945,7 @@ export class Store {
     db.exec(CREATE_DISPATCHES);
     db.exec(CREATE_REVISIONS);
     this.#addColumnsOnce(HAS_REVISION_FAILURE, ADD_REVISION_FAILURE);
+    db.exec(CREATE_CONFLICT_RESOLUTIONS);
     db.exec(CREATE_FEEDBACK_WATCHES);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
   }
@@ -1682,6 +1737,7 @@ export class Store {
         `SELECT
           (SELECT COUNT(*) FROM dispatches WHERE state = 'running' AND alive_at >= $live_since)
           + (SELECT COUNT(*) FROM revisions WHERE state = 'running' AND alive_at >= $live_since)
+          + (SELECT COUNT(*) FROM conflict_resolutions WHERE state = 'running' AND alive_at >= $live_since)
           AS live`,
       )
       .get({ live_since: liveSince(now) }) as { live: number };
@@ -1723,6 +1779,23 @@ export class Store {
 
   #revisionLive(pullRequest: RevisedPullRequest, now: string): boolean {
     const latest = this.#latestRevision(pullRequest);
+    return latest?.state === 'running' && latest.alive_at >= liveSince(now);
+  }
+
+  #latestConflictResolution(pullRequest: RevisedPullRequest): ConflictResolutionRow | undefined {
+    return this.#db
+      .prepare(
+        `SELECT * FROM conflict_resolutions
+        WHERE repository = $repository AND number = $number
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({ repository: pullRequest.repository, number: pullRequest.number }) as
+      | ConflictResolutionRow
+      | undefined;
+  }
+
+  #conflictResolutionLive(pullRequest: RevisedPullRequest, now: string): boolean {
+    const latest = this.#latestConflictResolution(pullRequest);
     return latest?.state === 'running' && latest.alive_at >= liveSince(now);
   }
 
@@ -1777,6 +1850,10 @@ export class Store {
     this.#transaction(() => {
       const latest = this.#latestRevision(pullRequest);
       if (this.#revisionLive(pullRequest, startedAt)) return;
+      if (this.#conflictResolutionLive(pullRequest, startedAt)) {
+        start = { refused: 'resolving' };
+        return;
+      }
       if (this.#openingDispatchLive(pullRequest, openedBy, startedAt)) {
         start = { refused: 'dispatching' };
         return;
@@ -1832,6 +1909,99 @@ export class Store {
     return start;
   }
 
+  startConflictResolution(
+    pullRequest: RevisedPullRequest,
+    openedBy: readonly number[],
+    runId: string,
+    startedAt: string,
+    maxConcurrent: number,
+  ): ConflictResolutionStart {
+    let start: ConflictResolutionStart = { refused: 'resolving' };
+    this.#transaction(() => {
+      const latest = this.#latestConflictResolution(pullRequest);
+      if (this.#conflictResolutionLive(pullRequest, startedAt)) return;
+      if (this.#revisionLive(pullRequest, startedAt)) {
+        start = { refused: 'revising' };
+        return;
+      }
+      if (this.#openingDispatchLive(pullRequest, openedBy, startedAt)) {
+        start = { refused: 'dispatching' };
+        return;
+      }
+      const live = this.liveWorkloads(startedAt);
+      if (live >= maxConcurrent) {
+        start = { refused: 'full', live };
+        return;
+      }
+      if (latest?.state === 'running') {
+        this.#db
+          .prepare(
+            `UPDATE conflict_resolutions SET state = 'interrupted', ended_at = $ended_at WHERE id = $id`,
+          )
+          .run({ id: latest.id, ended_at: startedAt });
+      }
+      const row = this.#db
+        .prepare(
+          `INSERT INTO conflict_resolutions (
+            repository, number, url, run_id, state, started_at, alive_at
+          ) VALUES (
+            $repository, $number, $url, $run_id, 'running', $now, $now
+          )
+          RETURNING id`,
+        )
+        .get({
+          repository: pullRequest.repository,
+          number: pullRequest.number,
+          url: pullRequest.url,
+          run_id: runId,
+          now: startedAt,
+        }) as { id: number };
+      start = { started: row.id };
+    });
+    return start;
+  }
+
+  touchConflictResolution(id: number, now: string): void {
+    this.#db
+      .prepare(`UPDATE conflict_resolutions SET alive_at = $now WHERE id = $id AND state = 'running'`)
+      .run({ id, now });
+  }
+
+  endConflictResolution(
+    id: number,
+    state: Exclude<ConflictResolutionState, 'running'>,
+    endedAt: string,
+    failure?: ConflictResolutionFailureRecord,
+  ): void {
+    this.#db
+      .prepare(
+        `UPDATE conflict_resolutions SET
+          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at
+        WHERE id = $id`,
+      )
+      .run({
+        id,
+        state,
+        reason: failure?.reason ?? null,
+        detail: boundedDetail(failure?.detail ?? null),
+        ended_at: endedAt,
+      });
+  }
+
+  listConflictResolutions(now: string): ConflictResolutionRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT
+          id, repository, number, url, run_id,
+          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
+          reason, detail, started_at, alive_at, ended_at
+        FROM conflict_resolutions
+        ORDER BY id`,
+      )
+      .all({ live_since: liveSince(now) }) as ConflictResolutionRow[];
+    return rows.map(conflictResolutionFromRow);
+  }
+
   recordWatchedPullRequests(repository: string, watched: readonly WatchedPullRequest[]): void {
     this.#transaction(() => {
       this.#db
@@ -1877,6 +2047,7 @@ export class Store {
       .filter((row) => {
         return (
           !this.#revisionLive(row, now) &&
+          !this.#conflictResolutionLive(row, now) &&
           !this.#openingDispatchLive(row, JSON.parse(row.closes) as number[], now)
         );
       })

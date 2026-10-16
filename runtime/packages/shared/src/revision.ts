@@ -29,4 +29,5 @@ export type RevisionStart =
   | { started: number }
   | { refused: 'revising' }
   | { refused: 'dispatching' }
+  | { refused: 'resolving' }
   | { refused: 'full'; live: number };
