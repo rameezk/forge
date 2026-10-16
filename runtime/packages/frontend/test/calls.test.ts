@@ -126,11 +126,11 @@ const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests =
   }
 };
 
-const dashboardOf = (runs: Seeded[]) => {
+const dashboardOf = (runs: Seeded[], timeZone?: string) => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const store = Store.open(':memory:');
   for (const run of runs) seed(store, dir, run);
-  const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
+  const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '', ...(timeZone === undefined ? {} : { timeZone }) });
   return async (path: string): Promise<string> => (await app.request(path)).text();
 };
 
@@ -165,7 +165,13 @@ test('given a workload with one billed and one unbilled generation, when its det
     ['data-provider', 'data-reasoning', 'data-prompt', 'data-cache-read', 'data-cache-write', 'data-output', 'data-cost'].map((name) => cellOf(unbilled, name)),
     ['', '', '1,300', '1,000', '200', '25', '$0.002000 estimated'],
   );
-  assert.match(cellOf(billed, 'data-time'), /^10:00:01 UTC$/);
+  assert.match(cellOf(billed, 'data-time'), /^10:00:01$/);
+});
+
+test('given a generation at 10:00:01Z and a display time zone of Africa/Johannesburg, when the run page is requested, then its call row reads 12:00:01', async () => {
+  const body = await dashboardOf([{ id: 'run-01', run: {}, calls: [{ usage: { input: 250, output: 45, cacheRead: 0, cacheWrite: 1000 } }] }], 'Africa/Johannesburg')('/runs/run-01');
+
+  assert.match(cellOf(callRows(body)[0]!, 'data-time'), /^12:00:01$/);
 });
 
 const isHighlighted = (row: string): boolean => /<tr[^>]*\sdata-cache-miss(?=[\s>])/.test(row);

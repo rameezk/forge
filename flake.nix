@@ -533,6 +533,50 @@
             && frontendUnit.serviceConfig.IPAddressAllow == "localhost"
             && frontendUnit.serviceConfig.IPAddressDeny == "any"
           ) "the dashboard must bind localhost and refuse non-loopback addresses";
+          frontendTimeZone = unit: lib.findFirst (lib.hasPrefix "FORGE_DASHBOARD_TIME_ZONE=") null unit.serviceConfig.Environment;
+          badTimeZoneHost = mkHost {
+            configFile = exampleConfigFile;
+            secretsFile = exampleSecretsFile;
+            modules = [
+              {
+                forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+                forge.runtime.workers.refiner = {
+                  harness = "pi";
+                  model = "anthropic/claude-opus-4";
+                  prompt = "refine the spec";
+                };
+                forge.runtime.dashboard.timeZone = "Mars/Olympus";
+              }
+            ];
+          };
+          johannesburgHost = mkHost {
+            configFile = exampleConfigFile;
+            secretsFile = exampleSecretsFile;
+            modules = [
+              {
+                forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+                forge.runtime.workers.refiner = {
+                  harness = "pi";
+                  model = "anthropic/claude-opus-4";
+                  prompt = "refine the spec";
+                };
+                forge.runtime.dashboard.timeZone = "Africa/Johannesburg";
+              }
+            ];
+          };
+          dashboardTimeZone = lib.asserts.assertMsg (
+            frontendTimeZone frontendUnit == "FORGE_DASHBOARD_TIME_ZONE=UTC"
+            && frontendTimeZone johannesburgHost.config.systemd.services.forge-frontend
+            == "FORGE_DASHBOARD_TIME_ZONE=Africa/Johannesburg"
+            && evaluates johannesburgHost
+          ) "the dashboard must default its display time zone to UTC and pass a configured IANA zone to the forge-frontend environment";
+          dashboardTimeZoneValidated = lib.asserts.assertMsg (
+            !(evaluates badTimeZoneHost)
+            && lib.any (
+              message:
+              lib.hasInfix "forge.runtime.dashboard.timeZone" message && lib.hasInfix "Mars/Olympus" message
+            ) (failedAssertions badTimeZoneHost)
+          ) "a display time zone that is not an IANA zone in tzdata must fail evaluation with an assertion naming it";
           firewall = workerHost.config.networking.firewall;
           firewallAllowLists = [ firewall ] ++ lib.attrValues firewall.interfaces;
           frontendNoPublicPort =
@@ -1542,6 +1586,8 @@
             assert frontendDeclared;
             assert frontendRunsAsUser;
             assert frontendLocalhostOnly;
+            assert dashboardTimeZone;
+            assert dashboardTimeZoneValidated;
             assert frontendNoPublicPort;
             assert frontendSandboxed;
             assert frontendOnTailnet;

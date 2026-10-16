@@ -3,7 +3,7 @@ import { renderChartLegend, renderCostChart, renderProviderShares, seriesOf } fr
 import { cohortHref, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatCost, formatMeasure, formatElapsed, formatRate } from '../format.ts';
-import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type AssetHrefs, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
+import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
 
 const FIELD = 'flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
@@ -87,7 +87,7 @@ export const renderInsights = (
   shares: ProviderShare[],
   filter: InsightsFilter,
   options: InsightsOptions,
-  assets: AssetHrefs,
+  display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
     ${renderInsightsFilters(filter, options)}
@@ -116,7 +116,7 @@ export const renderInsights = (
         </div>
         ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}
         ${renderCostOverTime(cohorts, points, shares)}`}`;
-  return layout('Insights', 'insights', true, assets, body);
+  return layout('Insights', 'insights', true, display, body);
 };
 
 const FINGERPRINT_FIELDS: { key: string; label: string; valueOf: (fingerprint: ConfigFingerprint) => string }[] = [
@@ -177,7 +177,7 @@ export const renderCohortPage = (
   { hash, fingerprint }: CohortConfig,
   against: CohortConfig | null,
   cohorts: CohortConfig[],
-  assets: AssetHrefs,
+  display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/insights" class="${LINK}">&larr; Insights</a></p>
     <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(fingerprint)}</h1>
@@ -197,12 +197,12 @@ export const renderCohortPage = (
         <tbody>${FINGERPRINT_FIELDS.map((field) => renderFingerprintRow(field, fingerprint, against?.fingerprint ?? null))}</tbody>
       </table>
     </div>`;
-  return layout(cohortLabel(fingerprint), 'insights', true, assets, body);
+  return layout(cohortLabel(fingerprint), 'insights', true, display, body);
 };
 
-export const renderUnknownCohortPage = (assets: AssetHrefs): HtmlEscapedString | Promise<HtmlEscapedString> => {
+export const renderUnknownCohortPage = (display: Display): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/insights" class="${LINK}">&larr; Insights</a></p>
     <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(null)}</h1>
     <p class="${EMPTY}" data-unknown-cohort>These workloads were recorded before fingerprints existed, so their config is not known and there is nothing to compare.</p>`;
-  return layout(cohortLabel(null), 'insights', true, assets, body);
+  return layout(cohortLabel(null), 'insights', true, display, body);
 };

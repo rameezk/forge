@@ -3,7 +3,7 @@ import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, 
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
-import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type AssetHrefs, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, NUMERIC_WRAPPING, layout } from './shared.ts';
+import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, NUMERIC_WRAPPING, layout } from './shared.ts';
 
 const renderRunPullRequest = (revision: RevisionRecord | undefined): Rendered =>
   revision === undefined
@@ -156,10 +156,10 @@ const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted
 const renderCardError = (error: string | null): Rendered =>
   error === null ? '' : html`<div class="wrap-anywhere text-muted" data-run-error>${error}</div>`;
 
-const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>): Rendered =>
+const renderRunCard = (run: RunRecord, revision: RevisionRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered =>
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
-    <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime)}${renderStatus(run.status)}</div>
+    <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime, timeZone)}${renderStatus(run.status)}</div>
     ${renderCardError(revisionError(run, revision))}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, revision)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
@@ -176,7 +176,7 @@ export const renderList = (
   requestedPage: number,
   equivalents: Map<string, ListPriceEquivalent>,
   revisions: ReadonlyMap<string, RevisionRecord>,
-  assets: AssetHrefs,
+  display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const runs = filterWorkloads(all, filter);
   const paged = paginate(runs, requestedPage);
@@ -194,7 +194,7 @@ export const renderList = (
           ${runs.length === 0
             ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`
             : html`<div class="flex flex-col gap-3 sm:hidden" data-run-cards>
-            ${runs.map((run) => renderRunCard(run, revisions.get(run.id), equivalents))}
+            ${runs.map((run) => renderRunCard(run, revisions.get(run.id), equivalents, display.timeZone))}
           </div>
           <div class="${CARD} hidden sm:block">
             <table class="${TABLE}">
@@ -214,7 +214,7 @@ export const renderList = (
               <tbody>
                 ${paged.items.map(
                   (run) => html`<tr class="${ROW}" data-run="${run.id}">
-                    <td class="${TD}">${renderTimestamp(run.startTime)}</td>
+                    <td class="${TD}">${renderTimestamp(run.startTime, display.timeZone)}</td>
                     <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderTicketCell(run, revisions.get(run.id))}</td>
                     <td class="${TD}">${renderStatusCell(run, revisions.get(run.id))}</td>
                     <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK}">${run.worker}</a></td>
@@ -229,5 +229,5 @@ export const renderList = (
             </table>
           </div>
           ${renderPager(paged, filter)}`}`;
-  return layout('Workloads', 'runs', true, assets, body);
+  return layout('Workloads', 'runs', true, display, body);
 };
