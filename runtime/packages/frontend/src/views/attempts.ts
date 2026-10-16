@@ -46,7 +46,7 @@ const REVISION_TONE: Record<RevisionState, string> = {
 const renderRevisionFailure = (revision: RevisionRecord): Rendered => {
   const text = revisionFailureText(revision);
   if (text === null) return '';
-  return html`<p class="m-0 mt-1 max-w-64 text-xs break-all whitespace-pre-line text-muted" data-revision-failure>${text}</p>`;
+  return html`<p class="m-0 mt-1 max-w-64 text-xs wrap-anywhere whitespace-pre-line text-muted" data-revision-failure>${text}</p>`;
 };
 
 const renderRevision = ({ revision, run }: AttemptRevision, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
