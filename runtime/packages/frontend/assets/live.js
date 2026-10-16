@@ -99,11 +99,11 @@ const rememberControls = (edits = new Map()) => {
 
 rememberControls();
 
-const LANE_KEY = (lane) => `forge:lane-collapsed:${lane.dataset.repository}`;
+const laneKey = (lane) => `forge:lane-collapsed:${lane.dataset.repository}`;
 
 const readLane = (lane) => {
   try {
-    const stored = localStorage.getItem(LANE_KEY(lane));
+    const stored = localStorage.getItem(laneKey(lane));
     if (stored !== null) return stored === 'true';
   } catch {}
   return lane.hasAttribute('data-empty');
@@ -125,7 +125,7 @@ const toggleLane = (header) => {
   const collapsed = !lane.hasAttribute('data-collapsed');
   showLane(lane, collapsed);
   try {
-    localStorage.setItem(LANE_KEY(lane), String(collapsed));
+    localStorage.setItem(laneKey(lane), String(collapsed));
   } catch {}
 };
 
