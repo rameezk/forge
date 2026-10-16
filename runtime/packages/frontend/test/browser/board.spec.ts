@@ -54,4 +54,26 @@ test.describe('on a desktop screen', () => {
     expect(offsets.every(({ titleAfterIcon }) => titleAfterIcon)).toBe(true);
     expect(new Set(offsets.map(({ icon }) => Math.round(icon))).size).toBe(1);
   });
+
+  for (const width of ['', '3rem']) {
+    test(`given the Board on a desktop screen, when a column title ${width ? 'wraps' : 'fits on one line'}, then the person icon is centred on the title's first line`, async ({ dashboard, page }) => {
+      dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', tickets: [ticket(1)] });
+
+      await page.goto('/');
+      await page.locator('[data-column-title]').evaluateAll((titles, maxWidth) => titles.forEach((title) => title.setAttribute('style', `max-width: ${maxWidth}`)), width);
+
+      const gaps = await page.locator('[data-column-header]:has([data-person])').evaluateAll((headers) =>
+        headers.map((header) => {
+          const icon = header.querySelector('[data-person]')!.getBoundingClientRect();
+          const title = header.querySelector('[data-column-title]')!;
+          const range = title.ownerDocument.createRange();
+          range.selectNodeContents(title);
+          const firstLine = range.getClientRects()[0]!;
+          return Math.abs(icon.top + icon.height / 2 - (firstLine.top + firstLine.height / 2));
+        }),
+      );
+      expect(gaps).toHaveLength(3);
+      for (const gap of gaps) expect(gap).toBeLessThanOrEqual(1);
+    });
+  }
 });
