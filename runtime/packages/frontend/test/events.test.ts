@@ -79,8 +79,15 @@ const runningRun = sampleRun({ status: 'running', endTime: null, costStatus: 'pe
 
 type ServerEvent = { event: string; data: string };
 
-const streamEvents = async (t: TestContext, app: ReturnType<typeof createApp>, page: string) => {
-  const res = await app.request(`/events?page=${encodeURIComponent(page)}`);
+const renderedVersion = async (app: ReturnType<typeof createApp>, page: string): Promise<string | undefined> => {
+  const html = await (await app.request(page)).text();
+  const encoded = /<span id="live"[^>]* data-version="([^"]*)"/.exec(html)?.[1];
+  return encoded === undefined ? undefined : encoded.replaceAll('&quot;', '"').replaceAll('&amp;', '&');
+};
+
+const streamEvents = async (t: TestContext, app: ReturnType<typeof createApp>, page: string, version?: string) => {
+  const versionParam = version === undefined ? '' : `&version=${encodeURIComponent(version)}`;
+  const res = await app.request(`/events?page=${encodeURIComponent(page)}${versionParam}`);
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-type') ?? '', /^text\/event-stream\b/);
   const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
@@ -106,7 +113,7 @@ const streamEvents = async (t: TestContext, app: ReturnType<typeof createApp>, p
     buffer = buffer.slice(end + 2);
     return { event: fields.get('event') ?? 'message', data: fields.get('data') ?? '' };
   };
-  const connected = await next();
+  const connected = version === undefined ? await next() : undefined;
   const nextWithin = (checks: number): Promise<ServerEvent | null | 'quiet'> =>
     Promise.race([next(), sleep(checks * CHECK_INTERVAL_MS).then(() => 'quiet' as const)]);
   return { connected, next, nextWithin };
@@ -146,6 +153,40 @@ test('given a client opening a page\'s stream, when it connects, then the stream
   const stream = await streamEvents(t, app, '/runs');
 
   assert.equal(stream.connected?.event, 'change');
+});
+
+test('given a live page rendered with no change since, when its stream connects with the rendered version, then no change signal is emitted', async (t) => {
+  const { app } = dashboard(t);
+  const version = await renderedVersion(app, '/runs');
+  assert.notEqual(version, undefined);
+
+  const stream = await streamEvents(t, app, '/runs', version);
+
+  assert.equal(await stream.nextWithin(40), 'quiet');
+});
+
+test('given a live page rendered before a store write, when its stream connects with the rendered version after the write, then the stream emits a change signal at once', async (t) => {
+  const { app, writer } = dashboard(t);
+  const version = await renderedVersion(app, '/runs');
+  assert.notEqual(version, undefined);
+  writer.insertRun(sampleRun());
+
+  const stream = await streamEvents(t, app, '/runs', version);
+
+  assert.equal((await stream.next())?.event, 'change');
+});
+
+test('given a run detail page rendered before its transcript grew, when its stream connects with the rendered version after the growth, then the stream emits a change signal at once', async (t) => {
+  const { app, writer, appendEvent, writeTranscript } = dashboard(t);
+  writer.insertRun(runningRun);
+  writeTranscript('run-01.jsonl');
+  const version = await renderedVersion(app, '/runs/run-01');
+  assert.notEqual(version, undefined);
+  appendEvent('run-01.jsonl', message('Reading the ticket.'));
+
+  const stream = await streamEvents(t, app, '/runs/run-01', version);
+
+  assert.equal((await stream.next())?.event, 'change');
 });
 
 test('given a page that does not update live, when its events are requested, then they are not found', async (t) => {

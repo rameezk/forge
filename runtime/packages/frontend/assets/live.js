@@ -172,7 +172,7 @@ const refresh = async () => {
   const following = newActivity !== null && atBottom();
   const length = transcriptLength();
   const edits = editedControls();
-  Idiomorph.morph(document.body, next.body, {
+  Idiomorph.morph(document.body, [...next.body.childNodes], {
     morphStyle: 'innerHTML',
     callbacks: {
       beforeNodeMorphed: kept,
@@ -211,7 +211,9 @@ const update = async () => {
 };
 
 if (indicator !== null) {
-  const events = new EventSource(`/events?page=${encodeURIComponent(location.pathname + location.search)}`);
+  const stream = new URLSearchParams({ page: location.pathname + location.search });
+  if (indicator.dataset.version !== undefined) stream.set('version', indicator.dataset.version);
+  const events = new EventSource(`/events?${stream}`);
   events.addEventListener('open', () => show('live', 'Live'));
   events.addEventListener('error', () => {
     if (events.readyState === EventSource.CLOSED) {

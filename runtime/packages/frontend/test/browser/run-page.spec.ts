@@ -147,10 +147,8 @@ test('given a running workload whose run page is open, when new events are recor
   dashboard.store.insertRun(runningRun);
   dashboard.appendEvents('run-01.jsonl', say('first'));
   await page.setViewportSize({ width: 1280, height: 720 });
-  const caughtUp = page.waitForResponse((response) => response.request().resourceType() === 'fetch');
   await page.goto('/runs/run-01');
   await expect(page.getByRole('status')).toHaveText('Live');
-  await caughtUp;
 
   dashboard.appendEvents('run-01.jsonl', say('second'));
 

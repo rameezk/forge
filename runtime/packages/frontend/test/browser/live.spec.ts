@@ -50,10 +50,8 @@ const polledFrontier: PolledFrontier = {
 };
 
 const openLive = async (page: Page, path: string): Promise<void> => {
-  const caughtUp = page.waitForResponse((response) => response.request().resourceType() === 'fetch');
   await page.goto(path);
   await expect(page.getByRole('status')).toHaveText('Live');
-  await caughtUp;
   await page.evaluate(() => {
     (globalThis as unknown as { unreloaded: boolean }).unreloaded = true;
   });
@@ -121,6 +119,19 @@ test('given the runs list filtered to Error, when a run fails and another succee
   await expect(page.locator('[data-status-chip="all"]')).toContainText('2');
   await expect(page.locator('[data-showing]')).toContainText('Showing 1 of 2 workloads');
   await expectNotReloaded(page);
+});
+
+test('given a live page whose data has not changed since it was rendered, when it loads and opens its change stream, then it does not refetch itself', async ({ dashboard, page }) => {
+  dashboard.store.insertRun(runningRun);
+  const refetched: string[] = [];
+  page.on('request', (request) => {
+    if (request.resourceType() === 'fetch') refetched.push(request.url());
+  });
+
+  await openLive(page, '/runs');
+  await page.waitForTimeout(500);
+
+  expect(refetched).toEqual([]);
 });
 
 test('given the runs list loaded before its stream connects, when a run is recorded in between, then the table shows it once the stream connects', async ({
