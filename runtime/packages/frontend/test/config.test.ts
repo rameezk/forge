@@ -8,8 +8,9 @@ test('given state dir, host and port, when resolved, then they are used', () => 
       FORGE_STATE_DIR: '/var/lib/forge',
       FORGE_FRONTEND_HOST: '127.0.0.1',
       FORGE_FRONTEND_PORT: '7787',
+      FORGE_MAX_CONCURRENT: '3',
     }),
-    { stateDir: '/var/lib/forge', hostname: '127.0.0.1', port: 7787, timeZone: 'UTC' },
+    { stateDir: '/var/lib/forge', hostname: '127.0.0.1', port: 7787, maxConcurrent: 3, timeZone: 'UTC' },
   );
 });
 
@@ -18,6 +19,19 @@ test('given no host or port, when resolved, then it binds loopback on the defaul
 
   assert.equal(config.hostname, '127.0.0.1');
   assert.equal(config.port, 7787);
+});
+
+test('given no running limit, when resolved, then it defaults to 1', () => {
+  assert.equal(resolveServeConfig({ FORGE_STATE_DIR: '/s' }).maxConcurrent, 1);
+});
+
+test('given a running limit that is not a positive integer, when resolved, then it throws', () => {
+  for (const value of ['nope', '0', '-1', '1.5']) {
+    assert.throws(
+      () => resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_MAX_CONCURRENT: value }),
+      /FORGE_MAX_CONCURRENT/,
+    );
+  }
 });
 
 test('given no state dir, when resolved, then it throws', () => {

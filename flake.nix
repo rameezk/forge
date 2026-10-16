@@ -856,6 +856,13 @@
                 }))
               )
               "a host built with mkHost { modules } that sets dispatch.maxConcurrent must carry it into the runtime config, and a limit below 1 must fail evaluation";
+          dashboardCarriesMaxConcurrent =
+            lib.asserts.assertMsg
+              (
+                lib.elem "FORGE_MAX_CONCURRENT=3" concurrentDispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+                && lib.elem "FORGE_MAX_CONCURRENT=1" dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+              )
+              "the dashboard must be configured with dispatch.maxConcurrent, and with 1 when it is unset";
           passUnit = dispatchHost.config.systemd.services.forge-dispatch-pass;
           dispatchPassFollowsSync =
             lib.asserts.assertMsg
@@ -1611,6 +1618,7 @@
             assert dispatchConfigReflectsDefaultLimit;
             assert setGitIdentityFails;
             assert dispatchConfigReflectsMaxConcurrent;
+            assert dashboardCarriesMaxConcurrent;
             assert dispatchPassFollowsSync;
             assert dispatchPassStartsUnits;
             assert dispatchPassMayStartOnlyDispatchUnits;

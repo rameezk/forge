@@ -129,15 +129,29 @@ const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: s
     )}</div>
   </section>`;
 
+export interface RunningSlots {
+  running: number;
+  limit: number;
+}
+
+const FULL_TONE = 'bg-warning-soft text-warning';
+const OPEN_TONE = 'bg-raised text-fg';
+
+const renderRunningLimit = ({ running, limit }: RunningSlots): Rendered => {
+  const full = running >= limit;
+  return html`<span data-running-limit${full ? html` data-full` : ''} title="Dispatches and revisions running, out of the global limit" class="${PILL} mb-3 ${full ? FULL_TONE : OPEN_TONE} tabular-nums">Running ${running} / ${limit}</span>`;
+};
+
 export const renderBoard = (
   frontier: RepositoryFrontier[],
   dispatches: DispatchRecord[],
   revisions: RevisionRecord[],
   attempted: ReadonlySet<string>,
+  slots: RunningSlots,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions);
-  const body = html`<h1 class="${PAGE_TITLE}">Board</h1>
+  const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1>${renderRunningLimit(slots)}</div>
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="overflow-x-auto rounded-lg border border-line bg-surface">

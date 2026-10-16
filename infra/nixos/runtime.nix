@@ -894,6 +894,7 @@ in
             "FORGE_FRONTEND_HOST=127.0.0.1"
             "FORGE_FRONTEND_PORT=${toString cfg.dashboardPort}"
             "FORGE_DASHBOARD_TIME_ZONE=${cfg.dashboard.timeZone}"
+            "FORGE_MAX_CONCURRENT=${toString cfg.dispatch.maxConcurrent}"
           ];
           ExecStart = "${cfg.package}/bin/forge-frontend";
           Restart = "on-failure";

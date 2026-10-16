@@ -46,6 +46,7 @@ export interface AppOptions {
   client: string;
   timeZone?: string;
   checkIntervalMs?: number;
+  maxConcurrent?: number;
 }
 
 export const createApp = ({
@@ -57,6 +58,7 @@ export const createApp = ({
   client,
   timeZone = 'UTC',
   checkIntervalMs = 1000,
+  maxConcurrent = 1,
 }: AppOptions): Hono => {
   const app = new Hono();
   const assets: AssetHrefs = {
@@ -81,7 +83,7 @@ export const createApp = ({
 
   app.get('/', (c) => {
     const now = new Date().toISOString();
-    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), display));
+    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, display));
   });
 
   app.get('/work', (c) => c.redirect('/'));
