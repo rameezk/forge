@@ -17,7 +17,13 @@ export const stateDirOf = (env: NodeJS.ProcessEnv): string => {
   return stateDir;
 };
 
-const SYSTEM_VARIABLES = ['PATH', 'LANG', 'LOCALE_ARCHIVE', 'TZDIR'];
+const SYSTEM_VARIABLES = [
+  'PATH',
+  'LANG',
+  'LOCALE_ARCHIVE',
+  'TZDIR',
+  'FORGE_CREDENTIAL_TOOLS',
+];
 
 export const picked = (
   env: NodeJS.ProcessEnv,

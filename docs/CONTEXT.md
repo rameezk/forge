@@ -25,7 +25,7 @@ _Avoid_: thinking level, reasoning level
 The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract. Everything harness specific, from its CLI and event format to its per-run state, request capture and skill loads, belongs to its adapter in the runner, not to operator config or the rest of forge (ADR-0008, ADR-0055). A Claude Code run loads the repository's own setup natively and nothing from the host (ADR-0057).
 
 **Workload toolset**:
-The generic command-line tools forge puts on every workload's `PATH`, after its repository's devShell. Forge ships a base set, and operators may extend or replace it. A repository's own stack, a browser included, belongs in its devShell, not here. It is a convenience, not a limit: the workload sandbox exposes the Nix store and the nix daemon, so a workload can run anything in the store (ADR-0024, ADR-0027).
+The generic command-line tools forge puts on every workload's `PATH`, after its repository's devShell. Forge ships a base set, and operators may extend or replace it. A repository's own stack, a browser included, belongs in its devShell, not here. Forge's own `gh`, which carries the GitHub token, is not part of it: it sits in a directory of its own that comes before the devShell too, so no devShell hides it and no operator can remove it (ADR-0073). It is a convenience, not a limit: the workload sandbox exposes the Nix store and the nix daemon, so a workload can run anything in the store (ADR-0024, ADR-0027).
 _Avoid_: base image, tool path
 
 **Run directory**:

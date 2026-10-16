@@ -51,7 +51,7 @@ testers.runNixOSTest {
     }
   );
 
-  nodes.replaced = box "hello && ! command -v git && ! command -v find" (
+  nodes.replaced = box "hello && ! command -v git && ! command -v find && printf github_pat_from_file > token && FORGE_GITHUB_TOKEN_FILE=\"$PWD/token\" gh auth token" (
     { pkgs, ... }:
     {
       forge.runtime.toolset = [
@@ -83,8 +83,9 @@ testers.runNixOSTest {
         assert "git version" in out, out
         assert "Hello, world!" in out, out
 
-    with subtest("operators can replace the toolset"):
+    with subtest("operators can replace the toolset without removing forge's gh"):
         out = run_probe(replaced)
         assert "Hello, world!" in out, out
+        assert "github_pat_from_file" in out, out
   '';
 }

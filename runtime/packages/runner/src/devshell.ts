@@ -106,11 +106,14 @@ export const underDevShell = (
   system: Record<string, string>,
   deliberate: Record<string, string>,
 ): Record<string, string> => {
-  if (devShell === undefined) {
-    return { ...system, ...deliberate };
-  }
-  const path = [devShell.PATH, system.PATH].filter(
+  const { FORGE_CREDENTIAL_TOOLS: credentialTools, ...rest } = system;
+  const path = [credentialTools, devShell?.PATH, rest.PATH].filter(
     (entry) => entry !== undefined && entry !== '',
   );
-  return { ...system, ...devShell, ...deliberate, PATH: path.join(':') };
+  return {
+    ...rest,
+    ...devShell,
+    ...deliberate,
+    ...(path.length === 0 ? {} : { PATH: path.join(':') }),
+  };
 };
