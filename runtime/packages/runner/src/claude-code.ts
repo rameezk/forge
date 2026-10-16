@@ -58,6 +58,7 @@ const RUN_SETTINGS = JSON.stringify({
     CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: String(MAX_SUBAGENT_DEPTH),
     CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: String(MAX_CONCURRENT_SUBAGENTS),
   },
+  attribution: { commit: '', pr: '' },
 });
 
 export function claudeCodeEnv(

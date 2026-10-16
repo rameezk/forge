@@ -1057,6 +1057,16 @@ test('given a claude-code workload, when it runs, then claude is told through it
   assert.ok(argv.includes('--forward-subagent-text'));
 });
 
+test('given a claude-code workload, when it runs, then claude is told through its command-line settings to add no commit or pull request attribution', async () => {
+  const { claude } = await runClaude({ fixture: 'success' });
+
+  const { argv } = claude;
+  const settings = JSON.parse(argv[argv.indexOf('--settings') + 1] ?? '') as {
+    attribution: unknown;
+  };
+  assert.deepEqual(settings.attribution, { commit: '', pr: '' });
+});
+
 test('given a claude-code workload, when it runs, then claude gets an empty per-run config dir inside the sandbox state, telemetry on and auto-update off, and the dir is gone after the run', async () => {
   const { claude, bwrap, stateDir, run } = await runClaude({ fixture: 'success' });
 
