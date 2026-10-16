@@ -214,7 +214,10 @@ export const main = async (
           }
         }
       } catch (error) {
-        store.endRevision(revisionId, 'error', now());
+        store.endRevision(revisionId, 'error', now(), {
+          reason: 'crashed',
+          detail: errorMessage(error),
+        });
         throw error;
       }
       store.endRevision(
