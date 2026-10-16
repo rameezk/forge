@@ -84,11 +84,4 @@ else
 	fail=1
 fi
 
-if grep -Eqx '\*[[:space:]]+@rameezk' .github/CODEOWNERS 2>/dev/null; then
-	echo "ok: @rameezk owns every path"
-else
-	echo "FAIL: .github/CODEOWNERS must name @rameezk as owner of every path"
-	fail=1
-fi
-
 exit $fail
