@@ -495,7 +495,12 @@
             && runnerSettings.workers.refiner.reasoningEffort == "max"
             && runnerSettings.harnesses.pi.command == "/run/current-system/sw/bin/pi"
           ) "the generated runtime config must reflect the declared harness and worker";
-          ghInToolset = lib.asserts.assertMsg (lib.any (package: package.name == "gh") workerHost.config.forge.runtime.toolset) "the base workload toolset must carry a gh that reads the workload's GitHub token file, so a dispatched agent can open pull requests";
+          ghBeforeDevShell = lib.asserts.assertMsg (
+            !(lib.any (package: package.name == "gh") workerHost.config.forge.runtime.toolset)
+            && lib.any (
+              e: lib.hasPrefix "FORGE_CREDENTIAL_TOOLS=/nix/store/" e && lib.hasSuffix "-gh/bin" e
+            ) runnerUnit.serviceConfig.Environment
+          ) "forge's gh, which reads the workload's GitHub token file, must come from the runner unit's credential tools directory and not from the workload toolset, so no devShell or toolset hides it and a dispatched agent can open pull requests";
           runnerDefaultEffortOmitted =
             lib.asserts.assertMsg (!(runnerSettings.workers.builder ? reasoningEffort))
               "a worker with no reasoning effort must omit it from the config so the harness runs at the provider default";
@@ -1570,7 +1575,7 @@
             assert runnerConfigReflectsWorker;
             assert runnerDefaultEffortOmitted;
             assert hostPiIsForgePi;
-            assert ghInToolset;
+            assert ghBeforeDevShell;
             assert transcriptsProvisioned;
             pkgs.runCommand "runtime-runner" { } ''
               echo "declaring a worker wires a forge-runner@ oneshot invoking forge-run with only the OpenRouter key, from a sops template" > $out
