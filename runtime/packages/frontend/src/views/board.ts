@@ -110,24 +110,37 @@ const renderColumnHeaders = (counts: Record<ColumnKey, number>): Rendered =>
     </div>`,
   )}</div>`;
 
-const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<section class="border-t border-line" data-repository="${lane.repository}"${lane.lastError === null ? '' : html` data-stale`}>
+const renderLaneCounts = (lane: BoardLane): Rendered => {
+  const populated = COLUMNS.filter(({ key }) => lane.columns[key].length > 0);
+  return populated.length === 0
+    ? html`<span data-lane-empty class="hidden text-sm text-muted group-data-[collapsed]:inline">Nothing in flight</span>`
+    : html`<span class="hidden flex-wrap gap-x-3 text-sm text-muted group-data-[collapsed]:flex">${populated.map(
+        ({ key, title }) => html`<span data-lane-count="${key}" class="tabular-nums">${title} ${lane.columns[key].length}</span>`,
+      )}</span>`;
+};
+
+const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const empty = COLUMNS.every(({ key }) => lane.columns[key].length === 0);
+  return html`<section class="group border-t border-line" data-repository="${lane.repository}"${empty ? html` data-empty data-collapsed` : ''}${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
-    <header class="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-3 py-2">
+    <header data-lane-toggle role="button" tabindex="0" aria-expanded="${empty ? 'false' : 'true'}" class="flex cursor-pointer flex-wrap items-baseline gap-x-4 gap-y-1 px-3 py-2">
+      <span data-lane-chevron aria-hidden="true" class="inline-block w-3 shrink-0 rotate-90 text-center text-[0.65rem] text-muted transition-transform group-data-[collapsed]:rotate-0">▶</span>
       <h2 class="${SECTION_TITLE}">${lane.repository}</h2>
       ${isGithubRepository(lane.github)
         ? externalLink(`https://github.com/${lane.github}`, lane.github)
         : html`<span class="text-muted">${lane.github}</span>`}
+      ${renderLaneCounts(lane)}
       ${renderPolled(lane.polledAt, timeZone)}
     </header>
     ${lane.lastError === null
       ? ''
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
     </div>
-    <div class="${ROW_GRID}">${COLUMNS.map(
+    <div class="${ROW_GRID} group-data-[collapsed]:hidden">${COLUMNS.map(
       ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${lane.columns[key].map((card) => renderCard(lane.repository, card, attempted, timeZone))}</div>`,
     )}</div>
   </section>`;
+};
 
 export interface RunningSlots {
   running: number;
