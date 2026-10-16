@@ -11,7 +11,7 @@ in
 runCommand "claude-code-cli-contract"
   {
     nativeBuildInputs = [ nodejs ];
-    meta.description = "Runs the locked claude with the exact argv and environment the runner's claude-code adapter uses, against a fake Anthropic endpoint, failing if the CLI rejects a flag, stops emitting the stream-json the runner reads, stops writing the raw API bodies it takes token counts from, stops loading the repository's AGENTS.md or appending forge's instructions, or still sends the model an instruction to add commit or pull request attribution, or stops honouring forge's subagent limits, subagent reports and tool call attribution.";
+    meta.description = "Runs the locked claude with the exact argv and environment the runner's claude-code adapter uses, against a fake Anthropic endpoint, failing if the CLI rejects a flag, stops emitting the stream-json the runner reads, stops writing the raw API bodies it takes token counts from, stops loading the repository's AGENTS.md or appending forge's instructions, still sends the model an instruction to add commit or pull request attribution, or stops honouring forge's subagent limits, subagent reports and tool call attribution.";
   }
   ''
     export HOME="$TMPDIR"
