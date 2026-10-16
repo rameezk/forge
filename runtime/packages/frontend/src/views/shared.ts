@@ -6,11 +6,11 @@ import { DEFAULT_EFFORT } from '../request-record.ts';
 
 export type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 
-type Page = 'runs' | 'work' | 'insights';
+type Page = 'board' | 'runs' | 'insights';
 
 const NAV: { page: Page; href: string; label: string }[] = [
+  { page: 'board', href: '/', label: 'Board' },
   { page: 'runs', href: '/runs', label: 'Runs' },
-  { page: 'work', href: '/work', label: 'Work' },
   { page: 'insights', href: '/insights', label: 'Insights' },
 ];
 
@@ -74,7 +74,7 @@ const renderHeader = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
     <div class="mx-auto flex max-w-[100rem] items-center gap-6 px-4 py-2">
-      <a href="/runs" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
+      <a href="/" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
       </nav>
@@ -103,7 +103,7 @@ export const layout = (
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${fitsViewport ? ' lg:flex lg:h-dvh lg:flex-col' : ''}">
         ${renderHeader(current, live, assets)}
-        <main class="mx-auto w-full max-w-[100rem] px-4 py-8${fitsViewport ? ' lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:py-4' : ''}">${body}</main>
+        <main class="mx-auto w-full max-w-[100rem] px-4 ${fitsViewport ? 'py-8 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:py-4' : 'py-8'}">${body}</main>
       </body>
     </html>`;
 

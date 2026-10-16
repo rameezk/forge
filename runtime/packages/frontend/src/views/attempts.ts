@@ -89,7 +89,7 @@ export const renderTicketAttempts = (
   attempts: TicketAttempt[],
   assets: AssetHrefs,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/work" class="${LINK}">&larr; Work</a></p>
+  const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/" class="${LINK}">&larr; Board</a></p>
     <h1 class="${PAGE_TITLE} break-words">${ticket.repository} #${ticket.number}</h1>
     ${attempts.length === 0
       ? html`<p class="${EMPTY}" data-empty>No attempts have run against this ticket.</p>`

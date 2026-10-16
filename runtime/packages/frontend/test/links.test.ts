@@ -90,33 +90,35 @@ const assertOpensInNewTab = (body: string, href: string, rel: string, where: str
   }
 };
 
-test('given a stored frontier ticket and a run tied to a ticket, both with GitHub URLs, when the work and runs pages are requested, then each ticket number links to its URL in a new tab', async () => {
+test('given a stored frontier ticket and a run tied to a ticket, both with GitHub URLs, when the Board and runs pages are requested, then each ticket number links to its URL in a new tab', async () => {
   const page = dashboard();
 
-  assertOpensInNewTab(await page('/work'), TICKET_URL, 'noopener noreferrer', '/work');
+  assertOpensInNewTab(await page('/'), TICKET_URL, 'noopener noreferrer', '/');
   assertOpensInNewTab(await page('/runs'), TICKET_URL, 'noopener noreferrer', '/runs', 2);
 });
 
-test('given a stored repository whose github is owner/name, when the work page is requested, then the repository link opens in a new tab', async () => {
-  assertOpensInNewTab(await dashboard()('/work'), 'https://github.com/rameezk/forge', 'noopener noreferrer', '/work');
+test('given a stored repository whose github is owner/name, when the Board is requested, then the repository link opens in a new tab', async () => {
+  assertOpensInNewTab(await dashboard()('/'), 'https://github.com/rameezk/forge', 'noopener noreferrer', '/');
 });
 
 test('given a run whose assistant message contains a markdown link, when the run page is requested, then the link opens in a new tab and keeps nofollow', async () => {
   assertOpensInNewTab(await dashboard()('/runs/run-01/transcript'), 'https://example.com/docs', 'noopener noreferrer nofollow', '/runs/run-01/transcript');
 });
 
-test('given the dashboard, when the runs, work and run pages are requested, then nav links, run links, dispatch badges and the back link open in the same tab', async () => {
+test('given the dashboard, when the Board, runs and run pages are requested, then nav links, run links, dispatch badges and the back link open in the same tab', async () => {
   const page = dashboard();
   const sameSiteAnchors = async (path: string): Promise<string[]> =>
     [...(await page(path)).matchAll(/<a(?=\s)[^>]*\shref="\/[^"]*"[^>]*>[\s\S]*?<\/a>/g)].map(([anchor]) => anchor);
 
   const runs = await sameSiteAnchors('/runs');
-  const work = await sameSiteAnchors('/work');
+  const work = await sameSiteAnchors('/');
   const run = await sameSiteAnchors('/runs/run-01');
 
-  for (const href of ['/runs', '/work', '/runs/run-01']) {
+  for (const href of ['/', '/runs', '/runs/run-01']) {
     assert.ok(runs.some((anchor) => openingTag(anchor).includes(` href="${href}"`)), `the runs page links ${href}`);
-    assert.ok(work.some((anchor) => openingTag(anchor).includes(` href="${href}"`)), `the work page links ${href}`);
+  }
+  for (const href of ['/', '/runs']) {
+    assert.ok(work.some((anchor) => openingTag(anchor).includes(` href="${href}"`)), `the Board links ${href}`);
   }
   assert.ok(run.some((anchor) => openingTag(anchor).includes(' href="/runs"') && textOf(anchor) === '&larr; Workloads'), 'the run page has its back link');
   for (const anchor of [...runs, ...work, ...run]) {

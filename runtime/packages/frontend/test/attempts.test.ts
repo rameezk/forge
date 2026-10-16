@@ -184,10 +184,12 @@ test('given a ticket with no attempts, when its attempts view is requested, then
   const { app } = dashboard([]);
   const res = await app.request('/tickets/forge/42');
   assert.equal(res.status, 200);
-  assert.match(textOf(await res.text()), /No attempts/);
+  const body = await res.text();
+  assert.match(textOf(body), /No attempts/);
+  assert.match(body, /<a href="\/"[^>]*>&larr; Board<\/a>/);
 });
 
-test('given a dispatched workload, when its run detail page and the Work page are requested, then both link to its ticket attempts view', async () => {
+test('given a dispatched workload, when its run detail page and the Board are requested, then both link to its ticket attempts view', async () => {
   const { app, store } = dashboard(THREE.slice(0, 1));
   store.replaceFrontier({
     repository: 'forge',
@@ -200,7 +202,7 @@ test('given a dispatched workload, when its run detail page and the Work page ar
 
   const detail = await (await app.request('/runs/run-a')).text();
   assert.match(detail, /<a href="\/tickets\/forge\/42"[^>]*data-attempts[^>]*>/);
-  const work = await (await app.request('/work')).text();
+  const work = await (await app.request('/')).text();
   assert.match(work, /<a href="\/tickets\/forge\/42"[^>]*data-attempts[^>]*>/);
 });
 
@@ -231,7 +233,7 @@ test('given a ticket number that is not a plain positive integer, when its attem
   }
 });
 
-test('given a ticket whose only dispatch never started a workload, when the Work page is requested, then it does not link to an attempts view with nothing in it', async () => {
+test('given a ticket whose only dispatch never started a workload, when the Board is requested, then it does not link to an attempts view with nothing in it', async () => {
   const { app, store } = dashboard([]);
   store.reconcileDispatch(TICKET, '2026-09-29T08:00:00.000Z');
   store.replaceFrontier({
@@ -243,13 +245,13 @@ test('given a ticket whose only dispatch never started a workload, when the Work
     ],
   });
 
-  const work = await (await app.request('/work')).text();
+  const work = await (await app.request('/')).text();
 
-  assert.match(work, /data-dispatch="failed"/);
+  assert.match(work, /data-column="failed"[^>]*>\s*<article/);
   assert.doesNotMatch(work, /data-attempts/);
 });
 
-test('given a ticket with an earlier attempt that was dispatched again with no workload yet, when the Work page is requested, then it still links to the attempts view', async () => {
+test('given a ticket with an earlier attempt that was dispatched again with no workload yet, when the Board is requested, then it still links to the attempts view', async () => {
   const { app, store } = dashboard(THREE.slice(0, 1));
   const again = store.startDispatch(TICKET, 'not-started', '2026-09-30T08:00:00.000Z', 100);
   assert.ok('started' in again);
@@ -262,9 +264,9 @@ test('given a ticket with an earlier attempt that was dispatched again with no w
     ],
   });
 
-  const work = await (await app.request('/work')).text();
+  const work = await (await app.request('/')).text();
 
-  assert.match(work, /data-dispatch="/);
+  assert.match(work, /<article[^>]*\sdata-ticket="42"/);
   assert.match(work, /<a href="\/tickets\/forge\/42"[^>]*data-attempts[^>]*>/);
 });
 

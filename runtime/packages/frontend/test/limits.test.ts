@@ -69,7 +69,7 @@ test('given a run that ended exceeded on a 2 hour timeout, when its page and the
   assert.match(list, /<span[^>]*\sdata-status="exceeded"[^>]*>\s*exceeded\s*<\/span>/);
 });
 
-test('given a dispatch that ended exceeded on its timeout, when the work page renders, then the dispatch reads Exceeded timeout beside a failed pill', async () => {
+test('given a dispatch that ended exceeded on its timeout, when the Board renders, then the failed card reads Exceeded timeout', async () => {
   const url = 'https://github.com/rameezk/forge/issues/56';
   const app = appWith((store) => {
     store.replaceFrontier({
@@ -83,9 +83,9 @@ test('given a dispatch that ended exceeded on its timeout, when the work page re
     store.endDispatch(start.started, { state: 'failed', reason: 'exceeded', detail: 'timeout' }, '2026-09-29T10:00:00.000Z');
   });
 
-  const cell = (await bodyOf(app, '/work')).match(/<td[^>]*\sdata-dispatch="failed"[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
+  const cell = (await bodyOf(app, '/')).match(/<article[^>]*\sdata-ticket="56"[\s\S]*?<\/article>/)?.[0] ?? '';
 
-  assert.match(textOf(cell), /failed .*Exceeded timeout$/);
+  assert.match(textOf(cell), /Exceeded timeout$/);
   assert.doesNotMatch(textOf(cell), /Exceeded: /);
 });
 
@@ -153,7 +153,7 @@ test('given a run that ended exceeded on its 5 USD budget at 5.21 USD, when its 
   assert.match(await bodyOf(app, '/runs'), /<span[^>]*\sdata-status="exceeded"[^>]*>\s*exceeded\s*<\/span>/);
 });
 
-test('given a dispatch that ended exceeded on its budget, when the work page renders, then the dispatch reads Exceeded budget beside a failed pill', async () => {
+test('given a dispatch that ended exceeded on its budget, when the Board renders, then the failed card reads Exceeded budget', async () => {
   const url = 'https://github.com/rameezk/forge/issues/57';
   const app = appWith((store) => {
     store.replaceFrontier({
@@ -167,7 +167,7 @@ test('given a dispatch that ended exceeded on its budget, when the work page ren
     store.endDispatch(start.started, { state: 'failed', reason: 'exceeded', detail: 'budget' }, '2026-09-29T10:00:00.000Z');
   });
 
-  const cell = (await bodyOf(app, '/work')).match(/<td[^>]*\sdata-dispatch="failed"[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
+  const cell = (await bodyOf(app, '/')).match(/<article[^>]*\sdata-ticket="57"[\s\S]*?<\/article>/)?.[0] ?? '';
 
-  assert.match(textOf(cell), /failed .*Exceeded budget$/);
+  assert.match(textOf(cell), /Exceeded budget$/);
 });
