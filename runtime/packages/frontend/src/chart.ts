@@ -4,6 +4,7 @@ import { extent, max } from 'd3-array';
 import { scaleLinear, scaleUtc } from 'd3-scale';
 import { cohortLabel } from '@forge/shared';
 import type { CohortInsight, InsightPoint, ProviderShare, WorkloadOutcome } from '@forge/shared';
+import { dayOf, nextDay, startOfDay } from './days.ts';
 import { formatCost, formatRate } from './format.ts';
 
 type Rendered = HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -38,9 +39,28 @@ const seriesFor = (series: Map<string | null, Series>, key: string | null): Seri
 const WIDTH = 420;
 const HEIGHT = 250;
 const MARGIN = { top: 12, right: 14, bottom: 30, left: 50 };
-const DAY_MS = 24 * 60 * 60 * 1000;
+const TARGET_TICKS = 6;
 const INSET = 8;
-const DAY_LABEL = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+const dayLabel = (timeZone: string): Intl.DateTimeFormat =>
+  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone });
+
+const daysBetween = (first: string, last: string): string[] => {
+  const days = [first];
+  while (days[days.length - 1]! < last) days.push(nextDay(days[days.length - 1]!));
+  return days;
+};
+
+const tickDays = (days: string[]): string[] => {
+  const stride = Math.ceil(days.length / TARGET_TICKS);
+  const ticks = [days[0]!];
+  for (let covered = 0; covered < days.length; covered += stride) {
+    let next = ticks[ticks.length - 1]!;
+    for (let step = 0; step < stride; step++) next = nextDay(next);
+    ticks.push(next);
+  }
+  return ticks;
+};
 
 type Shape = 'circle' | 'diamond' | 'cross' | 'square';
 
@@ -68,10 +88,13 @@ const renderShape = (shape: Shape): Rendered => {
 export const renderCostChart = (
   points: InsightPoint[],
   series: Map<string | null, Series>,
+  timeZone: string,
 ): Rendered => {
   const [first, last] = extent(points, ({ startTime }) => Date.parse(startTime)) as [number, number];
+  const days = daysBetween(dayOf(first, timeZone), dayOf(last, timeZone));
+  const ticks = tickDays(days);
   const x = scaleUtc()
-    .domain([new Date(Math.floor(first / DAY_MS) * DAY_MS), new Date((Math.floor(last / DAY_MS) + 1) * DAY_MS)])
+    .domain([new Date(startOfDay(ticks[0]!, timeZone)), new Date(startOfDay(ticks[ticks.length - 1]!, timeZone))])
     .range([MARGIN.left + INSET, WIDTH - MARGIN.right - INSET]);
   const y = scaleLinear()
     .domain([0, max(points, ({ costUsd }) => costUsd) || 1])
@@ -79,7 +102,8 @@ export const renderCostChart = (
     .range([HEIGHT - MARGIN.bottom, MARGIN.top]);
   const costTicks = y.ticks(5);
   const costFormat = y.tickFormat(5);
-  const timeTicks = x.ticks(6).filter((tick) => tick.getTime() % DAY_MS === 0);
+  const label = dayLabel(timeZone);
+  const timeTicks = ticks.map((day) => new Date(startOfDay(day, timeZone)));
   const left = MARGIN.left;
   const right = WIDTH - MARGIN.right;
   const bottom = HEIGHT - MARGIN.bottom;
@@ -93,7 +117,7 @@ export const renderCostChart = (
     ${timeTicks.map(
       (tick) => html`<g data-tick="time" data-value="${tick.toISOString()}">
         <line x1="${x(tick)}" x2="${x(tick)}" y1="${bottom}" y2="${bottom + 4}" class="stroke-muted" stroke-width="1"></line>
-        <text x="${x(tick)}" y="${bottom + 16}" text-anchor="middle" font-size="11" class="fill-muted">${DAY_LABEL.format(tick)}</text>
+        <text x="${x(tick)}" y="${bottom + 16}" text-anchor="middle" font-size="11" class="fill-muted">${label.format(tick)}</text>
       </g>`,
     )}
     <line x1="${left}" x2="${right}" y1="${bottom}" y2="${bottom}" class="stroke-muted" stroke-width="1"></line>

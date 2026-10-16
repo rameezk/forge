@@ -14,7 +14,7 @@ export const formatTotal = (usd: number): string => `$${usd.toFixed(4)}`;
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-const partsIn = (time: number, timeZone: string): Record<string, string> => {
+export const partsIn = (time: number, timeZone: string): Record<string, string> => {
   let formatter = formatters.get(timeZone);
   if (formatter === undefined) {
     formatter = new Intl.DateTimeFormat('en-US', {

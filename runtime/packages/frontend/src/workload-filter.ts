@@ -1,4 +1,5 @@
 import type { RunRecord, RunStatus } from '@forge/shared';
+import { nextDay, startOfDay } from './days.ts';
 
 export const STATUSES: readonly RunStatus[] = ['running', 'success', 'error', 'interrupted', 'exceeded'];
 
@@ -36,18 +37,22 @@ const matchesSearch = (run: RunRecord, search: string): boolean => {
 export const filterWorkloads = (
   runs: RunRecord[],
   filter: WorkloadFilter,
+  timeZone: string,
   ignoreStatus = false,
-): RunRecord[] =>
-  runs.filter(
+): RunRecord[] => {
+  const startedFrom = filter.from === undefined ? undefined : startOfDay(filter.from, timeZone);
+  const startedBefore = filter.to === undefined ? undefined : startOfDay(nextDay(filter.to), timeZone);
+  return runs.filter(
     (run) =>
       (ignoreStatus || filter.status === undefined || run.status === filter.status) &&
       (filter.search === undefined || matchesSearch(run, filter.search)) &&
       (filter.worker === undefined || run.worker === filter.worker) &&
       (filter.repository === undefined || run.ticket?.repository === filter.repository) &&
       (filter.model === undefined || run.model === filter.model) &&
-      (filter.from === undefined || run.startTime.slice(0, 10) >= filter.from) &&
-      (filter.to === undefined || run.startTime.slice(0, 10) <= filter.to),
+      (startedFrom === undefined || Date.parse(run.startTime) >= startedFrom) &&
+      (startedBefore === undefined || Date.parse(run.startTime) < startedBefore),
   );
+};
 
 export const isFiltered = (filter: WorkloadFilter): boolean => Object.keys(filter).length > 0;
 

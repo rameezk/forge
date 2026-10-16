@@ -8,9 +8,10 @@ import type { TranscriptSource } from './transcript.ts';
 import { renderTicketAttempts } from './views/attempts.ts';
 import { renderBoard } from './views/board.ts';
 import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
-import { renderCohortPage, renderInsights, renderUnknownCohortPage } from './views/insights.ts';
+import { renderCohortPage, renderInsights, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs, type Display } from './views/shared.ts';
+import { nextDay, startOfDay } from './days.ts';
 import { parsePage, parseWorkloadFilter } from './workload-filter.ts';
 import { renderList } from './views/workloads.ts';
 
@@ -123,7 +124,7 @@ export const createApp = ({
 
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-  const filterOf = (query: Record<string, string>): InsightsFilter => ({
+  const queryOf = (query: Record<string, string>): InsightsQuery => ({
     includeManual: query['manual'] === '1',
     ...(query['worker'] ? { worker: query['worker'] } : {}),
     ...(query['repository'] ? { repository: query['repository'] } : {}),
@@ -131,10 +132,17 @@ export const createApp = ({
     ...(DATE.test(query['to'] ?? '') ? { to: query['to']! } : {}),
   });
 
+  const filterOf = ({ from, to, ...rest }: InsightsQuery): InsightsFilter => ({
+    ...rest,
+    ...(from === undefined ? {} : { startedFrom: new Date(startOfDay(from, timeZone)).toISOString() }),
+    ...(to === undefined ? {} : { startedBefore: new Date(startOfDay(nextDay(to), timeZone)).toISOString() }),
+  });
+
   app.get('/insights', (c) => {
     const shown = displayOf(c);
-    const filter = filterOf(c.req.query());
-    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), filter, store.insightsOptions(), shown));
+    const query = queryOf(c.req.query());
+    const filter = filterOf(query);
+    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), query, store.insightsOptions(), shown));
   });
 
   app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => {

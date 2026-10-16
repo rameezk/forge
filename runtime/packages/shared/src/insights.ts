@@ -5,8 +5,8 @@ export interface InsightsFilter {
   includeManual: boolean;
   worker?: string;
   repository?: string;
-  from?: string;
-  to?: string;
+  startedFrom?: string;
+  startedBefore?: string;
 }
 
 export interface InsightWorkload {
