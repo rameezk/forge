@@ -26,7 +26,7 @@ export interface RevisionRecord extends RevisedPullRequest {
 }
 
 export type RevisionStart =
-  | { started: number }
+  | { started: number; after: string | null }
   | { refused: 'revising' }
   | { refused: 'dispatching' }
   | { refused: 'full'; live: number };

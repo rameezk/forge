@@ -1007,3 +1007,76 @@ test('given a billed run and a subscription run each with a generation, when the
     ['gen-of-run-billed'],
   );
 });
+
+const REVISED = { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' };
+
+const watched = (newestFeedbackAt: string | null) => ({
+  number: 143,
+  url: REVISED.url,
+  closes: [] as number[],
+  newestFeedbackAt,
+});
+
+const startedRevision = (store: Store, at: string): { id: number; after: string | null } => {
+  const start = store.startRevision(REVISED, [], `run-${at}`, at, Number.POSITIVE_INFINITY);
+  assert.ok('started' in start);
+  return { id: start.started, after: start.after };
+};
+
+for (const state of ['error', 'exceeded', 'interrupted'] as const) {
+  test(`given a revision that ended ${state}, when the next revision starts, then its window begins where the failed one's began`, () => {
+    const store = Store.open(':memory:');
+    store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+    const failed = startedRevision(store, '2026-09-21T10:10:00.000Z');
+    store.endRevision(failed.id, state, '2026-09-21T10:11:00.000Z');
+
+    assert.equal(startedRevision(store, '2026-09-21T10:20:00.000Z').after, '2026-09-21T10:00:00.000Z');
+  });
+}
+
+test('given a revision that ended ok, when the next revision starts, then its window begins where the ok one began', () => {
+  const store = Store.open(':memory:');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+
+  assert.equal(startedRevision(store, '2026-09-21T10:10:00.000Z').after, '2026-09-21T10:00:00.000Z');
+});
+
+test('given a first revision that ended in error, when the next revision starts, then its window has no beginning', () => {
+  const store = Store.open(':memory:');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'error', '2026-09-21T10:01:00.000Z');
+
+  assert.equal(startedRevision(store, '2026-09-21T10:10:00.000Z').after, null);
+});
+
+test('given a revision that ended error over feedback the timer saw, when the timer checks later, then the pull request is not due until newer feedback arrives', () => {
+  const store = Store.open(':memory:');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
+  store.endRevision(startedRevision(store, '2026-09-21T10:10:00.000Z').id, 'error', '2026-09-21T10:11:00.000Z');
+
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
+  assert.deepEqual(store.feedbackDue('2026-09-21T11:00:00.000Z', 600), []);
+
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:30:00.000Z')]);
+  assert.deepEqual(store.feedbackDue('2026-09-21T11:00:00.000Z', 600), [REVISED]);
+});
+
+test('given a revision that ended error and then new feedback, when the next revision starts, then its window begins before the failed revision so it holds both', () => {
+  const store = Store.open(':memory:');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:10:00.000Z').id, 'error', '2026-09-21T10:11:00.000Z');
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:30:00.000Z')]);
+
+  assert.equal(startedRevision(store, '2026-09-21T10:40:00.000Z').after, '2026-09-21T10:00:00.000Z');
+});
+
+test('given a revision left running with a stale heartbeat, when a new revision starts, then the stale one is interrupted and the new window begins where the stale one began', () => {
+  const store = Store.open(':memory:');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+  const stale = startedRevision(store, '2026-09-21T10:10:00.000Z');
+
+  const next = startedRevision(store, '2026-09-21T11:00:00.000Z');
+
+  assert.equal(next.after, '2026-09-21T10:00:00.000Z');
+  assert.equal(store.listRevisions('2026-09-21T11:00:00.000Z').find(({ id }) => id === stale.id)?.state, 'interrupted');
+});
