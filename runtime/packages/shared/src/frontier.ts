@@ -208,11 +208,6 @@ interface IssuePage<Node> {
   nodes: Node[];
 }
 
-interface IssuesResponse<Node> {
-  data?: { repository: { issues: IssuePage<Node> } | null };
-  errors?: { message: string }[];
-}
-
 const GITHUB_REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 export const isGithubRepository = (github: string): boolean =>
@@ -280,6 +275,28 @@ export const requestGraphql = (
   });
 };
 
+const QUERY_NAME = /\bquery\s+(\w+)/;
+
+export const readGraphql = async <Data>(
+  response: Response,
+  query: string,
+  where: string,
+): Promise<Data | undefined> => {
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${where}`);
+  }
+  const { data, errors } = (await response.json()) as {
+    data?: Data;
+    errors?: { message: string }[];
+  };
+  if (errors !== undefined && errors.length > 0) {
+    throw new Error(
+      `GitHub rejected the ${QUERY_NAME.exec(query)?.[1] ?? 'GraphQL'} query for ${where}: ${errors.map((error) => error.message).join('; ')}`,
+    );
+  }
+  return data;
+};
+
 export const requestFrontierPage = (
   fetch: Fetch,
   token: string,
@@ -305,21 +322,16 @@ export const requestClosingPullRequests = (
   requestGraphql(fetch, token, CLOSING_PULL_REQUESTS_QUERY, github, { number });
 
 const queryPage = async <Node>(
-  subject: string,
+  query: string,
   request: (after: string | null) => Promise<Response>,
   github: string,
   after: string | null,
 ): Promise<IssuePage<Node>> => {
-  const response = await request(after);
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for ${github}`);
-  }
-  const { data, errors } = (await response.json()) as IssuesResponse<Node>;
-  if (errors !== undefined && errors.length > 0) {
-    throw new Error(
-      `GitHub rejected the ${subject} query for ${github}: ${errors.map((error) => error.message).join('; ')}`,
-    );
-  }
+  const data = await readGraphql<{ repository: { issues: IssuePage<Node> } | null }>(
+    await request(after),
+    query,
+    github,
+  );
   const repository = data?.repository;
   if (repository === undefined || repository === null) {
     throw new Error(`GitHub found no repository ${github}`);
@@ -328,7 +340,7 @@ const queryPage = async <Node>(
 };
 
 const queryIssues = async <Node>(
-  subject: string,
+  query: string,
   github: string,
   request: (after: string | null) => Promise<Response>,
 ): Promise<Node[]> => {
@@ -336,7 +348,7 @@ const queryIssues = async <Node>(
   const cursors = new Set<string>();
   let after: string | null = null;
   do {
-    const page: IssuePage<Node> = await queryPage<Node>(subject, request, github, after);
+    const page: IssuePage<Node> = await queryPage<Node>(query, request, github, after);
     issues.push(...page.nodes);
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
     if (after !== null && cursors.has(after)) {
@@ -353,7 +365,7 @@ export const queryFrontier = async (
   github: string,
 ): Promise<Ticket[]> =>
   (
-    await queryIssues<IssueNode>('frontier', github, (after) =>
+    await queryIssues<IssueNode>(FRONTIER_QUERY, github, (after) =>
       requestFrontierPage(fetch, token, github, {
         first: FRONTIER_PAGE_SIZE,
         after,
@@ -384,7 +396,7 @@ export const queryLabelled = async (
   label: string,
 ): Promise<LabelledIssue[]> =>
   (
-    await queryIssues<LabelledIssue>(`${label} issues`, github, (after) =>
+    await queryIssues<LabelledIssue>(LABELLED_QUERY, github, (after) =>
       requestLabelledPage(fetch, token, github, label, {
         first: FRONTIER_PAGE_SIZE,
         after,
@@ -411,8 +423,7 @@ interface TicketNode {
 }
 
 interface TicketResponse {
-  data?: { repository: { issue: TicketNode | null } | null };
-  errors?: { message: string }[];
+  repository: { issue: TicketNode | null } | null;
 }
 
 export const queryTicket = async (
@@ -421,18 +432,14 @@ export const queryTicket = async (
   github: string,
   number: number,
 ): Promise<TicketState> => {
-  const response = await requestTicket(fetch, token, github, number);
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
-  }
-  const { data, errors } = (await response.json()) as TicketResponse;
+  const data = await readGraphql<TicketResponse>(
+    await requestTicket(fetch, token, github, number),
+    TICKET_QUERY,
+    `${github}#${number}`,
+  );
   const issue = data?.repository?.issue;
   if (issue === undefined || issue === null) {
-    const reason =
-      errors === undefined || errors.length === 0
-        ? 'no such issue'
-        : errors.map((error) => error.message).join('; ');
-    throw new Error(`GitHub found no ticket ${github}#${number}: ${reason}`);
+    throw new Error(`GitHub found no ticket ${github}#${number}`);
   }
   return {
     number: issue.number,
@@ -445,22 +452,19 @@ export const queryTicket = async (
 };
 
 interface ClosingPullRequestsResponse {
-  data?: {
-    repository: {
-      issue: {
-        closedByPullRequestsReferences: {
-          nodes: {
-            number: number;
-            url: string;
-            state: string;
-            isCrossRepository: boolean;
-            repository: { nameWithOwner: string };
-          }[];
-        };
-      } | null;
+  repository: {
+    issue: {
+      closedByPullRequestsReferences: {
+        nodes: {
+          number: number;
+          url: string;
+          state: string;
+          isCrossRepository: boolean;
+          repository: { nameWithOwner: string };
+        }[];
+      };
     } | null;
-  };
-  errors?: { message: string }[];
+  } | null;
 }
 
 export const findOpenClosingPullRequest = async (
@@ -469,20 +473,14 @@ export const findOpenClosingPullRequest = async (
   github: string,
   number: number,
 ): Promise<PullRequestRef | null> => {
-  const response = await requestClosingPullRequests(fetch, token, github, number);
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
-  }
-  const { data, errors } = (await response.json()) as ClosingPullRequestsResponse;
+  const data = await readGraphql<ClosingPullRequestsResponse>(
+    await requestClosingPullRequests(fetch, token, github, number),
+    CLOSING_PULL_REQUESTS_QUERY,
+    `${github}#${number}`,
+  );
   const issue = data?.repository?.issue;
   if (issue === undefined || issue === null) {
-    const reason =
-      errors === undefined || errors.length === 0
-        ? 'no such issue'
-        : errors.map((error) => error.message).join('; ');
-    throw new Error(
-      `GitHub found no pull requests closing ${github}#${number}: ${reason}`,
-    );
+    throw new Error(`GitHub found no pull requests closing ${github}#${number}`);
   }
   const pullRequest = issue.closedByPullRequestsReferences.nodes.find(
     (node) =>
@@ -512,8 +510,7 @@ interface PullRequestNode {
 }
 
 interface PullRequestResponse {
-  data?: { repository: { pullRequest: PullRequestNode | null } | null };
-  errors?: { message: string }[];
+  repository: { pullRequest: PullRequestNode | null } | null;
 }
 
 export const requestPullRequest = (
@@ -532,18 +529,14 @@ const queryPullRequestPage = async (
   number: number,
   after: string | null,
 ): Promise<PullRequestNode> => {
-  const response = await requestPullRequest(fetch, token, github, number, after);
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
-  }
-  const { data, errors } = (await response.json()) as PullRequestResponse;
+  const data = await readGraphql<PullRequestResponse>(
+    await requestPullRequest(fetch, token, github, number, after),
+    PULL_REQUEST_QUERY,
+    `${github}#${number}`,
+  );
   const pullRequest = data?.repository?.pullRequest;
   if (pullRequest === undefined || pullRequest === null) {
-    const reason =
-      errors === undefined || errors.length === 0
-        ? 'no such pull request'
-        : errors.map((error) => error.message).join('; ');
-    throw new Error(`GitHub found no pull request ${github}#${number}: ${reason}`);
+    throw new Error(`GitHub found no pull request ${github}#${number}`);
   }
   return pullRequest;
 };
@@ -595,21 +588,18 @@ export interface PullRequestHead extends PullRequestRef {
 }
 
 interface PullRequestHeadResponse {
-  data?: {
-    repository: {
-      pullRequest: {
-        number: number;
-        url: string;
-        state: string;
-        isCrossRepository: boolean;
-        headRefName: string;
-        closingIssuesReferences: {
-          nodes: { number: number; repository: { nameWithOwner: string } }[];
-        };
-      } | null;
+  repository: {
+    pullRequest: {
+      number: number;
+      url: string;
+      state: string;
+      isCrossRepository: boolean;
+      headRefName: string;
+      closingIssuesReferences: {
+        nodes: { number: number; repository: { nameWithOwner: string } }[];
+      };
     } | null;
-  };
-  errors?: { message: string }[];
+  } | null;
 }
 
 export const queryPullRequestHead = async (
@@ -618,18 +608,14 @@ export const queryPullRequestHead = async (
   github: string,
   number: number,
 ): Promise<PullRequestHead> => {
-  const response = await requestGraphql(fetch, token, PULL_REQUEST_HEAD_QUERY, github, { number });
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for ${github}#${number}`);
-  }
-  const { data, errors } = (await response.json()) as PullRequestHeadResponse;
+  const data = await readGraphql<PullRequestHeadResponse>(
+    await requestGraphql(fetch, token, PULL_REQUEST_HEAD_QUERY, github, { number }),
+    PULL_REQUEST_HEAD_QUERY,
+    `${github}#${number}`,
+  );
   const pullRequest = data?.repository?.pullRequest;
   if (pullRequest === undefined || pullRequest === null) {
-    const reason =
-      errors === undefined || errors.length === 0
-        ? 'no such pull request'
-        : errors.map((error) => error.message).join('; ');
-    throw new Error(`GitHub found no pull request ${github}#${number}: ${reason}`);
+    throw new Error(`GitHub found no pull request ${github}#${number}`);
   }
   return {
     number: pullRequest.number,

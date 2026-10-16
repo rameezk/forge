@@ -235,10 +235,15 @@ const instructionOf = (pi: PiCall | null): string =>
     .filter((_, index) => pi?.argv[index - 1] === '--append-system-prompt')
     .join('\n');
 
+interface FeedbackAnswersRejection {
+  data?: FeedbackAnswersResponse['data'] | { repository: { pullRequest: null } };
+  errors: { message: string }[];
+}
+
 interface Scenario {
   origin?: Origin;
   feedback?: FeedbackWindowResponse;
-  answers?: FeedbackAnswersResponse;
+  answers?: FeedbackAnswersResponse | FeedbackAnswersRejection;
   prompt?: string;
   pullRequest?: PullRequestResponse;
   seed?: (store: Store) => void;
@@ -748,6 +753,46 @@ test('given a revision handed an inline comment, a review summary and a conversa
   assert.deepEqual(revisions.map(({ state, reason }) => ({ state, reason })), [
     { state: 'ok', reason: null },
   ]);
+});
+
+test('given GitHub answers the answered check with errors and no pull request, when forge-revise runs and the worker succeeds, then the error says GitHub rejected the FeedbackAnswers query', async () => {
+  const { code, thrown } = await revise({
+    answers: {
+      data: { repository: { pullRequest: null } },
+      errors: [{ message: "Field 'reactor' doesn't exist on type 'Reaction'" }],
+    },
+  });
+
+  assert.equal(code, 1);
+  assert.equal(
+    thrown,
+    "GitHub rejected the FeedbackAnswers query for rameezk/forge#143: Field 'reactor' doesn't exist on type 'Reaction'",
+  );
+});
+
+test('given GitHub answers the answered check with a complete answer and errors, when forge-revise runs and the worker succeeds, then the revision fails as rejected rather than using the data', async () => {
+  const { code, thrown, revisions } = await revise({
+    answers: {
+      ...feedbackAnswers({ comments: [{ ...conversationComment(), ...thumbsUp() }] }),
+      errors: [{ message: 'Something went wrong' }, { message: 'Again' }],
+    },
+  });
+
+  assert.equal(code, 1);
+  assert.equal(
+    thrown,
+    'GitHub rejected the FeedbackAnswers query for rameezk/forge#143: Something went wrong; Again',
+  );
+  assert.deepEqual(revisions.map(({ state }) => state), ['error']);
+});
+
+test('given GitHub answers the answered check with a null pull request and no errors, when forge-revise runs and the worker succeeds, then the error says GitHub found no pull request', async () => {
+  const { code, thrown } = await revise({
+    answers: { data: { repository: { pullRequest: null } }, errors: [] },
+  });
+
+  assert.equal(code, 1);
+  assert.equal(thrown, 'GitHub found no pull request rameezk/forge#143');
 });
 
 test('given a revision handed two items, when after the run only one has been answered, then the revision fails as unanswered, its detail names the other item\'s URL', async () => {
