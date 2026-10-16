@@ -100,12 +100,12 @@ const renderPolled = (polledAt: string | null): Rendered =>
     ? html`<span class="${POLLED}">Never polled</span>`
     : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt)}</span>`;
 
-const PERSON_ICON = html`<svg data-person role="img" aria-label="A person acts here" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" class="shrink-0 text-muted"><title>A person acts here</title><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5z" /></svg>`;
+const PERSON_ICON = html`<svg data-person role="img" aria-label="A person acts here" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" class="shrink-0 text-accent-text"><title>A person acts here</title><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5z" /></svg>`;
 
 const renderColumnHeaders = (counts: Record<ColumnKey, number>): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(
     ({ key, title, subtitle, person }) => html`<div data-column-header="${key}" class="border-b border-line bg-raised px-3 py-2">
-      <span class="flex items-center gap-1.5"><span data-column-title class="text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-fg">${title}</span>${person ? PERSON_ICON : ''}<span data-column-total class="ml-auto text-xs tabular-nums text-muted">${counts[key]}</span></span>
+      <span class="flex items-center gap-1.5">${person ? PERSON_ICON : ''}<span data-column-title class="text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-fg">${title}</span><span data-column-total class="ml-auto text-xs tabular-nums text-muted">${counts[key]}</span></span>
       <span data-column-subtitle class="block text-xs text-muted">${subtitle}</span>
     </div>`,
   )}</div>`;

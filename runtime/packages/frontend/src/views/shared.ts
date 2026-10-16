@@ -103,7 +103,7 @@ export const layout = (
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${fitsViewport ? ' lg:flex lg:h-dvh lg:flex-col' : ''}">
         ${renderHeader(current, live, assets)}
-        <main class="mx-auto w-full max-w-[100rem] px-4 py-8${fitsViewport ? ' lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:py-4' : ''}">${body}</main>
+        <main class="mx-auto w-full max-w-[100rem] px-4 ${fitsViewport ? 'py-8 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:py-4' : 'py-8'}">${body}</main>
       </body>
     </html>`;
 

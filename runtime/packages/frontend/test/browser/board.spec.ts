@@ -23,3 +23,35 @@ test.describe('on a narrow screen', () => {
     expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
   });
 });
+
+test.describe('on a desktop screen', () => {
+  test.use({ viewport: { width: 1600, height: 800 } });
+
+  test('given the Board on a desktop screen, when it is opened, then the page title sits clear of the header', async ({ dashboard, page }) => {
+    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', tickets: [ticket(1)] });
+
+    await page.goto('/');
+
+    const header = await page.getByRole('banner').boundingBox();
+    const title = await page.locator('h1').boundingBox();
+    expect(title!.y - (header!.y + header!.height)).toBeGreaterThanOrEqual(24);
+  });
+
+  test('given the Board on a desktop screen, when it is opened, then the person icon leads the title in every column that has one', async ({ dashboard, page }) => {
+    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', tickets: [ticket(1)] });
+
+    await page.goto('/');
+
+    const offsets = await page.locator('[data-column-header]:has([data-person])').evaluateAll((headers) =>
+      headers.map((header) => {
+        const left = header.getBoundingClientRect().left;
+        const icon = header.querySelector('[data-person]')!.getBoundingClientRect();
+        const title = header.querySelector('[data-column-title]')!.getBoundingClientRect();
+        return { icon: icon.left - left, titleAfterIcon: title.left >= icon.right };
+      }),
+    );
+    expect(offsets).toHaveLength(3);
+    expect(offsets.every(({ titleAfterIcon }) => titleAfterIcon)).toBe(true);
+    expect(new Set(offsets.map(({ icon }) => Math.round(icon))).size).toBe(1);
+  });
+});
