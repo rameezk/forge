@@ -634,6 +634,29 @@ test('given a comment from before the previous revision started and one from aft
   assert.doesNotMatch(instruction, /Already handled earlier\./);
 });
 
+test('given a revision that ended in error over a comment, when forge-revise runs again with no new feedback, then the comment is handed over again and pi starts', async () => {
+  const { pi, code } = await revise({
+    seed: (store) => {
+      previousRevisionAt('2026-09-21T10:00:00.000Z')(store);
+      const failed = store.startRevision(
+        { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
+        [],
+        'failed-run',
+        '2026-09-21T10:10:00.000Z',
+        10,
+      );
+      assert.ok('started' in failed);
+      store.endRevision(failed.started, 'error', '2026-09-21T10:11:00.000Z');
+    },
+    feedback: feedbackWindow({
+      comments: [conversationComment({ body: 'Raised before the failure.', createdAt: '2026-09-21T10:05:00Z' })],
+    }),
+  });
+
+  assert.equal(code, 0);
+  assert.match(instructionOf(pi), /Raised before the failure\./);
+});
+
 test('given a window holding a collaborator\'s comment and one by an author with no association, when the revision runs, then only the collaborator\'s comment is in the instruction', async () => {
   const { pi } = await revise({
     feedback: feedbackWindow({

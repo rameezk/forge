@@ -481,6 +481,7 @@ type DispatchRow = {
   state: string;
   reason: string | null;
   detail: string | null;
+  failed_starts: number | null;
   started_at: string;
   alive_at: string;
   ended_at: string | null;
@@ -547,6 +548,14 @@ const ADD_DISPATCH_PULL_REQUEST = `
   ALTER TABLE dispatches ADD COLUMN pr_state TEXT;
   ALTER TABLE dispatches ADD COLUMN pr_settled_at TEXT;
   ALTER TABLE dispatches ADD COLUMN pr_rework INTEGER;
+`;
+
+const HAS_DISPATCH_FAILED_STARTS = `
+  SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'failed_starts'
+`;
+
+const ADD_DISPATCH_FAILED_STARTS = `
+  ALTER TABLE dispatches ADD COLUMN failed_starts INTEGER;
 `;
 
 const CREATE_DISPATCHES = `
@@ -658,6 +667,22 @@ const conflictResolutionFromRow = (row: ConflictResolutionRow): ConflictResoluti
   endedAt: row.ended_at,
 });
 
+const HAS_REVISION_FEEDBACK_CURSOR = `
+  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'feedback_cursor'
+`;
+
+const ADD_REVISION_FEEDBACK_CURSOR = `
+  ALTER TABLE revisions ADD COLUMN feedback_cursor TEXT;
+`;
+
+const HAS_WATCH_HELD = `
+  SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'held'
+`;
+
+const ADD_WATCH_HELD = `
+  ALTER TABLE feedback_watches ADD COLUMN held TEXT;
+`;
+
 const CREATE_FEEDBACK_WATCHES = `
   CREATE TABLE IF NOT EXISTS feedback_watches (
     repository TEXT NOT NULL,
@@ -701,6 +726,7 @@ const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
   state: row.state as DispatchState,
   reason: row.reason as DispatchFailure | null,
   detail: row.detail,
+  failedStarts: row.failed_starts,
   startedAt: row.started_at,
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
@@ -946,8 +972,11 @@ export class Store {
     db.exec(CREATE_REVISIONS);
     this.#addColumnsOnce(HAS_REVISION_FAILURE, ADD_REVISION_FAILURE);
     db.exec(CREATE_CONFLICT_RESOLUTIONS);
+    this.#addColumnsOnce(HAS_REVISION_FEEDBACK_CURSOR, ADD_REVISION_FEEDBACK_CURSOR);
     db.exec(CREATE_FEEDBACK_WATCHES);
+    this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
+    this.#addColumnsOnce(HAS_DISPATCH_FAILED_STARTS, ADD_DISPATCH_FAILED_STARTS);
   }
 
   #useWriteAheadLog(): void {
@@ -1731,6 +1760,31 @@ export class Store {
     return row.id;
   }
 
+  recordFailedStart(ticket: DispatchTicket, detail: string, at: string): void {
+    this.#transaction(() => {
+      const latest = this.#latestDispatch(ticket);
+      if (latest?.state === 'running') {
+        if (latest.alive_at >= liveSince(at)) return;
+        this.#interruptStale(latest, at);
+      }
+      if (latest?.state === 'failed' && latest.reason === 'not-started') {
+        this.#db
+          .prepare(
+            `UPDATE dispatches SET
+              detail = $detail, failed_starts = COALESCE(failed_starts, 0) + 1,
+              started_at = $at, alive_at = $at, ended_at = $at
+            WHERE id = $id`,
+          )
+          .run({ id: latest.id, detail: boundedDetail(detail), at });
+        return;
+      }
+      const id = this.#insertDispatch(ticket, null, 'failed', 'not-started', at);
+      this.#db
+        .prepare(`UPDATE dispatches SET detail = $detail, failed_starts = 1 WHERE id = $id`)
+        .run({ id, detail: boundedDetail(detail) });
+    });
+  }
+
   liveWorkloads(now: string): number {
     const { live } = this.#db
       .prepare(
@@ -1830,13 +1884,28 @@ export class Store {
     return opening?.id ?? null;
   }
 
-  feedbackCursor(pullRequest: RevisedPullRequest): string | null {
+  #feedbackCursor(pullRequest: RevisedPullRequest): string | null {
     const row = this.#db
       .prepare(`SELECT cursor FROM feedback_watches WHERE repository = $repository AND number = $number`)
       .get({ repository: pullRequest.repository, number: pullRequest.number }) as
       | { cursor: string | null }
       | undefined;
     return row?.cursor ?? null;
+  }
+
+  #giveFeedbackBack(id: number): void {
+    this.#db
+      .prepare(
+        `UPDATE feedback_watches SET
+          cursor = revisions.feedback_cursor,
+          newest = NULL,
+          held = revisions.started_at
+        FROM revisions
+        WHERE revisions.id = $id
+          AND feedback_watches.repository = revisions.repository
+          AND feedback_watches.number = revisions.number`,
+      )
+      .run({ id });
   }
 
   startRevision(
@@ -1869,13 +1938,15 @@ export class Store {
             `UPDATE revisions SET state = 'interrupted', ended_at = $ended_at WHERE id = $id`,
           )
           .run({ id: latest.id, ended_at: startedAt });
+        this.#giveFeedbackBack(latest.id);
       }
+      const after = this.#feedbackCursor(pullRequest);
       const row = this.#db
         .prepare(
           `INSERT INTO revisions (
-            repository, number, url, run_id, dispatch_id, state, started_at, alive_at
+            repository, number, url, run_id, dispatch_id, state, started_at, alive_at, feedback_cursor
           ) VALUES (
-            $repository, $number, $url, $run_id, $dispatch_id, 'running', $now, $now
+            $repository, $number, $url, $run_id, $dispatch_id, 'running', $now, $now, $after
           )
           RETURNING id`,
         )
@@ -1886,6 +1957,7 @@ export class Store {
           run_id: runId,
           dispatch_id: this.#openingDispatchId(pullRequest),
           now: startedAt,
+          after,
         }) as { id: number };
       this.#db
         .prepare(
@@ -1893,6 +1965,7 @@ export class Store {
           VALUES ($repository, $number, $url, $closes, $now)
           ON CONFLICT (repository, number) DO UPDATE SET
             cursor = $now,
+            held = NULL,
             newest = CASE
               WHEN newest IS NOT NULL AND unixepoch(newest) > unixepoch($now) THEN newest
             END`,
@@ -1904,7 +1977,7 @@ export class Store {
           closes: JSON.stringify(openedBy),
           now: startedAt,
         });
-      start = { started: row.id };
+      start = { started: row.id, after };
     });
     return start;
   }
@@ -2019,7 +2092,10 @@ export class Store {
           closes = excluded.closes,
           newest = CASE
             WHEN excluded.newest IS NOT NULL
-              AND (cursor IS NULL OR unixepoch(excluded.newest) > unixepoch(cursor))
+              AND (
+                coalesce(held, cursor) IS NULL
+                OR unixepoch(excluded.newest) > unixepoch(coalesce(held, cursor))
+              )
             THEN excluded.newest
           END`,
       );
@@ -2091,19 +2167,25 @@ export class Store {
     endedAt: string,
     failure?: RevisionFailureRecord,
   ): void {
-    this.#db
-      .prepare(
-        `UPDATE revisions SET
-          state = $state, reason = $reason, detail = $detail, ended_at = $ended_at
-        WHERE id = $id`,
-      )
-      .run({
-        id,
-        state,
-        reason: failure?.reason ?? null,
-        detail: boundedDetail(failure?.detail ?? null),
-        ended_at: endedAt,
-      });
+    this.#transaction(() => {
+      const before = this.#db.prepare(`SELECT state FROM revisions WHERE id = $id`).get({ id }) as
+        | { state: string }
+        | undefined;
+      this.#db
+        .prepare(
+          `UPDATE revisions SET
+            state = $state, reason = $reason, detail = $detail, ended_at = $ended_at
+          WHERE id = $id`,
+        )
+        .run({
+          id,
+          state,
+          reason: failure?.reason ?? null,
+          detail: boundedDetail(failure?.detail ?? null),
+          ended_at: endedAt,
+        });
+      if (state !== 'ok' && before?.state === 'running') this.#giveFeedbackBack(id);
+    });
   }
 
   #selectRevisions(where: string, params: Record<string, string | number>, now: string): RevisionRecord[] {
@@ -2235,7 +2317,7 @@ export class Store {
           CASE WHEN EXISTS (SELECT 1 FROM runs WHERE id = d.run_id) THEN d.run_id END AS run_id,
           CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'failed' ELSE d.state END AS state,
           CASE WHEN d.state = 'running' AND d.alive_at < $live_since THEN 'interrupted' ELSE d.reason END AS reason,
-          d.detail, d.started_at, d.alive_at, d.ended_at,
+          d.detail, d.failed_starts, d.started_at, d.alive_at, d.ended_at,
           d.pr_number, d.pr_url, d.pr_state, d.pr_settled_at, d.pr_rework
         FROM dispatches d
         WHERE d.id = (

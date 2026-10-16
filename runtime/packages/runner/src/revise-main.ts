@@ -129,7 +129,6 @@ export const main = async (
     const revised = { repository: name, number: pullRequest.number, url: pullRequest.url };
     const runId = randomUUID();
     const startedAt = now();
-    const after = store.feedbackCursor(revised);
     const start = store.startRevision(
       revised,
       pullRequest.closes,
@@ -142,6 +141,7 @@ export const main = async (
       return 1;
     }
     const revisionId = start.started;
+    const { after } = start;
     const stopHeartbeat = startHeartbeat(
       () => store.touchRevision(revisionId, now()),
       (error) =>

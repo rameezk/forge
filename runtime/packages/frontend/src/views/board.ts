@@ -1,6 +1,7 @@
 import { html } from 'hono/html';
 import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type SpecRef } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
+import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, totals, type BoardCard, type BoardLane, type ColumnKey } from '../board.ts';
 import { type Rendered, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
@@ -20,6 +21,8 @@ const QUEUED_TONE = 'text-muted ring-1 ring-line ring-inset';
 
 const ELAPSED = 'ml-1.5 text-xs tabular-nums text-muted';
 
+const FAILURE_LINE = 'm-0 mt-1 line-clamp-4 text-xs break-words whitespace-pre-line text-muted';
+
 const CLOSED_PULL_REQUEST = 'Pull request closed';
 
 const FAILURE_LABEL: Record<DispatchFailure, string> = {
@@ -29,13 +32,22 @@ const FAILURE_LABEL: Record<DispatchFailure, string> = {
   'devshell-failed': 'devShell failed',
   interrupted: 'Interrupted',
   exceeded: 'Exceeded',
+  'not-started': 'Did not start',
 };
 
-const failureText = ({ reason, detail }: DispatchRecord): string | null => {
+const repeatedStart = ({ reason, failedStarts }: DispatchRecord): number | null =>
+  reason === 'not-started' && failedStarts !== null && failedStarts > 1 ? failedStarts : null;
+
+const detailSuffix = ({ detail }: DispatchRecord): string =>
+  detail === null || detail.trim() === '' ? '' : `: ${detail}`;
+
+const failureText = (dispatch: DispatchRecord): string | null => {
+  const { reason, detail } = dispatch;
   if (reason === null) return null;
-  const label = FAILURE_LABEL[reason];
+  const times = repeatedStart(dispatch);
+  const label = times === null ? FAILURE_LABEL[reason] : `${FAILURE_LABEL[reason]} (${times} times)`;
   if (reason === 'exceeded') return detail === null ? label : `${label} ${detail}`;
-  return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
+  return `${label}${detailSuffix(dispatch)}`;
 };
 
 const specTooltip = (parent: SpecRef | null): string | null => (parent === null ? null : `#${parent.number} ${parent.title}`);
@@ -58,11 +70,18 @@ const renderInReview = ({ dispatch, revising }: BoardCard): Rendered => {
   return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${dispatch.endedAt === null ? '' : renderElapsedSince(dispatch.endedAt)}${revising ? html` <span data-revising class="${PILL} ${REVISING_TONE}">revising</span>` : ''}</p>`;
 };
 
+const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
+  const times = repeatedStart(dispatch);
+  const since = dispatch.endedAt ?? dispatch.startedAt;
+  return html`<p class="${FAILURE_LINE}" title="${text}">Did not start (${times} times, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${detailSuffix(dispatch)}</p>`;
+};
+
 const renderFailure = ({ dispatch }: BoardCard): Rendered => {
   const text = dispatch?.state === 'failed' ? failureText(dispatch) : CLOSED_PULL_REQUEST;
-  return text === null
-    ? ''
-    : html`<p class="m-0 mt-1 line-clamp-3 text-xs break-words whitespace-pre-line text-muted" title="${text}">${text}</p>`;
+  if (text === null) return '';
+  return dispatch !== undefined && repeatedStart(dispatch) !== null
+    ? renderFailedStart(dispatch, text)
+    : html`<p class="${FAILURE_LINE}" title="${text}">${text}</p>`;
 };
 
 const renderBlocked = ({ ticket }: BoardCard): Rendered =>
