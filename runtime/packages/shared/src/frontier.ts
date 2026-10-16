@@ -6,6 +6,8 @@ export const FRONTIER_PAGE_SIZE = 100;
 
 const READY_FOR_AGENT = 'ready-for-agent';
 
+const READY_FOR_REFINEMENT = 'ready-for-refinement';
+
 export const FRONTIER_QUERY = `
   query Frontier($owner: String!, $name: String!, $first: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
@@ -60,7 +62,9 @@ export const LABELLED_QUERY = `
         }
         nodes {
           number
+          title
           url
+          createdAt
         }
       }
     }
@@ -191,14 +195,24 @@ export interface Ticket {
   blocked: boolean;
 }
 
-export const oldestFirst = (a: Ticket, b: Ticket): number =>
-  a.createdAt.localeCompare(b.createdAt) || a.number - b.number;
+export interface RefinementRequest {
+  number: number;
+  title: string;
+  url: string;
+  createdAt: string;
+}
+
+export const oldestFirst = (
+  a: Pick<Ticket, 'createdAt' | 'number'>,
+  b: Pick<Ticket, 'createdAt' | 'number'>,
+): number => a.createdAt.localeCompare(b.createdAt) || a.number - b.number;
 
 export interface PolledFrontier {
   repository: string;
   github: string;
   polledAt: string;
   tickets: Ticket[];
+  requests: RefinementRequest[];
 }
 
 export interface PollFailure {
@@ -393,10 +407,7 @@ export const queryFrontier = async (
     .map(toTicket)
     .filter((ticket) => !ticket.blocked || ticket.forgeReady);
 
-export interface LabelledIssue {
-  number: number;
-  url: string;
-}
+export type LabelledIssue = RefinementRequest;
 
 export const requestLabelledPage = (
   fetch: Fetch,
@@ -420,7 +431,19 @@ export const queryLabelled = async (
         after,
       }),
     )
-  ).map((issue) => ({ number: issue.number, url: ticketUrl(issue.url) }));
+  ).map((issue) => ({
+    number: issue.number,
+    title: issue.title,
+    url: ticketUrl(issue.url),
+    createdAt: issue.createdAt,
+  }));
+
+export const queryRequests = (
+  fetch: Fetch,
+  token: string,
+  github: string,
+): Promise<RefinementRequest[]> =>
+  queryLabelled(fetch, token, github, READY_FOR_REFINEMENT);
 
 export interface TicketState {
   number: number;

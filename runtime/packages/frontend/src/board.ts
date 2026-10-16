@@ -1,4 +1,4 @@
-import { oldestFirst, ticketKey, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type Ticket } from '@forge/shared';
+import { oldestFirst, ticketKey, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type Ticket } from '@forge/shared';
 
 export const COLUMNS = [
   { key: 'to-refine', title: 'To refine', subtitle: 'Shape into a spec and tickets', person: true },
@@ -14,16 +14,18 @@ export const COLUMNS = [
 
 export type ColumnKey = (typeof COLUMNS)[number]['key'];
 
-export interface BoardCard {
-  column: ColumnKey;
-  ticket: Ticket;
+interface CardState {
   dispatch: DispatchRecord | undefined;
   revising: boolean;
 }
 
+export type BoardCard =
+  | (CardState & { column: 'to-refine'; ticket: RefinementRequest })
+  | (CardState & { column: Exclude<ColumnKey, 'to-refine'>; ticket: Ticket });
+
 export type BoardLane = RepositoryFrontier & { columns: Record<ColumnKey, BoardCard[]> };
 
-const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): ColumnKey => {
+const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): Exclude<ColumnKey, 'to-refine'> => {
   if (ticket.blocked) return 'blocked';
   if (dispatch?.state === 'running') return 'running';
   if (dispatch?.state === 'failed') return 'failed';
@@ -43,6 +45,9 @@ export const buildLanes = (
   const revising = new Set(revisions.filter(({ state }) => state === 'running').map(({ repository, number }) => ticketKey(repository, number)));
   return frontier.map((repository) => {
     const columns = Object.fromEntries(COLUMNS.map(({ key }) => [key, [] as BoardCard[]])) as Record<ColumnKey, BoardCard[]>;
+    for (const request of [...repository.requests].sort(oldestFirst)) {
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revising: false });
+    }
     for (const ticket of [...repository.tickets].sort(oldestFirst)) {
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
       const column = columnOf(ticket, dispatch);

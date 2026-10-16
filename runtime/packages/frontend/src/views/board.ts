@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type SpecRef } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, totals, type BoardCard, type BoardLane, type ColumnKey } from '../board.ts';
@@ -84,7 +84,7 @@ const renderFailure = ({ dispatch }: BoardCard): Rendered => {
     : html`<p class="${FAILURE_LINE}" title="${text}">${text}</p>`;
 };
 
-const renderBlocked = ({ ticket }: BoardCard): Rendered =>
+const renderBlocked = ({ ticket }: { ticket: Ticket }): Rendered =>
   html`<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}blocked</p>`;
 
 const renderDetails = (card: BoardCard, timeZone: string): Rendered => {
@@ -104,7 +104,7 @@ const renderDetails = (card: BoardCard, timeZone: string): Rendered => {
 
 const renderCard = (repository: string, card: BoardCard, attempted: ReadonlySet<string>, timeZone: string): Rendered => {
   const { ticket } = card;
-  const tooltip = specTooltip(ticket.parent);
+  const tooltip = card.column === 'to-refine' ? null : specTooltip(card.ticket.parent);
   return html`<article data-ticket="${ticket.number}"${tooltip === null ? '' : html` title="${tooltip}"`} class="rounded-md border border-line bg-surface p-2 text-sm">
     <p class="m-0 tabular-nums">${isGithubUrl(ticket.url) ? externalLink(ticket.url, `#${ticket.number}`) : html`#${ticket.number}`}${attempted.has(ticketKey(repository, ticket.number))
       ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`

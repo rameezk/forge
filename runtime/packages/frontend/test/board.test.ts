@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { PolledFrontier, PollFailure, RunRecord, Ticket } from '@forge/shared';
+import type { PolledFrontier, PollFailure, RefinementRequest, RunRecord, Ticket } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
@@ -77,7 +77,7 @@ const columnHeaders = (body: string): string[] =>
 
 test('given a stored frontier, when the Board is requested, then it shows the nine columns in order, each with its title, total and subtitle, and a person icon on To refine, Ready for human and In review only', async () => {
   const app = appWith([
-    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets: [ticket()] },
+    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', requests: [], tickets: [ticket()] },
   ]);
 
   const headers = columnHeaders(await (await app.request('/')).text());
@@ -122,7 +122,7 @@ const cardsByColumn = (lane: string): Record<string, string[]> =>
 const populated = (columns: Record<string, string[]>): Record<string, string[]> =>
   Object.fromEntries(Object.entries(columns).filter(([, numbers]) => numbers.length > 0));
 
-const frontierOf = (tickets: Ticket[]): PolledFrontier => ({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets });
+const frontierOf = (tickets: Ticket[], requests: RefinementRequest[] = []): PolledFrontier => ({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets, requests });
 
 test('given a queued ticket, an unblocked ready-for-agent ticket not handed off, an unblocked forge:ready ticket waiting for a slot, a running dispatch, a done dispatch with an open pull request and a failed dispatch, when the Board is requested, then each lands in Blocked, Ready for agent, Waiting for slot, Running, In review and Failed respectively', async () => {
   const app = appWith(
@@ -264,7 +264,7 @@ test('given tickets with attempts, a parent spec, and dispatches in each state, 
 test('given two repositories, one with a poll error, when the Board is requested, then each has its own lane with its GitHub link and last-polled time, the failing one shows its error in its lane, and each column total counts both', async () => {
   const app = appWith([
     { ...frontierOf([ticket({ number: 1 }), ticket({ number: 2, forgeReady: true })]), lastError: { message: 'GitHub answered 401 for rameezk/forge', failedAt: '2026-09-29T08:20:00.000Z' } },
-    { repository: 'dotfiles', github: 'rameezk/dotfiles', polledAt: '2026-09-29T08:10:00.000Z', tickets: [ticket({ number: 3, url: 'https://github.com/rameezk/dotfiles/issues/3', parent: null })] },
+    { repository: 'dotfiles', github: 'rameezk/dotfiles', polledAt: '2026-09-29T08:10:00.000Z', requests: [], tickets: [ticket({ number: 3, url: 'https://github.com/rameezk/dotfiles/issues/3', parent: null })] },
   ]);
 
   const body = await (await app.request('/')).text();
@@ -353,7 +353,7 @@ test('given no repositories and no configured limit, when the Board is requested
 
 test('given a repository with cards, when the Board is requested, then its lane header is a focusable expanded button carrying the non-zero column counts', async () => {
   const app = appWith([
-    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets: [ticket({ number: 1 }), ticket({ number: 2 }), ticket({ number: 3, blocked: true })] },
+    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', requests: [], tickets: [ticket({ number: 1 }), ticket({ number: 2 }), ticket({ number: 3, blocked: true })] },
   ]);
 
   const lane = laneOf(await (await app.request('/')).text(), 'forge');
@@ -371,11 +371,43 @@ test('given a repository with cards, when the Board is requested, then its lane 
 });
 
 test('given a repository with nothing on the board, when the Board is requested, then its lane is marked empty and says it has nothing in flight', async () => {
-  const app = appWith([{ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets: [] }]);
+  const app = appWith([{ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', requests: [], tickets: [] }]);
 
   const lane = laneOf(await (await app.request('/')).text(), 'forge');
 
   assert.match(openingTag(lane), /data-empty/);
   assert.match(lane, /data-lane-empty[^>]*>\s*Nothing in flight\s*</);
   assert.doesNotMatch(lane, /data-lane-count/);
+});
+
+const request = (overrides: Partial<RefinementRequest> = {}): RefinementRequest => ({
+  number: 146,
+  title: 'Give each forge unit only the state directory access it needs',
+  url: 'https://github.com/rameezk/forge/issues/146',
+  createdAt: '2026-10-01T06:17:03Z',
+  ...overrides,
+});
+
+test('given two stored requests stored newest first and a ticket, when the Board is requested, then both requests are in To refine oldest first with their linked numbers, titles and created dates, the column total counts them, and no other column holds them', async () => {
+  const app = appWith([
+    frontierOf(
+      [ticket({ number: 56 })],
+      [
+        request({ number: 164, title: 'Keep a sandboxed workload from reading forge state', url: 'https://github.com/rameezk/forge/issues/164', createdAt: '2026-10-03T12:35:20Z' }),
+        request(),
+      ],
+    ),
+  ]);
+
+  const body = await (await app.request('/')).text();
+
+  const columns = cardsByColumn(laneOf(body, 'forge'));
+  assert.deepEqual(populated(columns), { 'to-refine': ['146', '164'], 'ready-for-agent': ['56'] });
+  const header = columnHeaders(body).find((candidate) => candidate.includes('data-column-header="to-refine"')) ?? '';
+  assert.equal(/data-column-total[^>]*>([^<]*)</.exec(header)?.[1], '2');
+  const [first, second] = laneOf(body, 'forge').match(/<article[^>]*\sdata-ticket="(?:146|164)"[\s\S]*?<\/article>/g) ?? [];
+  assert.match(first ?? '', /<a href="https:\/\/github.com\/rameezk\/forge\/issues\/146"[^>]*>#146<\/a>/);
+  assert.match(textOf(first ?? ''), /Give each forge unit only the state directory access it needs/);
+  assert.match(first ?? '', /<time datetime="2026-10-01T06:17:03Z"/);
+  assert.match(second ?? '', /<time datetime="2026-10-03T12:35:20Z"/);
 });

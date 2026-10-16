@@ -8,6 +8,7 @@ import {
   oldestFirst,
   queryFrontier,
   queryPullRequest,
+  queryRequests,
   queryWatchedPullRequests,
   reworkOf,
   settleRunningTickets,
@@ -16,12 +17,15 @@ import {
   type Fetch,
   type InstallationTokens,
   type PullRequestSnapshot,
+  type RefinementRequest,
   type Ticket,
   type WatchedPullRequest,
 } from '@forge/shared';
 import type { FrontierConfig } from './config.ts';
 
 type Poll = (github: string) => Promise<Ticket[]>;
+
+type RequestPoll = (github: string) => Promise<RefinementRequest[]>;
 
 type PullRequestPoll = (github: string, number: number) => Promise<PullRequestSnapshot>;
 
@@ -39,6 +43,11 @@ const polling =
   (tokens: InstallationTokens, fetch: Fetch): Poll =>
   async (github) =>
     queryFrontier(fetch, await tokens(github, 'read'), github);
+
+const requestPolling =
+  (tokens: InstallationTokens, fetch: Fetch): RequestPoll =>
+  async (github) =>
+    queryRequests(fetch, await tokens(github, 'read'), github);
 
 const pullRequestPolling =
   (tokens: InstallationTokens, fetch: Fetch): PullRequestPoll =>
@@ -122,6 +131,7 @@ const sync = async (
   config: FrontierConfig,
   env: NodeJS.ProcessEnv,
   poll: Poll,
+  pollRequests: RequestPoll,
   pullRequest: PullRequestPoll,
   forgeEmail: (github: string) => Promise<string>,
   watched: WatchedPoll,
@@ -139,11 +149,13 @@ const sync = async (
     for (const [name, { github, on }] of Object.entries(config.repositories)) {
       try {
         const tickets = await poll(github);
+        const requests = await pollRequests(github);
         store.replaceFrontier({
           repository: name,
           github,
           polledAt: new Date().toISOString(),
           tickets,
+          requests,
         });
       } catch (error) {
         const message = errorMessage(error);
@@ -257,6 +269,7 @@ export const main = async (
         config,
         env,
         poll,
+        requestPolling(tokens, fetch),
         pullRequestPolling(tokens, fetch),
         async (github) => (await identity(github)).email,
         watchedPolling(tokens, fetch, identity),
