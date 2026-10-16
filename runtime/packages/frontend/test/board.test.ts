@@ -23,7 +23,7 @@ type Seed =
   | (PolledFrontier & { lastError?: PollFailure })
   | { repository: string; github: string; polledAt: null; lastError: PollFailure };
 
-const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}) => {
+const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number) => {
   const store = Store.open(':memory:');
   dispatch(store);
   for (const seed of frontier) {
@@ -39,6 +39,7 @@ const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}) 
     logo: '',
     idiomorph: '',
     client: '',
+    ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
   });
 };
 
@@ -312,4 +313,40 @@ test('given a ticket and a parent spec whose URLs are not GitHub https links, wh
 
   assert.doesNotMatch(body, /javascript:/);
   assert.match(cardOf(body, 1), /<p[^>]*>#1<\/p>/);
+});
+
+const runningLimit = (body: string): string => {
+  const header = body.match(/<span[^>]*\sdata-running-limit[^>]*>[^<]*<\/span>/)?.[0];
+  assert.ok(header, 'the board header shows the running limit');
+  return header;
+};
+
+test('given a limit of 2 with one dispatch and one revision running, when the Board is requested, then the header reads Running 2 / 2, styled as full', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
+    const now = new Date().toISOString();
+    dispatched(store, 4, now);
+    store.endDispatch(dispatched(store, 5, now), { state: 'done', pullRequest: pullRequest(105) }, now);
+    const start = store.startRevision({ repository: 'forge', ...pullRequest(105) }, [5], 'revision-105', now, Number.POSITIVE_INFINITY);
+    assert.ok('started' in start);
+  }, 2);
+
+  const header = runningLimit(await (await app.request('/')).text());
+
+  assert.equal(textOf(header).replace(/\s+/g, ' ').trim(), 'Running 2 / 2');
+  assert.match(header, /data-full/);
+});
+
+test('given a limit of 2 with nothing running, when the Board is requested, then the header reads Running 0 / 2, not styled as full', async () => {
+  const app = appWith([frontierOf([ticket()])], () => {}, 2);
+
+  const header = runningLimit(await (await app.request('/')).text());
+
+  assert.equal(textOf(header).replace(/\s+/g, ' ').trim(), 'Running 0 / 2');
+  assert.doesNotMatch(header, /data-full/);
+});
+
+test('given no repositories and no configured limit, when the Board is requested, then the header reads Running 0 / 1', async () => {
+  const header = runningLimit(await (await appWith([]).request('/')).text());
+
+  assert.equal(textOf(header).replace(/\s+/g, ' ').trim(), 'Running 0 / 1');
 });

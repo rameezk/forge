@@ -45,6 +45,7 @@ export interface AppOptions {
   idiomorph: string;
   client: string;
   checkIntervalMs?: number;
+  maxConcurrent?: number;
 }
 
 export const createApp = ({
@@ -55,6 +56,7 @@ export const createApp = ({
   idiomorph,
   client,
   checkIntervalMs = 1000,
+  maxConcurrent = 1,
 }: AppOptions): Hono => {
   const app = new Hono();
   const assets: AssetHrefs = {
@@ -78,7 +80,7 @@ export const createApp = ({
 
   app.get('/', (c) => {
     const now = new Date().toISOString();
-    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), assets));
+    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, assets));
   });
 
   app.get('/work', (c) => c.redirect('/'));
