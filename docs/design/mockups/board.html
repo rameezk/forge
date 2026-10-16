@@ -71,7 +71,14 @@ h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
 .head-sub[title] { text-decoration: underline dotted; text-decoration-color: var(--line); text-underline-offset: 3px; cursor: help; }
 .lane { border-top: 1px solid var(--line); }
 .lane:first-of-type { border-top: 0; }
-.lane-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding: 8px 12px; }
+.lane-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding: 8px 12px; cursor: pointer; }
+.lane-head:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.chevron { align-self: center; display: inline-block; width: 12px; flex-shrink: 0; text-align: center; font-size: 0.65rem; line-height: 1; color: var(--muted); transform: rotate(90deg); transition: transform 0.15s; }
+.lane.collapsed .chevron { transform: rotate(0deg); }
+.lane-counts { display: none; flex-wrap: wrap; gap: 0 12px; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lane.collapsed .lane-counts { display: flex; }
+.lane.collapsed .lane-body { display: none; }
+@media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
 .lane-head h2 { margin: 0; font-size: 1.1rem; font-weight: 700; }
 .polled { margin-left: auto; font-size: 13px; color: var(--muted); }
 .group-head { display: flex; align-items: baseline; gap: 10px; padding: 6px 12px; border-top: 1px dashed var(--line); background: var(--bg); font-size: 13px; }
@@ -165,6 +172,7 @@ const LANES = [
     { n: 439, t: 'Workloads page filters by workload', c: 'failed', fail: 'Run stopped at the 2h limit', attempts: true },
     { n: 430, t: 'Dashboard times use the display time zone', c: 'done', spec: 455, date: '2026-10-15' },
   ] },
+  { repo: 'rebind', github: 'rameezk/rebind.koplugin', polled: '2026-10-16 14:42:11', tickets: [] },
   { repo: 'dotfiles', github: 'rameezk/dotfiles', polled: '2026-10-16 14:42:07', tickets: [
     { n: 12, t: 'Pin nixpkgs for the work laptop', c: 'ready-for-agent', date: '2026-10-13' },
     { n: 14, t: 'Move fish abbreviations into home-manager', c: 'ready-for-agent', date: '2026-10-16' },
@@ -173,6 +181,7 @@ const LANES = [
 ];
 
 let grouped = false;
+const collapsed = new Set(LANES.filter((l) => l.tickets.length === 0).map((l) => l.repo));
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
 const issue = (repo, n) => `https://github.com/rameezk/${repo}/issues/${n}`;
@@ -228,9 +237,13 @@ const render = () => {
     <div class="head-top"><span class="head-title">${col.title}</span><span class="head-end">${col.person ? PERSON : ''}<span class="head-total">${totals[col.key]}</span></span></div>
     <span class="head-sub"${col.hint ? ` title="${col.hint}"` : ''}>${col.sub}</span>
   </div>`).join('')}</div>`;
-  const lanes = LANES.map((lane) => `<section class="lane">
-    <header class="lane-head"><h2>${lane.repo}</h2><a href="https://github.com/${lane.github}">${lane.github}</a><span class="polled">Last polled ${lane.polled}</span></header>
-    ${grouped ? groupsOf(lane.tickets).map((g) => groupHead(lane, g) + row(lane, g.tickets)).join('') : row(lane, lane.tickets)}
+  const counts = (lane) => {
+    const populated = COLUMNS.filter(({ key }) => lane.tickets.some((tk) => tk.c === key));
+    return populated.length === 0 ? '<span>Nothing in flight</span>' : populated.map(({ key, title }) => `<span>${title} ${lane.tickets.filter((tk) => tk.c === key).length}</span>`).join('');
+  };
+  const lanes = LANES.map((lane) => `<section class="lane${collapsed.has(lane.repo) ? ' collapsed' : ''}" data-repo="${lane.repo}">
+    <header class="lane-head" role="button" tabindex="0" aria-expanded="${!collapsed.has(lane.repo)}"><span class="chevron" aria-hidden="true">&#9654;</span><h2>${lane.repo}</h2><a href="https://github.com/${lane.github}">${lane.github}</a><span class="lane-counts">${counts(lane)}</span><span class="polled">Last polled ${lane.polled}</span></header>
+    <div class="lane-body">${grouped ? groupsOf(lane.tickets).map((g) => groupHead(lane, g) + row(lane, g.tickets)).join('') : row(lane, lane.tickets)}</div>
   </section>`).join('');
   document.getElementById('inner').innerHTML = heads + lanes;
 };
@@ -239,6 +252,21 @@ const $ = (id) => document.getElementById(id);
 const press = (on, off) => { on.setAttribute('aria-pressed', 'true'); off.setAttribute('aria-pressed', 'false'); };
 $('grp-none').addEventListener('click', () => { grouped = false; press($('grp-none'), $('grp-spec')); render(); });
 $('grp-spec').addEventListener('click', () => { grouped = true; press($('grp-spec'), $('grp-none')); render(); });
+
+const toggleLane = (head) => {
+  const lane = head.closest('.lane');
+  const repo = lane.dataset.repo;
+  if (collapsed.has(repo)) collapsed.delete(repo); else collapsed.add(repo);
+  lane.classList.toggle('collapsed', collapsed.has(repo));
+  head.setAttribute('aria-expanded', String(!collapsed.has(repo)));
+};
+$('inner').addEventListener('click', (event) => {
+  const head = event.target.closest('.lane-head');
+  if (head && !event.target.closest('a')) toggleLane(head);
+});
+$('inner').addEventListener('keydown', (event) => {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('.lane-head')) { event.preventDefault(); toggleLane(event.target); }
+});
 
 render();
 setInterval(() => {
