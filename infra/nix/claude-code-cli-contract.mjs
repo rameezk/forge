@@ -40,6 +40,21 @@ const MARKER = 'contract check marker for the repository instructions';
 const USAGE = { input: 100, output: 10, cacheRead: 0, cacheWrite: 0 };
 const PER_PROCESS_INIT_FIELDS = ['messaging_socket_path', 'session_id', 'uuid'];
 
+const ATTRIBUTION_PATTERNS = [/Generated with \[?Claude Code/i, /Co-Authored-By/i];
+
+const attributionMentions = (request) => {
+  const wire = JSON.stringify(request ?? {});
+  return ATTRIBUTION_PATTERNS.filter((pattern) => pattern.test(wire)).map(String);
+};
+
+const expectNoAttribution = (label, request) => {
+  const mentions = attributionMentions(request);
+  expect(
+    mentions.length === 0,
+    `${label}: the request still carries the attribution instruction (${mentions.join(', ')})`,
+  );
+};
+
 const requests = [];
 const server = await serveMessages((_call, res) => {
   anthropicSse(
@@ -179,6 +194,7 @@ const check = (run, requestsBefore, reasoningEffort) => {
       wire.includes(NARRATION_INSTRUCTION.slice(0, 40)),
     `${run.label}: forge's instructions were not appended to the system prompt`,
   );
+  expectNoAttribution(run.label, mainRequest);
   if (reasoningEffort !== undefined) {
     const effort = mainRequest?.output_config?.effort;
     expect(
@@ -261,6 +277,7 @@ for (const request of children) {
       wire.includes(NARRATION_INSTRUCTION.slice(0, 40)),
     "two subagents: forge's instructions were not appended to a subagent's system prompt",
   );
+  expectNoAttribution('two subagents', request);
   expect(
     !toolNames(request).includes('Agent'),
     'two subagents: a subagent was allowed to spawn a subagent of its own',
