@@ -38,3 +38,34 @@ test('given an answer with data and no errors or an empty errors list, when forg
     data,
   );
 });
+
+const rejecting: typeof globalThis.fetch = async () =>
+  answered({ data: null, errors: [{ message: 'nope' }] });
+
+const reads: [string, (github: string) => Promise<unknown>][] = [
+  ['Frontier', (github) => frontier.queryFrontier(rejecting, 't', github)],
+  ['LabelledIssues', (github) => frontier.queryLabelled(rejecting, 't', github, 'ready')],
+  ['Ticket', (github) => frontier.queryTicket(rejecting, 't', github, 7)],
+  ['ClosingPullRequests', (github) => frontier.findOpenClosingPullRequest(rejecting, 't', github, 7)],
+  ['PullRequest', (github) => frontier.queryPullRequest(rejecting, 't', github, 7)],
+  ['PullRequestHead', (github) => frontier.queryPullRequestHead(rejecting, 't', github, 7)],
+  ['WatchedPullRequests', (github) => feedback.queryWatchedPullRequests(rejecting, 't', github, 'forge')],
+  [
+    'FeedbackWindow',
+    (github) => feedback.queryFeedbackWindow(rejecting, 't', github, 7, null, '2026-01-01T00:00:00Z'),
+  ],
+  ['FeedbackAnswers', (github) => feedback.queryUnansweredFeedback(rejecting, 't', github, 7, 'forge', [])],
+];
+
+test('given GitHub rejects a query, when forge makes each of its reads, then every read names its own query', async () => {
+  assert.deepEqual(
+    reads.map(([name]) => name).sort(),
+    queries.map(([, query]) => operationName(query)).sort(),
+  );
+  for (const [name, read] of reads) {
+    await assert.rejects(read('rameezk/forge'), (error: Error) => {
+      assert.match(error.message, new RegExp(`^GitHub rejected the ${name} query for rameezk/forge(#7)?: nope$`));
+      return true;
+    });
+  }
+});
