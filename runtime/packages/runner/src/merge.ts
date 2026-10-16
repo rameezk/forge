@@ -1,17 +1,17 @@
 import { execFile } from 'node:child_process';
 
-interface GitResult {
-  code: number;
-  stdout: string;
-}
-
-const git = (dir: string, env: NodeJS.ProcessEnv, args: string[]): Promise<GitResult> =>
+const git = (
+  dir: string,
+  env: NodeJS.ProcessEnv,
+  args: string[],
+  answersWithOne = false,
+): Promise<{ stdout: string; one: boolean }> =>
   new Promise((resolve, reject) => {
     execFile('git', args, { cwd: dir, env }, (error, stdout, stderr) => {
       if (error === null) {
-        resolve({ code: 0, stdout });
-      } else if (typeof error.code === 'number' && error.code === 1) {
-        resolve({ code: 1, stdout });
+        resolve({ stdout, one: false });
+      } else if (answersWithOne && error.code === 1) {
+        resolve({ stdout, one: true });
       } else {
         reject(new Error(`git ${args[0]} failed: ${stderr.trim() || error.message}`));
       }
@@ -32,11 +32,15 @@ export const conflictedFiles = async (
   sha: string,
 ): Promise<string[]> => {
   await fetchCommit(dir, env, sha);
-  const merged = await git(dir, env, ['merge', '--no-commit', '--no-ff', '--quiet', sha]);
-  if (merged.code === 0) return [];
+  const merged = await git(dir, env, ['merge', '--no-commit', '--no-ff', '--quiet', sha], true);
+  if (!merged.one) return [];
   const unmerged = await git(dir, env, ['diff', '--name-only', '--diff-filter=U']);
+  const files = unmerged.stdout.split('\n').filter((file) => file !== '');
+  if (files.length === 0) {
+    throw new Error(`git merge of ${sha} failed without conflicting files`);
+  }
   await git(dir, env, ['merge', '--abort']);
-  return unmerged.stdout.split('\n').filter((file) => file !== '');
+  return files;
 };
 
 export const containsCommit = async (
@@ -47,5 +51,6 @@ export const containsCommit = async (
 ): Promise<boolean> => {
   await fetchCommit(dir, env, head);
   await fetchCommit(dir, env, sha);
-  return (await git(dir, env, ['merge-base', '--is-ancestor', sha, head])).code === 0;
+  const notAncestor = await git(dir, env, ['merge-base', '--is-ancestor', sha, head], true);
+  return !notAncestor.one;
 };

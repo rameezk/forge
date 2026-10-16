@@ -13,6 +13,8 @@ import {
   type ConflictResolutionState,
   type Fetch,
   type GithubApp,
+  type Mergeable,
+  type PullRequestConflict,
 } from '@forge/shared';
 import { maxConcurrentOf, repositoryTriggeredBy, resolveWorker } from './config.ts';
 import { inspectCheckout, launchInCheckout } from './checkout-workload.ts';
@@ -43,23 +45,19 @@ const startRefusal = (start: Exclude<ConflictResolutionStart, { started: number 
   }
 };
 
-const reportedConflicting = async (
-  app: GithubApp,
-  fetch: Fetch,
-  github: string,
-  number: number,
-): Promise<boolean | null> => {
-  for (let attempt = 1; ; attempt++) {
-    const { mergeable } = await queryPullRequestConflict(
-      fetch,
-      (await app.mint(github, 'read')).token,
-      github,
-      number,
-    );
-    if (mergeable !== 'UNKNOWN') return mergeable === 'CONFLICTING';
-    if (attempt === MERGEABLE_ATTEMPTS) return null;
-    await sleep(MERGEABLE_DELAY_MS);
+type Pause = (ms: number) => Promise<void>;
+
+const settledMergeable = async (
+  read: () => Promise<PullRequestConflict>,
+  first: Mergeable,
+  pause: Pause,
+): Promise<Mergeable> => {
+  let mergeable = first;
+  for (let attempt = 1; mergeable !== 'MERGEABLE' && attempt < MERGEABLE_ATTEMPTS; attempt++) {
+    await pause(MERGEABLE_DELAY_MS);
+    mergeable = (await read()).mergeable;
   }
+  return mergeable;
 };
 
 interface Resolved {
@@ -72,6 +70,7 @@ interface Resolved {
   branch: string;
   runId: string;
   sha: string;
+  pause: Pause;
 }
 
 const unmetCondition = async ({
@@ -84,10 +83,12 @@ const unmetCondition = async ({
   branch,
   runId,
   sha,
+  pause,
 }: Resolved): Promise<ConflictResolutionFailureRecord | undefined> => {
   const read = async () =>
     queryPullRequestConflict(fetch, (await app.mint(github, 'read')).token, github, number);
-  const { headSha, baseSha } = await read();
+  const first = await read();
+  const { headSha, baseSha } = first;
   const merged = await inspectCheckout({
     env,
     github,
@@ -104,25 +105,23 @@ const unmetCondition = async ({
     };
   }
   if (baseSha !== sha) return undefined;
-  const conflicting = await reportedConflicting(app, fetch, github, number);
-  if (conflicting === null) {
-    return {
-      reason: 'still-conflicting',
-      detail: `GitHub did not say whether the pull request still conflicts with ${sha}`,
-    };
-  }
-  return conflicting
-    ? {
+  const mergeable = await settledMergeable(read, first.mergeable, pause);
+  return mergeable === 'MERGEABLE'
+    ? undefined
+    : {
         reason: 'still-conflicting',
-        detail: `GitHub still reports the pull request as conflicting with ${sha}`,
-      }
-    : undefined;
+        detail:
+          mergeable === 'CONFLICTING'
+            ? `GitHub still reports the pull request as conflicting with ${sha}`
+            : `GitHub did not say whether the pull request still conflicts with ${sha}`,
+      };
 };
 
 export const main = async (
   argv: string[],
   env: NodeJS.ProcessEnv,
   fetch: Fetch,
+  pause: Pause = (ms) => sleep(ms),
 ): Promise<number> => {
   const [name, number, ...rest] = argv;
   if (
@@ -223,6 +222,7 @@ export const main = async (
               branch: pullRequest.branch,
               runId,
               sha: target.defaultSha,
+              pause,
             });
           }
         }

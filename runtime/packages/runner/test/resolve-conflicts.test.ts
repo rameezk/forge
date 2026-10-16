@@ -83,7 +83,7 @@ interface PullRequestState {
 interface Scenario {
   origin?: Origin;
   worker?: (origin: Origin) => string;
-  mergeable?: string;
+  mergeable?: string[];
   pullRequest?: Partial<PullRequestState>;
   harnessEnv?: Record<string, string>;
   maxConcurrent?: number;
@@ -99,6 +99,7 @@ interface Outcome {
   pi: PiCall | null;
   transcript: string;
   requests: string[];
+  pauses: number[];
   runsList: string;
   thrown: string | null;
 }
@@ -143,10 +144,13 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
   const privateKeyFile = join(stateDir, 'github-app-private-key');
   writeFileSync(privateKeyFile, app.privateKey);
   const requests: string[] = [];
+  const pauses: number[] = [];
+  let conflictReads = 0;
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     assert.equal(new URL(String(input)).pathname, '/graphql');
     const { query } = JSON.parse(String(init?.body)) as { query: string };
     requests.push(query);
+    if (query.includes('query PullRequestConflict')) conflictReads += 1;
     const answer = query.includes('query PullRequestConflict')
       ? {
           data: {
@@ -157,7 +161,7 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
               },
               pullRequest: {
                 mergeable:
-                  scenario.mergeable ??
+                  scenario.mergeable?.[Math.min(conflictReads - 1, scenario.mergeable.length - 1)] ??
                   (conflictsWith(origin, 'main') ? 'CONFLICTING' : 'MERGEABLE'),
                 headRefOid: git(origin.path, 'rev-parse', 'feature'),
                 baseRefOid: git(origin.path, 'rev-parse', 'main'),
@@ -231,6 +235,9 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
       ...gitConfig,
     },
     routedThrough(app, fetch),
+    async (ms) => {
+      pauses.push(ms);
+    },
   )
     .catch((error: unknown) => {
       thrown = error instanceof Error ? error.message : String(error);
@@ -257,6 +264,7 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
           ? ''
           : readFileSync(join(stateDir, 'transcripts', transcriptRef), 'utf8'),
       requests,
+      pauses,
       thrown,
       runsList: await (
         await createApp({
@@ -282,7 +290,7 @@ const mergeAndPush = (origin: Origin): string =>
 
 test('given a pull request GitHub reports as conflicting whose branch merges the default branch cleanly, when forge-resolve-conflicts runs, then it ends ok without starting the harness, and nothing is pushed', async () => {
   const origin = originWhere('merges cleanly');
-  const { code, pi, runs, resolutions } = await resolve({ origin, mergeable: 'CONFLICTING' });
+  const { code, pi, runs, resolutions } = await resolve({ origin, mergeable: ['CONFLICTING'] });
 
   assert.equal(code, 0);
   assert.equal(pi, null);
@@ -336,11 +344,33 @@ test('given a worker that ends successfully without merging the given sha, when 
 
 test('given a worker that pushes but leaves the pull request conflicting with the given sha, when the run ends, then the conflict resolution fails, recording that the pull request still conflicts', async () => {
   const origin = originWhere('conflicts');
-  const { code, resolutions } = await resolve({ origin, worker: mergeAndPush, mergeable: 'CONFLICTING' });
+  const { code, resolutions } = await resolve({ origin, worker: mergeAndPush, mergeable: ['CONFLICTING'] });
 
   assert.equal(code, 1);
   assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'error', reason: 'still-conflicting' }]);
   assert.ok(resolutions[0]?.detail?.includes(origin.mainTip));
+});
+
+test('given GitHub still reports the pull request as conflicting right after the push, then not conflicting once it has recomputed, when the run ends, then the conflict resolution waits and ends ok', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions, pauses } = await resolve({
+    origin,
+    worker: mergeAndPush,
+    mergeable: ['CONFLICTING', 'CONFLICTING', 'UNKNOWN', 'MERGEABLE'],
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['ok']);
+  assert.equal(pauses.length, 2);
+});
+
+test('given GitHub never stops reporting UNKNOWN, when the run ends, then the conflict resolution fails saying GitHub did not say', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions } = await resolve({ origin, worker: mergeAndPush, mergeable: ['UNKNOWN'] });
+
+  assert.equal(code, 1);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'error', reason: 'still-conflicting' }]);
+  assert.match(resolutions[0]?.detail ?? '', /did not say/);
 });
 
 test('given the default branch gains a conflicting commit while the conflict resolution runs, and the worker merges the sha it was given, when the run ends, then the conflict resolution ends ok', async () => {
