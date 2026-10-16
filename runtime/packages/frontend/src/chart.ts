@@ -39,7 +39,7 @@ const seriesFor = (series: Map<string | null, Series>, key: string | null): Seri
 const WIDTH = 420;
 const HEIGHT = 250;
 const MARGIN = { top: 12, right: 14, bottom: 30, left: 50 };
-const TARGET_TICKS = 6;
+const TARGET_TICKS = 7;
 const INSET = 8;
 
 const dayLabel = (timeZone: string): Intl.DateTimeFormat =>
