@@ -196,6 +196,12 @@ const FORGE_LABELS = [
   { name: 'forge:failed', color: 'd93f0b', description: "Forge's agent left no pull request; see forge's dashboard, and set forge:ready to retry" },
 ];
 
+const STATUS_LABELS = [
+  { name: 'ready-for-refinement', color: 'd4c5f9', description: 'Waiting for refinement: the spec is not settled yet' },
+  { name: 'ready-for-human', color: 'f9d0c4', description: 'Ready, but needs a human to build it' },
+  { name: 'ready-for-agent', color: 'c2e0c6', description: 'Ready for an agent to build' },
+];
+
 const WRITE_TOKEN = tokenFor('write', 'rameezk/forge');
 
 interface LabelCall {
@@ -242,13 +248,16 @@ const labelling = (
   return { fetch, calls };
 };
 
-test('given a declared repository missing two forge labels and holding one with a stale colour, when sync runs on a host that dispatches, then all four forge labels exist with their fixed descriptions and colours, written with a write token scoped to that repository alone', async () => {
+test('given a declared repository missing two forge labels and ready-for-agent and holding stale forge:running and grey ready-for-refinement, when sync runs on a host that dispatches, then all four forge labels and the three status labels exist with their fixed descriptions and colours, written with a write token scoped to that repository alone', async () => {
   const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
   const [ready, running, done, failed] = FORGE_LABELS;
-  assert.ok(ready && running && done && failed);
+  const [refinement, human, agent] = STATUS_LABELS;
+  assert.ok(ready && running && done && failed && refinement && human && agent);
   const github = labelling(runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), []), {
     'forge:running': { color: 'ededed', description: running.description },
     'forge:done': { color: done.color.toUpperCase(), description: done.description },
+    'ready-for-refinement': { color: 'ededed', description: '' },
+    'ready-for-human': { color: human.color, description: human.description },
   });
 
   const code = await run(app, 
@@ -270,6 +279,13 @@ test('given a declared repository missing two forge labels and holding one with 
         body: { color: running.color, description: running.description },
       },
       { method: 'POST', path: '/repos/rameezk/forge/labels', authorization: `bearer ${WRITE_TOKEN}`, body: failed },
+      {
+        method: 'PATCH',
+        path: '/repos/rameezk/forge/labels/ready-for-refinement',
+        authorization: `bearer ${WRITE_TOKEN}`,
+        body: { color: refinement.color, description: refinement.description },
+      },
+      { method: 'POST', path: '/repos/rameezk/forge/labels', authorization: `bearer ${WRITE_TOKEN}`, body: agent },
     ],
   );
   assert.ok(github.calls.every(({ authorization }) => authorization === `bearer ${WRITE_TOKEN}`));
@@ -280,6 +296,19 @@ test('given a declared repository missing two forge labels and holding one with 
       { kind: 'write', repositories: ['forge'] },
     ],
   );
+});
+
+test('given a declared repository with all seven labels already styled as forge defines them, when sync runs on a host that dispatches, then no label is written', async () => {
+  const { env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
+  const github = labelling(
+    runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), []),
+    allForgeLabels,
+  );
+
+  const code = await run(app, ['sync'], env, github.fetch);
+
+  assert.equal(code, 0);
+  assert.deepEqual(github.calls.filter(({ method }) => method !== 'GET'), []);
 });
 
 test('given a declared repository whose recorded response spans several pages, when sync runs, then tickets from every page are stored, and a blocked ticket not labelled forge:ready stays out', async () => {
@@ -716,7 +745,7 @@ const runningIssues = (
 });
 
 const allForgeLabels = Object.fromEntries(
-  FORGE_LABELS.map(({ name, color, description }) => [name, { color, description }]),
+  [...FORGE_LABELS, ...STATUS_LABELS].map(({ name, color, description }) => [name, { color, description }]),
 );
 
 const dispatchedEarlier = (stateDir: string, numbers: Record<number, string>): void => {
