@@ -6,6 +6,7 @@ import {
   ensureLabels,
   installationTokens,
   oldestFirst,
+  queryClosed,
   queryFrontier,
   queryPullRequest,
   queryRequests,
@@ -14,6 +15,7 @@ import {
   settleRunningTickets,
   Store,
   type BotIdentity,
+  type ClosedTicket,
   type Fetch,
   type InstallationTokens,
   type PullRequestSnapshot,
@@ -24,6 +26,8 @@ import {
 import type { FrontierConfig } from './config.ts';
 
 type Poll = (github: string) => Promise<Ticket[]>;
+
+type ClosedPoll = (github: string) => Promise<ClosedTicket[]>;
 
 type RequestPoll = (github: string) => Promise<RefinementRequest[]>;
 
@@ -43,6 +47,11 @@ const polling =
   (tokens: InstallationTokens, fetch: Fetch): Poll =>
   async (github) =>
     queryFrontier(fetch, await tokens(github, 'read'), github);
+
+const closedPolling =
+  (tokens: InstallationTokens, fetch: Fetch): ClosedPoll =>
+  async (github) =>
+    queryClosed(fetch, await tokens(github, 'read'), github);
 
 const requestPolling =
   (tokens: InstallationTokens, fetch: Fetch): RequestPoll =>
@@ -131,6 +140,7 @@ const sync = async (
   config: FrontierConfig,
   env: NodeJS.ProcessEnv,
   poll: Poll,
+  pollClosed: ClosedPoll,
   pollRequests: RequestPoll,
   pullRequest: PullRequestPoll,
   forgeEmail: (github: string) => Promise<string>,
@@ -149,12 +159,14 @@ const sync = async (
     for (const [name, { github, on }] of Object.entries(config.repositories)) {
       try {
         const tickets = await poll(github);
+        const closed = await pollClosed(github);
         const requests = await pollRequests(github);
         store.replaceFrontier({
           repository: name,
           github,
           polledAt: new Date().toISOString(),
           tickets,
+          closed,
           requests,
         });
       } catch (error) {
@@ -269,6 +281,7 @@ export const main = async (
         config,
         env,
         poll,
+        closedPolling(tokens, fetch),
         requestPolling(tokens, fetch),
         pullRequestPolling(tokens, fetch),
         async (github) => (await identity(github)).email,

@@ -59,6 +59,7 @@ export type {
   ToolResultEvent,
 } from './events.ts';
 export type {
+  ClosedTicket,
   Fetch,
   LabelledIssue,
   PolledFrontier,
@@ -81,8 +82,10 @@ export {
   findOpenClosingPullRequest,
   isGithubRepository,
   isGithubUrl,
+  newestClosedFirst,
   offFrontier,
   oldestFirst,
+  queryClosed,
   queryFrontier,
   queryLabelled,
   queryRequests,

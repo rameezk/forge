@@ -1,6 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import {
+  newestClosedFirst,
   oldestFirst,
+  type ClosedTicket,
   type PolledFrontier,
   type PollFailure,
   type RefinementRequest,
@@ -443,6 +445,18 @@ type RequestRow = {
   created_at: string;
 };
 
+type ClosedRow = {
+  number: number;
+  title: string;
+  url: string;
+  parent_number: number | null;
+  parent_title: string | null;
+  parent_url: string | null;
+  created_at: string;
+  closed_at: string;
+  for_human: number;
+};
+
 type TicketRow = {
   repository: string;
   number: number;
@@ -480,6 +494,20 @@ const CREATE_FRONTIER = `
     for_human     INTEGER NOT NULL,
     blocked       INTEGER NOT NULL,
     blocked_by    TEXT NOT NULL,
+    PRIMARY KEY (repository, number)
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS frontier_closed (
+    repository    TEXT NOT NULL REFERENCES frontier_repositories (repository) ON DELETE CASCADE,
+    number        INTEGER NOT NULL,
+    title         TEXT NOT NULL,
+    url           TEXT NOT NULL,
+    parent_number INTEGER,
+    parent_title  TEXT,
+    parent_url    TEXT,
+    created_at    TEXT NOT NULL,
+    closed_at     TEXT NOT NULL,
+    for_human     INTEGER NOT NULL,
     PRIMARY KEY (repository, number)
   ) STRICT;
 
@@ -869,6 +897,19 @@ const ticketFromRow = (row: TicketRow): Ticket => ({
   forHuman: row.for_human === 1,
   blocked: row.blocked === 1,
   blockedBy: JSON.parse(row.blocked_by) as number[],
+});
+
+const closedFromRow = (row: ClosedRow): ClosedTicket => ({
+  number: row.number,
+  title: row.title,
+  url: row.url,
+  parent:
+    row.parent_number === null || row.parent_title === null || row.parent_url === null
+      ? null
+      : { number: row.parent_number, title: row.parent_title, url: row.parent_url },
+  createdAt: row.created_at,
+  closedAt: row.closed_at,
+  forHuman: row.for_human === 1,
 });
 
 const generationFromRow = (row: GenerationRow): GenerationRecord => ({
@@ -1643,7 +1684,7 @@ export class Store {
     return rows.map(fromRow);
   }
 
-  replaceFrontier({ repository, github, polledAt, tickets, requests }: PolledFrontier): void {
+  replaceFrontier({ repository, github, polledAt, tickets, closed, requests }: PolledFrontier): void {
     this.#transaction(() => {
       this.#db
         .prepare(
@@ -1682,6 +1723,32 @@ export class Store {
           for_human: ticket.forHuman ? 1 : 0,
           blocked: ticket.blocked ? 1 : 0,
           blocked_by: JSON.stringify(ticket.blockedBy),
+        });
+      }
+      this.#db
+        .prepare('DELETE FROM frontier_closed WHERE repository = $repository')
+        .run({ repository });
+      const insertClosed = this.#db.prepare(
+        `INSERT INTO frontier_closed (
+          repository, number, title, url, parent_number, parent_title, parent_url, created_at,
+          closed_at, for_human
+        ) VALUES (
+          $repository, $number, $title, $url, $parent_number, $parent_title, $parent_url, $created_at,
+          $closed_at, $for_human
+        )`,
+      );
+      for (const ticket of closed) {
+        insertClosed.run({
+          repository,
+          number: ticket.number,
+          title: ticket.title,
+          url: ticket.url,
+          parent_number: ticket.parent?.number ?? null,
+          parent_title: ticket.parent?.title ?? null,
+          parent_url: ticket.parent?.url ?? null,
+          created_at: ticket.createdAt,
+          closed_at: ticket.closedAt,
+          for_human: ticket.forHuman ? 1 : 0,
         });
       }
       this.#db
@@ -1743,6 +1810,9 @@ export class Store {
     const tickets = this.#db.prepare(
       'SELECT * FROM frontier_tickets WHERE repository = $repository',
     );
+    const closed = this.#db.prepare(
+      'SELECT * FROM frontier_closed WHERE repository = $repository',
+    );
     const requests = this.#db.prepare(
       'SELECT * FROM frontier_requests WHERE repository = $repository',
     );
@@ -1757,6 +1827,9 @@ export class Store {
       tickets: (tickets.all({ repository: row.repository }) as TicketRow[])
         .map(ticketFromRow)
         .toSorted(oldestFirst),
+      closed: (closed.all({ repository: row.repository }) as ClosedRow[])
+        .map(closedFromRow)
+        .toSorted(newestClosedFirst),
       requests: (requests.all({ repository: row.repository }) as RequestRow[])
         .map(requestFromRow)
         .toSorted(oldestFirst),

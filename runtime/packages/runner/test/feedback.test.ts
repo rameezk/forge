@@ -107,7 +107,7 @@ const github = (pulls: () => FakePullRequest[]): typeof globalThis.fetch =>
     const body = JSON.parse(String(init?.body)) as { query: string };
     const operation = /query (\w+)/.exec(body.query)?.[1];
     const data =
-      operation === 'Frontier' || operation === 'LabelledIssues'
+      operation === 'Frontier' || operation === 'ClosedTickets' || operation === 'LabelledIssues'
         ? { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } }
         : operation === 'WatchedPullRequests'
           ? {
