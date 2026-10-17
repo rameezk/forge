@@ -13,6 +13,8 @@
 let
   ticket = number: forgeReady: blocked: {
     inherit number forgeReady blocked;
+    forHuman = false;
+    blockedBy = [ ];
     title = "Ticket ${toString number}";
     url = "https://github.com/rameezk/forge/issues/${toString number}";
     parent = null;
