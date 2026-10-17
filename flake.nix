@@ -233,6 +233,22 @@
                 && nixos.pkgs.forge-runner.piPackage == "${hostPi}/lib/node_modules/pi-monorepo"
               )
               "a host's pkgs.pi-coding-agent, which operators install as the pi harness, must be the pi forge pins and patches to read credentials without writing its agent dir (ADR-0040) and to report the response id of compaction and cache-warm calls (ADR-0052), and the runner must load skills from that same pi";
+          rawExampleConfig = builtins.fromJSON (builtins.readFile exampleConfigFile);
+          configWith = extra: builtins.toFile "config.json" (builtins.toJSON (rawExampleConfig // extra));
+          loads = file: (builtins.tryEval (builtins.deepSeq (loadConfig file) true)).success;
+          boxIsUtc = lib.asserts.assertMsg (
+            nixos.config.time.timeZone == "UTC" && !(exampleCfg ? timezone)
+          ) "the box must be fixed to UTC, with no timezone in the loaded config";
+          oldTimezoneRejected = lib.asserts.assertMsg (
+            loads (configWith { })
+            && !(loads (configWith { timezone = "UTC"; }))
+            && !(loads (configWith { timezone = "Africa/Johannesburg"; }))
+          ) "a config.json that sets timezone, to any value, must fail to load";
+          exampleConfigsOmitTimezone = lib.asserts.assertMsg (
+            !(rawExampleConfig ? timezone)
+            && !((builtins.fromJSON (builtins.readFile ./templates/operator/config.example.json)) ? timezone)
+            && loads ./templates/operator/config.example.json
+          ) "neither example config may set timezone, and both must load";
           nixInToolset = lib.asserts.assertMsg (lib.elem nixos.config.nix.package nixos.config.forge.runtime.toolset) "the base workload toolset must carry the box's nix, so a workload can use nix through the daemon";
           trustingHost =
             module:
@@ -1593,6 +1609,14 @@
             assert boxIdentityIsHostKey;
             pkgs.runCommand "example-reflects-config" { } ''
               echo "example host reflects config.example.json; root login disabled; its ed25519 host key is its sops identity" > $out
+            '';
+
+          box-utc =
+            assert boxIsUtc;
+            assert oldTimezoneRejected;
+            assert exampleConfigsOmitTimezone;
+            pkgs.runCommand "box-utc" { } ''
+              echo "the box is fixed to UTC and a config.json timezone key is rejected" > $out
             '';
 
           box-tailnet =
