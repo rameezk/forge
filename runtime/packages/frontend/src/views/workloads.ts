@@ -122,15 +122,15 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
     <label class="${FIELD}">Search
       <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-60" />
     </label>
+    ${renderSelect('Worker', 'worker', unique(all.map((run) => run.worker)), filter.worker)}
+    ${renderSelect('Repository', 'repository', unique(all.map((run) => run.ticket?.repository)), filter.repository)}
+    ${renderSelect('Model', 'model', unique(all.map((run) => run.model)), filter.model)}
     <div class="flex w-full flex-wrap gap-2" aria-label="Started" data-range-presets>
       ${[{ key: 'any', label: 'Any time', range: undefined }, ...RANGE_PRESETS.map(({ key, label }) => ({ key, label, range: key }))].map(({ key, label, range }) => {
         const current = range === undefined ? filter.range === undefined && filter.from === undefined && filter.to === undefined : filter.range === range;
         return html`<a href="${workloadsHref(range === undefined ? rest : { ...rest, range })}" class="${CHIP} ${current ? CHIP_CURRENT : CHIP_IDLE}" data-range-preset="${key}"${current ? html` aria-current="true"` : ''}>${label}</a>`;
       })}
     </div>
-    ${renderSelect('Worker', 'worker', unique(all.map((run) => run.worker)), filter.worker)}
-    ${renderSelect('Repository', 'repository', unique(all.map((run) => run.ticket?.repository)), filter.repository)}
-    ${renderSelect('Model', 'model', unique(all.map((run) => run.model)), filter.model)}
     <label class="${FIELD}">Started from
       <input type="date" name="from" value="${filter.from ?? ''}" class="${CONTROL}" />
     </label>
