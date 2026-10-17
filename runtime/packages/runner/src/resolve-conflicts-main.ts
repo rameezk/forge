@@ -6,6 +6,7 @@ import {
   githubAppFromEnv,
   queryPullRequestConflict,
   queryPullRequestHead,
+  queryPullRequestReadiness,
   startHeartbeat,
   Store,
   type ConflictResolutionFailureRecord,
@@ -104,17 +105,27 @@ const unmetCondition = async ({
       detail: `the pull request's head ${headSha} does not contain ${sha}`,
     };
   }
-  if (baseSha !== sha) return undefined;
-  const mergeable = await settledMergeable(read, first.mergeable, pause);
-  return mergeable === 'MERGEABLE'
-    ? undefined
-    : {
+  if (baseSha === sha) {
+    const mergeable = await settledMergeable(read, first.mergeable, pause);
+    if (mergeable !== 'MERGEABLE') {
+      return {
         reason: 'still-conflicting',
         detail:
           mergeable === 'CONFLICTING'
             ? `GitHub still reports the pull request as conflicting with ${sha}`
             : `GitHub did not say whether the pull request still conflicts with ${sha}`,
       };
+    }
+  }
+  const { failing, pending } = await queryPullRequestReadiness(
+    fetch,
+    (await app.mint(github, 'read')).token,
+    github,
+    number,
+  );
+  if (failing.length > 0) return { reason: 'check-failed', detail: failing.join(', ') };
+  if (pending.length > 0) return { reason: 'check-pending', detail: pending.join(', ') };
+  return undefined;
 };
 
 export const main = async (

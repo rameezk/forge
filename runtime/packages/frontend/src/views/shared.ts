@@ -11,6 +11,8 @@ const FAILURE_LABEL: Record<RevisionFailure | ConflictResolutionFailure, string>
   crashed: 'Crashed',
   'not-merged': 'Not merged',
   'still-conflicting': 'Still conflicting',
+  'check-failed': 'Required check failed',
+  'check-pending': 'Required check pending',
 };
 
 export const pullRequestFailureText = ({ reason, detail }: PullRequestWorkloadRecord): string | null => {

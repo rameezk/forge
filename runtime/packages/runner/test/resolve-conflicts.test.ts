@@ -80,8 +80,25 @@ interface PullRequestState {
   isCrossRepository: boolean;
 }
 
+interface CheckContext {
+  __typename: 'CheckRun';
+  name: string;
+  status: string;
+  conclusion: string | null;
+  isRequired: boolean;
+}
+
+const checkRun = (name: string, conclusion: string | null, isRequired = true): CheckContext => ({
+  __typename: 'CheckRun',
+  name,
+  status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
+  conclusion,
+  isRequired,
+});
+
 interface Scenario {
   origin?: Origin;
+  checks?: CheckContext[] | null;
   worker?: (origin: Origin) => string;
   mergeable?: string[];
   pullRequest?: Partial<PullRequestState>;
@@ -151,7 +168,34 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
     const { query } = JSON.parse(String(init?.body)) as { query: string };
     requests.push(query);
     if (query.includes('query PullRequestConflict')) conflictReads += 1;
-    const answer = query.includes('query PullRequestConflict')
+    const answer = query.includes('query PullRequestReadiness')
+      ? {
+          data: {
+            repository: {
+              pullRequest: {
+                isDraft: false,
+                commits: {
+                  nodes: [
+                    {
+                      commit: {
+                        statusCheckRollup:
+                          scenario.checks === null
+                            ? null
+                            : {
+                                contexts: {
+                                  pageInfo: { hasNextPage: false },
+                                  nodes: scenario.checks ?? [],
+                                },
+                              },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        }
+      : query.includes('query PullRequestConflict')
       ? {
           data: {
             repository: {
@@ -349,6 +393,68 @@ test('given a worker that pushes but leaves the pull request conflicting with th
   assert.equal(code, 1);
   assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'error', reason: 'still-conflicting' }]);
   assert.ok(resolutions[0]?.detail?.includes(origin.mainTip));
+});
+
+test('given a worker that merges the given sha and leaves every required check green, when the run ends, then the conflict resolution ends ok', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions } = await resolve({
+    origin,
+    worker: mergeAndPush,
+    checks: [checkRun('build', 'SUCCESS'), checkRun('lint', 'SKIPPED')],
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'ok', reason: null }]);
+});
+
+test('given a worker that merges the given sha but leaves a required check red, when the run ends, then the conflict resolution fails, naming that check', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions, runsList } = await resolve({
+    origin,
+    worker: mergeAndPush,
+    checks: [checkRun('build', 'SUCCESS'), checkRun('unit tests', 'FAILURE')],
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(resolutions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'check-failed', detail: 'unit tests' },
+  ]);
+  assert.match(textOf(runsList), /Required check failed: unit tests/);
+});
+
+test('given a worker that merges the given sha and ends while a required check is still pending, when the run ends, then the conflict resolution fails, naming the pending check', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions, runsList } = await resolve({
+    origin,
+    worker: mergeAndPush,
+    checks: [checkRun('build', 'SUCCESS'), checkRun('nixos vm', null)],
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(resolutions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'error', reason: 'check-pending', detail: 'nixos vm' },
+  ]);
+  assert.match(textOf(runsList), /Required check pending: nixos vm/);
+});
+
+test('given required checks that are green and a red check that is not required, when the run ends, then the conflict resolution ends ok', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions } = await resolve({
+    origin,
+    worker: mergeAndPush,
+    checks: [checkRun('build', 'SUCCESS'), checkRun('coverage', 'FAILURE', false)],
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['ok']);
+});
+
+test('given a repository with no required checks, when a conflict resolution merges the given sha and the pull request no longer conflicts, then it ends ok', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions } = await resolve({ origin, worker: mergeAndPush, checks: null });
+
+  assert.equal(code, 0);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['ok']);
 });
 
 test('given GitHub still reports the pull request as conflicting right after the push, then not conflicting once it has recomputed, when the run ends, then the conflict resolution waits and ends ok', async () => {

@@ -672,9 +672,12 @@ conflict resolution before the harness starts if the branch has none.
 
 After a successful run forge reads the pull request itself. The conflict
 resolution is ok only when the pull request's head contains the sha it was
-given and GitHub no longer reports the pull request as conflicting with that
-sha; otherwise it fails and records which condition was not met. The default
-branch moving on during the run is not a failure. A conflict resolution ends
+given, GitHub no longer reports the pull request as conflicting with that sha,
+and every required check on that head is green, a skipped one counting as
+green; otherwise it fails and records which condition was not met, naming a
+red or pending check. The worker must therefore end only once the required
+checks on its new head are green. The default branch moving on during the run
+is not a failure. A conflict resolution ends
 ok, error, exceeded or interrupted, as a revision does, and any outcome other
 than ok leaves the pull request open and untouched: forge writes no comment,
 label or close.
