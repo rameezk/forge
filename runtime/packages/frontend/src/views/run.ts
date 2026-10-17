@@ -336,7 +336,7 @@ const renderTiles = (
 const renderSummaryOutcome = (workload: RunPullRequestWorkload | null): Rendered => {
   if (workload === null || workload.workload.state === 'running') return '';
   const text = workloadOutcomeText(workload.workload);
-  return html`${renderWorkloadOutcome(workload.workload)}${text === null ? '' : html`<span class="basis-full whitespace-pre-line wrap-anywhere text-muted" data-outcome-text>${text}</span>`}`;
+  return html`${renderWorkloadOutcome(workload.workload)}${text === null ? '' : html`<span class="my-1 basis-full whitespace-pre-line wrap-anywhere text-muted" data-outcome-text>${text}</span>`}`;
 };
 
 const renderSummary = (run: RunRecord, effort: string, workload: RunPullRequestWorkload | null, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
