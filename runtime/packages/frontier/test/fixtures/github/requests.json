@@ -1,0 +1,34 @@
+[
+  {
+    "data": {
+      "repository": {
+        "issues": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0xMC0xNVQxMjoxOTo0M1rPAAAAAV2jqb4="
+          },
+          "nodes": [
+            {
+              "number": 146,
+              "title": "Give each forge unit only the state directory access it needs",
+              "url": "https://github.com/rameezk/forge/issues/146",
+              "createdAt": "2026-10-01T06:17:03Z"
+            },
+            {
+              "number": 164,
+              "title": "Keep a sandboxed workload from reading forge state through the dashboard",
+              "url": "https://github.com/rameezk/forge/issues/164",
+              "createdAt": "2026-10-01T12:35:20Z"
+            },
+            {
+              "number": 166,
+              "title": "Bound how long a workload run may take",
+              "url": "https://github.com/rameezk/forge/issues/166",
+              "createdAt": "2026-10-01T12:52:46Z"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

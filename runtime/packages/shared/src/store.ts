@@ -3,6 +3,7 @@ import {
   oldestFirst,
   type PolledFrontier,
   type PollFailure,
+  type RefinementRequest,
   type RepositoryFrontier,
   type Ticket,
 } from './frontier.ts';
@@ -435,6 +436,13 @@ type RepositoryRow = {
   failed_at: string | null;
 };
 
+type RequestRow = {
+  number: number;
+  title: string;
+  url: string;
+  created_at: string;
+};
+
 type TicketRow = {
   repository: string;
   number: number;
@@ -468,6 +476,15 @@ const CREATE_FRONTIER = `
     created_at    TEXT NOT NULL,
     forge_ready   INTEGER NOT NULL,
     blocked       INTEGER NOT NULL,
+    PRIMARY KEY (repository, number)
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS frontier_requests (
+    repository TEXT NOT NULL REFERENCES frontier_repositories (repository) ON DELETE CASCADE,
+    number     INTEGER NOT NULL,
+    title      TEXT NOT NULL,
+    url        TEXT NOT NULL,
+    created_at TEXT NOT NULL,
     PRIMARY KEY (repository, number)
   ) STRICT;
 `;
@@ -826,6 +843,13 @@ const toRow = (run: RunRecord): RunRow => ({
   failed_tool_results: run.counters?.failedToolResults ?? null,
   retries: run.counters?.retries ?? null,
   compactions: run.counters?.compactions ?? null,
+});
+
+const requestFromRow = (row: RequestRow): RefinementRequest => ({
+  number: row.number,
+  title: row.title,
+  url: row.url,
+  createdAt: row.created_at,
 });
 
 const ticketFromRow = (row: TicketRow): Ticket => ({
@@ -1613,7 +1637,7 @@ export class Store {
     return rows.map(fromRow);
   }
 
-  replaceFrontier({ repository, github, polledAt, tickets }: PolledFrontier): void {
+  replaceFrontier({ repository, github, polledAt, tickets, requests }: PolledFrontier): void {
     this.#transaction(() => {
       this.#db
         .prepare(
@@ -1650,6 +1674,22 @@ export class Store {
           created_at: ticket.createdAt,
           forge_ready: ticket.forgeReady ? 1 : 0,
           blocked: ticket.blocked ? 1 : 0,
+        });
+      }
+      this.#db
+        .prepare('DELETE FROM frontier_requests WHERE repository = $repository')
+        .run({ repository });
+      const insertRequest = this.#db.prepare(
+        `INSERT INTO frontier_requests (repository, number, title, url, created_at)
+        VALUES ($repository, $number, $title, $url, $created_at)`,
+      );
+      for (const request of requests) {
+        insertRequest.run({
+          repository,
+          number: request.number,
+          title: request.title,
+          url: request.url,
+          created_at: request.createdAt,
         });
       }
     });
@@ -1695,6 +1735,9 @@ export class Store {
     const tickets = this.#db.prepare(
       'SELECT * FROM frontier_tickets WHERE repository = $repository',
     );
+    const requests = this.#db.prepare(
+      'SELECT * FROM frontier_requests WHERE repository = $repository',
+    );
     return repositories.map((row) => ({
       repository: row.repository,
       github: row.github,
@@ -1705,6 +1748,9 @@ export class Store {
           : { message: row.last_error, failedAt: row.failed_at },
       tickets: (tickets.all({ repository: row.repository }) as TicketRow[])
         .map(ticketFromRow)
+        .toSorted(oldestFirst),
+      requests: (requests.all({ repository: row.repository }) as RequestRow[])
+        .map(requestFromRow)
         .toSorted(oldestFirst),
     }));
   }

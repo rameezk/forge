@@ -46,7 +46,10 @@ interface Request {
   body: { query: string; variables: Record<string, string | number | null> };
 }
 
-const replaying = (responses: Record<string, RecordedPage[]>) => {
+const replaying = (
+  responses: Record<string, RecordedPage[]>,
+  refinement: Record<string, RecordedPage[]> = {},
+) => {
   const requests: Request[] = [];
   const fetch = async (
     input: string | URL | globalThis.Request,
@@ -60,7 +63,10 @@ const replaying = (responses: Record<string, RecordedPage[]>) => {
       body,
     });
     const github = `${body.variables.owner}/${body.variables.name}`;
-    const pages = responses[github];
+    const pages =
+      body.variables.label === 'ready-for-refinement'
+        ? (refinement[github] ?? recorded('no-issues'))
+        : responses[github];
     const after = body.variables.after;
     const response = pages?.find((_, index) =>
       index === 0 ? after === null : endCursor(pages[index - 1]) === after,
@@ -185,8 +191,43 @@ test('given a declared repository whose recorded response holds unblocked ready-
         authorization: `bearer ${GITHUB_TOKEN}`,
         variables: { owner: 'rameezk', name: 'forge', first: 100, after: null },
       },
+      {
+        url: GITHUB_GRAPHQL_API,
+        method: 'POST',
+        authorization: `bearer ${GITHUB_TOKEN}`,
+        variables: { owner: 'rameezk', name: 'forge', label: 'ready-for-refinement', first: 100, after: null },
+      },
     ],
   );
+});
+
+test('given a declared repository with open issues labelled ready-for-refinement, when sync runs, then the store holds them as its requests with their number, title, link and created date', async () => {
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
+  const github = replaying({ 'rameezk/forge': recorded('frontier') }, { 'rameezk/forge': recorded('requests') });
+
+  const code = await run(app, ['sync'], env, github.fetch);
+
+  assert.equal(code, 0);
+  assert.deepEqual(storedFrontier(stateDir)[0]?.requests, [
+    {
+      number: 146,
+      title: 'Give each forge unit only the state directory access it needs',
+      url: 'https://github.com/rameezk/forge/issues/146',
+      createdAt: '2026-10-01T06:17:03Z',
+    },
+    {
+      number: 164,
+      title: 'Keep a sandboxed workload from reading forge state through the dashboard',
+      url: 'https://github.com/rameezk/forge/issues/164',
+      createdAt: '2026-10-01T12:35:20Z',
+    },
+    {
+      number: 166,
+      title: 'Bound how long a workload run may take',
+      url: 'https://github.com/rameezk/forge/issues/166',
+      createdAt: '2026-10-01T12:52:46Z',
+    },
+  ]);
 });
 
 const FORGE_LABELS = [
@@ -325,7 +366,7 @@ test('given a declared repository whose recorded response spans several pages, w
     [57, 58, 62, 63, 69, 70],
   );
   assert.deepEqual(
-    github.requests.map(({ body }) => body.variables.after),
+    github.requests.filter(({ body }) => body.variables.label === undefined).map(({ body }) => body.variables.after),
     [null, ...pages.slice(0, 2).map(endCursor)],
   );
 });
@@ -360,12 +401,14 @@ test('given two declared repositories with stored snapshots where GitHub now fai
       repository: 'forge',
       github: 'rameezk/forge',
       polledAt: previousPoll,
+      requests: [],
       tickets: [staleTicket('rameezk/forge', 1)],
     },
     {
       repository: 'gone',
       github: 'rameezk/forge-does-not-exist',
       polledAt: previousPoll,
+      requests: [],
       tickets: [staleTicket('rameezk/forge-does-not-exist', 2)],
     },
   ]);
@@ -397,6 +440,7 @@ test('given two declared repositories with stored snapshots where GitHub now fai
         "GitHub rejected the Frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
       failedAt,
     },
+    requests: [],
     tickets: [staleTicket('rameezk/forge-does-not-exist', 2)],
   });
 });
@@ -431,6 +475,7 @@ for (const [absence, message, override] of MISSING_APP) {
         repository: 'forge',
         github: 'rameezk/forge',
         polledAt: previousPoll,
+        requests: [],
         tickets: [staleTicket('rameezk/forge', 1)],
       },
     ]);
@@ -474,6 +519,7 @@ test('given stored rows for a repository no longer declared, when sync runs, the
       repository: 'retired',
       github: 'rameezk/retired',
       polledAt: '2026-09-29T08:00:00.000Z',
+      requests: [],
       tickets: [staleTicket('rameezk/retired', 3)],
     },
   ]);
@@ -610,12 +656,14 @@ test('given a store holding an existing snapshot, when list runs, then the store
       repository: 'forge',
       github: 'rameezk/forge',
       polledAt: '2026-09-29T08:00:00.000Z',
+      requests: [],
       tickets: [staleTicket('rameezk/forge', 1)],
     },
     {
       repository: 'retired',
       github: 'rameezk/retired',
       polledAt: '2026-09-29T08:00:00.000Z',
+      requests: [],
       tickets: [staleTicket('rameezk/retired', 3)],
     },
   ]);
@@ -867,7 +915,7 @@ test('given a managed repository the App is not installed on, when sync runs, th
   assert.equal(forge?.lastError, null);
   assert.equal(forge?.tickets.length, 7);
   assert.equal(stray?.lastError?.message, 'the GitHub App is not installed on rameezk/stray');
-  assert.deepEqual(github.requests.map(({ body }) => body.variables.name), ['forge']);
+  assert.deepEqual(github.requests.map(({ body }) => body.variables.name), ['forge', 'forge']);
 });
 
 interface RecordedPullRequest {

@@ -67,7 +67,7 @@ const dashboard = (timeZone?: string) => {
   const started = store.startDispatch(TICKET, run.id, run.startTime, 100);
   assert.ok('started' in started);
   store.endDispatch(started.started, { state: 'failed', reason: 'no-pull-request', detail: null }, run.endTime!);
-  store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T23:15:00.000Z', tickets: [ticket] });
+  store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T23:15:00.000Z', requests: [], tickets: [ticket] });
   store.recordFrontierError({ repository: 'dotfiles', github: 'rameezk/dotfiles', message: 'boom', failedAt: '2026-09-29T23:20:00.000Z' });
   const app = createApp({
     store,

@@ -601,7 +601,7 @@ test('given a store file whose frontier predates last errors, when the store is 
     const failedAt = '2026-09-29T08:20:00.000Z';
     store.recordFrontierError({ repository: 'fresh', github: 'rameezk/fresh', message: 'GitHub token missing', failedAt });
     assert.deepEqual(store.listFrontier(), [
-      { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: { message: 'GitHub token missing', failedAt }, tickets: [] },
+      { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: { message: 'GitHub token missing', failedAt }, tickets: [], requests: [] },
     ]);
   } finally {
     store.close();
@@ -641,7 +641,7 @@ test('given a store file whose frontier snapshot predates queued tickets, when t
       forgeReady: true,
       blocked: true,
     };
-    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', tickets: [queued] });
+    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', requests: [], tickets: [queued] });
     assert.deepEqual(store.listFrontier()[0]?.tickets, [queued]);
   } finally {
     store.close();
@@ -683,7 +683,7 @@ test('given a store file whose frontier snapshot predates spec URLs, when the st
       forgeReady: true,
       blocked: true,
     };
-    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', tickets: [specced] });
+    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', requests: [], tickets: [specced] });
     assert.deepEqual(store.listFrontier()[0]?.tickets, [specced]);
   } finally {
     store.close();
@@ -1115,4 +1115,19 @@ test('given a revision left running with a stale heartbeat, when a new revision 
 
   assert.equal(next.after, '2026-09-21T10:00:00.000Z');
   assert.equal(store.listRevisions('2026-09-21T11:00:00.000Z').find(({ id }) => id === stale.id)?.state, 'interrupted');
+});
+
+test('given a repository with stored requests, when its frontier is replaced, then only the new requests remain', () => {
+  const store = Store.open(':memory:');
+  try {
+    const request = (number: number) => ({ number, title: `Request ${number}`, url: `https://github.com/rameezk/forge/issues/${number}`, createdAt: '2026-10-01T06:17:03Z' });
+    const polled = (requests: ReturnType<typeof request>[]) => ({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-10-01T07:00:00.000Z', tickets: [], requests });
+
+    store.replaceFrontier(polled([request(1), request(2)]));
+    store.replaceFrontier(polled([request(2), request(3)]));
+
+    assert.deepEqual(store.listFrontier()[0]?.requests, [request(2), request(3)]);
+  } finally {
+    store.close();
+  }
 });

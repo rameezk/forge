@@ -2154,6 +2154,7 @@ const polledTicket = (store: Store): void =>
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: new Date().toISOString(),
+    requests: [],
     tickets: [
       { number: 113, title: 'Ticket', url: TICKET_URL, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, blocked: false },
     ],
