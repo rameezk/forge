@@ -94,7 +94,7 @@ write_flake "$system" 'noisy = derivationOf "i=1; while [ $i -le 60 ]; do echo b
 if output="$(FORGE_FLAKE="path:$scratch" "$checks" build no-vm "$system" 2>&1)"; then
 	echo "FAIL: a failed build is reported: the build unexpectedly passed"
 	fail=1
-elif grep -q 'noisy-failure' <<<"$output" && grep -q 'build-log-line-1$' <<<"$output" && grep -q 'build-log-line-60$' <<<"$output"; then
+elif ! grep -q 'Invalid BuildResult status' <<<"$output" && grep -q 'noisy-failure' <<<"$output" && grep -q 'build-log-line-1$' <<<"$output" && grep -q 'build-log-line-60$' <<<"$output"; then
 	echo "ok: a failed build is reported with its derivation and its full build log"
 else
 	echo "FAIL: a failed build is reported with its derivation and its full build log"
