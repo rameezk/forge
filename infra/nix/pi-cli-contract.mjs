@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -56,6 +57,13 @@ const agentDirs = agentDirsIn(agentRoot);
 
 const readOnlyAgentDir = (name, model, listed) =>
   agentDirs(name, model, listed);
+
+const bareAgentDir = (name) => {
+  const agentDir = join(agentRoot, name);
+  mkdirSync(agentDir);
+  chmodSync(agentDir, 0o555);
+  return agentDir;
+};
 
 const targets = [
   {
@@ -238,7 +246,7 @@ const readsDeclaredModel = () => {
     maxOutputTokens: 8000,
     reasoning: true,
   });
-  const undeclared = readOnlyAgentDir('undeclared', MISSING_MODEL, null);
+  const undeclared = bareAgentDir('undeclared');
   const without = startsWithModel(undeclared);
   const withModel = startsWithModel(declared);
   const ok =

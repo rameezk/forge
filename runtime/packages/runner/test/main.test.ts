@@ -1065,7 +1065,11 @@ test('given the models endpoint lists the worker\'s model at a price so large it
   }
 });
 
-test('given the models endpoint is unavailable, or lists other models but not the worker\'s, when the workload runs and its generations complete, then it still succeeds, its generations have tokens but no estimated cost, pi starts with an agent dir that has no models.json, and the journal says why', async () => {
+const UNLISTED_MODELS_JSON = {
+  providers: { openrouter: { models: [{ id: 'z-ai/glm-5', api: 'openai-completions' }] } },
+};
+
+test('given the models endpoint is unavailable, or lists other models but not the worker\'s, when the workload runs and its generations complete, then it still succeeds, its generations have tokens but no estimated cost, pi starts with an agent dir whose models.json pins the model to the chat-completions route with no listed details, and the journal says why', async () => {
   for (const [models, reason] of [
     [null, /HTTP 404/],
     [{ data: [{ id: 'z-ai/glm-4.6', pricing: { prompt: '0.0000006', completion: '0.0000022' } }] }, /not listed/],
@@ -1089,7 +1093,7 @@ test('given the models endpoint is unavailable, or lists other models but not th
       }
       assert.match(journal, /could not look up OpenRouter's models entry for z-ai\/glm-5/);
       assert.ok(result.pi.agentDir);
-      assert.equal(result.pi.modelsJson, null);
+      assert.deepEqual(JSON.parse(result.pi.modelsJson ?? 'null'), UNLISTED_MODELS_JSON);
       assert.match(journal, reason);
     } finally {
       openRouter.close();
@@ -1884,6 +1888,7 @@ test('given the models endpoint lists the worker\'s model with a context window,
           models: [
             {
               id: 'z-ai/glm-5',
+              api: 'openai-completions',
               reasoning: true,
               contextWindow: 202752,
               maxTokens: 131072,
@@ -1919,14 +1924,14 @@ test('given the models endpoint lists the worker\'s model without an output limi
     const { pi } = await runWorker({ output: fixture('success.jsonl'), openRouterBaseUrl: openRouter.baseUrl });
 
     assert.deepEqual(JSON.parse(pi.modelsJson ?? 'null'), {
-      providers: { openrouter: { models: [{ id: 'z-ai/glm-5', reasoning: false, contextWindow: 202752 }] } },
+      providers: { openrouter: { models: [{ id: 'z-ai/glm-5', api: 'openai-completions', reasoning: false, contextWindow: 202752 }] } },
     });
   } finally {
     openRouter.close();
   }
 });
 
-test('given the models endpoint lists the worker\'s model with a context length that is not a number, such as a command string, when the workload starts, then no models.json is written, the journal says so, and the run proceeds', async () => {
+test('given the models endpoint lists the worker\'s model with a context length that is not a number, such as a command string, when the workload starts, then models.json still pins the model to the chat-completions route with no listed details, the journal says so, and the run proceeds', async () => {
   const openRouter = await fakeOpenRouter(billedAt({}), {
     data: [{ id: 'z-ai/glm-5', context_length: '!touch /tmp/planted', pricing: { prompt: '0.000002', completion: '0.00001' } }],
   });
@@ -1936,7 +1941,7 @@ test('given the models endpoint lists the worker\'s model with a context length 
     );
 
     assert.equal(result.code, 0);
-    assert.equal(result.pi.modelsJson, null);
+    assert.deepEqual(JSON.parse(result.pi.modelsJson ?? 'null'), UNLISTED_MODELS_JSON);
     assert.match(journal, /lists no context window for z-ai\/glm-5/);
   } finally {
     openRouter.close();

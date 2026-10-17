@@ -20,26 +20,31 @@ const costOf = ({ price }: ListedModel): Record<string, number> | null => {
     : null;
 };
 
-export const piModelsJson = (id: string, model: ListedModel): string => {
+const CHAT_COMPLETIONS_API = 'openai-completions';
+
+const listedDetails = (model: ListedModel | null): Record<string, unknown> => {
+  if (model === null || model.contextWindow === null) {
+    return {};
+  }
   const cost = costOf(model);
-  return JSON.stringify({
+  return {
+    reasoning: model.reasoning,
+    contextWindow: model.contextWindow,
+    ...(model.maxOutputTokens === null
+      ? {}
+      : { maxTokens: model.maxOutputTokens }),
+    ...(cost === null ? {} : { cost }),
+  };
+};
+
+export const piModelsJson = (id: string, model: ListedModel | null): string =>
+  JSON.stringify({
     providers: {
       [PI_PROVIDER]: {
-        models: [
-          {
-            id,
-            reasoning: model.reasoning,
-            contextWindow: model.contextWindow,
-            ...(model.maxOutputTokens === null
-              ? {}
-              : { maxTokens: model.maxOutputTokens }),
-            ...(cost === null ? {} : { cost }),
-          },
-        ],
+        models: [{ id, api: CHAT_COMPLETIONS_API, ...listedDetails(model) }],
       },
     },
   });
-};
 
 export type OpenAgentDir = (
   runId: string,
@@ -52,11 +57,9 @@ export const agentDirsIn =
   (runId, model, listed) => {
     const agentDir = join(root, runId);
     mkdirSync(agentDir, { recursive: true });
-    if (listed !== null && listed.contextWindow !== null) {
-      writeFileSync(join(agentDir, 'models.json'), piModelsJson(model, listed), {
-        mode: 0o444,
-      });
-    }
+    writeFileSync(join(agentDir, 'models.json'), piModelsJson(model, listed), {
+      mode: 0o444,
+    });
     chmodSync(agentDir, 0o555);
     return agentDir;
   };
