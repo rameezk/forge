@@ -22,13 +22,13 @@ export const FORGE_LABELS: readonly LabelDefinition[] = [
   {
     name: FORGE_DONE,
     color: '0e8a16',
-    description: "Forge's agent opened a pull request that closes this ticket",
+    description: 'Forge left a ready pull request with green required checks closing this ticket',
   },
   {
     name: FORGE_FAILED,
     color: 'd93f0b',
     description:
-      "Forge's agent left no pull request; see forge's dashboard, and set forge:ready to retry",
+      'Not a ready pull request with green required checks; see the dashboard, label forge:ready to retry',
   },
 ];
 

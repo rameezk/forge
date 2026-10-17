@@ -38,6 +38,7 @@ test('given the query constants the feedback and frontier code exports, then for
       'PULL_REQUEST_CONFLICT_QUERY',
       'PULL_REQUEST_HEAD_QUERY',
       'PULL_REQUEST_QUERY',
+      'PULL_REQUEST_READINESS_QUERY',
       'TICKET_QUERY',
       'WATCHED_PULL_REQUESTS_QUERY',
     ],

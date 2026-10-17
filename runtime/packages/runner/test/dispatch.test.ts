@@ -143,6 +143,64 @@ const opened = (
   return copy;
 };
 
+interface CheckContext {
+  __typename: 'CheckRun' | 'StatusContext';
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+  context?: string;
+  state?: string;
+  isRequired: boolean;
+}
+
+interface Readiness {
+  isDraft: boolean;
+  checks: CheckContext[] | null;
+}
+
+const readyPullRequest: Readiness = { isDraft: false, checks: [] };
+
+const checkRun = (
+  name: string,
+  conclusion: string | null,
+  isRequired = true,
+): CheckContext => ({
+  __typename: 'CheckRun',
+  name,
+  status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
+  conclusion,
+  isRequired,
+});
+
+const statusContext = (context: string, state: string, isRequired = true): CheckContext => ({
+  __typename: 'StatusContext',
+  context,
+  state,
+  isRequired,
+});
+
+const readinessResponse = ({ isDraft, checks }: Readiness) => ({
+  data: {
+    repository: {
+      pullRequest: {
+        isDraft,
+        commits: {
+          nodes: [
+            {
+              commit: {
+                statusCheckRollup:
+                  checks === null
+                    ? null
+                    : { contexts: { pageInfo: { hasNextPage: false }, nodes: checks } },
+              },
+            },
+          ],
+        },
+      },
+    },
+  },
+});
+
 interface LabelWrite {
   method: string;
   path: string;
@@ -177,6 +235,7 @@ const fakeGithub = (
   running: LabelledResponse,
   labelStatus: (write: Pick<LabelWrite, 'method' | 'path' | 'body'>) => number,
   pullRequestsStatus: number,
+  readiness: Readiness,
   piRecord: () => string,
   forgeLabels: boolean,
 ) => {
@@ -204,6 +263,9 @@ const fakeGithub = (
         return pullRequestsStatus === 200
           ? json(pullRequests)
           : json({ message: 'Bad Gateway' }, pullRequestsStatus);
+      }
+      if (operation === 'PullRequestReadiness') {
+        return json(readinessResponse(readiness));
       }
       if (operation === 'LabelledIssues') {
         assert.equal(body.variables.label, 'forge:running');
@@ -279,6 +341,7 @@ interface Scenario {
   running?: LabelledResponse;
   labelStatus?: (write: Pick<LabelWrite, 'method' | 'path' | 'body'>) => number;
   pullRequestsStatus?: number;
+  readiness?: Readiness;
   forgeLabels?: boolean;
   piPackage?: string;
   failing?: boolean;
@@ -449,6 +512,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     scenario.running ?? labelledIssues([]),
     scenario.labelStatus ?? (() => 200),
     scenario.pullRequestsStatus ?? 200,
+    scenario.readiness ?? readyPullRequest,
     () => record,
     scenario.forgeLabels ?? true,
   );
@@ -579,6 +643,11 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
       operation: 'ClosingPullRequests',
       authorization: `bearer ${WRITE_TOKEN_AFTER}`,
       variables: { owner: 'rameezk', name: 'forge', number: 113 },
+    },
+    {
+      operation: 'PullRequestReadiness',
+      authorization: `bearer ${WRITE_TOKEN_AFTER}`,
+      variables: { owner: 'rameezk', name: 'forge', number: 143 },
     },
   ]);
   const [run, ...others] = runs;
@@ -957,12 +1026,84 @@ const finalLabelWrites = (label: string): LabelWrite[] => [
   },
 ];
 
-test('given a run after which an open pull request closes the ticket, when the run ends, whether it succeeded or errored, then the ticket becomes forge:done, losing any forge:ready the run set so no later pass dispatches it again', async () => {
-  for (const piOutput of [PI_OUTPUT, PROVIDER_ERROR]) {
-    const { labelWrites, runs } = await dispatch({ piOutput });
+test('given a successful run that leaves a ready pull request closing the ticket whose required checks are green or skipped, and whose only red check is not required, when the run ends, then the ticket becomes forge:done, losing any forge:ready the run set so no later pass dispatches it again', async () => {
+  for (const checks of [
+    [],
+    null,
+    [
+      checkRun('build', 'SUCCESS'),
+      checkRun('lint', 'SKIPPED'),
+      statusContext('ci/legacy', 'SUCCESS'),
+      checkRun('flaky', 'FAILURE', false),
+      checkRun('slow', null, false),
+    ],
+  ]) {
+    const { labelWrites, runs, dispatches } = await dispatch({
+      readiness: { isDraft: false, checks },
+    });
 
-    assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:done'), piOutput);
-    assert.equal(runs[0]?.status, piOutput === PI_OUTPUT ? 'success' : 'error');
+    assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:done'), JSON.stringify(checks));
+    assert.equal(runs[0]?.status, 'success');
+    assert.equal(dispatches[0]?.state, 'done');
+  }
+});
+
+test('given a run that errors after leaving a ready pull request with green required checks, when the run ends, then the dispatch fails as errored and the ticket becomes forge:failed', async () => {
+  const { labelWrites, runs, dispatches } = await dispatch({ piOutput: PROVIDER_ERROR });
+
+  assert.equal(runs[0]?.status, 'error');
+  assert.deepEqual(
+    dispatches.map(({ state, reason }) => ({ state, reason })),
+    [{ state: 'failed', reason: 'errored' }],
+  );
+  assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'));
+});
+
+test('given a successful run that leaves a pull request closing the ticket that is still a draft, or whose required check is red or pending, when the run ends, then the dispatch fails naming what fell short and the ticket becomes forge:failed', async () => {
+  for (const [readiness, reason, detail] of [
+    [{ isDraft: true, checks: [] }, 'draft', null],
+    [{ isDraft: true, checks: [checkRun('build', 'FAILURE')] }, 'draft', null],
+    [{ isDraft: false, checks: [checkRun('build', 'FAILURE')] }, 'check-failed', 'build'],
+    [{ isDraft: false, checks: [checkRun('build', 'TIMED_OUT')] }, 'check-failed', 'build'],
+    [{ isDraft: false, checks: [statusContext('ci/legacy', 'ERROR')] }, 'check-failed', 'ci/legacy'],
+    [{ isDraft: false, checks: [checkRun('build', null)] }, 'check-pending', 'build'],
+    [{ isDraft: false, checks: [statusContext('ci/legacy', 'PENDING')] }, 'check-pending', 'ci/legacy'],
+    [
+      {
+        isDraft: false,
+        checks: [checkRun('lint', 'FAILURE'), checkRun('test', 'SUCCESS'), checkRun('vm', 'CANCELLED')],
+      },
+      'check-failed',
+      'lint, vm',
+    ],
+    [
+      { isDraft: false, checks: [checkRun('vm', null), checkRun('lint', null), checkRun('test', 'SUCCESS')] },
+      'check-pending',
+      'vm, lint',
+    ],
+    [
+      { isDraft: false, checks: [checkRun('vm', null), checkRun('lint', 'FAILURE')] },
+      'check-failed',
+      'lint',
+    ],
+  ] as const) {
+    const { labelWrites, runs, dispatches } = await dispatch({
+      readiness: { isDraft: readiness.isDraft, checks: [...readiness.checks] },
+    });
+
+    const label = `${reason} ${detail}`;
+    assert.equal(runs[0]?.status, 'success', label);
+    assert.deepEqual(
+      dispatches.map((record) => ({
+        state: record.state,
+        reason: record.reason,
+        detail: record.detail,
+        pullRequest: record.pullRequest,
+      })),
+      [{ state: 'failed', reason, detail, pullRequest: null }],
+      label,
+    );
+    assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'), label);
   }
 });
 

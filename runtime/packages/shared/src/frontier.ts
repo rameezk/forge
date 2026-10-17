@@ -112,6 +112,43 @@ export const CLOSING_PULL_REQUESTS_QUERY = `
   }
 `;
 
+export const PULL_REQUEST_READINESS_QUERY = `
+  query PullRequestReadiness($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        isDraft
+        commits(last: 1) {
+          nodes {
+            commit {
+              statusCheckRollup {
+                contexts(first: 100) {
+                  pageInfo {
+                    hasNextPage
+                  }
+                  nodes {
+                    __typename
+                    ... on CheckRun {
+                      name
+                      status
+                      conclusion
+                      isRequired(pullRequestNumber: $number)
+                    }
+                    ... on StatusContext {
+                      context
+                      state
+                      isRequired(pullRequestNumber: $number)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const PULL_REQUEST_QUERY = `
   query PullRequest($owner: String!, $name: String!, $number: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
@@ -532,6 +569,83 @@ export const findOpenClosingPullRequest = async (
   return pullRequest === undefined
     ? null
     : { number: pullRequest.number, url: pullRequestUrl(pullRequest.url) };
+};
+
+export interface PullRequestReadiness {
+  draft: boolean;
+  failing: string[];
+  pending: string[];
+}
+
+interface CheckContextNode {
+  __typename: 'CheckRun' | 'StatusContext';
+  name?: string;
+  status?: string;
+  conclusion?: string | null;
+  context?: string;
+  state?: string;
+  isRequired: boolean;
+}
+
+interface PullRequestReadinessResponse {
+  repository: {
+    pullRequest: {
+      isDraft: boolean;
+      commits: {
+        nodes: {
+          commit: {
+            statusCheckRollup: {
+              contexts: {
+                pageInfo: { hasNextPage: boolean };
+                nodes: CheckContextNode[];
+              };
+            } | null;
+          };
+        }[];
+      };
+    } | null;
+  } | null;
+}
+
+const PASSING_CONCLUSIONS = new Set(['SUCCESS', 'SKIPPED', 'NEUTRAL']);
+
+const PENDING_STATES = new Set(['PENDING', 'EXPECTED']);
+
+const checkOutcome = (node: CheckContextNode): 'passing' | 'failing' | 'pending' => {
+  if (node.__typename === 'StatusContext') {
+    if (node.state === 'SUCCESS') return 'passing';
+    return PENDING_STATES.has(node.state ?? '') ? 'pending' : 'failing';
+  }
+  if (node.status !== 'COMPLETED') return 'pending';
+  return PASSING_CONCLUSIONS.has(node.conclusion ?? '') ? 'passing' : 'failing';
+};
+
+export const queryPullRequestReadiness = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+): Promise<PullRequestReadiness> => {
+  const subject = `${github}#${number}`;
+  const data = await readGraphql<PullRequestReadinessResponse>(
+    await requestGraphql(fetch, token, PULL_REQUEST_READINESS_QUERY, github, { number }),
+    PULL_REQUEST_READINESS_QUERY,
+    subject,
+  );
+  const pullRequest = data?.repository?.pullRequest;
+  if (pullRequest === undefined || pullRequest === null) {
+    throw new Error(`GitHub found no pull request ${subject}`);
+  }
+  const contexts = pullRequest.commits.nodes[0]?.commit.statusCheckRollup?.contexts;
+  if (contexts?.pageInfo.hasNextPage === true) {
+    throw new Error(`${subject} has more checks than forge reads`);
+  }
+  const required = (contexts?.nodes ?? []).filter((node) => node.isRequired);
+  const named = (outcome: 'failing' | 'pending'): string[] =>
+    required
+      .filter((node) => checkOutcome(node) === outcome)
+      .map((node) => (node.__typename === 'CheckRun' ? node.name : node.context) ?? 'unnamed');
+  return { draft: pullRequest.isDraft, failing: named('failing'), pending: named('pending') };
 };
 
 export interface PullRequestSnapshot {

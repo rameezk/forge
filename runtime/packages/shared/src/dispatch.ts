@@ -10,6 +10,9 @@ export type DispatchState = 'running' | 'done' | 'failed';
 export type DispatchFailure =
   | 'errored'
   | 'no-pull-request'
+  | 'draft'
+  | 'check-failed'
+  | 'check-pending'
   | 'skill-not-found'
   | 'devshell-failed'
   | 'interrupted'

@@ -50,6 +50,7 @@ const reads: [string, (github: string) => Promise<unknown>][] = [
   ['PullRequest', (github) => frontier.queryPullRequest(rejecting, 't', github, 7)],
   ['PullRequestConflict', (github) => frontier.queryPullRequestConflict(rejecting, 't', github, 7)],
   ['PullRequestHead', (github) => frontier.queryPullRequestHead(rejecting, 't', github, 7)],
+  ['PullRequestReadiness', (github) => frontier.queryPullRequestReadiness(rejecting, 't', github, 7)],
   ['WatchedPullRequests', (github) => feedback.queryWatchedPullRequests(rejecting, 't', github, 'forge')],
   [
     'FeedbackWindow',
