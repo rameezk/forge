@@ -77,7 +77,7 @@ test('given the dashboard, when / and /work are requested, then / serves the Boa
 const columnHeaders = (body: string): string[] =>
   body.match(/<div[^>]*\sdata-column-header="[^"]*"[\s\S]*?<\/div>/g) ?? [];
 
-test('given a stored frontier, when the Board is requested, then it shows the nine columns in order, each with its title, total and subtitle, and a person icon on To refine, Ready for human and In review only', async () => {
+test('given a stored frontier, when the Board is requested, then it shows the nine columns in order, each with its title, total and subtitle with its hint tooltip, and a person icon on To refine, Ready for human and In review only', async () => {
   const app = appWith([
     { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', closed: [], requests: [], tickets: [ticket()] },
   ]);
@@ -85,17 +85,17 @@ test('given a stored frontier, when the Board is requested, then it shows the ni
   const headers = columnHeaders(await (await app.request('/')).text());
 
   assert.deepEqual(
-    headers.map((header) => [/data-column-header="([^"]*)"/.exec(header)?.[1], /data-column-title[^>]*>([^<]*)</.exec(header)?.[1], /data-column-total[^>]*>([^<]*)</.exec(header)?.[1], /data-column-subtitle[^>]*>([^<]*)</.exec(header)?.[1], /data-person/.test(header)]),
+    headers.map((header) => [/data-column-header="([^"]*)"/.exec(header)?.[1], /data-column-title[^>]*>([^<]*)</.exec(header)?.[1], /data-column-total[^>]*>([^<]*)</.exec(header)?.[1], /data-column-subtitle[^>]*>([^<]*)</.exec(header)?.[1], /data-column-subtitle[^>]*\stitle="([^"]*)"/.exec(header)?.[1] ?? null, /data-person/.test(header)]),
     [
-      ['to-refine', 'To refine', '0', 'Shape into a spec and tickets', true],
-      ['blocked', 'Blocked', '0', 'Waiting on open blockers', false],
-      ['ready-for-human', 'Ready for human', '0', 'A person builds it', true],
-      ['ready-for-agent', 'Ready for agent', '1', 'Add forge:ready to hand off', false],
-      ['waiting-for-slot', 'Waiting for slot', '0', 'Handed off, unblocked', false],
-      ['running', 'Running', '0', 'An agent is building it', false],
-      ['in-review', 'In review', '0', 'PR waiting on a human', true],
-      ['failed', 'Failed', '0', 'Set forge:ready to retry', false],
-      ['done', 'Done', '0', 'Closed in the last 7 days', false],
+      ['to-refine', 'To refine', '0', 'Needs a human in the loop', 'Needs a human in the loop', true],
+      ['blocked', 'Blocked', '0', 'Waiting on open blockers', 'Waiting on open blockers', false],
+      ['ready-for-human', 'Ready for human', '0', 'Needs a human in the loop', 'Needs a human in the loop', true],
+      ['ready-for-agent', 'Ready for agent', '1', 'Not handed off yet', 'Add forge:ready to hand off', false],
+      ['waiting-for-slot', 'Waiting for slot', '0', 'Handed off, waiting for a slot', 'Handed off, waiting for a slot', false],
+      ['running', 'Running', '0', 'An agent is building it', 'An agent is building it', false],
+      ['in-review', 'In review', '0', 'Needs a human in the loop', 'Needs a human in the loop', true],
+      ['failed', 'Failed', '0', 'Agent run failed', 'Set forge:ready to retry', false],
+      ['done', 'Done', '0', 'Closed in the last 7 days', 'Closed in the last 7 days', false],
     ],
   );
 });
