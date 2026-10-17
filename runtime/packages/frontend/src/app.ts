@@ -48,6 +48,7 @@ export interface AppOptions {
   idiomorph: string;
   client: string;
   timeZone?: string;
+  clock?: () => Date;
   checkIntervalMs?: number;
   maxConcurrent?: number;
 }
@@ -60,6 +61,7 @@ export const createApp = ({
   idiomorph,
   client,
   timeZone = 'UTC',
+  clock = () => new Date(),
   checkIntervalMs = 1000,
   maxConcurrent = 1,
 }: AppOptions): Hono => {
@@ -119,7 +121,7 @@ export const createApp = ({
     const pullRequestWorkloads = new Map<string, PullRequestWorkloadRecord>(
       [...store.listRevisions(now), ...store.listConflictResolutions(now)].map((workload) => [workload.runId, workload]),
     );
-    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, shown));
+    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, shown, clock().getTime()));
   });
 
   const queryOf = (query: Record<string, string>): InsightsQuery => {

@@ -7,7 +7,9 @@ const offsetAt = (time: number, timeZone: string): number => {
   return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)) - Math.floor(time / 1000) * 1000;
 };
 
-export const nextDay = (date: string): string => new Date(Date.parse(`${date}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10);
+export const addDays = (date: string, days: number): string => new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+
+export const nextDay = (date: string): string => addDays(date, 1);
 
 export const startOfDay = (date: string, timeZone: string): number => {
   const midnight = Date.parse(`${date}T00:00:00Z`);
