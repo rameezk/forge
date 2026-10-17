@@ -78,7 +78,7 @@ const renderRunning = ({ dispatch }: BoardCard, runs: ReadonlyMap<string, RunRec
 
 const renderRevising = (revision: RevisionRecord, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const pill = html`<span data-revising class="${PILL} ${REVISING_TONE}">revising</span>`;
-  return html` ${renderPill(runs.has(revision.runId) ? revision.runId : null, pill)}${renderElapsedSince(startOf(runs, revision.runId, revision.startedAt))}`;
+  return html` <span class="whitespace-nowrap">${renderPill(runs.has(revision.runId) ? revision.runId : null, pill)}${renderElapsedSince(startOf(runs, revision.runId, revision.startedAt))}</span>`;
 };
 
 const renderInReview = ({ dispatch, revision }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
