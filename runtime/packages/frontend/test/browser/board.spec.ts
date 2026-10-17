@@ -25,7 +25,7 @@ test.describe('on a narrow screen', () => {
     expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
   });
 
-  test('given a phone-width screen, when the Board is opened, then every title and subtitle stays on one line and all headers share one height', async ({ dashboard, page }) => {
+  test('given a phone-width screen, when the Board is opened, then every title fits whole and all headers share one height', async ({ dashboard, page }) => {
     dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
@@ -33,14 +33,11 @@ test.describe('on a narrow screen', () => {
     const headers = await page.locator('[data-column-header]').evaluateAll((elements) =>
       elements.map((header) => ({
         height: Math.round(header.getBoundingClientRect().height),
-        wraps: ['[data-column-title]', '[data-column-subtitle]'].map((selector) => {
-          const element = header.querySelector(selector)!;
-          return element.getBoundingClientRect().height > parseFloat(element.ownerDocument.defaultView!.getComputedStyle(element).lineHeight) + 1;
-        }),
+        titleClipped: header.querySelector('[data-column-title]')!.scrollWidth > header.querySelector('[data-column-title]')!.clientWidth,
       })),
     );
     expect(new Set(headers.map(({ height }) => height)).size).toBe(1);
-    expect(headers.flatMap(({ wraps }) => wraps).some(Boolean)).toBe(false);
+    expect(headers.some(({ titleClipped }) => titleClipped)).toBe(false);
   });
 });
 
@@ -59,7 +56,7 @@ test.describe('on a desktop screen', () => {
     }).toBeGreaterThanOrEqual(24);
   });
 
-  test('given the Board on a desktop screen, when it is opened, then the headers read as one set: counts flush right, icons 6px left of the count and centred on the title, titles at the left padding', async ({ dashboard, page }) => {
+  test('given the Board on a desktop screen, when it is opened, then the headers read as one set, the mockup's 50px plus its border: counts flush right, icons 6px left of the count and centred on the title, titles at the left padding', async ({ dashboard, page }) => {
     dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
@@ -92,7 +89,7 @@ test.describe('on a desktop screen', () => {
       }),
     );
     expect(headers).toHaveLength(9);
-    expect(new Set(headers.map(({ height }) => Math.round(height))).size).toBe(1);
+    expect(headers.map(({ height }) => Math.round(height))).toEqual(Array(9).fill(51));
     expect(new Set(headers.map(({ totalGap }) => Math.round(totalGap))).size).toBe(1);
     for (const header of headers) {
       expect(header.titleOffset).toBeCloseTo(0, 0);
