@@ -11,6 +11,7 @@ import {
   githubAppFromEnv,
   labelExists,
   offFrontier,
+  queryPullRequestReadiness,
   queryTicket,
   Store,
   relabel,
@@ -19,6 +20,7 @@ import {
   type InstallationTokens,
   type DispatchOutcome,
   type DispatchStart,
+  type PullRequestReadiness,
   type PullRequestRef,
   type DispatchTicket,
   type Fetch,
@@ -68,14 +70,31 @@ const fillPrompt = (
     .replaceAll('{issue}', String(ticket.number))
     .replaceAll('{url}', ticket.url);
 
+const shortfallOf = ({ draft, failing, pending }: PullRequestReadiness): DispatchOutcome | null => {
+  if (draft) return { state: 'failed', reason: 'draft', detail: null };
+  if (failing.length > 0) {
+    return { state: 'failed', reason: 'check-failed', detail: failing.join(', ') };
+  }
+  if (pending.length > 0) {
+    return { state: 'failed', reason: 'check-pending', detail: pending.join(', ') };
+  }
+  return null;
+};
+
 const outcomeOf = (
   pullRequest: PullRequestRef | null,
+  readiness: PullRequestReadiness | null,
   { run, finalMessage, cause }: LaunchResult,
 ): DispatchOutcome => {
   if (run.status === 'exceeded') {
     return { state: 'failed', reason: 'exceeded', detail: run.exceededLimit };
   }
-  if (pullRequest !== null) return { state: 'done', pullRequest };
+  if (pullRequest !== null) {
+    if (run.status !== 'success') {
+      return { state: 'failed', reason: 'errored', detail: run.error };
+    }
+    return (readiness && shortfallOf(readiness)) ?? { state: 'done', pullRequest };
+  }
   if (cause instanceof SkillNotFound) {
     return { state: 'failed', reason: 'skill-not-found', detail: run.error };
   }
@@ -224,6 +243,7 @@ export const main = async (
 
       const afterTokens = cachedTokens(app);
       let pullRequest: PullRequestRef | null;
+      let readiness: PullRequestReadiness | null = null;
       try {
         pullRequest = await findOpenClosingPullRequest(
           fetch,
@@ -231,11 +251,19 @@ export const main = async (
           repository.github,
           ticket.number,
         );
+        if (pullRequest !== null && launched.run.status === 'success') {
+          readiness = await queryPullRequestReadiness(
+            fetch,
+            await afterTokens(repository.github, 'write'),
+            repository.github,
+            pullRequest.number,
+          );
+        }
       } catch (error) {
         return failAs('could not check for a pull request', error);
       }
 
-      const outcome = outcomeOf(pullRequest, launched);
+      const outcome = outcomeOf(pullRequest, readiness, launched);
       store.endDispatch(dispatchId, outcome, now());
       await relabel(
         fetch,

@@ -261,6 +261,29 @@ test('given tickets with attempts, a parent spec, and dispatches in each state, 
   assert.doesNotMatch(cardOf(body, 6), /<b>REST<\/b>/);
 });
 
+test('given tickets whose dispatches failed because their pull request is still a draft or a required check is red or pending, when the Board is requested, then each card shows its reason, the checks naming theirs', async () => {
+  const app = appWith(
+    [
+      frontierOf([
+        ticket({ number: 5, forgeReady: true }),
+        ticket({ number: 6, forgeReady: true }),
+        ticket({ number: 7, forgeReady: true }),
+      ]),
+    ],
+    (store) => {
+      store.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'draft', detail: null }, '2026-09-30T09:00:00.000Z');
+      store.endDispatch(dispatched(store, 6), { state: 'failed', reason: 'check-failed', detail: 'lint, vm' }, '2026-09-30T09:00:00.000Z');
+      store.endDispatch(dispatched(store, 7), { state: 'failed', reason: 'check-pending', detail: 'build' }, '2026-09-30T09:00:00.000Z');
+    },
+  );
+
+  const body = await (await app.request('/')).text();
+
+  assert.match(textOf(cardOf(body, 5)), /Pull request still a draft$/);
+  assert.match(textOf(cardOf(body, 6)), /Required check failed: lint, vm$/);
+  assert.match(textOf(cardOf(body, 7)), /Required check pending: build$/);
+});
+
 test('given two repositories, one with a poll error, when the Board is requested, then each has its own lane with its GitHub link and last-polled time, the failing one shows its error in its lane, and each column total counts both', async () => {
   const app = appWith([
     { ...frontierOf([ticket({ number: 1 }), ticket({ number: 2, forgeReady: true })]), lastError: { message: 'GitHub answered 401 for rameezk/forge', failedAt: '2026-09-29T08:20:00.000Z' } },

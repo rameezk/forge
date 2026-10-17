@@ -28,6 +28,9 @@ const CLOSED_PULL_REQUEST = 'Pull request closed';
 const FAILURE_LABEL: Record<DispatchFailure, string> = {
   errored: 'Run errored',
   'no-pull-request': 'No pull request',
+  draft: 'Pull request still a draft',
+  'check-failed': 'Required check failed',
+  'check-pending': 'Required check pending',
   'skill-not-found': 'Skill not found',
   'devshell-failed': 'devShell failed',
   interrupted: 'Interrupted',

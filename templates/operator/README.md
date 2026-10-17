@@ -523,15 +523,26 @@ checkout's skill of that name, and the run fails before the harness starts if
 there is none. The Runs page shows the repository and ticket of each
 dispatched run.
 
-When the run ends, forge asks GitHub whether an open pull request from a
-branch of the repository itself closes the ticket, ignoring pull requests from
-forks or other repositories. If one does, the ticket becomes `forge:done`,
-however the run ended, except a run that exceeded its timeout or budget, which
-always fails. Otherwise it becomes `forge:failed`. The Work page shows each ticket's
-dispatch state, and for a failed ticket its reason, linked to its run: the run
-errored, it ended without a pull request (with the agent's final message), the
-skill was not found, the run was interrupted, or it was stopped for exceeding
-its timeout or budget. Each dispatch moves a ticket
+A managed repository's skills must meet one contract, whatever they are: by
+the time the run ends, it has left a ready pull request, not a draft, from a
+branch of the repository itself that closes the ticket, with every required
+check green. Forge does not care how a skill gets there, for example by opening
+a draft and marking it ready once its checks pass. When the run ends, forge
+asks GitHub for the open pull request that closes the ticket, ignoring pull
+requests from forks or other repositories, and reads whether it is a draft and
+the required checks on its head commit, using GitHub's own required-check flag.
+A skipped required check counts as passing, checks that are not required are
+ignored, and a repository with no required checks is done as soon as its pull
+request is ready. The ticket becomes `forge:done` only when the run succeeded,
+the pull request is ready and every required check is green. Anything less
+becomes `forge:failed`, and a skill that ends its run while a required check is
+still running fails. The Work page shows each ticket's dispatch state, and for
+a failed ticket its reason, linked to its run: the run errored, including one
+that errored after leaving a pull request, it ended without a pull request
+(with the agent's final message), the pull request is still a draft, a named
+required check failed, a named required check is still pending, the skill was
+not found, the run was interrupted, or it was stopped for exceeding its timeout
+or budget. Each dispatch moves a ticket
 labelled `forge:running` that no live dispatch is working on to `forge:failed`
 as interrupted, and moves one whose dispatch already ended to the label of its
 recorded outcome. To retry a ticket, label it `forge:ready` again. The labels are

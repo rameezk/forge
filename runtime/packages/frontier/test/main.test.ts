@@ -233,8 +233,8 @@ test('given a declared repository with open issues labelled ready-for-refinement
 const FORGE_LABELS = [
   { name: 'forge:ready', color: '1d76db', description: 'Queued for forge: an agent picks it up once it is on the frontier' },
   { name: 'forge:running', color: 'fbca04', description: 'Forge is running an agent on this ticket' },
-  { name: 'forge:done', color: '0e8a16', description: "Forge's agent opened a pull request that closes this ticket" },
-  { name: 'forge:failed', color: 'd93f0b', description: "Forge's agent left no pull request; see forge's dashboard, and set forge:ready to retry" },
+  { name: 'forge:done', color: '0e8a16', description: 'Forge left a ready pull request with green required checks closing this ticket' },
+  { name: 'forge:failed', color: 'd93f0b', description: 'Not a ready pull request with green required checks; see the dashboard, label forge:ready to retry' },
 ];
 
 const STATUS_LABELS = [
