@@ -591,7 +591,7 @@ export class PiHarness implements Harness {
   open({ runId, model, listedModel }: HarnessRunSetup): HarnessRun {
     if (listedModel?.contextWindow == null) {
       process.stderr.write(
-        `run ${runId}: OpenRouter lists no context window for ${model}, so pi starts without knowing the model\n`,
+        `run ${runId}: OpenRouter lists no context window for ${model}, so pi starts without its listed details\n`,
       );
     }
     const agentDir = this.#options.openAgentDir(runId, model, listedModel);

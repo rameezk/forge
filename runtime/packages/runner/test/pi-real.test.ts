@@ -15,7 +15,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { CacheWarmEvent, CompactionEvent, HarnessEvent, MessageEvent } from '@forge/shared';
 import { SUBAGENT_TOOL } from '@forge/pi-subagent';
-import { PiHarness } from '../src/index.ts';
+import { PiHarness, piModelsJson } from '../src/index.ts';
+import type { ListedModel } from '../src/openrouter.ts';
 import { loadPiSkills, resolveCheckout } from '../src/checkout.ts';
 import { withEffort, type HarnessInvocation } from '../src/harness.ts';
 import {
@@ -123,7 +124,15 @@ interface RealPiRun {
   requestRecord: unknown[];
 }
 
+const LISTED_REASONING_MODEL: ListedModel = {
+  price: { input: 0.000002, output: 0.00001, cacheRead: null, cacheWrite: null },
+  contextWindow: 200000,
+  maxOutputTokens: null,
+  reasoning: true,
+};
+
 interface RealPiOptions {
+  listed?: ListedModel | null;
   served?: Served[];
   requested?: Requested[];
   onTheWire?: (respond: Respond) => Respond;
@@ -144,6 +153,7 @@ const runRealPi = async (
     workload = echoForge,
     effort = withEffort('high'),
     model = 'z-ai/glm-5',
+    listed = LISTED_REASONING_MODEL,
     settings,
     messages = [],
     warming: warms = false,
@@ -158,11 +168,15 @@ const runRealPi = async (
   for (const dir of [agentDir, home, workDir]) {
     mkdirSync(dir);
   }
+  const forgeModels = JSON.parse(piModelsJson(model, listed)) as {
+    providers: { openrouter: Record<string, unknown> };
+  };
   writeFileSync(
     join(agentDir, 'models.json'),
     JSON.stringify({
       providers: {
         openrouter: {
+          ...forgeModels.providers.openrouter,
           baseUrl: `http://127.0.0.1:${port}/v1`,
           ...(warms ? { modelOverrides: WARMING_MODEL_OVERRIDES } : {}),
         },
@@ -260,6 +274,32 @@ test(
     const end = events.at(-1);
     assert.equal(end?.type, 'result');
     assert.deepEqual(end, { ...end, status: 'success', error: null });
+  },
+);
+
+test(
+  'given the locked pi with forge\'s own models.json and an anthropic model, when it completes a turn against the fake provider, then the request reaches the chat completions route and every recorded generation id is an OpenRouter generation id',
+  { skip },
+  async () => {
+    const served: Served[] = [];
+    const urls: string[] = [];
+    const { events } = await runRealPi(replies, {
+      served,
+      model: 'anthropic/claude-sonnet-4.5',
+      listed: null,
+      onTheWire: (inner) => (call, res, request, headers) => {
+        urls.push(res.req.url ?? '');
+        inner(call, res, request, headers);
+      },
+    });
+
+    assert.equal(served.length, 2);
+    assert.deepEqual(urls, ['/v1/chat/completions', '/v1/chat/completions']);
+    const ids = assistantMessages(events).map(({ generationId }) => generationId);
+    assert.equal(ids.length, 2);
+    for (const id of ids) {
+      assert.match(id ?? '', /^gen-/);
+    }
   },
 );
 
