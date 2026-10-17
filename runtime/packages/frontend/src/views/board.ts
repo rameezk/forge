@@ -164,7 +164,7 @@ const renderColumnHeaders = (counts: Record<ColumnKey, number>): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(
     ({ key, title, subtitle, hint, person }) => html`<div data-column-header="${key}" class="border-b border-line bg-raised px-2 py-2">
       <span class="flex h-4 items-center gap-1"><span data-column-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${person ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-column-total class="text-xs leading-4 tabular-nums text-muted">${counts[key]}</span></span></span>
-      <span data-column-subtitle title="${hint ?? subtitle}" class="block truncate text-xs leading-4 text-muted">${subtitle}</span>
+      <span data-column-subtitle title="${hint ?? subtitle}" class="block truncate text-[0.6875rem] leading-4 text-muted">${subtitle}</span>
     </div>`,
   )}</div>`;
 
