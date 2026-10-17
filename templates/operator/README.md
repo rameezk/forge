@@ -652,7 +652,27 @@ forge.runtime.repositories.forge = {
 A host with a repository that declares `on.conflict` must provide
 `github_app_id` and `github_app_private_key`, as for `on.ticket`.
 
-To resolve the conflicts on a pull request, run:
+Nobody has to run a command. Each frontier sync records, for every open pull
+request forge's App authored, drafts included, whether GitHub reports it as
+conflicting, its head sha and the default branch's head sha. The dispatch pass
+starts a conflict resolution for a conflicting pull request whose repository
+declares `on.conflict` when it has no live dispatch, revision or conflict
+resolution and a slot is free in the shared `dispatch.maxConcurrent` pool. Only
+a conflicting state triggers: a pull request that is mergeable, or merely
+behind the default branch, or whose mergeability GitHub has not computed yet,
+is left alone, and a later sync picks it up once GitHub has. Pull requests
+authored by people are never touched. Where a revision is also due on the
+pull request, the conflict resolution starts first and the revision waits
+until it ends.
+
+Each attempt is keyed on the pair of the pull request's head sha and the
+default branch's head sha. Once a conflict resolution has run for a pair,
+however it ended, the dispatch pass does not start another for that pair, so a
+failed attempt is not retried by itself. A new commit on either branch makes a
+new pair and so a new attempt, and `forge-resolve-conflicts` starts one by hand
+whatever the pair.
+
+To resolve the conflicts on a pull request by hand, run:
 
 ```bash
 just ssh sudo forge-resolve-conflicts forge 143

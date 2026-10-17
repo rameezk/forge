@@ -77,6 +77,8 @@ const actor = ({ login, type }: Author) => ({ __typename: type, login });
 const graphqlNode = (pull: FakePullRequest) => ({
   number: pull.number,
   url: `https://github.com/rameezk/forge/pull/${pull.number}`,
+  mergeable: 'MERGEABLE',
+  headRefOid: `head-${pull.number}`,
   author: actor(pull.author),
   closingIssuesReferences: {
     nodes: (pull.closes ?? []).map((number) => ({
@@ -112,6 +114,7 @@ const github = (pulls: () => FakePullRequest[]): typeof globalThis.fetch =>
         : operation === 'WatchedPullRequests'
           ? {
               repository: {
+                defaultBranchRef: { target: { oid: 'default-a' } },
                 pullRequests: {
                   pageInfo: { hasNextPage: false, endCursor: null },
                   nodes: pulls()
@@ -363,6 +366,7 @@ test('given feedback past its quiet period while a conflict resolution of the pu
       'run-conflict',
       new Date().toISOString(),
       5,
+      { headSha: 'head-a', defaultSha: 'default-a' },
     );
     assert.ok('started' in start);
     return start.started;

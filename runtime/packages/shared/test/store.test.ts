@@ -1021,7 +1021,7 @@ const CONFLICTING_PULL_REQUEST = {
 test('given a conflict resolution left running past the heartbeat window, when conflict resolutions are listed, then it reads as interrupted, and it no longer counts toward the pool or holds the pull request', () => {
   const store = Store.open(':memory:');
   const started = '2026-09-21T10:00:00.000Z';
-  const start = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', started, 1);
+  const start = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', started, 1, { headSha: 'head-a', defaultSha: 'default-a' });
   assert.ok('started' in start);
   assert.equal(store.liveWorkloads(started), 1);
 
@@ -1034,7 +1034,7 @@ test('given a conflict resolution left running past the heartbeat window, when c
 
 test('given a conflict resolution that ends in failure, when conflict resolutions are listed, then its state, reason and detail read back', () => {
   const store = Store.open(':memory:');
-  const start = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', '2026-09-21T10:00:00.000Z', 1);
+  const start = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', '2026-09-21T10:00:00.000Z', 1, { headSha: 'head-a', defaultSha: 'default-a' });
   assert.ok('started' in start);
 
   store.endConflictResolution(start.started, 'error', '2026-09-21T10:05:00.000Z', {
@@ -1055,6 +1055,9 @@ const watched = (newestFeedbackAt: string | null) => ({
   url: REVISED.url,
   closes: [] as number[],
   newestFeedbackAt,
+  mergeable: 'MERGEABLE' as const,
+  headSha: 'head-a',
+  defaultSha: 'default-a',
 });
 
 const startedRevision = (store: Store, at: string): { id: number; after: string | null } => {

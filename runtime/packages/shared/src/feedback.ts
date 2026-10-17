@@ -1,10 +1,21 @@
-import { pullRequestUrl, readGraphql, requestGraphql, type Fetch } from './frontier.ts';
+import {
+  pullRequestUrl,
+  readGraphql,
+  requestGraphql,
+  type Fetch,
+  type Mergeable,
+} from './frontier.ts';
 
 export const WATCHED_PAGE_SIZE = 50;
 
 export const WATCHED_PULL_REQUESTS_QUERY = `
   query WatchedPullRequests($owner: String!, $name: String!, $first: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
+      defaultBranchRef {
+        target {
+          oid
+        }
+      }
       pullRequests(
         first: $first
         after: $after
@@ -18,6 +29,8 @@ export const WATCHED_PULL_REQUESTS_QUERY = `
         nodes {
           number
           url
+          mergeable
+          headRefOid
           author {
             __typename
             login
@@ -68,6 +81,8 @@ interface Actor {
 interface WatchedNode {
   number: number;
   url: string;
+  mergeable: Mergeable;
+  headRefOid: string;
   author: Actor | null;
   closingIssuesReferences: {
     nodes: { number: number; repository: { nameWithOwner: string } }[];
@@ -85,6 +100,7 @@ interface WatchedNode {
 }
 
 interface WatchedPage {
+  defaultBranchRef: { target: { oid: string } | null } | null;
   pullRequests: {
     pageInfo: { hasNextPage: boolean; endCursor: string | null };
     nodes: WatchedNode[];
@@ -100,6 +116,9 @@ export interface WatchedPullRequest {
   url: string;
   closes: number[];
   newestFeedbackAt: string | null;
+  mergeable: Mergeable;
+  headSha: string;
+  defaultSha: string;
 }
 
 const FEEDBACK_ASSOCIATIONS = new Set(['OWNER', 'COLLABORATOR']);
@@ -124,13 +143,16 @@ const newestFeedback = (node: WatchedNode): string | null =>
     ),
   ]);
 
-const toWatched = (node: WatchedNode, github: string): WatchedPullRequest => ({
+const toWatched = (node: WatchedNode, github: string, defaultSha: string): WatchedPullRequest => ({
   number: node.number,
   url: pullRequestUrl(node.url),
   closes: node.closingIssuesReferences.nodes
     .filter((issue) => issue.repository.nameWithOwner.toLowerCase() === github.toLowerCase())
     .map((issue) => issue.number),
   newestFeedbackAt: newestFeedback(node),
+  mergeable: node.mergeable,
+  headSha: node.headRefOid,
+  defaultSha,
 });
 
 const queryWatchedPage = async (
@@ -161,14 +183,18 @@ export const queryWatchedPullRequests = async (
   const cursors = new Set<string>();
   let after: string | null = null;
   do {
-    const { pullRequests } = await queryWatchedPage(fetch, token, github, after);
+    const { pullRequests, defaultBranchRef } = await queryWatchedPage(fetch, token, github, after);
+    const defaultSha = defaultBranchRef?.target?.oid;
+    if (defaultSha === undefined) {
+      throw new Error(`GitHub reported no default branch for ${github}`);
+    }
     watched.push(
       ...pullRequests.nodes
         .filter(
           ({ author }) =>
             author?.__typename === 'Bot' && author.login.toLowerCase() === appLogin.toLowerCase(),
         )
-        .map((node) => toWatched(node, github)),
+        .map((node) => toWatched(node, github, defaultSha)),
     );
     after = pullRequests.pageInfo.hasNextPage ? pullRequests.pageInfo.endCursor : null;
     if (after !== null && cursors.has(after)) {

@@ -34,6 +34,7 @@ export type {
   ConflictResolutionRecord,
   ConflictResolutionStart,
   ConflictResolutionState,
+  ShaPair,
   RunPullRequestWorkload,
   PullRequestWorkloadRecord,
 } from './conflict-resolution.ts';

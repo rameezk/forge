@@ -191,11 +191,11 @@ const sync = async (
       ) {
         failed = true;
       }
-      if (on?.feedback !== undefined) {
+      if (on?.feedback !== undefined || on?.conflict !== undefined) {
         try {
           store.recordWatchedPullRequests(name, await watched(github));
         } catch (error) {
-          console.error(`${name}: could not poll pull requests for feedback: ${errorMessage(error)}`);
+          console.error(`${name}: could not poll watched pull requests: ${errorMessage(error)}`);
           failed = true;
         }
       }

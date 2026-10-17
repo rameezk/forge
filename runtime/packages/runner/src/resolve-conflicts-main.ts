@@ -168,6 +168,7 @@ export const main = async (
       runId,
       now(),
       maxConcurrentOf(config),
+      { headSha: target.headSha, defaultSha: target.defaultSha },
     );
     if ('refused' in start) {
       console.error(
