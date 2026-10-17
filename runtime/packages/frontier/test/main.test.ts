@@ -49,6 +49,7 @@ interface Request {
 const replaying = (
   responses: Record<string, RecordedPage[]>,
   refinement: Record<string, RecordedPage[]> = {},
+  human: Record<string, RecordedPage[]> = {},
 ) => {
   const requests: Request[] = [];
   const fetch = async (
@@ -66,7 +67,9 @@ const replaying = (
     const pages =
       body.variables.label === 'ready-for-refinement'
         ? (refinement[github] ?? recorded('no-issues'))
-        : responses[github];
+        : body.variables.label === 'ready-for-human'
+          ? (human[github] ?? recorded('no-issues'))
+          : responses[github];
     const after = body.variables.after;
     const response = pages?.find((_, index) =>
       index === 0 ? after === null : endCursor(pages[index - 1]) === after,
@@ -176,6 +179,8 @@ test('given a declared repository whose recorded response holds unblocked ready-
     createdAt: '2026-09-28T10:08:01Z',
     forgeReady: false,
     blocked: false,
+    forHuman: false,
+    blockedBy: [],
   });
   assert.deepEqual(
     github.requests.map(({ url, method, authorization, body }) => ({
@@ -189,7 +194,13 @@ test('given a declared repository whose recorded response holds unblocked ready-
         url: GITHUB_GRAPHQL_API,
         method: 'POST',
         authorization: `bearer ${GITHUB_TOKEN}`,
-        variables: { owner: 'rameezk', name: 'forge', first: 100, after: null },
+        variables: { owner: 'rameezk', name: 'forge', label: 'ready-for-agent', first: 100, after: null },
+      },
+      {
+        url: GITHUB_GRAPHQL_API,
+        method: 'POST',
+        authorization: `bearer ${GITHUB_TOKEN}`,
+        variables: { owner: 'rameezk', name: 'forge', label: 'ready-for-human', first: 100, after: null },
       },
       {
         url: GITHUB_GRAPHQL_API,
@@ -197,6 +208,34 @@ test('given a declared repository whose recorded response holds unblocked ready-
         authorization: `bearer ${GITHUB_TOKEN}`,
         variables: { owner: 'rameezk', name: 'forge', label: 'ready-for-refinement', first: 100, after: null },
       },
+    ],
+  );
+});
+
+test('given a repository with a blocked ready-for-agent ticket, a blocked forge:ready ticket and a blocked ready-for-human ticket, when sync runs, then all three are stored as blocked with their open blockers, and only the forge:ready one is queued', async () => {
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
+  const github = replaying(
+    { 'rameezk/forge': recorded('blocked-agent') },
+    {},
+    { 'rameezk/forge': recorded('ready-for-human') },
+  );
+
+  const code = await run(app, ['sync'], env, github.fetch);
+
+  assert.equal(code, 0);
+  assert.deepEqual(
+    storedFrontier(stateDir)[0]?.tickets.map(({ number, blocked, blockedBy, forgeReady, forHuman }) => ({
+      number,
+      blocked,
+      blockedBy,
+      forgeReady,
+      forHuman,
+    })),
+    [
+      { number: 201, blocked: true, blockedBy: [200], forgeReady: false, forHuman: false },
+      { number: 202, blocked: true, blockedBy: [200, 199], forgeReady: true, forHuman: false },
+      { number: 203, blocked: true, blockedBy: [200], forgeReady: false, forHuman: true },
+      { number: 204, blocked: false, blockedBy: [], forgeReady: false, forHuman: true },
     ],
   );
 });
@@ -352,7 +391,7 @@ test('given a declared repository with all seven labels already styled as forge 
   assert.deepEqual(github.calls.filter(({ method }) => method !== 'GET'), []);
 });
 
-test('given a declared repository whose recorded response spans several pages, when sync runs, then tickets from every page are stored, and a blocked ticket not labelled forge:ready stays out', async () => {
+test('given a declared repository whose recorded response spans several pages, when sync runs, then tickets from every page are stored, blocked ones included', async () => {
   const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
   const pages = recorded('frontier-paged');
   const github = replaying({ 'rameezk/forge': pages });
@@ -363,10 +402,10 @@ test('given a declared repository whose recorded response spans several pages, w
   const [forge] = storedFrontier(stateDir);
   assert.deepEqual(
     forge?.tickets.map((ticket) => ticket.number),
-    [57, 58, 62, 63, 69, 70],
+    [57, 58, 62, 63, 64, 69, 70],
   );
   assert.deepEqual(
-    github.requests.filter(({ body }) => body.variables.label === undefined).map(({ body }) => body.variables.after),
+    github.requests.filter(({ body }) => body.variables.label === 'ready-for-agent').map(({ body }) => body.variables.after),
     [null, ...pages.slice(0, 2).map(endCursor)],
   );
 });
@@ -388,6 +427,8 @@ const staleTicket = (github: string, number: number): Ticket => ({
   createdAt: '2026-09-01T09:00:00Z',
   forgeReady: false,
   blocked: false,
+  forHuman: false,
+  blockedBy: [],
 });
 
 test('given two declared repositories with stored snapshots where GitHub now fails for one, when sync runs, then the healthy snapshot is replaced and the failing one keeps its previous tickets and polled time with the error as its last error', async () => {
@@ -677,7 +718,7 @@ test('given a store holding an existing snapshot, when list runs, then the store
   const code = await run(app, ['list'], env, github.fetch);
 
   assert.equal(code, 0);
-  assert.equal(github.requests.length, 2);
+  assert.equal(github.requests.length, 4);
   assert.deepEqual(storedFrontier(stateDir), before);
 });
 
@@ -915,7 +956,7 @@ test('given a managed repository the App is not installed on, when sync runs, th
   assert.equal(forge?.lastError, null);
   assert.equal(forge?.tickets.length, 7);
   assert.equal(stray?.lastError?.message, 'the GitHub App is not installed on rameezk/stray');
-  assert.deepEqual(github.requests.map(({ body }) => body.variables.name), ['forge', 'forge']);
+  assert.deepEqual(github.requests.map(({ body }) => body.variables.name), ['forge', 'forge', 'forge']);
 });
 
 interface RecordedPullRequest {

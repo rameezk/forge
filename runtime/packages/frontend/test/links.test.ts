@@ -25,6 +25,8 @@ const dashboard = () => {
         createdAt: '2026-09-28T10:07:58Z',
         forgeReady: true,
         blocked: false,
+        forHuman: false,
+        blockedBy: [],
       },
     ],
   });

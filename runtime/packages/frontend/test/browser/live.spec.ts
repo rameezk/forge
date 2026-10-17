@@ -40,6 +40,8 @@ const ticket: Ticket = {
   createdAt: '2026-09-30T10:00:00Z',
   forgeReady: false,
   blocked: false,
+  forHuman: false,
+  blockedBy: [],
 };
 
 const polledFrontier: PolledFrontier = {

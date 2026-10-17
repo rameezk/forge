@@ -27,6 +27,7 @@ export type BoardLane = RepositoryFrontier & { columns: Record<ColumnKey, BoardC
 
 const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): Exclude<ColumnKey, 'to-refine'> => {
   if (ticket.blocked) return 'blocked';
+  if (ticket.forHuman) return 'ready-for-human';
   if (dispatch?.state === 'running') return 'running';
   if (dispatch?.state === 'failed') return 'failed';
   if (dispatch?.state === 'done') {

@@ -221,7 +221,7 @@ const describeTicket = (ticket: Ticket): string[] => {
 };
 
 const describeFrontier = (tickets: Ticket[]): string[] => {
-  const frontier = tickets.filter((ticket) => !ticket.blocked);
+  const frontier = tickets.filter((ticket) => !ticket.blocked && !ticket.forHuman);
   return frontier.length === 0
     ? ['  no tickets on the frontier']
     : frontier.toSorted(oldestFirst).flatMap(describeTicket);

@@ -16,6 +16,8 @@ const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
   createdAt: '2026-09-28T10:07:58Z',
   forgeReady: false,
   blocked: false,
+  forHuman: false,
+  blockedBy: [],
   ...overrides,
 });
 
@@ -184,6 +186,39 @@ test('given a done dispatch with an open pull request and a running revision on 
   assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'in-review': ['5', '6'] });
   assert.match(cardOf(body, 5), /data-revising[^>]*>\s*revising\s*</);
   assert.doesNotMatch(cardOf(body, 6), /data-revising/);
+});
+
+test('given a blocked ready-for-agent ticket, a blocked forge:ready ticket and a blocked ready-for-human ticket, when the Board is requested, then all three are in Blocked, the first with no marker, the second with a queued pill and the third with a ready-for-human tag, and each says which tickets block it', async () => {
+  const app = appWith([
+    frontierOf([
+      ticket({ number: 1, blocked: true, blockedBy: [200] }),
+      ticket({ number: 2, blocked: true, blockedBy: [200, 199], forgeReady: true }),
+      ticket({ number: 3, blocked: true, blockedBy: [201], forHuman: true }),
+    ]),
+  ]);
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { blocked: ['1', '2', '3'] });
+  assert.match(textOf(cardOf(body, 1)), /blocked by #200$/);
+  assert.match(textOf(cardOf(body, 2)), /queued blocked by #200\s*, #199$/);
+  assert.match(textOf(cardOf(body, 3)), /ready-for-human blocked by #201$/);
+  assert.match(cardOf(body, 1), /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/200"[^>]*>#200<\/a>/);
+  assert.doesNotMatch(cardOf(body, 1), /data-queued|data-ready-for-human/);
+  assert.match(cardOf(body, 2), /data-queued/);
+  assert.doesNotMatch(cardOf(body, 2), /data-ready-for-human/);
+  assert.match(cardOf(body, 3), /<span[^>]*data-ready-for-human[^>]*>ready-for-human<\/span>/);
+  assert.doesNotMatch(cardOf(body, 3), /data-queued/);
+});
+
+test('given an unblocked ready-for-human ticket, when the Board is requested, then it is in Ready for human with its created date and no blocked marker', async () => {
+  const app = appWith([frontierOf([ticket({ number: 8, forHuman: true, createdAt: '2026-09-27T10:00:00Z' })])]);
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'ready-for-human': ['8'] });
+  assert.match(textOf(cardOf(body, 8)), /2026-09-27$/);
+  assert.doesNotMatch(cardOf(body, 8), /data-ready-for-human/);
 });
 
 const runOf = (number: number): RunRecord => ({

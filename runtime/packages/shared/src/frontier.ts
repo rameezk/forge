@@ -6,16 +6,20 @@ export const FRONTIER_PAGE_SIZE = 100;
 
 const READY_FOR_AGENT = 'ready-for-agent';
 
+const READY_FOR_HUMAN = 'ready-for-human';
+
+export const BLOCKERS_PAGE_SIZE = 50;
+
 const READY_FOR_REFINEMENT = 'ready-for-refinement';
 
 export const FRONTIER_QUERY = `
-  query Frontier($owner: String!, $name: String!, $first: Int!, $after: String) {
+  query Frontier($owner: String!, $name: String!, $label: String!, $first: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
       issues(
         first: $first
         after: $after
         states: OPEN
-        labels: ["${READY_FOR_AGENT}"]
+        labels: [$label]
         orderBy: { field: CREATED_AT, direction: ASC }
       ) {
         pageInfo {
@@ -34,6 +38,12 @@ export const FRONTIER_QUERY = `
           }
           issueDependenciesSummary {
             blockedBy
+          }
+          blockedBy(first: ${BLOCKERS_PAGE_SIZE}) {
+            nodes {
+              number
+              state
+            }
           }
           parent {
             number
@@ -229,7 +239,9 @@ export interface Ticket {
   parent: SpecRef | null;
   createdAt: string;
   forgeReady: boolean;
+  forHuman: boolean;
   blocked: boolean;
+  blockedBy: number[];
 }
 
 export interface RefinementRequest {
@@ -269,6 +281,7 @@ interface IssueNode {
   createdAt: string;
   labels: { nodes: { name: string }[] };
   issueDependenciesSummary: { blockedBy: number };
+  blockedBy: { nodes: { number: number; state: string }[] };
   parent: SpecRef | null;
 }
 
@@ -319,7 +332,9 @@ const toTicket = (issue: IssueNode): Ticket => ({
         },
   createdAt: issue.createdAt,
   forgeReady: issue.labels.nodes.some((label) => label.name === FORGE_READY),
+  forHuman: issue.labels.nodes.some((label) => label.name === READY_FOR_HUMAN),
   blocked: issue.issueDependenciesSummary.blockedBy > 0,
+  blockedBy: issue.blockedBy.nodes.filter((blocker) => blocker.state === 'OPEN').map((blocker) => blocker.number),
 });
 
 export const requestGraphql = (
@@ -370,9 +385,10 @@ export const requestFrontierPage = (
   fetch: Fetch,
   token: string,
   github: string,
+  label: string,
   { first, after }: { first: number; after: string | null },
 ): Promise<Response> =>
-  requestGraphql(fetch, token, FRONTIER_QUERY, github, { first, after });
+  requestGraphql(fetch, token, FRONTIER_QUERY, github, { label, first, after });
 
 export const requestTicket = (
   fetch: Fetch,
@@ -428,21 +444,31 @@ const queryIssues = async <Node>(
   return issues;
 };
 
-export const queryFrontier = async (
+const queryTicketsLabelled = async (
   fetch: Fetch,
   token: string,
   github: string,
+  label: string,
 ): Promise<Ticket[]> =>
   (
     await queryIssues<IssueNode>(FRONTIER_QUERY, github, (after) =>
-      requestFrontierPage(fetch, token, github, {
+      requestFrontierPage(fetch, token, github, label, {
         first: FRONTIER_PAGE_SIZE,
         after,
       }),
     )
-  )
-    .map(toTicket)
-    .filter((ticket) => !ticket.blocked || ticket.forgeReady);
+  ).map(toTicket);
+
+export const queryFrontier = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+): Promise<Ticket[]> => {
+  const agent = await queryTicketsLabelled(fetch, token, github, READY_FOR_AGENT);
+  const human = await queryTicketsLabelled(fetch, token, github, READY_FOR_HUMAN);
+  const stored = new Set(human.map((ticket) => ticket.number));
+  return [...agent.filter((ticket) => !stored.has(ticket.number)), ...human].sort(oldestFirst);
+};
 
 export type LabelledIssue = RefinementRequest;
 

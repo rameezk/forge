@@ -15,6 +15,8 @@ const ticket = (github: string, number: number, overrides: Partial<Ticket> = {})
   createdAt: `2026-09-28T10:00:${String(number % 60).padStart(2, '0')}Z`,
   forgeReady: true,
   blocked: false,
+  forHuman: false,
+  blockedBy: [],
   ...overrides,
 });
 
@@ -98,6 +100,19 @@ test('given a frontier ticket labelled forge:ready, a frontier ticket without it
   assert.equal(code, 0);
   assert.deepEqual(started, ['start --no-block --no-ask-password -- forge-dispatch@forge:113.service']);
   assert.match(journal, /forge#113: started forge-dispatch@forge:113\.service/);
+});
+
+test('given an unblocked ready-for-human ticket labelled forge:ready beside a frontier ticket labelled forge:ready, when the pass runs, then only the agent ticket is dispatched', async () => {
+  const { started } = await pass({
+    frontier: [
+      polled('forge', 'rameezk/forge', [
+        ticket('rameezk/forge', 113, { forHuman: true }),
+        ticket('rameezk/forge', 114),
+      ]),
+    ],
+  });
+
+  assert.deepEqual(started, ['start --no-block --no-ask-password -- forge-dispatch@forge:114.service']);
 });
 
 test('given maxConcurrent = 1 and two dispatchable tickets, when the pass runs, then only the older is dispatched and the other waits; while the first runs a later pass dispatches nothing, even though the snapshot predates its claim; and once it finishes the next pass dispatches the other', async () => {

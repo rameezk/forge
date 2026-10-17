@@ -17,6 +17,7 @@ const schema = extendSchema(
 
     extend type Issue {
       issueDependenciesSummary: IssueDependenciesSummary!
+      blockedBy(first: Int, after: String): IssueConnection!
       parent: Issue
     }
   `),

@@ -453,7 +453,9 @@ type TicketRow = {
   parent_url: string | null;
   created_at: string;
   forge_ready: number;
+  for_human: number;
   blocked: number;
+  blocked_by: string;
 };
 
 const CREATE_FRONTIER = `
@@ -475,7 +477,9 @@ const CREATE_FRONTIER = `
     parent_url    TEXT,
     created_at    TEXT NOT NULL,
     forge_ready   INTEGER NOT NULL,
+    for_human     INTEGER NOT NULL,
     blocked       INTEGER NOT NULL,
+    blocked_by    TEXT NOT NULL,
     PRIMARY KEY (repository, number)
   ) STRICT;
 
@@ -777,7 +781,7 @@ const HAS_OUTDATED_FRONTIER = `
   ) OR (
     type = 'table' AND name = 'frontier_tickets'
     AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'parent_url'
+      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'blocked_by'
     )
   )
 `;
@@ -862,7 +866,9 @@ const ticketFromRow = (row: TicketRow): Ticket => ({
       : { number: row.parent_number, title: row.parent_title, url: row.parent_url },
   createdAt: row.created_at,
   forgeReady: row.forge_ready === 1,
+  forHuman: row.for_human === 1,
   blocked: row.blocked === 1,
+  blockedBy: JSON.parse(row.blocked_by) as number[],
 });
 
 const generationFromRow = (row: GenerationRow): GenerationRecord => ({
@@ -1656,10 +1662,10 @@ export class Store {
       const insert = this.#db.prepare(
         `INSERT INTO frontier_tickets (
           repository, number, title, url, parent_number, parent_title, parent_url, created_at,
-          forge_ready, blocked
+          forge_ready, for_human, blocked, blocked_by
         ) VALUES (
           $repository, $number, $title, $url, $parent_number, $parent_title, $parent_url, $created_at,
-          $forge_ready, $blocked
+          $forge_ready, $for_human, $blocked, $blocked_by
         )`,
       );
       for (const ticket of tickets) {
@@ -1673,7 +1679,9 @@ export class Store {
           parent_url: ticket.parent?.url ?? null,
           created_at: ticket.createdAt,
           forge_ready: ticket.forgeReady ? 1 : 0,
+          for_human: ticket.forHuman ? 1 : 0,
           blocked: ticket.blocked ? 1 : 0,
+          blocked_by: JSON.stringify(ticket.blockedBy),
         });
       }
       this.#db

@@ -1,0 +1,61 @@
+[
+  {
+    "data": {
+      "repository": {
+        "issues": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0xMC0xN1QwODowMDowMFo="
+          },
+          "nodes": [
+            {
+              "number": 203,
+              "title": "Blocked human ticket",
+              "url": "https://github.com/rameezk/forge/issues/203",
+              "createdAt": "2026-10-03T10:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-human"
+                  }
+                ]
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 1
+              },
+              "blockedBy": {
+                "nodes": [
+                  {
+                    "number": 200,
+                    "state": "OPEN"
+                  }
+                ]
+              },
+              "parent": null
+            },
+            {
+              "number": 204,
+              "title": "Unblocked human ticket",
+              "url": "https://github.com/rameezk/forge/issues/204",
+              "createdAt": "2026-10-04T10:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-human"
+                  }
+                ]
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0
+              },
+              "blockedBy": {
+                "nodes": []
+              },
+              "parent": null
+            }
+          ]
+        }
+      }
+    }
+  }
+]

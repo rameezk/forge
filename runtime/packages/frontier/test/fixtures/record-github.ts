@@ -20,7 +20,7 @@ interface Page {
 const pages: Page[] = [];
 let after: string | null = null;
 do {
-  const response = await requestFrontierPage(fetch, token, github, { first, after });
+  const response = await requestFrontierPage(fetch, token, github, 'ready-for-agent', { first, after });
   if (!response.ok) {
     throw new Error(`GitHub answered ${response.status}`);
   }

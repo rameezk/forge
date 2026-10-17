@@ -77,7 +77,7 @@ test('given a dispatch that ended exceeded on its timeout, when the Board render
       github: 'rameezk/forge',
       polledAt: '2026-09-29T08:15:00.000Z',
       requests: [],
-      tickets: [{ number: 56, title: 'Slow ticket', url, parent: null, createdAt: '2026-09-28T10:00:00Z', forgeReady: false, blocked: false }],
+      tickets: [{ number: 56, title: 'Slow ticket', url, parent: null, createdAt: '2026-09-28T10:00:00Z', forgeReady: false, forHuman: false, blocked: false, blockedBy: [] }],
     });
     const start = store.startDispatch({ repository: 'forge', number: 56, url }, 'run-56', '2026-09-29T08:00:00.000Z', Number.POSITIVE_INFINITY);
     assert.ok('started' in start);
@@ -162,7 +162,7 @@ test('given a dispatch that ended exceeded on its budget, when the Board renders
       github: 'rameezk/forge',
       polledAt: '2026-09-29T08:15:00.000Z',
       requests: [],
-      tickets: [{ number: 57, title: 'Costly ticket', url, parent: null, createdAt: '2026-09-28T10:00:00Z', forgeReady: false, blocked: false }],
+      tickets: [{ number: 57, title: 'Costly ticket', url, parent: null, createdAt: '2026-09-28T10:00:00Z', forgeReady: false, forHuman: false, blocked: false, blockedBy: [] }],
     });
     const start = store.startDispatch({ repository: 'forge', number: 57, url }, 'run-57', '2026-09-29T08:00:00.000Z', Number.POSITIVE_INFINITY);
     assert.ok('started' in start);
