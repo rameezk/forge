@@ -162,7 +162,7 @@ export const seedStore = (store: Store, seeds: Seed[]): void => {
   }
 };
 
-export const dashboard = (seeds: Seed[]) => {
+export const dashboard = (seeds: Seed[], timeZone?: string) => {
   const store = Store.open(':memory:');
   seedStore(store, seeds);
   const app = createApp({
@@ -172,6 +172,7 @@ export const dashboard = (seeds: Seed[]) => {
     logo: '',
     idiomorph: '',
     client: '',
+    ...(timeZone === undefined ? {} : { timeZone }),
   });
   return { store, app, page: async (query = ''): Promise<string> => (await app.request(`/insights${query}`)).text() };
 };

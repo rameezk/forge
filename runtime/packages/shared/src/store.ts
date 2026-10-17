@@ -543,16 +543,16 @@ const INSIGHT_WHERE = `
     AND ($include_manual = 1 OR d.id IS NOT NULL)
     AND ($worker IS NULL OR r.worker = $worker)
     AND ($repository IS NULL OR r.repository = $repository)
-    AND ($from IS NULL OR substr(r.start_time, 1, 10) >= $from)
-    AND ($to IS NULL OR substr(r.start_time, 1, 10) <= $to)
+    AND ($started_from IS NULL OR substr(r.start_time, 1, 19) >= substr($started_from, 1, 19))
+    AND ($started_before IS NULL OR substr(r.start_time, 1, 19) < substr($started_before, 1, 19))
 `;
 
 const insightParameters = (filter: InsightsFilter) => ({
   include_manual: filter.includeManual ? 1 : 0,
   worker: filter.worker ?? null,
   repository: filter.repository ?? null,
-  from: filter.from ?? null,
-  to: filter.to ?? null,
+  started_from: filter.startedFrom ?? null,
+  started_before: filter.startedBefore ?? null,
 });
 
 const HAS_DISPATCH_PULL_REQUEST = `

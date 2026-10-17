@@ -8,9 +8,10 @@ import type { TranscriptSource } from './transcript.ts';
 import { renderTicketAttempts } from './views/attempts.ts';
 import { renderBoard } from './views/board.ts';
 import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
-import { renderCohortPage, renderInsights, renderUnknownCohortPage } from './views/insights.ts';
+import { renderCohortPage, renderInsights, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs, type Display } from './views/shared.ts';
+import { dayRange, parseDay } from './days.ts';
 import { parsePage, parseWorkloadFilter } from './workload-filter.ts';
 import { renderList } from './views/workloads.ts';
 
@@ -121,20 +122,32 @@ export const createApp = ({
     return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, shown));
   });
 
-  const DATE = /^\d{4}-\d{2}-\d{2}$/;
+  const queryOf = (query: Record<string, string>): InsightsQuery => {
+    const from = parseDay(query['from']);
+    const to = parseDay(query['to']);
+    return {
+      includeManual: query['manual'] === '1',
+      ...(query['worker'] ? { worker: query['worker'] } : {}),
+      ...(query['repository'] ? { repository: query['repository'] } : {}),
+      ...(from === undefined ? {} : { from }),
+      ...(to === undefined ? {} : { to }),
+    };
+  };
 
-  const filterOf = (query: Record<string, string>): InsightsFilter => ({
-    includeManual: query['manual'] === '1',
-    ...(query['worker'] ? { worker: query['worker'] } : {}),
-    ...(query['repository'] ? { repository: query['repository'] } : {}),
-    ...(DATE.test(query['from'] ?? '') ? { from: query['from']! } : {}),
-    ...(DATE.test(query['to'] ?? '') ? { to: query['to']! } : {}),
-  });
+  const filterOf = ({ from, to, ...rest }: InsightsQuery): InsightsFilter => {
+    const { startedFrom, startedBefore } = dayRange(from, to, timeZone);
+    return {
+      ...rest,
+      ...(startedFrom === undefined ? {} : { startedFrom: new Date(startedFrom).toISOString() }),
+      ...(startedBefore === undefined ? {} : { startedBefore: new Date(startedBefore).toISOString() }),
+    };
+  };
 
   app.get('/insights', (c) => {
     const shown = displayOf(c);
-    const filter = filterOf(c.req.query());
-    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), filter, store.insightsOptions(), shown));
+    const query = queryOf(c.req.query());
+    const filter = filterOf(query);
+    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), query, store.insightsOptions(), shown));
   });
 
   app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => {

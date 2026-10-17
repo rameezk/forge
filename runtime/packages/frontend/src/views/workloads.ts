@@ -89,8 +89,8 @@ const renderSelect = (label: string, name: string, values: string[], selected: s
 const unique = (values: (string | undefined)[]): string[] =>
   [...new Set(values.filter((value): value is string => value !== undefined))].sort();
 
-const renderChips = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
-  const scoped = filterWorkloads(all, filter, true);
+const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string): Rendered => {
+  const scoped = filterWorkloads(all, filter, timeZone, true);
   const chips: { key: string; label: string; status: RunStatus | undefined; count: number }[] = [
     { key: 'all', label: 'All', status: undefined, count: scoped.length },
     ...STATUSES.map((status) => ({
@@ -182,7 +182,7 @@ export const renderList = (
   pullRequestWorkloads: ReadonlyMap<string, PullRequestWorkloadRecord>,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const runs = filterWorkloads(all, filter);
+  const runs = filterWorkloads(all, filter, display.timeZone);
   const paged = paginate(runs, requestedPage);
   const body =
     all.length === 0
@@ -193,7 +193,7 @@ export const renderList = (
             <span>Showing ${runs.length} of ${all.length} workloads, ${renderBilledTotal(runs, all)}</span>
             ${renderListPriceTotal(runs, all, equivalents)}
           </p>
-          ${renderChips(all, filter)}
+          ${renderChips(all, filter, display.timeZone)}
           ${renderFilters(all, filter)}
           ${runs.length === 0
             ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`

@@ -5,6 +5,11 @@ import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatCost, formatMeasure, formatElapsed, formatRate } from '../format.ts';
 import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
 
+export interface InsightsQuery extends InsightsFilter {
+  from?: string;
+  to?: string;
+}
+
 const FIELD = 'flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
 const COHORT_TH = 'border-b border-line bg-raised px-2.5 py-2.5 text-[0.65rem] font-semibold uppercase leading-tight tracking-[0.04em] text-fg';
@@ -19,7 +24,7 @@ const renderOptions = (values: string[], selected: string | undefined): Rendered
 const LIST_PRICE_NOTE = html`<p class="m-0 mt-2 text-[0.8rem] text-muted" data-cost-note>Cohorts marked subscription show their list-price equivalent, what they would have cost at list price, not billed spend.</p>`;
 
 const renderInsightsFilters = (
-  filter: InsightsFilter,
+  filter: InsightsQuery,
   options: InsightsOptions,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<form method="get" action="/insights" class="mb-4 flex flex-wrap items-end gap-3" data-filters>
@@ -69,12 +74,13 @@ const renderCostOverTime = (
   cohorts: CohortInsight[],
   points: InsightPoint[],
   shares: ProviderShare[],
+  timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const series = seriesOf(cohorts.map(({ hash }) => hash));
   return html`<section class="${CARD} mt-4 p-4" data-cost-chart aria-label="Cost over time">
     <h2 class="mb-2 text-sm font-semibold text-fg">Cost over time</h2>
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
-      <div class="w-full max-w-[30rem] shrink-0">${points.length === 0 ? html`<p class="m-0 text-[0.8rem] text-muted" data-chart-empty>No workload has a cost to plot.</p>` : renderCostChart(points, series)}</div>
+      <div class="w-full max-w-[30rem] shrink-0">${points.length === 0 ? html`<p class="m-0 text-[0.8rem] text-muted" data-chart-empty>No workload has a cost to plot.</p>` : renderCostChart(points, series, timeZone)}</div>
       ${renderChartLegend(cohorts, points, series)}
     </div>
   </section>
@@ -85,7 +91,7 @@ export const renderInsights = (
   cohorts: CohortInsight[],
   points: InsightPoint[],
   shares: ProviderShare[],
-  filter: InsightsFilter,
+  filter: InsightsQuery,
   options: InsightsOptions,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
@@ -115,7 +121,7 @@ export const renderInsights = (
           </table>
         </div>
         ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}
-        ${renderCostOverTime(cohorts, points, shares)}`}`;
+        ${renderCostOverTime(cohorts, points, shares, display.timeZone)}`}`;
   return layout('Insights', 'insights', true, display, body);
 };
 
