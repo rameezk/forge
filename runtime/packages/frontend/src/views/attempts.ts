@@ -46,7 +46,7 @@ const WORKLOAD_TONE: Record<RevisionState, string> = {
 const renderWorkloadFailure = (workload: PullRequestWorkloadRecord): Rendered => {
   const text = pullRequestFailureText(workload);
   if (text === null) return '';
-  return html`<p class="m-0 mt-1 max-w-64 text-xs wrap-anywhere whitespace-pre-line text-muted" data-revision-failure>${text}</p>`;
+  return html`<p class="m-0 mt-1 max-w-64 text-xs wrap-anywhere whitespace-pre-line text-muted" data-workload-failure>${text}</p>`;
 };
 
 const renderWorkload = (
