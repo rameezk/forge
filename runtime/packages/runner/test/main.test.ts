@@ -427,7 +427,7 @@ const dashboardCost = async (stateDir: string): Promise<string> => {
       idiomorph: '',
       client: '',
     });
-    const body = await (await app.request('/runs')).text();
+    const body = await (await app.request('/workloads')).text();
     return (body.match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>([\s\S]*?)<\/td>/)?.[1] ?? '')
       .replace(/<[^>]*>/g, ' ')
       .replace(/\s+/g, ' ')
@@ -1170,7 +1170,7 @@ test('given pi output whose usage counts are too large to read back, negative, f
       idiomorph: '',
       client: '',
     });
-    assert.equal((await app.request('/runs')).status, 200);
+    assert.equal((await app.request('/workloads')).status, 200);
     assert.equal((await app.request(`/runs/${run.id}`)).status, 200);
   } finally {
     store.close();

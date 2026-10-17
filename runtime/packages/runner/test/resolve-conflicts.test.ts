@@ -318,7 +318,7 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
           logo: '',
           idiomorph: '',
           client: '',
-        }).request('/runs')
+        }).request('/workloads')
       ).text(),
     };
   } finally {

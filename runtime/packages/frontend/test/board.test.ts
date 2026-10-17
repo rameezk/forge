@@ -76,6 +76,10 @@ test('given the dashboard, when / and /work are requested, then / serves the Boa
   const legacy = await app.request('/runs');
   assert.equal(legacy.status, 302);
   assert.equal(legacy.headers.get('location'), '/workloads');
+
+  const filtered = await app.request('/runs?status=error&page=2');
+  assert.equal(filtered.status, 302);
+  assert.equal(filtered.headers.get('location'), '/workloads?status=error&page=2');
 });
 
 const columnHeaders = (body: string): string[] =>

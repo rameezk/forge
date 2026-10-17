@@ -122,7 +122,7 @@ export const createApp = ({
 
   app.get('/work', (c) => c.redirect('/'));
 
-  app.get('/runs', (c) => c.redirect('/workloads'));
+  app.get('/runs', (c) => c.redirect(`/workloads${new URL(c.req.url).search}`));
 
   app.get('/workloads', (c) => {
     const shown = displayOf(c);

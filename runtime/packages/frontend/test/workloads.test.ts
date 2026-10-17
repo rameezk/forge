@@ -232,7 +232,7 @@ test('given a page beyond the last, when opened, then the last page lists', asyn
   assert.equal(listed(await open(runs, '/workloads?page=abc')).length, 50);
 });
 
-test('given a filtered, paged runs list, when its links are read, then the filter form, status chips and paging links stay under /runs', async () => {
+test('given a filtered, paged runs list, when its links are read, then the filter form, status chips and paging links stay under /workloads', async () => {
   const runs = numbered(130, (index) => ({ status: index % 2 === 0 ? 'error' : 'success' }));
   const body = await open(runs, '/workloads?status=error');
 
