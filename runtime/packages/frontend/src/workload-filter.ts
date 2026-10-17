@@ -1,9 +1,26 @@
 import type { RunRecord, RunStatus } from '@forge/shared';
-import { dayRange, parseDay } from './days.ts';
+import { addDays, dayOf, dayRange, parseDay } from './days.ts';
 
 export const STATUSES: readonly RunStatus[] = ['running', 'success', 'error', 'interrupted', 'exceeded'];
 
+export interface RangePreset {
+  key: string;
+  label: string;
+  resolve: (today: string) => { from: string; to: string };
+}
+
+const lastDays = (count: number) => (today: string) => ({ from: addDays(today, 1 - count), to: today });
+
+export const RANGE_PRESETS: readonly RangePreset[] = [
+  { key: 'today', label: 'Today', resolve: lastDays(1) },
+  { key: 'yesterday', label: 'Yesterday', resolve: (today) => ({ from: addDays(today, -1), to: addDays(today, -1) }) },
+  { key: '7d', label: 'Last 7 days', resolve: lastDays(7) },
+  { key: '30d', label: 'Last 30 days', resolve: lastDays(30) },
+  { key: 'month', label: 'This month', resolve: (today) => ({ from: `${today.slice(0, 8)}01`, to: today }) },
+];
+
 export interface WorkloadFilter {
+  range?: string;
   status?: RunStatus;
   search?: string;
   worker?: string;
@@ -15,8 +32,9 @@ export interface WorkloadFilter {
 
 export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilter => {
   const status = STATUSES.find((candidate) => candidate === query['status']);
-  const from = parseDay(query['from']);
-  const to = parseDay(query['to']);
+  const range = RANGE_PRESETS.find((candidate) => candidate.key === query['range'])?.key;
+  const from = range === undefined ? parseDay(query['from']) : undefined;
+  const to = range === undefined ? parseDay(query['to']) : undefined;
   const search = (query['search'] ?? '').trim().replace(/^#/, '');
   return {
     ...(status === undefined ? {} : { status }),
@@ -24,6 +42,7 @@ export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilt
     ...(query['worker'] ? { worker: query['worker'] } : {}),
     ...(query['repository'] ? { repository: query['repository'] } : {}),
     ...(query['model'] ? { model: query['model'] } : {}),
+    ...(range === undefined ? {} : { range }),
     ...(from === undefined ? {} : { from }),
     ...(to === undefined ? {} : { to }),
   };
@@ -38,9 +57,12 @@ export const filterWorkloads = (
   runs: RunRecord[],
   filter: WorkloadFilter,
   timeZone: string,
+  now: number,
   ignoreStatus = false,
 ): RunRecord[] => {
-  const { startedFrom, startedBefore } = dayRange(filter.from, filter.to, timeZone);
+  const preset = RANGE_PRESETS.find(({ key }) => key === filter.range);
+  const days = preset === undefined ? filter : preset.resolve(dayOf(now, timeZone));
+  const { startedFrom, startedBefore } = dayRange(days.from, days.to, timeZone);
   return runs.filter(
     (run) =>
       (ignoreStatus || filter.status === undefined || run.status === filter.status) &&
