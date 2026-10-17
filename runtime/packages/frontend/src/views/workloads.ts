@@ -3,7 +3,7 @@ import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, 
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
-import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, pullRequestFailureText, NUMERIC_WRAPPING, layout } from './shared.ts';
+import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, workloadOutcomeText, renderWorkloadOutcome, NUMERIC_WRAPPING, layout } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
   pullRequestWorkload === undefined
@@ -12,19 +12,20 @@ const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | u
     ? externalLink(pullRequestWorkload.url, `PR #${pullRequestWorkload.number}`)
     : html`PR #${pullRequestWorkload.number}`}`;
 
-const failureOf = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): string | null => {
-  if (pullRequestWorkload === undefined) return null;
-  const text = pullRequestFailureText(pullRequestWorkload);
-  if (text !== null) return text;
-  return pullRequestWorkload.state === 'error' ? run.error : null;
+const runErrorOf = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): string | null =>
+  pullRequestWorkload?.state === 'error' && pullRequestWorkload.reason === null ? run.error : null;
+
+const renderOutcomeBeside = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
+  pullRequestWorkload === undefined || pullRequestWorkload.state === 'running' ? '' : renderWorkloadOutcome(pullRequestWorkload);
+
+const renderOutcomeDetail = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered => {
+  const text = pullRequestWorkload === undefined || pullRequestWorkload.state === 'running' ? null : workloadOutcomeText(pullRequestWorkload);
+  const error = runErrorOf(run, pullRequestWorkload);
+  return html`${text === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-outcome-text>${text}</div>`}${error === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`}`;
 };
 
-const renderStatusCell = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered => {
-  const error = failureOf(run, pullRequestWorkload);
-  return error === null
-    ? renderStatus(run.status)
-    : html`${renderStatus(run.status)}<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`;
-};
+const renderStatusCell = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
+  html`<div class="flex flex-wrap items-center gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(pullRequestWorkload)}</div>${renderOutcomeDetail(run, pullRequestWorkload)}`;
 
 const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquivalent>): Rendered => {
   const equivalent = equivalents.get(run.id);
@@ -164,14 +165,11 @@ const renderTicketCell = (run: RunRecord, pullRequestWorkload: PullRequestWorklo
 
 const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
-const renderCardError = (error: string | null): Rendered =>
-  error === null ? '' : html`<div class="whitespace-pre-line wrap-anywhere text-muted" data-run-error>${error}</div>`;
-
 const renderRunCard = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered =>
   html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
-    <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime, timeZone)}${renderStatus(run.status)}</div>
-    ${renderCardError(failureOf(run, pullRequestWorkload))}
+    <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime, timeZone)}<div class="flex flex-wrap items-center justify-end gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(pullRequestWorkload)}</div></div>
+    ${renderOutcomeDetail(run, pullRequestWorkload)}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, pullRequestWorkload)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">

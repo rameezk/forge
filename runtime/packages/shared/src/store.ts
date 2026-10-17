@@ -2370,15 +2370,11 @@ export class Store {
     ).map((revision) => ({ revision, run: this.getRun(revision.runId)! }));
   }
 
-  pullRequestWorkloadOfRun(runId: string): RunPullRequestWorkload | null {
-    const revised = this.#db
-      .prepare(`SELECT repository, number, url FROM revisions WHERE run_id = $run_id`)
-      .get({ run_id: runId }) as RevisedPullRequest | undefined;
-    if (revised !== undefined) return { kind: 'revision', pullRequest: revised };
-    const resolved = this.#db
-      .prepare(`SELECT repository, number, url FROM conflict_resolutions WHERE run_id = $run_id`)
-      .get({ run_id: runId }) as RevisedPullRequest | undefined;
-    return resolved === undefined ? null : { kind: 'conflict-resolution', pullRequest: resolved };
+  pullRequestWorkloadOfRun(runId: string, now: string): RunPullRequestWorkload | null {
+    const revision = this.#selectRevisions('WHERE run_id = $run_id', { run_id: runId }, now)[0];
+    if (revision !== undefined) return { kind: 'revision', workload: revision };
+    const resolution = this.#selectConflictResolutions('WHERE run_id = $run_id', { run_id: runId }, now)[0];
+    return resolution === undefined ? null : { kind: 'conflict-resolution', workload: resolution };
   }
 
   listRevisions(now: string): RevisionRecord[] {
