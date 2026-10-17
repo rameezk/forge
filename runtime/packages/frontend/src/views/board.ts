@@ -21,6 +21,8 @@ const QUEUED_TONE = 'text-muted ring-1 ring-line ring-inset';
 
 const HUMAN_TONE = 'text-accent-text ring-1 ring-line ring-inset';
 
+const MERGED_TONE = 'bg-success-soft text-success';
+
 const ELAPSED = 'ml-1.5 text-xs tabular-nums text-muted';
 
 const FAILURE_LINE = 'm-0 mt-1 line-clamp-4 text-xs break-words whitespace-pre-line text-muted';
@@ -100,6 +102,19 @@ const renderBlockers = (blockedBy: readonly number[], github: string): Rendered 
 const renderBlocked = ({ ticket }: { ticket: Ticket }, github: string): Rendered =>
   html`<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}${ticket.forHuman ? html`<span data-ready-for-human class="${PILL} ${HUMAN_TONE}">ready-for-human</span> ` : ''}${renderBlockers(ticket.blockedBy, github)}</p>`;
 
+const personIcon = (label: string): Rendered =>
+  html`<svg data-person role="img" aria-label="${label}" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" class="text-accent-text"><title>${label}</title><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5z" /></svg>`;
+
+const PERSON_ICON = personIcon('A person acts here');
+
+const BUILT_BY_PERSON_ICON = personIcon('Built by a person');
+
+const renderDone = ({ ticket, dispatch }: BoardCard & { column: 'done' }, timeZone: string): Rendered => {
+  const pullRequest = dispatch?.pullRequest;
+  const merged = pullRequest != null && pullRequest.state === 'merged';
+  return html`<p class="${MUTED_LINE}">${merged ? html`<span data-merged class="${PILL} ${MERGED_TONE}">merged</span> ${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, `PR #${pullRequest.number}`) : html`PR #${pullRequest.number}`} ` : ''}${renderTimestamp(ticket.closedAt, timeZone)}${ticket.forHuman ? html` <span class="ml-1 inline-flex align-middle">${BUILT_BY_PERSON_ICON}</span>` : ''}</p>`;
+};
+
 const renderDetails = (card: BoardCard, github: string, timeZone: string): Rendered => {
   switch (card.column) {
     case 'blocked':
@@ -110,6 +125,8 @@ const renderDetails = (card: BoardCard, github: string, timeZone: string): Rende
       return renderInReview(card);
     case 'failed':
       return renderFailure(card);
+    case 'done':
+      return renderDone(card, timeZone);
     default:
       return html`<p class="${MUTED_LINE}">${renderDate(card.ticket.createdAt, timeZone)}</p>`;
   }
@@ -131,8 +148,6 @@ const renderPolled = (polledAt: string | null, timeZone: string): Rendered =>
   polledAt === null
     ? html`<span class="${POLLED}">Never polled</span>`
     : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt, timeZone)}</span>`;
-
-const PERSON_ICON = html`<svg data-person role="img" aria-label="A person acts here" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" class="text-accent-text"><title>A person acts here</title><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5z" /></svg>`;
 
 const renderColumnHeaders = (counts: Record<ColumnKey, number>): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(

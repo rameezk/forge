@@ -22,7 +22,7 @@ interface RecordedPage {
   data?: {
     repository: {
       issues: {
-        pageInfo: { endCursor: string | null };
+        pageInfo: { hasNextPage?: boolean; endCursor: string | null };
         nodes: Record<string, unknown>[];
       };
     } | null;
@@ -50,6 +50,7 @@ const replaying = (
   responses: Record<string, RecordedPage[]>,
   refinement: Record<string, RecordedPage[]> = {},
   human: Record<string, RecordedPage[]> = {},
+  closed: Record<string, RecordedPage[]> = {},
 ) => {
   const requests: Request[] = [];
   const fetch = async (
@@ -65,7 +66,9 @@ const replaying = (
     });
     const github = `${body.variables.owner}/${body.variables.name}`;
     const pages =
-      body.variables.label === 'ready-for-refinement'
+      body.variables.since !== undefined
+        ? (closed[`${github}:${String(body.variables.label)}`] ?? recorded('no-issues'))
+        : body.variables.label === 'ready-for-refinement'
         ? (refinement[github] ?? recorded('no-issues'))
         : body.variables.label === 'ready-for-human'
           ? (human[github] ?? recorded('no-issues'))
@@ -202,6 +205,12 @@ test('given a declared repository whose recorded response holds unblocked ready-
         authorization: `bearer ${GITHUB_TOKEN}`,
         variables: { owner: 'rameezk', name: 'forge', label: 'ready-for-human', first: 100, after: null },
       },
+      ...['ready-for-agent', 'ready-for-human'].map((label) => ({
+        url: GITHUB_GRAPHQL_API,
+        method: 'POST',
+        authorization: `bearer ${GITHUB_TOKEN}`,
+        variables: { owner: 'rameezk', name: 'forge', label, since: github.requests[2]?.body.variables.since ?? null, first: 100, after: null },
+      })),
       {
         url: GITHUB_GRAPHQL_API,
         method: 'POST',
@@ -237,6 +246,47 @@ test('given a repository with a blocked ready-for-agent ticket, a blocked forge:
       { number: 203, blocked: true, blockedBy: [200], forgeReady: false, forHuman: true },
       { number: 204, blocked: false, blockedBy: [], forgeReady: false, forHuman: true },
     ],
+  );
+});
+
+const daysAgo = (days: number): string => new Date(Date.now() - days * 86_400_000).toISOString();
+
+const closedPage = (nodes: Record<string, unknown>[]): RecordedPage[] => [
+  { data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: 'end' }, nodes } } } },
+];
+
+const closedIssue = (number: number, closedAt: string, labels: string[]): Record<string, unknown> => ({
+  number,
+  title: `Closed ticket ${number}`,
+  url: `https://github.com/rameezk/forge/issues/${number}`,
+  createdAt: '2026-09-01T10:00:00Z',
+  closedAt,
+  labels: { nodes: labels.map((name) => ({ name })) },
+  parent: null,
+});
+
+test('given tickets closed 2 days ago and 9 days ago, one labelled ready-for-human, when sync runs, then only the ticket closed 2 days ago is stored as closed, with its closing time and whether a human built it', async () => {
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
+  const recent = daysAgo(2);
+  const github = replaying(
+    { 'rameezk/forge': recorded('no-issues') },
+    {},
+    {},
+    {
+      'rameezk/forge:ready-for-agent': closedPage([closedIssue(301, daysAgo(9), ['ready-for-agent'])]),
+      'rameezk/forge:ready-for-human': closedPage([
+        closedIssue(302, recent, ['ready-for-human']),
+        closedIssue(303, daysAgo(9), ['ready-for-human']),
+      ]),
+    },
+  );
+
+  const code = await run(app, ['sync'], env, github.fetch);
+
+  assert.equal(code, 0);
+  assert.deepEqual(
+    storedFrontier(stateDir)[0]?.closed.map(({ number, closedAt, forHuman }) => ({ number, closedAt, forHuman })),
+    [{ number: 302, closedAt: recent, forHuman: true }],
   );
 });
 
@@ -405,7 +455,7 @@ test('given a declared repository whose recorded response spans several pages, w
     [57, 58, 62, 63, 64, 69, 70],
   );
   assert.deepEqual(
-    github.requests.filter(({ body }) => body.variables.label === 'ready-for-agent').map(({ body }) => body.variables.after),
+    github.requests.filter(({ body }) => body.variables.label === 'ready-for-agent' && body.variables.since === undefined).map(({ body }) => body.variables.after),
     [null, ...pages.slice(0, 2).map(endCursor)],
   );
 });
@@ -442,14 +492,14 @@ test('given two declared repositories with stored snapshots where GitHub now fai
       repository: 'forge',
       github: 'rameezk/forge',
       polledAt: previousPoll,
-      requests: [],
+      closed: [], requests: [],
       tickets: [staleTicket('rameezk/forge', 1)],
     },
     {
       repository: 'gone',
       github: 'rameezk/forge-does-not-exist',
       polledAt: previousPoll,
-      requests: [],
+      closed: [], requests: [],
       tickets: [staleTicket('rameezk/forge-does-not-exist', 2)],
     },
   ]);
@@ -481,7 +531,7 @@ test('given two declared repositories with stored snapshots where GitHub now fai
         "GitHub rejected the Frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
       failedAt,
     },
-    requests: [],
+    closed: [], requests: [],
     tickets: [staleTicket('rameezk/forge-does-not-exist', 2)],
   });
 });
@@ -516,7 +566,7 @@ for (const [absence, message, override] of MISSING_APP) {
         repository: 'forge',
         github: 'rameezk/forge',
         polledAt: previousPoll,
-        requests: [],
+        closed: [], requests: [],
         tickets: [staleTicket('rameezk/forge', 1)],
       },
     ]);
@@ -560,7 +610,7 @@ test('given stored rows for a repository no longer declared, when sync runs, the
       repository: 'retired',
       github: 'rameezk/retired',
       polledAt: '2026-09-29T08:00:00.000Z',
-      requests: [],
+      closed: [], requests: [],
       tickets: [staleTicket('rameezk/retired', 3)],
     },
   ]);
@@ -697,14 +747,14 @@ test('given a store holding an existing snapshot, when list runs, then the store
       repository: 'forge',
       github: 'rameezk/forge',
       polledAt: '2026-09-29T08:00:00.000Z',
-      requests: [],
+      closed: [], requests: [],
       tickets: [staleTicket('rameezk/forge', 1)],
     },
     {
       repository: 'retired',
       github: 'rameezk/retired',
       polledAt: '2026-09-29T08:00:00.000Z',
-      requests: [],
+      closed: [], requests: [],
       tickets: [staleTicket('rameezk/retired', 3)],
     },
   ]);
@@ -956,7 +1006,7 @@ test('given a managed repository the App is not installed on, when sync runs, th
   assert.equal(forge?.lastError, null);
   assert.equal(forge?.tickets.length, 7);
   assert.equal(stray?.lastError?.message, 'the GitHub App is not installed on rameezk/stray');
-  assert.deepEqual(github.requests.map(({ body }) => body.variables.name), ['forge', 'forge', 'forge']);
+  assert.deepEqual(github.requests.map(({ body }) => body.variables.name), ['forge', 'forge', 'forge', 'forge', 'forge']);
 });
 
 interface RecordedPullRequest {

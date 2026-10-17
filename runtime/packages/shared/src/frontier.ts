@@ -56,6 +56,40 @@ export const FRONTIER_QUERY = `
   }
 `;
 
+export const CLOSED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export const CLOSED_QUERY = `
+  query ClosedTickets($owner: String!, $name: String!, $label: String!, $since: DateTime!, $first: Int!, $after: String) {
+    repository(owner: $owner, name: $name) {
+      issues(
+        first: $first
+        after: $after
+        states: CLOSED
+        labels: [$label]
+        filterBy: { since: $since }
+        orderBy: { field: UPDATED_AT, direction: DESC }
+      ) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          number
+          title
+          url
+          createdAt
+          closedAt
+          parent {
+            number
+            title
+            url
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const LABELLED_QUERY = `
   query LabelledIssues($owner: String!, $name: String!, $label: String!, $first: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
@@ -244,6 +278,16 @@ export interface Ticket {
   blockedBy: number[];
 }
 
+export interface ClosedTicket {
+  number: number;
+  title: string;
+  url: string;
+  parent: SpecRef | null;
+  createdAt: string;
+  closedAt: string;
+  forHuman: boolean;
+}
+
 export interface RefinementRequest {
   number: number;
   title: string;
@@ -261,6 +305,7 @@ export interface PolledFrontier {
   github: string;
   polledAt: string;
   tickets: Ticket[];
+  closed: ClosedTicket[];
   requests: RefinementRequest[];
 }
 
@@ -468,6 +513,70 @@ export const queryFrontier = async (
   const human = await queryTicketsLabelled(fetch, token, github, READY_FOR_HUMAN);
   const stored = new Set(human.map((ticket) => ticket.number));
   return [...agent.filter((ticket) => !stored.has(ticket.number)), ...human].sort(oldestFirst);
+};
+
+interface ClosedNode {
+  number: number;
+  title: string;
+  url: string;
+  createdAt: string;
+  closedAt: string | null;
+  parent: SpecRef | null;
+}
+
+export const requestClosedPage = (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  label: string,
+  since: string,
+  { first, after }: { first: number; after: string | null },
+): Promise<Response> =>
+  requestGraphql(fetch, token, CLOSED_QUERY, github, { label, since, first, after });
+
+const queryClosedLabelled = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  label: string,
+  since: string,
+): Promise<ClosedTicket[]> =>
+  (
+    await queryIssues<ClosedNode>(CLOSED_QUERY, github, (after) =>
+      requestClosedPage(fetch, token, github, label, since, {
+        first: FRONTIER_PAGE_SIZE,
+        after,
+      }),
+    )
+  )
+    .filter((issue) => issue.closedAt !== null && issue.closedAt >= since)
+    .map((issue) => ({
+      number: issue.number,
+      title: issue.title,
+      url: ticketUrl(issue.url),
+      parent:
+        issue.parent === null
+          ? null
+          : { number: issue.parent.number, title: issue.parent.title, url: issue.parent.url },
+      createdAt: issue.createdAt,
+      closedAt: issue.closedAt as string,
+      forHuman: label === READY_FOR_HUMAN,
+    }));
+
+export const newestClosedFirst = (a: Pick<ClosedTicket, 'closedAt' | 'number'>, b: Pick<ClosedTicket, 'closedAt' | 'number'>): number =>
+  b.closedAt.localeCompare(a.closedAt) || b.number - a.number;
+
+export const queryClosed = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  now: number = Date.now(),
+): Promise<ClosedTicket[]> => {
+  const since = new Date(now - CLOSED_WINDOW_MS).toISOString();
+  const agent = await queryClosedLabelled(fetch, token, github, READY_FOR_AGENT, since);
+  const human = await queryClosedLabelled(fetch, token, github, READY_FOR_HUMAN, since);
+  const byHuman = new Set(human.map((ticket) => ticket.number));
+  return [...agent.filter((ticket) => !byHuman.has(ticket.number)), ...human].sort(newestClosedFirst);
 };
 
 export type LabelledIssue = RefinementRequest;

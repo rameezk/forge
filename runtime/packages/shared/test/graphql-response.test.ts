@@ -44,6 +44,7 @@ const rejecting: typeof globalThis.fetch = async () =>
 
 const reads: [string, (github: string) => Promise<unknown>][] = [
   ['Frontier', (github) => frontier.queryFrontier(rejecting, 't', github)],
+  ['ClosedTickets', (github) => frontier.queryClosed(rejecting, 't', github)],
   ['LabelledIssues', (github) => frontier.queryLabelled(rejecting, 't', github, 'ready')],
   ['Ticket', (github) => frontier.queryTicket(rejecting, 't', github, 7)],
   ['ClosingPullRequests', (github) => frontier.findOpenClosingPullRequest(rejecting, 't', github, 7)],

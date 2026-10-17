@@ -48,7 +48,7 @@ const polledFrontier: PolledFrontier = {
   repository: 'forge',
   github: 'rameezk/forge',
   polledAt: '2026-10-02T08:00:00.000Z',
-  requests: [],
+  closed: [], requests: [],
   tickets: [ticket],
 };
 
