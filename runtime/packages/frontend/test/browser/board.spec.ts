@@ -56,7 +56,7 @@ test.describe('on a desktop screen', () => {
     }).toBeGreaterThanOrEqual(24);
   });
 
-  test('given the Board on a desktop screen, when it is opened, then the headers read as one set, the mockup's 50px plus its border: counts flush right, icons 6px left of the count and centred on the title, titles at the left padding', async ({ dashboard, page }) => {
+  test('given the Board on a desktop screen, when it is opened, then the headers read as one set, the mockup height: counts flush right, icons 6px left of the count and centred on the title, titles at the left padding', async ({ dashboard, page }) => {
     dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
