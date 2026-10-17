@@ -16,7 +16,7 @@ export type ColumnKey = (typeof COLUMNS)[number]['key'];
 
 interface CardState {
   dispatch: DispatchRecord | undefined;
-  revising: boolean;
+  revision: RevisionRecord | undefined;
 }
 
 export type BoardCard =
@@ -44,11 +44,11 @@ export const buildLanes = (
   dispatches: ReadonlyMap<string, DispatchRecord>,
   revisions: readonly RevisionRecord[],
 ): BoardLane[] => {
-  const revising = new Set(revisions.filter(({ state }) => state === 'running').map(({ repository, number }) => ticketKey(repository, number)));
+  const revising = new Map(revisions.filter(({ state }) => state === 'running').map((revision) => [ticketKey(revision.repository, revision.number), revision]));
   return frontier.map((repository) => {
     const columns = Object.fromEntries(COLUMNS.map(({ key }) => [key, [] as BoardCard[]])) as Record<ColumnKey, BoardCard[]>;
     for (const request of [...repository.requests].sort(oldestFirst)) {
-      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revising: false });
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revision: undefined });
     }
     for (const ticket of [...repository.tickets].sort(oldestFirst)) {
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
@@ -58,11 +58,11 @@ export const buildLanes = (
         column,
         ticket,
         dispatch,
-        revising: column === 'in-review' && pullRequest != null && revising.has(ticketKey(repository.repository, pullRequest.number)),
+        revision: column === 'in-review' && pullRequest != null ? revising.get(ticketKey(repository.repository, pullRequest.number)) : undefined,
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
-      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revising: false });
+      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revision: undefined });
     }
     return { ...repository, columns };
   });
