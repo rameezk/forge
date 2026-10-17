@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fingerprintHash, Store } from '@forge/shared';
-import type { ConfigFingerprint, PullRequestState, RevisionFailureRecord, RunRecord, RunStatus } from '@forge/shared';
+import type { ConfigFingerprint, PullRequestState, ConflictResolutionFailureRecord, RevisionFailureRecord, RunRecord, RunStatus } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { textOf } from './html.ts';
 
@@ -372,4 +372,84 @@ test('given a revision run, when its run detail page is requested, then it shows
   const detail = await (await app.request('/runs/rev-ok')).text();
 
   assert.match(detail, /<dd[^>]*data-revised-pull-request[^>]*>[\s\S]*?<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/143"[^>]*>#143<\/a>/);
+});
+
+const resolve = (
+  store: Store,
+  runId: string,
+  start: string,
+  state: 'ok' | 'error',
+  pullRequest = 9,
+  failure?: ConflictResolutionFailureRecord,
+): void => {
+  store.insertRun({
+    ...runOf({ ...THREE[0]!, id: runId, start, seconds: 120, cost: 0.5 }),
+    worker: 'resolver',
+    ticket: null,
+  });
+  const started = store.startConflictResolution(
+    { repository: 'forge', number: pullRequest, url: `${GITHUB}forge/pull/${pullRequest}` },
+    [TICKET.number],
+    runId,
+    start,
+    10,
+  );
+  assert.ok('started' in started);
+  store.endConflictResolution(started.started, state, new Date(Date.parse(start) + 120_000).toISOString(), failure);
+};
+
+const conflictResolutionRows = (page: string): Map<string, Record<string, string>> =>
+  new Map(
+    [...page.matchAll(/<tr[^>]*\sdata-conflict-resolution="([^"]*)"[^>]*>([\s\S]*?)<\/tr>/g)].map(([, id, body]) => [
+      id!,
+      Object.fromEntries(
+        [...body!.matchAll(/<td[^>]*\sdata-field="([^"]*)"[^>]*>([\s\S]*?)<\/td>/g)].map(([, field, cell]) => [field!, cell!]),
+      ),
+    ]),
+  );
+
+test('given a dispatch whose pull request had a revision and failed and ok conflict resolutions, when its attempts view is requested, then each conflict resolution nests under that dispatch beside the revision, labelled conflict resolution, with its state and failure reason', async () => {
+  const { app, store } = dashboard([
+    { ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'closed' } },
+    { ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } },
+  ]);
+  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'ok');
+  resolve(store, 'res-ok', '2026-09-25T10:00:00.000Z', 'ok');
+  resolve(store, 'res-not-merged', '2026-09-26T10:00:00.000Z', 'error', 9, {
+    reason: 'not-merged',
+    detail: 'the pull request does not contain abc1234',
+  });
+  resolve(store, 'res-still', '2026-09-27T10:00:00.000Z', 'error', 9, { reason: 'still-conflicting', detail: null });
+  resolve(store, 'res-crashed', '2026-09-28T10:00:00.000Z', 'error', 9, { reason: 'crashed', detail: 'boom' });
+
+  const page = await (await app.request('/tickets/forge/42')).text();
+
+  const rows = conflictResolutionRows(page);
+  assert.deepEqual([...rows.keys()], ['res-ok', 'res-not-merged', 'res-still', 'res-crashed']);
+  assert.match(rows.get('res-ok')!['run']!, /<a href="\/runs\/res-ok"/);
+  assert.match(textOf(rows.get('res-ok')!['run']!), /conflict resolution$/);
+  assert.equal(textOf(rows.get('res-ok')!['outcome']!), 'ok');
+  assert.equal(textOf(rows.get('res-not-merged')!['outcome']!), 'error Not merged: the pull request does not contain abc1234');
+  assert.equal(textOf(rows.get('res-still')!['outcome']!), 'error Still conflicting');
+  assert.equal(textOf(rows.get('res-crashed')!['outcome']!), 'error Crashed: boom');
+  assert.equal(textOf(rows.get('res-ok')!['cost']!), '$0.500000');
+  const order = [...page.matchAll(/data-(attempt|revision|conflict-resolution)="([^"]*)"/g)].map(([, , id]) => id);
+  assert.deepEqual(order, ['second', 'rev-ok', 'res-ok', 'res-not-merged', 'res-still', 'res-crashed', 'first']);
+});
+
+test('given a conflict resolution of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no conflict resolutions', async () => {
+  const { app, store } = dashboard([{ ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'open' } }]);
+  resolve(store, 'manual-res', '2026-09-24T10:00:00.000Z', 'ok', 99);
+
+  assert.deepEqual([...conflictResolutionRows(await (await app.request('/tickets/forge/42')).text()).keys()], []);
+});
+
+test('given a conflict resolution run, when its run detail page is requested, then it reads as a conflict resolution of its pull request linked to GitHub', async () => {
+  const { app, store } = dashboard([]);
+  resolve(store, 'res-ok', '2026-09-24T10:00:00.000Z', 'ok', 143);
+
+  const detail = await (await app.request('/runs/res-ok')).text();
+
+  assert.match(detail, /<dt[^>]*>Conflict resolution of<\/dt>\s*<dd[^>]*data-resolved-pull-request[^>]*>[\s\S]*?<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/143"[^>]*>#143<\/a>/);
+  assert.doesNotMatch(detail, /data-revised-pull-request/);
 });

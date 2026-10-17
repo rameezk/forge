@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RevisedPullRequest, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
+import { isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RunPullRequestWorkload, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTokens } from '../format.ts';
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
@@ -243,13 +243,15 @@ const renderPullRequestValue = (pullRequest: PullRequestRecord): Rendered =>
     ? ''
     : html`<span class="text-[0.9rem] text-muted">rework ${pullRequest.rework}</span>`}</span>`;
 
-const renderRevisedPullRequest = (pullRequest: RevisedPullRequest | null): Rendered =>
-  pullRequest === null
-    ? ''
-    : html`<dt class="${META_TERM}">Revises</dt>
-      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" data-revised-pull-request><span class="text-muted">${pullRequest.repository}</span>${isGithubUrl(pullRequest.url)
+const renderPullRequestWorkload = (workload: RunPullRequestWorkload | null): Rendered => {
+  if (workload === null) return '';
+  const { kind, pullRequest } = workload;
+  const [term, attribute] = kind === 'revision' ? ['Revises', 'data-revised-pull-request'] : ['Conflict resolution of', 'data-resolved-pull-request'];
+  return html`<dt class="${META_TERM}">${term}</dt>
+      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" ${raw(attribute)}><span class="text-muted">${pullRequest.repository}</span>${isGithubUrl(pullRequest.url)
         ? externalLink(pullRequest.url, `#${pullRequest.number}`)
         : html`#${pullRequest.number}`}</dd>`;
+};
 
 const skillWhere = ({ prompt, parent, subagents }: SkillSummary): string =>
   [
@@ -352,7 +354,7 @@ const renderRunError = (run: RunRecord): Rendered => {
 const renderRunDetails = (
   run: RunRecord,
   generations: GenerationRecord[],
-  revised: RevisedPullRequest | null,
+  workload: RunPullRequestWorkload | null,
   skillLoads: RunSkillLoad[],
   downloads: Downloads,
   config: RunFingerprint | null,
@@ -369,7 +371,7 @@ const renderRunDetails = (
       ${renderListPriceEquivalent(run, generations)}
       ${renderCounters(run.counters)}
       ${renderSkills(skillLoads)}
-      ${renderRevisedPullRequest(revised)}
+      ${renderPullRequestWorkload(workload)}
       ${renderDownloads(run, downloads)}
     </dl>
   </details>`;
@@ -380,7 +382,7 @@ export const renderDetail = (
   { context, efforts: recordedEfforts }: RequestRecordView,
   generations: GenerationRecord[],
   pullRequest: PullRequestRecord | null,
-  revised: RevisedPullRequest | null,
+  workload: RunPullRequestWorkload | null,
   skillLoads: RunSkillLoad[],
   downloads: Downloads,
   config: RunFingerprint | null,
@@ -397,7 +399,7 @@ export const renderDetail = (
         ${renderSummary(run, summaryEffort(run, efforts), display.timeZone)}
         ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
         ${stopped !== '' ? stopped : renderRunError(run)}
-        ${renderRunDetails(run, generations, revised, skillLoads, downloads, config)}
+        ${renderRunDetails(run, generations, workload, skillLoads, downloads, config)}
         ${renderContext(context)}
         ${renderCalls(calls, efforts, run.costStatus === 'subscription', display.timeZone)}
       </div>
