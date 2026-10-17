@@ -34,6 +34,7 @@ export type {
   ConflictResolutionRecord,
   ConflictResolutionStart,
   ConflictResolutionState,
+  RunPullRequestWorkload,
   PullRequestWorkloadRecord,
 } from './conflict-resolution.ts';
 export type {
@@ -125,7 +126,7 @@ export {
   systemHashesOf,
   toolsHashOf,
 } from './request-record.ts';
-export type { AttemptRevision, TicketAttempt } from './attempts.ts';
+export type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from './attempts.ts';
 export type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 export {
   DEFAULT_HARNESS,

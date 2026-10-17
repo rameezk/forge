@@ -27,6 +27,7 @@ import type {
   ConflictResolutionRecord,
   ConflictResolutionStart,
   ConflictResolutionState,
+  RunPullRequestWorkload,
 } from './conflict-resolution.ts';
 import type {
   RevisedPullRequest,
@@ -44,7 +45,7 @@ import type {
   UnsettledGeneration,
 } from './generation.ts';
 import type { WatchedPullRequest } from './feedback.ts';
-import type { AttemptRevision, TicketAttempt } from './attempts.ts';
+import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from './attempts.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
@@ -671,21 +672,30 @@ const ADD_REVISION_FAILURE = `
 
 const CREATE_CONFLICT_RESOLUTIONS = `
   CREATE TABLE IF NOT EXISTS conflict_resolutions (
-    id         INTEGER PRIMARY KEY,
-    repository TEXT NOT NULL,
-    number     INTEGER NOT NULL,
-    url        TEXT NOT NULL,
-    run_id     TEXT NOT NULL,
-    state      TEXT NOT NULL,
-    reason     TEXT,
-    detail     TEXT,
-    started_at TEXT NOT NULL,
-    alive_at   TEXT NOT NULL,
-    ended_at   TEXT
+    id          INTEGER PRIMARY KEY,
+    repository  TEXT NOT NULL,
+    number      INTEGER NOT NULL,
+    url         TEXT NOT NULL,
+    run_id      TEXT NOT NULL,
+    dispatch_id INTEGER,
+    state       TEXT NOT NULL,
+    reason      TEXT,
+    detail      TEXT,
+    started_at  TEXT NOT NULL,
+    alive_at    TEXT NOT NULL,
+    ended_at    TEXT
   ) STRICT;
 
   CREATE INDEX IF NOT EXISTS conflict_resolutions_pull_request ON conflict_resolutions (repository, number, id);
   CREATE UNIQUE INDEX IF NOT EXISTS conflict_resolutions_run ON conflict_resolutions (run_id);
+`;
+
+const HAS_CONFLICT_RESOLUTION_DISPATCH = `
+  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'dispatch_id'
+`;
+
+const ADD_CONFLICT_RESOLUTION_DISPATCH = `
+  ALTER TABLE conflict_resolutions ADD COLUMN dispatch_id INTEGER;
 `;
 
 type ConflictResolutionRow = {
@@ -694,6 +704,7 @@ type ConflictResolutionRow = {
   number: number;
   url: string;
   run_id: string;
+  dispatch_id: number | null;
   state: string;
   reason: string | null;
   detail: string | null;
@@ -708,6 +719,7 @@ const conflictResolutionFromRow = (row: ConflictResolutionRow): ConflictResoluti
   number: row.number,
   url: row.url,
   runId: row.run_id,
+  dispatchId: row.dispatch_id,
   state: row.state as ConflictResolutionState,
   reason: row.reason as ConflictResolutionFailure | null,
   detail: row.detail,
@@ -1043,6 +1055,7 @@ export class Store {
     db.exec(CREATE_REVISIONS);
     this.#addColumnsOnce(HAS_REVISION_FAILURE, ADD_REVISION_FAILURE);
     db.exec(CREATE_CONFLICT_RESOLUTIONS);
+    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_DISPATCH, ADD_CONFLICT_RESOLUTION_DISPATCH);
     this.#addColumnsOnce(HAS_REVISION_FEEDBACK_CURSOR, ADD_REVISION_FEEDBACK_CURSOR);
     db.exec(CREATE_FEEDBACK_WATCHES);
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
@@ -1664,6 +1677,7 @@ export class Store {
       config: this.getFingerprint(run_id),
       pullRequest: this.pullRequestOfRun(run_id),
       revisions: this.#revisionsOf(id, now),
+      conflictResolutions: this.#conflictResolutionsOf(id, now),
     }));
   }
 
@@ -2143,9 +2157,9 @@ export class Store {
       const row = this.#db
         .prepare(
           `INSERT INTO conflict_resolutions (
-            repository, number, url, run_id, state, started_at, alive_at
+            repository, number, url, run_id, dispatch_id, state, started_at, alive_at
           ) VALUES (
-            $repository, $number, $url, $run_id, 'running', $now, $now
+            $repository, $number, $url, $run_id, $dispatch_id, 'running', $now, $now
           )
           RETURNING id`,
         )
@@ -2154,6 +2168,7 @@ export class Store {
           number: pullRequest.number,
           url: pullRequest.url,
           run_id: runId,
+          dispatch_id: this.#openingDispatchId(pullRequest),
           now: startedAt,
         }) as { id: number };
       start = { started: row.id };
@@ -2188,18 +2203,35 @@ export class Store {
       });
   }
 
-  listConflictResolutions(now: string): ConflictResolutionRecord[] {
+  #selectConflictResolutions(
+    where: string,
+    params: Record<string, string | number>,
+    now: string,
+  ): ConflictResolutionRecord[] {
     const rows = this.#db
       .prepare(
         `SELECT
-          id, repository, number, url, run_id,
+          id, repository, number, url, run_id, dispatch_id,
           CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
           reason, detail, started_at, alive_at, ended_at
         FROM conflict_resolutions
+        ${where}
         ORDER BY id`,
       )
-      .all({ live_since: liveSince(now) }) as ConflictResolutionRow[];
+      .all({ ...params, live_since: liveSince(now) }) as ConflictResolutionRow[];
     return rows.map(conflictResolutionFromRow);
+  }
+
+  listConflictResolutions(now: string): ConflictResolutionRecord[] {
+    return this.#selectConflictResolutions('', {}, now);
+  }
+
+  #conflictResolutionsOf(dispatchId: number, now: string): AttemptConflictResolution[] {
+    return this.#selectConflictResolutions(
+      'WHERE dispatch_id = $dispatch_id AND EXISTS (SELECT 1 FROM runs WHERE runs.id = conflict_resolutions.run_id)',
+      { dispatch_id: dispatchId },
+      now,
+    ).map((conflictResolution) => ({ conflictResolution, run: this.getRun(conflictResolution.runId)! }));
   }
 
   recordWatchedPullRequests(repository: string, watched: readonly WatchedPullRequest[]): void {
@@ -2338,11 +2370,15 @@ export class Store {
     ).map((revision) => ({ revision, run: this.getRun(revision.runId)! }));
   }
 
-  revisedPullRequestOfRun(runId: string): RevisedPullRequest | null {
-    const row = this.#db
+  pullRequestWorkloadOfRun(runId: string): RunPullRequestWorkload | null {
+    const revised = this.#db
       .prepare(`SELECT repository, number, url FROM revisions WHERE run_id = $run_id`)
       .get({ run_id: runId }) as RevisedPullRequest | undefined;
-    return row ?? null;
+    if (revised !== undefined) return { kind: 'revision', pullRequest: revised };
+    const resolved = this.#db
+      .prepare(`SELECT repository, number, url FROM conflict_resolutions WHERE run_id = $run_id`)
+      .get({ run_id: runId }) as RevisedPullRequest | undefined;
+    return resolved === undefined ? null : { kind: 'conflict-resolution', pullRequest: resolved };
   }
 
   listRevisions(now: string): RevisionRecord[] {

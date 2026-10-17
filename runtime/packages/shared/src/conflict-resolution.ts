@@ -17,6 +17,7 @@ export interface ConflictResolutionFailureRecord {
 export interface ConflictResolutionRecord extends RevisedPullRequest {
   id: number;
   runId: string;
+  dispatchId: number | null;
   state: ConflictResolutionState;
   reason: ConflictResolutionFailure | null;
   detail: string | null;
@@ -33,3 +34,8 @@ export type ConflictResolutionStart =
   | { refused: 'full'; live: number };
 
 export type PullRequestWorkloadRecord = RevisionRecord | ConflictResolutionRecord;
+
+export interface RunPullRequestWorkload {
+  kind: 'revision' | 'conflict-resolution';
+  pullRequest: RevisedPullRequest;
+}
