@@ -100,7 +100,7 @@ const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string)
       count: scoped.filter((run) => run.status === status).length,
     })),
   ];
-  return html`<nav class="mb-3 flex gap-2 overflow-x-auto sm:flex-wrap" aria-label="Status" data-status-chips>
+  return html`<nav class="mb-2 flex gap-2 overflow-x-auto pb-1 sm:mb-3 sm:flex-wrap sm:pb-0" aria-label="Status" data-status-chips>
     ${chips.map(({ key, label, status, count }) => {
       const { status: _current, ...rest } = filter;
       const current = filter.status === status;
