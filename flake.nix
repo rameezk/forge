@@ -235,15 +235,14 @@
               "a host's pkgs.pi-coding-agent, which operators install as the pi harness, must be the pi forge pins and patches to read credentials without writing its agent dir (ADR-0040) and to report the response id of compaction and cache-warm calls (ADR-0052), and the runner must load skills from that same pi";
           rawConfig = file: builtins.fromJSON (builtins.readFile file);
           rawExampleConfig = rawConfig exampleConfigFile;
-          configWith = extra: builtins.toFile "config.json" (builtins.toJSON (rawExampleConfig // extra));
           loads = file: (builtins.tryEval (builtins.deepSeq (loadConfig file) true)).success;
           boxIsUtc = lib.asserts.assertMsg (
             nixos.config.time.timeZone == "UTC" && !(exampleCfg ? timezone)
           ) "the box must be fixed to UTC, with no timezone in the loaded config";
           oldTimezoneRejected = lib.asserts.assertMsg (
-            loads (configWith { })
-            && !(loads (configWith { timezone = "UTC"; }))
-            && !(loads (configWith { timezone = "Africa/Johannesburg"; }))
+            loads exampleConfigFile
+            && !(loads ./tests/fixtures/config-timezone-utc.json)
+            && !(loads ./tests/fixtures/config-timezone-johannesburg.json)
             && lib.hasInfix "forge.runtime.dashboard.timeZone" (builtins.readFile ./infra/lib/load-config.nix)
           ) "a config.json that sets timezone, to any value, must fail to load, with a message pointing at forge.runtime.dashboard.timeZone";
           exampleConfigsOmitTimezone = lib.asserts.assertMsg (
