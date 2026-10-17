@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { PolledFrontier, PollFailure, RefinementRequest, RunRecord, Ticket } from '@forge/shared';
+import type { ClosedTicket, PolledFrontier, PollFailure, RefinementRequest, RunRecord, Ticket } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
@@ -79,7 +79,7 @@ const columnHeaders = (body: string): string[] =>
 
 test('given a stored frontier, when the Board is requested, then it shows the nine columns in order, each with its title, total and subtitle, and a person icon on To refine, Ready for human and In review only', async () => {
   const app = appWith([
-    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', requests: [], tickets: [ticket()] },
+    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', closed: [], requests: [], tickets: [ticket()] },
   ]);
 
   const headers = columnHeaders(await (await app.request('/')).text());
@@ -124,7 +124,18 @@ const cardsByColumn = (lane: string): Record<string, string[]> =>
 const populated = (columns: Record<string, string[]>): Record<string, string[]> =>
   Object.fromEntries(Object.entries(columns).filter(([, numbers]) => numbers.length > 0));
 
-const frontierOf = (tickets: Ticket[], requests: RefinementRequest[] = []): PolledFrontier => ({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets, requests });
+const frontierOf = (tickets: Ticket[], requests: RefinementRequest[] = [], closed: ClosedTicket[] = []): PolledFrontier => ({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', tickets, closed, requests });
+
+const closedTicket = (overrides: Partial<ClosedTicket> = {}): ClosedTicket => ({
+  number: 56,
+  title: 'Declared repositories show their frontier on the dashboard',
+  url: 'https://github.com/rameezk/forge/issues/56',
+  parent: null,
+  createdAt: '2026-09-20T10:00:00Z',
+  closedAt: '2026-09-28T10:00:00Z',
+  forHuman: false,
+  ...overrides,
+});
 
 test('given a queued ticket, an unblocked ready-for-agent ticket not handed off, an unblocked forge:ready ticket waiting for a slot, a running dispatch, a done dispatch with an open pull request and a failed dispatch, when the Board is requested, then each lands in Blocked, Ready for agent, Waiting for slot, Running, In review and Failed respectively', async () => {
   const app = appWith(
@@ -219,6 +230,33 @@ test('given an unblocked ready-for-human ticket, when the Board is requested, th
   assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'ready-for-human': ['8'] });
   assert.match(textOf(cardOf(body, 8)), /2026-09-27$/);
   assert.doesNotMatch(cardOf(body, 8), /data-ready-for-human/);
+});
+
+test('given a ready-for-human ticket and a forge-dispatched ticket whose pull request merged, both closed in the last 7 days, when the Board is requested, then both are in Done, most recently closed first, the dispatched one with a merged pill and its pull request number, and only the human-built one with a person marker', async () => {
+  const app = appWith(
+    [
+      frontierOf([], [], [
+        closedTicket({ number: 10, forHuman: true, closedAt: '2026-09-27T10:00:00Z' }),
+        closedTicket({ number: 11, closedAt: '2026-09-28T10:00:00Z' }),
+      ]),
+    ],
+    (store) => {
+      const id = dispatched(store, 11);
+      store.endDispatch(id, { state: 'done', pullRequest: pullRequest(111) }, '2026-09-28T09:00:00.000Z');
+      store.recordPullRequest(id, { state: 'merged', settledAt: '2026-09-28T10:00:00.000Z', rework: 0 });
+    },
+  );
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { done: ['11', '10'] });
+  assert.match(cardOf(body, 11), /<span[^>]*data-merged[^>]*>\s*merged\s*<\/span>/);
+  assert.match(cardOf(body, 11), /<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/111"[^>]*>PR #111<\/a>/);
+  assert.match(cardOf(body, 11), /<time datetime="2026-09-28T10:00:00Z"/);
+  assert.doesNotMatch(cardOf(body, 11), /data-person/);
+  assert.doesNotMatch(cardOf(body, 10), /data-merged|PR #/);
+  assert.match(cardOf(body, 10), /<time datetime="2026-09-27T10:00:00Z"/);
+  assert.match(cardOf(body, 10), /data-person/);
 });
 
 const runOf = (number: number): RunRecord => ({
@@ -322,7 +360,7 @@ test('given tickets whose dispatches failed because their pull request is still 
 test('given two repositories, one with a poll error, when the Board is requested, then each has its own lane with its GitHub link and last-polled time, the failing one shows its error in its lane, and each column total counts both', async () => {
   const app = appWith([
     { ...frontierOf([ticket({ number: 1 }), ticket({ number: 2, forgeReady: true })]), lastError: { message: 'GitHub answered 401 for rameezk/forge', failedAt: '2026-09-29T08:20:00.000Z' } },
-    { repository: 'dotfiles', github: 'rameezk/dotfiles', polledAt: '2026-09-29T08:10:00.000Z', requests: [], tickets: [ticket({ number: 3, url: 'https://github.com/rameezk/dotfiles/issues/3', parent: null })] },
+    { repository: 'dotfiles', github: 'rameezk/dotfiles', polledAt: '2026-09-29T08:10:00.000Z', closed: [], requests: [], tickets: [ticket({ number: 3, url: 'https://github.com/rameezk/dotfiles/issues/3', parent: null })] },
   ]);
 
   const body = await (await app.request('/')).text();
@@ -411,7 +449,7 @@ test('given no repositories and no configured limit, when the Board is requested
 
 test('given a repository with cards, when the Board is requested, then its lane header is a focusable expanded button carrying the non-zero column counts', async () => {
   const app = appWith([
-    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', requests: [], tickets: [ticket({ number: 1 }), ticket({ number: 2 }), ticket({ number: 3, blocked: true })] },
+    { repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', closed: [], requests: [], tickets: [ticket({ number: 1 }), ticket({ number: 2 }), ticket({ number: 3, blocked: true })] },
   ]);
 
   const lane = laneOf(await (await app.request('/')).text(), 'forge');
@@ -429,7 +467,7 @@ test('given a repository with cards, when the Board is requested, then its lane 
 });
 
 test('given a repository with nothing on the board, when the Board is requested, then its lane is marked empty and says it has nothing in flight', async () => {
-  const app = appWith([{ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', requests: [], tickets: [] }]);
+  const app = appWith([{ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:15:00.000Z', closed: [], requests: [], tickets: [] }]);
 
   const lane = laneOf(await (await app.request('/')).text(), 'forge');
 

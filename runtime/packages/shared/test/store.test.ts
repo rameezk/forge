@@ -601,7 +601,7 @@ test('given a store file whose frontier predates last errors, when the store is 
     const failedAt = '2026-09-29T08:20:00.000Z';
     store.recordFrontierError({ repository: 'fresh', github: 'rameezk/fresh', message: 'GitHub token missing', failedAt });
     assert.deepEqual(store.listFrontier(), [
-      { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: { message: 'GitHub token missing', failedAt }, tickets: [], requests: [] },
+      { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: { message: 'GitHub token missing', failedAt }, tickets: [], closed: [], requests: [] },
     ]);
   } finally {
     store.close();
@@ -643,7 +643,7 @@ test('given a store file whose frontier snapshot predates queued tickets, when t
       forHuman: false,
       blockedBy: [],
     };
-    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', requests: [], tickets: [queued] });
+    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', closed: [], requests: [], tickets: [queued] });
     assert.deepEqual(store.listFrontier()[0]?.tickets, [queued]);
   } finally {
     store.close();
@@ -687,7 +687,7 @@ test('given a store file whose frontier snapshot predates spec URLs, when the st
       forHuman: false,
       blockedBy: [],
     };
-    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', requests: [], tickets: [specced] });
+    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', closed: [], requests: [], tickets: [specced] });
     assert.deepEqual(store.listFrontier()[0]?.tickets, [specced]);
   } finally {
     store.close();
@@ -1125,7 +1125,7 @@ test('given a repository with stored requests, when its frontier is replaced, th
   const store = Store.open(':memory:');
   try {
     const request = (number: number) => ({ number, title: `Request ${number}`, url: `https://github.com/rameezk/forge/issues/${number}`, createdAt: '2026-10-01T06:17:03Z' });
-    const polled = (requests: ReturnType<typeof request>[]) => ({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-10-01T07:00:00.000Z', tickets: [], requests });
+    const polled = (requests: ReturnType<typeof request>[]) => ({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-10-01T07:00:00.000Z', tickets: [], closed: [], requests });
 
     store.replaceFrontier(polled([request(1), request(2)]));
     store.replaceFrontier(polled([request(2), request(3)]));

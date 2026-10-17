@@ -16,7 +16,7 @@ test.describe('on a narrow screen', () => {
   test.use({ viewport: { width: 390, height: 800 } });
 
   test('given a phone-width screen, when the Board is opened, then all nine columns stay, the board scrolls sideways inside its own container and the page does not', async ({ dashboard, page }) => {
-    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', requests: [], tickets: [ticket(1)] });
+    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
 
@@ -30,7 +30,7 @@ test.describe('on a desktop screen', () => {
   test.use({ viewport: { width: 1600, height: 800 } });
 
   test('given the Board on a desktop screen, when it is opened, then the page title sits clear of the header', async ({ dashboard, page }) => {
-    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', requests: [], tickets: [ticket(1)] });
+    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
 
@@ -42,7 +42,7 @@ test.describe('on a desktop screen', () => {
   });
 
   test('given the Board on a desktop screen, when it is opened, then the person icon leads the title in every column that has one', async ({ dashboard, page }) => {
-    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', requests: [], tickets: [ticket(1)] });
+    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
 
@@ -61,7 +61,7 @@ test.describe('on a desktop screen', () => {
 
   for (const width of ['', '3rem']) {
     test(`given the Board on a desktop screen, when a column title ${width ? 'wraps' : 'fits on one line'}, then the person icon is centred on the title's first line`, async ({ dashboard, page }) => {
-      dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', requests: [], tickets: [ticket(1)] });
+      dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
       await page.goto('/');
       await page.locator('[data-column-title]').evaluateAll((titles, maxWidth) => titles.forEach((title) => title.setAttribute('style', `max-width: ${maxWidth}`)), width);
@@ -86,7 +86,7 @@ test.describe('lane collapsing', () => {
   test.use({ viewport: { width: 1600, height: 800 } });
 
   const seed = (store: Parameters<Parameters<typeof test>[2]>[0]['dashboard']['store'], tickets: ReturnType<typeof ticket>[]) =>
-    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', requests: [], tickets });
+    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets });
 
   test('given a lane with cards, when its header is clicked and later activated with Enter, then it collapses to its non-zero counts and expands again', async ({ dashboard, page }) => {
     seed(dashboard.store, [ticket(1), ticket(2)]);

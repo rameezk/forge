@@ -31,6 +31,7 @@ test('given the query constants the feedback and frontier code exports, then for
   assert.deepEqual(
     queries.map(([name]) => name).sort(),
     [
+      'CLOSED_QUERY',
       'CLOSING_PULL_REQUESTS_QUERY',
       'FEEDBACK_ANSWERS_QUERY',
       'FEEDBACK_WINDOW_QUERY',

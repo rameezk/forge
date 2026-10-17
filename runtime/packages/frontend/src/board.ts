@@ -1,4 +1,4 @@
-import { oldestFirst, ticketKey, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type Ticket } from '@forge/shared';
+import { newestClosedFirst, oldestFirst, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type Ticket } from '@forge/shared';
 
 export const COLUMNS = [
   { key: 'to-refine', title: 'To refine', subtitle: 'Shape into a spec and tickets', person: true },
@@ -21,11 +21,12 @@ interface CardState {
 
 export type BoardCard =
   | (CardState & { column: 'to-refine'; ticket: RefinementRequest })
-  | (CardState & { column: Exclude<ColumnKey, 'to-refine'>; ticket: Ticket });
+  | (CardState & { column: 'done'; ticket: ClosedTicket })
+  | (CardState & { column: Exclude<ColumnKey, 'to-refine' | 'done'>; ticket: Ticket });
 
 export type BoardLane = RepositoryFrontier & { columns: Record<ColumnKey, BoardCard[]> };
 
-const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): Exclude<ColumnKey, 'to-refine'> => {
+const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): Exclude<ColumnKey, 'to-refine' | 'done'> => {
   if (ticket.blocked) return 'blocked';
   if (ticket.forHuman) return 'ready-for-human';
   if (dispatch?.state === 'running') return 'running';
@@ -59,6 +60,9 @@ export const buildLanes = (
         dispatch,
         revising: column === 'in-review' && pullRequest != null && revising.has(ticketKey(repository.repository, pullRequest.number)),
       });
+    }
+    for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
+      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revising: false });
     }
     return { ...repository, columns };
   });

@@ -25,7 +25,7 @@ const polled = (repository: string, github: string, tickets: Ticket[]): PolledFr
   github,
   polledAt: '2026-09-29T08:00:00.000Z',
   tickets,
-  requests: [],
+  closed: [], requests: [],
 });
 
 interface Scenario {

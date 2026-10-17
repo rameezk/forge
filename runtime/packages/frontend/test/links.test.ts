@@ -15,7 +15,7 @@ const dashboard = () => {
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: '2026-09-29T08:15:00.000Z',
-    requests: [],
+    closed: [], requests: [],
     tickets: [
       {
         number: 56,
