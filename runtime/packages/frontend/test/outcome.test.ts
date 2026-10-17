@@ -57,9 +57,9 @@ const dashboard = () => {
   revise('reasonless', 2, 'error');
   revise('good', 3, 'ok');
   store.insertRun(sampleRun('resolving'));
-  store.startConflictResolution({ repository: 'forge', number: 4, url: 'https://github.com/rameezk/forge/pull/4' }, [], 'resolving', new Date().toISOString(), 10);
+  store.startConflictResolution({ repository: 'forge', number: 4, url: 'https://github.com/rameezk/forge/pull/4' }, [], 'resolving', new Date().toISOString(), 10, { headSha: 'head-a', defaultSha: 'default-a' });
   store.insertRun(sampleRun('resolved'));
-  const resolution = store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', '2026-09-21T10:00:00.000Z', 10);
+  const resolution = store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head-a', defaultSha: 'default-a' });
   assert.ok('started' in resolution);
   store.endConflictResolution(resolution.started, 'error', '2026-09-21T10:03:20.000Z', { reason: 'not-merged', detail: 'abc1234 is missing' });
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
@@ -72,7 +72,7 @@ const EXPECTED: [string, string][] = [
 ];
 
 test('given runs whose revisions ended with a reason, with no reason, and ok, when the list is requested, then each row shows success with its revision outcome beside it', async () => {
-  const body = await (await dashboard().request('/runs')).text();
+  const body = await (await dashboard().request('/workloads')).text();
 
   for (const [id, expected] of EXPECTED) {
     const row = body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
@@ -97,7 +97,7 @@ test('given the same runs, when each run page is requested, then the summary sho
 
 test('given a conflict resolution that failed and one still running, when the list and run pages are requested, then the failed one shows its outcome and the running one shows none', async () => {
   const app = dashboard();
-  const list = await (await app.request('/runs')).text();
+  const list = await (await app.request('/workloads')).text();
   const row = (id: string): string => list.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
 
   assert.match(textOf(row('resolved')), /success error Not merged: abc1234 is missing/);

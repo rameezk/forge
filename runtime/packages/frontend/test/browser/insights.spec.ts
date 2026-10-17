@@ -70,7 +70,7 @@ test('given the insights page, when it is opened at phone width, then the naviga
 }) => {
   record(dashboard.store, workload('done'));
   await page.setViewportSize({ width: 375, height: 800 });
-  await page.goto('/runs');
+  await page.goto('/workloads');
 
   await page.getByRole('link', { name: 'Insights' }).click();
 

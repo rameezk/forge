@@ -71,15 +71,15 @@ const ticksOf = (page: string): { value: string; label: string }[] =>
   }));
 
 test('given runs at 21:30Z and 22:30Z and Africa/Johannesburg, when the workloads list is filtered to the 15th, then only the 22:30Z run is listed', async () => {
-  assert.deepEqual(await listed(JOHANNESBURG, '/runs?from=2026-10-15&to=2026-10-15'), ['after']);
+  assert.deepEqual(await listed(JOHANNESBURG, '/workloads?from=2026-10-15&to=2026-10-15'), ['after']);
 });
 
 test('given runs at 21:30Z and 22:30Z and Africa/Johannesburg, when the workloads list is filtered to the 14th, then only the 21:30Z run is listed', async () => {
-  assert.deepEqual(await listed(JOHANNESBURG, '/runs?from=2026-10-14&to=2026-10-14'), ['before']);
+  assert.deepEqual(await listed(JOHANNESBURG, '/workloads?from=2026-10-14&to=2026-10-14'), ['before']);
 });
 
 test('given runs at 21:30Z and 22:30Z and no display time zone, when the workloads list is filtered to the 14th, then both runs are listed', async () => {
-  assert.deepEqual(await listed(undefined, '/runs?from=2026-10-14&to=2026-10-14'), ['before', 'after']);
+  assert.deepEqual(await listed(undefined, '/workloads?from=2026-10-14&to=2026-10-14'), ['before', 'after']);
 });
 
 test('given runs at 21:30Z and 22:30Z and Africa/Johannesburg, when the insights page is filtered to the 15th, then only the 22:30Z run counts', async () => {
@@ -139,8 +139,8 @@ test('given Europe/London and a range crossing the clocks going forward, when th
 });
 
 test('given a well-formed but impossible date, when the workloads list is requested, then the date is ignored', async () => {
-  assert.deepEqual(await listed(JOHANNESBURG, '/runs?from=2026-13-45&to=2026-02-30'), ['before', 'after']);
-  assert.deepEqual(await listed(JOHANNESBURG, '/runs?to=9999-12-31'), ['before', 'after']);
+  assert.deepEqual(await listed(JOHANNESBURG, '/workloads?from=2026-13-45&to=2026-02-30'), ['before', 'after']);
+  assert.deepEqual(await listed(JOHANNESBURG, '/workloads?to=9999-12-31'), ['before', 'after']);
 });
 
 test('given a well-formed but impossible date, when the insights page is requested, then the date is ignored', async () => {

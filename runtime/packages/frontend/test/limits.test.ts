@@ -65,7 +65,7 @@ test('given a run that ended exceeded on a 2 hour timeout, when its page and the
   assert.match(openingTag(callout), /bg-warning-soft/);
   assert.equal(textOf(callout), 'Stopped after 2h of a 2h timeout');
 
-  const list = await bodyOf(app, '/runs');
+  const list = await bodyOf(app, '/workloads');
   assert.match(list, /<span[^>]*\sdata-status="exceeded"[^>]*>\s*exceeded\s*<\/span>/);
 });
 
@@ -102,7 +102,7 @@ test('given a running run with a 2 hour timeout whose harness started after its 
   const limited = await bodyOf(app, '/runs/limited');
   assert.match(counting(limited), /data-elapsed-since="2026-09-21T10:00:30.000Z"/);
   assert.match(counting(limited), /data-elapsed-limit="2h"/);
-  assert.match(counting(await bodyOf(app, '/runs')), /data-elapsed-since="2026-09-21T10:00:30.000Z"/);
+  assert.match(counting(await bodyOf(app, '/workloads')), /data-elapsed-since="2026-09-21T10:00:30.000Z"/);
   const open = counting(await bodyOf(app, '/runs/open'));
   assert.match(open, /data-elapsed-since="2026-09-21T10:00:00.000Z"/);
   assert.doesNotMatch(open, /data-elapsed-limit/);
@@ -117,7 +117,7 @@ test('given a running run with a 5 USD budget that has spent 3.20 USD, and one w
 
   const spend = (body: string): string => textOf(body.match(/<span[^>]*\sdata-spend[^>]*>[\s\S]*?<\/span>/)?.[0] ?? '');
   assert.equal(spend(await bodyOf(app, '/runs/budgeted')), '$3.20 / $5');
-  assert.equal(spend(await bodyOf(app, '/runs')), '$3.20 / $5');
+  assert.equal(spend(await bodyOf(app, '/workloads')), '$3.20 / $5');
   assert.equal(spend(await bodyOf(app, '/runs/open')), '');
 });
 
@@ -151,7 +151,7 @@ test('given a run that ended exceeded on its 5 USD budget at 5.21 USD, when its 
   const callout = page.match(/<p[^>]*\sdata-exceeded[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
   assert.match(openingTag(callout), /bg-warning-soft/);
   assert.equal(textOf(callout), 'Stopped at $5.21 of a $5 budget');
-  assert.match(await bodyOf(app, '/runs'), /<span[^>]*\sdata-status="exceeded"[^>]*>\s*exceeded\s*<\/span>/);
+  assert.match(await bodyOf(app, '/workloads'), /<span[^>]*\sdata-status="exceeded"[^>]*>\s*exceeded\s*<\/span>/);
 });
 
 test('given a dispatch that ended exceeded on its budget, when the Board renders, then the failed card reads Exceeded budget', async () => {

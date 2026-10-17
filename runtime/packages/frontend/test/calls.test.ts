@@ -233,7 +233,7 @@ test('given one workload whose calls all sent the configured effort and one whos
     },
   ]);
 
-  const list = await get('/runs');
+  const list = await get('/workloads');
   const steady = await get('/runs/steady');
   const varied = await get('/runs/varied');
 
@@ -252,7 +252,7 @@ test('given a workload with no configured effort whose calls sent none, one conf
     { id: 'legacy', run: { reasoningEffort: 'medium', startTime: '2026-09-21T10:00:00.000Z' }, calls: [{}, {}], recordRequests: false },
   ]);
 
-  const list = await get('/runs');
+  const list = await get('/workloads');
   const unset = await get('/runs/unset');
   const off = await get('/runs/off');
   const legacy = await get('/runs/legacy');

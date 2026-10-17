@@ -29,11 +29,11 @@ export const settledOutcome = (workload: PullRequestWorkloadRecord | undefined):
 export const workloadOutcomeText = (workload: PullRequestWorkloadRecord): string | null =>
   pullRequestFailureText(workload) ?? (workload.state === 'error' ? NO_REASON_RECORDED : null);
 
-type Page = 'board' | 'runs' | 'insights';
+type Page = 'board' | 'workloads' | 'insights';
 
 const NAV: { page: Page; href: string; label: string }[] = [
   { page: 'board', href: '/', label: 'Board' },
-  { page: 'runs', href: '/runs', label: 'Runs' },
+  { page: 'workloads', href: '/workloads', label: 'Workloads' },
   { page: 'insights', href: '/insights', label: 'Insights' },
 ];
 

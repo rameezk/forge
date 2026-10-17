@@ -83,7 +83,7 @@ const dashboard = (timeZone?: string) => {
   return async (path: string): Promise<string> => (await app.request(path)).text();
 };
 
-const PAGES = ['/', '/runs', '/insights', '/runs/run-01', '/runs/run-01/transcript', '/tickets/forge/42'] as const;
+const PAGES = ['/', '/workloads', '/insights', '/runs/run-01', '/runs/run-01/transcript', '/tickets/forge/42'] as const;
 
 const footerOf = (body: string): string => textOf(body.match(/<footer[\s\S]*?<\/footer>/)?.[0] ?? 'missing');
 
@@ -91,12 +91,12 @@ test('given a run that started at 2026-10-14T23:30:00Z and a display time zone o
   const get = dashboard(JOHANNESBURG);
   const started = /<time datetime="2026-10-14T23:30:00\.000Z" title="2026-10-14T23:30:00\.000Z"[^>]*>2026-10-15 01:30:00<\/time>/;
 
-  assert.match(await get('/runs'), started);
+  assert.match(await get('/workloads'), started);
   assert.match(await get('/runs/run-01'), started);
 });
 
 test('given no display time zone, when the runs list is requested, then the start reads in UTC with no suffix', async () => {
-  const body = await dashboard()('/runs');
+  const body = await dashboard()('/workloads');
 
   assert.match(body, /<time datetime="2026-10-14T23:30:00\.000Z"[^>]*>2026-10-14 23:30:00<\/time>/);
   assert.doesNotMatch(body, /\bUTC<\/time>/);

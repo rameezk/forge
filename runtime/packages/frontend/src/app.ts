@@ -122,7 +122,9 @@ export const createApp = ({
 
   app.get('/work', (c) => c.redirect('/'));
 
-  app.get('/runs', (c) => {
+  app.get('/runs', (c) => c.redirect('/workloads'));
+
+  app.get('/workloads', (c) => {
     const shown = displayOf(c);
     const now = new Date().toISOString();
     const pullRequestWorkloads = new Map<string, PullRequestWorkloadRecord>(

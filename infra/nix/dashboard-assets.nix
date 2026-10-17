@@ -30,7 +30,7 @@ runCommand "dashboard-assets"
     trap 'kill $frontend 2>/dev/null || true' EXIT
 
     for _ in $(seq 100); do
-      curl -sf "$base/runs" -o page.html && break
+      curl -sf "$base/workloads" -o page.html && break
       kill -0 $frontend 2>/dev/null || fail "forge-frontend exited:" frontend.log
       sleep 0.1
     done
