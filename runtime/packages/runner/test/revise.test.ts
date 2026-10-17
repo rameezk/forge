@@ -257,6 +257,7 @@ interface Outcome {
   gitConfig: Record<string, string>;
   runsList: string;
   thrown: string | null;
+  nextAfter: string | null;
 }
 
 const botLookupRejected =
@@ -268,6 +269,17 @@ const botLookupRejected =
           headers: { 'content-type': 'application/json' },
         })
       : next(input, init);
+
+const nextRevisionAfter = (store: Store): string | null => {
+  const next = store.startRevision(
+    { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
+    [],
+    'next-run',
+    new Date(Date.now() + 60_000).toISOString(),
+    10,
+  );
+  return 'started' in next ? next.after : null;
+};
 
 const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin =
@@ -384,6 +396,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
           client: '',
         }).request('/runs')
       ).text(),
+      nextAfter: nextRevisionAfter(store),
     };
   } finally {
     store.close();
@@ -452,7 +465,7 @@ test('given a revision with feedback to address, when it runs, then its instruct
 });
 
 test('given a revision handed one item, when the worker replies on the pull request linking the item to say it is blocked and does not push, then the revision ends ok and the cursor stays at its start', async () => {
-  const { code, revisions } = await revise({
+  const { code, revisions, nextAfter } = await revise({
     answers: feedbackAnswers({
       comments: [
         { ...conversationComment(), ...noReactions },
@@ -471,7 +484,7 @@ test('given a revision handed one item, when the worker replies on the pull requ
   assert.deepEqual(revisions.map(({ state, reason }) => ({ state, reason })), [
     { state: 'ok', reason: null },
   ]);
-  assert.equal(revisions.length, 1);
+  assert.equal(nextAfter, revisions[0]?.startedAt);
 });
 
 test('given a revision that ends ok, when it is recorded, then it is against its pull request and run and linked to the dispatch that opened the pull request', async () => {
