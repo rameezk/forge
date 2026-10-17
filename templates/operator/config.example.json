@@ -7,7 +7,6 @@
   "location": "nbg1",
 
   "nixosRelease": "26.05",
-  "timezone": "UTC",
   "locale": "en_US.UTF-8",
   "sshPort": 22,
   "adminUser": "forge",

@@ -14,7 +14,7 @@ in
   networking.hostName = forgeConfig.hostname;
   networking.useDHCP = lib.mkDefault true;
 
-  time.timeZone = forgeConfig.timezone;
+  time.timeZone = "UTC";
   i18n.defaultLocale = forgeConfig.locale;
 
   users.users.${forgeConfig.adminUser} = {
