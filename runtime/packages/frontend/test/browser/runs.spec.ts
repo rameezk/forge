@@ -273,6 +273,23 @@ test.describe('on a phone screen', () => {
     expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
   });
 
+  test('given recorded workloads, when Workloads is opened, then each status chip lies fully within the visible area of the chip row', async ({ dashboard, page }) => {
+    seedWorkloads(dashboard);
+
+    await page.goto('/runs');
+
+    const row = await page.locator('[data-status-chips]').evaluate((element) => {
+      const { top, bottom } = element.getBoundingClientRect();
+      return { top: top + element.clientTop, bottom: top + element.clientTop + element.clientHeight, bottomEdge: bottom };
+    });
+    const chips = await page.locator('[data-status-chip]').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect()).map(({ top, bottom }) => ({ top, bottom })));
+    expect(chips).toHaveLength(6);
+    for (const chip of chips) {
+      expect(chip.top).toBeGreaterThanOrEqual(row.top);
+      expect(chip.bottom).toBeLessThanOrEqual(row.bottom);
+    }
+  });
+
   test('given a started range in the address, when Workloads is opened, then the other filters are behind a collapsed Filters toggle showing the range, and opening it reveals them', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
