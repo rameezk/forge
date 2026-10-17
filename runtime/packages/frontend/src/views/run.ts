@@ -5,7 +5,7 @@ import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, format
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, workloadOutcomeText, renderWorkloadOutcome, settledOutcome, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
 import { renderWidget } from './widget.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -243,14 +243,15 @@ const renderPullRequestValue = (pullRequest: PullRequestRecord): Rendered =>
     ? ''
     : html`<span class="text-[0.9rem] text-muted">rework ${pullRequest.rework}</span>`}</span>`;
 
-const renderPullRequestWorkload = (workload: RunPullRequestWorkload | null): Rendered => {
-  if (workload === null) return '';
-  const { kind, pullRequest } = workload;
+const renderPullRequestWorkload = (runWorkload: RunPullRequestWorkload | null): Rendered => {
+  if (runWorkload === null) return '';
+  const { kind, workload } = runWorkload;
+  const settled = settledOutcome(workload);
   const [term, attribute] = kind === 'revision' ? ['Revises', 'data-revised-pull-request'] : ['Conflict resolution of', 'data-resolved-pull-request'];
   return html`<dt class="${META_TERM}">${term}</dt>
-      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" ${raw(attribute)}><span class="text-muted">${pullRequest.repository}</span>${isGithubUrl(pullRequest.url)
-        ? externalLink(pullRequest.url, `#${pullRequest.number}`)
-        : html`#${pullRequest.number}`}</dd>`;
+      <dd class="${META_VALUE} flex flex-wrap items-baseline gap-x-3 gap-y-1" ${raw(attribute)}><span class="text-muted">${workload.repository}</span>${isGithubUrl(workload.url)
+        ? externalLink(workload.url, `#${workload.number}`)
+        : html`#${workload.number}`}${settled === null ? '' : renderWorkloadOutcome(settled)}</dd>`;
 };
 
 const skillWhere = ({ prompt, parent, subagents }: SkillSummary): string =>
@@ -333,8 +334,16 @@ const renderTiles = (
     ${renderTile('pull-request', 'Pull request', pullRequest === null ? html`<span class="text-muted">none</span>` : renderPullRequestValue(pullRequest))}
   </div>`;
 
-const renderSummary = (run: RunRecord, effort: string, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
+const renderSummaryOutcome = (runWorkload: RunPullRequestWorkload | null): Rendered => {
+  const settled = settledOutcome(runWorkload?.workload);
+  if (settled === null) return '';
+  const text = workloadOutcomeText(settled);
+  return html`${renderWorkloadOutcome(settled)}${text === null ? '' : html`<span class="my-1 basis-full whitespace-pre-line wrap-anywhere text-muted" data-outcome-text>${text}</span>`}`;
+};
+
+const renderSummary = (run: RunRecord, effort: string, workload: RunPullRequestWorkload | null, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
     ${renderStatus(run.status)}
+    ${renderSummaryOutcome(workload)}
     ${run.ticket === null
       ? html`<span class="text-muted">manual</span>`
       : html`<span class="flex flex-wrap items-baseline gap-x-3">${renderRunTicket(run.ticket)}${renderAttemptsLink(run.ticket, 'All attempts')}</span>`}
@@ -396,7 +405,7 @@ export const renderDetail = (
       <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
         <p class="m-0 mb-4 text-[0.9rem]"><a href="/runs" class="${LINK}">&larr; Workloads</a></p>
         <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
-        ${renderSummary(run, summaryEffort(run, efforts), display.timeZone)}
+        ${renderSummary(run, summaryEffort(run, efforts), workload, display.timeZone)}
         ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
         ${stopped !== '' ? stopped : renderRunError(run)}
         ${renderRunDetails(run, generations, workload, skillLoads, downloads, config)}

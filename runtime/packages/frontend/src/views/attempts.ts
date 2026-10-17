@@ -1,10 +1,8 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl, type AttemptConflictResolution, type AttemptRevision, type PullRequestWorkloadRecord, type RevisionState, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
+import { isGithubUrl, type AttemptConflictResolution, type AttemptRevision, type PullRequestWorkloadRecord, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
-import { PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
-
-const FAILED_TONE = 'bg-error-soft text-error';
+import { FAILED_TONE, renderWorkloadOutcome, PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
 
 const attemptOutcome = ({ run, pullRequest }: TicketAttempt): [string, string] => {
   if (pullRequest !== null) return [pullRequest.state, PULL_REQUEST_TONE[pullRequest.state]];
@@ -35,14 +33,6 @@ const renderBaseCommit = (config: RunFingerprint | null): Rendered =>
     ? NOT_RECORDED
     : html`<span title="${config.baseCommit}">${config.baseCommit.slice(0, SHORT_SHA_LENGTH)}</span>`;
 
-const WORKLOAD_TONE: Record<RevisionState, string> = {
-  running: 'bg-raised text-fg',
-  ok: 'bg-success-soft text-success',
-  error: FAILED_TONE,
-  exceeded: 'bg-warning-soft text-warning',
-  interrupted: 'bg-warning-soft text-warning',
-};
-
 const renderWorkloadFailure = (workload: PullRequestWorkloadRecord): Rendered => {
   const text = pullRequestFailureText(workload);
   if (text === null) return '';
@@ -59,7 +49,7 @@ const renderWorkload = (
     <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime, timeZone)}</a> <span class="text-muted">${kind}</span></td>
     <td class="${TD}"></td>
     <td class="${TD}"></td>
-    <td class="${TD}" data-field="outcome"><span class="${PILL} ${WORKLOAD_TONE[workload.state]}" data-outcome="${workload.state}">${workload.state}</span>${renderWorkloadFailure(workload)}</td>
+    <td class="${TD}" data-field="outcome">${renderWorkloadOutcome(workload)}${renderWorkloadFailure(workload)}</td>
     <td class="${TD} ${NUMERIC}" data-field="cost">${renderRunCost(run)}</td>
     <td class="${TD} ${NUMERIC}" data-field="duration">${formatDuration(run.startTime, run.endTime)}</td>
     <td class="${TD}"></td>

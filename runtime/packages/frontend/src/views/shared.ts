@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
 import { DEFAULT_EFFORT } from '../request-record.ts';
@@ -20,6 +20,14 @@ export const pullRequestFailureText = ({ reason, detail }: PullRequestWorkloadRe
   const label = FAILURE_LABEL[reason];
   return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
 };
+
+const NO_REASON_RECORDED = 'no reason recorded';
+
+export const settledOutcome = (workload: PullRequestWorkloadRecord | undefined): PullRequestWorkloadRecord | null =>
+  workload === undefined || workload.state === 'running' ? null : workload;
+
+export const workloadOutcomeText = (workload: PullRequestWorkloadRecord): string | null =>
+  pullRequestFailureText(workload) ?? (workload.state === 'error' ? NO_REASON_RECORDED : null);
 
 type Page = 'board' | 'runs' | 'insights';
 
@@ -171,6 +179,19 @@ const STATUS_TONE: Record<RunStatus, string> = {
   interrupted: 'bg-warning-soft text-warning',
   exceeded: 'bg-warning-soft text-warning',
 };
+
+export const FAILED_TONE = 'bg-error-soft text-error';
+
+export const WORKLOAD_TONE: Record<RevisionState, string> = {
+  running: 'bg-raised text-fg',
+  ok: 'bg-success-soft text-success',
+  error: FAILED_TONE,
+  exceeded: 'bg-warning-soft text-warning',
+  interrupted: 'bg-warning-soft text-warning',
+};
+
+export const renderWorkloadOutcome = (workload: PullRequestWorkloadRecord): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="${PILL} ${WORKLOAD_TONE[workload.state]}" data-outcome="${workload.state}">${workload.state}</span>`;
 
 export const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;

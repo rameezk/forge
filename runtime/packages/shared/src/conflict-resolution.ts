@@ -37,5 +37,5 @@ export type PullRequestWorkloadRecord = RevisionRecord | ConflictResolutionRecor
 
 export interface RunPullRequestWorkload {
   kind: 'revision' | 'conflict-resolution';
-  pullRequest: RevisedPullRequest;
+  workload: PullRequestWorkloadRecord;
 }

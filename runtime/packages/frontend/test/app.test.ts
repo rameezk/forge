@@ -208,7 +208,7 @@ test('given a succeeded run whose revision crashed with a multi-line detail and 
 
   assert.match(statusCell('crashed'), /\sdata-status="success"/);
   assert.equal(
-    textOf(statusCell('crashed').match(/<div[^>]*\sdata-run-error[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
+    textOf(statusCell('crashed').match(/<div[^>]*\sdata-outcome-text[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
     'Crashed: GitHub rejected the FeedbackAnswers query for rameezk/forge#143: boom',
   );
   assert.match(statusCell('reasonless'), /\sdata-status="error"/);
