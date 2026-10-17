@@ -19,6 +19,8 @@ const REVISING_TONE = 'bg-warning-soft text-warning';
 
 const QUEUED_TONE = 'text-muted ring-1 ring-line ring-inset';
 
+const HUMAN_TONE = 'text-accent-text ring-1 ring-line ring-inset';
+
 const ELAPSED = 'ml-1.5 text-xs tabular-nums text-muted';
 
 const FAILURE_LINE = 'm-0 mt-1 line-clamp-4 text-xs break-words whitespace-pre-line text-muted';
@@ -87,13 +89,21 @@ const renderFailure = ({ dispatch }: BoardCard): Rendered => {
     : html`<p class="${FAILURE_LINE}" title="${text}">${text}</p>`;
 };
 
-const renderBlocked = ({ ticket }: { ticket: Ticket }): Rendered =>
-  html`<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}blocked</p>`;
+const renderBlockers = (blockedBy: readonly number[], github: string): Rendered => {
+  if (blockedBy.length === 0) return html`blocked`;
+  const links = blockedBy.map((number) =>
+    isGithubRepository(github) ? externalLink(`https://github.com/${github}/issues/${number}`, `#${number}`) : html`#${number}`,
+  );
+  return html`blocked by ${links.map((link, index) => html`${index === 0 ? '' : ', '}${link}`)}`;
+};
 
-const renderDetails = (card: BoardCard, timeZone: string): Rendered => {
+const renderBlocked = ({ ticket }: { ticket: Ticket }, github: string): Rendered =>
+  html`<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}${ticket.forHuman ? html`<span data-ready-for-human class="${PILL} ${HUMAN_TONE}">ready-for-human</span> ` : ''}${renderBlockers(ticket.blockedBy, github)}</p>`;
+
+const renderDetails = (card: BoardCard, github: string, timeZone: string): Rendered => {
   switch (card.column) {
     case 'blocked':
-      return renderBlocked(card);
+      return renderBlocked(card, github);
     case 'running':
       return renderRunning(card);
     case 'in-review':
@@ -105,7 +115,7 @@ const renderDetails = (card: BoardCard, timeZone: string): Rendered => {
   }
 };
 
-const renderCard = (repository: string, card: BoardCard, attempted: ReadonlySet<string>, timeZone: string): Rendered => {
+const renderCard = (repository: string, github: string, card: BoardCard, attempted: ReadonlySet<string>, timeZone: string): Rendered => {
   const { ticket } = card;
   const tooltip = card.column === 'to-refine' ? null : specTooltip(card.ticket.parent);
   return html`<article data-ticket="${ticket.number}"${tooltip === null ? '' : html` title="${tooltip}"`} class="rounded-md border border-line bg-surface p-2 text-sm">
@@ -113,7 +123,7 @@ const renderCard = (repository: string, card: BoardCard, attempted: ReadonlySet<
       ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
       : ''}</p>
     <p class="m-0 mt-1 break-words">${ticket.title}</p>
-    ${renderDetails(card, timeZone)}
+    ${renderDetails(card, github, timeZone)}
   </article>`;
 };
 
@@ -159,7 +169,7 @@ const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: s
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
     </div>
     <div class="${ROW_GRID} group-data-[collapsed]:hidden">${COLUMNS.map(
-      ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${lane.columns[key].map((card) => renderCard(lane.repository, card, attempted, timeZone))}</div>`,
+      ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${lane.columns[key].map((card) => renderCard(lane.repository, lane.github, card, attempted, timeZone))}</div>`,
     )}</div>
   </section>`;
 };

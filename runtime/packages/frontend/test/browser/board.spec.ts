@@ -8,6 +8,8 @@ const ticket = (number: number) => ({
   createdAt: '2026-09-20T10:00:00Z',
   forgeReady: false,
   blocked: false,
+  forHuman: false,
+  blockedBy: [],
 });
 
 test.describe('on a narrow screen', () => {

@@ -57,6 +57,8 @@ const ticket: Ticket = {
   createdAt: '2026-09-29T23:30:00Z',
   forgeReady: false,
   blocked: false,
+  forHuman: false,
+  blockedBy: [],
 };
 
 const dashboard = (timeZone?: string) => {

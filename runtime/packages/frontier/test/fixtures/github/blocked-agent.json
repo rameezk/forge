@@ -1,0 +1,73 @@
+[
+  {
+    "data": {
+      "repository": {
+        "issues": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0xMC0xN1QwODowMDowMFo="
+          },
+          "nodes": [
+            {
+              "number": 201,
+              "title": "Blocked agent ticket",
+              "url": "https://github.com/rameezk/forge/issues/201",
+              "createdAt": "2026-10-01T10:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  }
+                ]
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 1
+              },
+              "blockedBy": {
+                "nodes": [
+                  {
+                    "number": 200,
+                    "state": "OPEN"
+                  }
+                ]
+              },
+              "parent": null
+            },
+            {
+              "number": 202,
+              "title": "Blocked queued ticket",
+              "url": "https://github.com/rameezk/forge/issues/202",
+              "createdAt": "2026-10-02T10:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "ready-for-agent"
+                  },
+                  {
+                    "name": "forge:ready"
+                  }
+                ]
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 2
+              },
+              "blockedBy": {
+                "nodes": [
+                  {
+                    "number": 200,
+                    "state": "OPEN"
+                  },
+                  {
+                    "number": 199,
+                    "state": "OPEN"
+                  }
+                ]
+              },
+              "parent": null
+            }
+          ]
+        }
+      }
+    }
+  }
+]

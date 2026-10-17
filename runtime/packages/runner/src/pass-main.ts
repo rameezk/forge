@@ -40,6 +40,7 @@ const dispatchable = (
           (ticket) =>
             ticket.forgeReady &&
             !ticket.blocked &&
+            !ticket.forHuman &&
             !running.has(ticketKey(repository, ticket.number)),
         )
         .map((ticket) => ({ ...ticket, repository })),

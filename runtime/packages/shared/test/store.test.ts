@@ -640,6 +640,8 @@ test('given a store file whose frontier snapshot predates queued tickets, when t
       createdAt: '2026-09-28T11:32:31Z',
       forgeReady: true,
       blocked: true,
+      forHuman: false,
+      blockedBy: [],
     };
     store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', requests: [], tickets: [queued] });
     assert.deepEqual(store.listFrontier()[0]?.tickets, [queued]);
@@ -682,6 +684,8 @@ test('given a store file whose frontier snapshot predates spec URLs, when the st
       createdAt: '2026-09-28T11:32:31Z',
       forgeReady: true,
       blocked: true,
+      forHuman: false,
+      blockedBy: [],
     };
     store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', requests: [], tickets: [specced] });
     assert.deepEqual(store.listFrontier()[0]?.tickets, [specced]);

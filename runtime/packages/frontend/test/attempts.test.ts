@@ -197,7 +197,7 @@ test('given a dispatched workload, when its run detail page and the Board are re
     polledAt: '2026-09-29T08:15:00.000Z',
     requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, blocked: false },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
     ],
   });
 
@@ -243,7 +243,7 @@ test('given a ticket whose only dispatch never started a workload, when the Boar
     polledAt: '2026-09-29T08:15:00.000Z',
     requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, blocked: false },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
     ],
   });
 
@@ -263,7 +263,7 @@ test('given a ticket with an earlier attempt that was dispatched again with no w
     polledAt: '2026-09-30T08:15:00.000Z',
     requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, blocked: false },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
     ],
   });
 

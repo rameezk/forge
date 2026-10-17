@@ -27,6 +27,9 @@
                 "number": 54,
                 "title": "Frontier discovery across managed repositories",
                 "url": "https://github.com/rameezk/forge/issues/54"
+              },
+              "blockedBy": {
+                "nodes": []
               }
             },
             {
@@ -48,6 +51,9 @@
                 "number": 54,
                 "title": "Frontier discovery across managed repositories",
                 "url": "https://github.com/rameezk/forge/issues/54"
+              },
+              "blockedBy": {
+                "nodes": []
               }
             },
             {
@@ -69,6 +75,9 @@
                 "number": 61,
                 "title": "Secrets via sops-nix",
                 "url": "https://github.com/rameezk/forge/issues/61"
+              },
+              "blockedBy": {
+                "nodes": []
               }
             },
             {
@@ -90,6 +99,9 @@
                 "number": 61,
                 "title": "Secrets via sops-nix",
                 "url": "https://github.com/rameezk/forge/issues/61"
+              },
+              "blockedBy": {
+                "nodes": []
               }
             },
             {
@@ -114,6 +126,14 @@
                 "number": 61,
                 "title": "Secrets via sops-nix",
                 "url": "https://github.com/rameezk/forge/issues/61"
+              },
+              "blockedBy": {
+                "nodes": [
+                  {
+                    "number": 9000,
+                    "state": "OPEN"
+                  }
+                ]
               }
             },
             {
@@ -138,6 +158,9 @@
                 "number": 67,
                 "title": "Billed cost settles after the run",
                 "url": "https://github.com/rameezk/forge/issues/67"
+              },
+              "blockedBy": {
+                "nodes": []
               }
             },
             {
@@ -159,6 +182,9 @@
                 "number": 67,
                 "title": "Billed cost settles after the run",
                 "url": "https://github.com/rameezk/forge/issues/67"
+              },
+              "blockedBy": {
+                "nodes": []
               }
             }
           ]
