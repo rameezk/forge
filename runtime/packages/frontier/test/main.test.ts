@@ -185,6 +185,9 @@ test('given a declared repository whose recorded response holds unblocked ready-
     forHuman: false,
     blockedBy: [],
   });
+  const since = github.requests[2]?.body.variables.since;
+  assert.equal(typeof since, 'string');
+  assert.ok(Math.abs(Date.parse(String(since)) - (Date.now() - 7 * 86_400_000)) < 60_000);
   assert.deepEqual(
     github.requests.map(({ url, method, authorization, body }) => ({
       url,
@@ -209,7 +212,7 @@ test('given a declared repository whose recorded response holds unblocked ready-
         url: GITHUB_GRAPHQL_API,
         method: 'POST',
         authorization: `bearer ${GITHUB_TOKEN}`,
-        variables: { owner: 'rameezk', name: 'forge', label, since: github.requests[2]?.body.variables.since ?? null, first: 100, after: null },
+        variables: { owner: 'rameezk', name: 'forge', label, since, first: 100, after: null },
       })),
       {
         url: GITHUB_GRAPHQL_API,
