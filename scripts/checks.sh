@@ -34,6 +34,6 @@ if [ "$command" = list ]; then
 else
 	mapfile -t installables < <(jq -r '.value + "^*"' <<<"$selected")
 	if [ ${#installables[@]} -gt 0 ]; then
-		nix build --no-link "${installables[@]}"
+		nix build --print-build-logs --no-link "${installables[@]}"
 	fi
 fi
