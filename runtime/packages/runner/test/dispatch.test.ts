@@ -1465,6 +1465,26 @@ const projectInstructions = (path: string): string[] => [
 const childArgv = (pi: PiCall): string[] =>
   (JSON.parse(pi.subagentInvocation ?? 'null') as { argv: string[] }).argv;
 
+test('given a dispatch, when it runs, then its instruction says to post a block or question as a comment on its pull request or on the ticket, and that a note in the pull request body or the final report alone does not count', () => {
+  assert.match(
+    UNATTENDED_INSTRUCTION,
+    /stop because you are blocked or have a question, post that as a comment on your pull request, or on the ticket when you have no pull request/,
+  );
+  assert.match(
+    UNATTENDED_INSTRUCTION,
+    /note in the pull request body or the final report alone does not count/,
+  );
+});
+
+test('given a dispatch and a revision, when each runs, then its instruction says a missing dependency install is something to do as the repository\'s instructions say, not a required command that cannot run', () => {
+  for (const instruction of [UNATTENDED_INSTRUCTION, revisionInstruction([])]) {
+    assert.match(
+      instruction,
+      /missing dependency install is something to do as the repository's instructions say, not a required command that cannot run/,
+    );
+  }
+});
+
 test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.md and .pi/SYSTEM.md and no .agents/skills, when the workload starts, then pi and the subagent invocation get the two skill paths, the system prompt file, AGENTS.md framed as project instructions, and the unattended instruction, which gives the scoped-check rule, and nothing for what does not exist', async () => {
   const { pi } = await dispatch({
     origin: originWith({
