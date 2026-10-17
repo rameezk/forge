@@ -84,12 +84,12 @@ test('given a running workload whose elapsed time is ticking, when it ends, then
   await expect(duration).toHaveText('3m 20s');
 });
 
-test('given a running dispatch and a finished one, when the Board renders and time passes, then the running card\'s elapsed time and the in-review card\'s time open both advance', async ({
+test('given a running dispatch and a finished one, when the Board renders and time passes, then the running card\'s elapsed time and the revising card\'s elapsed time advance while the in-review card without a revision shows none', async ({
   dashboard,
   page,
 }) => {
   const ticket = (number: number) => ({ number, title: `Ticket ${number}`, url: `https://github.com/rameezk/forge/issues/${number}`, parent: null, createdAt: '2026-09-20T10:00:00Z', forgeReady: false, forHuman: false, blocked: false, blockedBy: [] });
-  dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: START, closed: [], requests: [], tickets: [ticket(56), ticket(57)] });
+  dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: START, closed: [], requests: [], tickets: [ticket(56), ticket(57), ticket(58)] });
   const began = new Date();
   const dispatch = (number: number) => {
     const started = dashboard.store.startDispatch({ repository: 'forge', number, url: ticket(number).url }, `run-${number}`, began.toISOString(), Number.POSITIVE_INFINITY);
@@ -97,20 +97,25 @@ test('given a running dispatch and a finished one, when the Board renders and ti
     return started.started;
   };
   dispatch(56);
-  dashboard.store.endDispatch(dispatch(57), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, new Date(began.getTime() + 5 * 60_000).toISOString());
+  const pullRequest = (number: number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}` });
+  dashboard.store.endDispatch(dispatch(57), { state: 'done', pullRequest: pullRequest(143) }, new Date(began.getTime() + 5 * 60_000).toISOString());
+  dashboard.store.endDispatch(dispatch(58), { state: 'done', pullRequest: pullRequest(144) }, new Date(began.getTime() + 5 * 60_000).toISOString());
+  dashboard.store.insertRun({ ...runningRun, id: 'revision-143', startTime: new Date(began.getTime() + 50 * 60_000).toISOString(), harnessStartTime: new Date(began.getTime() + 60 * 60_000).toISOString() });
+  dashboard.store.startRevision({ repository: 'forge', ...pullRequest(143) }, [57], 'revision-143', began.toISOString(), Number.POSITIVE_INFINITY);
   await openAt(page, new Date(began.getTime() + 125 * 60_000), '/');
   const running = page.locator('[data-ticket="56"] [data-elapsed-since]');
   const open = page.locator('[data-ticket="57"] [data-elapsed-since]');
   await expect(running).toHaveText('2h 5m');
-  await expect(open).toHaveText('2h 0m');
+  await expect(open).toHaveText('1h 5m');
+  await expect(page.locator('[data-ticket="58"] [data-elapsed-since]')).toHaveCount(0);
 
   await page.clock.fastForward(10 * 60_000);
 
   await expect(running).toHaveText('2h 15m');
-  await expect(open).toHaveText('2h 10m');
+  await expect(open).toHaveText('1h 15m');
   await page.clock.runFor(60_000);
   await expect(running).toHaveText('2h 16m');
-  await expect(open).toHaveText('2h 11m');
+  await expect(open).toHaveText('1h 16m');
 });
 
 test('given running workloads at several elapsed times, when the browser counts them, then each reads exactly as the server renders the same duration', async ({
