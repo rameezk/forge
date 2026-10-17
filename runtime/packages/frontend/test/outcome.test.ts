@@ -72,7 +72,7 @@ const EXPECTED: [string, string][] = [
 ];
 
 test('given runs whose revisions ended with a reason, with no reason, and ok, when the list is requested, then each row shows success with its revision outcome beside it', async () => {
-  const body = await (await dashboard().request('/runs')).text();
+  const body = await (await dashboard().request('/workloads')).text();
 
   for (const [id, expected] of EXPECTED) {
     const row = body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
@@ -97,7 +97,7 @@ test('given the same runs, when each run page is requested, then the summary sho
 
 test('given a conflict resolution that failed and one still running, when the list and run pages are requested, then the failed one shows its outcome and the running one shows none', async () => {
   const app = dashboard();
-  const list = await (await app.request('/runs')).text();
+  const list = await (await app.request('/workloads')).text();
   const row = (id: string): string => list.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
 
   assert.match(textOf(row('resolved')), /success error Not merged: abc1234 is missing/);

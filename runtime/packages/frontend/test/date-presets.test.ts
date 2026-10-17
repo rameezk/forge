@@ -69,7 +69,7 @@ const input = (body: string, name: string): string =>
 
 test('given workloads started yesterday and today and the clock at 00:05 UTC, when opened with the Today preset, then only today\'s list, Today is highlighted and the date inputs are empty', async () => {
   const runs = [run('yesterday', '2026-10-16T23:55:00.000Z'), run('today', '2026-10-17T00:01:00.000Z')];
-  const body = await open(runs, '/runs?range=today');
+  const body = await open(runs, '/workloads?range=today');
 
   assert.deepEqual(listed(body), ['today']);
   assert.deepEqual(highlighted(body), ['today']);
@@ -87,7 +87,7 @@ const ranges: { range: string; boundary: string; kept: string[]; dropped: string
 for (const { range, boundary, kept, dropped } of ranges) {
   test(`given workloads either side of the ${boundary} boundary, when opened with range=${range}, then only the ones inside list and the preset is highlighted`, async () => {
     const runs = [...kept, ...dropped].map((startTime, index) => run(`run-${index}`, startTime));
-    const body = await open(runs, `/runs?range=${range}`);
+    const body = await open(runs, `/workloads?range=${range}`);
 
     assert.deepEqual(listed(body).sort(), kept.map((startTime) => runs.find((record) => record.startTime === startTime)!.id).sort());
     assert.deepEqual(highlighted(body), [range]);
@@ -99,7 +99,7 @@ const hrefOf = (tag: string): string => (tag.match(/\shref="([^"]*)"/)?.[1] ?? '
 const spread = [run('today', '2026-10-17T00:01:00.000Z'), run('old', '2026-06-01T10:00:00.000Z')];
 
 test('given no date filter or an invalid range, when opened, then every workload lists, Any time is highlighted and no error shows', async () => {
-  for (const path of ['/runs', '/runs?range=fortnight', '/runs?range=']) {
+  for (const path of ['/workloads', '/workloads?range=fortnight', '/workloads?range=']) {
     const body = await open(spread, path);
 
     assert.deepEqual(listed(body), ['today', 'old'], path);
@@ -109,7 +109,7 @@ test('given no date filter or an invalid range, when opened, then every workload
 });
 
 test('given explicit from and to dates, when opened, then no preset is highlighted and the inputs show the dates', async () => {
-  const body = await open(spread, '/runs?from=2026-10-01&to=2026-10-31');
+  const body = await open(spread, '/workloads?from=2026-10-01&to=2026-10-31');
 
   assert.deepEqual(listed(body), ['today']);
   assert.deepEqual(highlighted(body), []);
@@ -118,28 +118,28 @@ test('given explicit from and to dates, when opened, then no preset is highlight
 });
 
 test('given explicit dates, a status and a worker, when opened, then every preset link keeps the status and worker and carries no dates', async () => {
-  const body = await open(spread, '/runs?from=2026-10-01&to=2026-10-31&status=success&worker=refiner');
+  const body = await open(spread, '/workloads?from=2026-10-01&to=2026-10-31&status=success&worker=refiner');
   const hrefs = [...body.matchAll(/<a[^>]*\sdata-range-preset="([^"]+)"[^>]*>/g)].map(([tag, key]) => [key, hrefOf(tag)]);
 
   assert.deepEqual(hrefs, [
-    ['any', '/runs?status=success&worker=refiner'],
-    ['today', '/runs?status=success&worker=refiner&range=today'],
-    ['yesterday', '/runs?status=success&worker=refiner&range=yesterday'],
-    ['7d', '/runs?status=success&worker=refiner&range=7d'],
-    ['30d', '/runs?status=success&worker=refiner&range=30d'],
-    ['month', '/runs?status=success&worker=refiner&range=month'],
+    ['any', '/workloads?status=success&worker=refiner'],
+    ['today', '/workloads?status=success&worker=refiner&range=today'],
+    ['yesterday', '/workloads?status=success&worker=refiner&range=yesterday'],
+    ['7d', '/workloads?status=success&worker=refiner&range=7d'],
+    ['30d', '/workloads?status=success&worker=refiner&range=30d'],
+    ['month', '/workloads?status=success&worker=refiner&range=month'],
   ]);
 });
 
 test('given an active preset, when the filter form is read, then it submits no range', async () => {
-  const body = await open(spread, '/runs?range=7d');
+  const body = await open(spread, '/workloads?range=7d');
 
   assert.doesNotMatch(body, /<input[^>]*\sname="range"/);
 });
 
 test('given an active preset and more workloads than fit a page, when opened, then the status chip and pager links carry the range', async () => {
   const runs = Array.from({ length: 60 }, (_, index) => run(`run-${index}`, '2026-10-17T00:01:00.000Z'));
-  const body = await open(runs, '/runs?range=7d');
+  const body = await open(runs, '/workloads?range=7d');
   const links = [...body.matchAll(/<a[^>]*\sdata-(?:status-chip|page-link)="[^"]*"[^>]*>/g)].map(([tag]) => hrefOf(tag));
 
   assert.ok(links.length > 1);
@@ -149,15 +149,15 @@ test('given an active preset and more workloads than fit a page, when opened, th
 test('given an active preset or explicit dates, when opened, then the Filters toggle names the preset or the range', async () => {
   const toggle = (body: string): string => textOf(body.match(/<summary[\s\S]*?<\/summary>/)?.[0] ?? 'missing');
 
-  assert.equal(toggle(await open(spread, '/runs?range=7d')), 'Filters Last 7 days');
-  assert.equal(toggle(await open(spread, '/runs?from=2026-10-01')), 'Filters from 2026-10-01');
-  assert.equal(toggle(await open(spread, '/runs')), 'Filters');
+  assert.equal(toggle(await open(spread, '/workloads?range=7d')), 'Filters Last 7 days');
+  assert.equal(toggle(await open(spread, '/workloads?from=2026-10-01')), 'Filters from 2026-10-01');
+  assert.equal(toggle(await open(spread, '/workloads')), 'Filters');
 });
 
 test('given a workload started just before midnight, when Today is opened either side of midnight UTC, then it lists only before midnight and Yesterday takes over after', async () => {
   const runs = [run('late', '2026-10-16T23:50:00.000Z')];
 
-  assert.deepEqual(listed(await open(runs, '/runs?range=today', '2026-10-16T23:59:00.000Z')), ['late']);
-  assert.deepEqual(listed(await open(runs, '/runs?range=today', '2026-10-17T00:01:00.000Z')), []);
-  assert.deepEqual(listed(await open(runs, '/runs?range=yesterday', '2026-10-17T00:01:00.000Z')), ['late']);
+  assert.deepEqual(listed(await open(runs, '/workloads?range=today', '2026-10-16T23:59:00.000Z')), ['late']);
+  assert.deepEqual(listed(await open(runs, '/workloads?range=today', '2026-10-17T00:01:00.000Z')), []);
+  assert.deepEqual(listed(await open(runs, '/workloads?range=yesterday', '2026-10-17T00:01:00.000Z')), ['late']);
 });

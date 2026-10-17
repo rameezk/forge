@@ -58,7 +58,7 @@ const appWith = ({
   });
 };
 
-const PAGES = ['/', '/runs', '/runs/run-01'] as const;
+const PAGES = ['/', '/workloads', '/runs/run-01'] as const;
 
 const stylesheetLinks = (body: string): string[] =>
   [...body.matchAll(/<link[^>]*\srel="stylesheet"[^>]*>/g)].map(
@@ -85,7 +85,7 @@ test('given any dashboard page, when it is requested, then it links exactly one 
 test('given the hashed stylesheet path a page links to, when it is requested, then it returns the CSS with an immutable, long-lived cache header', async () => {
   const css = 'body { color: red; }';
   const app = appWith({ css });
-  const [path] = stylesheetLinks(await (await app.request('/runs')).text());
+  const [path] = stylesheetLinks(await (await app.request('/workloads')).text());
 
   const res = await app.request(path!);
 
@@ -153,7 +153,7 @@ test('given any dashboard page, when it is requested, then its header shows the 
 
 test('given the logo path the pages reference, when it is requested, then it returns the SVG logo with an immutable, long-lived cache header', async () => {
   const app = appWith({ logo: LOGO });
-  const path = attribute(favicon(await (await app.request('/runs')).text()), 'href');
+  const path = attribute(favicon(await (await app.request('/workloads')).text()), 'href');
 
   const res = await app.request(path!);
 
@@ -163,7 +163,7 @@ test('given the logo path the pages reference, when it is requested, then it ret
   assert.ok(cacheControl.includes('immutable'), 'the logo should be cached as immutable');
   assert.equal(await res.text(), LOGO);
 
-  const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/runs')).text()), 'href');
+  const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/workloads')).text()), 'href');
   assert.notEqual(other, path, 'a different logo should get a different path');
 });
 
@@ -171,7 +171,7 @@ test('given each dashboard page, when it is requested, then its title names the 
   const app = appWith({});
   const titles: Record<(typeof PAGES)[number], string> = {
     '/': 'Board | Forge',
-    '/runs': 'Workloads | Forge',
+    '/workloads': 'Workloads | Forge',
     '/runs/run-01': 'refiner | Forge',
   };
 
@@ -205,7 +205,7 @@ test('given any dashboard page, when it is requested, then it loads the morph li
 test('given the script paths a page loads, when they are requested, then they return the scripts with an immutable, long-lived cache header', async () => {
   const scripts = { idiomorph: 'var Idiomorph = 1;', client: 'live();' };
   const app = appWith(scripts);
-  const [idiomorph, client] = scriptSources(await (await app.request('/runs')).text());
+  const [idiomorph, client] = scriptSources(await (await app.request('/workloads')).text());
 
   for (const [path, body] of [[idiomorph!, scripts.idiomorph], [client!, scripts.client]] as const) {
     const res = await app.request(path);

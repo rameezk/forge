@@ -121,7 +121,7 @@ const streamEvents = async (t: TestContext, app: ReturnType<typeof createApp>, p
 
 test('given a client streaming events for the runs list, when a new run is recorded in the store, then the stream emits a change signal', async (t) => {
   const { app, writer } = dashboard(t);
-  const stream = await streamEvents(t, app, '/runs');
+  const stream = await streamEvents(t, app, '/workloads');
 
   writer.insertRun(sampleRun());
 
@@ -150,28 +150,28 @@ test('given a client streaming events for the Board, when a generation is record
 test('given a client opening a page\'s stream, when it connects, then the stream emits a change signal at once, so the client catches up with any write since it loaded the page', async (t) => {
   const { app } = dashboard(t);
 
-  const stream = await streamEvents(t, app, '/runs');
+  const stream = await streamEvents(t, app, '/workloads');
 
   assert.equal(stream.connected?.event, 'change');
 });
 
 test('given a live page rendered with no change since, when its stream connects with the rendered version, then no change signal is emitted', async (t) => {
   const { app } = dashboard(t);
-  const version = await renderedVersion(app, '/runs');
+  const version = await renderedVersion(app, '/workloads');
   assert.notEqual(version, undefined);
 
-  const stream = await streamEvents(t, app, '/runs', version);
+  const stream = await streamEvents(t, app, '/workloads', version);
 
   assert.equal(await stream.nextWithin(40), 'quiet');
 });
 
 test('given a live page rendered before a store write, when its stream connects with the rendered version after the write, then the stream emits a change signal at once', async (t) => {
   const { app, writer } = dashboard(t);
-  const version = await renderedVersion(app, '/runs');
+  const version = await renderedVersion(app, '/workloads');
   assert.notEqual(version, undefined);
   writer.insertRun(sampleRun());
 
-  const stream = await streamEvents(t, app, '/runs', version);
+  const stream = await streamEvents(t, app, '/workloads', version);
 
   assert.equal((await stream.next())?.event, 'change');
 });

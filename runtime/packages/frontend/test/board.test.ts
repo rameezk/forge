@@ -63,15 +63,23 @@ test('given the dashboard, when / and /work are requested, then / serves the Boa
   const nav = body.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '';
   assert.deepEqual(
     [...nav.matchAll(/<a href="([^"]*)"([^>]*)>([^<]*)<\/a>/g)].map(([, href, attributes, label]) => [href, label, /aria-current="page"/.test(attributes ?? '')]),
-    [['/', 'Board', true], ['/runs', 'Runs', false], ['/insights', 'Insights', false]],
+    [['/', 'Board', true], ['/workloads', 'Workloads', false], ['/insights', 'Insights', false]],
   );
 
   const work = await app.request('/work');
   assert.equal(work.status, 302);
   assert.equal(work.headers.get('location'), '/');
 
-  const runs = await (await app.request('/runs')).text();
-  assert.match(runs.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '', /<a href="\/runs" aria-current="page"[^>]*>Runs<\/a>/);
+  const workloads = await (await app.request('/workloads')).text();
+  assert.match(workloads.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '', /<a href="\/workloads" aria-current="page"[^>]*>Workloads<\/a>/);
+
+  const legacy = await app.request('/runs');
+  assert.equal(legacy.status, 302);
+  assert.equal(legacy.headers.get('location'), '/workloads');
+
+  const filtered = await app.request('/runs?status=error&page=2');
+  assert.equal(filtered.status, 302);
+  assert.equal(filtered.headers.get('location'), '/workloads?status=error&page=2');
 });
 
 const columnHeaders = (body: string): string[] =>

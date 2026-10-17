@@ -403,7 +403,7 @@ export const renderDetail = (
   const efforts = sentEfforts(calls, recordedEfforts);
   const body = html`<div class="flex flex-col gap-2 lg:grid lg:gap-6 lg:h-full lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)]">
       <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
-        <p class="m-0 mb-4 text-[0.9rem]"><a href="/runs" class="${LINK}">&larr; Workloads</a></p>
+        <p class="m-0 mb-4 text-[0.9rem]"><a href="/workloads" class="${LINK}">&larr; Workloads</a></p>
         <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
         ${renderSummary(run, summaryEffort(run, efforts), workload, display.timeZone)}
         ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}

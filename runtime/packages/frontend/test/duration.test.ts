@@ -74,7 +74,7 @@ test('given runs that took 59 seconds, 59 minutes 59 seconds, an hour and 2 hour
   ];
   const app = appWith(cases.map(([id, seconds]) => sampleRun({ id, ...endingAfter(seconds) })));
 
-  const list = await (await app.request('/runs')).text();
+  const list = await (await app.request('/workloads')).text();
   for (const [id, , expected] of cases) {
     assert.equal(durationInRow(list, id), expected, `list row ${id}`);
     assert.equal(durationOnPage(await (await app.request(`/runs/${id}`)).text()), expected, `run page ${id}`);
@@ -87,7 +87,7 @@ test('given a running run and a finished one, when the list and run pages are re
     sampleRun({ id: 'finished', ...endingAfter(200) }),
   ]);
 
-  const list = await (await app.request('/runs')).text();
+  const list = await (await app.request('/workloads')).text();
   const running = list.match(/<tr[^>]*\sdata-run="running"[\s\S]*?<\/tr>/)?.[0] ?? '';
   const finished = list.match(/<tr[^>]*\sdata-run="finished"[\s\S]*?<\/tr>/)?.[0] ?? '';
   assert.match(running, /<td[^>]*\sdata-duration[^>]*>\s*<span[^>]*\sdata-elapsed-since="2026-09-21T10:00:00.000Z"[^>]*>running<\/span>/);
