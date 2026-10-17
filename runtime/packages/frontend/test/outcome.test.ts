@@ -59,7 +59,7 @@ const dashboard = () => {
   store.insertRun(sampleRun('resolving'));
   store.startConflictResolution({ repository: 'forge', number: 4, url: 'https://github.com/rameezk/forge/pull/4' }, [], 'resolving', new Date().toISOString(), 10, { headSha: 'head-a', defaultSha: 'default-a' });
   store.insertRun(sampleRun('resolved'));
-  const resolution = store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head-a', defaultSha: 'default-a' });
+  const resolution = store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head-b', defaultSha: 'default-b' });
   assert.ok('started' in resolution);
   store.endConflictResolution(resolution.started, 'error', '2026-09-21T10:03:20.000Z', { reason: 'not-merged', detail: 'abc1234 is missing' });
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });

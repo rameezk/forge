@@ -257,6 +257,7 @@ interface Outcome {
   gitConfig: Record<string, string>;
   runsList: string;
   thrown: string | null;
+  nextAfter: string | null;
 }
 
 const botLookupRejected =
@@ -268,6 +269,17 @@ const botLookupRejected =
           headers: { 'content-type': 'application/json' },
         })
       : next(input, init);
+
+const nextRevisionAfter = (store: Store): string | null => {
+  const next = store.startRevision(
+    { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
+    [],
+    'next-run',
+    new Date(Date.now() + 60_000).toISOString(),
+    10,
+  );
+  return 'started' in next ? next.after : null;
+};
 
 const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin =
@@ -384,6 +396,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
           client: '',
         }).request('/workloads')
       ).text(),
+      nextAfter: nextRevisionAfter(store),
     };
   } finally {
     store.close();
@@ -440,6 +453,38 @@ test('given any revision, when pi starts, then its fixed instruction tells it to
   assert.match(revision ?? '', /end your run at once, without waiting or polling for an answer/);
   assert.equal(instructions.some((text) => text.includes('no human will answer')), false);
   assert.equal(instructions.includes(UNATTENDED_INSTRUCTION), false);
+});
+
+test('given a revision with feedback to address, when it runs, then its instruction says to post a block or question as a reply on the pull request', async () => {
+  const { pi } = await revise();
+
+  assert.match(
+    instructionOf(pi),
+    /stop because you are blocked or have a question, post that as a reply on the pull request/,
+  );
+});
+
+test('given a revision handed one item, when the worker replies on the pull request linking the item to say it is blocked and does not push, then the revision ends ok and the cursor stays at its start', async () => {
+  const { code, revisions, nextAfter } = await revise({
+    answers: feedbackAnswers({
+      comments: [
+        { ...conversationComment(), ...noReactions },
+        {
+          url: `${PULL_REQUEST_URL}#issuecomment-2`,
+          body: `Blocked on ${COMMENT_URL}: cannot proceed without a decision`,
+          author: FORGE_APP,
+          createdAt: '2026-09-22T11:00:00Z',
+          ...noReactions,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(revisions.map(({ state, reason }) => ({ state, reason })), [
+    { state: 'ok', reason: null },
+  ]);
+  assert.equal(nextAfter, revisions[0]?.startedAt);
 });
 
 test('given a revision that ends ok, when it is recorded, then it is against its pull request and run and linked to the dispatch that opened the pull request', async () => {

@@ -17,12 +17,15 @@ const SCOPED_CHECK_RULE = [
   'Run only the scoped local commands AGENTS.md lists for the areas you changed, never the full `make check-no-vm`.',
   'End your report with one line naming the local commands that passed, followed by "full suite: CI".',
   'When a required scoped command is killed or cannot run, stop and report that instead of running a narrower or different check.',
+  "A missing dependency install is something to do as the repository's instructions say, not a required command that cannot run.",
 ];
 
 export const UNATTENDED_INSTRUCTION = [
   'You are running unattended: no human will answer questions or confirm anything while you work.',
   'Where a skill asks you to confirm something the ticket or its spec already settles, proceed without asking.',
   'Otherwise stop, and end with the question you need answered.',
+  'If you stop because you are blocked or have a question, post that as a comment on your pull request, or on the ticket when you have no pull request.',
+  'A note in the pull request body or the final report alone does not count.',
   ...SCOPED_CHECK_RULE,
 ].join(' ');
 
@@ -30,6 +33,7 @@ const REVISION_INSTRUCTION = [
   'A person reviews this pull request and will read your replies on it.',
   'Where a skill asks you to confirm something their feedback already settles, proceed without asking.',
   'Otherwise ask the question as a reply on the pull request and end your run at once, without waiting or polling for an answer.',
+  'If you stop because you are blocked or have a question, post that as a reply on the pull request.',
   ...SCOPED_CHECK_RULE,
 ].join(' ');
 
