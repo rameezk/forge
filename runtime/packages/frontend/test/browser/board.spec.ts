@@ -24,6 +24,21 @@ test.describe('on a narrow screen', () => {
     expect(await page.locator('[data-board]').evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
     expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
   });
+
+  test('given a phone-width screen, when the Board is opened, then every title fits whole and all headers share one height', async ({ dashboard, page }) => {
+    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
+
+    await page.goto('/');
+
+    const headers = await page.locator('[data-column-header]').evaluateAll((elements) =>
+      elements.map((header) => ({
+        height: Math.round(header.getBoundingClientRect().height),
+        titleClipped: header.querySelector('[data-column-title]')!.scrollWidth > header.querySelector('[data-column-title]')!.clientWidth,
+      })),
+    );
+    expect(new Set(headers.map(({ height }) => height)).size).toBe(1);
+    expect(headers.some(({ titleClipped }) => titleClipped)).toBe(false);
+  });
 });
 
 test.describe('on a desktop screen', () => {
@@ -41,45 +56,53 @@ test.describe('on a desktop screen', () => {
     }).toBeGreaterThanOrEqual(24);
   });
 
-  test('given the Board on a desktop screen, when it is opened, then the person icon leads the title in every column that has one', async ({ dashboard, page }) => {
+  test('given the Board on a desktop screen, when it is opened, then the headers read as one set, the mockup height: counts flush right, icons 6px left of the count and centred on the title, titles at the left padding', async ({ dashboard, page }) => {
     dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
 
-    const offsets = await page.locator('[data-column-header]:has([data-person])').evaluateAll((headers) =>
-      headers.map((header) => {
-        const left = header.getBoundingClientRect().left;
-        const icon = header.querySelector('[data-person]')!.getBoundingClientRect();
-        const title = header.querySelector('[data-column-title]')!.getBoundingClientRect();
-        return { icon: icon.left - left, titleAfterIcon: title.left >= icon.right };
+    const headers = await page.locator('[data-column-header]').evaluateAll((elements) =>
+      elements.map((header) => {
+        const box = header.getBoundingClientRect();
+        const view = header.ownerDocument.defaultView!;
+        const style = view.getComputedStyle(header);
+        const total = header.querySelector('[data-column-total]')!.getBoundingClientRect();
+        const title = header.querySelector('[data-column-title]')!;
+        const titleBox = title.getBoundingClientRect();
+        const icon = header.querySelector('[data-person]')?.getBoundingClientRect();
+        const titleStyle = view.getComputedStyle(title);
+        const context = header.ownerDocument.createElement('canvas').getContext('2d')!;
+        context.font = `${titleStyle.fontWeight} ${titleStyle.fontSize} ${titleStyle.fontFamily}`;
+        const metrics = context.measureText(title.textContent!.toUpperCase());
+        const lineHeight = parseFloat(titleStyle.lineHeight);
+        const baseline = titleBox.top + (lineHeight - (metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent)) / 2 + metrics.fontBoundingBoxAscent;
+        const glyphCentre = baseline - (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2;
+        const subtitle = header.querySelector('[data-column-subtitle]')!;
+        return {
+          height: box.height,
+          totalGap: box.right - total.right,
+          titleOffset: titleBox.left - box.left - parseFloat(style.paddingLeft),
+          titleClipped: title.scrollWidth > title.clientWidth,
+          subtitleLines: Math.round(subtitle.getBoundingClientRect().height / parseFloat(view.getComputedStyle(subtitle).lineHeight)),
+          icon: icon ? { gap: total.left - icon.right, centre: icon.top + icon.height / 2 - glyphCentre } : null,
+        };
       }),
     );
-    expect(offsets).toHaveLength(3);
-    expect(offsets.every(({ titleAfterIcon }) => titleAfterIcon)).toBe(true);
-    expect(new Set(offsets.map(({ icon }) => Math.round(icon))).size).toBe(1);
+    expect(headers).toHaveLength(9);
+    expect(headers.map(({ height }) => Math.round(height))).toEqual(Array(9).fill(51));
+    expect(new Set(headers.map(({ totalGap }) => Math.round(totalGap))).size).toBe(1);
+    for (const header of headers) {
+      expect(header.titleOffset).toBeCloseTo(0, 0);
+      expect(header.titleClipped).toBe(false);
+      expect(header.subtitleLines).toBe(1);
+    }
+    const icons = headers.flatMap(({ icon }) => (icon ? [icon] : []));
+    expect(icons).toHaveLength(3);
+    for (const icon of icons) {
+      expect(icon.gap).toBeCloseTo(6, 0);
+      expect(Math.abs(icon.centre)).toBeLessThanOrEqual(0.5);
+    }
   });
-
-  for (const width of ['', '3rem']) {
-    test(`given the Board on a desktop screen, when a column title ${width ? 'wraps' : 'fits on one line'}, then the person icon is centred on the title's first line`, async ({ dashboard, page }) => {
-      dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
-
-      await page.goto('/');
-      await page.locator('[data-column-title]').evaluateAll((titles, maxWidth) => titles.forEach((title) => title.setAttribute('style', `max-width: ${maxWidth}`)), width);
-
-      const gaps = await page.locator('[data-column-header]:has([data-person])').evaluateAll((headers) =>
-        headers.map((header) => {
-          const icon = header.querySelector('[data-person]')!.getBoundingClientRect();
-          const title = header.querySelector('[data-column-title]')!;
-          const range = title.ownerDocument.createRange();
-          range.selectNodeContents(title);
-          const firstLine = range.getClientRects()[0]!;
-          return Math.abs(icon.top + icon.height / 2 - (firstLine.top + firstLine.height / 2));
-        }),
-      );
-      expect(gaps).toHaveLength(3);
-      for (const gap of gaps) expect(gap).toBeLessThanOrEqual(1);
-    });
-  }
 });
 
 test.describe('lane collapsing', () => {

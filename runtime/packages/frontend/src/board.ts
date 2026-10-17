@@ -1,15 +1,17 @@
 import { newestClosedFirst, oldestFirst, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type Ticket } from '@forge/shared';
 
+const HUMAN = 'Needs a human in the loop';
+
 export const COLUMNS = [
-  { key: 'to-refine', title: 'To refine', subtitle: 'Shape into a spec and tickets', person: true },
-  { key: 'blocked', title: 'Blocked', subtitle: 'Waiting on open blockers', person: false },
-  { key: 'ready-for-human', title: 'Ready for human', subtitle: 'A person builds it', person: true },
-  { key: 'ready-for-agent', title: 'Ready for agent', subtitle: 'Add forge:ready to hand off', person: false },
-  { key: 'waiting-for-slot', title: 'Waiting for slot', subtitle: 'Handed off, unblocked', person: false },
-  { key: 'running', title: 'Running', subtitle: 'An agent is building it', person: false },
-  { key: 'in-review', title: 'In review', subtitle: 'PR waiting on a human', person: true },
-  { key: 'failed', title: 'Failed', subtitle: 'Set forge:ready to retry', person: false },
-  { key: 'done', title: 'Done', subtitle: 'Closed in the last 7 days', person: false },
+  { key: 'to-refine', title: 'To refine', subtitle: HUMAN, hint: null, person: true },
+  { key: 'blocked', title: 'Blocked', subtitle: 'Waiting on open blockers', hint: null, person: false },
+  { key: 'ready-for-human', title: 'Ready for human', subtitle: HUMAN, hint: null, person: true },
+  { key: 'ready-for-agent', title: 'Ready for agent', subtitle: 'Not handed off yet', hint: 'Add forge:ready to hand off', person: false },
+  { key: 'waiting-for-slot', title: 'Waiting for slot', subtitle: 'Handed off, waiting for a slot', hint: null, person: false },
+  { key: 'running', title: 'Running', subtitle: 'An agent is building it', hint: null, person: false },
+  { key: 'in-review', title: 'In review', subtitle: HUMAN, hint: null, person: true },
+  { key: 'failed', title: 'Failed', subtitle: 'Agent run failed', hint: 'Set forge:ready to retry', person: false },
+  { key: 'done', title: 'Done', subtitle: 'Closed in the last 7 days', hint: null, person: false },
 ] as const;
 
 export type ColumnKey = (typeof COLUMNS)[number]['key'];
