@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, totals, type BoardCard, type BoardLane, type ColumnKey } from '../board.ts';
@@ -62,19 +62,30 @@ const specTooltip = (parent: SpecRef | null): string | null => (parent === null 
 const renderElapsedSince = (since: string): Rendered =>
   html`<span class="${ELAPSED}" data-elapsed-since="${since}"></span>`;
 
-const renderRunning = ({ dispatch }: BoardCard): Rendered => {
-  if (dispatch === undefined) return '';
-  const pill = html`<span class="${PILL} ${RUNNING_TONE}">running</span>`;
-  return html`<p class="${MUTED_LINE}">${dispatch.runId === null
-    ? pill
-    : html`<a href="/runs/${encodeURIComponent(dispatch.runId)}" class="rounded-full no-underline hover:opacity-80">${pill}</a>`}${renderElapsedSince(dispatch.startedAt)}</p>`;
+const startOf = (runs: ReadonlyMap<string, RunRecord>, runId: string | null, fallback: string): string => {
+  const run = runId === null ? undefined : runs.get(runId);
+  return run === undefined ? fallback : (run.harnessStartTime ?? run.startTime);
 };
 
-const renderInReview = ({ dispatch, revising }: BoardCard): Rendered => {
+const renderPill = (runId: string | null, pill: Rendered): Rendered =>
+  runId === null ? pill : html`<a href="/runs/${encodeURIComponent(runId)}" class="rounded-full no-underline hover:opacity-80">${pill}</a>`;
+
+const renderRunning = ({ dispatch }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+  if (dispatch === undefined) return '';
+  const pill = html`<span class="${PILL} ${RUNNING_TONE}">running</span>`;
+  return html`<p class="${MUTED_LINE}">${renderPill(dispatch.runId, pill)}${renderElapsedSince(startOf(runs, dispatch.runId, dispatch.startedAt))}</p>`;
+};
+
+const renderRevising = (revision: RevisionRecord, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+  const pill = html`<span data-revising class="${PILL} ${REVISING_TONE}">revising</span>`;
+  return html` <span class="whitespace-nowrap">${renderPill(runs.has(revision.runId) ? revision.runId : null, pill)}${renderElapsedSince(startOf(runs, revision.runId, revision.startedAt))}</span>`;
+};
+
+const renderInReview = ({ dispatch, revision }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${dispatch.endedAt === null ? '' : renderElapsedSince(dispatch.endedAt)}${revising ? html` <span data-revising class="${PILL} ${REVISING_TONE}">revising</span>` : ''}</p>`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${revision === undefined ? '' : renderRevising(revision, runs)}</p>`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
@@ -115,14 +126,14 @@ const renderDone = ({ ticket, dispatch }: BoardCard & { column: 'done' }, timeZo
   return html`<p class="${MUTED_LINE}">${merged ? html`<span data-merged class="${PILL} ${MERGED_TONE}">merged</span> ${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, `PR #${pullRequest.number}`) : html`PR #${pullRequest.number}`} ` : ''}${renderTimestamp(ticket.closedAt, timeZone)}${ticket.forHuman ? html` <span class="ml-1 inline-flex align-middle">${BUILT_BY_PERSON_ICON}</span>` : ''}</p>`;
 };
 
-const renderDetails = (card: BoardCard, github: string, timeZone: string): Rendered => {
+const renderDetails = (card: BoardCard, github: string, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   switch (card.column) {
     case 'blocked':
       return renderBlocked(card, github);
     case 'running':
-      return renderRunning(card);
+      return renderRunning(card, runs);
     case 'in-review':
-      return renderInReview(card);
+      return renderInReview(card, runs);
     case 'failed':
       return renderFailure(card);
     case 'done':
@@ -132,7 +143,7 @@ const renderDetails = (card: BoardCard, github: string, timeZone: string): Rende
   }
 };
 
-const renderCard = (repository: string, github: string, card: BoardCard, attempted: ReadonlySet<string>, timeZone: string): Rendered => {
+const renderCard = (repository: string, github: string, card: BoardCard, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const { ticket } = card;
   const tooltip = card.column === 'to-refine' ? null : specTooltip(card.ticket.parent);
   return html`<article data-ticket="${ticket.number}"${tooltip === null ? '' : html` title="${tooltip}"`} class="rounded-md border border-line bg-surface p-2 text-sm">
@@ -140,7 +151,7 @@ const renderCard = (repository: string, github: string, card: BoardCard, attempt
       ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
       : ''}</p>
     <p class="m-0 mt-1 break-words">${ticket.title}</p>
-    ${renderDetails(card, github, timeZone)}
+    ${renderDetails(card, github, timeZone, runs)}
   </article>`;
 };
 
@@ -166,7 +177,7 @@ const renderLaneCounts = (lane: BoardLane): Rendered => {
       )}</span>`;
 };
 
-const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> => {
+const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const empty = COLUMNS.every(({ key }) => lane.columns[key].length === 0);
   return html`<section class="group border-t border-line" data-repository="${lane.repository}"${empty ? html` data-empty data-collapsed` : ''}${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
@@ -184,7 +195,7 @@ const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: s
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
     </div>
     <div class="${ROW_GRID} group-data-[collapsed]:hidden">${COLUMNS.map(
-      ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${lane.columns[key].map((card) => renderCard(lane.repository, lane.github, card, attempted, timeZone))}</div>`,
+      ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${lane.columns[key].map((card) => renderCard(lane.repository, lane.github, card, attempted, timeZone, runs))}</div>`,
     )}</div>
   </section>`;
 };
@@ -206,6 +217,7 @@ export const renderBoard = (
   frontier: RepositoryFrontier[],
   dispatches: DispatchRecord[],
   revisions: RevisionRecord[],
+  runs: ReadonlyMap<string, RunRecord>,
   attempted: ReadonlySet<string>,
   slots: RunningSlots,
   display: Display,
@@ -217,7 +229,7 @@ export const renderBoard = (
       : html`<div data-board class="overflow-x-auto rounded-lg border border-line bg-surface">
           <div class="min-w-[96rem]">
             ${renderColumnHeaders(totals(lanes))}
-            ${lanes.map((lane) => renderLane(lane, attempted, display.timeZone))}
+            ${lanes.map((lane) => renderLane(lane, attempted, display.timeZone, runs))}
           </div>
         </div>`}`;
   return layout('Board', 'board', true, display, body);

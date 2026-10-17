@@ -328,7 +328,7 @@ test('given tickets with attempts, a parent spec, and dispatches in each state, 
   assert.match(cardOf(body, 4), /<a href="\/tickets\/forge\/4"[^>]*data-attempts[^>]*>/);
 
   assert.match(cardOf(body, 5), /<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/105"[^>]*>PR #105<\/a>/);
-  assert.match(cardOf(body, 5), /data-elapsed-since="2026-09-30T09:00:00.000Z"/);
+  assert.doesNotMatch(cardOf(body, 5), /data-elapsed-since/);
 
   assert.match(textOf(cardOf(body, 6)), /No pull request: Should the check use &lt;b&gt;REST&lt;\/b&gt;\?/);
   assert.doesNotMatch(cardOf(body, 6), /<b>REST<\/b>/);
@@ -506,4 +506,52 @@ test('given two stored requests stored newest first and a ticket, when the Board
   assert.match(textOf(first ?? ''), /Give each forge unit only the state directory access it needs/);
   assert.match(first ?? '', /<time datetime="2026-10-01T06:17:03Z"/);
   assert.match(second ?? '', /<time datetime="2026-10-03T12:35:20Z"/);
+});
+
+test('given a done dispatch with an open pull request and no running revision, when the Board is requested, then its In review card shows the PR link and no elapsed time', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    store.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
+  });
+
+  const card = cardOf(await (await app.request('/')).text(), 5);
+
+  assert.match(textOf(card), /PR #105$/);
+  assert.doesNotMatch(card, /data-elapsed-since|data-revising/);
+});
+
+test('given a done dispatch with an open pull request and a running revision, when the Board is requested, then the card shows a revising pill linking to the revision run page and an elapsed time from the revision run harness start', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    store.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
+    store.insertRun({ ...runOf(105), id: 'revision-105', startTime: '2026-09-30T10:00:00.000Z', harnessStartTime: '2026-09-30T10:05:00.000Z' });
+    const start = store.startRevision({ repository: 'forge', ...pullRequest(105) }, [5], 'revision-105', new Date().toISOString(), Number.POSITIVE_INFINITY);
+    assert.ok('started' in start);
+  });
+
+  const card = cardOf(await (await app.request('/')).text(), 5);
+
+  assert.match(card, /<a href="\/runs\/revision-105"[^>]*><span[^>]*data-revising[^>]*>revising<\/span><\/a>/);
+  assert.match(card, /data-elapsed-since="2026-09-30T10:05:00.000Z"/);
+  assert.equal(card.match(/data-elapsed-since/g)?.length, 1);
+});
+
+test('given a running dispatch whose run has no harness start time, when the Board is requested, then the Running card counts from the run start time', async () => {
+  const app = appWith([frontierOf([ticket({ number: 4, forgeReady: true })])], (store) => {
+    store.insertRun({ ...runOf(4), startTime: '2026-09-30T08:01:00.000Z' });
+    dispatched(store, 4, new Date().toISOString());
+  });
+
+  assert.match(cardOf(await (await app.request('/')).text(), 4), /data-elapsed-since="2026-09-30T08:01:00.000Z"/);
+});
+
+test('given a running dispatch whose run has a later harness start time, when the Board and the run page are requested, then both count from the same instant', async () => {
+  const app = appWith([frontierOf([ticket({ number: 4, forgeReady: true })])], (store) => {
+    store.insertRun({ ...runOf(4), harnessStartTime: '2026-09-30T08:03:00.000Z' });
+    dispatched(store, 4, new Date().toISOString());
+  });
+
+  const card = cardOf(await (await app.request('/')).text(), 4);
+  const page = await (await app.request('/runs/run-4')).text();
+
+  assert.match(card, /data-elapsed-since="2026-09-30T08:03:00.000Z"/);
+  assert.match(page, /data-elapsed-since="2026-09-30T08:03:00.000Z"/);
 });

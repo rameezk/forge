@@ -110,7 +110,14 @@ export const createApp = ({
   app.get('/', (c) => {
     const shown = displayOf(c);
     const now = new Date().toISOString();
-    return c.html(renderBoard(store.listFrontier(), store.listDispatches(now), store.listRevisions(now), store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, shown));
+    const dispatches = store.listDispatches(now);
+    const revisions = store.listRevisions(now);
+    const runs = new Map<string, RunRecord>();
+    for (const runId of [...dispatches.filter(({ state }) => state === 'running').map(({ runId }) => runId), ...revisions.filter(({ state }) => state === 'running').map(({ runId }) => runId)]) {
+      const run = runId === null ? undefined : store.getRun(runId);
+      if (run !== undefined) runs.set(run.id, run);
+    }
+    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, shown));
   });
 
   app.get('/work', (c) => c.redirect('/'));
