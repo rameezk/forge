@@ -233,7 +233,8 @@
                 && nixos.pkgs.forge-runner.piPackage == "${hostPi}/lib/node_modules/pi-monorepo"
               )
               "a host's pkgs.pi-coding-agent, which operators install as the pi harness, must be the pi forge pins and patches to read credentials without writing its agent dir (ADR-0040) and to report the response id of compaction and cache-warm calls (ADR-0052), and the runner must load skills from that same pi";
-          rawExampleConfig = builtins.fromJSON (builtins.readFile exampleConfigFile);
+          rawConfig = file: builtins.fromJSON (builtins.readFile file);
+          rawExampleConfig = rawConfig exampleConfigFile;
           configWith = extra: builtins.toFile "config.json" (builtins.toJSON (rawExampleConfig // extra));
           loads = file: (builtins.tryEval (builtins.deepSeq (loadConfig file) true)).success;
           boxIsUtc = lib.asserts.assertMsg (
@@ -243,10 +244,11 @@
             loads (configWith { })
             && !(loads (configWith { timezone = "UTC"; }))
             && !(loads (configWith { timezone = "Africa/Johannesburg"; }))
-          ) "a config.json that sets timezone, to any value, must fail to load";
+            && lib.hasInfix "forge.runtime.dashboard.timeZone" (builtins.readFile ./infra/lib/load-config.nix)
+          ) "a config.json that sets timezone, to any value, must fail to load, with a message pointing at forge.runtime.dashboard.timeZone";
           exampleConfigsOmitTimezone = lib.asserts.assertMsg (
             !(rawExampleConfig ? timezone)
-            && !((builtins.fromJSON (builtins.readFile ./templates/operator/config.example.json)) ? timezone)
+            && !((rawConfig ./templates/operator/config.example.json) ? timezone)
             && loads ./templates/operator/config.example.json
           ) "neither example config may set timezone, and both must load";
           nixInToolset = lib.asserts.assertMsg (lib.elem nixos.config.nix.package nixos.config.forge.runtime.toolset) "the base workload toolset must carry the box's nix, so a workload can use nix through the daemon";
