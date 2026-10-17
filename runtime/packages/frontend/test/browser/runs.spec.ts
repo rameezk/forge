@@ -279,8 +279,8 @@ test.describe('on a phone screen', () => {
     await page.goto('/runs');
 
     const row = await page.locator('[data-status-chips]').evaluate((element) => {
-      const { top, bottom } = element.getBoundingClientRect();
-      return { top: top + element.clientTop, bottom: top + element.clientTop + element.clientHeight, bottomEdge: bottom };
+      const { top } = element.getBoundingClientRect();
+      return { top: top + element.clientTop, bottom: top + element.clientTop + element.clientHeight };
     });
     const chips = await page.locator('[data-status-chip]').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect()).map(({ top, bottom }) => ({ top, bottom })));
     expect(chips).toHaveLength(6);
