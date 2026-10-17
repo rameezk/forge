@@ -26,6 +26,9 @@ const declaresTicketWorker = ({ repositories = {} }: RuntimeConfig, name: string
 const declaresFeedbackWorker = ({ repositories = {} }: RuntimeConfig, name: string): boolean =>
   Object.hasOwn(repositories, name) && repositories[name]?.on?.feedback !== undefined;
 
+const declaresConflictWorker = ({ repositories = {} }: RuntimeConfig, name: string): boolean =>
+  Object.hasOwn(repositories, name) && repositories[name]?.on?.conflict !== undefined;
+
 const dispatchable = (
   config: RuntimeConfig,
   store: Store,
@@ -49,10 +52,17 @@ const dispatchable = (
 
 type Pending =
   | ({ kind: 'dispatch' } & Dispatchable)
-  | ({ kind: 'revision' } & RevisedPullRequest);
+  | ({ kind: 'revision' } & RevisedPullRequest)
+  | ({ kind: 'conflict-resolution' } & RevisedPullRequest);
+
+const UNIT_PREFIXES: Record<Pending['kind'], string> = {
+  dispatch: 'forge-dispatch',
+  revision: 'forge-revise',
+  'conflict-resolution': 'forge-resolve-conflicts',
+};
 
 const unitOf = (pending: Pending): string =>
-  `forge-${pending.kind === 'dispatch' ? 'dispatch' : 'revise'}@${pending.repository}:${pending.number}.service`;
+  `${UNIT_PREFIXES[pending.kind]}@${pending.repository}:${pending.number}.service`;
 
 export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<number> => {
   if (argv.length > 0) throw new Error(USAGE);
@@ -72,10 +82,18 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
         .map(({ repository, number }) => ticketKey(repository, number)),
     );
     live = store.liveWorkloads(now);
+    const conflicts = store
+      .conflictsDue(now)
+      .filter(({ repository }) => declaresConflictWorker(config, repository));
+    const resolving = new Set(conflicts.map(({ repository, number }) => ticketKey(repository, number)));
     candidates = [
+      ...conflicts.map((pull): Pending => ({ kind: 'conflict-resolution', ...pull })),
       ...store
         .feedbackDue(now, quietPeriodOf(config))
-        .filter(({ repository }) => declaresFeedbackWorker(config, repository))
+        .filter(
+          ({ repository, number }) =>
+            declaresFeedbackWorker(config, repository) && !resolving.has(ticketKey(repository, number)),
+        )
         .map((pull): Pending => ({ kind: 'revision', ...pull })),
       ...dispatchable(config, store, running).map((ticket): Pending => ({ kind: 'dispatch', ...ticket })),
     ];

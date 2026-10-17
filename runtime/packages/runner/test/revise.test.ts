@@ -517,6 +517,7 @@ test('given a live conflict resolution of the pull request, when forge-revise ru
         'earlier-run',
         new Date().toISOString(),
         10,
+        { headSha: 'head-a', defaultSha: 'default-a' },
       );
       assert.ok('started' in start);
     },

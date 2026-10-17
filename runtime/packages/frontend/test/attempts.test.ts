@@ -393,6 +393,7 @@ const resolve = (
     runId,
     start,
     10,
+    { headSha: 'head-a', defaultSha: 'default-a' },
   );
   assert.ok('started' in started);
   store.endConflictResolution(started.started, state, new Date(Date.parse(start) + 120_000).toISOString(), failure);

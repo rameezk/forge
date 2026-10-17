@@ -531,7 +531,7 @@ const refusals: [string, Scenario, RegExp][] = [
     'with a live conflict resolution',
     {
       seed: (store) => {
-        const start = store.startConflictResolution({ ...OPEN_ELSEWHERE, number: 143 }, [], 'earlier', new Date().toISOString(), 10);
+        const start = store.startConflictResolution({ ...OPEN_ELSEWHERE, number: 143 }, [], 'earlier', new Date().toISOString(), 10, { headSha: 'head-a', defaultSha: 'default-a' });
         assert.ok('started' in start);
       },
     },

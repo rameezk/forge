@@ -2,6 +2,11 @@ import type { RevisedPullRequest, RevisionRecord, RevisionState } from './revisi
 
 export type ConflictResolutionState = RevisionState;
 
+export interface ShaPair {
+  headSha: string;
+  defaultSha: string;
+}
+
 export type ConflictResolutionFailure =
   | 'not-merged'
   | 'still-conflicting'

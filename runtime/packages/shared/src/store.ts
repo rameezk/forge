@@ -28,6 +28,7 @@ import type {
   ConflictResolutionStart,
   ConflictResolutionState,
   RunPullRequestWorkload,
+  ShaPair,
 } from './conflict-resolution.ts';
 import type {
   RevisedPullRequest,
@@ -736,6 +737,25 @@ const ADD_REVISION_FEEDBACK_CURSOR = `
   ALTER TABLE revisions ADD COLUMN feedback_cursor TEXT;
 `;
 
+const HAS_CONFLICT_RESOLUTION_SHAS = `
+  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'head_sha'
+`;
+
+const ADD_CONFLICT_RESOLUTION_SHAS = `
+  ALTER TABLE conflict_resolutions ADD COLUMN head_sha TEXT;
+  ALTER TABLE conflict_resolutions ADD COLUMN default_sha TEXT;
+`;
+
+const HAS_WATCH_MERGEABLE = `
+  SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'mergeable'
+`;
+
+const ADD_WATCH_MERGEABLE = `
+  ALTER TABLE feedback_watches ADD COLUMN mergeable TEXT;
+  ALTER TABLE feedback_watches ADD COLUMN head_sha TEXT;
+  ALTER TABLE feedback_watches ADD COLUMN default_sha TEXT;
+`;
+
 const HAS_WATCH_HELD = `
   SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'held'
 `;
@@ -1059,6 +1079,8 @@ export class Store {
     this.#addColumnsOnce(HAS_REVISION_FEEDBACK_CURSOR, ADD_REVISION_FEEDBACK_CURSOR);
     db.exec(CREATE_FEEDBACK_WATCHES);
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
+    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
+    this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
     this.#addColumnsOnce(HAS_DISPATCH_FAILED_STARTS, ADD_DISPATCH_FAILED_STARTS);
   }
@@ -2129,6 +2151,7 @@ export class Store {
     runId: string,
     startedAt: string,
     maxConcurrent: number,
+    pair: ShaPair,
   ): ConflictResolutionStart {
     let start: ConflictResolutionStart = { refused: 'resolving' };
     this.#transaction(() => {
@@ -2157,9 +2180,9 @@ export class Store {
       const row = this.#db
         .prepare(
           `INSERT INTO conflict_resolutions (
-            repository, number, url, run_id, dispatch_id, state, started_at, alive_at
+            repository, number, url, run_id, dispatch_id, state, started_at, alive_at, head_sha, default_sha
           ) VALUES (
-            $repository, $number, $url, $run_id, $dispatch_id, 'running', $now, $now
+            $repository, $number, $url, $run_id, $dispatch_id, 'running', $now, $now, $head_sha, $default_sha
           )
           RETURNING id`,
         )
@@ -2170,6 +2193,8 @@ export class Store {
           run_id: runId,
           dispatch_id: this.#openingDispatchId(pullRequest),
           now: startedAt,
+          head_sha: pair.headSha,
+          default_sha: pair.defaultSha,
         }) as { id: number };
       start = { started: row.id };
     });
@@ -2238,17 +2263,20 @@ export class Store {
     this.#transaction(() => {
       this.#db
         .prepare(
-          `UPDATE feedback_watches SET newest = NULL
+          `UPDATE feedback_watches SET newest = NULL, mergeable = NULL
           WHERE repository = $repository
             AND number NOT IN (SELECT value FROM json_each($numbers))`,
         )
         .run({ repository, numbers: JSON.stringify(watched.map(({ number }) => number)) });
       const upsert = this.#db.prepare(
-        `INSERT INTO feedback_watches (repository, number, url, closes, newest)
-        VALUES ($repository, $number, $url, $closes, $newest)
+        `INSERT INTO feedback_watches (repository, number, url, closes, newest, mergeable, head_sha, default_sha)
+        VALUES ($repository, $number, $url, $closes, $newest, $mergeable, $head_sha, $default_sha)
         ON CONFLICT (repository, number) DO UPDATE SET
           url = excluded.url,
           closes = excluded.closes,
+          mergeable = excluded.mergeable,
+          head_sha = excluded.head_sha,
+          default_sha = excluded.default_sha,
           newest = CASE
             WHEN excluded.newest IS NOT NULL
               AND (
@@ -2265,6 +2293,9 @@ export class Store {
           url: pull.url,
           closes: JSON.stringify(pull.closes),
           newest: pull.newestFeedbackAt,
+          mergeable: pull.mergeable,
+          head_sha: pull.headSha,
+          default_sha: pull.defaultSha,
         });
       }
     });
@@ -2286,6 +2317,33 @@ export class Store {
           !this.#openingDispatchLive(row, JSON.parse(row.closes) as number[], now)
         );
       })
+      .map(({ repository, number, url }) => ({ repository, number, url }));
+  }
+
+  conflictsDue(now: string): RevisedPullRequest[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT repository, number, url, closes FROM feedback_watches
+        WHERE mergeable = 'CONFLICTING'
+          AND head_sha IS NOT NULL
+          AND default_sha IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM conflict_resolutions
+            WHERE conflict_resolutions.repository = feedback_watches.repository
+              AND conflict_resolutions.number = feedback_watches.number
+              AND conflict_resolutions.head_sha = feedback_watches.head_sha
+              AND conflict_resolutions.default_sha = feedback_watches.default_sha
+          )
+        ORDER BY repository, number`,
+      )
+      .all() as FeedbackWatchRow[];
+    return rows
+      .filter(
+        (row) =>
+          !this.#revisionLive(row, now) &&
+          !this.#conflictResolutionLive(row, now) &&
+          !this.#openingDispatchLive(row, JSON.parse(row.closes) as number[], now),
+      )
       .map(({ repository, number, url }) => ({ repository, number, url }));
   }
 
