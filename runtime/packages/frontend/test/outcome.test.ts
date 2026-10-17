@@ -56,6 +56,12 @@ const dashboard = () => {
   revise('unanswered', 1, 'error', { reason: 'unanswered', detail: DETAIL });
   revise('reasonless', 2, 'error');
   revise('good', 3, 'ok');
+  store.insertRun(sampleRun('resolving'));
+  store.startConflictResolution({ repository: 'forge', number: 4, url: 'https://github.com/rameezk/forge/pull/4' }, [], 'resolving', new Date().toISOString(), 10);
+  store.insertRun(sampleRun('resolved'));
+  const resolution = store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', '2026-09-21T10:00:00.000Z', 10);
+  assert.ok('started' in resolution);
+  store.endConflictResolution(resolution.started, 'error', '2026-09-21T10:03:20.000Z', { reason: 'not-merged', detail: 'abc1234 is missing' });
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
 };
 
@@ -87,4 +93,16 @@ test('given the same runs, when each run page is requested, then the summary sho
     const revises = body.match(/<dd[^>]*\sdata-revised-pull-request[\s>][\s\S]*?<\/dd>/)?.[0] ?? 'missing';
     assert.match(revises, /\sdata-outcome="(ok|error)"/, id);
   }
+});
+
+test('given a conflict resolution that failed and one still running, when the list and run pages are requested, then the failed one shows its outcome and the running one shows none', async () => {
+  const app = dashboard();
+  const list = await (await app.request('/runs')).text();
+  const row = (id: string): string => list.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
+
+  assert.match(textOf(row('resolved')), /success error Not merged: abc1234 is missing/);
+  assert.doesNotMatch(row('resolving'), /data-outcome=/);
+  const page = await (await app.request('/runs/resolved')).text();
+  assert.match(textOf(page.match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), /^success error Not merged: abc1234 is missing/);
+  assert.doesNotMatch(await (await app.request('/runs/resolving')).text(), /data-outcome=/);
 });

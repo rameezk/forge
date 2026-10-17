@@ -3,7 +3,7 @@ import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, 
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
-import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, workloadOutcomeText, renderWorkloadOutcome, NUMERIC_WRAPPING, layout } from './shared.ts';
+import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, workloadOutcomeText, renderWorkloadOutcome, settledOutcome, NUMERIC_WRAPPING, layout } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
   pullRequestWorkload === undefined
@@ -15,11 +15,14 @@ const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | u
 const runErrorOf = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): string | null =>
   pullRequestWorkload?.state === 'error' && pullRequestWorkload.reason === null ? run.error : null;
 
-const renderOutcomeBeside = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
-  pullRequestWorkload === undefined || pullRequestWorkload.state === 'running' ? '' : renderWorkloadOutcome(pullRequestWorkload);
+const renderOutcomeBeside = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered => {
+  const settled = settledOutcome(pullRequestWorkload);
+  return settled === null ? '' : renderWorkloadOutcome(settled);
+};
 
 const renderOutcomeDetail = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered => {
-  const text = pullRequestWorkload === undefined || pullRequestWorkload.state === 'running' ? null : workloadOutcomeText(pullRequestWorkload);
+  const settled = settledOutcome(pullRequestWorkload);
+  const text = settled === null ? null : workloadOutcomeText(settled);
   const error = runErrorOf(run, pullRequestWorkload);
   return html`${text === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-outcome-text>${text}</div>`}${error === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`}`;
 };

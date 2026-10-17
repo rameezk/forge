@@ -21,7 +21,10 @@ export const pullRequestFailureText = ({ reason, detail }: PullRequestWorkloadRe
   return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
 };
 
-export const NO_REASON_RECORDED = 'no reason recorded';
+const NO_REASON_RECORDED = 'no reason recorded';
+
+export const settledOutcome = (workload: PullRequestWorkloadRecord | undefined): PullRequestWorkloadRecord | null =>
+  workload === undefined || workload.state === 'running' ? null : workload;
 
 export const workloadOutcomeText = (workload: PullRequestWorkloadRecord): string | null =>
   pullRequestFailureText(workload) ?? (workload.state === 'error' ? NO_REASON_RECORDED : null);
