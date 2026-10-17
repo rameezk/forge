@@ -2,7 +2,12 @@ import type { RevisedPullRequest, RevisionRecord, RevisionState } from './revisi
 
 export type ConflictResolutionState = RevisionState;
 
-export type ConflictResolutionFailure = 'not-merged' | 'still-conflicting' | 'crashed';
+export type ConflictResolutionFailure =
+  | 'not-merged'
+  | 'still-conflicting'
+  | 'check-failed'
+  | 'check-pending'
+  | 'crashed';
 
 export interface ConflictResolutionFailureRecord {
   reason: ConflictResolutionFailure;
