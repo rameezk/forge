@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RunPullRequestWorkload, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
+import { hasUnbillableId, isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RunPullRequestWorkload, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTokens } from '../format.ts';
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
@@ -171,6 +171,11 @@ const summaryEffort = (run: Pick<RunRecord, 'reasoningEffort'>, sent: (string | 
     ? 'varied'
     : configuredEffort(run);
 
+const renderUnbillableIds = (run: RunRecord, generations: GenerationRecord[]): Rendered =>
+  run.costStatus !== 'subscription' && generations.some(hasUnbillableId)
+    ? html`<p class="${WARNING_CALLOUT} mb-4" data-unbillable-ids>The harness returned ids that cannot be billed: some generations carry ids that are not OpenRouter generation ids, so their cost is unconfirmed.</p>`
+    : '';
+
 const renderExceeded = (run: RunRecord): Rendered => {
   if (run.status !== 'exceeded' || run.endTime === null) return '';
   if (run.exceededLimit === 'budget' && run.maxCostUsd !== null) {
@@ -326,7 +331,7 @@ const renderTiles = (
   hasCalls: boolean,
   pullRequest: PullRequestRecord | null,
 ): Rendered => html`<div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3" data-tiles>
-    ${renderTile('cost', 'Cost', renderRunCost(run), renderListPriceTotal(run, generations))}
+    ${renderTile('cost', 'Cost', renderRunCost(run, generations.some(hasUnbillableId)), renderListPriceTotal(run, generations))}
     ${renderTile('duration', 'Duration', html`<span data-duration>${renderDuration(run)}</span>`, run.endTime === null || run.timeoutSeconds === null ? '' : html`timeout ${formatSpan(run.timeoutSeconds)}`)}
     ${renderTile('tokens', 'Tokens', html`${formatTokens(run.inputTokens)} in`, html`${formatTokens(run.outputTokens)} out`)}
     ${renderTile('cache-hit', 'Cache hit', renderCacheHitRate(run), hasCalls ? html`${misses} ${misses === 1 ? 'miss' : 'misses'}` : '')}
@@ -408,6 +413,7 @@ export const renderDetail = (
         ${renderSummary(run, summaryEffort(run, efforts), workload, display.timeZone)}
         ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
         ${stopped !== '' ? stopped : renderRunError(run)}
+        ${renderUnbillableIds(run, generations)}
         ${renderRunDetails(run, generations, workload, skillLoads, downloads, config)}
         ${renderContext(context)}
         ${renderCalls(calls, efforts, run.costStatus === 'subscription', display.timeZone)}

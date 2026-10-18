@@ -183,3 +183,48 @@ test('given a workload with a call that missed the cache, when its run page is o
 test('given a workload with no calls, when its run page is opened, then there is no Calls section', async () => {
   assert.doesNotMatch(await page({}), /data-calls-section/);
 });
+
+const seedGeneration = (store: Store, generationId: string, givenUpBecause?: string): void => {
+  store.recordGeneration({
+    runId: 'run-01',
+    generationId,
+    subagent: null,
+    kind: 'message',
+    usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    estimatedCostUsd: null,
+    ...(givenUpBecause === undefined ? {} : { givenUpBecause }),
+    createdAt: '2026-09-21T10:01:00.000Z',
+  });
+};
+
+test('given a workload with a generation given up for a non-OpenRouter id, when its run page is opened, then a warning says the harness returned ids that cannot be billed and the unconfirmed badge gives that reason', async () => {
+  const body = await page({ costStatus: 'unconfirmed' }, (store) =>
+    seedGeneration(store, 'msg_01', '"msg_01" is not an OpenRouter generation id'),
+  );
+
+  const warning = element(body, 'p', 'data-unbillable-ids');
+  assert.match(warning, /bg-warning-soft/);
+  assert.match(textOf(warning), /returned ids that cannot be billed/);
+  const badge = element(body, 'span', 'data-badge="unconfirmed"');
+  assert.match(badge, /title="[^"]*cannot be billed/);
+});
+
+test('given a workload whose only given-up generation has no id, or a subscription workload with req_ ids, when its run page is opened, then no unbillable-ids warning is shown', async () => {
+  const unnamed = await page({ costStatus: 'unconfirmed' }, (store) =>
+    store.recordGeneration({
+      runId: 'run-01',
+      generationId: null,
+      subagent: null,
+      kind: 'message',
+      usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      estimatedCostUsd: null,
+      createdAt: '2026-09-21T10:01:00.000Z',
+    }),
+  );
+  const subscription = await page({ costStatus: 'subscription', costUsd: 0 }, (store) =>
+    seedGeneration(store, 'req_01'),
+  );
+
+  assert.equal(element(unnamed, 'p', 'data-unbillable-ids'), '');
+  assert.equal(element(subscription, 'p', 'data-unbillable-ids'), '');
+});

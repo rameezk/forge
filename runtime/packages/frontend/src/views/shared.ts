@@ -140,7 +140,12 @@ export const layout = (
 
 export const BADGE = 'shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-[0.05em]';
 
-const UNCONFIRMED_BADGE = html`<span class="${BADGE} ml-1.5 bg-warning-soft text-warning" data-badge="unconfirmed" title="forge could not confirm OpenRouter's billed cost for every generation, so this may not be the whole cost">unconfirmed</span>`;
+const UNCONFIRMED_TITLE = "forge could not confirm OpenRouter's billed cost for every generation, so this may not be the whole cost";
+
+const UNBILLABLE_TITLE = `${UNCONFIRMED_TITLE}. The harness returned generation ids that are not OpenRouter generation ids, so they cannot be billed.`;
+
+const unconfirmedBadge = (unbillable: boolean): Rendered =>
+  html`<span class="${BADGE} ml-1.5 bg-warning-soft text-warning" data-badge="unconfirmed" title="${unbillable ? UNBILLABLE_TITLE : UNCONFIRMED_TITLE}">unconfirmed</span>`;
 
 export const ESTIMATED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="estimated" title="Includes forge's estimate at OpenRouter's list price for generations not yet billed, replaced as generations are billed">estimated</span>`;
 
@@ -155,19 +160,19 @@ const costBadge = (run: Cost): Rendered => {
 
 export const SUBSCRIPTION_BADGE = html`<span class="${BADGE} bg-line text-fg" data-badge="subscription" title="Run on a Claude subscription, so not billed per generation">subscription</span>`;
 
-export const renderCost = (run: Cost): Rendered => {
+export const renderCost = (run: Cost, unbillable = false): Rendered => {
   if (run.costStatus === 'subscription') return SUBSCRIPTION_BADGE;
   if (run.costStatus === 'pending' && !run.costEstimated && run.costUsd === 0) {
     return html`<span class="${PENDING}">pending</span>`;
   }
   const badge = costBadge(run);
-  return html`${formatCost(run.costUsd)}${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
+  return html`${formatCost(run.costUsd)}${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${unconfirmedBadge(unbillable)}` : ''}`;
 };
 
-export const renderRunCost = (run: RunRecord): Rendered => {
-  if (run.endTime !== null || run.maxCostUsd === null) return renderCost(run);
+export const renderRunCost = (run: RunRecord, unbillable = false): Rendered => {
+  if (run.endTime !== null || run.maxCostUsd === null) return renderCost(run, unbillable);
   const badge = costBadge(run);
-  return html`<span data-spend>${formatSpend(run.costUsd)} / ${formatBudget(run.maxCostUsd)}</span>${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${UNCONFIRMED_BADGE}` : ''}`;
+  return html`<span data-spend>${formatSpend(run.costUsd)} / ${formatBudget(run.maxCostUsd)}</span>${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${unconfirmedBadge(unbillable)}` : ''}`;
 };
 
 export const PILL = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-['']";

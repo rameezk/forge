@@ -409,6 +409,11 @@ const withoutGenerationId = (name: string, id: string): string =>
       .join('\n'),
   );
 
+const withGenerationId = (name: string, id: string, replacement: string): string =>
+  outputFile(
+    readFileSync(fixture(name), 'utf8').replaceAll(`"responseId":"${id}"`, `"responseId":"${replacement}"`),
+  );
+
 const sessionIdOf = (output: string): string =>
   (
     JSON.parse(readFileSync(output, 'utf8').split('\n')[0] as string) as {
@@ -2549,6 +2554,35 @@ test('given recorded pi output where an assistant response used tokens but carri
       openRouter.lookups.map((lookup) => lookup.id),
       ['gen-success-1'],
     );
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given recorded pi output where an assistant response carries a msg_ id, when the worker runs and billing settles, then that generation is given up at once as not an OpenRouter generation id, OpenRouter is never asked about it, and the workload ends unconfirmed', async () => {
+  const openRouter = await fakeOpenRouter(billed);
+  try {
+    const { result: outcome, journal } = await journaled(() =>
+      runWorker({ output: withGenerationId('success.jsonl', 'gen-success-2', 'msg_success_2') }),
+    );
+    assert.equal(outcome.run.status, 'success');
+    assert.equal(outcome.run.costStatus, 'unconfirmed');
+    assert.match(journal, /"msg_success_2" is not an OpenRouter generation id/);
+
+    await fire(outcome.stateDir, openRouter);
+
+    const settledRun = storedRun(outcome.stateDir, outcome.run.id);
+    assert.equal(settledRun.costStatus, 'unconfirmed');
+    assert.equal(settledRun.costUsd, 0.0125);
+    assert.deepEqual(
+      openRouter.lookups.map((lookup) => lookup.id),
+      ['gen-success-1'],
+    );
+    const given = storedGenerations(outcome.stateDir, outcome.run.id).find(
+      (generation) => generation.generationId === 'msg_success_2',
+    );
+    assert.equal(given?.lastError, '"msg_success_2" is not an OpenRouter generation id');
+    assert.notEqual(given?.givenUpAt, null);
   } finally {
     openRouter.close();
   }

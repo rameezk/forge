@@ -17,6 +17,7 @@ export type {
   NewGeneration,
   UnsettledGeneration,
 } from './generation.ts';
+export { hasUnbillableId, notOpenRouterIdReason } from './generation.ts';
 export type {
   DispatchFailure,
   DispatchOutcome,
