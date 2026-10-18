@@ -27,6 +27,7 @@ const workload = (id: string): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 100,
   outputTokens: 10,

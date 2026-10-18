@@ -117,7 +117,7 @@ export const createApp = ({
       const run = runId === null ? undefined : store.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
-    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, shown));
+    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none'));
   });
 
   app.get('/work', (c) => c.redirect('/'));

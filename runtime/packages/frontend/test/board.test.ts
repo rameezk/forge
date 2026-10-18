@@ -279,6 +279,7 @@ const runOf = (number: number): RunRecord => ({
   costStatus: 'pending',
   costUsd: 0,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 0,
   outputTokens: 0,
@@ -296,7 +297,7 @@ const runOf = (number: number): RunRecord => ({
   counters: null,
 });
 
-test('given tickets with attempts, a parent spec, and dispatches in each state, when the Board is requested, then each card shows its linked number, title, parent spec tooltip, attempts link and its column details, oldest first within each column', async () => {
+test('given tickets with attempts, a parent spec, and dispatches in each state, when the Board is requested, then each card shows its linked number, title, attempts link and its column details, oldest first within each column', async () => {
   const app = appWith(
     [
       frontierOf([
@@ -321,10 +322,9 @@ test('given tickets with attempts, a parent spec, and dispatches in each state, 
   const columns = cardsByColumn(laneOf(body, 'forge'));
 
   assert.deepEqual(columns['ready-for-agent'], ['7', '2']);
-  assert.match(openingTag(cardOf(body, 2)), /title="#54 Frontier discovery across managed repositories"/);
-  assert.doesNotMatch(openingTag(cardOf(body, 7)), /title=/);
+  assert.doesNotMatch(openingTag(cardOf(body, 2)), /title=/);
   assert.match(cardOf(body, 2), /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/56"[^>]*>#2<\/a>/);
-  assert.match(textOf(cardOf(body, 2)), /Declared repositories show their frontier on the dashboard 2026-09-22$/);
+  assert.match(textOf(cardOf(body, 2)), /Declared repositories show their frontier on the dashboard ↳ #54 Frontier discovery across managed repositories 2026-09-22$/);
   assert.doesNotMatch(cardOf(body, 2), /data-attempts/);
 
   assert.match(textOf(cardOf(body, 1)), /queued/);
@@ -562,4 +562,77 @@ test('given a running dispatch whose run has a later harness start time, when th
 
   assert.match(card, /data-elapsed-since="2026-09-30T08:03:00.000Z"/);
   assert.match(page, /data-elapsed-since="2026-09-30T08:03:00.000Z"/);
+});
+
+const specLine = (card: string): string => card.match(/<p[^>]*\sdata-spec-line[^>]*>[\s\S]*?<\/p>/)?.[0] ?? '';
+
+test('given a ticket whose parent is spec 440 and a ticket with no parent, when the Board is requested ungrouped, then the first card shows a linked spec line with the spec title and the second shows none', async () => {
+  const app = appWith([
+    frontierOf([
+      ticket({ number: 1, parent: { number: 440, title: 'Board as the home page', url: 'https://github.com/rameezk/forge/issues/440' } }),
+      ticket({ number: 2, parent: null }),
+    ]),
+  ]);
+
+  const body = await (await app.request('/')).text();
+
+  const line = specLine(cardOf(body, 1));
+  assert.match(line, /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/440"[^>]*>#440<\/a>/);
+  assert.equal(textOf(line), '↳ #440 Board as the home page');
+  assert.match(openingTag(line), /title="#440 Board as the home page"/);
+  assert.equal(specLine(cardOf(body, 2)), '');
+});
+
+const bands = (lane: string): string[] => lane.split(/(?=<div[^>]*\sdata-spec-band)/).slice(1);
+
+const groupedFrontier = (): Seed[] => [
+  frontierOf(
+    [
+      ticket({ number: 1, parent: { number: 455, title: 'Live dashboard updates', url: 'https://github.com/rameezk/forge/issues/455' } }),
+      ticket({ number: 2, forgeReady: true, parent: { number: 440, title: 'Board as the home page', url: 'https://github.com/rameezk/forge/issues/440' } }),
+      ticket({ number: 3, parent: { number: 440, title: 'Board as the home page', url: 'https://github.com/rameezk/forge/issues/440' } }),
+      ticket({ number: 4, parent: null }),
+    ],
+    [{ number: 9, title: 'A request', url: 'https://github.com/rameezk/forge/issues/9', createdAt: '2026-09-28T10:07:58Z' }],
+  ),
+];
+
+test('given tickets under specs 455 and 440 and a loose ticket and a request in one repository, when /?group=spec is requested, then the lane shows a 440 band, a 455 band and a No spec band last, each with its count, and no card shows a spec line', async () => {
+  const app = appWith(groupedFrontier());
+
+  const body = await (await app.request('/?group=spec')).text();
+  const lane = laneOf(body, 'forge');
+  const found = bands(lane);
+
+  assert.deepEqual(found.map((band) => /data-spec-band="([^"]*)"/.exec(band)?.[1]), ['440', '455', 'none']);
+  const heads = found.map((band) => textOf(band.match(/<header[^>]*\sdata-band-head[^>]*>[\s\S]*?<\/header>/)?.[0] ?? ''));
+  assert.deepEqual(heads, ['#440 Board as the home page 2 tickets', '#455 Live dashboard updates 1 ticket', 'No spec 2 tickets']);
+  assert.match(found[0] ?? '', /<a href="https:\/\/github\.com\/rameezk\/forge\/issues\/440"[^>]*>#440<\/a>/);
+  assert.deepEqual((found[0] ?? '').match(/data-ticket="(\d+)"/g), ['data-ticket="3"', 'data-ticket="2"']);
+  assert.match(found[2] ?? '', /data-ticket="9"/);
+  assert.match(found[2] ?? '', /data-ticket="4"/);
+  assert.equal((found[0]?.match(/data-column="/g) ?? []).length, 9);
+  assert.doesNotMatch(lane, /data-spec-line/);
+});
+
+test('given tickets with a spec, when /?group=spec is requested, then a repository with no loose ticket shows no No spec band', async () => {
+  const app = appWith([frontierOf([ticket({ number: 1 })])]);
+
+  const lane = laneOf(await (await app.request('/?group=spec')).text(), 'forge');
+
+  assert.deepEqual(bands(lane).map((band) => /data-spec-band="([^"]*)"/.exec(band)?.[1]), ['54']);
+});
+
+const groupControl = (body: string): string[][] =>
+  [...(body.match(/<[^>]*\sdata-group-control[^>]*>[\s\S]*?<\/(?:div|nav)>/)?.[0] ?? '').matchAll(/<a href="([^"]*)"([^>]*)>([^<]*)<\/a>/g)].map(([, href, attributes, label]) => [href ?? '', label ?? '', /aria-current="true"/.test(attributes ?? '') ? 'current' : '']);
+
+test('given the Board, when it is opened at / and at /?group=spec, then the grouping control marks None and Spec as current respectively and each option links to its URL', async () => {
+  const app = appWith(groupedFrontier());
+
+  const ungrouped = groupControl(await (await app.request('/')).text());
+  const grouped = groupControl(await (await app.request('/?group=spec')).text());
+
+  assert.deepEqual(ungrouped, [['/', 'None', 'current'], ['/?group=spec', 'Spec', '']]);
+  assert.deepEqual(grouped, [['/', 'None', ''], ['/?group=spec', 'Spec', 'current']]);
+  assert.doesNotMatch(await (await app.request('/?group=bogus')).text(), /data-spec-band/);
 });

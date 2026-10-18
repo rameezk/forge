@@ -42,6 +42,7 @@ export interface RunRecord {
   costStatus: CostStatus;
   costUsd: number;
   costEstimated: boolean;
+  unconfirmedEstimateUsd: number;
   listPrice: ListPrice | null;
   inputTokens: number;
   outputTokens: number;

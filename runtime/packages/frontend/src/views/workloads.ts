@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type PullRequestWorkloadRecord, type RunPullRequestWorkload } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
-import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
+import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
 import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderRevisionPill, renderCacheHitRate, workloadOutcomeText, renderWorkloadOutcome, settledOutcome, NUMERIC_WRAPPING, layout } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
@@ -38,7 +38,10 @@ const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquiva
 
 const renderBilledTotal = (runs: RunRecord[], all: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
-  return html`${formatTotal(totalCost(runs))} of ${formatTotal(totalCost(all))} billed${pending === 0
+  const unconfirmed = totalUnconfirmedEstimate(all);
+  return html`${formatTotal(totalCost(runs))} of ${formatTotal(totalCost(all))} billed${unconfirmed === 0
+    ? ''
+    : html` + <span data-unconfirmed-estimate-total>~${formatTotal(totalUnconfirmedEstimate(runs))} of ~${formatTotal(unconfirmed)} unconfirmed estimate</span>`}${pending === 0
     ? ''
     : html` <span class="${PENDING}">+${pending} pending</span>`}`;
 };
@@ -181,10 +184,10 @@ const renderRunCard = (run: RunRecord, runWorkload: RunPullRequestWorkload | und
     ${renderOutcomeDetail(run, pullRequestWorkload)}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, pullRequestWorkload)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
-    <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">
+    <dl class="m-0 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-5 gap-y-1 border-t border-line pt-2">
       <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Duration</dt><dd class="m-0 tabular-nums" data-duration>${renderDuration(run)}</dd></div>
       <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Cache hit</dt><dd class="m-0 tabular-nums" data-cache-hit>${renderCacheHitRate(run)}</dd></div>
-      <div class="flex flex-col gap-0.5 text-right"><dt class="${STAT_LABEL}">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
+      <div class="flex min-w-0 flex-col gap-0.5 text-right"><dt class="${STAT_LABEL}">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
     </dl>
   </article>`;
 };

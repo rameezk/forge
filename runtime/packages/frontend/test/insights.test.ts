@@ -211,3 +211,15 @@ test('given a subscription cohort where one merged workload has a generation the
   const row = rowsOf(page).get(fingerprintHash(SUBSCRIBED))!;
   assert.deepEqual([row['cost-median'], row['cost-per-merged']], ['$3.000000', 'n/a']);
 });
+
+const UNCONFIRMED_SEEDS: Seed[] = [
+  { id: 'c1', fingerprint: SONNET, seconds: 60, cost: 0.1, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
+  { id: 'c2', fingerprint: SONNET, seconds: 60, cost: 0, unconfirmedEstimate: 0.36, toolCalls: 1, retries: 0 },
+];
+
+test('given a cohort with a workload billing could not confirm, when the insights page is requested, then the cohort counts that workload\'s unconfirmed estimate', async () => {
+  const rows = rowsOf(await dashboard(UNCONFIRMED_SEEDS).page());
+
+  assert.equal(rows.get(fingerprintHash(SONNET))?.['cost-median'], '$0.230000');
+  assert.equal(rows.get(fingerprintHash(SONNET))?.['cost-per-merged'], '$0.460000');
+});

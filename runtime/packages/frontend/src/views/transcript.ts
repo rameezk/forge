@@ -361,7 +361,7 @@ const subagentCost = (
   runStatus: RunStatus,
   subscription: boolean,
 ): Cost => {
-  if (subscription) return { costStatus: 'subscription', costUsd: 0, costEstimated: false };
+  if (subscription) return { costStatus: 'subscription', costUsd: 0, costEstimated: false, unconfirmedEstimateUsd: 0 };
   const own = generations.filter((generation) => generation.subagent === scope);
   const awaiting = own.filter(
     (generation) => generation.billedCostUsd === null && generation.givenUpAt === null,
@@ -373,16 +373,19 @@ const subagentCost = (
   const costUsd = costEstimated
     ? awaiting.reduce((sum, generation) => sum + (generation.estimatedCostUsd ?? 0), billed)
     : billed;
+  const unconfirmedEstimateUsd = own
+    .filter((generation) => generation.billedCostUsd === null && generation.givenUpAt !== null)
+    .reduce((sum, generation) => sum + (generation.estimatedCostUsd ?? 0), 0);
   if (own.some((generation) => generation.givenUpAt !== null)) {
-    return { costStatus: 'unconfirmed', costUsd, costEstimated };
+    return { costStatus: 'unconfirmed', costUsd, costEstimated, unconfirmedEstimateUsd };
   }
   if (
     runStatus === 'running' ||
     own.some((generation) => generation.billedCostUsd === null)
   ) {
-    return { costStatus: 'pending', costUsd, costEstimated };
+    return { costStatus: 'pending', costUsd, costEstimated, unconfirmedEstimateUsd };
   }
-  return { costStatus: 'billed', costUsd, costEstimated };
+  return { costStatus: 'billed', costUsd, costEstimated, unconfirmedEstimateUsd };
 };
 
 const KIND_CHIP = 'whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[0.75rem]';

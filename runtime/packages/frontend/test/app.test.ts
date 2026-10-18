@@ -20,6 +20,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1234,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
@@ -1523,6 +1524,10 @@ test('given a workload with a request record, when its detail page is requested,
   assert.ok(tools, 'the page should have a tools section');
   assert.doesNotMatch(openingTag(tools), /\sopen[\s>]/);
   assert.equal(textOf(tools.match(/<summary[\s\S]*?<\/summary>/)?.[0] ?? ''), 'Tools 2');
+  const title = (section: string): string => section.match(/<span class="([^"]*)">(?:System prompt|Tools)<\/span>/)?.[1] ?? 'missing';
+  assert.equal(title(systemPrompt), 'm-0 text-[1.1rem] font-bold');
+  assert.equal(title(tools), 'm-0 text-[1.1rem] font-bold');
+  assert.match(tools, /<span class="text-\[0\.9rem\] tabular-nums text-muted"[^>]*data-tool-count>2<\/span>/);
   assert.deepEqual(
     (tools.match(/<[^>]*\sdata-tool-name[^>]*>[\s\S]*?<\/[a-z]+>/g) ?? []).map(textOf),
     ['bash', 'subagent'],
@@ -1555,4 +1560,18 @@ test('given a request record whose system prompt is far longer than one read of 
   const page = await (await app.request('/runs/run-01')).text();
 
   assert.equal(textOf(systemPromptSection(page).match(/<pre[^>]*>[\s\S]*?<\/pre>/)?.[0] ?? ''), systemPrompt);
+});
+
+test('given a subagent with a billed generation and one billing gave up on that forge priced, when the run page is viewed, then its header shows the billed cost and the unconfirmed estimate apart, marked unconfirmed', async () => {
+  const body = await viewWithGenerations({}, [
+    spawn('call_a'), child('call_a', 1, 1),
+    { type: 'result', status: 'success', sessionId: null, error: null },
+  ], [
+    { generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.3, estimate: 0.2 },
+    { generationId: 'g2', subagent: 'call_a', outcome: 'given-up', estimate: 0.36 },
+  ]);
+
+  const [header] = subagentCalls(body).map((card) => headerOf(card)) as [string];
+  assert.match(textOf(header), /\$0\.300000 billed \+ ~\$0\.360000 unconfirmed estimate/);
+  assert.match(header, /data-badge="unconfirmed"/);
 });
