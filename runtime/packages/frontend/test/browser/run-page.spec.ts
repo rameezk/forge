@@ -110,7 +110,7 @@ test('given a workload with a transcript, when its run page is opened at tablet 
   const widget = (await page.locator('[data-widget]').boundingBox())!;
   expect(widget.y).toBeGreaterThanOrEqual(details.y + details.height);
   expect(widget.height).toBe(384);
-  expect((await pageScrolls(page)).sideways).toBe(false);
+  expect(await pageScrolls(page)).toEqual({ vertical: true, sideways: false });
 });
 
 test('given a workload with a transcript, when its run page is opened at phone width, then the widget is a card of the last 5 events with an Open full transcript link', async ({ dashboard, page }) => {

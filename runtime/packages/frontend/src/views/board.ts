@@ -161,7 +161,7 @@ const renderPolled = (polledAt: string | null, timeZone: string): Rendered =>
     : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt, timeZone)}</span>`;
 
 const renderColumnHeaders = (counts: Record<ColumnKey, number>): Rendered =>
-  html`<div class="${ROW_GRID}">${COLUMNS.map(
+  html`<div class="sticky top-0 z-10 shadow-[0_1px_0_var(--color-line)] ${ROW_GRID}">${COLUMNS.map(
     ({ key, title, subtitle, hint, person }) => html`<div data-column-header="${key}" class="border-b border-line bg-raised px-2 py-2">
       <span class="flex h-4 items-center gap-1"><span data-column-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${person ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-column-total class="text-xs leading-4 tabular-nums text-muted">${counts[key]}</span></span></span>
       <span data-column-subtitle title="${hint ?? subtitle}" class="mt-0.5 block truncate text-[0.6875rem] leading-4 text-muted${hint === null ? '' : ' cursor-help underline decoration-dotted decoration-line underline-offset-[3px]'}">${subtitle}</span>
@@ -182,7 +182,7 @@ const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: s
   return html`<section class="group border-t border-line" data-repository="${lane.repository}"${empty ? html` data-empty data-collapsed` : ''}${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
     <header data-lane-toggle role="button" tabindex="0" aria-expanded="${empty ? 'false' : 'true'}" class="flex cursor-pointer flex-wrap items-baseline gap-x-4 gap-y-1 px-3 py-2">
-      <span data-lane-chevron aria-hidden="true" class="inline-block w-3 shrink-0 rotate-90 text-center text-[0.65rem] text-muted transition-transform group-data-[collapsed]:rotate-0">▶</span>
+      <span data-lane-chevron aria-hidden="true" class="inline-block self-center w-3 shrink-0 rotate-90 text-center text-[0.65rem] text-muted transition-transform group-data-[collapsed]:rotate-0">▶</span>
       <h2 class="${SECTION_TITLE}">${lane.repository}</h2>
       ${isGithubRepository(lane.github)
         ? externalLink(`https://github.com/${lane.github}`, lane.github)
@@ -226,11 +226,11 @@ export const renderBoard = (
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1>${renderRunningLimit(slots)}</div>
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
-      : html`<div data-board class="overflow-x-auto rounded-lg border border-line bg-surface">
+      : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
           <div class="min-w-[96rem]">
             ${renderColumnHeaders(totals(lanes))}
             ${lanes.map((lane) => renderLane(lane, attempted, display.timeZone, runs))}
           </div>
         </div>`}`;
-  return layout('Board', 'board', true, display, body);
+  return layout('Board', 'board', true, display, body, 'always');
 };

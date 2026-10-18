@@ -414,5 +414,5 @@ export const renderDetail = (
       </div>
       <div class="min-w-0 lg:min-h-0">${renderWidget(run, events, display.timeZone)}</div>
     </div>`;
-  return layout(run.worker, null, live, display, body, true);
+  return layout(run.worker, null, live, display, body, 'desktop');
 };
