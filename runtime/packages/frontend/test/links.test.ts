@@ -42,6 +42,7 @@ const dashboard = () => {
     costStatus: 'billed',
     costUsd: 0.1234,
     costEstimated: false,
+    unconfirmedEstimateUsd: 0,
     listPrice: null,
     inputTokens: 4200,
     outputTokens: 850,

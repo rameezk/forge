@@ -26,6 +26,7 @@ const sampleRun = (id: string, startTime: string): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
