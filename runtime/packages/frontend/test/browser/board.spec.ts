@@ -1,7 +1,7 @@
-import type { Store } from '@forge/shared';
+import type { Store, Ticket } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
-const ticket = (number: number) => ({
+const ticket = (number: number): Ticket => ({
   number,
   title: `Ticket ${number}`,
   url: `https://github.com/rameezk/forge/issues/${number}`,
@@ -109,7 +109,7 @@ test.describe('on a desktop screen', () => {
 test.describe('lane collapsing', () => {
   test.use({ viewport: { width: 1600, height: 800 } });
 
-  const seed = (store: Store, tickets: ReturnType<typeof ticket>[]) =>
+  const seed = (store: Store, tickets: Ticket[]) =>
     store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets });
 
   test('given a lane with cards, when its header is clicked and later activated with Enter, then it collapses to its non-zero counts and expands again', async ({ dashboard, page }) => {
@@ -158,7 +158,7 @@ test.describe('lane collapsing', () => {
 });
 
 test.describe('grouping by spec', () => {
-  const seed = (store: Store, tickets: ReturnType<typeof ticket>[]) =>
+  const seed = (store: Store, tickets: Ticket[]) =>
     store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets });
 
   const specTicket = (number: number, spec: number) => ({ ...ticket(number), parent: { number: spec, title: `Spec ${spec}`, url: `https://github.com/rameezk/forge/issues/${spec}` } });
