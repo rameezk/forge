@@ -5,7 +5,7 @@ import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, format
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, workloadOutcomeText, renderWorkloadOutcome, settledOutcome, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, renderRevisionPill, workloadOutcomeText, renderWorkloadOutcome, settledOutcome, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
 import { renderWidget } from './widget.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -346,9 +346,17 @@ const renderSummaryOutcome = (runWorkload: RunPullRequestWorkload | null): Rende
   return html`${renderWorkloadOutcome(settled)}${text === null ? '' : html`<span class="my-1 basis-full whitespace-pre-line wrap-anywhere text-muted" data-outcome-text>${text}</span>`}`;
 };
 
+const renderRevisionMarker = (runWorkload: RunPullRequestWorkload | null): Rendered => {
+  if (runWorkload?.kind !== 'revision') return '';
+  const { workload } = runWorkload;
+  const label = `PR #${workload.number}`;
+  return html`<span class="inline-flex items-baseline gap-1.5" data-revises>${renderRevisionPill()}<span>revises ${isGithubUrl(workload.url) ? externalLink(workload.url, label) : label}</span></span>`;
+};
+
 const renderSummary = (run: RunRecord, effort: string, workload: RunPullRequestWorkload | null, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
     ${renderStatus(run.status)}
     ${renderSummaryOutcome(workload)}
+    ${renderRevisionMarker(workload)}
     ${run.ticket === null
       ? html`<span class="text-muted">manual</span>`
       : html`<span class="flex flex-wrap items-baseline gap-x-3">${renderRunTicket(run.ticket)}${renderAttemptsLink(run.ticket, 'All attempts')}</span>`}

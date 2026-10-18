@@ -208,6 +208,9 @@ export const WORKLOAD_TONE: Record<RevisionState, string> = {
 export const renderWorkloadOutcome = (workload: PullRequestWorkloadRecord): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} ${WORKLOAD_TONE[workload.state]}" data-outcome="${workload.state}">${workload.state}</span>`;
 
+export const renderRevisionPill = (): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="${PILL} bg-warning-soft text-warning" data-revision-pill>revision</span>`;
+
 export const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;
 
