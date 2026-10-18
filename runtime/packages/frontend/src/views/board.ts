@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
-import { buildLanes, COLUMNS, totals, type BoardCard, type BoardLane, type ColumnKey } from '../board.ts';
+import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'grid grid-cols-9';
@@ -57,7 +57,10 @@ const failureText = (dispatch: DispatchRecord): string | null => {
   return `${label}${detailSuffix(dispatch)}`;
 };
 
-const specTooltip = (parent: SpecRef | null): string | null => (parent === null ? null : `#${parent.number} ${parent.title}`);
+const SPEC_LINE = 'm-0 mt-1 truncate text-xs text-muted [&_a]:text-muted [&_a:hover]:text-accent-text';
+
+const renderSpecLine = (parent: SpecRef): Rendered =>
+  html`<p data-spec-line title="#${parent.number} ${parent.title}" class="${SPEC_LINE}">↳ ${isGithubUrl(parent.url) ? externalLink(parent.url, `#${parent.number}`) : html`#${parent.number}`} ${parent.title}</p>`;
 
 const renderElapsedSince = (since: string): Rendered =>
   html`<span class="${ELAPSED}" data-elapsed-since="${since}"></span>`;
@@ -143,14 +146,15 @@ const renderDetails = (card: BoardCard, github: string, timeZone: string, runs: 
   }
 };
 
-const renderCard = (repository: string, github: string, card: BoardCard, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+const renderCard = (repository: string, github: string, card: BoardCard, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const { ticket } = card;
-  const tooltip = card.column === 'to-refine' ? null : specTooltip(card.ticket.parent);
-  return html`<article data-ticket="${ticket.number}"${tooltip === null ? '' : html` title="${tooltip}"`} class="rounded-md border border-line bg-surface p-2 text-sm">
+  const parent = grouped || card.column === 'to-refine' ? null : card.ticket.parent;
+  return html`<article data-ticket="${ticket.number}" class="rounded-md border border-line bg-surface p-2 text-sm">
     <p class="m-0 tabular-nums">${isGithubUrl(ticket.url) ? externalLink(ticket.url, `#${ticket.number}`) : html`#${ticket.number}`}${attempted.has(ticketKey(repository, ticket.number))
       ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
       : ''}</p>
     <p class="m-0 mt-1 break-words">${ticket.title}</p>
+    ${parent === null ? '' : renderSpecLine(parent)}
     ${renderDetails(card, github, timeZone, runs)}
   </article>`;
 };
@@ -177,7 +181,20 @@ const renderLaneCounts = (lane: BoardLane): Rendered => {
       )}</span>`;
 };
 
-const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
+const renderRow = (lane: BoardLane, columns: Columns, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+  html`<div class="${ROW_GRID}">${COLUMNS.map(
+    ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${columns[key].map((card) => renderCard(lane.repository, lane.github, card, grouped, attempted, timeZone, runs))}</div>`,
+  )}</div>`;
+
+const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+  html`<div data-spec-band="${spec === null ? 'none' : spec.number}">
+    <header data-band-head class="flex items-baseline gap-2.5 border-t border-dashed border-line bg-bg px-3 py-1.5 text-[0.8125rem]">${spec === null
+      ? html`<span class="font-semibold text-muted">No spec</span>`
+      : html`<span class="tabular-nums">${isGithubUrl(spec.url) ? externalLink(spec.url, `#${spec.number}`) : html`#${spec.number}`}</span><span class="font-semibold">${spec.title}</span>`}<span class="tabular-nums text-muted">${count} ${count === 1 ? 'ticket' : 'tickets'}</span></header>
+    ${renderRow(lane, columns, true, attempted, timeZone, runs)}
+  </div>`;
+
+const renderLane = (lane: BoardLane, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const empty = COLUMNS.every(({ key }) => lane.columns[key].length === 0);
   return html`<section class="group border-t border-line" data-repository="${lane.repository}"${empty ? html` data-empty data-collapsed` : ''}${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
@@ -194,9 +211,9 @@ const renderLane = (lane: BoardLane, attempted: ReadonlySet<string>, timeZone: s
       ? ''
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
     </div>
-    <div class="${ROW_GRID} group-data-[collapsed]:hidden">${COLUMNS.map(
-      ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${lane.columns[key].map((card) => renderCard(lane.repository, lane.github, card, attempted, timeZone, runs))}</div>`,
-    )}</div>
+    <div class="group-data-[collapsed]:hidden">${grouped
+      ? specBands(lane).map((band) => renderBand(lane, band, attempted, timeZone, runs))
+      : renderRow(lane, lane.columns, false, attempted, timeZone, runs)}</div>
   </section>`;
 };
 
@@ -213,6 +230,18 @@ const renderRunningLimit = ({ running, limit }: RunningSlots): Rendered => {
   return html`<span data-running-limit${full ? html` data-full` : ''} title="Dispatches and revisions running, out of the global limit" class="${PILL} mb-3 ${full ? FULL_TONE : OPEN_TONE} tabular-nums">Running ${running} / ${limit}</span>`;
 };
 
+export type Grouping = 'none' | 'spec';
+
+const GROUPINGS: readonly { value: Grouping; label: string; href: string }[] = [
+  { value: 'none', label: 'None', href: '/' },
+  { value: 'spec', label: 'Spec', href: '/?group=spec' },
+];
+
+const renderGroupControl = (grouping: Grouping): Rendered =>
+  html`<div class="flex items-center gap-2 mb-3"><span id="group-label" class="text-xs text-muted">Group by</span><div data-group-control role="group" aria-labelledby="group-label" class="inline-flex overflow-hidden rounded-md border border-line bg-surface text-[0.8125rem]">${GROUPINGS.map(
+    ({ value, label, href }) => html`<a href="${href}"${value === grouping ? html` aria-current="true"` : ''} class="px-3 py-1 no-underline ${value === grouping ? 'bg-raised font-semibold text-fg' : 'text-muted hover:text-fg'}${value === 'none' ? '' : ' border-l border-line'}">${label}</a>`,
+  )}</div></div>`;
+
 export const renderBoard = (
   frontier: RepositoryFrontier[],
   dispatches: DispatchRecord[],
@@ -221,15 +250,16 @@ export const renderBoard = (
   attempted: ReadonlySet<string>,
   slots: RunningSlots,
   display: Display,
+  grouping: Grouping = 'none',
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions);
-  const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1>${renderRunningLimit(slots)}</div>
+  const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
           <div class="min-w-[96rem]">
             ${renderColumnHeaders(totals(lanes))}
-            ${lanes.map((lane) => renderLane(lane, attempted, display.timeZone, runs))}
+            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', attempted, display.timeZone, runs))}
           </div>
         </div>`}`;
   return layout('Board', 'board', true, display, body, 'always');

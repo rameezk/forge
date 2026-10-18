@@ -1,4 +1,4 @@
-import { newestClosedFirst, oldestFirst, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type Ticket } from '@forge/shared';
+import { newestClosedFirst, oldestFirst, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -26,7 +26,38 @@ export type BoardCard =
   | (CardState & { column: 'done'; ticket: ClosedTicket })
   | (CardState & { column: Exclude<ColumnKey, 'to-refine' | 'done'>; ticket: Ticket });
 
-export type BoardLane = RepositoryFrontier & { columns: Record<ColumnKey, BoardCard[]> };
+export type Columns = Record<ColumnKey, BoardCard[]>;
+
+export type BoardLane = RepositoryFrontier & { columns: Columns };
+
+export interface SpecBand {
+  spec: SpecRef | null;
+  columns: Columns;
+  count: number;
+}
+
+const emptyColumns = (): Columns => Object.fromEntries(COLUMNS.map(({ key }) => [key, [] as BoardCard[]])) as Columns;
+
+const specOf = (card: BoardCard): SpecRef | null => (card.column === 'to-refine' ? null : card.ticket.parent);
+
+export const specBands = ({ columns }: BoardLane): SpecBand[] => {
+  const byNumber = new Map<number, SpecBand>();
+  const loose: SpecBand = { spec: null, columns: emptyColumns(), count: 0 };
+  for (const { key } of COLUMNS) {
+    for (const card of columns[key]) {
+      const spec = specOf(card);
+      let band = loose;
+      if (spec !== null) {
+        band = byNumber.get(spec.number) ?? { spec, columns: emptyColumns(), count: 0 };
+        byNumber.set(spec.number, band);
+      }
+      band.columns[key].push(card);
+      band.count += 1;
+    }
+  }
+  const specs = [...byNumber.values()].sort((a, b) => (a.spec?.number ?? 0) - (b.spec?.number ?? 0));
+  return loose.count === 0 ? specs : [...specs, loose];
+};
 
 const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): Exclude<ColumnKey, 'to-refine' | 'done'> => {
   if (ticket.blocked) return 'blocked';
@@ -48,7 +79,7 @@ export const buildLanes = (
 ): BoardLane[] => {
   const revising = new Map(revisions.filter(({ state }) => state === 'running').map((revision) => [ticketKey(revision.repository, revision.number), revision]));
   return frontier.map((repository) => {
-    const columns = Object.fromEntries(COLUMNS.map(({ key }) => [key, [] as BoardCard[]])) as Record<ColumnKey, BoardCard[]>;
+    const columns = emptyColumns();
     for (const request of [...repository.requests].sort(oldestFirst)) {
       columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revision: undefined });
     }

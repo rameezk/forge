@@ -157,6 +157,35 @@ test.describe('lane collapsing', () => {
   });
 });
 
+test.describe('grouping by spec', () => {
+  const seed = (store: Store, tickets: ReturnType<typeof ticket>[]) =>
+    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets });
+
+  const specTicket = (number: number, spec: number) => ({ ...ticket(number), parent: { number: spec, title: `Spec ${spec}`, url: `https://github.com/rameezk/forge/issues/${spec}` } });
+
+  test('given the Board open at /?group=spec, when a live update arrives, then the Board is still grouped and the control still shows Spec', async ({ dashboard, page }) => {
+    seed(dashboard.store, [specTicket(1, 440)]);
+    await page.goto('/?group=spec');
+    await expect(page.locator('[data-spec-band]')).toHaveCount(1);
+
+    seed(dashboard.store, [specTicket(1, 440), specTicket(2, 455)]);
+
+    await expect(page.locator('[data-spec-band]')).toHaveCount(2);
+    await expect(page.locator('[data-group-control] [aria-current]')).toHaveText('Spec');
+    await expect(page).toHaveURL(/\/\?group=spec$/);
+  });
+
+  test('given the Board, when Spec is chosen in the grouping control, then the URL becomes /?group=spec and the lane shows bands', async ({ dashboard, page }) => {
+    seed(dashboard.store, [specTicket(1, 440)]);
+    await page.goto('/');
+
+    await page.locator('[data-group-control]').getByText('Spec').click();
+
+    await expect(page).toHaveURL(/\/\?group=spec$/);
+    await expect(page.locator('[data-spec-band]')).toHaveCount(1);
+  });
+});
+
 const crowd = (store: Store, repository: string, count: number, title = 'Ticket') =>
   store.replaceFrontier({
     repository,
