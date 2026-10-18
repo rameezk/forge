@@ -1524,6 +1524,10 @@ test('given a workload with a request record, when its detail page is requested,
   assert.ok(tools, 'the page should have a tools section');
   assert.doesNotMatch(openingTag(tools), /\sopen[\s>]/);
   assert.equal(textOf(tools.match(/<summary[\s\S]*?<\/summary>/)?.[0] ?? ''), 'Tools 2');
+  const title = (section: string): string => section.match(/<span class="([^"]*)">(?:System prompt|Tools)<\/span>/)?.[1] ?? 'missing';
+  assert.equal(title(systemPrompt), 'm-0 text-[1.1rem] font-bold');
+  assert.equal(title(tools), 'm-0 text-[1.1rem] font-bold');
+  assert.match(tools, /<span class="text-\[0\.9rem\] tabular-nums text-muted"[^>]*data-tool-count>2<\/span>/);
   assert.deepEqual(
     (tools.match(/<[^>]*\sdata-tool-name[^>]*>[\s\S]*?<\/[a-z]+>/g) ?? []).map(textOf),
     ['bash', 'subagent'],

@@ -156,3 +156,27 @@ test('given a running workload whose run page is open, when new events are recor
   await expect(page.locator('[data-widget-row]').first()).toContainText('second');
   await expect(page.locator('[data-widget-row]')).toHaveCount(2);
 });
+
+test('given a workload with a transcript, when its run page is opened at laptop width and at phone width, then the transcript starts level with the first stat box under a header spanning both columns, and on the phone everything stacks without sideways scroll', async ({ dashboard, page }) => {
+  seed(dashboard);
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await page.goto('/runs/run-01');
+
+  const head = (await page.locator('[data-run-head]').boundingBox())!;
+  const tile = (await page.locator('[data-tile="cost"]').boundingBox())!;
+  const widget = (await page.locator('[data-widget]').boundingBox())!;
+  expect(widget.y).toBe(tile.y);
+  expect(head.y + head.height).toBeLessThanOrEqual(tile.y);
+  expect(head.x + head.width).toBeGreaterThanOrEqual(widget.x + widget.width);
+
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto('/runs/run-01');
+
+  const phoneHead = (await page.locator('[data-run-head]').boundingBox())!;
+  const phoneTile = (await page.locator('[data-tile="cost"]').boundingBox())!;
+  const phoneWidget = (await page.locator('[data-widget]').boundingBox())!;
+  expect(phoneHead.y + phoneHead.height).toBeLessThanOrEqual(phoneTile.y);
+  expect(phoneTile.y).toBeLessThan(phoneWidget.y);
+  expect((await pageScrolls(page)).sideways).toBe(false);
+});
