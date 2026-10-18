@@ -20,6 +20,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
@@ -241,4 +242,23 @@ test('given a filtered, paged runs list, when its links are read, then the filte
   assert.ok(chipHrefs.length > 0);
   assert.ok(chipHrefs.every((href) => href === '/workloads' || href?.startsWith('/workloads?')), chipHrefs.join(' '));
   assert.match(pageLink(body, 'older').href ?? '', /^\/workloads\?status=error&page=2$/);
+});
+
+test('given a billed workload and an unconfirmed one with an estimate, when the list is requested, then the header total and the unconfirmed row show the estimate apart from billed cost', async () => {
+  const body = await open([
+    sampleRun({ id: 'billed', costUsd: 0.2 }),
+    sampleRun({ id: 'unconfirmed', costStatus: 'unconfirmed', costUsd: 0, unconfirmedEstimateUsd: 0.36 }),
+  ]);
+
+  assert.equal(showing(body), 'Showing 2 of 2 workloads, $0.2000 of $0.2000 billed + ~$0.3600 of ~$0.3600 unconfirmed estimate');
+  assert.match(textOf(body.match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/g)?.find((cell) => /unconfirmed/.test(cell)) ?? ''), /\$0\.000000 billed \+ ~\$0\.360000 unconfirmed estimate/);
+});
+
+test('given a subscription workload carrying an unconfirmed estimate, when the list is requested, then the header total leaves it out like every other subscription cost', async () => {
+  const body = await open([
+    sampleRun({ id: 'billed', costUsd: 0.2 }),
+    sampleRun({ id: 'sub', costStatus: 'subscription', costUsd: 0, unconfirmedEstimateUsd: 0.5 }),
+  ]);
+
+  assert.equal(showing(body), 'Showing 2 of 2 workloads, $0.2000 of $0.2000 billed');
 });

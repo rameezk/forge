@@ -138,6 +138,7 @@ export const runWorkload = async (
     costStatus: subscription ? 'subscription' : 'pending',
     costUsd: 0,
     costEstimated: false,
+    unconfirmedEstimateUsd: 0,
     listPrice,
     inputTokens: 0,
     outputTokens: 0,

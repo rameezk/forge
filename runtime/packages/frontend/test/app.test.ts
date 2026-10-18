@@ -20,6 +20,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1234,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
@@ -1555,4 +1556,18 @@ test('given a request record whose system prompt is far longer than one read of 
   const page = await (await app.request('/runs/run-01')).text();
 
   assert.equal(textOf(systemPromptSection(page).match(/<pre[^>]*>[\s\S]*?<\/pre>/)?.[0] ?? ''), systemPrompt);
+});
+
+test('given a subagent with a billed generation and one billing gave up on that forge priced, when the run page is viewed, then its header shows the billed cost and the unconfirmed estimate apart, marked unconfirmed', async () => {
+  const body = await viewWithGenerations({}, [
+    spawn('call_a'), child('call_a', 1, 1),
+    { type: 'result', status: 'success', sessionId: null, error: null },
+  ], [
+    { generationId: 'g1', subagent: 'call_a', outcome: 'billed', cost: 0.3, estimate: 0.2 },
+    { generationId: 'g2', subagent: 'call_a', outcome: 'given-up', estimate: 0.36 },
+  ]);
+
+  const [header] = subagentCalls(body).map((card) => headerOf(card)) as [string];
+  assert.match(textOf(header), /\$0\.300000 billed \+ ~\$0\.360000 unconfirmed estimate/);
+  assert.match(header, /data-badge="unconfirmed"/);
 });

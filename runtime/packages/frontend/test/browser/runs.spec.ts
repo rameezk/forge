@@ -13,6 +13,7 @@ const recordedRun: RunRecord = {
   costStatus: 'billed',
   costUsd: 0.1234,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
@@ -357,4 +358,39 @@ test('given a finished workload, when its page is opened at laptop width, then R
   await expect(page.locator('[data-calls]')).toBeHidden();
   await page.locator('[data-calls-summary]').click();
   await expect(page.locator('[data-calls]')).toBeVisible();
+});
+
+const unconfirmedRun: RunRecord = { ...recordedRun, costStatus: 'unconfirmed', costUsd: 0, unconfirmedEstimateUsd: 0.36, transcriptRef: null };
+
+test('given a run with an unconfirmed estimate, when its page is opened at laptop width, then the cost tile holds the whole figure inside its border', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(unconfirmedRun);
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.goto('/runs/run-01');
+
+  const clipped = await page.locator('[data-tile="cost"]').evaluate((tile) => {
+    const edge = tile.getBoundingClientRect().right;
+    return [...tile.querySelectorAll('[data-unconfirmed-estimate]')].some((element) => element.getBoundingClientRect().right > edge);
+  });
+  expect(clipped).toBe(false);
+});
+
+test('given a workload with an unconfirmed estimate, when the list is opened at phone width, then its card keeps the whole cost inside it', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(unconfirmedRun);
+  await page.setViewportSize({ width: 390, height: 800 });
+
+  await page.goto('/workloads');
+
+  const card = page.locator('[data-run-card]');
+  const box = (await card.boundingBox())!;
+  const cardRight = box.x + box.width;
+  const costRight = await card.locator('[data-cost]').evaluate((element) => element.getBoundingClientRect().right);
+  expect(costRight).toBeLessThanOrEqual(cardRight);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
