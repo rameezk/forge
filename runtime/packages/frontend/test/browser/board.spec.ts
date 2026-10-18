@@ -251,4 +251,21 @@ test.describe('the board box on a narrow screen', () => {
     expect(await page.locator('html').evaluate((element) => element.scrollHeight - element.clientHeight)).toBe(0);
     expect(await page.locator('[data-column-header]').first().evaluate((header) => header.getBoundingClientRect().top)).toBeGreaterThan(0);
   });
+
+  test('given a phone viewport, when the Board is opened, then the box ends above the footer and the lane header fits inside the box beside its scrollbar', async ({ dashboard, page }) => {
+    crowd(dashboard.store, 'forge', 40);
+    await page.goto('/');
+
+    const fit = await page.locator('[data-board]').evaluate((board) => {
+      const document = board.ownerDocument;
+      const view = document.defaultView!;
+      const footer = document.querySelector('footer')!.getBoundingClientRect();
+      const padding = parseFloat(view.getComputedStyle(document.querySelector('main')!).paddingBottom);
+      const box = board.getBoundingClientRect();
+      const header = document.querySelector('[data-lane-toggle]')!.getBoundingClientRect();
+      return { toFooter: footer.top - box.bottom - padding, overhang: header.right - (box.left + board.clientLeft + board.clientWidth) };
+    });
+    expect(fit.toFooter).toBeCloseTo(0, 0);
+    expect(fit.overhang).toBeLessThanOrEqual(0);
+  });
 });
