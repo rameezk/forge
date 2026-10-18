@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type PullRequestWorkloadRecord, type RunRecord, type Store } from '@forge/shared';
+import { rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
@@ -127,9 +127,10 @@ export const createApp = ({
   app.get('/workloads', (c) => {
     const shown = displayOf(c);
     const now = new Date().toISOString();
-    const pullRequestWorkloads = new Map<string, PullRequestWorkloadRecord>(
-      [...store.listRevisions(now), ...store.listConflictResolutions(now)].map((workload) => [workload.runId, workload]),
-    );
+    const pullRequestWorkloads = new Map<string, RunPullRequestWorkload>([
+      ...store.listRevisions(now).map((workload): [string, RunPullRequestWorkload] => [workload.runId, { kind: 'revision', workload }]),
+      ...store.listConflictResolutions(now).map((workload): [string, RunPullRequestWorkload] => [workload.runId, { kind: 'conflict-resolution', workload }]),
+    ]);
     return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, shown, clock().getTime()));
   });
 
