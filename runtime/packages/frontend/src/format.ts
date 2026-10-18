@@ -106,7 +106,7 @@ export const totalCost = (runs: RunRecord[]): number =>
   runs.filter((run) => !isSubscription(run)).reduce((sum, run) => sum + run.costUsd, 0);
 
 export const totalUnconfirmedEstimate = (runs: RunRecord[]): number =>
-  runs.reduce((sum, run) => sum + run.unconfirmedEstimateUsd, 0);
+  runs.filter((run) => !isSubscription(run)).reduce((sum, run) => sum + run.unconfirmedEstimateUsd, 0);
 
 export const pendingCount = (runs: RunRecord[]): number =>
   runs.filter(isPending).length;
