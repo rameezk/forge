@@ -328,6 +328,22 @@ const reportMessage = (
   return last !== undefined && last.text === report?.text ? last : undefined;
 };
 
+const latestNarration = (
+  events: ScopedEvent[],
+  reported: MessageEvent | undefined,
+): string | undefined =>
+  events.findLast(
+    (event): event is MessageEvent =>
+      event.type === 'message' && event.role === 'assistant' && event !== reported && oneLine(event.text) !== '',
+  )?.text;
+
+const renderTaskSummary = (task: string, narration: string | undefined): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="flex min-w-0 flex-1 basis-40 flex-col">
+    <span class="truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>${narration === undefined
+      ? ''
+      : html`<span class="truncate text-[0.8rem] text-muted" data-subagent-narration title="${oneLine(narration)}">${oneLine(narration)}</span>`}
+  </span>`;
+
 const argumentFields = (args: unknown): Record<string, unknown> =>
   typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
 
@@ -455,7 +471,7 @@ const renderSubagentCall = (
     </header>
     ${renderGroup(
       'border-t border-line',
-      html`<span class="min-w-0 flex-1 basis-40 truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
+      renderTaskSummary(task, failed ? undefined : latestNarration(shown, reported)),
       renderFigures(scope, events, shown, report, context),
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
