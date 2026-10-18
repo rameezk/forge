@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { HarnessEvent, LookupResult, RunRecord } from '@forge/shared';
+import type { DispatchOutcome, HarnessEvent, LookupResult, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { openingTag, textOf, tile, tileValue } from './html.ts';
 
@@ -251,6 +251,68 @@ test('given a revision that ended ok and one that ended in error, when the list 
   assert.equal(textOf(ticketCell('revision-error')), 'forge PR #150');
   assert.equal(textOf(statusIn(rowFor(body, 'revision-ok'))), 'success');
   assert.equal(textOf(statusIn(rowFor(body, 'revision-error'))), 'error');
+});
+
+const dispatchedFor = (store: Store, runId: string, ticket: number, outcome?: DispatchOutcome): void => {
+  const at = outcome === undefined ? new Date().toISOString() : '2026-09-21T10:03:20.000Z';
+  const start = store.startDispatch(
+    { repository: 'forge', number: ticket, url: `https://github.com/rameezk/forge/issues/${ticket}` },
+    runId,
+    at,
+    10,
+  );
+  assert.ok('started' in start);
+  if (outcome !== undefined) store.endDispatch(start.started, outcome, at);
+};
+
+const dispatchOutcomeApp = () =>
+  appWith(
+    [sampleRun({ id: 'failed', transcriptRef: null }), sampleRun({ id: 'done', transcriptRef: null }), sampleRun({ id: 'running', transcriptRef: null })],
+    undefined,
+    (store) => {
+      dispatchedFor(store, 'failed', 201, { state: 'failed', reason: 'no-pull-request', detail: 'the worker pushed nothing' });
+      dispatchedFor(store, 'done', 202, { state: 'done', pullRequest: { number: 302, url: 'https://github.com/rameezk/forge/pull/302' } });
+      dispatchedFor(store, 'running', 203);
+    },
+  );
+
+const outcomesIn = (html: string): { status: string; outcome: string; text: string } => ({
+  status: html.match(/\sdata-status="([^"]+)"/)?.[1] ?? 'missing',
+  outcome: html.match(/\sdata-outcome="([^"]+)"/)?.[1] ?? 'none',
+  text: textOf(html.match(/<[a-z]+[^>]*\sdata-outcome-text[^>]*>[\s\S]*?<\/(?:div|span)>/)?.[0] ?? ''),
+});
+
+const summaryOf = async (app: ReturnType<typeof appWith>, id: string): Promise<string> =>
+  (await (await app.request(`/runs/${id}`)).text()).match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? 'missing';
+
+test('given a successful run whose dispatch failed with a reason, when the list and the run page are requested, then both show success and beside it the dispatch failure label with its detail', async () => {
+  const app = dispatchOutcomeApp();
+  const list = rowFor(await (await app.request('/workloads')).text(), 'failed');
+
+  for (const found of [outcomesIn(list), outcomesIn(await summaryOf(app, 'failed'))]) {
+    assert.equal(found.status, 'success');
+    assert.equal(found.outcome, 'failed');
+    assert.equal(found.text, 'No pull request: the worker pushed nothing');
+  }
+});
+
+test('given a successful run whose dispatch is done, when the list and the run page are requested, then both show the done outcome beside success', async () => {
+  const app = dispatchOutcomeApp();
+  const list = rowFor(await (await app.request('/workloads')).text(), 'done');
+
+  for (const found of [outcomesIn(list), outcomesIn(await summaryOf(app, 'done'))]) {
+    assert.equal(found.status, 'success');
+    assert.equal(found.outcome, 'done');
+    assert.equal(found.text, '');
+  }
+});
+
+test('given a run whose dispatch is still running, when the list and the run page are requested, then neither shows an outcome', async () => {
+  const app = dispatchOutcomeApp();
+  const list = rowFor(await (await app.request('/workloads')).text(), 'running');
+
+  assert.equal(outcomesIn(list).outcome, 'none');
+  assert.equal(outcomesIn(await summaryOf(app, 'running')).outcome, 'none');
 });
 
 const PULL_REQUEST_URL = 'https://github.com/rameezk/forge/pull/143';

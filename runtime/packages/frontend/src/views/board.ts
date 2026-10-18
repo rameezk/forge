@@ -1,9 +1,9 @@
 import { html } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, totals, type BoardCard, type BoardLane, type ColumnKey } from '../board.ts';
-import { type Rendered, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
+import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'grid grid-cols-9';
 
@@ -28,34 +28,6 @@ const ELAPSED = 'ml-1.5 text-xs tabular-nums text-muted';
 const FAILURE_LINE = 'm-0 mt-1 line-clamp-4 text-xs break-words whitespace-pre-line text-muted';
 
 const CLOSED_PULL_REQUEST = 'Pull request closed';
-
-const FAILURE_LABEL: Record<DispatchFailure, string> = {
-  errored: 'Run errored',
-  'no-pull-request': 'No pull request',
-  draft: 'Pull request still a draft',
-  'check-failed': 'Required check failed',
-  'check-pending': 'Required check pending',
-  'skill-not-found': 'Skill not found',
-  'devshell-failed': 'devShell failed',
-  interrupted: 'Interrupted',
-  exceeded: 'Exceeded',
-  'not-started': 'Did not start',
-};
-
-const repeatedStart = ({ reason, failedStarts }: DispatchRecord): number | null =>
-  reason === 'not-started' && failedStarts !== null && failedStarts > 1 ? failedStarts : null;
-
-const detailSuffix = ({ detail }: DispatchRecord): string =>
-  detail === null || detail.trim() === '' ? '' : `: ${detail}`;
-
-const failureText = (dispatch: DispatchRecord): string | null => {
-  const { reason, detail } = dispatch;
-  if (reason === null) return null;
-  const times = repeatedStart(dispatch);
-  const label = times === null ? FAILURE_LABEL[reason] : `${FAILURE_LABEL[reason]} (${times} times)`;
-  if (reason === 'exceeded') return detail === null ? label : `${label} ${detail}`;
-  return `${label}${detailSuffix(dispatch)}`;
-};
 
 const specTooltip = (parent: SpecRef | null): string | null => (parent === null ? null : `#${parent.number} ${parent.title}`);
 

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type PullRequestWorkloadRecord, type RunRecord, type Store } from '@forge/shared';
+import { rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type DispatchRecord, type PullRequestWorkloadRecord, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
@@ -130,7 +130,7 @@ export const createApp = ({
     const pullRequestWorkloads = new Map<string, PullRequestWorkloadRecord>(
       [...store.listRevisions(now), ...store.listConflictResolutions(now)].map((workload) => [workload.runId, workload]),
     );
-    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, shown, clock().getTime()));
+    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, new Map(store.listRunDispatches(now).map((dispatch) => [dispatch.runId!, dispatch])), shown, clock().getTime()));
   });
 
   const queryOf = (query: Record<string, string>): InsightsQuery => {
@@ -200,7 +200,7 @@ export const createApp = ({
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), shown));
+    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.dispatchOfRun(run.id, new Date().toISOString()), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), shown));
   });
 
   app.get('/runs/:id/transcript', (c) => {

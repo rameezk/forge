@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
 import { DEFAULT_EFFORT } from '../request-record.ts';
@@ -15,6 +15,34 @@ const FAILURE_LABEL: Record<RevisionFailure | ConflictResolutionFailure, string>
   'check-pending': 'Required check pending',
 };
 
+const DISPATCH_FAILURE_LABEL: Record<DispatchFailure, string> = {
+  errored: 'Run errored',
+  'no-pull-request': 'No pull request',
+  draft: 'Pull request still a draft',
+  'check-failed': 'Required check failed',
+  'check-pending': 'Required check pending',
+  'skill-not-found': 'Skill not found',
+  'devshell-failed': 'devShell failed',
+  interrupted: 'Interrupted',
+  exceeded: 'Exceeded',
+  'not-started': 'Did not start',
+};
+
+export const repeatedStart = ({ reason, failedStarts }: DispatchRecord): number | null =>
+  reason === 'not-started' && failedStarts !== null && failedStarts > 1 ? failedStarts : null;
+
+export const detailSuffix = ({ detail }: DispatchRecord): string =>
+  detail === null || detail.trim() === '' ? '' : `: ${detail}`;
+
+export const dispatchFailureText = (dispatch: DispatchRecord): string | null => {
+  const { reason, detail } = dispatch;
+  if (reason === null) return null;
+  const times = repeatedStart(dispatch);
+  const label = times === null ? DISPATCH_FAILURE_LABEL[reason] : `${DISPATCH_FAILURE_LABEL[reason]} (${times} times)`;
+  if (reason === 'exceeded') return detail === null ? label : `${label} ${detail}`;
+  return `${label}${detailSuffix(dispatch)}`;
+};
+
 export const pullRequestFailureText = ({ reason, detail }: PullRequestWorkloadRecord): string | null => {
   if (reason === null) return null;
   const label = FAILURE_LABEL[reason];
@@ -28,6 +56,19 @@ export const settledOutcome = (workload: PullRequestWorkloadRecord | undefined):
 
 export const workloadOutcomeText = (workload: PullRequestWorkloadRecord): string | null =>
   pullRequestFailureText(workload) ?? (workload.state === 'error' ? NO_REASON_RECORDED : null);
+
+export interface RunOutcome {
+  state: string;
+  tone: string;
+  text: string | null;
+}
+
+export const runOutcomeOf = (workload: PullRequestWorkloadRecord | undefined, dispatch: DispatchRecord | undefined): RunOutcome | null => {
+  const settled = settledOutcome(workload);
+  if (settled !== null) return { state: settled.state, tone: WORKLOAD_TONE[settled.state], text: workloadOutcomeText(settled) };
+  if (dispatch === undefined || dispatch.state === 'running') return null;
+  return { state: dispatch.state, tone: dispatch.state === 'done' ? 'bg-success-soft text-success' : FAILED_TONE, text: dispatchFailureText(dispatch) };
+};
 
 type Page = 'board' | 'workloads' | 'insights';
 
@@ -207,6 +248,9 @@ export const WORKLOAD_TONE: Record<RevisionState, string> = {
 
 export const renderWorkloadOutcome = (workload: PullRequestWorkloadRecord): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} ${WORKLOAD_TONE[workload.state]}" data-outcome="${workload.state}">${workload.state}</span>`;
+
+export const renderRunOutcome = ({ state, tone }: RunOutcome): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="${PILL} ${tone}" data-outcome="${state}">${state}</span>`;
 
 export const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;
