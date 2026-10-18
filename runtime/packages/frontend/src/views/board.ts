@@ -181,9 +181,9 @@ const renderLaneCounts = (lane: BoardLane): Rendered => {
       )}</span>`;
 };
 
-const renderRow = (lane: BoardLane, columns: Columns, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(
-    ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${columns[key].map((card) => renderCard(lane.repository, lane.github, card, grouped, attempted, timeZone, runs))}</div>`,
+    ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${columns[key].map((card) => renderCard(repository, github, card, grouped, attempted, timeZone, runs))}</div>`,
   )}</div>`;
 
 const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
@@ -191,7 +191,7 @@ const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, attempt
     <header data-band-head class="flex items-baseline gap-2.5 border-t border-dashed border-line bg-bg px-3 py-1.5 text-[0.8125rem]">${spec === null
       ? html`<span class="font-semibold text-muted">No spec</span>`
       : html`<span class="tabular-nums">${isGithubUrl(spec.url) ? externalLink(spec.url, `#${spec.number}`) : html`#${spec.number}`}</span><span class="font-semibold">${spec.title}</span>`}<span class="tabular-nums text-muted">${count} ${count === 1 ? 'ticket' : 'tickets'}</span></header>
-    ${renderRow(lane, columns, true, attempted, timeZone, runs)}
+    ${renderRow(lane.repository, lane.github, columns, true, attempted, timeZone, runs)}
   </div>`;
 
 const renderLane = (lane: BoardLane, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
@@ -212,8 +212,8 @@ const renderLane = (lane: BoardLane, grouped: boolean, attempted: ReadonlySet<st
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
     </div>
     <div class="group-data-[collapsed]:hidden">${grouped
-      ? specBands(lane).map((band) => renderBand(lane, band, attempted, timeZone, runs))
-      : renderRow(lane, lane.columns, false, attempted, timeZone, runs)}</div>
+      ? specBands(lane.columns).map((band) => renderBand(lane, band, attempted, timeZone, runs))
+      : renderRow(lane.repository, lane.github, lane.columns, false, attempted, timeZone, runs)}</div>
   </section>`;
 };
 

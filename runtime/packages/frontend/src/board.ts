@@ -40,22 +40,23 @@ const emptyColumns = (): Columns => Object.fromEntries(COLUMNS.map(({ key }) => 
 
 const specOf = (card: BoardCard): SpecRef | null => (card.column === 'to-refine' ? null : card.ticket.parent);
 
-export const specBands = ({ columns }: BoardLane): SpecBand[] => {
-  const byNumber = new Map<number, SpecBand>();
+export const specBands = (columns: Columns): SpecBand[] => {
+  const byNumber = new Map<number, SpecBand & { spec: SpecRef }>();
   const loose: SpecBand = { spec: null, columns: emptyColumns(), count: 0 };
   for (const { key } of COLUMNS) {
     for (const card of columns[key]) {
       const spec = specOf(card);
       let band = loose;
       if (spec !== null) {
-        band = byNumber.get(spec.number) ?? { spec, columns: emptyColumns(), count: 0 };
-        byNumber.set(spec.number, band);
+        const known = byNumber.get(spec.number) ?? { spec, columns: emptyColumns(), count: 0 };
+        byNumber.set(spec.number, known);
+        band = known;
       }
       band.columns[key].push(card);
       band.count += 1;
     }
   }
-  const specs = [...byNumber.values()].sort((a, b) => (a.spec?.number ?? 0) - (b.spec?.number ?? 0));
+  const specs = [...byNumber.values()].sort((a, b) => a.spec.number - b.spec.number);
   return loose.count === 0 ? specs : [...specs, loose];
 };
 

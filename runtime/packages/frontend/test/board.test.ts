@@ -582,7 +582,7 @@ test('given a ticket whose parent is spec 440 and a ticket with no parent, when 
   assert.equal(specLine(cardOf(body, 2)), '');
 });
 
-const bands = (lane: string): string[] => lane.match(/<div[^>]*\sdata-spec-band[^>]*>[\s\S]*?<\/div>\s*<\/div>\s*(?=<div[^>]*\sdata-spec-band|<\/section>)/g) ?? [];
+const bands = (lane: string): string[] => lane.split(/(?=<div[^>]*\sdata-spec-band)/).slice(1);
 
 const groupedFrontier = (): Seed[] => [
   frontierOf(
