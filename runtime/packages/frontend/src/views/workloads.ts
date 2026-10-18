@@ -19,7 +19,7 @@ const renderOutcomeBeside = (outcome: RunOutcome | null): Rendered => (outcome =
 
 const renderOutcomeDetail = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined, outcome: RunOutcome | null): Rendered => {
   const error = runErrorOf(run, pullRequestWorkload);
-  return html`${outcome?.text == null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-outcome-text>${outcome.text}</div>`}${error === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`}`;
+  return html`${outcome === null || outcome.text === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-outcome-text>${outcome.text}</div>`}${error === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`}`;
 };
 
 const renderStatusCell = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined, dispatch: DispatchRecord | undefined): Rendered => {

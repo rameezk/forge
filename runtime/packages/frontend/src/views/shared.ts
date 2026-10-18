@@ -67,7 +67,7 @@ export const runOutcomeOf = (workload: PullRequestWorkloadRecord | undefined, di
   const settled = settledOutcome(workload);
   if (settled !== null) return { state: settled.state, tone: WORKLOAD_TONE[settled.state], text: workloadOutcomeText(settled) };
   if (dispatch === undefined || dispatch.state === 'running') return null;
-  return { state: dispatch.state, tone: dispatch.state === 'done' ? 'bg-success-soft text-success' : FAILED_TONE, text: dispatchFailureText(dispatch) };
+  return { state: dispatch.state, tone: dispatch.state === 'done' ? WORKLOAD_TONE.ok : FAILED_TONE, text: dispatchFailureText(dispatch) };
 };
 
 type Page = 'board' | 'workloads' | 'insights';

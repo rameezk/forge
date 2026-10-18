@@ -2561,6 +2561,12 @@ export class Store {
     return this.#selectDispatches('WHERE EXISTS (SELECT 1 FROM runs WHERE id = d.run_id)', {}, now);
   }
 
+  mapRunDispatches(now: string): Map<string, DispatchRecord> {
+    const byRun = new Map<string, DispatchRecord>();
+    for (const dispatch of this.listRunDispatches(now)) byRun.set(dispatch.runId!, dispatch);
+    return byRun;
+  }
+
   dispatchOfRun(runId: string, now: string): DispatchRecord | null {
     return this.#selectDispatches('WHERE d.run_id = $run_id', { run_id: runId }, now).at(-1) ?? null;
   }
