@@ -388,7 +388,8 @@ test('given a workload with an unconfirmed estimate, when the list is opened at 
   await page.goto('/workloads');
 
   const card = page.locator('[data-run-card]');
-  const cardRight = (await card.boundingBox())!.x + (await card.boundingBox())!.width;
+  const box = (await card.boundingBox())!;
+  const cardRight = box.x + box.width;
   const costRight = await card.locator('[data-cost]').evaluate((element) => element.getBoundingClientRect().right);
   expect(costRight).toBeLessThanOrEqual(cardRight);
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
