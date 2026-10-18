@@ -279,6 +279,7 @@ const runOf = (number: number): RunRecord => ({
   costStatus: 'pending',
   costUsd: 0,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 0,
   outputTokens: 0,

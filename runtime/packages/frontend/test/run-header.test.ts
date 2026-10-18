@@ -20,6 +20,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1234,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
@@ -178,6 +179,13 @@ test('given a workload with a call that missed the cache, when its run page is o
   });
 
   assert.match(textOf(tile(body, 'cache-hit')), /1 miss$/);
+});
+
+test('given an unconfirmed workload whose every generation billing gave up on, when its run page is opened, then the cost tile shows nothing billed beside the unconfirmed estimate, not a bare zero', async () => {
+  const body = await page({ costStatus: 'unconfirmed', costUsd: 0, unconfirmedEstimateUsd: 0.36 });
+
+  assert.match(textOf(tile(body, 'cost')), /\$0\.000000 billed \+ ~\$0\.360000 unconfirmed estimate/);
+  assert.match(tile(body, 'cost'), /data-badge="unconfirmed"/);
 });
 
 test('given a workload with no calls, when its run page is opened, then there is no Calls section', async () => {

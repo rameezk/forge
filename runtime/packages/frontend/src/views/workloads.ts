@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type PullRequestWorkloadRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
-import { formatCost, formatTotal, isSubscription, pendingCount, totalCost } from '../format.ts';
+import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
 import { type Rendered, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, workloadOutcomeText, renderWorkloadOutcome, settledOutcome, NUMERIC_WRAPPING, layout } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
@@ -38,7 +38,10 @@ const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquiva
 
 const renderBilledTotal = (runs: RunRecord[], all: RunRecord[]): Rendered => {
   const pending = pendingCount(runs);
-  return html`${formatTotal(totalCost(runs))} of ${formatTotal(totalCost(all))} billed${pending === 0
+  const unconfirmed = totalUnconfirmedEstimate(all);
+  return html`${formatTotal(totalCost(runs))} of ${formatTotal(totalCost(all))} billed${unconfirmed === 0
+    ? ''
+    : html` + <span data-unconfirmed-estimate-total>~${formatTotal(totalUnconfirmedEstimate(runs))} of ~${formatTotal(unconfirmed)} unconfirmed estimate</span>`}${pending === 0
     ? ''
     : html` <span class="${PENDING}">+${pending} pending</span>`}`;
 };

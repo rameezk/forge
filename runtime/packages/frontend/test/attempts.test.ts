@@ -54,6 +54,7 @@ const runOf = (attempt: Attempt): RunRecord => ({
   costStatus: 'billed',
   costUsd: attempt.cost,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 100,
   outputTokens: 10,

@@ -61,6 +61,7 @@ const startedRun = (
     costStatus: 'pending',
     costUsd: 0,
     costEstimated: false,
+    unconfirmedEstimateUsd: 0,
     listPrice: null,
     inputTokens: 0,
     outputTokens: 0,
@@ -398,4 +399,64 @@ test('given two ended runs without counters whose first transcript cannot be rea
   assert.deepEqual(log, [
     'could not count the transcript of run "a-broken": EACCES: permission denied',
   ]);
+});
+
+test('given a run with one generation OpenRouter billed and one it rejected for good, both priced by forge, when the settle step runs, then the run keeps the billed cost and the rejected generation\'s estimate as a separate figure', async () => {
+  const store = Store.open(':memory:');
+  startedRun(store, 'mixed', { generatedAt: null });
+  for (const [generationId, estimatedCostUsd] of [['gen-billed', 0.2], ['gen-rejected', 0.36]] as const) {
+    store.recordGeneration({
+      runId: 'mixed',
+      generationId,
+      subagent: null,
+      kind: 'message',
+      usage: NO_USAGE,
+      estimatedCostUsd,
+      createdAt: endedAgo(DAY_MS + 30_000),
+    });
+  }
+  finish(store, 'mixed', endedAgo(DAY_MS + 1000));
+
+  await settleGenerations({
+    store,
+    readTranscript: noTranscripts,
+    lookUp: async (generationId) =>
+      generationId === 'gen-billed' ? billed(0.25) : { outcome: 'permanent', reason: 'HTTP 400' },
+    now: () => NOW,
+    log: () => {},
+  });
+
+  const run = store.getRun('mixed');
+  assert.equal(run?.costStatus, 'unconfirmed');
+  assert.equal(run?.costUsd, 0.25);
+  assert.equal(run?.unconfirmedEstimateUsd, 0.36);
+});
+
+test('given a run whose every generation OpenRouter rejected for good, when the settle step runs, then it bills nothing and keeps the whole estimate as unconfirmed', async () => {
+  const store = Store.open(':memory:');
+  startedRun(store, 'rejected', { generatedAt: null });
+  store.recordGeneration({
+    runId: 'rejected',
+    generationId: 'msg_01',
+    subagent: null,
+    kind: 'message',
+    usage: NO_USAGE,
+    estimatedCostUsd: 0.36,
+    createdAt: endedAgo(DAY_MS + 30_000),
+  });
+  finish(store, 'rejected', endedAgo(DAY_MS + 1000));
+
+  await settleGenerations({
+    store,
+    readTranscript: noTranscripts,
+    lookUp: async () => ({ outcome: 'permanent', reason: 'HTTP 400' }),
+    now: () => NOW,
+    log: () => {},
+  });
+
+  const run = store.getRun('rejected');
+  assert.equal(run?.costStatus, 'unconfirmed');
+  assert.equal(run?.costUsd, 0);
+  assert.equal(run?.costEstimated, false);
+  assert.equal(run?.unconfirmedEstimateUsd, 0.36);
 });

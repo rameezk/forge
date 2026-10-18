@@ -33,6 +33,7 @@ export interface Seed {
   start?: string;
   seconds: number;
   cost: number;
+  unconfirmedEstimate?: number;
   inputTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
@@ -59,9 +60,10 @@ const runOf = (seed: Seed): RunRecord => {
     startTime: start,
     endTime: new Date(Date.parse(start) + seed.seconds * 1000).toISOString(),
     status: 'success',
-    costStatus: seed.listPrice === undefined ? 'billed' : 'subscription',
+    costStatus: seed.listPrice !== undefined ? 'subscription' : seed.unconfirmedEstimate !== undefined ? 'unconfirmed' : 'billed',
     costUsd: seed.cost,
     costEstimated: false,
+    unconfirmedEstimateUsd: seed.unconfirmedEstimate ?? 0,
     listPrice: null,
     inputTokens: seed.inputTokens ?? 100,
     outputTokens: 10,

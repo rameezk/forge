@@ -59,6 +59,7 @@ const notStartedRun = (
   costStatus: providerSpec(worker.provider).subscription ? 'subscription' : 'pending',
   costUsd: 0,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 0,
   outputTokens: 0,

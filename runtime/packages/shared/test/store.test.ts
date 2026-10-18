@@ -25,6 +25,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1234,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
@@ -67,6 +68,7 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     costStatus: 'pending',
     costUsd: 0,
     costEstimated: false,
+    unconfirmedEstimateUsd: 0,
     listPrice: null,
     inputTokens: 0,
     outputTokens: 0,
@@ -121,6 +123,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
       endTime: null,
       costUsd: 0,
       costEstimated: false,
+      unconfirmedEstimateUsd: 0,
       listPrice: null,
       inputTokens: 0,
       outputTokens: 0,
@@ -157,6 +160,7 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     costStatus: 'billed',
     costUsd: 0,
     costEstimated: false,
+    unconfirmedEstimateUsd: 0,
     listPrice: null,
     inputTokens: 0,
     outputTokens: 0,
@@ -1137,4 +1141,33 @@ test('given a repository with stored requests, when its frontier is replaced, th
   } finally {
     store.close();
   }
+});
+
+test('given a store file whose unconfirmed run predates the unconfirmed estimate, when the store is opened, then the run reads back with the estimate of its given-up generations and none of the billed one', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const before = Store.open(path);
+  before.insertRun(sampleRun({ id: 'old', status: 'running', endTime: null, costStatus: 'pending', costUsd: 0 }));
+  const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  for (const [generationId, estimatedCostUsd] of [['gen-billed', 0.1], ['msg_01', 0.25], ['msg_02', 0.11]] as const) {
+    before.recordGeneration({ runId: 'old', generationId, subagent: null, kind: 'message', usage, estimatedCostUsd, createdAt: '2026-09-21T10:01:00.000Z' });
+  }
+  before.recordLookups(
+    [
+      { id: before.unsettledGenerations()[0]?.id ?? 0, billing: { costUsd: 0.12, usage: null, reasoningTokens: null, provider: null, model: null } },
+      ...before.unsettledGenerations().slice(1).map(({ id }) => ({ id, error: 'HTTP 400', givenUp: true as const })),
+    ],
+    '2026-09-21T10:05:00.000Z',
+  );
+  before.close();
+  const raw = new DatabaseSync(path);
+  raw.exec('ALTER TABLE runs DROP COLUMN unconfirmed_estimate_usd');
+  raw.close();
+
+  const store = Store.open(path);
+
+  const run = store.getRun('old');
+  assert.equal(run?.costStatus, 'unconfirmed');
+  assert.equal(run?.costUsd, 0.12);
+  assert.equal(run?.unconfirmedEstimateUsd, 0.36);
+  store.close();
 });
