@@ -178,10 +178,10 @@ const renderRunCard = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadR
     ${renderOutcomeDetail(run, pullRequestWorkload)}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, pullRequestWorkload)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
-    <dl class="m-0 grid grid-cols-[auto_auto_1fr] gap-x-5 gap-y-1 border-t border-line pt-2">
+    <dl class="m-0 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-5 gap-y-1 border-t border-line pt-2">
       <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Duration</dt><dd class="m-0 tabular-nums" data-duration>${renderDuration(run)}</dd></div>
       <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Cache hit</dt><dd class="m-0 tabular-nums" data-cache-hit>${renderCacheHitRate(run)}</dd></div>
-      <div class="flex flex-col gap-0.5 text-right"><dt class="${STAT_LABEL}">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
+      <div class="flex min-w-0 flex-col gap-0.5 text-right"><dt class="${STAT_LABEL}">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
     </dl>
   </article>`;
 

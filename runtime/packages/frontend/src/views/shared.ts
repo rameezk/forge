@@ -167,7 +167,7 @@ const UNCONFIRMED_ESTIMATE_TITLE = "forge's estimate at OpenRouter's list price 
 
 const renderUnconfirmedEstimate = (usd: number): Rendered =>
   usd > 0
-    ? html` <wbr>+ <span class="whitespace-nowrap" data-unconfirmed-estimate title="${UNCONFIRMED_ESTIMATE_TITLE}">~${formatCost(usd)} unconfirmed estimate</span>`
+    ? html` <wbr>+ <span data-unconfirmed-estimate title="${UNCONFIRMED_ESTIMATE_TITLE}">~${formatCost(usd)} unconfirmed estimate</span>`
     : '';
 
 const costBadge = (run: Cost): Rendered => {
