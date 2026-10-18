@@ -112,13 +112,23 @@ const renderHeader = (
     </div>
   </header>`;
 
+type Fit = 'scroll' | 'desktop' | 'always';
+
+const FIT_BODY = { scroll: '', desktop: ' lg:flex lg:h-dvh lg:flex-col', always: ' flex h-dvh flex-col' } as const;
+
+const FIT_MAIN = {
+  scroll: 'py-8',
+  desktop: 'py-8 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:py-4',
+  always: 'flex min-h-0 flex-1 flex-col overflow-hidden py-8 lg:pt-6 lg:pb-4',
+} as const;
+
 export const layout = (
   title: string,
   current: Page | null,
   live: boolean,
   { assets, timeZone, version }: Display,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
-  fitsViewport = false,
+  fit: Fit = 'scroll',
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<!doctype html>
     <html lang="en" class="scheme-light-dark">
@@ -131,9 +141,9 @@ export const layout = (
         <script src="${assets.idiomorph}" defer></script>
         <script src="${assets.client}" defer></script>
       </head>
-      <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${fitsViewport ? ' flex h-dvh flex-col' : ''}">
+      <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${FIT_BODY[fit]}">
         ${renderHeader(current, live, assets, version)}
-        <main class="mx-auto w-full max-w-[100rem] px-4 ${fitsViewport ? 'flex min-h-0 flex-1 flex-col overflow-hidden py-8 lg:pt-6 lg:pb-4' : 'py-8'}">${body}</main>
+        <main class="mx-auto w-full max-w-[100rem] px-4 ${FIT_MAIN[fit]}">${body}</main>
         <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="mx-auto w-full max-w-[100rem] px-4 py-4">Times in ${timeZone}</div></footer>
       </body>
     </html>`;

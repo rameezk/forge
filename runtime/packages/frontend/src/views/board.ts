@@ -232,5 +232,5 @@ export const renderBoard = (
             ${lanes.map((lane) => renderLane(lane, attempted, display.timeZone, runs))}
           </div>
         </div>`}`;
-  return layout('Board', 'board', true, display, body, true);
+  return layout('Board', 'board', true, display, body, 'always');
 };

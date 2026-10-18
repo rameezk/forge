@@ -1,3 +1,4 @@
+import type { Store } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
 const ticket = (number: number) => ({
@@ -108,7 +109,7 @@ test.describe('on a desktop screen', () => {
 test.describe('lane collapsing', () => {
   test.use({ viewport: { width: 1600, height: 800 } });
 
-  const seed = (store: Parameters<Parameters<typeof test>[2]>[0]['dashboard']['store'], tickets: ReturnType<typeof ticket>[]) =>
+  const seed = (store: Store, tickets: ReturnType<typeof ticket>[]) =>
     store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets });
 
   test('given a lane with cards, when its header is clicked and later activated with Enter, then it collapses to its non-zero counts and expands again', async ({ dashboard, page }) => {
@@ -156,7 +157,7 @@ test.describe('lane collapsing', () => {
   });
 });
 
-const crowd = (store: Parameters<Parameters<typeof test>[2]>[0]['dashboard']['store'], repository: string, count: number, title = 'Ticket') =>
+const crowd = (store: Store, repository: string, count: number, title = 'Ticket') =>
   store.replaceFrontier({
     repository,
     github: `rameezk/${repository}`,
