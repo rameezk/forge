@@ -131,9 +131,9 @@ export const layout = (
         <script src="${assets.idiomorph}" defer></script>
         <script src="${assets.client}" defer></script>
       </head>
-      <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${fitsViewport ? ' lg:flex lg:h-dvh lg:flex-col' : ''}">
+      <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${fitsViewport ? ' flex h-dvh flex-col' : ''}">
         ${renderHeader(current, live, assets, version)}
-        <main class="mx-auto w-full max-w-[100rem] px-4 ${fitsViewport ? 'py-8 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:py-4' : 'py-8'}">${body}</main>
+        <main class="mx-auto w-full max-w-[100rem] px-4 ${fitsViewport ? 'flex min-h-0 flex-1 flex-col overflow-hidden py-8 lg:pt-6 lg:pb-4' : 'py-8'}">${body}</main>
         <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="mx-auto w-full max-w-[100rem] px-4 py-4">Times in ${timeZone}</div></footer>
       </body>
     </html>`;

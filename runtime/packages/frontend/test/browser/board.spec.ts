@@ -155,3 +155,99 @@ test.describe('lane collapsing', () => {
     await expect(page.locator('[data-column="done"]')).toBeHidden();
   });
 });
+
+const crowd = (store: Parameters<Parameters<typeof test>[2]>[0]['dashboard']['store'], repository: string, count: number, title = 'Ticket') =>
+  store.replaceFrontier({
+    repository,
+    github: `rameezk/${repository}`,
+    polledAt: '2026-09-21T10:00:00.000Z',
+    closed: [],
+    requests: [],
+    tickets: Array.from({ length: count }, (_, index) => ({ ...ticket(index + 1), title: `${title} ${index + 1}` })),
+  });
+
+test.describe('the board box', () => {
+  test.use({ viewport: { width: 1600, height: 800 } });
+
+  test('given a Board with enough tickets to overflow its box, when the box is scrolled down by 500px, then the column header row stays put and the page has not scrolled', async ({ dashboard, page }) => {
+    crowd(dashboard.store, 'forge', 40);
+    crowd(dashboard.store, 'other', 40);
+    await page.goto('/');
+    const header = page.locator('[data-column-header]').first();
+    const before = await header.boundingBox();
+
+    await page.locator('[data-board]').evaluate((element) => element.scrollTo({ top: 500 }));
+
+    expect(await page.locator('[data-board]').evaluate((element) => element.scrollTop)).toBe(500);
+    expect((await header.boundingBox())!.y).toBe(before!.y);
+    expect(await page.locator('html').evaluate((element) => element.scrollTop)).toBe(0);
+    expect(await page.locator('html').evaluate((element) => element.scrollHeight - element.clientHeight)).toBe(0);
+  });
+
+  test('given the Board on a desktop screen, when it is opened, then the board box ends at the bottom padding above the footer', async ({ dashboard, page }) => {
+    crowd(dashboard.store, 'forge', 40);
+    await page.goto('/');
+
+    const gap = await page.locator('[data-board]').evaluate((board) => {
+      const view = board.ownerDocument.defaultView!;
+      const footer = board.ownerDocument.querySelector('footer')!.getBoundingClientRect();
+      const padding = parseFloat(view.getComputedStyle(board.ownerDocument.querySelector('main')!).paddingBottom);
+      return { toFooter: footer.top - board.getBoundingClientRect().bottom - padding, footerToViewport: view.innerHeight - footer.bottom };
+    });
+    expect(gap.toFooter).toBeCloseTo(0, 0);
+    expect(gap.footerToViewport).toBeCloseTo(0, 0);
+  });
+
+  test('given the board box scrolled down and sideways, when a live update changes a card, then both scroll offsets are unchanged', async ({ dashboard, page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    crowd(dashboard.store, 'forge', 40);
+    await page.goto('/');
+    await page.locator('[data-board]').evaluate((element) => element.scrollTo({ top: 300, left: 200 }));
+    const offsets = () => page.locator('[data-board]').evaluate((element) => [element.scrollTop, element.scrollLeft]);
+    expect(await offsets()).toEqual([300, 200]);
+
+    crowd(dashboard.store, 'forge', 40, 'Renamed');
+
+    await expect(page.locator('[data-ticket="1"]')).toContainText('Renamed 1');
+    expect(await offsets()).toEqual([300, 200]);
+  });
+
+  test('given repository lanes, one expanded and one collapsed, when the Board is opened, then each chevron is vertically centred on its repository name', async ({ dashboard, page }) => {
+    crowd(dashboard.store, 'forge', 2);
+    crowd(dashboard.store, 'other', 0);
+    await page.goto('/');
+
+    const offsets = await page.locator('[data-repository]').evaluateAll((lanes) =>
+      lanes.map((lane) => {
+        const chevron = lane.querySelector('[data-lane-chevron]')!.getBoundingClientRect();
+        const name = lane.querySelector('h2')!.getBoundingClientRect();
+        return { collapsed: lane.hasAttribute('data-collapsed'), offset: chevron.top + chevron.height / 2 - (name.top + name.height / 2) };
+      }),
+    );
+    expect(offsets.map(({ collapsed }) => collapsed).sort()).toEqual([false, true]);
+    for (const { offset } of offsets) expect(Math.abs(offset)).toBeLessThanOrEqual(0.5);
+  });
+});
+
+test.describe('the board box on a narrow screen', () => {
+  test.use({ viewport: { width: 390, height: 800 } });
+
+  test('given a phone viewport, when the board box is scrolled sideways, then each column header stays above its column and the page does not scroll', async ({ dashboard, page }) => {
+    crowd(dashboard.store, 'forge', 40);
+    await page.goto('/');
+
+    await page.locator('[data-board]').evaluate((element) => element.scrollTo({ top: 400, left: 300 }));
+
+    const aligned = await page.locator('[data-column-header]').evaluateAll((headers) =>
+      headers.map((header) => {
+        const key = header.getAttribute('data-column-header');
+        const column = header.ownerDocument.querySelector(`[data-column="${key}"]`)!.getBoundingClientRect();
+        const box = header.getBoundingClientRect();
+        return { left: Math.round(box.left - column.left), width: Math.round(box.width - column.width) };
+      }),
+    );
+    expect(aligned).toEqual(Array(9).fill({ left: 0, width: 0 }));
+    expect(await page.locator('html').evaluate((element) => element.scrollHeight - element.clientHeight)).toBe(0);
+    expect(await page.locator('[data-column-header]').first().evaluate((header) => header.getBoundingClientRect().top)).toBeGreaterThan(0);
+  });
+});
