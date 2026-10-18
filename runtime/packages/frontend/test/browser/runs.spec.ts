@@ -210,6 +210,32 @@ test('given a claude-code run whose two Agent subagents loaded a skill and none,
   await expect(page.locator('[data-skills] [data-skill]')).toHaveText([/code-review\s*1 subagent/]);
 });
 
+test('given a subagent with a long narration, when its page is opened on a phone screen, then its header keeps the task and the truncated narration on one line each', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(recordedRun);
+  const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const narration = 'Reading every file under the runtime packages to map how the transcript view groups a subagent and where its header is drawn. '.repeat(3);
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Review the change for standards' } },
+    { type: 'message', role: 'assistant', text: narration, usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'Final report.', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'Final report.' },
+  );
+  await page.setViewportSize({ width: 390, height: 800 });
+
+  await page.goto('/runs/run-01/transcript');
+
+  const header = page.locator('[data-subagent-call] > details > summary');
+  const line = header.locator('[data-subagent-narration]');
+  await expect(line).toContainText('Reading every file');
+  expect(await line.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect((await line.boundingBox())?.height ?? 0).toBeLessThan(20);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+});
+
 test('given a claude-code run on subscription, when its page is opened, then the summary shows the claude-code harness and the anthropic provider', async ({
   dashboard,
   page,

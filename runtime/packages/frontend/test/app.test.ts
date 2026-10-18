@@ -1556,3 +1556,46 @@ test('given a request record whose system prompt is far longer than one read of 
 
   assert.equal(textOf(systemPromptSection(page).match(/<pre[^>]*>[\s\S]*?<\/pre>/)?.[0] ?? ''), systemPrompt);
 });
+
+const narrationOf = (card: string): string | undefined =>
+  headerOf(card).match(/<span[^>]*\sdata-subagent-narration[^>]*>([^<]*)<\/span>/)?.[1];
+
+test("given a subagent that narrated twice before reporting, when its run page is viewed, then its collapsed header shows its second narration and not its report", async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Review the diff.' } },
+    { type: 'message', role: 'assistant', text: 'Reading the diff.', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'Checking the tests.\nThen the docs.', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'Final report: clean.', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'Final report: clean.' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.equal(narrationOf(card), 'Checking the tests. Then the docs.');
+  assert.doesNotMatch(headerOf(card), /Final report/);
+  assert.doesNotMatch(card, /<details[^>]*\sopen/);
+});
+
+test('given a running subagent that has narrated and used a tool since, when its run page is viewed, then its header shows the latest narration', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Review the diff.' } },
+    { type: 'message', role: 'assistant', text: 'Reading the diff.', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'tool_call', id: 'call_1', name: 'bash', arguments: { command: 'git diff' }, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: '', usage, generationId: null, subagent: 'call_alpha' },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.equal(narrationOf(card), 'Reading the diff.');
+});
+
+test('given a subagent that never narrated, when its run page is viewed, then its header shows no narration line', async () => {
+  const body = await viewTranscript([
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Review the diff.' } },
+    { type: 'message', role: 'assistant', text: 'All clean.', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'All clean.' },
+    { type: 'result', status: 'success', sessionId: 'sess-abc', error: null },
+  ]);
+
+  const [card] = subagentCalls(body) as [string];
+  assert.doesNotMatch(headerOf(card), /data-subagent-narration/);
+});
