@@ -10,11 +10,12 @@ export interface NewGeneration {
   usage: TokenUsage;
   estimatedCostUsd: number | null;
   listPriceEquivalentUsd?: number | null;
+  givenUpBecause?: string;
   createdAt: string;
 }
 
 export interface GenerationRecord
-  extends Omit<NewGeneration, 'usage' | 'listPriceEquivalentUsd'> {
+  extends Omit<NewGeneration, 'usage' | 'listPriceEquivalentUsd' | 'givenUpBecause'> {
   usage: TokenUsage | null;
   listPriceEquivalentUsd: number | null;
   billedCostUsd: number | null;
@@ -26,6 +27,20 @@ export interface GenerationRecord
   lastError: string | null;
   givenUpAt: string | null;
 }
+
+const OPENROUTER_GENERATION_ID = /^gen-/;
+
+export const notOpenRouterIdReason = (generationId: string): string | null =>
+  OPENROUTER_GENERATION_ID.test(generationId)
+    ? null
+    : `${JSON.stringify(generationId)} is not an OpenRouter generation id`;
+
+export const hasUnbillableId = (
+  generation: Pick<GenerationRecord, 'generationId' | 'givenUpAt'>,
+): boolean =>
+  generation.givenUpAt !== null &&
+  generation.generationId !== null &&
+  notOpenRouterIdReason(generation.generationId) !== null;
 
 export interface UnsettledGeneration {
   id: number;

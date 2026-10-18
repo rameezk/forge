@@ -12,6 +12,7 @@ import {
   type TokenUsage,
   countEvent,
   noCounters,
+  notOpenRouterIdReason,
 } from '@forge/shared';
 import {
   invocationFor,
@@ -168,6 +169,15 @@ export const runWorkload = async (
       );
     }
     const priced = estimatedCost(listPrice, call.usage);
+    const givenUpBecause =
+      subscription || call.generationId === null
+        ? null
+        : notOpenRouterIdReason(call.generationId);
+    if (givenUpBecause !== null) {
+      process.stderr.write(
+        `run ${id}: gave up on a generation, ${givenUpBecause}, so it can never be billed\n`,
+      );
+    }
     store.recordGeneration({
       runId: id,
       generationId: call.generationId,
@@ -176,6 +186,7 @@ export const runWorkload = async (
       usage: call.usage,
       estimatedCostUsd: subscription ? null : priced,
       listPriceEquivalentUsd: subscription ? priced : null,
+      ...(givenUpBecause === null ? {} : { givenUpBecause }),
       createdAt: now(),
     });
   };

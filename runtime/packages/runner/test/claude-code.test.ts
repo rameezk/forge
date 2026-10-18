@@ -370,6 +370,10 @@ test('given a claude-code worker on a two-request recording, when its workload r
     ],
   );
   assert.deepEqual(
+    generations.map(({ givenUpAt, lastError }) => [givenUpAt, lastError]),
+    [[null, null], [null, null]],
+  );
+  assert.deepEqual(
     generations.map(({ listPriceEquivalentUsd }) => Number(listPriceEquivalentUsd?.toFixed(9))),
     [
       Number(listPriceOf([200, 40, 0, 1000]).toFixed(9)),

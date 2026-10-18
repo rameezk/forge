@@ -1321,7 +1321,9 @@ export class Store {
   }
 
   recordGeneration(generation: NewGeneration): void {
-    const unnamed = generation.generationId === null;
+    const lastError =
+      generation.givenUpBecause ??
+      (generation.generationId === null ? NO_GENERATION_ID : null);
     this.#transaction(() => {
       this.#db
         .prepare(
@@ -1347,8 +1349,8 @@ export class Store {
           cache_write_tokens: generation.usage.cacheWriteTokens,
           estimated_cost_usd: generation.estimatedCostUsd,
           list_price_equivalent_usd: generation.listPriceEquivalentUsd ?? null,
-          last_error: unnamed ? NO_GENERATION_ID : null,
-          given_up_at: unnamed ? generation.createdAt : null,
+          last_error: lastError,
+          given_up_at: lastError === null ? null : generation.createdAt,
           created_at: generation.createdAt,
         });
       this.#settleRun(generation.runId);
