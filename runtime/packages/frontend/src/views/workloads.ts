@@ -170,7 +170,7 @@ const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted
 
 const renderStarted = (iso: string, runWorkload: RunPullRequestWorkload | undefined, timeZone: string): Rendered =>
   runWorkload?.kind === 'revision'
-    ? html`<span class="inline-flex flex-wrap items-center gap-x-2 gap-y-1">${renderTimestamp(iso, timeZone)}${renderRevisionPill()}</span>`
+    ? html`<span class="inline-flex items-center gap-2 whitespace-nowrap">${renderTimestamp(iso, timeZone)}${renderRevisionPill()}</span>`
     : renderTimestamp(iso, timeZone);
 
 const renderRunCard = (run: RunRecord, runWorkload: RunPullRequestWorkload | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered => {
