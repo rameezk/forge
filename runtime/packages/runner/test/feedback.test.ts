@@ -457,3 +457,36 @@ test('given a revision started by hand before any sync recorded the pull request
     [],
   );
 });
+
+const failToStart = (setup: ReturnType<typeof forge>, startedMinutesAgo: number): void =>
+  setup.withStore((store) => {
+    const start = store.startRevision(
+      { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
+      [],
+      randomUUID(),
+      ago(startedMinutesAgo),
+      Number.POSITIVE_INFINITY,
+    );
+    assert.ok('started' in start);
+    store.failRevisionStart(start.started, 'clone failed', new Date().toISOString());
+  });
+
+test('given a revision whose latest record is a failed start and feedback the pass already saw, when sync and the pass run again, then the revision starts again', async () => {
+  const setup = forge();
+  const pulls = [pullRequest(143, { reviews: [review(ago(30))] })];
+  setup.revise(143, 40);
+  await setup.syncAndPass(pulls);
+  failToStart(setup, 20);
+
+  assert.deepEqual(await setup.syncAndPass(pulls), [REVISE_UNIT]);
+});
+
+test('given a revision that ended in error over feedback the pass already saw, when sync and the pass run again, then no revision starts', async () => {
+  const setup = forge();
+  const pulls = [pullRequest(143, { reviews: [review(ago(30))] })];
+  setup.revise(143, 40);
+  await setup.syncAndPass(pulls);
+  setup.revise(143, 20, 'error');
+
+  assert.deepEqual(await setup.syncAndPass(pulls), []);
+});

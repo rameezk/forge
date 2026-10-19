@@ -522,6 +522,73 @@ test('given a conflict resolution that failed to start and is now running again,
   assert.match(board, /data-conflict-failed-start/);
 });
 
+const failRevisionToStart = (store: Store, at: string, detail: string, pullRequest = 9): void => {
+  const started = store.startRevision(
+    { repository: 'forge', number: pullRequest, url: `${GITHUB}forge/pull/${pullRequest}` },
+    [TICKET.number],
+    `unused-${at}`,
+    at,
+    10,
+  );
+  assert.ok('started' in started);
+  store.failRevisionStart(started.started, detail, at);
+};
+
+const frontierWithTicket = (store: Store): void =>
+  store.replaceFrontier({
+    repository: 'forge',
+    github: 'rameezk/forge',
+    polledAt: '2026-09-29T08:15:00.000Z',
+    closed: [], requests: [],
+    tickets: [
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+    ],
+  });
+
+test('given a dispatch whose pull request had a revision that failed to start twice, when its attempts view is requested, then one row shows it as a revision with its state, reason, count and detail and no run link or run columns', async () => {
+  const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
+  failRevisionToStart(store, '2026-09-25T10:00:00.000Z', 'first clone error');
+  failRevisionToStart(store, '2026-09-25T10:05:00.000Z', 'GitHub answered 401: Bad credentials');
+
+  const page = await (await app.request('/tickets/forge/42')).text();
+
+  const [row, ...others] = failedStartRows(page);
+  assert.deepEqual(others, []);
+  assert.doesNotMatch(row!, /\/runs\//);
+  assert.match(textOf(row!), /revision/);
+  assert.doesNotMatch(textOf(row!), /conflict resolution/);
+  assert.match(
+    textOf(/<td[^>]*data-field="outcome"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!),
+    /^error Did not start \(2 times\): GitHub answered 401: Bad credentials$/,
+  );
+  assert.equal(textOf(/<td[^>]*data-field="cost"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!), '');
+  assert.equal(textOf(/<td[^>]*data-field="duration"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!), '');
+});
+
+test('given a dispatch whose pull request has a revision that failed to start, when the Board is requested, then the ticket card is flagged with the failed-start count', async () => {
+  const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
+  frontierWithTicket(store);
+  failRevisionToStart(store, '2026-09-25T10:00:00.000Z', 'first');
+  failRevisionToStart(store, '2026-09-25T10:05:00.000Z', 'GitHub answered 401: Bad credentials');
+
+  const board = await (await app.request('/')).text();
+
+  const card = /<article[^>]*\sdata-ticket="42"[\s\S]*?<\/article>/.exec(board)![0];
+  assert.match(textOf(/<p[^>]*data-revision-failed-start[^>]*>[\s\S]*?<\/p>/.exec(card)![0]), /^Revision did not start \(2 times, last .* ago\): GitHub answered 401: Bad credentials$/);
+  assert.doesNotMatch(card, /data-conflict-failed-start/);
+});
+
+test('given a revision that failed to start and then ran, when the Board is requested, then the ticket card is not flagged', async () => {
+  const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
+  frontierWithTicket(store);
+  failRevisionToStart(store, '2026-09-25T10:00:00.000Z', 'clone failed');
+  const ran = store.startRevision({ repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` }, [TICKET.number], 'ran', '2026-09-25T11:00:00.000Z', 10);
+  assert.ok('started' in ran);
+  store.endRevision(ran.started, 'ok', '2026-09-25T11:05:00.000Z');
+
+  assert.doesNotMatch(await (await app.request('/')).text(), /data-revision-failed-start/);
+});
+
 test('given a conflict resolution of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no conflict resolutions', async () => {
   const { app, store } = dashboard([{ ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'open' } }]);
   resolve(store, 'manual-res', '2026-09-24T10:00:00.000Z', 'ok', 99);

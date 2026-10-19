@@ -128,7 +128,9 @@ export const createApp = ({
     const shown = displayOf(c);
     const now = new Date().toISOString();
     const pullRequestWorkloads = new Map<string, RunPullRequestWorkload>([
-      ...store.listRevisions(now).map((workload): [string, RunPullRequestWorkload] => [workload.runId, { kind: 'revision', workload }]),
+      ...store.listRevisions(now).flatMap((workload): [string, RunPullRequestWorkload][] =>
+        workload.runId === null ? [] : [[workload.runId, { kind: 'revision', workload }]],
+      ),
       ...store.listConflictResolutions(now).flatMap((workload): [string, RunPullRequestWorkload][] =>
         workload.runId === null ? [] : [[workload.runId, { kind: 'conflict-resolution', workload }]],
       ),

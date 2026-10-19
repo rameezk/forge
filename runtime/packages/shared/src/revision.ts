@@ -1,6 +1,6 @@
 export type RevisionState = 'running' | 'ok' | 'error' | 'exceeded' | 'interrupted';
 
-export type RevisionFailure = 'unanswered' | 'crashed';
+export type RevisionFailure = 'unanswered' | 'crashed' | 'not-started';
 
 export interface RevisionFailureRecord {
   reason: RevisionFailure;
@@ -15,11 +15,12 @@ export interface RevisedPullRequest {
 
 export interface RevisionRecord extends RevisedPullRequest {
   id: number;
-  runId: string;
+  runId: string | null;
   dispatchId: number | null;
   state: RevisionState;
   reason: RevisionFailure | null;
   detail: string | null;
+  failedStarts: number | null;
   startedAt: string;
   aliveAt: string;
   endedAt: string | null;

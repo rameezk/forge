@@ -6,7 +6,7 @@ import type { RunRecord } from './run.ts';
 
 export interface AttemptRevision {
   revision: RevisionRecord;
-  run: RunRecord;
+  run: RunRecord | null;
 }
 
 export interface AttemptConflictResolution {

@@ -56,12 +56,10 @@ const renderWorkload = (
     <td class="${TD}"></td>
   </tr>`;
 
-const renderRevision = ({ revision, run }: AttemptRevision, timeZone: string) =>
-  renderWorkload('revision', revision, run, timeZone);
 
-const renderFailedStart = (workload: PullRequestWorkloadRecord, timeZone: string) =>
+const renderFailedStart = (kind: 'revision' | 'conflict resolution', workload: PullRequestWorkloadRecord, timeZone: string) =>
   html`<tr class="${ROW}" data-failed-start="${workload.id}">
-    <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span>${renderDate(workload.endedAt ?? workload.startedAt, timeZone)} <span class="text-muted">conflict resolution</span></td>
+    <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span>${renderDate(workload.endedAt ?? workload.startedAt, timeZone)} <span class="text-muted">${kind}</span></td>
     <td class="${TD}"></td>
     <td class="${TD}"></td>
     <td class="${TD}" data-field="outcome">${renderWorkloadOutcome(workload)}${renderWorkloadFailure(workload)}</td>
@@ -71,9 +69,14 @@ const renderFailedStart = (workload: PullRequestWorkloadRecord, timeZone: string
     <td class="${TD}"></td>
   </tr>`;
 
+const renderRevision = ({ revision, run }: AttemptRevision, timeZone: string) =>
+  run === null
+    ? renderFailedStart('revision', revision, timeZone)
+    : renderWorkload('revision', revision, run, timeZone);
+
 const renderConflictResolution = ({ conflictResolution, run }: AttemptConflictResolution, timeZone: string) =>
   run === null
-    ? renderFailedStart(conflictResolution, timeZone)
+    ? renderFailedStart('conflict resolution', conflictResolution, timeZone)
     : renderWorkload('conflict resolution', conflictResolution, run, timeZone);
 
 const renderAttempt = (attempt: TicketAttempt, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> => {

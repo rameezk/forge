@@ -1141,6 +1141,121 @@ const startedRevision = (store: Store, at: string): { id: number; after: string 
   return { id: start.started, after: start.after };
 };
 
+const failRevisionToStart = (store: Store, at: string, detail: string): void => {
+  store.failRevisionStart(startedRevision(store, at).id, detail, at);
+};
+
+test('given a revision that fails before its harness starts, when revisions are listed, then it reads as a failed start with no run, its reason and its detail', () => {
+  const store = Store.open(':memory:');
+
+  failRevisionToStart(store, '2026-09-21T10:00:00.000Z', 'clone failed');
+
+  assert.deepEqual(
+    store.listRevisions('2026-09-21T10:01:00.000Z').map(({ runId, state, reason, detail, failedStarts }) => ({ runId, state, reason, detail, failedStarts })),
+    [{ runId: null, state: 'error', reason: 'not-started', detail: 'clone failed', failedStarts: 1 }],
+  );
+  assert.equal(store.liveWorkloads('2026-09-21T10:01:00.000Z'), 0);
+});
+
+test('given a revision whose latest record is a failed start, when it fails to start again, then one record is kept with the count raised and the latest detail', () => {
+  const store = Store.open(':memory:');
+  failRevisionToStart(store, '2026-09-21T10:00:00.000Z', 'first');
+
+  failRevisionToStart(store, '2026-09-21T10:05:00.000Z', 'second');
+
+  assert.deepEqual(
+    store.listRevisions('2026-09-21T10:06:00.000Z').map(({ failedStarts, detail, endedAt }) => ({ failedStarts, detail, endedAt })),
+    [{ failedStarts: 2, detail: 'second', endedAt: '2026-09-21T10:05:00.000Z' }],
+  );
+});
+
+test('given a pull request with no revision started, when its pre-harness step fails twice, then one failed start with no run is kept with the count', () => {
+  const store = Store.open(':memory:');
+
+  store.recordRevisionStartFailure(REVISED, 'first', '2026-09-21T10:00:00.000Z');
+  store.recordRevisionStartFailure(REVISED, 'second', '2026-09-21T10:05:00.000Z');
+
+  assert.deepEqual(
+    store.listRevisions('2026-09-21T10:06:00.000Z').map(({ runId, state, reason, detail, failedStarts }) => ({ runId, state, reason, detail, failedStarts })),
+    [{ runId: null, state: 'error', reason: 'not-started', detail: 'second', failedStarts: 2 }],
+  );
+});
+
+test('given a live revision of the pull request, when a pre-harness failure is recorded, then nothing is recorded over it', () => {
+  const store = Store.open(':memory:');
+  startedRevision(store, '2026-09-21T10:00:00.000Z');
+
+  store.recordRevisionStartFailure(REVISED, 'boom', '2026-09-21T10:00:30.000Z');
+
+  assert.deepEqual(store.listRevisions('2026-09-21T10:00:40.000Z').map(({ state }) => state), ['running']);
+});
+
+test('given a revision that ran and failed, when the next one fails to start, then the failed start is its own record with a count of one', () => {
+  const store = Store.open(':memory:');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'error', '2026-09-21T10:05:00.000Z', { reason: 'crashed', detail: null });
+
+  failRevisionToStart(store, '2026-09-21T10:10:00.000Z', 'clone failed');
+
+  assert.deepEqual(
+    store.listRevisions('2026-09-21T10:11:00.000Z').map(({ reason, failedStarts }) => ({ reason, failedStarts })),
+    [{ reason: 'crashed', failedStarts: null }, { reason: 'not-started', failedStarts: 1 }],
+  );
+});
+
+test('given a revision whose latest record is a failed start and feedback the timer already saw, when the timer checks, then the pull request is due again', () => {
+  const store = Store.open(':memory:');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
+  failRevisionToStart(store, '2026-09-21T10:10:00.000Z', 'clone failed');
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
+
+  assert.deepEqual(store.feedbackDue('2026-09-21T10:11:00.000Z', 600), [REVISED]);
+});
+
+test('given a failed start of a pull request that is no longer watched, when the timer checks, then it is not due', () => {
+  const store = Store.open(':memory:');
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
+  failRevisionToStart(store, '2026-09-21T10:10:00.000Z', 'clone failed');
+  store.recordWatchedPullRequests('forge', []);
+
+  assert.deepEqual(store.feedbackDue('2026-09-21T10:11:00.000Z', 600), []);
+});
+
+test('given a failed start that a later revision ran past, when the timer checks, then it is not due until newer feedback arrives', () => {
+  const store = Store.open(':memory:');
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
+  failRevisionToStart(store, '2026-09-21T10:10:00.000Z', 'clone failed');
+  store.endRevision(startedRevision(store, '2026-09-21T10:20:00.000Z').id, 'ok', '2026-09-21T10:21:00.000Z');
+  store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
+
+  assert.deepEqual(store.feedbackDue('2026-09-21T11:00:00.000Z', 600), []);
+});
+
+test('given a database from before revision failed starts, when it is opened, then its revisions read back and a failed start can be recorded', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-store-'));
+  const path = join(dir, 'forge.db');
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    CREATE TABLE revisions (
+      id INTEGER PRIMARY KEY, repository TEXT NOT NULL, number INTEGER NOT NULL, url TEXT NOT NULL,
+      run_id TEXT NOT NULL, dispatch_id INTEGER, state TEXT NOT NULL, reason TEXT, detail TEXT,
+      started_at TEXT NOT NULL, alive_at TEXT NOT NULL, ended_at TEXT, feedback_cursor TEXT
+    ) STRICT;
+    INSERT INTO revisions (repository, number, url, run_id, state, reason, started_at, alive_at, ended_at, feedback_cursor)
+    VALUES ('forge', 143, 'https://github.com/rameezk/forge/pull/143', 'run-old', 'error', 'crashed',
+      '2026-09-21T09:00:00.000Z', '2026-09-21T09:00:00.000Z', '2026-09-21T09:05:00.000Z', '2026-09-21T08:00:00.000Z');
+  `);
+  legacy.close();
+
+  const store = Store.open(path);
+  failRevisionToStart(store, '2026-09-21T10:00:00.000Z', 'clone failed');
+
+  assert.deepEqual(
+    store.listRevisions('2026-09-21T10:01:00.000Z').map(({ runId, reason }) => ({ runId, reason })),
+    [{ runId: 'run-old', reason: 'crashed' }, { runId: null, reason: 'not-started' }],
+  );
+});
+
 for (const state of ['error', 'exceeded', 'interrupted'] as const) {
   test(`given a revision that ended ${state}, when the next revision starts, then its window begins where the failed one's began`, () => {
     const store = Store.open(':memory:');
