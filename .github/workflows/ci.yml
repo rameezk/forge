@@ -79,8 +79,7 @@ jobs:
       - *use-cachix
       - id: list
         run: |
-          nix_path="$(command -v nix)"
-          tests="$(nix develop --command bash -c 'PATH="$1:$PATH" exec scripts/checks.sh list vm x86_64-linux' _ "${nix_path%/*}" | jq --raw-input --null-input --compact-output '[inputs]')"
+          tests="$(nix eval --json .#vmTests.x86_64-linux --apply builtins.attrNames)"
           echo "tests=$tests" >> "$GITHUB_OUTPUT"
 
   vm-test:
@@ -101,7 +100,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - *install-nix
       - *use-cachix
-      - run: nix build --print-build-logs --no-link ".#checks.x86_64-linux.$TEST"
+      - run: nix build --print-build-logs --no-link ".#vmTests.x86_64-linux.$TEST"
         env:
           TEST: ${{ matrix.test }}
 

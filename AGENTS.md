@@ -35,13 +35,14 @@
     `node --test` over its unit tests
   - OpenTofu: `tofu test`
   - repo and template scripts: the matching `tests/*.sh` script
-  - a single nix check: `nix build .#checks.<system>.<check>`
+  - a single nix check: `nix build .#checks.<system>.<check>`; a VM test lives
+    in `vmTests`, so `nix flake check` alone no longer covers it
 - End your report with one line naming the local commands that passed,
   followed by "full suite: CI".
 - When a required scoped command is killed or cannot run, stop and report it.
   Do not substitute a narrower or different check.
 - When a VM test fails in CI, start from its log. Run only that test locally,
-  with `nix build .#checks.<system>.<test>`, if the log does not explain the
+  with `nix build .#vmTests.<system>.<test>`, if the log does not explain the
   failure.
 - A change is not done until the required checks on its pull request are
   green.
