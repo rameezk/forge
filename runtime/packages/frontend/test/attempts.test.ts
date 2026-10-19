@@ -495,6 +495,33 @@ test('given a dispatch whose pull request has a conflict resolution that failed 
   assert.match(textOf(/<p[^>]*data-conflict-failed-start[^>]*>[\s\S]*?<\/p>/.exec(card)![0]), /^Conflict resolution did not start \(2 times, last .* ago\): fatal: unable to access the repository$/);
 });
 
+test('given a conflict resolution that failed to start and is now running again, when the Board is requested, then the ticket card keeps the failed-start flag', async () => {
+  const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
+  store.replaceFrontier({
+    repository: 'forge',
+    github: 'rameezk/forge',
+    polledAt: '2026-09-29T08:15:00.000Z',
+    closed: [], requests: [],
+    tickets: [
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+    ],
+  });
+  failToStart(store, '2026-09-25T10:00:00.000Z', 'fatal: unable to access the repository');
+  const again = store.startConflictResolution(
+    { repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` },
+    [TICKET.number],
+    'retry-run',
+    new Date().toISOString(),
+    10,
+    { headSha: 'head-a', defaultSha: 'default-a' },
+  );
+  assert.ok('started' in again);
+
+  const board = await (await app.request('/')).text();
+
+  assert.match(board, /data-conflict-failed-start/);
+});
+
 test('given a conflict resolution of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no conflict resolutions', async () => {
   const { app, store } = dashboard([{ ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'open' } }]);
   resolve(store, 'manual-res', '2026-09-24T10:00:00.000Z', 'ok', 99);

@@ -222,6 +222,14 @@ export const main = async (
             runId,
             conflictResolution: true,
           });
+          if (launched.run.harnessStartTime == null) {
+            store.failConflictResolutionStart(
+              resolutionId,
+              launched.run.error ?? errorMessage(launched.cause),
+              now(),
+            );
+            return 1;
+          }
           state = stateOf(launched);
           code = launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
           if (state === 'ok') {

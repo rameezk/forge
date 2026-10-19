@@ -84,11 +84,11 @@ export const buildLanes = (
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
 ): BoardLane[] => {
   const revising = new Map(revisions.filter(({ state }) => state === 'running').map((revision) => [ticketKey(revision.repository, revision.number), revision]));
-  const latestResolution = new Map<string, ConflictResolutionRecord>();
+  const latestSettled = new Map<string, ConflictResolutionRecord>();
   for (const resolution of conflictResolutions) {
     const key = ticketKey(resolution.repository, resolution.number);
-    const known = latestResolution.get(key);
-    if (known === undefined || known.id < resolution.id) latestResolution.set(key, resolution);
+    const known = latestSettled.get(key);
+    if (resolution.state !== 'running' && (known === undefined || known.id < resolution.id)) latestSettled.set(key, resolution);
   }
   return frontier.map((repository) => {
     const columns = emptyColumns();
@@ -104,7 +104,7 @@ export const buildLanes = (
         ticket,
         dispatch,
         revision: column === 'in-review' && pullRequest != null ? revising.get(ticketKey(repository.repository, pullRequest.number)) : undefined,
-        failedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        failedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestSettled.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {

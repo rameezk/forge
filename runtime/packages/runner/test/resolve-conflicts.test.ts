@@ -109,7 +109,7 @@ interface Scenario {
   worker?: (origin: Origin) => string;
   mergeable?: string[];
   failingQuery?: string;
-  failingClone?: boolean;
+  failingClone?: number;
   pullRequest?: Partial<PullRequestState>;
   harnessEnv?: Record<string, string>;
   maxConcurrent?: number;
@@ -143,7 +143,7 @@ const conflictsWith = (origin: Origin, target: string): boolean => {
   }
 };
 
-const recordingGit = (dir: string, failingClone: boolean): { bin: string; log: string } => {
+const recordingGit = (dir: string, failingClone: number | undefined): { bin: string; log: string } => {
   const bin = join(dir, 'git-recorder');
   const log = join(dir, 'git-calls.log');
   const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
@@ -151,9 +151,9 @@ const recordingGit = (dir: string, failingClone: boolean): { bin: string; log: s
   writeFileSync(
     join(bin, 'git'),
     `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\n${
-      failingClone
-        ? `case " $* " in *" clone "*) echo 'fatal: unable to access the repository' >&2; exit 128;; esac\n`
-        : ''
+      failingClone === undefined
+        ? ''
+        : `case " $* " in *" clone "*) [ "$(grep -cE '(^| )clone ' '${log}')" -ge ${failingClone} ] && { echo 'fatal: unable to access the repository' >&2; exit 128; };; esac\n`
     }exec '${real}' "$@"\n`,
   );
   chmodSync(join(bin, 'git'), 0o755);
@@ -163,7 +163,7 @@ const recordingGit = (dir: string, failingClone: boolean): { bin: string; log: s
 const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin = scenario.origin ?? originWhere('conflicts');
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-resolve-conflicts-'));
-  const recorder = recordingGit(stateDir, scenario.failingClone === true);
+  const recorder = recordingGit(stateDir, scenario.failingClone);
   const record = join(stateDir, 'pi-call.json');
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -555,7 +555,7 @@ test('given a harness that fails, when the conflict resolution ends, then it end
 });
 
 test('given a repository the trial merge cannot clone, when forge-resolve-conflicts runs, then the conflict resolution is a failed start with no run, the clone error as detail, and no worker starts', async () => {
-  const { code, resolutions, runs, pi } = await resolve({ failingClone: true });
+  const { code, resolutions, runs, pi } = await resolve({ failingClone: 1 });
 
   assert.equal(code, 1);
   assert.deepEqual(
@@ -564,6 +564,17 @@ test('given a repository the trial merge cannot clone, when forge-resolve-confli
   );
   assert.match(resolutions[0]?.detail ?? '', /unable to access the repository/);
   assert.deepEqual(runs, []);
+  assert.equal(pi, null);
+});
+
+test('given the worker checkout cannot be cloned after the trial merge found conflicts, when forge-resolve-conflicts runs, then the conflict resolution is a failed start with no run and the harness never starts', async () => {
+  const { code, resolutions, pi } = await resolve({ failingClone: 2 });
+
+  assert.equal(code, 1);
+  assert.deepEqual(
+    resolutions.map(({ runId, state, reason, failedStarts }) => ({ runId, state, reason, failedStarts })),
+    [{ runId: null, state: 'error', reason: 'not-started', failedStarts: 1 }],
+  );
   assert.equal(pi, null);
 });
 
