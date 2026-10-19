@@ -74,7 +74,7 @@ done
 
 host_names="$(nix eval --json --impure --expr "builtins.attrNames ((builtins.getFlake \"git+file://$PWD\").nixosConfigurations or { })" 2>/dev/null || true)"
 if [ -z "$host_names" ]; then
-	echo "FAIL: the flake outputs did not evaluate; run 'nix eval .#lib' to see the error"
+	echo "FAIL: the flake outputs did not evaluate; run 'nix eval --impure --expr \"(builtins.getFlake \\\"git+file://\$PWD\\\").nixosConfigurations\"' to see the error"
 	fail=1
 elif [ "$host_names" = "[]" ]; then
 	echo "ok: forge declares no concrete host"

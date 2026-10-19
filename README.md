@@ -152,7 +152,7 @@ Then follow the scaffolded repository's [README](templates/operator/README.md) t
 
 `make check-no-vm` runs everything `make check` runs except the VM tests, for machines without KVM such as the box. The VM tests are then left to CI.
 
-A VM test is any attribute of `vmTests.<system>`, so a new one is picked up with no other edit. `nix eval .#vmTests.<system> --apply builtins.attrNames` lists them, and `nix build .#vmTests.<system>.<test>` runs one.
+A VM test is any attribute of `vmTests.<system>`, so CI and `make check` pick up a new one with no edit, and `tests/repo-generic.sh` lists the expected names. `nix eval .#vmTests.<system> --apply builtins.attrNames` lists them, and `nix build .#vmTests.<system>.<test>` runs one.
 
 ### CI
 
