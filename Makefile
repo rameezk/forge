@@ -2,10 +2,12 @@
 
 TESTS = tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only
 
-check: flake-check $(TESTS)
+check: flake-check vm-tests $(TESTS)
 
 ifeq ($(shell uname -s),Darwin)
-check: vm-tests
+VM_SYSTEM = aarch64-linux
+else
+VM_SYSTEM = $(shell nix eval --raw --impure --expr builtins.currentSystem)
 endif
 
 check-no-vm: flake-check-no-vm $(TESTS)
@@ -17,7 +19,7 @@ flake-check-no-vm:
 	nix flake check --print-build-logs
 
 vm-tests:
-	nix build --print-build-logs --no-link $$(nix eval --json .#vmTests.aarch64-linux --apply builtins.attrNames | jq -r '.[] | ".#vmTests.aarch64-linux." + .') || { echo "If Nix found no Linux builder with KVM for the VM tests, see README.md#run-the-checks, or run 'make check-no-vm' and rely on CI." >&2; exit 1; }
+	nix build --print-build-logs --no-link $$(nix eval --json .#vmTests.$(VM_SYSTEM) --apply builtins.attrNames | jq -r '.[] | ".#vmTests.$(VM_SYSTEM)." + .') || { echo "If Nix found no Linux builder with KVM for the VM tests, see README.md#run-the-checks, or run 'make check-no-vm' and rely on CI." >&2; exit 1; }
 
 tofu-test:
 	cd infra/opentofu && tofu init -input=false >/dev/null && tofu test

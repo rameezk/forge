@@ -147,7 +147,7 @@ Then follow the scaffolded repository's [README](templates/operator/README.md) t
 
 `make check` runs every check, the NixOS VM tests included. The VM tests live in their own flake output, `vmTests.<system>`, so `nix flake check` alone no longer covers them (ADR-0075). The VM tests need a Linux machine with KVM:
 
-- On Linux, `make check` runs them natively and needs `/dev/kvm`.
+- On Linux, `make check` builds `vmTests` for the machine's own system and needs `/dev/kvm`.
 - On a Mac, `make check` also builds them for `aarch64-linux` on a Linux builder. The builder must expose KVM and advertise the `kvm,nixos-test,big-parallel,benchmark` system features. Without one reachable, `make check` fails with Nix's error and a one-line hint rather than skipping the VM tests.
 
 `make check-no-vm` runs everything `make check` runs except the VM tests, for machines without KVM such as the box. The VM tests are then left to CI.
