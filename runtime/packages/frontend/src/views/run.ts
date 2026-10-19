@@ -1,11 +1,11 @@
 import { html, raw } from 'hono/html';
-import { hasUnbillableId, isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type PullRequestRecord, type RunPullRequestWorkload, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
+import { hasUnbillableId, isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type DispatchRecord, type PullRequestRecord, type RunPullRequestWorkload, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTokens } from '../format.ts';
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, renderRevisionPill, workloadOutcomeText, renderWorkloadOutcome, settledOutcome, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, renderRunOutcome, type RunOutcome, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
 import { renderWidget } from './widget.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -339,12 +339,10 @@ const renderTiles = (
     ${renderTile('pull-request', 'Pull request', pullRequest === null ? html`<span class="${PENDING}">none</span>` : renderPullRequestValue(pullRequest))}
   </div>`;
 
-const renderSummaryOutcome = (runWorkload: RunPullRequestWorkload | null): Rendered => {
-  const settled = settledOutcome(runWorkload?.workload);
-  if (settled === null) return '';
-  const text = workloadOutcomeText(settled);
-  return html`${renderWorkloadOutcome(settled)}${text === null ? '' : html`<span class="my-1 basis-full whitespace-pre-line wrap-anywhere text-muted" data-outcome-text>${text}</span>`}`;
-};
+const renderSummaryOutcome = (outcome: RunOutcome | null): Rendered =>
+  outcome === null
+    ? ''
+    : html`${renderRunOutcome(outcome)}${outcome.text === null ? '' : html`<span class="my-1 basis-full whitespace-pre-line wrap-anywhere text-muted" data-outcome-text>${outcome.text}</span>`}`;
 
 const renderRevisionMarker = (runWorkload: RunPullRequestWorkload | null): Rendered => {
   if (runWorkload?.kind !== 'revision') return '';
@@ -353,9 +351,9 @@ const renderRevisionMarker = (runWorkload: RunPullRequestWorkload | null): Rende
   return html`<span class="inline-flex items-baseline gap-1.5" data-revises>${renderRevisionPill()}<span>revises ${isGithubUrl(workload.url) ? externalLink(workload.url, label) : label}</span></span>`;
 };
 
-const renderSummary = (run: RunRecord, effort: string, workload: RunPullRequestWorkload | null, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
+const renderSummary = (run: RunRecord, effort: string, outcome: RunOutcome | null, workload: RunPullRequestWorkload | null, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
     ${renderStatus(run.status)}
-    ${renderSummaryOutcome(workload)}
+    ${renderSummaryOutcome(outcome)}
     ${renderRevisionMarker(workload)}
     ${run.ticket === null
       ? html`<span class="text-muted">manual</span>`
@@ -405,6 +403,7 @@ export const renderDetail = (
   generations: GenerationRecord[],
   pullRequest: PullRequestRecord | null,
   workload: RunPullRequestWorkload | null,
+  dispatch: DispatchRecord | null,
   skillLoads: RunSkillLoad[],
   downloads: Downloads,
   config: RunFingerprint | null,
@@ -418,7 +417,7 @@ export const renderDetail = (
       <header class="min-w-0 lg:col-span-2" data-run-head>
         <p class="m-0 mb-4 text-[0.9rem]"><a href="/workloads" class="${LINK}">&larr; Workloads</a></p>
         <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
-        ${renderSummary(run, summaryEffort(run, efforts), workload, display.timeZone)}
+        ${renderSummary(run, summaryEffort(run, efforts), runOutcomeOf(workload?.workload, dispatch ?? undefined), workload, display.timeZone)}
       </header>
       <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
         ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
