@@ -2548,7 +2548,7 @@ export class Store {
       });
   }
 
-  listDispatches(now: string): DispatchRecord[] {
+  #selectDispatches(where: string, params: Record<string, string>, now: string): DispatchRecord[] {
     const rows = this.#db
       .prepare(
         `SELECT
@@ -2559,14 +2559,36 @@ export class Store {
           d.detail, d.failed_starts, d.started_at, d.alive_at, d.ended_at,
           d.pr_number, d.pr_url, d.pr_state, d.pr_settled_at, d.pr_rework
         FROM dispatches d
-        WHERE d.id = (
+        ${where}
+        ORDER BY d.repository, d.number, d.id`,
+      )
+      .all({ ...params, live_since: liveSince(now) }) as DispatchRow[];
+    return rows.map(dispatchFromRow);
+  }
+
+  listDispatches(now: string): DispatchRecord[] {
+    return this.#selectDispatches(
+      `WHERE d.id = (
           SELECT MAX(id) FROM dispatches
           WHERE repository = d.repository AND number = d.number
-        )
-        ORDER BY d.repository, d.number`,
-      )
-      .all({ live_since: liveSince(now) }) as DispatchRow[];
-    return rows.map(dispatchFromRow);
+        )`,
+      {},
+      now,
+    );
+  }
+
+  listRunDispatches(now: string): DispatchRecord[] {
+    return this.#selectDispatches('WHERE EXISTS (SELECT 1 FROM runs WHERE id = d.run_id)', {}, now);
+  }
+
+  mapRunDispatches(now: string): Map<string, DispatchRecord> {
+    const byRun = new Map<string, DispatchRecord>();
+    for (const dispatch of this.listRunDispatches(now)) byRun.set(dispatch.runId!, dispatch);
+    return byRun;
+  }
+
+  dispatchOfRun(runId: string, now: string): DispatchRecord | null {
+    return this.#selectDispatches('WHERE d.run_id = $run_id', { run_id: runId }, now).at(-1) ?? null;
   }
 
   dataVersion(): number {

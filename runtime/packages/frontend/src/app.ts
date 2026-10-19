@@ -131,7 +131,7 @@ export const createApp = ({
       ...store.listRevisions(now).map((workload): [string, RunPullRequestWorkload] => [workload.runId, { kind: 'revision', workload }]),
       ...store.listConflictResolutions(now).map((workload): [string, RunPullRequestWorkload] => [workload.runId, { kind: 'conflict-resolution', workload }]),
     ]);
-    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, shown, clock().getTime()));
+    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), shown, clock().getTime()));
   });
 
   const queryOf = (query: Record<string, string>): InsightsQuery => {
@@ -201,7 +201,7 @@ export const createApp = ({
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), shown));
+    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.dispatchOfRun(run.id, new Date().toISOString()), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), shown));
   });
 
   app.get('/runs/:id/transcript', (c) => {
