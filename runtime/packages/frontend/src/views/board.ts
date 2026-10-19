@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey, type DispatchFailure, type ConflictResolutionRecord, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
@@ -84,11 +84,18 @@ const renderRevising = (revision: RevisionRecord, runs: ReadonlyMap<string, RunR
   return html` <span class="whitespace-nowrap">${renderPill(runs.has(revision.runId) ? revision.runId : null, pill)}${renderElapsedSince(startOf(runs, revision.runId, revision.startedAt))}</span>`;
 };
 
-const renderInReview = ({ dispatch, revision }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+const renderConflictFailedStart = ({ failedStarts, endedAt, startedAt, detail }: ConflictResolutionRecord): Rendered => {
+  const times = failedStarts ?? 1;
+  const since = endedAt ?? startedAt;
+  const text = detail === null || detail.trim() === '' ? '' : `: ${detail}`;
+  return html`<p data-conflict-failed-start class="${FAILURE_LINE}" title="Conflict resolution did not start${text}">Conflict resolution did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${text}</p>`;
+};
+
+const renderInReview = ({ dispatch, revision, failedStart }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${revision === undefined ? '' : renderRevising(revision, runs)}</p>`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${revision === undefined ? '' : renderRevising(revision, runs)}</p>${failedStart === undefined ? '' : renderConflictFailedStart(failedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
@@ -246,13 +253,14 @@ export const renderBoard = (
   frontier: RepositoryFrontier[],
   dispatches: DispatchRecord[],
   revisions: RevisionRecord[],
+  conflictResolutions: ConflictResolutionRecord[],
   runs: ReadonlyMap<string, RunRecord>,
   attempted: ReadonlySet<string>,
   slots: RunningSlots,
   display: Display,
   grouping: Grouping = 'none',
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions);
+  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`

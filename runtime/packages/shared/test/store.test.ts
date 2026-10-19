@@ -1052,6 +1052,77 @@ test('given a conflict resolution that ends in failure, when conflict resolution
   );
 });
 
+const PAIR = { headSha: 'head-a', defaultSha: 'default-a' };
+
+const failToStart = (store: Store, runId: string, at: string, detail: string, pair = PAIR): void => {
+  const start = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], runId, at, 10, pair);
+  assert.ok('started' in start);
+  store.failConflictResolutionStart(start.started, detail, at);
+};
+
+test('given a conflict resolution that fails before its harness starts, when conflict resolutions are listed, then it reads as a failed start with no run, its reason and its detail', () => {
+  const store = Store.open(':memory:');
+
+  failToStart(store, 'run-01', '2026-09-21T10:00:00.000Z', 'clone failed');
+
+  assert.deepEqual(
+    store.listConflictResolutions('2026-09-21T10:01:00.000Z').map(({ runId, state, reason, detail, failedStarts }) => ({ runId, state, reason, detail, failedStarts })),
+    [{ runId: null, state: 'error', reason: 'not-started', detail: 'clone failed', failedStarts: 1 }],
+  );
+  assert.equal(store.liveWorkloads('2026-09-21T10:01:00.000Z'), 0);
+});
+
+test('given a conflict resolution whose latest record is a failed start, when it fails to start again, then one record is kept with the count raised and the latest detail and sha pair', () => {
+  const store = Store.open(':memory:');
+  failToStart(store, 'run-01', '2026-09-21T10:00:00.000Z', 'first');
+
+  failToStart(store, 'run-02', '2026-09-21T10:05:00.000Z', 'second', { headSha: 'head-b', defaultSha: 'default-b' });
+
+  assert.deepEqual(
+    store.listConflictResolutions('2026-09-21T10:06:00.000Z').map(({ failedStarts, detail, endedAt }) => ({ failedStarts, detail, endedAt })),
+    [{ failedStarts: 2, detail: 'second', endedAt: '2026-09-21T10:05:00.000Z' }],
+  );
+});
+
+test('given a conflict resolution that ran and failed, when the next one fails to start, then the failed start is its own record with a count of one', () => {
+  const store = Store.open(':memory:');
+  const ran = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', '2026-09-21T10:00:00.000Z', 10, PAIR);
+  assert.ok('started' in ran);
+  store.endConflictResolution(ran.started, 'error', '2026-09-21T10:05:00.000Z', { reason: 'crashed', detail: null });
+
+  failToStart(store, 'run-02', '2026-09-21T10:10:00.000Z', 'clone failed');
+
+  assert.deepEqual(
+    store.listConflictResolutions('2026-09-21T10:11:00.000Z').map(({ runId, reason, failedStarts }) => ({ runId, reason, failedStarts })),
+    [{ runId: 'run-01', reason: 'crashed', failedStarts: null }, { runId: null, reason: 'not-started', failedStarts: 1 }],
+  );
+});
+
+test('given a database from before failed starts, when it is opened, then its conflict resolutions read back and a failed start can be recorded', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-store-'));
+  const path = join(dir, 'forge.db');
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    CREATE TABLE conflict_resolutions (
+      id INTEGER PRIMARY KEY, repository TEXT NOT NULL, number INTEGER NOT NULL, url TEXT NOT NULL,
+      run_id TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, detail TEXT,
+      started_at TEXT NOT NULL, alive_at TEXT NOT NULL, ended_at TEXT
+    ) STRICT;
+    INSERT INTO conflict_resolutions (repository, number, url, run_id, state, reason, started_at, alive_at, ended_at)
+    VALUES ('forge', 143, 'https://github.com/rameezk/forge/pull/143', 'run-old', 'error', 'crashed',
+      '2026-09-21T09:00:00.000Z', '2026-09-21T09:00:00.000Z', '2026-09-21T09:05:00.000Z');
+  `);
+  legacy.close();
+
+  const store = Store.open(path);
+  failToStart(store, 'run-01', '2026-09-21T10:00:00.000Z', 'clone failed');
+
+  assert.deepEqual(
+    store.listConflictResolutions('2026-09-21T10:01:00.000Z').map(({ runId, reason }) => ({ runId, reason })),
+    [{ runId: 'run-old', reason: 'crashed' }, { runId: null, reason: 'not-started' }],
+  );
+});
+
 const REVISED = { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' };
 
 const watched = (newestFeedbackAt: string | null) => ({

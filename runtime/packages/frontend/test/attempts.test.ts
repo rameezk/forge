@@ -439,6 +439,62 @@ test('given a dispatch whose pull request had a revision and failed and ok confl
   assert.deepEqual(order, ['second', 'rev-ok', 'res-ok', 'res-not-merged', 'res-still', 'res-crashed', 'first']);
 });
 
+const failToStart = (store: Store, at: string, detail: string, pullRequest = 9): void => {
+  const started = store.startConflictResolution(
+    { repository: 'forge', number: pullRequest, url: `${GITHUB}forge/pull/${pullRequest}` },
+    [TICKET.number],
+    `unused-${at}`,
+    at,
+    10,
+    { headSha: 'head-a', defaultSha: 'default-a' },
+  );
+  assert.ok('started' in started);
+  store.failConflictResolutionStart(started.started, detail, at);
+};
+
+const failedStartRows = (page: string): string[] =>
+  [...page.matchAll(/<tr[^>]*\sdata-failed-start="[^"]*"[^>]*>([\s\S]*?)<\/tr>/g)].map(([row]) => row!);
+
+test('given a dispatch whose pull request had a conflict resolution that failed to start twice, when its attempts view is requested, then one row shows it as a conflict resolution with its state, reason, count and detail and no run link or run columns', async () => {
+  const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
+  failToStart(store, '2026-09-25T10:00:00.000Z', 'first clone error');
+  failToStart(store, '2026-09-25T10:05:00.000Z', 'fatal: unable to access the repository');
+
+  const page = await (await app.request('/tickets/forge/42')).text();
+
+  const [row, ...others] = failedStartRows(page);
+  assert.deepEqual(others, []);
+  assert.doesNotMatch(row!, /\/runs\//);
+  assert.match(textOf(row!), /conflict resolution/);
+  assert.match(
+    textOf(/<td[^>]*data-field="outcome"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!),
+    /^error Did not start \(2 times\): fatal: unable to access the repository$/,
+  );
+  assert.equal(textOf(/<td[^>]*data-field="cost"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!), '');
+  assert.equal(textOf(/<td[^>]*data-field="duration"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!), '');
+});
+
+test('given a dispatch whose pull request has a conflict resolution that failed to start, when the Board is requested, then the ticket card is flagged with the failed-start count', async () => {
+  const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
+  store.replaceFrontier({
+    repository: 'forge',
+    github: 'rameezk/forge',
+    polledAt: '2026-09-29T08:15:00.000Z',
+    closed: [], requests: [],
+    tickets: [
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+    ],
+  });
+  failToStart(store, '2026-09-25T10:00:00.000Z', 'first');
+  failToStart(store, '2026-09-25T10:05:00.000Z', 'fatal: unable to access the repository');
+
+  const board = await (await app.request('/')).text();
+
+  const card = /<article[^>]*\sdata-ticket="42"[\s\S]*?<\/article>/.exec(board)![0];
+  assert.match(card, /PR #9/);
+  assert.match(textOf(/<p[^>]*data-conflict-failed-start[^>]*>[\s\S]*?<\/p>/.exec(card)![0]), /^Conflict resolution did not start \(2 times, last .* ago\): fatal: unable to access the repository$/);
+});
+
 test('given a conflict resolution of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no conflict resolutions', async () => {
   const { app, store } = dashboard([{ ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'open' } }]);
   resolve(store, 'manual-res', '2026-09-24T10:00:00.000Z', 'ok', 99);

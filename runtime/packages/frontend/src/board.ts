@@ -1,4 +1,4 @@
-import { newestClosedFirst, oldestFirst, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -19,6 +19,7 @@ export type ColumnKey = (typeof COLUMNS)[number]['key'];
 interface CardState {
   dispatch: DispatchRecord | undefined;
   revision: RevisionRecord | undefined;
+  failedStart: ConflictResolutionRecord | undefined;
 }
 
 export type BoardCard =
@@ -73,16 +74,26 @@ const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): Exclude
   return ticket.forgeReady ? 'waiting-for-slot' : 'ready-for-agent';
 };
 
+const failedStartOf = (resolution: ConflictResolutionRecord | undefined): ConflictResolutionRecord | undefined =>
+  resolution?.reason === 'not-started' ? resolution : undefined;
+
 export const buildLanes = (
   frontier: RepositoryFrontier[],
   dispatches: ReadonlyMap<string, DispatchRecord>,
   revisions: readonly RevisionRecord[],
+  conflictResolutions: readonly ConflictResolutionRecord[] = [],
 ): BoardLane[] => {
   const revising = new Map(revisions.filter(({ state }) => state === 'running').map((revision) => [ticketKey(revision.repository, revision.number), revision]));
+  const latestResolution = new Map<string, ConflictResolutionRecord>();
+  for (const resolution of conflictResolutions) {
+    const key = ticketKey(resolution.repository, resolution.number);
+    const known = latestResolution.get(key);
+    if (known === undefined || known.id < resolution.id) latestResolution.set(key, resolution);
+  }
   return frontier.map((repository) => {
     const columns = emptyColumns();
     for (const request of [...repository.requests].sort(oldestFirst)) {
-      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revision: undefined });
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revision: undefined, failedStart: undefined });
     }
     for (const ticket of [...repository.tickets].sort(oldestFirst)) {
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
@@ -93,10 +104,11 @@ export const buildLanes = (
         ticket,
         dispatch,
         revision: column === 'in-review' && pullRequest != null ? revising.get(ticketKey(repository.repository, pullRequest.number)) : undefined,
+        failedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
-      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revision: undefined });
+      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revision: undefined, failedStart: undefined });
     }
     return { ...repository, columns };
   });

@@ -240,10 +240,14 @@ export const main = async (
           }
         }
       } catch (error) {
-        store.endConflictResolution(resolutionId, 'error', now(), {
-          reason: 'crashed',
-          detail: errorMessage(error),
-        });
+        if (store.getRun(runId)?.harnessStartTime == null) {
+          store.failConflictResolutionStart(resolutionId, errorMessage(error), now());
+        } else {
+          store.endConflictResolution(resolutionId, 'error', now(), {
+            reason: 'crashed',
+            detail: errorMessage(error),
+          });
+        }
         throw error;
       }
       store.endConflictResolution(

@@ -108,6 +108,8 @@ interface Scenario {
   checks?: CheckContext[] | null;
   worker?: (origin: Origin) => string;
   mergeable?: string[];
+  failingQuery?: string;
+  failingClone?: boolean;
   pullRequest?: Partial<PullRequestState>;
   harnessEnv?: Record<string, string>;
   maxConcurrent?: number;
@@ -141,14 +143,18 @@ const conflictsWith = (origin: Origin, target: string): boolean => {
   }
 };
 
-const recordingGit = (dir: string): { bin: string; log: string } => {
+const recordingGit = (dir: string, failingClone: boolean): { bin: string; log: string } => {
   const bin = join(dir, 'git-recorder');
   const log = join(dir, 'git-calls.log');
   const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
   mkdirSync(bin);
   writeFileSync(
     join(bin, 'git'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${real}' "$@"\n`,
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\n${
+      failingClone
+        ? `case " $* " in *" clone "*) echo 'fatal: unable to access the repository' >&2; exit 128;; esac\n`
+        : ''
+    }exec '${real}' "$@"\n`,
   );
   chmodSync(join(bin, 'git'), 0o755);
   return { bin, log };
@@ -157,7 +163,7 @@ const recordingGit = (dir: string): { bin: string; log: string } => {
 const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin = scenario.origin ?? originWhere('conflicts');
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-resolve-conflicts-'));
-  const recorder = recordingGit(stateDir);
+  const recorder = recordingGit(stateDir, scenario.failingClone === true);
   const record = join(stateDir, 'pi-call.json');
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -189,6 +195,9 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
     assert.equal(new URL(String(input)).pathname, '/graphql');
     const { query } = JSON.parse(String(init?.body)) as { query: string };
     requests.push(query);
+    if (scenario.failingQuery !== undefined && query.includes(scenario.failingQuery)) {
+      throw new Error('GitHub is down');
+    }
     if (query.includes('query PullRequestConflict')) conflictReads += 1;
     const answer = query.includes('query PullRequestReadiness')
       ? {
@@ -543,6 +552,34 @@ test('given a harness that fails, when the conflict resolution ends, then it end
   assert.deepEqual(resolutions.map(({ state }) => state), ['error']);
   assert.equal(runs[0]?.status, 'error');
   assert.equal(requests.some((query) => query.includes('mutation')), false);
+});
+
+test('given a repository the trial merge cannot clone, when forge-resolve-conflicts runs, then the conflict resolution is a failed start with no run, the clone error as detail, and no worker starts', async () => {
+  const { code, resolutions, runs, pi } = await resolve({ failingClone: true });
+
+  assert.equal(code, 1);
+  assert.deepEqual(
+    resolutions.map(({ runId, state, reason, failedStarts }) => ({ runId, state, reason, failedStarts })),
+    [{ runId: null, state: 'error', reason: 'not-started', failedStarts: 1 }],
+  );
+  assert.match(resolutions[0]?.detail ?? '', /unable to access the repository/);
+  assert.deepEqual(runs, []);
+  assert.equal(pi, null);
+});
+
+test('given a worker that ran and a GitHub that then fails the readiness check, when forge-resolve-conflicts runs, then the conflict resolution is crashed with its run, not a failed start', async () => {
+  const origin = originWhere('conflicts');
+
+  const { resolutions, runs } = await resolve({
+    origin,
+    worker: mergeAndPush,
+    failingQuery: 'query PullRequestReadiness',
+  });
+
+  assert.deepEqual(
+    resolutions.map(({ runId, state, reason, failedStarts }) => ({ runId, state, reason, failedStarts })),
+    [{ runId: runs[0]?.id, state: 'error', reason: 'crashed', failedStarts: null }],
+  );
 });
 
 const OPEN_ELSEWHERE = { repository: 'forge', url: PULL_REQUEST_URL };
