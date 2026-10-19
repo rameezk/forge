@@ -84,4 +84,42 @@ else
 	fail=1
 fi
 
+workflow=.github/workflows/ci.yml
+
+pinned_nix="$(sed -n 's|^[[:space:]]*install_url:[[:space:]]*https://releases.nixos.org/nix/nix-\([0-9][0-9.]*\)/install[[:space:]]*$|\1|p' "$workflow" | sort -u)"
+dev_shell_nix="$(nix develop --command nix --version 2>/dev/null | sed -n 's/^nix (Nix) //p')"
+if [ -n "$pinned_nix" ] && [ "$pinned_nix" = "$dev_shell_nix" ]; then
+	echo "ok: CI pins Nix $pinned_nix, the dev shell's version"
+else
+	echo "FAIL: CI pins Nix '${pinned_nix:-none}' but the dev shell's nix is '${dev_shell_nix:-unknown}'; move install_url in $workflow to match"
+	fail=1
+fi
+
+if grep -qi determinate "$workflow"; then
+	echo "FAIL: CI must not install Determinate Nix"
+	fail=1
+else
+	echo "ok: CI does not install Determinate Nix"
+fi
+
+expected_timeouts='changes=5
+check-no-vm=15
+vm-tests=5
+vm-test=15
+ci=5'
+actual_timeouts="$(awk '
+	/^jobs:/ { in_jobs = 1; next }
+	in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
+	in_jobs && /^  [a-z][a-z-]*:[[:space:]]*$/ { if (job != "") print job "=" (timeout == "" ? "none" : timeout); job = $1; sub(/:$/, "", job); timeout = ""; next }
+	in_jobs && /^    timeout-minutes:/ { timeout = $2 }
+	END { if (job != "") print job "=" (timeout == "" ? "none" : timeout) }
+' "$workflow")"
+if [ "$actual_timeouts" = "$expected_timeouts" ]; then
+	echo "ok: every CI job sets its timeout"
+else
+	echo "FAIL: CI job timeouts differ from the expected ones"
+	diff <(printf '%s\n' "$expected_timeouts") <(printf '%s\n' "$actual_timeouts") || true
+	fail=1
+fi
+
 exit $fail
