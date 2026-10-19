@@ -67,11 +67,11 @@ const renderPullRequestFailedStart = (
   return html`<p ${raw(attribute)} class="${FAILURE_LINE}" title="${label} did not start${text}">${label} did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${text}</p>`;
 };
 
-const renderInReview = ({ dispatch, revision, failedStart, revisionFailedStart }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+const renderInReview = ({ dispatch, revision, conflictFailedStart, revisionFailedStart }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${revision === undefined ? '' : renderRevising(revision, runs)}</p>${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${failedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', failedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${revision === undefined ? '' : renderRevising(revision, runs)}</p>${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {

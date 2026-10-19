@@ -56,7 +56,6 @@ const renderWorkload = (
     <td class="${TD}"></td>
   </tr>`;
 
-
 const renderFailedStart = (kind: 'revision' | 'conflict resolution', workload: PullRequestWorkloadRecord, timeZone: string) =>
   html`<tr class="${ROW}" data-failed-start="${workload.id}">
     <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span>${renderDate(workload.endedAt ?? workload.startedAt, timeZone)} <span class="text-muted">${kind}</span></td>

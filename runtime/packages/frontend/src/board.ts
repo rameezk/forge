@@ -19,7 +19,7 @@ export type ColumnKey = (typeof COLUMNS)[number]['key'];
 interface CardState {
   dispatch: DispatchRecord | undefined;
   revision: RevisionRecord | undefined;
-  failedStart: ConflictResolutionRecord | undefined;
+  conflictFailedStart: ConflictResolutionRecord | undefined;
   revisionFailedStart: RevisionRecord | undefined;
 }
 
@@ -100,7 +100,7 @@ export const buildLanes = (
   return frontier.map((repository) => {
     const columns = emptyColumns();
     for (const request of [...repository.requests].sort(oldestFirst)) {
-      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revision: undefined, failedStart: undefined, revisionFailedStart: undefined });
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revision: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined });
     }
     for (const ticket of [...repository.tickets].sort(oldestFirst)) {
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
@@ -111,12 +111,12 @@ export const buildLanes = (
         ticket,
         dispatch,
         revision: column === 'in-review' && pullRequest != null ? revising.get(ticketKey(repository.repository, pullRequest.number)) : undefined,
-        failedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
-      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revision: undefined, failedStart: undefined, revisionFailedStart: undefined });
+      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revision: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined });
     }
     return { ...repository, columns };
   });
