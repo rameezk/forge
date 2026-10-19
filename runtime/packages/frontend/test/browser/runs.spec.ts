@@ -13,6 +13,7 @@ const recordedRun: RunRecord = {
   costStatus: 'billed',
   costUsd: 0.1234,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
@@ -210,6 +211,32 @@ test('given a claude-code run whose two Agent subagents loaded a skill and none,
   await expect(page.locator('[data-skills] [data-skill]')).toHaveText([/code-review\s*1 subagent/]);
 });
 
+test('given a subagent with a long narration, when its page is opened on a phone screen, then its header keeps the task and the truncated narration on one line each', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(recordedRun);
+  const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const narration = 'Reading every file under the runtime packages to map how the transcript view groups a subagent and where its header is drawn. '.repeat(3);
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Review the change for standards' } },
+    { type: 'message', role: 'assistant', text: narration, usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'message', role: 'assistant', text: 'Final report.', usage, generationId: null, subagent: 'call_alpha' },
+    { type: 'tool_result', id: 'call_alpha', isError: false, text: 'Final report.' },
+  );
+  await page.setViewportSize({ width: 390, height: 800 });
+
+  await page.goto('/runs/run-01/transcript');
+
+  const header = page.locator('[data-subagent-call] > details > summary');
+  const line = header.locator('[data-subagent-narration]');
+  await expect(line).toContainText('Reading every file');
+  expect(await line.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect((await line.boundingBox())?.height ?? 0).toBeLessThan(20);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+});
+
 test('given a claude-code run on subscription, when its page is opened, then the summary shows the claude-code harness and the anthropic provider', async ({
   dashboard,
   page,
@@ -357,4 +384,39 @@ test('given a finished workload, when its page is opened at laptop width, then R
   await expect(page.locator('[data-calls]')).toBeHidden();
   await page.locator('[data-calls-summary]').click();
   await expect(page.locator('[data-calls]')).toBeVisible();
+});
+
+const unconfirmedRun: RunRecord = { ...recordedRun, costStatus: 'unconfirmed', costUsd: 0, unconfirmedEstimateUsd: 0.36, transcriptRef: null };
+
+test('given a run with an unconfirmed estimate, when its page is opened at laptop width, then the cost tile holds the whole figure inside its border', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(unconfirmedRun);
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await page.goto('/runs/run-01');
+
+  const clipped = await page.locator('[data-tile="cost"]').evaluate((tile) => {
+    const edge = tile.getBoundingClientRect().right;
+    return [...tile.querySelectorAll('[data-unconfirmed-estimate]')].some((element) => element.getBoundingClientRect().right > edge);
+  });
+  expect(clipped).toBe(false);
+});
+
+test('given a workload with an unconfirmed estimate, when the list is opened at phone width, then its card keeps the whole cost inside it', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(unconfirmedRun);
+  await page.setViewportSize({ width: 390, height: 800 });
+
+  await page.goto('/workloads');
+
+  const card = page.locator('[data-run-card]');
+  const box = (await card.boundingBox())!;
+  const cardRight = box.x + box.width;
+  const costRight = await card.locator('[data-cost]').evaluate((element) => element.getBoundingClientRect().right);
+  expect(costRight).toBeLessThanOrEqual(cardRight);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });

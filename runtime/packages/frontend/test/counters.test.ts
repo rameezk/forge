@@ -20,6 +20,7 @@ const sampleRun = (id: string, counters: RunCounters | null): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 100,
   outputTokens: 10,

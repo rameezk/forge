@@ -202,7 +202,14 @@ export const ESTIMATED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg
 
 const PENDING_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="pending" title="Billed by OpenRouter so far. Rises as the run's generations are billed, trailing them by a minute or two.">pending</span>`;
 
-export type Cost = Pick<RunRecord, 'costStatus' | 'costUsd' | 'costEstimated'>;
+export type Cost = Pick<RunRecord, 'costStatus' | 'costUsd' | 'costEstimated' | 'unconfirmedEstimateUsd'>;
+
+const UNCONFIRMED_ESTIMATE_TITLE = "forge's estimate at OpenRouter's list price for generations billing gave up on. Not billed, and kept apart from the billed cost";
+
+const renderUnconfirmedEstimate = (usd: number): Rendered =>
+  usd > 0
+    ? html` <wbr>+ <span data-unconfirmed-estimate title="${UNCONFIRMED_ESTIMATE_TITLE}">~${formatCost(usd)} unconfirmed estimate</span>`
+    : '';
 
 const costBadge = (run: Cost): Rendered => {
   if (run.costEstimated) return ESTIMATED_BADGE;
@@ -217,13 +224,15 @@ export const renderCost = (run: Cost, unbillable = false): Rendered => {
     return html`<span class="${PENDING}">pending</span>`;
   }
   const badge = costBadge(run);
-  return html`${formatCost(run.costUsd)}${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${unconfirmedBadge(unbillable)}` : ''}`;
+  const estimate = renderUnconfirmedEstimate(run.unconfirmedEstimateUsd);
+  const billed = estimate === '' ? formatCost(run.costUsd) : html`${formatCost(run.costUsd)} billed`;
+  return html`${billed}${estimate}${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${unconfirmedBadge(unbillable)}` : ''}`;
 };
 
 export const renderRunCost = (run: RunRecord, unbillable = false): Rendered => {
   if (run.endTime !== null || run.maxCostUsd === null) return renderCost(run, unbillable);
   const badge = costBadge(run);
-  return html`<span data-spend>${formatSpend(run.costUsd)} / ${formatBudget(run.maxCostUsd)}</span>${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${unconfirmedBadge(unbillable)}` : ''}`;
+  return html`<span data-spend>${formatSpend(run.costUsd)} / ${formatBudget(run.maxCostUsd)}</span>${renderUnconfirmedEstimate(run.unconfirmedEstimateUsd)}${badge === '' ? '' : html`<wbr>${badge}`}${run.costStatus === 'unconfirmed' ? html`<wbr>${unconfirmedBadge(unbillable)}` : ''}`;
 };
 
 export const PILL = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold before:size-1.5 before:rounded-full before:bg-current before:content-['']";
@@ -251,6 +260,9 @@ export const renderWorkloadOutcome = (workload: PullRequestWorkloadRecord): Html
 
 export const renderRunOutcome = ({ state, tone }: RunOutcome): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} ${tone}" data-outcome="${state}">${state}</span>`;
+
+export const renderRevisionPill = (): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="${PILL} bg-warning-soft text-warning" data-revision-pill>revision</span>`;
 
 export const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;

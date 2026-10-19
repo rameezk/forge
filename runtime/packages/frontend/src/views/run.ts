@@ -5,7 +5,7 @@ import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, format
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, renderWorkloadOutcome, settledOutcome, runOutcomeOf, renderRunOutcome, type RunOutcome, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, renderRunOutcome, type RunOutcome, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
 import { renderWidget } from './widget.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -212,7 +212,7 @@ const renderSystemPrompt = (systemPrompt: string | null): Rendered =>
   systemPrompt === null
     ? ''
     : html`<details class="${BLOCK} border-line" data-system-prompt>
-        <summary class="${DISCLOSURE}"><span class="${LABEL}">System prompt</span></summary>
+        <summary class="${DISCLOSURE}"><span class="${SECTION_TITLE}">System prompt</span></summary>
         <div class="${CONTEXT_BODY}"><pre class="${PROSE} text-[0.9rem]">${systemPrompt}</pre></div>
       </details>`;
 
@@ -232,7 +232,7 @@ const renderTools = (tools: ToolDefinition[] | null): Rendered =>
   tools === null
     ? ''
     : html`<details class="${BLOCK} border-line" data-tools>
-        <summary class="${DISCLOSURE}"><span class="${LABEL}">Tools</span><span class="text-xs tabular-nums text-muted" data-tool-count>${tools.length}</span></summary>
+        <summary class="${DISCLOSURE}"><span class="${SECTION_TITLE}">Tools</span><span class="${SUMMARY_FIGURE}" data-tool-count>${tools.length}</span></summary>
         <ul class="m-0 ${STACK} list-none ${CONTEXT_BODY}">${tools.map(renderToolDefinition)}</ul>
       </details>`;
 
@@ -336,7 +336,7 @@ const renderTiles = (
     ${renderTile('tokens', 'Tokens', html`${formatTokens(run.inputTokens)} in`, html`${formatTokens(run.outputTokens)} out`)}
     ${renderTile('cache-hit', 'Cache hit', renderCacheHitRate(run), hasCalls ? html`${misses} ${misses === 1 ? 'miss' : 'misses'}` : '')}
     ${renderTile('tool-calls', 'Tool calls', run.counters === null ? NOT_RECORDED : html`${run.counters.toolCalls}`, run.counters === null ? '' : html`${run.counters.failedToolResults} failed`)}
-    ${renderTile('pull-request', 'Pull request', pullRequest === null ? html`<span class="text-muted">none</span>` : renderPullRequestValue(pullRequest))}
+    ${renderTile('pull-request', 'Pull request', pullRequest === null ? html`<span class="${PENDING}">none</span>` : renderPullRequestValue(pullRequest))}
   </div>`;
 
 const renderSummaryOutcome = (outcome: RunOutcome | null): Rendered =>
@@ -344,9 +344,17 @@ const renderSummaryOutcome = (outcome: RunOutcome | null): Rendered =>
     ? ''
     : html`${renderRunOutcome(outcome)}${outcome.text === null ? '' : html`<span class="my-1 basis-full whitespace-pre-line wrap-anywhere text-muted" data-outcome-text>${outcome.text}</span>`}`;
 
-const renderSummary = (run: RunRecord, effort: string, outcome: RunOutcome | null, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
+const renderRevisionMarker = (runWorkload: RunPullRequestWorkload | null): Rendered => {
+  if (runWorkload?.kind !== 'revision') return '';
+  const { workload } = runWorkload;
+  const label = `PR #${workload.number}`;
+  return html`<span class="inline-flex items-baseline gap-1.5" data-revises>${renderRevisionPill()}<span>revises ${isGithubUrl(workload.url) ? externalLink(workload.url, label) : label}</span></span>`;
+};
+
+const renderSummary = (run: RunRecord, effort: string, outcome: RunOutcome | null, workload: RunPullRequestWorkload | null, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
     ${renderStatus(run.status)}
     ${renderSummaryOutcome(outcome)}
+    ${renderRevisionMarker(workload)}
     ${run.ticket === null
       ? html`<span class="text-muted">manual</span>`
       : html`<span class="flex flex-wrap items-baseline gap-x-3">${renderRunTicket(run.ticket)}${renderAttemptsLink(run.ticket, 'All attempts')}</span>`}
@@ -405,11 +413,13 @@ export const renderDetail = (
   const stopped = renderExceeded(run);
   const calls = generations.filter(isCall);
   const efforts = sentEfforts(calls, recordedEfforts);
-  const body = html`<div class="flex flex-col gap-2 lg:grid lg:gap-6 lg:h-full lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)]">
-      <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
+  const body = html`<div class="flex flex-col gap-2 lg:grid lg:gap-x-6 lg:h-full lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[auto_minmax(0,1fr)]">
+      <header class="min-w-0 lg:col-span-2" data-run-head>
         <p class="m-0 mb-4 text-[0.9rem]"><a href="/workloads" class="${LINK}">&larr; Workloads</a></p>
         <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
-        ${renderSummary(run, summaryEffort(run, efforts), runOutcomeOf(workload?.workload, dispatch ?? undefined), display.timeZone)}
+        ${renderSummary(run, summaryEffort(run, efforts), runOutcomeOf(workload?.workload, dispatch ?? undefined), workload, display.timeZone)}
+      </header>
+      <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
         ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
         ${stopped !== '' ? stopped : renderRunError(run)}
         ${renderUnbillableIds(run, generations)}

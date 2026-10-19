@@ -74,6 +74,7 @@ type RunRow = {
   cost_status: string;
   cost_usd: number;
   cost_estimated: number;
+  unconfirmed_estimate_usd: number;
   input_price: number | null;
   output_price: number | null;
   cache_read_price: number | null;
@@ -121,6 +122,7 @@ const CREATE_RUNS = `
     cache_read_tokens  INTEGER,
     cache_write_tokens INTEGER,
     cost_estimated     INTEGER NOT NULL DEFAULT 0,
+    unconfirmed_estimate_usd REAL NOT NULL DEFAULT 0,
     input_price        REAL,
     output_price       REAL,
     cache_read_price   REAL,
@@ -171,6 +173,20 @@ const ADD_RUN_ESTIMATE = `
   ALTER TABLE runs ADD COLUMN output_price REAL;
   ALTER TABLE runs ADD COLUMN cache_read_price REAL;
   ALTER TABLE runs ADD COLUMN cache_write_price REAL;
+`;
+
+const GIVEN_UP_ESTIMATE = `(
+  SELECT COALESCE(SUM(estimated_cost_usd), 0) FROM generations
+  WHERE run_id = runs.id AND billed_cost_usd IS NULL AND given_up_at IS NOT NULL
+)`;
+
+const HAS_RUN_UNCONFIRMED_ESTIMATE = `
+  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'unconfirmed_estimate_usd'
+`;
+
+const ADD_RUN_UNCONFIRMED_ESTIMATE = `
+  ALTER TABLE runs ADD COLUMN unconfirmed_estimate_usd REAL NOT NULL DEFAULT 0;
+  UPDATE runs SET unconfirmed_estimate_usd = ${GIVEN_UP_ESTIMATE};
 `;
 
 const HAS_RUN_EFFORT = `
@@ -418,6 +434,7 @@ const SETTLE_RUN = `
       SELECT SUM(estimated_cost_usd) FROM generations WHERE ${AWAITING_BILLING}
     ) ELSE 0 END,
     cost_estimated = ${FULLY_ESTIMATED},
+    unconfirmed_estimate_usd = ${GIVEN_UP_ESTIMATE},
     cost_status = CASE
       WHEN cost_status = 'subscription' THEN 'subscription'
       WHEN EXISTS (
@@ -884,6 +901,7 @@ const toRow = (run: RunRecord): RunRow => ({
   cost_status: run.costStatus,
   cost_usd: run.costUsd,
   cost_estimated: run.costEstimated ? 1 : 0,
+  unconfirmed_estimate_usd: run.unconfirmedEstimateUsd,
   input_price: run.listPrice?.input ?? null,
   output_price: run.listPrice?.output ?? null,
   cache_read_price: run.listPrice?.cacheRead ?? null,
@@ -986,6 +1004,7 @@ const fromRow = (row: RunRow): RunRecord => ({
   costStatus: row.cost_status as CostStatus,
   costUsd: row.cost_usd,
   costEstimated: row.cost_estimated === 1,
+  unconfirmedEstimateUsd: row.unconfirmed_estimate_usd,
   listPrice:
     row.input_price === null || row.output_price === null
       ? null
@@ -1067,6 +1086,7 @@ export class Store {
     );
     this.#addColumnsOnce(HAS_GENERATION_SERVED_MODEL, ADD_GENERATION_SERVED_MODEL);
     this.#addColumnsOnce(HAS_GENERATION_KIND, ADD_GENERATION_KIND);
+    this.#addColumnsOnce(HAS_RUN_UNCONFIRMED_ESTIMATE, ADD_RUN_UNCONFIRMED_ESTIMATE);
     if (this.#hasOutdatedFrontier()) {
       this.#migrateOutdatedFrontier();
     }
@@ -1155,7 +1175,7 @@ export class Store {
       .prepare(
         `INSERT INTO runs (
           id, worker, harness, model, reasoning_effort, start_time, end_time, status,
-          cost_status, cost_usd, cost_estimated,
+          cost_status, cost_usd, cost_estimated, unconfirmed_estimate_usd,
           input_price, output_price, cache_read_price, cache_write_price,
           input_tokens, output_tokens,
           cache_read_tokens, cache_write_tokens,
@@ -1166,7 +1186,7 @@ export class Store {
           skill_loads_recorded
         ) VALUES (
           $id, $worker, $harness, $model, $reasoning_effort, $start_time, $end_time, $status,
-          $cost_status, $cost_usd, $cost_estimated,
+          $cost_status, $cost_usd, $cost_estimated, $unconfirmed_estimate_usd,
           $input_price, $output_price, $cache_read_price, $cache_write_price,
           $input_tokens, $output_tokens,
           $cache_read_tokens, $cache_write_tokens,
@@ -1607,7 +1627,7 @@ export class Store {
           r.id, r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time,
           CASE WHEN r.cost_status = 'subscription'
             THEN (SELECT CASE WHEN COUNT(*) = COUNT(list_price_equivalent_usd) THEN SUM(list_price_equivalent_usd) END FROM generations WHERE run_id = r.id)
-            ELSE r.cost_usd END AS cost_usd,
+            ELSE r.cost_usd + r.unconfirmed_estimate_usd END AS cost_usd,
           r.cost_status = 'subscription' AS list_price,
           r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
           d.id IS NOT NULL AS dispatched, d.pr_number, d.pr_state, d.pr_rework

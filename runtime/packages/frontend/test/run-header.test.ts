@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
-import { openingTag, textOf, tile } from './html.ts';
+import { openingTag, textOf, tile, tileValue } from './html.ts';
 
 const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   id: 'run-01',
@@ -20,6 +20,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   costStatus: 'billed',
   costUsd: 0.1234,
   costEstimated: false,
+  unconfirmedEstimateUsd: 0,
   listPrice: null,
   inputTokens: 4200,
   outputTokens: 850,
@@ -180,6 +181,13 @@ test('given a workload with a call that missed the cache, when its run page is o
   assert.match(textOf(tile(body, 'cache-hit')), /1 miss$/);
 });
 
+test('given an unconfirmed workload whose every generation billing gave up on, when its run page is opened, then the cost tile shows nothing billed beside the unconfirmed estimate, not a bare zero', async () => {
+  const body = await page({ costStatus: 'unconfirmed', costUsd: 0, unconfirmedEstimateUsd: 0.36 });
+
+  assert.match(textOf(tile(body, 'cost')), /\$0\.000000 billed \+ ~\$0\.360000 unconfirmed estimate/);
+  assert.match(tile(body, 'cost'), /data-badge="unconfirmed"/);
+});
+
 test('given a workload with no calls, when its run page is opened, then there is no Calls section', async () => {
   assert.doesNotMatch(await page({}), /data-calls-section/);
 });
@@ -227,4 +235,26 @@ test('given a workload whose only given-up generation has no id, or a subscripti
 
   assert.equal(element(unnamed, 'p', 'data-unbillable-ids'), '');
   assert.equal(element(subscription, 'p', 'data-unbillable-ids'), '');
+});
+
+test('given a run page, when it is opened, then the back link, title and summary sit in a header spanning both columns above the figures and the transcript', async () => {
+  const body = await page({});
+
+  const header = element(body, 'header', 'data-run-head');
+  assert.match(openingTag(header), /\blg:col-span-2\b/);
+  assert.match(header, /href="\/workloads"/);
+  assert.match(header, /<h1/);
+  assert.match(header, /data-summary/);
+  const figures = element(body, 'div', 'data-figures');
+  assert.doesNotMatch(figures, /<h1|data-summary|href="\/workloads"/);
+});
+
+test('given a run with no recorded tool calls and no pull request, when its page is requested, then both stat values use the muted italic empty style', async () => {
+  const body = await page({ counters: null });
+
+  for (const [name, text] of [['tool-calls', 'not recorded'], ['pull-request', 'none']] as const) {
+    const value = tileValue(body, name);
+    assert.equal(textOf(value), text);
+    assert.match(value, /<span class="font-normal italic text-muted">/);
+  }
 });

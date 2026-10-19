@@ -328,6 +328,22 @@ const reportMessage = (
   return last !== undefined && last.text === report?.text ? last : undefined;
 };
 
+const latestNarration = (
+  events: ScopedEvent[],
+  reported: MessageEvent | undefined,
+): string | undefined =>
+  events.findLast(
+    (event): event is MessageEvent =>
+      event.type === 'message' && event.role === 'assistant' && event !== reported && oneLine(event.text) !== '',
+  )?.text;
+
+const renderTaskSummary = (task: string, narration: string | undefined): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="flex min-w-0 flex-1 basis-40 flex-col">
+    <span class="truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>${narration === undefined
+      ? ''
+      : html`<span class="truncate text-[0.8rem] text-muted" data-subagent-narration title="${oneLine(narration)}">${oneLine(narration)}</span>`}
+  </span>`;
+
 const argumentFields = (args: unknown): Record<string, unknown> =>
   typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
 
@@ -361,7 +377,7 @@ const subagentCost = (
   runStatus: RunStatus,
   subscription: boolean,
 ): Cost => {
-  if (subscription) return { costStatus: 'subscription', costUsd: 0, costEstimated: false };
+  if (subscription) return { costStatus: 'subscription', costUsd: 0, costEstimated: false, unconfirmedEstimateUsd: 0 };
   const own = generations.filter((generation) => generation.subagent === scope);
   const awaiting = own.filter(
     (generation) => generation.billedCostUsd === null && generation.givenUpAt === null,
@@ -373,16 +389,19 @@ const subagentCost = (
   const costUsd = costEstimated
     ? awaiting.reduce((sum, generation) => sum + (generation.estimatedCostUsd ?? 0), billed)
     : billed;
+  const unconfirmedEstimateUsd = own
+    .filter((generation) => generation.billedCostUsd === null && generation.givenUpAt !== null)
+    .reduce((sum, generation) => sum + (generation.estimatedCostUsd ?? 0), 0);
   if (own.some((generation) => generation.givenUpAt !== null)) {
-    return { costStatus: 'unconfirmed', costUsd, costEstimated };
+    return { costStatus: 'unconfirmed', costUsd, costEstimated, unconfirmedEstimateUsd };
   }
   if (
     runStatus === 'running' ||
     own.some((generation) => generation.billedCostUsd === null)
   ) {
-    return { costStatus: 'pending', costUsd, costEstimated };
+    return { costStatus: 'pending', costUsd, costEstimated, unconfirmedEstimateUsd };
   }
-  return { costStatus: 'billed', costUsd, costEstimated };
+  return { costStatus: 'billed', costUsd, costEstimated, unconfirmedEstimateUsd };
 };
 
 const KIND_CHIP = 'whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[0.75rem]';
@@ -452,7 +471,7 @@ const renderSubagentCall = (
     </header>
     ${renderGroup(
       'border-t border-line',
-      html`<span class="min-w-0 flex-1 basis-40 truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>`,
+      renderTaskSummary(task, failed ? undefined : latestNarration(shown, reported)),
       renderFigures(scope, events, shown, report, context),
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
