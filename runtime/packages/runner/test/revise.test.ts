@@ -415,6 +415,7 @@ test('given a repository with on.feedback and an open pull request on branch fea
   const workDir = realpathSync(pi.cwd);
   assert.equal(git(workDir, 'branch', '--show-current'), 'feature');
   assert.equal(git(workDir, 'rev-parse', 'HEAD'), origin.featureTip);
+  assert.equal(git(workDir, 'config', 'remote.origin.partialclonefilter'), 'blob:none');
   execFileSync('git', ['commit', '--quiet', '--allow-empty', '-m', 'address feedback'], {
     cwd: workDir,
     env: { ...pi.env, ...gitConfig },

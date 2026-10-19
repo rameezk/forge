@@ -37,6 +37,7 @@ export const launchInCheckout = async ({
   identity,
   ticket,
   runId,
+  conflictResolution = false,
 }: {
   env: NodeJS.ProcessEnv;
   config: RuntimeConfig;
@@ -49,6 +50,7 @@ export const launchInCheckout = async ({
   identity: BotIdentity;
   ticket?: RunTicket;
   runId: string;
+  conflictResolution?: boolean;
 }): Promise<LaunchResult> => {
   const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
   const nixSystem = nixSystemOf(env);
@@ -73,12 +75,12 @@ export const launchInCheckout = async ({
     config,
     worker,
     env,
-    harnessEnv: { ...tokenFile.environment, ...gitEnvironment({}, identity) },
+    harnessEnv: { ...tokenFile.environment, ...gitEnvironment({}, identity, { conflictResolution }) },
     secrets: () => redactions,
     ...(ticket === undefined ? {} : { ticket }),
     runId,
     openWorkspace: async (workDir) => {
-      await cloneCheckout(github, workDir, cloneEnv, branch);
+      await cloneCheckout(github, workDir, cloneEnv, { branch, blobless: !conflictResolution });
       const baseCommit = await headCommit(workDir, { ...hostEnv, ...gitEnv });
       const checkout = resolveCheckout(workDir, loadSkills);
       const devShell = await enterDevShell({
@@ -127,7 +129,7 @@ export const inspectCheckout = async <Result>({
   const dir = join(stateDirOf(env), 'inspections', id);
   const gitEnvWithCredentials = { ...withoutCredentials(env), ...tokenFile.environment, ...gitEnv };
   try {
-    await cloneCheckout(github, dir, gitEnvWithCredentials, branch);
+    await cloneCheckout(github, dir, gitEnvWithCredentials, { branch, blobless: false });
     return await inspect(dir, gitEnvWithCredentials);
   } finally {
     rmSync(dir, { recursive: true, force: true });

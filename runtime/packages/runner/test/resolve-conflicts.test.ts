@@ -1,7 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -55,7 +63,6 @@ const originWhere = (defaultBranch: 'conflicts' | 'merges cleanly'): Origin => {
   const path = mkdtempSync(join(tmpdir(), 'forge-origin-'));
   git(path, 'init', '--quiet', '--initial-branch', 'main');
   git(path, 'config', 'uploadpack.allowFilter', 'true');
-  git(path, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
   mkdirSync(join(path, '.claude', 'skills', 'git-pr-resolve-conflicts'), { recursive: true });
   writeFileSync(join(path, '.claude', 'skills', 'git-pr-resolve-conflicts', 'SKILL.md'), SKILL);
   commitAll(path, 'base', { 'a.txt': 'base\n', 'b.txt': 'base\n' });
@@ -115,6 +122,7 @@ interface Outcome {
   complaints: string;
   pi: PiCall | null;
   transcript: string;
+  clones: string[];
   requests: string[];
   pauses: number[];
   runsList: string;
@@ -133,9 +141,23 @@ const conflictsWith = (origin: Origin, target: string): boolean => {
   }
 };
 
+const recordingGit = (dir: string): { bin: string; log: string } => {
+  const bin = join(dir, 'git-recorder');
+  const log = join(dir, 'git-calls.log');
+  const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  mkdirSync(bin);
+  writeFileSync(
+    join(bin, 'git'),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${real}' "$@"\n`,
+  );
+  chmodSync(join(bin, 'git'), 0o755);
+  return { bin, log };
+};
+
 const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin = scenario.origin ?? originWhere('conflicts');
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-resolve-conflicts-'));
+  const recorder = recordingGit(stateDir);
   const record = join(stateDir, 'pi-call.json');
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -254,7 +276,7 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
   const code = await main(
     ['forge', '143'],
     {
-      PATH: process.env.PATH,
+      PATH: `${recorder.bin}:${process.env.PATH}`,
       HOME: stateDir,
       FORGE_NIX_SYSTEM: 'x86_64-linux',
       FORGE_RUNTIME_CONFIG: configPath,
@@ -307,6 +329,11 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
         transcriptRef == null
           ? ''
           : readFileSync(join(stateDir, 'transcripts', transcriptRef), 'utf8'),
+      clones: existsSync(recorder.log)
+        ? readFileSync(recorder.log, 'utf8')
+            .split('\n')
+            .filter((call) => / clone /.test(` ${call} `))
+        : [],
       requests,
       pauses,
       thrown,
@@ -358,6 +385,27 @@ test('given a branch that conflicts with the default branch in two files, when f
   assert.equal(runs.length, 1);
   assert.ok(transcript.includes(origin.mainTip));
   assert.ok(transcript.includes('a.txt'));
+});
+
+test('given a conflicting pull request, when forge-resolve-conflicts runs, then the trial merge, the worker and the check after it each clone the repository in full, without a partial-clone filter', async () => {
+  const { clones, pi } = await resolve({ worker: mergeAndPush });
+
+  assert.equal(clones.length, 3);
+  for (const clone of clones) {
+    assert.doesNotMatch(clone, /--filter/);
+  }
+  assert.ok(pi);
+  assert.throws(() => git(realpathSync(pi.cwd), 'config', 'remote.origin.partialclonefilter'));
+});
+
+test('given a conflicting pull request, when the worker runs, then its git environment uses the zdiff3 conflict style', async () => {
+  const { pi } = await resolve({ worker: mergeAndPush });
+
+  assert.ok(pi);
+  const config = Object.entries(pi.env).filter(([key]) => key.startsWith('GIT_CONFIG_KEY_'));
+  const style = config.find(([, key]) => key === 'merge.conflictStyle');
+  assert.ok(style);
+  assert.equal(pi.env[style[0].replace('KEY', 'VALUE')], 'zdiff3');
 });
 
 const pushEmptyCommit = (origin: Origin): string =>
