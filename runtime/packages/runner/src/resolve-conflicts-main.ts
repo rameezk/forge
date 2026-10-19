@@ -148,7 +148,7 @@ export const main = async (
   const worker = resolveWorker(config, repository.worker);
   const app = githubAppFromEnv(env, fetch);
   const identity = await app.identity(repository.github);
-  const gitEnv = gitEnvironment(env, identity);
+  const gitEnv = gitEnvironment(env, identity, { conflictResolution: true });
   const token = (await app.mint(repository.github, 'write')).token;
   const pullRequest = await queryPullRequestHead(fetch, token, repository.github, Number(number));
   const refused = headRefusal(pullRequest);
@@ -220,6 +220,7 @@ export const main = async (
             gitEnv,
             identity,
             runId,
+            conflictResolution: true,
           });
           state = stateOf(launched);
           code = launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
