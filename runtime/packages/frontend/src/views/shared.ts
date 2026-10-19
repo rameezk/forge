@@ -13,6 +13,7 @@ const FAILURE_LABEL: Record<RevisionFailure | ConflictResolutionFailure, string>
   'still-conflicting': 'Still conflicting',
   'check-failed': 'Required check failed',
   'check-pending': 'Required check pending',
+  'not-started': 'Did not start',
 };
 
 const DISPATCH_FAILURE_LABEL: Record<DispatchFailure, string> = {
@@ -43,9 +44,11 @@ export const dispatchFailureText = (dispatch: DispatchRecord): string | null => 
   return `${label}${detailSuffix(dispatch)}`;
 };
 
-export const pullRequestFailureText = ({ reason, detail }: PullRequestWorkloadRecord): string | null => {
+export const pullRequestFailureText = (workload: PullRequestWorkloadRecord): string | null => {
+  const { reason, detail } = workload;
   if (reason === null) return null;
-  const label = FAILURE_LABEL[reason];
+  const times = 'failedStarts' in workload ? workload.failedStarts : null;
+  const label = times !== null && times > 1 ? `${FAILURE_LABEL[reason]} (${times} times)` : FAILURE_LABEL[reason];
   return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
 };
 

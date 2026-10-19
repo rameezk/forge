@@ -11,7 +11,7 @@ export interface AttemptRevision {
 
 export interface AttemptConflictResolution {
   conflictResolution: ConflictResolutionRecord;
-  run: RunRecord;
+  run: RunRecord | null;
 }
 
 export interface TicketAttempt {

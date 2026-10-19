@@ -222,6 +222,14 @@ export const main = async (
             runId,
             conflictResolution: true,
           });
+          if (launched.run.harnessStartTime == null) {
+            store.failConflictResolutionStart(
+              resolutionId,
+              launched.run.error ?? errorMessage(launched.cause),
+              now(),
+            );
+            return 1;
+          }
           state = stateOf(launched);
           code = launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
           if (state === 'ok') {
@@ -240,10 +248,14 @@ export const main = async (
           }
         }
       } catch (error) {
-        store.endConflictResolution(resolutionId, 'error', now(), {
-          reason: 'crashed',
-          detail: errorMessage(error),
-        });
+        if (store.getRun(runId)?.harnessStartTime == null) {
+          store.failConflictResolutionStart(resolutionId, errorMessage(error), now());
+        } else {
+          store.endConflictResolution(resolutionId, 'error', now(), {
+            reason: 'crashed',
+            detail: errorMessage(error),
+          });
+        }
         throw error;
       }
       store.endConflictResolution(

@@ -164,7 +164,7 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true }: 
   const resolve = (
     number: number,
     pair: { headSha: string; defaultSha: string },
-    state: Exclude<ConflictResolutionState, 'running'> | 'running' = 'error',
+    state: Exclude<ConflictResolutionState, 'running'> | 'running' | 'not-started' = 'error',
   ): number =>
     withStore((store) => {
       const start = store.startConflictResolution(
@@ -176,7 +176,9 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true }: 
         pair,
       );
       assert.ok('started' in start);
-      if (state !== 'running') {
+      if (state === 'not-started') {
+        store.failConflictResolutionStart(start.started, 'clone failed', new Date().toISOString());
+      } else if (state !== 'running') {
         store.endConflictResolution(
           start.started,
           state,
@@ -321,6 +323,19 @@ test('given a failed conflict resolution for a sha pair, when the default branch
   setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'error');
   setup.world.defaultSha = 'default-b';
   assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), [unit(143)]);
+});
+
+test('given a conflict resolution whose latest record is a failed start for the current head and default shas, when sync and the pass run again, then a new one starts without either branch moving', async () => {
+  const setup = forge();
+  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'not-started');
+  assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), [unit(143)]);
+});
+
+test('given a failed start followed by a conflict resolution that ran and failed for the current shas, when sync and the pass run again, then none starts', async () => {
+  const setup = forge();
+  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'not-started');
+  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'error');
+  assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), []);
 });
 
 test('given a repository declaring on.conflict but not on.feedback, when a forge pull request conflicts, then the sync still watches it and a conflict resolution starts', async () => {

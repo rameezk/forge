@@ -117,7 +117,7 @@ export const createApp = ({
       const run = runId === null ? undefined : store.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
-    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none'));
+    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, store.listConflictResolutions(now), runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none'));
   });
 
   app.get('/work', (c) => c.redirect('/'));
@@ -129,7 +129,9 @@ export const createApp = ({
     const now = new Date().toISOString();
     const pullRequestWorkloads = new Map<string, RunPullRequestWorkload>([
       ...store.listRevisions(now).map((workload): [string, RunPullRequestWorkload] => [workload.runId, { kind: 'revision', workload }]),
-      ...store.listConflictResolutions(now).map((workload): [string, RunPullRequestWorkload] => [workload.runId, { kind: 'conflict-resolution', workload }]),
+      ...store.listConflictResolutions(now).flatMap((workload): [string, RunPullRequestWorkload][] =>
+        workload.runId === null ? [] : [[workload.runId, { kind: 'conflict-resolution', workload }]],
+      ),
     ]);
     return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), shown, clock().getTime()));
   });

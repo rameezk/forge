@@ -12,7 +12,8 @@ export type ConflictResolutionFailure =
   | 'still-conflicting'
   | 'check-failed'
   | 'check-pending'
-  | 'crashed';
+  | 'crashed'
+  | 'not-started';
 
 export interface ConflictResolutionFailureRecord {
   reason: ConflictResolutionFailure;
@@ -21,11 +22,12 @@ export interface ConflictResolutionFailureRecord {
 
 export interface ConflictResolutionRecord extends RevisedPullRequest {
   id: number;
-  runId: string;
+  runId: string | null;
   dispatchId: number | null;
   state: ConflictResolutionState;
   reason: ConflictResolutionFailure | null;
   detail: string | null;
+  failedStarts: number | null;
   startedAt: string;
   aliveAt: string;
   endedAt: string | null;

@@ -690,22 +690,53 @@ const ADD_REVISION_FAILURE = `
 
 const CREATE_CONFLICT_RESOLUTIONS = `
   CREATE TABLE IF NOT EXISTS conflict_resolutions (
-    id          INTEGER PRIMARY KEY,
-    repository  TEXT NOT NULL,
-    number      INTEGER NOT NULL,
-    url         TEXT NOT NULL,
-    run_id      TEXT NOT NULL,
-    dispatch_id INTEGER,
-    state       TEXT NOT NULL,
-    reason      TEXT,
-    detail      TEXT,
-    started_at  TEXT NOT NULL,
-    alive_at    TEXT NOT NULL,
-    ended_at    TEXT
+    id            INTEGER PRIMARY KEY,
+    repository    TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    url           TEXT NOT NULL,
+    run_id        TEXT,
+    dispatch_id   INTEGER,
+    state         TEXT NOT NULL,
+    reason        TEXT,
+    detail        TEXT,
+    failed_starts INTEGER,
+    started_at    TEXT NOT NULL,
+    alive_at      TEXT NOT NULL,
+    ended_at      TEXT,
+    head_sha      TEXT,
+    default_sha   TEXT
   ) STRICT;
 
   CREATE INDEX IF NOT EXISTS conflict_resolutions_pull_request ON conflict_resolutions (repository, number, id);
   CREATE UNIQUE INDEX IF NOT EXISTS conflict_resolutions_run ON conflict_resolutions (run_id);
+`;
+
+const HAS_CONFLICT_RESOLUTION_FAILED_STARTS = `
+  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'failed_starts'
+`;
+
+const ADD_CONFLICT_RESOLUTION_FAILED_STARTS = `
+  ALTER TABLE conflict_resolutions ADD COLUMN failed_starts INTEGER;
+`;
+
+const HAS_CONFLICT_RESOLUTION_OPTIONAL_RUN = `
+  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'run_id' AND "notnull" = 0
+`;
+
+const MIGRATE_CONFLICT_RESOLUTION_RUN = `
+  ALTER TABLE conflict_resolutions RENAME TO conflict_resolutions_required_run;
+  DROP INDEX conflict_resolutions_pull_request;
+  DROP INDEX conflict_resolutions_run;
+  ${CREATE_CONFLICT_RESOLUTIONS}
+  INSERT INTO conflict_resolutions (
+    id, repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
+    started_at, alive_at, ended_at, head_sha, default_sha
+  )
+  SELECT
+    id, repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
+    started_at, alive_at, ended_at, head_sha, default_sha
+  FROM conflict_resolutions_required_run;
+  DROP TABLE conflict_resolutions_required_run;
 `;
 
 const HAS_CONFLICT_RESOLUTION_DISPATCH = `
@@ -721,11 +752,14 @@ type ConflictResolutionRow = {
   repository: string;
   number: number;
   url: string;
-  run_id: string;
+  run_id: string | null;
   dispatch_id: number | null;
   state: string;
   reason: string | null;
   detail: string | null;
+  failed_starts: number | null;
+  head_sha: string | null;
+  default_sha: string | null;
   started_at: string;
   alive_at: string;
   ended_at: string | null;
@@ -741,6 +775,7 @@ const conflictResolutionFromRow = (row: ConflictResolutionRow): ConflictResoluti
   state: row.state as ConflictResolutionState,
   reason: row.reason as ConflictResolutionFailure | null,
   detail: row.detail,
+  failedStarts: row.failed_starts,
   startedAt: row.started_at,
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
@@ -1103,6 +1138,8 @@ export class Store {
     this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
     this.#addColumnsOnce(HAS_DISPATCH_FAILED_STARTS, ADD_DISPATCH_FAILED_STARTS);
+    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_FAILED_STARTS, ADD_CONFLICT_RESOLUTION_FAILED_STARTS);
+    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_OPTIONAL_RUN, MIGRATE_CONFLICT_RESOLUTION_RUN);
   }
 
   #useWriteAheadLog(): void {
@@ -2250,6 +2287,51 @@ export class Store {
       });
   }
 
+  failConflictResolutionStart(id: number, detail: string, at: string): void {
+    this.#transaction(() => {
+      const row = this.#db
+        .prepare(`SELECT * FROM conflict_resolutions WHERE id = $id`)
+        .get({ id }) as ConflictResolutionRow | undefined;
+      if (row === undefined) return;
+      const previous = this.#db
+        .prepare(
+          `SELECT id, reason FROM conflict_resolutions
+          WHERE repository = $repository AND number = $number AND id < $id
+          ORDER BY id DESC LIMIT 1`,
+        )
+        .get({ repository: row.repository, number: row.number, id }) as
+        | { id: number; reason: string | null }
+        | undefined;
+      if (previous?.reason === 'not-started') {
+        this.#db
+          .prepare(
+            `UPDATE conflict_resolutions SET
+              detail = $detail, failed_starts = COALESCE(failed_starts, 0) + 1,
+              started_at = $at, alive_at = $at, ended_at = $at,
+              head_sha = $head_sha, default_sha = $default_sha
+            WHERE id = $id`,
+          )
+          .run({
+            id: previous.id,
+            detail: boundedDetail(detail),
+            at,
+            head_sha: row.head_sha,
+            default_sha: row.default_sha,
+          });
+        this.#db.prepare(`DELETE FROM conflict_resolutions WHERE id = $id`).run({ id });
+        return;
+      }
+      this.#db
+        .prepare(
+          `UPDATE conflict_resolutions SET
+            run_id = NULL, state = 'error', reason = 'not-started', detail = $detail,
+            failed_starts = 1, ended_at = $at
+          WHERE id = $id`,
+        )
+        .run({ id, detail: boundedDetail(detail), at });
+    });
+  }
+
   #selectConflictResolutions(
     where: string,
     params: Record<string, string | number>,
@@ -2260,7 +2342,7 @@ export class Store {
         `SELECT
           id, repository, number, url, run_id, dispatch_id,
           CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
-          reason, detail, started_at, alive_at, ended_at
+          reason, detail, failed_starts, started_at, alive_at, ended_at
         FROM conflict_resolutions
         ${where}
         ORDER BY id`,
@@ -2275,10 +2357,13 @@ export class Store {
 
   #conflictResolutionsOf(dispatchId: number, now: string): AttemptConflictResolution[] {
     return this.#selectConflictResolutions(
-      'WHERE dispatch_id = $dispatch_id AND EXISTS (SELECT 1 FROM runs WHERE runs.id = conflict_resolutions.run_id)',
+      'WHERE dispatch_id = $dispatch_id AND (run_id IS NULL OR EXISTS (SELECT 1 FROM runs WHERE runs.id = conflict_resolutions.run_id))',
       { dispatch_id: dispatchId },
       now,
-    ).map((conflictResolution) => ({ conflictResolution, run: this.getRun(conflictResolution.runId)! }));
+    ).map((conflictResolution) => ({
+      conflictResolution,
+      run: conflictResolution.runId === null ? null : this.getRun(conflictResolution.runId)!,
+    }));
   }
 
   recordWatchedPullRequests(repository: string, watched: readonly WatchedPullRequest[]): void {
@@ -2349,12 +2434,20 @@ export class Store {
         WHERE mergeable = 'CONFLICTING'
           AND head_sha IS NOT NULL
           AND default_sha IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM conflict_resolutions
-            WHERE conflict_resolutions.repository = feedback_watches.repository
-              AND conflict_resolutions.number = feedback_watches.number
-              AND conflict_resolutions.head_sha = feedback_watches.head_sha
-              AND conflict_resolutions.default_sha = feedback_watches.default_sha
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM conflict_resolutions
+              WHERE conflict_resolutions.repository = feedback_watches.repository
+                AND conflict_resolutions.number = feedback_watches.number
+                AND conflict_resolutions.head_sha = feedback_watches.head_sha
+                AND conflict_resolutions.default_sha = feedback_watches.default_sha
+            )
+            OR (
+              SELECT latest.reason FROM conflict_resolutions latest
+              WHERE latest.repository = feedback_watches.repository
+                AND latest.number = feedback_watches.number
+              ORDER BY latest.id DESC LIMIT 1
+            ) = 'not-started'
           )
         ORDER BY repository, number`,
       )
