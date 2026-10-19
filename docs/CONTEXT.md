@@ -116,7 +116,7 @@ A dispatch of a ticket, with the workload it ran. A ticket may have several, one
 _Avoid_: try
 
 **Failed start**:
-A dispatch that ended before its workload ran, so it is not an attempt. A ticket's consecutive failed starts are kept as one, with a count of how many times it failed to start.
+A dispatch, revision or conflict resolution that ended before its harness ran, so it has no run and, for a dispatch, is not an attempt. Consecutive failed starts of the same workload are kept as one, with a count of how many times it failed to start.
 _Avoid_: failed attempt, try
 
 **Rework**:
