@@ -178,6 +178,25 @@ test('given a run that stopped at its budget and an interrupted one, when their 
   assert.match(openingTag(reasonOf(interrupted)), /bg-warning-soft/);
 });
 
+test('given a run that errored while its dispatch is done, when its run page is opened, then the reason block is in the failed tone and an empty error shows no block', async () => {
+  const done = await page({ status: 'error', error: 'provider exploded' }, (store) => {
+    const start = store.startDispatch({ repository: 'forge', number: 381, url: 'https://github.com/rameezk/forge/issues/381' }, 'run-01', '2026-09-21T10:00:00.000Z', 10);
+    assert.ok('started' in start);
+    store.endDispatch(start.started, { state: 'done', pullRequest: { number: 302, url: 'https://github.com/rameezk/forge/pull/302' } }, '2026-09-21T10:03:20.000Z');
+  });
+  const empty = await page({ status: 'error', error: '  ', ticket: null });
+
+  assert.match(openingTag(reasonOf(done)), /bg-error-soft/);
+  assert.doesNotMatch(openingTag(reasonOf(done)), /bg-success-soft/);
+  assert.doesNotMatch(empty, /data-reason/);
+});
+
+test('given a finished workload, when its run page is opened, then the Run details chevron rotates when its disclosure opens', async () => {
+  const body = await page({});
+
+  assert.match(element(details(body), 'summary', 'class'), /\[\[open\]&gt;&amp;\]:before:rotate-90/);
+});
+
 test('given a workload with calls, one of them a cache miss, when its run page is opened, then Calls is collapsed and its summary shows the count, total cost, cache hit rate and a miss badge', async () => {
   const body = await page({}, (store) => {
     [

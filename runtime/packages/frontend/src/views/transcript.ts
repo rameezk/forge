@@ -2,7 +2,7 @@ import { html } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { GenerationRecord, HarnessEvent, CompactionEvent, MessageEvent, ResultEvent, RetryEvent, RunSkillLoad, RunStatus, ToolCallEvent, ToolResultEvent } from '@forge/shared';
 import { formatTime, formatTokens } from '../format.ts';
-import { PROSE, BLOCK, LABEL, type Rendered, INLINE_DISCLOSURE, ERROR_CALLOUT, BADGE, DISCLOSURE, CODE, EMPTY, renderStatus, type Cost, renderTokens, renderCost, STACK, renderMarkdownBody } from './shared.ts';
+import { PROSE, BLOCK, LABEL, type Rendered, INLINE_DISCLOSURE, ERROR_CALLOUT, BADGE, DISCLOSURE, CODE, EMPTY, renderStatus, type Cost, renderTokens, renderCost, STACK, renderMarkdownBody, firstLine } from './shared.ts';
 
 const PATH = 'm-0 whitespace-pre-wrap break-words font-mono text-[0.85rem]';
 
@@ -63,9 +63,6 @@ const renderThinking = (thinking: string | undefined): Rendered =>
         <summary class="${INLINE_DISCLOSURE} inline-flex font-semibold">Thinking</summary>
         <pre class="${THINKING}">${thinking}</pre>
       </details>`;
-
-const firstLine = (text: string): string =>
-  text.split('\n').map((line) => line.trim()).find((line) => line !== '') ?? '';
 
 const renderThinkingPreview = (thinking: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<details class="group/thinking" data-thinking data-thinking-preview>

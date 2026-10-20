@@ -94,9 +94,9 @@ export interface RunReason extends FailureReason {
 
 export const runReasonOf = (run: Pick<RunRecord, 'status' | 'error'>, outcome: RunOutcome | null): RunReason | null => {
   const stopped = run.status === 'interrupted' || run.status === 'exceeded';
-  const tone = stopped ? WORKLOAD_TONE.exceeded : (outcome?.tone ?? FAILED_TONE);
+  const tone = stopped ? WORKLOAD_TONE.exceeded : outcome?.reason != null ? outcome.tone : FAILED_TONE;
   if (outcome?.reason != null) return { ...outcome.reason, tone };
-  if (run.error !== null) return { label: null, detail: run.error, tone };
+  if (run.error !== null && run.error.trim() !== '') return { label: null, detail: run.error, tone };
   return outcome?.state === 'error' ? { label: NO_REASON_RECORDED, detail: null, tone } : null;
 };
 
@@ -351,9 +351,9 @@ export const PROSE = 'm-0 whitespace-pre-wrap break-words font-sans';
 
 export const CODE = 'm-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-raised px-3 py-2.5 font-mono text-[0.8rem] leading-relaxed text-fg';
 
-export const INLINE_DISCLOSURE = `cursor-pointer list-none items-center gap-1.5 rounded-sm text-xs text-muted hover:text-fg [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.6rem] before:transition-transform before:content-['▶'] group-open:before:rotate-90`;
+export const INLINE_DISCLOSURE = `cursor-pointer list-none items-center gap-1.5 rounded-sm text-xs text-muted hover:text-fg [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.6rem] before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90`;
 
-export const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] group-open:before:rotate-90 focus-visible:-outline-offset-2`;
+export const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90 focus-visible:-outline-offset-2`;
 
 export const PULL_REQUEST_TONE: Record<PullRequestState, string> = {
   open: 'bg-raised text-fg',
