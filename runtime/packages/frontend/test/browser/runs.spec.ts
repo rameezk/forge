@@ -350,25 +350,23 @@ test.describe('on a laptop screen', () => {
   });
 });
 
-test('given a failed workload with a long error, when its page is opened and the error is clicked, then the error is cut off on one line until it is expanded to its full text', async ({
+test('given a failed workload with a long error, when its page is opened and the reason is clicked, then the reason is cut off on one line until it is expanded to its full text', async ({
   dashboard,
   page,
 }) => {
   const error = `build failed: ${'the compiler gave up after a very long chain of errors, '.repeat(12)}done`;
-  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, status: 'error', error });
+  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, status: 'error', error, ticket: null });
 
   await page.goto('/runs/run-01');
 
-  const summary = page.locator('[data-run-error] summary');
+  const summary = page.locator('[data-reason] summary');
   const lineHeight = await summary.evaluate((element) => parseFloat(element.ownerDocument.defaultView!.getComputedStyle(element).lineHeight));
-  const paddedHeight = await summary.evaluate((element) => element.getBoundingClientRect().height);
   expect(await summary.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-  expect(paddedHeight).toBeLessThan(lineHeight * 2 + 20);
+  expect(await summary.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(lineHeight * 2 + 20);
 
   await summary.click();
 
-  expect(await summary.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(lineHeight * 2);
-  await expect(summary).toHaveText(error);
+  await expect(page.locator('[data-reason] [data-markdown]')).toHaveText(error);
 });
 
 test('given a finished workload, when its page is opened at laptop width, then Run details starts open and Calls starts collapsed and opens on click', async ({

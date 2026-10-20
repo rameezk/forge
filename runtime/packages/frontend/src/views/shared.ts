@@ -1,7 +1,8 @@
-import { html } from 'hono/html';
+import { html, raw } from 'hono/html';
 import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
+import { renderMarkdown } from '../markdown.ts';
 import { DEFAULT_EFFORT } from '../request-record.ts';
 
 export type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
@@ -35,21 +36,38 @@ export const repeatedStart = ({ reason, failedStarts }: DispatchRecord): number 
 export const detailSuffix = ({ detail }: DispatchRecord): string =>
   detail === null || detail.trim() === '' ? '' : `: ${detail}`;
 
-export const dispatchFailureText = (dispatch: DispatchRecord): string | null => {
+export interface FailureReason {
+  label: string | null;
+  detail: string | null;
+}
+
+const trimmed = (detail: string | null): string | null => (detail === null || detail.trim() === '' ? null : detail);
+
+export const dispatchFailureReason = (dispatch: DispatchRecord): FailureReason | null => {
   const { reason, detail } = dispatch;
   if (reason === null) return null;
   const times = repeatedStart(dispatch);
-  const label = times === null ? DISPATCH_FAILURE_LABEL[reason] : `${DISPATCH_FAILURE_LABEL[reason]} (${times} times)`;
-  if (reason === 'exceeded') return detail === null ? label : `${label} ${detail}`;
+  return { label: times === null ? DISPATCH_FAILURE_LABEL[reason] : `${DISPATCH_FAILURE_LABEL[reason]} (${times} times)`, detail: trimmed(detail) };
+};
+
+export const dispatchFailureText = (dispatch: DispatchRecord): string | null => {
+  const reason = dispatchFailureReason(dispatch);
+  if (reason === null) return null;
+  const { label, detail } = reason;
+  if (dispatch.reason === 'exceeded') return detail === null ? label : `${label} ${detail}`;
   return `${label}${detailSuffix(dispatch)}`;
 };
 
-export const pullRequestFailureText = (workload: PullRequestWorkloadRecord): string | null => {
+export const pullRequestFailureReason = (workload: PullRequestWorkloadRecord): FailureReason | null => {
   const { reason, detail } = workload;
   if (reason === null) return null;
   const times = 'failedStarts' in workload ? workload.failedStarts : null;
-  const label = times !== null && times > 1 ? `${FAILURE_LABEL[reason]} (${times} times)` : FAILURE_LABEL[reason];
-  return detail === null || detail.trim() === '' ? label : `${label}: ${detail}`;
+  return { label: times !== null && times > 1 ? `${FAILURE_LABEL[reason]} (${times} times)` : FAILURE_LABEL[reason], detail: trimmed(detail) };
+};
+
+export const pullRequestFailureText = (workload: PullRequestWorkloadRecord): string | null => {
+  const reason = pullRequestFailureReason(workload);
+  return reason === null ? null : reason.detail === null ? reason.label : `${reason.label}: ${reason.detail}`;
 };
 
 const NO_REASON_RECORDED = 'no reason recorded';
@@ -57,20 +75,36 @@ const NO_REASON_RECORDED = 'no reason recorded';
 export const settledOutcome = (workload: PullRequestWorkloadRecord | undefined): PullRequestWorkloadRecord | null =>
   workload === undefined || workload.state === 'running' ? null : workload;
 
-export const workloadOutcomeText = (workload: PullRequestWorkloadRecord): string | null =>
-  pullRequestFailureText(workload) ?? (workload.state === 'error' ? NO_REASON_RECORDED : null);
-
 export interface RunOutcome {
   state: string;
   tone: string;
-  text: string | null;
+  reason: FailureReason | null;
 }
 
 export const runOutcomeOf = (workload: PullRequestWorkloadRecord | undefined, dispatch: DispatchRecord | undefined): RunOutcome | null => {
   const settled = settledOutcome(workload);
-  if (settled !== null) return { state: settled.state, tone: WORKLOAD_TONE[settled.state], text: workloadOutcomeText(settled) };
+  if (settled !== null) return { state: settled.state, tone: WORKLOAD_TONE[settled.state], reason: pullRequestFailureReason(settled) };
   if (dispatch === undefined || dispatch.state === 'running') return null;
-  return { state: dispatch.state, tone: dispatch.state === 'done' ? WORKLOAD_TONE.ok : FAILED_TONE, text: dispatchFailureText(dispatch) };
+  return { state: dispatch.state, tone: dispatch.state === 'done' ? WORKLOAD_TONE.ok : FAILED_TONE, reason: dispatchFailureReason(dispatch) };
+};
+
+export interface RunReason extends FailureReason {
+  tone: string;
+}
+
+export const runReasonOf = (run: Pick<RunRecord, 'status' | 'error'>, outcome: RunOutcome | null): RunReason | null => {
+  const stopped = run.status === 'interrupted' || run.status === 'exceeded';
+  const tone = stopped ? WORKLOAD_TONE.exceeded : (outcome?.tone ?? FAILED_TONE);
+  if (outcome?.reason != null) return { ...outcome.reason, tone };
+  if (run.error !== null) return { label: null, detail: run.error, tone };
+  return outcome?.state === 'error' ? { label: NO_REASON_RECORDED, detail: null, tone } : null;
+};
+
+export const firstLine = (detail: string): string => detail.split('\n').find((line) => line.trim() !== '')?.trim() ?? '';
+
+export const reasonLine = ({ label, detail }: FailureReason): string => {
+  const line = detail === null ? null : firstLine(detail);
+  return label === null ? (line ?? '') : line === null || line === '' ? label : `${label}: ${line}`;
 };
 
 type Page = 'board' | 'workloads' | 'insights';
@@ -317,9 +351,9 @@ export const PROSE = 'm-0 whitespace-pre-wrap break-words font-sans';
 
 export const CODE = 'm-0 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-raised px-3 py-2.5 font-mono text-[0.8rem] leading-relaxed text-fg';
 
-export const INLINE_DISCLOSURE = `cursor-pointer list-none items-center gap-1.5 rounded-sm text-xs text-muted hover:text-fg [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.6rem] before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90`;
+export const INLINE_DISCLOSURE = `cursor-pointer list-none items-center gap-1.5 rounded-sm text-xs text-muted hover:text-fg [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.6rem] before:transition-transform before:content-['▶'] group-open:before:rotate-90`;
 
-export const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] [[open]>&]:before:rotate-90 focus-visible:-outline-offset-2`;
+export const DISCLOSURE = `flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-4 py-2.5 [&::-webkit-details-marker]:hidden before:inline-block before:w-3 before:shrink-0 before:text-center before:text-[0.65rem] before:text-muted before:transition-transform before:content-['▶'] group-open:before:rotate-90 focus-visible:-outline-offset-2`;
 
 export const PULL_REQUEST_TONE: Record<PullRequestState, string> = {
   open: 'bg-raised text-fg',
@@ -337,3 +371,32 @@ export const renderAttemptsLink = (ticket: { repository: string; number: number 
 
 export const renderCohortLink = (hash: string | null, fingerprint: ConfigFingerprint | null): Rendered =>
   html`<a href="${cohortHref(hash)}" class="${LINK}">${cohortLabel(fingerprint)}</a>`;
+
+const MARKDOWN = [
+  'prose prose-sm max-w-none break-words',
+  '[--tw-prose-body:var(--color-fg)] [--tw-prose-headings:var(--color-fg)] [--tw-prose-bold:var(--color-fg)]',
+  '[--tw-prose-code:var(--color-fg)] [--tw-prose-pre-code:var(--color-fg)] [--tw-prose-quotes:var(--color-fg)]',
+  '[--tw-prose-lead:var(--color-muted)] [--tw-prose-counters:var(--color-muted)] [--tw-prose-bullets:var(--color-muted)] [--tw-prose-captions:var(--color-muted)]',
+  '[--tw-prose-hr:var(--color-line)] [--tw-prose-quote-borders:var(--color-line)] [--tw-prose-th-borders:var(--color-line)] [--tw-prose-td-borders:var(--color-line)]',
+  '[--tw-prose-links:var(--color-accent-text)] [--tw-prose-pre-bg:var(--color-raised)]',
+  'prose-pre:overflow-x-auto prose-table:my-0 [&>div]:my-6 [&>:first-child]:mt-0 [&>:last-child]:mb-0',
+  '[&>:is(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6)]:max-w-[80ch]',
+  'prose-th:min-w-32 prose-td:min-w-32',
+  'prose-code:before:content-none prose-code:after:content-none',
+  '[&_blockquote_p]:before:content-none [&_blockquote_p]:after:content-none',
+].join(' ');
+
+export const renderMarkdownBody = (text: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<div class="${MARKDOWN}" data-markdown>${raw(renderMarkdown(text))}</div>`;
+
+export const renderReasonBlock = ({ label, detail, tone }: RunReason): Rendered => {
+  const named = label === null ? '' : html`<span class="font-semibold">${label}</span>`;
+  if (detail === null) {
+    return html`<div class="mb-4 rounded-lg px-4 py-2.5 ${tone}" data-reason><span data-reason-summary>${named}</span></div>`;
+  }
+  const line = firstLine(detail);
+  return html`<details class="group mb-4 rounded-lg ${tone}" data-reason>
+    <summary data-reason-summary class="block cursor-pointer truncate px-4 py-2.5 before:mr-2.5 before:inline-block before:w-3 before:text-center before:text-[0.65rem] before:transition-transform before:content-['▶'] group-open:before:rotate-90">${named}${label === null ? line : html`<span class="group-open:hidden">: ${line}</span>`}</summary>
+    <div class="px-4 pb-3 pl-[2.375rem]">${renderMarkdownBody(detail)}</div>
+  </details>`;
+};

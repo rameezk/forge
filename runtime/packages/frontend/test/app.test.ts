@@ -151,7 +151,7 @@ test('given an interrupted run and a failed run, when each run page is viewed, t
     sampleRun({ id: 'failed', status: 'error', error: 'provider exploded', transcriptRef: null }),
   ]);
   const whyEnded = async (id: string, why: string): Promise<string> =>
-    (await (await app.request(`/runs/${id}`)).text()).match(new RegExp(`<details[^>]*\\sdata-run-error[^>]*>\\s*<summary class="[^"]*">${why}</summary>`))?.[0] ?? 'missing';
+    (await (await app.request(`/runs/${id}`)).text()).match(new RegExp(`<details[^>]*\\sdata-reason[^>]*>\\s*<summary[^>]*>${why}</summary>`))?.[0] ?? 'missing';
 
   const interrupted = await whyEnded('interrupted', 'runner stopped without finishing, last seen at 2026-09-21T10:03:20.000Z');
   const failed = await whyEnded('failed', 'provider exploded');
@@ -179,7 +179,7 @@ test('given a run dispatched for a ticket and a run started by hand, when the li
   assert.match(body, /<th[^>]*>Ticket<\/th>/);
 });
 
-test('given a succeeded run whose revision crashed with a multi-line detail and an errored run whose revision has no reason, when the list is requested, then the first row shows its success pill with the Label: detail text under it and the second shows the run\'s own error', async () => {
+test('given a succeeded run whose revision crashed with a multi-line detail and an errored run whose revision has no reason, when the list is requested, then the first row shows its success pill with one Label: first line text under it and the second shows the run\'s own error, with no separate error line', async () => {
   const revised = (store: Store, runId: string, number: number, failure?: { reason: 'crashed'; detail: string }): void => {
     const start = store.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
@@ -209,14 +209,15 @@ test('given a succeeded run whose revision crashed with a multi-line detail and 
 
   assert.match(statusCell('crashed'), /\sdata-status="success"/);
   assert.equal(
-    textOf(statusCell('crashed').match(/<div[^>]*\sdata-outcome-text[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
-    'Crashed: GitHub rejected the FeedbackAnswers query for rameezk/forge#143: boom',
+    textOf(statusCell('crashed').match(/<div[^>]*\sdata-reason[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
+    'Crashed: GitHub rejected the FeedbackAnswers query',
   );
   assert.match(statusCell('reasonless'), /\sdata-status="error"/);
   assert.equal(
-    textOf(statusCell('reasonless').match(/<div[^>]*\sdata-run-error[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
+    textOf(statusCell('reasonless').match(/<div[^>]*\sdata-reason[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
     'harness exited',
   );
+  assert.doesNotMatch(body, /data-run-error|data-outcome-text/);
 });
 
 test('given a revision that ended ok and one that ended in error, when the list is requested, then both rows show their repository and pull request linked to it, and their outcome', async () => {
@@ -280,21 +281,22 @@ const dispatchOutcomeApp = () =>
 const outcomesIn = (html: string): { status: string; outcome: string; text: string } => ({
   status: html.match(/\sdata-status="([^"]+)"/)?.[1] ?? 'missing',
   outcome: html.match(/\sdata-outcome="([^"]+)"/)?.[1] ?? 'none',
-  text: textOf(html.match(/<[a-z]+[^>]*\sdata-outcome-text[^>]*>[\s\S]*?<\/(?:div|span)>/)?.[0] ?? ''),
+  text: textOf(html.match(/<div[^>]*\sdata-reason(?=[\s>])[^>]*>[\s\S]*?<\/div>/)?.[0] ?? ''),
 });
 
 const summaryOf = async (app: ReturnType<typeof appWith>, id: string): Promise<string> =>
   (await (await app.request(`/runs/${id}`)).text()).match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? 'missing';
 
-test('given a successful run whose dispatch failed with a reason, when the list and the run page are requested, then both show success and beside it the dispatch failure label with its detail', async () => {
+test('given a successful run whose dispatch failed with a reason, when the list and the run page are requested, then both show success beside the failed outcome, and the list shows the dispatch failure label with its detail as one line', async () => {
   const app = dispatchOutcomeApp();
   const list = rowFor(await (await app.request('/workloads')).text(), 'failed');
 
   for (const found of [outcomesIn(list), outcomesIn(await summaryOf(app, 'failed'))]) {
     assert.equal(found.status, 'success');
     assert.equal(found.outcome, 'failed');
-    assert.equal(found.text, 'No pull request: the worker pushed nothing');
   }
+  assert.equal(outcomesIn(list).text, 'No pull request: the worker pushed nothing');
+  assert.equal(outcomesIn(await summaryOf(app, 'failed')).text, '');
 });
 
 test('given a successful run whose dispatch is done, when the list and the run page are requested, then both show the done outcome beside success', async () => {

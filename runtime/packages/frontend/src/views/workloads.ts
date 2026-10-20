@@ -3,7 +3,7 @@ import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, 
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
-import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderRevisionPill, renderCacheHitRate, runOutcomeOf, renderRunOutcome, NUMERIC_WRAPPING, layout } from './shared.ts';
+import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderRevisionPill, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
   pullRequestWorkload === undefined
@@ -12,19 +12,18 @@ const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | u
     ? externalLink(pullRequestWorkload.url, `PR #${pullRequestWorkload.number}`)
     : html`PR #${pullRequestWorkload.number}`}`;
 
-const runErrorOf = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): string | null =>
-  pullRequestWorkload?.state === 'error' && pullRequestWorkload.reason === null ? run.error : null;
-
 const renderOutcomeBeside = (outcome: RunOutcome | null): Rendered => (outcome === null ? '' : renderRunOutcome(outcome));
 
-const renderOutcomeDetail = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined, outcome: RunOutcome | null): Rendered => {
-  const error = runErrorOf(run, pullRequestWorkload);
-  return html`${outcome === null || outcome.text === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-outcome-text>${outcome.text}</div>`}${error === null ? '' : html`<div class="mt-1 max-w-xs whitespace-pre-line wrap-anywhere text-[0.85rem] text-muted" data-run-error>${error}</div>`}`;
+const renderReasonLine = (run: RunRecord, outcome: RunOutcome | null): Rendered => {
+  const reason = runReasonOf(run, outcome);
+  if (reason === null) return '';
+  const line = reasonLine(reason);
+  return html`<div class="mt-1 max-w-xs truncate text-[0.85rem] text-muted" title="${line}" data-reason>${line}</div>`;
 };
 
 const renderStatusCell = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined, dispatch: DispatchRecord | undefined): Rendered => {
   const outcome = runOutcomeOf(pullRequestWorkload, dispatch);
-  return html`<div class="flex flex-wrap items-center gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(outcome)}</div>${renderOutcomeDetail(run, pullRequestWorkload, outcome)}`;
+  return html`<div class="flex flex-wrap items-center gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(outcome)}</div>${renderReasonLine(run, outcome)}`;
 };
 
 const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquivalent>): Rendered => {
@@ -179,7 +178,7 @@ const renderRunCard = (run: RunRecord, runWorkload: RunPullRequestWorkload | und
   return html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
     <div class="flex items-center justify-between gap-3">${renderStarted(run.startTime, runWorkload, timeZone)}<div class="flex flex-wrap items-center justify-end gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(outcome)}</div></div>
-    ${renderOutcomeDetail(run, pullRequestWorkload, outcome)}
+    ${renderReasonLine(run, outcome)}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, pullRequestWorkload)}</span><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-5 gap-y-1 border-t border-line pt-2">
