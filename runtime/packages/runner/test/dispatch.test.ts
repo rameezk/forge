@@ -1002,6 +1002,16 @@ test('given a checkout with a flake and a workload sandbox that cannot start, wh
   );
 });
 
+const FAILED_COMMENT = 'Forge could not finish this ticket. Details are on the forge dashboard.';
+
+const failedCommentWrite = (number: number, token: string, piStarted: boolean): LabelWrite => ({
+  method: 'POST',
+  path: `/repos/rameezk/forge/issues/${number}/comments`,
+  authorization: `bearer ${token}`,
+  body: { body: FAILED_COMMENT },
+  piStarted,
+});
+
 const finalLabelWrites = (label: string): LabelWrite[] => [
   {
     method: 'POST',
@@ -1024,6 +1034,7 @@ const finalLabelWrites = (label: string): LabelWrite[] => [
     body: null,
     piStarted: true,
   },
+  ...(label === 'forge:failed' ? [failedCommentWrite(113, WRITE_TOKEN_AFTER, true)] : []),
 ];
 
 test('given a successful run that leaves a ready pull request closing the ticket whose required checks are green or skipped, and whose only red check is not required, when the run ends, then the ticket becomes forge:done, losing any forge:ready the run set so no later pass dispatches it again', async () => {
@@ -1127,7 +1138,7 @@ const piOutputEnding = (text: string): string => {
   return path;
 };
 
-test('given a run that ends with a question and leaves no open pull request from the repository itself closing the ticket, whether there is none, a merged one, an open one from a fork or one in another repository, when the run ends, then the ticket becomes forge:failed with the agent\'s final message as the reason, and nothing but the label is written to the ticket', async () => {
+test('given a run that ends with a question and leaves no open pull request from the repository itself closing the ticket, whether there is none, a merged one, an open one from a fork or one in another repository, when the run ends, then the ticket becomes forge:failed with the agent\'s final message as the reason, and one fixed comment is posted on the ticket', async () => {
   const question = 'Should the label check use REST or GraphQL?';
   for (const [pullRequests, response] of [
     ['none', closing('no-pull-request')],
@@ -1141,8 +1152,9 @@ test('given a run that ends with a question and leaves no open pull request from
     });
 
     assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'), pullRequests);
-    assert.ok(
-      labelWrites.every(({ path }) => path.startsWith('/repos/rameezk/forge/issues/113/labels')),
+    assert.equal(
+      labelWrites.filter(({ path }) => path.endsWith('/comments')).length,
+      1,
       pullRequests,
     );
     const [run] = runs;
@@ -1167,7 +1179,7 @@ test('given a run that ends with a question and leaves no open pull request from
   }
 });
 
-test('given a dispatched workload whose pi keeps running past the worker\'s timeout, when forge-dispatch runs, then the run ends exceeded, the dispatch fails with reason exceeded naming the timeout, the ticket becomes forge:failed, and nothing but the label is written to it', async () => {
+test('given a dispatched workload whose pi keeps running past the worker\'s timeout, when forge-dispatch runs, then the run ends exceeded, the dispatch fails with reason exceeded naming the timeout, the ticket becomes forge:failed, and one fixed comment is posted on it', async () => {
   const { code, runs, dispatches, labelWrites } = await dispatch({
     piOutput: piOutputEnding('still working'),
     piLingerMs: 10_000,
@@ -1183,12 +1195,10 @@ test('given a dispatched workload whose pi keeps running past the worker\'s time
     [{ state: 'failed', reason: 'exceeded', detail: 'timeout' }],
   );
   assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'));
-  assert.ok(
-    labelWrites.every(({ path }) => path.startsWith('/repos/rameezk/forge/issues/113/labels')),
-  );
+  assert.equal(labelWrites.filter(({ path }) => path.endsWith('/comments')).length, 1);
 });
 
-test('given a dispatched workload whose generations pass the worker\'s budget, when forge-dispatch runs, then the run ends exceeded on its budget, the dispatch fails with reason exceeded naming the budget, the ticket becomes forge:failed, and nothing but the label is written to it', async () => {
+test('given a dispatched workload whose generations pass the worker\'s budget, when forge-dispatch runs, then the run ends exceeded on its budget, the dispatch fails with reason exceeded naming the budget, the ticket becomes forge:failed, and one fixed comment is posted on it', async () => {
   const { code, runs, dispatches, labelWrites } = await dispatch({
     piOutput: piOutputEnding('still working'),
     piLingerMs: 10_000,
@@ -1206,9 +1216,7 @@ test('given a dispatched workload whose generations pass the worker\'s budget, w
     [{ state: 'failed', reason: 'exceeded', detail: 'budget' }],
   );
   assert.deepEqual(labelWrites.slice(2), finalLabelWrites('forge:failed'));
-  assert.ok(
-    labelWrites.every(({ path }) => path.startsWith('/repos/rameezk/forge/issues/113/labels')),
-  );
+  assert.equal(labelWrites.filter(({ path }) => path.endsWith('/comments')).length, 1);
 });
 
 const forgeTicket = (number: number) => ({
@@ -1239,6 +1247,7 @@ const interruptedLabelWrites = (number: number): LabelWrite[] => [
     body: null,
     piStarted: false,
   },
+  failedCommentWrite(number, WRITE_TOKEN, false),
 ];
 
 test('given tickets labelled forge:running, one whose dispatch stopped beating, one with no dispatch in the store, and one with a live dispatch, when the next dispatch pass runs, then the first two become forge:failed with interrupted as the reason, losing any forge:ready a split claim left behind, and the live one is left alone', async () => {
@@ -1250,7 +1259,7 @@ test('given tickets labelled forge:running, one whose dispatch stopped beating, 
     },
   });
 
-  assert.deepEqual(labelWrites.slice(0, 6), [
+  assert.deepEqual(labelWrites.slice(0, 8), [
     ...interruptedLabelWrites(114),
     ...interruptedLabelWrites(115),
   ]);
@@ -1369,10 +1378,12 @@ test('given a ticket still labelled forge:running whose dispatch already ended d
     },
   });
 
-  assert.deepEqual(labelWrites.slice(0, 6), [
-    ...interruptedLabelWrites(114).map((write, index) =>
-      index === 0 ? { ...write, body: { labels: ['forge:done'] } } : write,
-    ),
+  assert.deepEqual(labelWrites.slice(0, 7), [
+    ...interruptedLabelWrites(114)
+      .filter(({ path }) => !path.endsWith('/comments'))
+      .map((write, index) =>
+        index === 0 ? { ...write, body: { labels: ['forge:done'] } } : write,
+      ),
     ...interruptedLabelWrites(115),
   ]);
   assert.deepEqual(
@@ -1465,14 +1476,12 @@ const projectInstructions = (path: string): string[] => [
 const childArgv = (pi: PiCall): string[] =>
   (JSON.parse(pi.subagentInvocation ?? 'null') as { argv: string[] }).argv;
 
-test('given a dispatch, when it runs, then its instruction says to post a block or question as a comment on its pull request or on the ticket, and that a note in the pull request body or the final report alone does not count', () => {
+test('given a dispatch and a revision, when each runs, then the dispatch instruction does not ask for a comment about being blocked and the revision instruction still asks for a reply on the pull request', () => {
+  assert.doesNotMatch(UNATTENDED_INSTRUCTION, /comment/);
+  assert.doesNotMatch(UNATTENDED_INSTRUCTION, /blocked or have a question/);
   assert.match(
-    UNATTENDED_INSTRUCTION,
-    /stop because you are blocked or have a question, post that as a comment on your pull request, or on the ticket when you have no pull request/,
-  );
-  assert.match(
-    UNATTENDED_INSTRUCTION,
-    /note in the pull request body or the final report alone does not count/,
+    revisionInstruction([]),
+    /stop because you are blocked or have a question, post that as a reply on the pull request/,
   );
 });
 

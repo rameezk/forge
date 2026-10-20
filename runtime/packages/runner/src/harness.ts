@@ -24,8 +24,6 @@ export const UNATTENDED_INSTRUCTION = [
   'You are running unattended: no human will answer questions or confirm anything while you work.',
   'Where a skill asks you to confirm something the ticket or its spec already settles, proceed without asking.',
   'Otherwise stop, and end with the question you need answered.',
-  'If you stop because you are blocked or have a question, post that as a comment on your pull request, or on the ticket when you have no pull request.',
-  'A note in the pull request body or the final report alone does not count.',
   ...SCOPED_CHECK_RULE,
 ].join(' ');
 

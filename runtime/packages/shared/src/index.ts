@@ -195,4 +195,5 @@ export {
   ensureLabels,
   labelExists,
   relabel,
+  settleTicket,
 } from './labels.ts';

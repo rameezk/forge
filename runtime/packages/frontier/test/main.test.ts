@@ -938,6 +938,7 @@ test('given a repository with a worker whose forge:running tickets are one with 
       { method: 'POST', path: '/repos/rameezk/forge/issues/114/labels', authorization: `bearer ${WRITE_TOKEN}`, body: { labels: ['forge:failed'] } },
       { method: 'DELETE', path: '/repos/rameezk/forge/issues/114/labels/forge%3Arunning', authorization: `bearer ${WRITE_TOKEN}`, body: null },
       { method: 'DELETE', path: '/repos/rameezk/forge/issues/114/labels/forge%3Aready', authorization: `bearer ${WRITE_TOKEN}`, body: null },
+      { method: 'POST', path: '/repos/rameezk/forge/issues/114/comments', authorization: `bearer ${WRITE_TOKEN}`, body: { body: 'Forge could not finish this ticket. Details are on the forge dashboard.' } },
     ],
   );
   assert.deepEqual(storedDispatches(stateDir), [

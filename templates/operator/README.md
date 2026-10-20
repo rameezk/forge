@@ -545,8 +545,13 @@ not found, the run was interrupted, or it was stopped for exceeding its timeout
 or budget. Each dispatch moves a ticket
 labelled `forge:running` that no live dispatch is working on to `forge:failed`
 as interrupted, and moves one whose dispatch already ended to the label of its
-recorded outcome. To retry a ticket, label it `forge:ready` again. The labels are
-the only thing forge writes to a ticket. On a host that dispatches, each
+recorded outcome. To retry a ticket, label it `forge:ready` again. Each time a
+dispatch settles as failed, whatever the reason, forge also posts one comment on
+the ticket, "Forge could not finish this ticket. Details are on the forge
+dashboard.", with no link, and the agent is not asked to comment when it is
+blocked or has a question; the reason or question is on the dashboard. The labels
+and that comment are the only things forge writes to a ticket. On a host that
+dispatches, each
 frontier sync also makes sure every declared repository has the four `forge:*`
 labels, with their fixed descriptions and colours.
 
@@ -785,7 +790,8 @@ and the agent is neither warned nor told its timeout. The runner exits as for
 a failure, and nothing retries the workload.
 
 A dispatched workload that ends exceeded fails its dispatch with the reason
-`exceeded`, labels the ticket `forge:failed`, and posts nothing to it. The
+`exceeded`, labels the ticket `forge:failed`, and posts the fixed failure
+comment on it. The
 dashboard shows an amber `exceeded` pill with a callout such as "Stopped after
 2h of a 2h timeout", and the Work page reads "Exceeded timeout". A running
 workload's elapsed time ticks against its timeout, such as "45m / 2h", counted

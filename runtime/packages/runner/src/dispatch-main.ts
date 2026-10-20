@@ -3,8 +3,6 @@ import { join } from 'node:path';
 import {
   cachedTokens,
   errorMessage,
-  FORGE_DONE,
-  FORGE_FAILED,
   FORGE_READY,
   FORGE_RUNNING,
   findOpenClosingPullRequest,
@@ -14,6 +12,7 @@ import {
   queryPullRequestReadiness,
   queryTicket,
   Store,
+  settleTicket,
   relabel,
   settleRunningTickets,
   startHeartbeat,
@@ -265,13 +264,12 @@ export const main = async (
 
       const outcome = outcomeOf(pullRequest, readiness, launched);
       store.endDispatch(dispatchId, outcome, now());
-      await relabel(
+      await settleTicket(
         fetch,
         await afterTokens(repository.github, 'write'),
         repository.github,
         ticket.number,
-        outcome.state === 'done' ? FORGE_DONE : FORGE_FAILED,
-        [FORGE_RUNNING, FORGE_READY],
+        outcome.state,
       );
       return launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
     } finally {
