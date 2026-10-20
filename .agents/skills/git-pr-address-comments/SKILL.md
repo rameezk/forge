@@ -256,9 +256,10 @@ git push
 The push is not the finish line: the repo's CI is the run that covers what this
 machine could not. Wait for the PR's required checks on the pushed head exactly
 as [[work-on]]'s *Wait for the required checks* step does - learn which checks
-are required from the base branch's rules, poll until every one has registered
-on the new head (a "no checks reported" answer is never a result), then watch
-them until they settle with `gh pr checks --watch --required`. A PR that
+are required from the base branch's rules, or take every reported check when
+the branch has none, poll until every one has registered on the new head (a "no
+checks reported" answer is never a result), then watch them until they settle
+the way that step does. A PR that
 conflicts with its base never gets its checks, so watch its mergeability on every
 poll and resolve a conflict the way [[work-on]] does - merge the base in, keep
 both sides' intent, run the checks and suite, review what the resolution changed,
