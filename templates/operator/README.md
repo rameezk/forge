@@ -603,7 +603,9 @@ Feedback starts a revision without anyone running a command. Forge watches the
 open pull requests its App authored in repositories with `on.feedback`, drafts
 included: watching starts when the App opens the pull request, stops when it is
 merged or closed, and resumes if it is reopened. Feedback is a review or a
-conversation comment written by anyone other than the App or a bot; a review
+conversation comment written by a maintainer, a person whose permission on the
+repository is `write` or `admin`, however it was granted, a team included; the
+App and other bots, outsiders and read-only collaborators give none. A review
 with no body and no inline comments is not feedback. Each frontier sync records
 feedback newer than the pull request's cursor, the newest feedback a revision
 started from, and the dispatch pass starts a revision once the newest new

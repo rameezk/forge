@@ -165,6 +165,7 @@ export {
   type FeedbackKind,
   type WatchedPullRequest,
 } from './feedback.ts';
+export { maintainerLookup, type MaintainerLookup } from './maintainers.ts';
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export {

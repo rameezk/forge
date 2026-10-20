@@ -5,6 +5,7 @@ import {
   type Fetch,
   type Mergeable,
 } from './frontier.ts';
+import { maintainerLookup, type Actor, type MaintainerLookup } from './maintainers.ts';
 
 export const WATCHED_PAGE_SIZE = 50;
 
@@ -49,7 +50,6 @@ export const WATCHED_PULL_REQUESTS_QUERY = `
                 __typename
                 login
               }
-              authorAssociation
               body
               submittedAt
               comments {
@@ -63,7 +63,6 @@ export const WATCHED_PULL_REQUESTS_QUERY = `
                 __typename
                 login
               }
-              authorAssociation
               createdAt
             }
           }
@@ -72,11 +71,6 @@ export const WATCHED_PULL_REQUESTS_QUERY = `
     }
   }
 `;
-
-interface Actor {
-  __typename: string;
-  login: string;
-}
 
 interface WatchedNode {
   number: number;
@@ -90,13 +84,12 @@ interface WatchedNode {
   reviews: {
     nodes: {
       author: Actor | null;
-      authorAssociation: string;
       body: string;
       submittedAt: string | null;
       comments: { totalCount: number };
     }[];
   };
-  comments: { nodes: { author: Actor | null; authorAssociation: string; createdAt: string }[] };
+  comments: { nodes: { author: Actor | null; createdAt: string }[] };
 }
 
 interface WatchedPage {
@@ -121,35 +114,37 @@ export interface WatchedPullRequest {
   defaultSha: string;
 }
 
-const FEEDBACK_ASSOCIATIONS = new Set(['OWNER', 'COLLABORATOR']);
-
-export const givesFeedback = (author: Actor | null, authorAssociation: string): boolean =>
-  (author === null || author.__typename !== 'Bot') && FEEDBACK_ASSOCIATIONS.has(authorAssociation);
-
 const newest = (times: string[]): string | null =>
   times.reduce<string | null>((latest, time) => (latest === null || time > latest ? time : latest), null);
 
-const newestFeedback = (node: WatchedNode): string | null =>
-  newest([
-    ...node.reviews.nodes.flatMap((review) =>
+const newestFeedback = async (node: WatchedNode, isMaintainer: MaintainerLookup): Promise<string | null> => {
+  const times = await Promise.all([
+    ...node.reviews.nodes.map(async (review) =>
       review.submittedAt !== null &&
-      givesFeedback(review.author, review.authorAssociation) &&
-      (review.body.trim() !== '' || review.comments.totalCount > 0)
+      (review.body.trim() !== '' || review.comments.totalCount > 0) &&
+      (await isMaintainer(review.author))
         ? [review.submittedAt]
         : [],
     ),
-    ...node.comments.nodes.flatMap((comment) =>
-      givesFeedback(comment.author, comment.authorAssociation) ? [comment.createdAt] : [],
+    ...node.comments.nodes.map(async (comment) =>
+      (await isMaintainer(comment.author)) ? [comment.createdAt] : [],
     ),
   ]);
+  return newest(times.flat());
+};
 
-const toWatched = (node: WatchedNode, github: string, defaultSha: string): WatchedPullRequest => ({
+const toWatched = async (
+  node: WatchedNode,
+  github: string,
+  defaultSha: string,
+  isMaintainer: MaintainerLookup,
+): Promise<WatchedPullRequest> => ({
   number: node.number,
   url: pullRequestUrl(node.url),
   closes: node.closingIssuesReferences.nodes
     .filter((issue) => issue.repository.nameWithOwner.toLowerCase() === github.toLowerCase())
     .map((issue) => issue.number),
-  newestFeedbackAt: newestFeedback(node),
+  newestFeedbackAt: await newestFeedback(node, isMaintainer),
   mergeable: node.mergeable,
   headSha: node.headRefOid,
   defaultSha,
@@ -180,6 +175,7 @@ export const queryWatchedPullRequests = async (
   appLogin: string,
 ): Promise<WatchedPullRequest[]> => {
   const watched: WatchedPullRequest[] = [];
+  const isMaintainer = maintainerLookup(fetch, token, github);
   const cursors = new Set<string>();
   let after: string | null = null;
   do {
@@ -189,12 +185,14 @@ export const queryWatchedPullRequests = async (
       throw new Error(`GitHub reported no default branch for ${github}`);
     }
     watched.push(
-      ...pullRequests.nodes
-        .filter(
-          ({ author }) =>
-            author?.__typename === 'Bot' && author.login.toLowerCase() === appLogin.toLowerCase(),
-        )
-        .map((node) => toWatched(node, github, defaultSha)),
+      ...(await Promise.all(
+        pullRequests.nodes
+          .filter(
+            ({ author }) =>
+              author?.__typename === 'Bot' && author.login.toLowerCase() === appLogin.toLowerCase(),
+          )
+          .map((node) => toWatched(node, github, defaultSha, isMaintainer)),
+      )),
     );
     after = pullRequests.pageInfo.hasNextPage ? pullRequests.pageInfo.endCursor : null;
     if (after !== null && cursors.has(after)) {
@@ -216,7 +214,6 @@ export const FEEDBACK_WINDOW_QUERY = `
               __typename
               login
             }
-            authorAssociation
             body
             submittedAt
             comments(first: 100) {
@@ -226,7 +223,6 @@ export const FEEDBACK_WINDOW_QUERY = `
                   __typename
                   login
                 }
-                authorAssociation
                 body
                 createdAt
                 path
@@ -243,7 +239,6 @@ export const FEEDBACK_WINDOW_QUERY = `
               __typename
               login
             }
-            authorAssociation
             body
             createdAt
           }
@@ -256,7 +251,6 @@ export const FEEDBACK_WINDOW_QUERY = `
 interface AuthoredNode {
   url: string;
   author: Actor | null;
-  authorAssociation: string;
   body: string;
 }
 
@@ -315,11 +309,28 @@ export const queryFeedbackWindow = async (
   const instant = (time: string): number => Date.parse(time);
   const inWindow = (time: string): boolean =>
     (after === null || instant(time) > instant(after)) && instant(time) <= instant(until);
-  const counts = (node: AuthoredNode & { at: string | null }): boolean =>
-    node.at !== null && inWindow(node.at) && givesFeedback(node.author, node.authorAssociation);
+  const isMaintainer = maintainerLookup(fetch, token, github);
+  const keep = async <Node extends AuthoredNode>(
+    nodes: Node[],
+    at: (node: Node) => string | null,
+  ): Promise<Node[]> => {
+    const counted = await Promise.all(
+      nodes.map(async (node) => {
+        const time = at(node);
+        return time !== null && inWindow(time) && (await isMaintainer(node.author));
+      }),
+    );
+    return nodes.filter((_, index) => counted[index]);
+  };
+  const reviews = await keep(pullRequest.reviews.nodes, (review) => review.submittedAt);
+  const inline = await keep(
+    pullRequest.reviews.nodes.flatMap((review) => review.comments.nodes),
+    (comment) => comment.createdAt,
+  );
+  const conversation = await keep(pullRequest.comments.nodes, (comment) => comment.createdAt);
   const items: FeedbackItem[] = [
-    ...pullRequest.reviews.nodes.flatMap((review): FeedbackItem[] => [
-      ...(review.body.trim() !== '' && counts({ ...review, at: review.submittedAt })
+    ...reviews.flatMap((review): FeedbackItem[] =>
+      review.body.trim() !== ''
         ? [
             {
               kind: 'review summary' as const,
@@ -331,30 +342,26 @@ export const queryFeedbackWindow = async (
               line: null,
             },
           ]
-        : []),
-      ...review.comments.nodes
-        .filter((comment) => counts({ ...comment, at: comment.createdAt }))
-        .map((comment) => ({
-          kind: 'inline review comment' as const,
-          author: authorOf(comment.author),
-          url: comment.url,
-          body: comment.body,
-          createdAt: comment.createdAt,
-          path: comment.path,
-          line: comment.line ?? comment.originalLine,
-        })),
-    ]),
-    ...pullRequest.comments.nodes
-      .filter((comment) => counts({ ...comment, at: comment.createdAt }))
-      .map((comment) => ({
-        kind: 'conversation comment' as const,
-        author: authorOf(comment.author),
-        url: comment.url,
-        body: comment.body,
-        createdAt: comment.createdAt,
-        path: null,
-        line: null,
-      })),
+        : [],
+    ),
+    ...inline.map((comment) => ({
+      kind: 'inline review comment' as const,
+      author: authorOf(comment.author),
+      url: comment.url,
+      body: comment.body,
+      createdAt: comment.createdAt,
+      path: comment.path,
+      line: comment.line ?? comment.originalLine,
+    })),
+    ...conversation.map((comment) => ({
+      kind: 'conversation comment' as const,
+      author: authorOf(comment.author),
+      url: comment.url,
+      body: comment.body,
+      createdAt: comment.createdAt,
+      path: null,
+      line: null,
+    })),
   ];
   return items.sort((a, b) => instant(a.createdAt) - instant(b.createdAt));
 };

@@ -58,7 +58,6 @@ const graphqlNode = (pull: FakePullRequest) => ({
         : [
             {
               author: { __typename: 'User', login: 'reviewer' },
-              authorAssociation: 'COLLABORATOR',
               body: 'Please rename this',
               submittedAt: pull.feedbackAt,
               comments: { totalCount: 1 },
@@ -116,7 +115,12 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true }: 
 
   const github =
     (pulls: () => FakePullRequest[]): typeof globalThis.fetch =>
-    async (_input, init) => {
+    async (input, init) => {
+      if (/\/collaborators\/reviewer\/permission$/.test(new URL(String(input)).pathname)) {
+        return new Response(JSON.stringify({ permission: 'write' }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       const body = JSON.parse(String(init?.body)) as { query: string };
       const operation = /query (\w+)/.exec(body.query)?.[1];
       const empty = { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] };

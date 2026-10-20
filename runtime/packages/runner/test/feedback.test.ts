@@ -22,15 +22,16 @@ const ago = (minutes: number): string => new Date(Date.now() - minutes * MINUTE)
 interface Author {
   login: string;
   type: 'User' | 'Bot';
-  association: string;
+  permission: string;
 }
 
-const PERSON: Author = { login: 'reviewer', type: 'User', association: 'COLLABORATOR' };
-const OWNER: Author = { login: 'rameezk', type: 'User', association: 'OWNER' };
-const MEMBER: Author = { login: 'colleague', type: 'User', association: 'MEMBER' };
-const OUTSIDER: Author = { login: 'stranger', type: 'User', association: 'NONE' };
-const FORGE: Author = { login: APP_SLUG, type: 'Bot', association: 'NONE' };
-const OTHER_BOT: Author = { login: 'dependabot', type: 'Bot', association: 'NONE' };
+const PERSON: Author = { login: 'reviewer', type: 'User', permission: 'write' };
+const OWNER: Author = { login: 'rameezk', type: 'User', permission: 'admin' };
+const TEAM_MEMBER: Author = { login: 'colleague', type: 'User', permission: 'write' };
+const READER: Author = { login: 'invited', type: 'User', permission: 'read' };
+const OUTSIDER: Author = { login: 'stranger', type: 'User', permission: 'none' };
+const FORGE: Author = { login: APP_SLUG, type: 'Bot', permission: 'none' };
+const OTHER_BOT: Author = { login: 'dependabot', type: 'Bot', permission: 'write' };
 
 interface Review {
   author: Author;
@@ -89,7 +90,6 @@ const graphqlNode = (pull: FakePullRequest) => ({
   reviews: {
     nodes: pull.reviews.map((r) => ({
       author: actor(r.author),
-      authorAssociation: r.author.association,
       body: r.body,
       submittedAt: r.at,
       comments: { totalCount: r.inline },
@@ -98,14 +98,31 @@ const graphqlNode = (pull: FakePullRequest) => ({
   comments: {
     nodes: pull.comments.map((c) => ({
       author: actor(c.author),
-      authorAssociation: c.author.association,
       createdAt: c.at,
     })),
   },
 });
 
-const github = (pulls: () => FakePullRequest[]): typeof globalThis.fetch =>
-  async (_input, init) => {
+const PERMISSION_PATH = /^\/repos\/rameezk\/forge\/collaborators\/([^/]+)\/permission$/;
+
+const github = (
+  pulls: () => FakePullRequest[],
+  permissionRequests: string[] = [],
+): typeof globalThis.fetch =>
+  async (input, init) => {
+    const lookup = PERMISSION_PATH.exec(new URL(String(input)).pathname);
+    if (lookup !== null) {
+      const login = decodeURIComponent(lookup[1] as string);
+      permissionRequests.push(login);
+      const known = pulls()
+        .flatMap((pull) => [...pull.reviews, ...pull.comments])
+        .find(({ author }) => author.login === login);
+      return known === undefined
+        ? new Response('{}', { status: 404 })
+        : new Response(JSON.stringify({ permission: known.author.permission }), {
+            headers: { 'content-type': 'application/json' },
+          });
+    }
     const body = JSON.parse(String(init?.body)) as { query: string };
     const operation = /query (\w+)/.exec(body.query)?.[1];
     const data =
@@ -183,10 +200,12 @@ const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true }: Set
     }
   };
 
+  const permissionRequests: string[] = [];
+
   const syncAndPass = async (pulls: FakePullRequest[]): Promise<string[]> => {
     const before = started().length;
     const synced = await journaled(() =>
-      sync(['sync'], env, routedThrough(app, github(() => pulls))),
+      sync(['sync'], env, routedThrough(app, github(() => pulls, permissionRequests))),
     );
     assert.equal(synced.result, 0, synced.journal);
     const passed = await journaled(() => pass([], env));
@@ -207,7 +226,7 @@ const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true }: Set
       store.endRevision(start.started, state, new Date().toISOString());
     });
 
-  return { stateDir, env, withStore, syncAndPass, revise };
+  return { stateDir, env, withStore, syncAndPass, revise, permissionRequests };
 };
 
 const REVISE_UNIT = 'start --no-block --no-ask-password -- forge-revise@forge:143.service';
@@ -284,12 +303,40 @@ test('given a collaborator\'s comment about to pass its quiet period, when an ou
   );
 });
 
-test('given a review summary by an organisation member who is not a collaborator, when it has been quiet past the quiet period, then no revision starts', async () => {
+test('given a review summary by an organisation member with write access through a team, when it has been quiet past the quiet period, then a revision starts', async () => {
   const setup = forge();
   assert.deepEqual(
-    await setup.syncAndPass([pullRequest(143, { reviews: [review(ago(60), { author: MEMBER })] })]),
+    await setup.syncAndPass([
+      pullRequest(143, { reviews: [review(ago(60), { author: TEAM_MEMBER })] }),
+    ]),
+    [REVISE_UNIT],
+  );
+});
+
+test('given a read-only collaborator\'s review and comment, when sync and the pass run long past the quiet period, then no revision starts', async () => {
+  const setup = forge();
+  assert.deepEqual(
+    await setup.syncAndPass([
+      pullRequest(143, {
+        reviews: [review(ago(60), { author: READER })],
+        comments: [comment(ago(60), READER)],
+      }),
+    ]),
     [],
   );
+});
+
+test('given several pull requests commented on by the same people, when sync runs, then each person\'s permission is requested once', async () => {
+  const setup = forge();
+  await setup.syncAndPass([
+    pullRequest(143, { comments: [comment(ago(60)), comment(ago(50), OUTSIDER)] }),
+    pullRequest(144, {
+      reviews: [review(ago(60))],
+      comments: [comment(ago(40)), comment(ago(30), OUTSIDER)],
+    }),
+    pullRequest(145, { comments: [comment(ago(60), FORGE), comment(ago(60), OTHER_BOT)] }),
+  ]);
+  assert.deepEqual([...setup.permissionRequests].sort(), ['reviewer', 'stranger']);
 });
 
 test('given a review summary by the owner or a conversation comment by a collaborator, when it has been quiet past the quiet period, then a revision starts', async () => {
