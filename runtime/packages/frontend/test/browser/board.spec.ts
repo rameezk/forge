@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import type { Store, Ticket } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
@@ -226,7 +227,7 @@ test.describe('the board box', () => {
   });
 
   test('given the board box scrolled down and sideways, when a live update changes a card, then both scroll offsets are unchanged', async ({ dashboard, page }) => {
-    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.setViewportSize({ width: 1000, height: 800 });
     crowd(dashboard.store, 'forge', 40);
     await page.goto('/');
     await page.locator('[data-board]').evaluate((element) => element.scrollTo({ top: 300, left: 200 }));
@@ -294,4 +295,100 @@ test.describe('the board box on a narrow screen', () => {
     expect(fit.toFooter).toBeCloseTo(0, 0);
     expect(fit.overhang).toBeLessThanOrEqual(0);
   });
+});
+
+const GUTTER = 32;
+const MIN_COLUMN = 136;
+
+const boardFit = (page: Page) =>
+  page.locator('[data-board]').evaluate((board) => {
+    const document = board.ownerDocument;
+    const box = board.getBoundingClientRect();
+    const widths = [...document.querySelectorAll('[data-column-header]')].map((header) => header.getBoundingClientRect().width);
+    const inner = (selector: string) => document.querySelector(selector)!.firstElementChild!.getBoundingClientRect().width;
+    return {
+      viewport: document.documentElement.clientWidth,
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      boxWidth: box.width,
+      boxOverflow: board.scrollWidth - board.clientWidth,
+      columns: widths,
+      header: inner('header'),
+      footer: inner('footer'),
+    };
+  });
+
+for (const width of [3440, 1920]) {
+  test.describe(`on a ${width}px screen`, () => {
+    test.use({ viewport: { width, height: 900 } });
+
+    test(`given a ${width}px viewport, when the Board is opened, then the board, header and footer span the viewport less the gutter, the nine columns share it equally and nothing scrolls sideways`, async ({ dashboard, page }) => {
+      seed(dashboard.store, [ticket(1)]);
+      await page.goto('/');
+      await expect(page.locator('[data-column-header]')).toHaveCount(9);
+
+      const fit = await boardFit(page);
+
+      expect(fit.boxWidth).toBeCloseTo(width - GUTTER, 0);
+      expect(fit.header).toBeCloseTo(width, 0);
+      expect(fit.footer).toBeCloseTo(width, 0);
+      expect(fit.boxOverflow).toBe(0);
+      expect(fit.pageOverflow).toBe(0);
+      expect(fit.columns).toHaveLength(9);
+      for (const column of fit.columns) expect(column).toBeCloseTo(fit.columns[0]!, 0);
+      expect(fit.columns[0]).toBeGreaterThan((width - GUTTER) / 9 - 4);
+    });
+  });
+}
+
+test.describe('on a laptop screen', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test('given a 1280px viewport, when the Board is opened, then all nine columns are visible and the box does not scroll sideways', async ({ dashboard, page }) => {
+    seed(dashboard.store, [ticket(1)]);
+    await page.goto('/');
+    await expect(page.locator('[data-column-header]')).toHaveCount(9);
+
+    const fit = await boardFit(page);
+
+    expect(fit.boxOverflow).toBe(0);
+    expect(fit.pageOverflow).toBe(0);
+    for (const column of fit.columns) expect(column).toBeGreaterThanOrEqual(MIN_COLUMN);
+  });
+});
+
+test.describe('on a narrow laptop screen', () => {
+  test.use({ viewport: { width: 1000, height: 800 } });
+
+  test('given a 1000px viewport, when the Board is opened, then the columns keep their minimum width, the box scrolls sideways and the page does not', async ({ dashboard, page }) => {
+    seed(dashboard.store, [ticket(1)]);
+    await page.goto('/');
+    await expect(page.locator('[data-column-header]')).toHaveCount(9);
+
+    const fit = await boardFit(page);
+
+    expect(fit.boxOverflow).toBeGreaterThan(0);
+    expect(fit.pageOverflow).toBe(0);
+    for (const column of fit.columns) expect(column).toBeCloseTo(MIN_COLUMN, 0);
+  });
+
+  test('given a 1000px viewport and the Board grouped by spec, when it is opened, then the band shows and the page does not scroll sideways', async ({ dashboard, page }) => {
+    seed(dashboard.store, [{ ...ticket(1), parent: { number: 440, title: 'Spec 440', url: 'https://github.com/rameezk/forge/issues/440' } }]);
+    await page.goto('/?group=spec');
+
+    await expect(page.locator('[data-spec-band]')).toHaveCount(1);
+    expect((await boardFit(page)).pageOverflow).toBe(0);
+  });
+});
+
+test.describe('other pages on an ultra-wide screen', () => {
+  test.use({ viewport: { width: 3440, height: 900 } });
+
+  for (const path of ['/workloads', '/insights']) {
+    test(`given a 3440px viewport, when ${path} is opened, then its content is no wider than 1600px`, async ({ page }) => {
+      await page.goto(path);
+
+      const widths = await page.locator('body').evaluate((body) => ['main', 'header > div', 'footer > div'].map((selector) => body.querySelector(selector)!.getBoundingClientRect().width));
+      for (const width of widths) expect(width).toBeLessThanOrEqual(1600);
+    });
+  }
 });

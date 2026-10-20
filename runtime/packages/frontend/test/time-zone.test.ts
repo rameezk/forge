@@ -139,6 +139,6 @@ test('given Africa/Johannesburg, when any page is requested, then its footer rea
     const body = await get(page);
     assert.equal(footerOf(body), 'Times in Africa/Johannesburg', page);
     assert.match(body, /<footer[^>]*class="[^"]*\bborder-t\b[^"]*\btext-muted\b[^"]*"/, page);
-    assert.match(body, /<footer[\s\S]*?<div[^>]*class="[^"]*max-w-\[100rem\][^"]*"/, page);
+    assert.match(body, /<footer[\s\S]*?<div[^>]*class="[^"]*\bmx-auto\b[^"]*\bpx-4\b[^"]*"/, page);
   }
 });

@@ -174,14 +174,19 @@ const navLink = (href: string, label: string, current: boolean): HtmlEscapedStri
     ? html`<a href="${href}" aria-current="page" class="${NAV_LINK} border-accent font-semibold text-fg">${label}</a>`
     : html`<a href="${href}" class="${NAV_LINK} border-transparent text-muted hover:text-fg">${label}</a>`;
 
+type Fit = 'scroll' | 'desktop' | 'always';
+
+const FIT_WIDTH = { scroll: 'max-w-[100rem]', desktop: 'max-w-[100rem]', always: '' } as const;
+
 const renderHeader = (
+  fit: Fit,
   current: Page | null,
   live: boolean,
   assets: AssetHrefs,
   version: string | undefined,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<header class="border-b border-line bg-surface">
-    <div class="mx-auto flex max-w-[100rem] items-center gap-6 px-4 py-2">
+    <div class="mx-auto flex ${FIT_WIDTH[fit]} items-center gap-6 px-4 py-2">
       <a href="/" data-brand class="flex items-center gap-2 rounded-sm text-[1.05rem] font-bold tracking-tight text-fg no-underline"><img src="${assets.logo}" alt="" width="28" height="28" class="size-7" />Forge</a>
       <nav class="flex gap-4">
         ${NAV.map(({ page, href, label }) => navLink(href, label, page === current))}
@@ -189,8 +194,6 @@ const renderHeader = (
       ${live ? html`<span id="live" role="status" data-live${version === undefined ? '' : html` data-version="${version}"`} hidden class="${LIVE_INDICATOR}"></span>` : ''}
     </div>
   </header>`;
-
-type Fit = 'scroll' | 'desktop' | 'always';
 
 const FIT_BODY = { scroll: '', desktop: ' lg:flex lg:h-dvh lg:flex-col', always: ' flex h-dvh flex-col' } as const;
 
@@ -220,9 +223,9 @@ export const layout = (
         <script src="${assets.client}" defer></script>
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${FIT_BODY[fit]}">
-        ${renderHeader(current, live, assets, version)}
-        <main class="mx-auto w-full max-w-[100rem] px-4 ${FIT_MAIN[fit]}">${body}</main>
-        <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="mx-auto w-full max-w-[100rem] px-4 py-4">Times in ${timeZone}</div></footer>
+        ${renderHeader(fit, current, live, assets, version)}
+        <main class="mx-auto w-full ${FIT_WIDTH[fit]} px-4 ${FIT_MAIN[fit]}">${body}</main>
+        <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="mx-auto w-full ${FIT_WIDTH[fit]} px-4 py-4">Times in ${timeZone}</div></footer>
       </body>
     </html>`;
 
