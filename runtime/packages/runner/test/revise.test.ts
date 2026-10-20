@@ -105,7 +105,6 @@ interface Actor {
 interface Authored {
   url: string;
   author: Actor | null;
-  authorAssociation: string;
   body: string;
 }
 
@@ -148,7 +147,6 @@ const conversationComment = (
 ): Authored & { createdAt: string } => ({
   url: `${PULL_REQUEST_URL}#issuecomment-1`,
   author: OWNER,
-  authorAssociation: 'OWNER',
   body: 'Please rename the helper.',
   createdAt: '2026-09-22T10:00:00Z',
   ...overrides,
@@ -244,6 +242,7 @@ interface Scenario {
   seed?: (store: Store) => void;
   maxConcurrent?: number;
   botLookupFails?: boolean;
+  permissions?: Record<string, string>;
   piPackage?: string;
 }
 
@@ -311,7 +310,19 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   writeFileSync(privateKeyFile, app.privateKey);
   const pullRequest = scenario.pullRequest ?? pullRequestFixture();
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    assert.equal(new URL(String(input)).pathname, '/graphql');
+    const { pathname } = new URL(String(input));
+    const lookup = /^\/repos\/rameezk\/forge\/collaborators\/([^/]+)\/permission$/.exec(pathname);
+    if (lookup !== null) {
+      const permission = { rameezk: 'admin', ...scenario.permissions }[
+        decodeURIComponent(lookup[1] as string)
+      ];
+      return permission === undefined
+        ? new Response('{}', { status: 404 })
+        : new Response(JSON.stringify({ permission }), {
+            headers: { 'content-type': 'application/json' },
+          });
+    }
+    assert.equal(pathname, '/graphql');
     const { query } = JSON.parse(String(init?.body)) as { query: string };
     const answer = query.includes('query FeedbackWindow')
       ? scenario.feedback ?? feedbackWindow({ comments: [conversationComment()] })
@@ -633,7 +644,6 @@ test('given a window holding a review summary, an inline review comment and a co
         {
           url: `${PULL_REQUEST_URL}#pullrequestreview-7`,
           author: OWNER,
-          authorAssociation: 'OWNER',
           body: 'Overall this needs a second look.',
           submittedAt: '2026-09-22T09:00:00Z',
           comments: {
@@ -641,7 +651,6 @@ test('given a window holding a review summary, an inline review comment and a co
               {
                 url: `${PULL_REQUEST_URL}#discussion_r9`,
                 author: OWNER,
-                authorAssociation: 'OWNER',
                 body: 'This loop is off by one.',
                 createdAt: '2026-09-22T09:00:00Z',
                 path: 'src/loop.ts',
@@ -704,27 +713,36 @@ test('given a revision that ended in error over a comment, when forge-revise run
   assert.match(instructionOf(pi), /Raised before the failure\./);
 });
 
-test('given a window holding a collaborator\'s comment and one by an author with no association, when the revision runs, then only the collaborator\'s comment is in the instruction', async () => {
+test('given a window holding comments from a maintainer, a read-only collaborator, an outsider and a bot, when the revision runs, then only the maintainer\'s comment is in the instruction', async () => {
   const { pi } = await revise({
+    permissions: { helper: 'write', reader: 'read', 'dependabot': 'write' },
     feedback: feedbackWindow({
       comments: [
         conversationComment({
           author: { __typename: 'User', login: 'helper' },
-          authorAssociation: 'COLLABORATOR',
-          body: 'From a collaborator.',
+          body: 'From a maintainer.',
+        }),
+        conversationComment({
+          author: { __typename: 'User', login: 'reader' },
+          body: 'From a reader.',
         }),
         conversationComment({
           author: { __typename: 'User', login: 'stranger' },
-          authorAssociation: 'NONE',
           body: 'From a stranger.',
+        }),
+        conversationComment({
+          author: { __typename: 'Bot', login: 'dependabot' },
+          body: 'From a bot.',
         }),
       ],
     }),
   });
 
   const instruction = instructionOf(pi);
-  assert.match(instruction, /From a collaborator\./);
+  assert.match(instruction, /From a maintainer\./);
+  assert.doesNotMatch(instruction, /From a reader\./);
   assert.doesNotMatch(instruction, /From a stranger\./);
+  assert.doesNotMatch(instruction, /From a bot\./);
 });
 
 test('given a revision whose window holds no feedback, when it runs, then pi never starts and the revision ends ok', async () => {
@@ -780,14 +798,12 @@ test('given a live revision of the pull request and a bot user lookup that answe
 const inlineReview = (comments: { url: string; createdAt: string }[]) => ({
   url: `${PULL_REQUEST_URL}#pullrequestreview-7`,
   author: OWNER,
-  authorAssociation: 'OWNER',
   body: 'Overall this needs a second look.',
   submittedAt: '2026-09-22T09:00:00Z',
   comments: {
     nodes: comments.map(({ url, createdAt }) => ({
       url,
       author: OWNER,
-      authorAssociation: 'OWNER',
       body: 'This loop is off by one.',
       createdAt,
       path: 'src/loop.ts',
