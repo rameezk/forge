@@ -165,7 +165,7 @@ A ticket with open blockers, whichever status it carries; a queued ticket is the
 _Avoid_: waiting, held
 
 **Board**:
-The dashboard's home page: a read-only kanban view of every managed repository's requests and tickets, one swimlane per repository and one column per stage from refinement to done. A person icon marks the columns where a human in the loop acts: refining, building a `ready-for-human` ticket, and reviewing.
+The dashboard's home page: a read-only kanban view of every managed repository's requests and tickets, one swimlane per repository and one column per stage from refinement to done. Its Running column holds every ticket with a live workload, whether a dispatch, a revision or a conflict resolution, ahead of any other column. A person icon marks the columns where a human in the loop acts: refining, building a `ready-for-human` ticket, and reviewing.
 _Avoid_: Work page, frontier page, kanban
 
 **Operator**:
