@@ -100,7 +100,7 @@ test('given a stored frontier, when the Board is requested, then it shows the ni
       ['ready-for-human', 'Ready for human', '0', 'Needs a human in the loop', 'Needs a human in the loop', true],
       ['ready-for-agent', 'Ready for agent', '1', 'Not handed off yet', 'Add forge:ready to hand off', false],
       ['waiting-for-slot', 'Waiting for slot', '0', 'Handed off, waiting for a slot', 'Handed off, waiting for a slot', false],
-      ['running', 'Running', '0', 'An agent is building it', 'An agent is building it', false],
+      ['running', 'Running', '0', 'An agent is working on it', 'An agent is working on it', false],
       ['in-review', 'In review', '0', 'Needs a human in the loop', 'Needs a human in the loop', true],
       ['failed', 'Failed', '0', 'Agent run failed', 'Set forge:ready to retry', false],
       ['done', 'Done', '0', 'Closed in the last 7 days', 'Closed in the last 7 days', false],
@@ -190,21 +190,6 @@ test('given a done dispatch whose pull request was closed without merging while 
 
   assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { failed: ['5'] });
   assert.match(textOf(cardOf(body, 5)), /Pull request closed/);
-});
-
-test('given a done dispatch with an open pull request and a running revision on it, when the Board is requested, then the ticket is in In review with a revising marker, and a ticket whose pull request is not being revised has none', async () => {
-  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
-    store.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
-    store.endDispatch(dispatched(store, 6), { state: 'done', pullRequest: pullRequest(106) }, '2026-09-30T09:00:00.000Z');
-    const start = store.startRevision({ repository: 'forge', ...pullRequest(105) }, [5], 'revision-105', new Date().toISOString(), Number.POSITIVE_INFINITY);
-    assert.ok('started' in start);
-  });
-
-  const body = await (await app.request('/')).text();
-
-  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'in-review': ['5', '6'] });
-  assert.match(cardOf(body, 5), /data-revising[^>]*>\s*revising\s*</);
-  assert.doesNotMatch(cardOf(body, 6), /data-revising/);
 });
 
 test('given a blocked ready-for-agent ticket, a blocked forge:ready ticket and a blocked ready-for-human ticket, when the Board is requested, then all three are in Blocked, the first with no marker, the second with a queued pill and the third with a ready-for-human tag, and each says which tickets block it', async () => {
@@ -524,22 +509,161 @@ test('given a done dispatch with an open pull request and no running revision, w
   const card = cardOf(await (await app.request('/')).text(), 5);
 
   assert.match(textOf(card), /PR #105$/);
-  assert.doesNotMatch(card, /data-elapsed-since|data-revising/);
+  assert.doesNotMatch(card, /data-elapsed-since|running/);
 });
 
-test('given a done dispatch with an open pull request and a running revision, when the Board is requested, then the card shows a revising pill linking to the revision run page and an elapsed time from the revision run harness start', async () => {
+const startRevisionOn = (store: Store, ticketNumber: number, prNumber: number, startedAt = new Date().toISOString()): number => {
+  const start = store.startRevision({ repository: 'forge', ...pullRequest(prNumber) }, [ticketNumber], `revision-${prNumber}`, startedAt, Number.POSITIVE_INFINITY);
+  assert.ok('started' in start);
+  return start.started;
+};
+
+const startResolutionOn = (store: Store, ticketNumber: number, prNumber: number, startedAt = new Date().toISOString()): number => {
+  const start = store.startConflictResolution({ repository: 'forge', ...pullRequest(prNumber) }, [ticketNumber], `resolution-${prNumber}`, startedAt, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
+  assert.ok('started' in start);
+  return start.started;
+};
+
+const inReview = (store: Store, number: number, startedAt = '2026-09-30T08:00:00.000Z'): void => {
+  store.endDispatch(dispatched(store, number, startedAt), { state: 'done', pullRequest: pullRequest(100 + number) }, '2026-09-30T09:00:00.000Z');
+};
+
+const pillsOf = (card: string): string[] => [...card.matchAll(/<span[^>]*class="[^"]*rounded-full[^"]*"[^>]*>([^<]*)<\/span>/g)].map(([, text]) => text ?? '');
+
+test('given a done dispatch with an open pull request and a live revision on it, when the Board is requested, then the ticket is in Running with a running pill linking to the revision run, an elapsed time from its harness start, a revision kind pill and its PR link', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
-    store.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
+    inReview(store, 5);
     store.insertRun({ ...runOf(105), id: 'revision-105', startTime: '2026-09-30T10:00:00.000Z', harnessStartTime: '2026-09-30T10:05:00.000Z' });
-    const start = store.startRevision({ repository: 'forge', ...pullRequest(105) }, [5], 'revision-105', new Date().toISOString(), Number.POSITIVE_INFINITY);
-    assert.ok('started' in start);
+    startRevisionOn(store, 5, 105);
   });
 
-  const card = cardOf(await (await app.request('/')).text(), 5);
+  const body = await (await app.request('/')).text();
+  const card = cardOf(body, 5);
 
-  assert.match(card, /<a href="\/runs\/revision-105"[^>]*><span[^>]*data-revising[^>]*>revising<\/span><\/a>/);
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { running: ['5'] });
+  assert.match(card, /<a href="\/runs\/revision-105"[^>]*><span[^>]*>running<\/span><\/a>/);
   assert.match(card, /data-elapsed-since="2026-09-30T10:05:00.000Z"/);
   assert.equal(card.match(/data-elapsed-since/g)?.length, 1);
+  assert.deepEqual(pillsOf(card), ['running', 'revision']);
+  assert.match(card, /<a href="https:\/\/github.com\/rameezk\/forge\/pull\/105"[^>]*>PR #105<\/a>/);
+  assert.doesNotMatch(card, /revising/);
+});
+
+test('given a done dispatch with an open pull request and a live conflict resolution on it, when the Board is requested, then the ticket is in Running with a running pill linking to the resolution run, an elapsed time, a conflict resolution kind pill and its PR link', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    store.insertRun({ ...runOf(105), id: 'resolution-105', startTime: '2026-09-30T10:00:00.000Z', harnessStartTime: '2026-09-30T10:07:00.000Z' });
+    startResolutionOn(store, 5, 105);
+  });
+
+  const body = await (await app.request('/')).text();
+  const card = cardOf(body, 5);
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { running: ['5'] });
+  assert.match(card, /<a href="\/runs\/resolution-105"[^>]*><span[^>]*>running<\/span><\/a>/);
+  assert.match(card, /data-elapsed-since="2026-09-30T10:07:00.000Z"/);
+  assert.deepEqual(pillsOf(card), ['running', 'conflict resolution']);
+  assert.match(card, /<a href="https:\/\/github.com\/rameezk\/forge\/pull\/105"[^>]*>PR #105<\/a>/);
+});
+
+test('given a running dispatch, when the Board is requested, then its card is in Running with a running pill, an elapsed time and a dispatch kind pill, and no pull request link', async () => {
+  const app = appWith([frontierOf([ticket({ number: 4, forgeReady: true })])], (store) => {
+    store.insertRun({ ...runOf(4), harnessStartTime: '2026-09-30T08:03:00.000Z' });
+    dispatched(store, 4, new Date().toISOString());
+  });
+
+  const body = await (await app.request('/')).text();
+  const card = cardOf(body, 4);
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { running: ['4'] });
+  assert.deepEqual(pillsOf(card), ['running', 'dispatch']);
+  assert.match(card, /<a href="\/runs\/run-4"/);
+  assert.match(card, /data-elapsed-since="2026-09-30T08:03:00.000Z"/);
+  assert.doesNotMatch(card, /PR #/);
+});
+
+test('given a running dispatch whose ticket is blocked, one whose ticket is ready-for-human and a live revision on the open pull request of a ticket closed by hand, when the Board is requested, then all three are in Running and none is in Blocked, Ready for human or Done', async () => {
+  const app = appWith([frontierOf(
+    [ticket({ number: 4, forgeReady: true, blocked: true, blockedBy: [1] }), ticket({ number: 5, forgeReady: true, forHuman: true })],
+    [],
+    [closedTicket({ number: 6 })],
+  )], (store) => {
+    dispatched(store, 4, new Date().toISOString());
+    dispatched(store, 5, new Date().toISOString());
+    inReview(store, 6);
+    startRevisionOn(store, 6, 106);
+  });
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { running: ['4', '5', '6'] });
+  assert.deepEqual(pillsOf(cardOf(body, 6)), ['running', 'revision']);
+});
+
+test('given a done dispatch with an open pull request whose latest revision has ended and another whose latest conflict resolution has ended, when the Board is requested, then both are in In review with no running pill and no revising pill', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    inReview(store, 6);
+    store.endRevision(startRevisionOn(store, 5, 105), 'ok', new Date().toISOString());
+    store.endConflictResolution(startResolutionOn(store, 6, 106), 'ok', new Date().toISOString());
+  });
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'in-review': ['5', '6'] });
+  for (const number of [5, 6]) assert.doesNotMatch(cardOf(body, number), /running|revising/);
+});
+
+test('given a revision still marked running whose last heartbeat is older than the liveness window, when the Board is requested, then its ticket is not in Running and the slot pill does not count it', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    startRevisionOn(store, 5, 105, '2026-09-30T10:00:00.000Z');
+  }, 4);
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'in-review': ['5'] });
+  assert.equal(textOf(runningLimit(body)).replace(/\s+/g, ' ').trim(), 'Running 0 / 4');
+});
+
+test('given a limit of 4 with one running dispatch, one live revision and one live conflict resolution across two repositories, when the Board is requested, then the Running column total reads 3 and the slot pill reads Running 3 / 4', async () => {
+  const other = { repository: 'other', github: 'rameezk/other', polledAt: '2026-09-29T08:15:00.000Z', closed: [], requests: [], tickets: [ticket({ number: 9, forgeReady: true })] };
+  const app = appWith([frontierOf([ticket({ number: 4, forgeReady: true }), ticket({ number: 5, forgeReady: true })]), other], (store) => {
+    const now = new Date().toISOString();
+    dispatched(store, 4, now);
+    inReview(store, 5);
+    startRevisionOn(store, 5, 105);
+    const dispatch = store.startDispatch({ repository: 'other', number: 9, url: 'https://github.com/rameezk/other/issues/9' }, 'run-9', now, Number.POSITIVE_INFINITY);
+    assert.ok('started' in dispatch);
+    store.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 109, url: 'https://github.com/rameezk/other/pull/109' } }, now);
+    const start = store.startConflictResolution({ repository: 'other', number: 109, url: 'https://github.com/rameezk/other/pull/109' }, [9], 'resolution-109', now, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
+    assert.ok('started' in start);
+  }, 4);
+
+  const body = await (await app.request('/')).text();
+  const running = columnHeaders(body).find((header) => header.includes('data-column-header="running"')) ?? '';
+
+  assert.equal(/data-column-total[^>]*>([^<]*)</.exec(running)?.[1], '3');
+  assert.equal(textOf(runningLimit(body)).replace(/\s+/g, ' ').trim(), 'Running 3 / 4');
+});
+
+test('given a done dispatch with an open pull request whose latest revision did not start and no live workload, when the Board is requested, then the card is in In review with its Revision did not start line', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    store.failRevisionStart(startRevisionOn(store, 5, 105), 'clone failed', new Date().toISOString());
+  });
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'in-review': ['5'] });
+  assert.match(cardOf(body, 5), /data-revision-failed-start/);
+  assert.match(textOf(cardOf(body, 5)), /Revision did not start/);
+});
+
+test('given the Board, when it is requested, then the slot pill tooltip reads Workloads running, out of the global limit', async () => {
+  const header = runningLimit(await (await appWith([], () => {}, 2).request('/')).text());
+
+  assert.match(header, /title="Workloads running, out of the global limit"/);
 });
 
 test('given a running dispatch whose run has no harness start time, when the Board is requested, then the Running card counts from the run start time', async () => {
