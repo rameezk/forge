@@ -9,7 +9,6 @@ import {
   startHeartbeat,
   Store,
   type Fetch,
-  type RunRecord,
   type RevisionFailureRecord,
   type RevisionStart,
 } from '@forge/shared';
@@ -21,8 +20,7 @@ import {
 import { launchInCheckout } from './checkout-workload.ts';
 import { fillPrompt, headRefusal, stateOf } from './pull-request-workload.ts';
 import { gitEnvironment } from './git.ts';
-import { revisionInstruction, type Worker } from './harness.ts';
-import { providerSpec } from './provider.ts';
+import { revisionInstruction } from './harness.ts';
 import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
@@ -41,41 +39,6 @@ const startRefusal = (start: Exclude<RevisionStart, { started: number }>): strin
       return `${start.live} ${start.live === 1 ? 'workload is' : 'workloads are'} already running, the most forge.runtime.dispatch.maxConcurrent allows`;
   }
 };
-
-const notStartedRun = (
-  worker: Worker,
-  id: string,
-  at: string,
-  error: string,
-): RunRecord => ({
-  id,
-  worker: worker.name,
-  harness: worker.harness,
-  model: worker.model,
-  reasoningEffort: worker.reasoningEffort ?? null,
-  startTime: at,
-  endTime: at,
-  status: 'error',
-  costStatus: providerSpec(worker.provider).subscription ? 'subscription' : 'pending',
-  costUsd: 0,
-  costEstimated: false,
-  unconfirmedEstimateUsd: 0,
-  listPrice: null,
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheWriteTokens: 0,
-  transcriptRef: null,
-  sessionId: null,
-  error,
-  ticket: null,
-  aliveAt: null,
-  harnessStartTime: null,
-  timeoutSeconds: worker.timeoutSeconds ?? null,
-  maxCostUsd: worker.maxCostUsd ?? null,
-  exceededLimit: null,
-  counters: null,
-});
 
 export const main = async (
   argv: string[],
@@ -110,13 +73,14 @@ export const main = async (
       };
     } catch (error) {
       const at = now();
-      store.recordFailedRevision(
+      store.recordRevisionStartFailure(
         {
           repository: name,
           number: Number(number),
           url: `https://github.com/${repository.github}/pull/${number}`,
         },
-        notStartedRun(worker, randomUUID(), at, errorMessage(error)),
+        errorMessage(error),
+        at,
       );
       throw error;
     }
@@ -182,6 +146,14 @@ export const main = async (
           identity,
           runId,
         });
+        if (launched.run.harnessStartTime == null) {
+          store.failRevisionStart(
+            revisionId,
+            launched.run.error ?? errorMessage(launched.cause),
+            now(),
+          );
+          return 1;
+        }
         if (stateOf(launched) === 'ok') {
           const unanswered = await queryUnansweredFeedback(
             fetch,
@@ -196,10 +168,14 @@ export const main = async (
           }
         }
       } catch (error) {
-        store.endRevision(revisionId, 'error', now(), {
-          reason: 'crashed',
-          detail: errorMessage(error),
-        });
+        if (store.getRun(runId)?.harnessStartTime == null) {
+          store.failRevisionStart(revisionId, errorMessage(error), now());
+        } else {
+          store.endRevision(revisionId, 'error', now(), {
+            reason: 'crashed',
+            detail: errorMessage(error),
+          });
+        }
         throw error;
       }
       store.endRevision(

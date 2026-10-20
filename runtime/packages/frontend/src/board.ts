@@ -1,4 +1,4 @@
-import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -19,7 +19,8 @@ export type ColumnKey = (typeof COLUMNS)[number]['key'];
 interface CardState {
   dispatch: DispatchRecord | undefined;
   revision: RevisionRecord | undefined;
-  failedStart: ConflictResolutionRecord | undefined;
+  conflictFailedStart: ConflictResolutionRecord | undefined;
+  revisionFailedStart: RevisionRecord | undefined;
 }
 
 export type BoardCard =
@@ -74,8 +75,18 @@ const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): Exclude
   return ticket.forgeReady ? 'waiting-for-slot' : 'ready-for-agent';
 };
 
-const failedStartOf = (resolution: ConflictResolutionRecord | undefined): ConflictResolutionRecord | undefined =>
-  resolution?.reason === 'not-started' ? resolution : undefined;
+const latestSettledOf = <T extends PullRequestWorkloadRecord>(records: readonly T[]): Map<string, T> => {
+  const latest = new Map<string, T>();
+  for (const record of records) {
+    const key = ticketKey(record.repository, record.number);
+    const known = latest.get(key);
+    if (record.state !== 'running' && (known === undefined || known.id < record.id)) latest.set(key, record);
+  }
+  return latest;
+};
+
+const failedStartOf = <T extends PullRequestWorkloadRecord>(record: T | undefined): T | undefined =>
+  record?.reason === 'not-started' ? record : undefined;
 
 export const buildLanes = (
   frontier: RepositoryFrontier[],
@@ -84,16 +95,12 @@ export const buildLanes = (
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
 ): BoardLane[] => {
   const revising = new Map(revisions.filter(({ state }) => state === 'running').map((revision) => [ticketKey(revision.repository, revision.number), revision]));
-  const latestSettled = new Map<string, ConflictResolutionRecord>();
-  for (const resolution of conflictResolutions) {
-    const key = ticketKey(resolution.repository, resolution.number);
-    const known = latestSettled.get(key);
-    if (resolution.state !== 'running' && (known === undefined || known.id < resolution.id)) latestSettled.set(key, resolution);
-  }
+  const latestResolution = latestSettledOf(conflictResolutions);
+  const latestRevision = latestSettledOf(revisions);
   return frontier.map((repository) => {
     const columns = emptyColumns();
     for (const request of [...repository.requests].sort(oldestFirst)) {
-      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revision: undefined, failedStart: undefined });
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, revision: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined });
     }
     for (const ticket of [...repository.tickets].sort(oldestFirst)) {
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
@@ -104,11 +111,12 @@ export const buildLanes = (
         ticket,
         dispatch,
         revision: column === 'in-review' && pullRequest != null ? revising.get(ticketKey(repository.repository, pullRequest.number)) : undefined,
-        failedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestSettled.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
-      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revision: undefined, failedStart: undefined });
+      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), revision: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined });
     }
     return { ...repository, columns };
   });

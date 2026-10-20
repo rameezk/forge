@@ -1,5 +1,5 @@
-import { html } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, type ConflictResolutionRecord, type DispatchRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { html, raw } from 'hono/html';
+import { isGithubRepository, isGithubUrl, ticketKey, type ConflictResolutionRecord, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
@@ -53,21 +53,25 @@ const renderRunning = ({ dispatch }: BoardCard, runs: ReadonlyMap<string, RunRec
 
 const renderRevising = (revision: RevisionRecord, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const pill = html`<span data-revising class="${PILL} ${REVISING_TONE}">revising</span>`;
-  return html` <span class="whitespace-nowrap">${renderPill(runs.has(revision.runId) ? revision.runId : null, pill)}${renderElapsedSince(startOf(runs, revision.runId, revision.startedAt))}</span>`;
+  return html` <span class="whitespace-nowrap">${renderPill(revision.runId !== null && runs.has(revision.runId) ? revision.runId : null, pill)}${renderElapsedSince(startOf(runs, revision.runId, revision.startedAt))}</span>`;
 };
 
-const renderConflictFailedStart = ({ failedStarts, endedAt, startedAt, detail }: ConflictResolutionRecord): Rendered => {
+const renderPullRequestFailedStart = (
+  attribute: 'data-conflict-failed-start' | 'data-revision-failed-start',
+  label: string,
+  { failedStarts, endedAt, startedAt, detail }: PullRequestWorkloadRecord,
+): Rendered => {
   const times = failedStarts ?? 1;
   const since = endedAt ?? startedAt;
   const text = detail === null || detail.trim() === '' ? '' : `: ${detail}`;
-  return html`<p data-conflict-failed-start class="${FAILURE_LINE}" title="Conflict resolution did not start${text}">Conflict resolution did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${text}</p>`;
+  return html`<p ${raw(attribute)} class="${FAILURE_LINE}" title="${label} did not start${text}">${label} did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${text}</p>`;
 };
 
-const renderInReview = ({ dispatch, revision, failedStart }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+const renderInReview = ({ dispatch, revision, conflictFailedStart, revisionFailedStart }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${revision === undefined ? '' : renderRevising(revision, runs)}</p>${failedStart === undefined ? '' : renderConflictFailedStart(failedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${revision === undefined ? '' : renderRevising(revision, runs)}</p>${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {

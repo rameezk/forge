@@ -736,21 +736,25 @@ test('given a revision whose window holds no feedback, when it runs, then pi nev
   assert.deepEqual(revisions.map(({ state }) => state), ['ok']);
 });
 
-test('given a pull request with feedback and a bot user lookup that answers 401 Bad credentials, when forge-revise runs, then the runs list shows a failed revision for the pull request carrying the error', async () => {
+test('given a pull request with feedback and a bot user lookup that answers 401 Bad credentials, when forge-revise runs, then the revision is a failed start with no run carrying the error, and the runs list shows no run for it', async () => {
   const { code, thrown, pi, revisions, runs, runsList } = await revise({ botLookupFails: true });
 
   assert.equal(code, 1);
   assert.equal(thrown, 'GitHub answered 401: Bad credentials');
   assert.equal(pi, null);
-  assert.deepEqual(revisions.map(({ repository, number, state }) => ({ repository, number, state })), [
-    { repository: 'forge', number: 143, state: 'error' },
+  assert.deepEqual(revisions.map(({ repository, number, runId, state, reason, detail, failedStarts }) => ({ repository, number, runId, state, reason, detail, failedStarts })), [
+    {
+      repository: 'forge',
+      number: 143,
+      runId: null,
+      state: 'error',
+      reason: 'not-started',
+      detail: 'GitHub answered 401: Bad credentials',
+      failedStarts: 1,
+    },
   ]);
-  assert.equal(runs[0]?.status, 'error');
-  assert.equal(runs[0]?.error, 'GitHub answered 401: Bad credentials');
-  const row = /<tr[^>]*data-run="[^"]*"[^>]*>[\s\S]*?<\/tr>/.exec(runsList)?.[0] ?? '';
-  assert.match(textOf(row), /forge PR #143/);
-  assert.match(textOf(row), /error/);
-  assert.match(textOf(row), /GitHub answered 401: Bad credentials/);
+  assert.deepEqual(runs, []);
+  assert.doesNotMatch(runsList, /data-run=/);
 });
 
 test('given a live revision of the pull request and a bot user lookup that answers 401, when forge-revise runs, then the live revision stays the latest and no failed revision is recorded over it', async () => {
@@ -832,8 +836,8 @@ test('given a revision handed an inline comment, a review summary and a conversa
   ]);
 });
 
-test('given GitHub answers the answered check with errors and no pull request, when forge-revise runs and the worker succeeds, then the error says GitHub rejected the FeedbackAnswers query', async () => {
-  const { code, thrown, revisions } = await revise({
+test('given GitHub answers the answered check with errors and no pull request, when forge-revise runs and the worker succeeds, then the revision is crashed with its run and the error says GitHub rejected the FeedbackAnswers query', async () => {
+  const { code, thrown, revisions, runs } = await revise({
     answers: {
       data: { repository: { pullRequest: null } },
       errors: [{ message: "Field 'reactor' doesn't exist on type 'Reaction'" }],
@@ -844,8 +848,8 @@ test('given GitHub answers the answered check with errors and no pull request, w
     "GitHub rejected the FeedbackAnswers query for rameezk/forge#143: Field 'reactor' doesn't exist on type 'Reaction'";
   assert.equal(code, 1);
   assert.equal(thrown, message);
-  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'crashed', detail: message },
+  assert.deepEqual(revisions.map(({ runId, state, reason, detail }) => ({ runId, state, reason, detail })), [
+    { runId: runs[0]?.id, state: 'error', reason: 'crashed', detail: message },
   ]);
 });
 
@@ -866,7 +870,7 @@ test('given GitHub answers the answered check with a complete answer and errors,
   ]);
 });
 
-test('given GitHub rejects the feedback window query, when forge-revise runs, then no worker starts and the revision ends error as crashed with the message as detail', async () => {
+test('given GitHub rejects the feedback window query, when forge-revise runs, then no worker starts and the revision is a failed start with the message as detail', async () => {
   const { code, thrown, pi, revisions } = await revise({
     feedback: {
       data: { repository: { pullRequest: null } },
@@ -878,19 +882,19 @@ test('given GitHub rejects the feedback window query, when forge-revise runs, th
   assert.equal(code, 1);
   assert.equal(thrown, message);
   assert.equal(pi, null);
-  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'crashed', detail: message },
+  assert.deepEqual(revisions.map(({ runId, state, reason, detail }) => ({ runId, state, reason, detail })), [
+    { runId: null, state: 'error', reason: 'not-started', detail: message },
   ]);
 });
 
-test('given launching the worker throws, when forge-revise runs, then the revision ends error as crashed with the message as detail', async () => {
+test('given launching the worker throws, when forge-revise runs, then the revision is a failed start with the message as detail', async () => {
   const { code, thrown, pi, revisions } = await revise({ piPackage: join(tmpdir(), 'forge-missing-pi-package') });
 
   assert.equal(code, 1);
   assert.equal(pi, null);
   assert.notEqual(thrown, null);
-  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'crashed', detail: thrown },
+  assert.deepEqual(revisions.map(({ runId, state, reason, detail }) => ({ runId, state, reason, detail })), [
+    { runId: null, state: 'error', reason: 'not-started', detail: thrown },
   ]);
 });
 

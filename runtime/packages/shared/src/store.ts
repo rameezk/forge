@@ -649,11 +649,13 @@ type RevisionRow = {
   repository: string;
   number: number;
   url: string;
-  run_id: string;
+  run_id: string | null;
   dispatch_id: number | null;
   state: string;
   reason: string | null;
   detail: string | null;
+  failed_starts: number | null;
+  feedback_cursor: string | null;
   started_at: string;
   alive_at: string;
   ended_at: string | null;
@@ -661,18 +663,20 @@ type RevisionRow = {
 
 const CREATE_REVISIONS = `
   CREATE TABLE IF NOT EXISTS revisions (
-    id          INTEGER PRIMARY KEY,
-    repository  TEXT NOT NULL,
-    number      INTEGER NOT NULL,
-    url         TEXT NOT NULL,
-    run_id      TEXT NOT NULL,
-    dispatch_id INTEGER,
-    state       TEXT NOT NULL,
-    reason      TEXT,
-    detail      TEXT,
-    started_at  TEXT NOT NULL,
-    alive_at    TEXT NOT NULL,
-    ended_at    TEXT
+    id              INTEGER PRIMARY KEY,
+    repository      TEXT NOT NULL,
+    number          INTEGER NOT NULL,
+    url             TEXT NOT NULL,
+    run_id          TEXT,
+    dispatch_id     INTEGER,
+    state           TEXT NOT NULL,
+    reason          TEXT,
+    detail          TEXT,
+    failed_starts   INTEGER,
+    started_at      TEXT NOT NULL,
+    alive_at        TEXT NOT NULL,
+    ended_at        TEXT,
+    feedback_cursor TEXT
   ) STRICT;
 
   CREATE INDEX IF NOT EXISTS revisions_pull_request ON revisions (repository, number, id);
@@ -686,6 +690,34 @@ const HAS_REVISION_FAILURE = `
 const ADD_REVISION_FAILURE = `
   ALTER TABLE revisions ADD COLUMN reason TEXT;
   ALTER TABLE revisions ADD COLUMN detail TEXT;
+`;
+
+const HAS_REVISION_FAILED_STARTS = `
+  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'failed_starts'
+`;
+
+const ADD_REVISION_FAILED_STARTS = `
+  ALTER TABLE revisions ADD COLUMN failed_starts INTEGER;
+`;
+
+const HAS_REVISION_OPTIONAL_RUN = `
+  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'run_id' AND "notnull" = 0
+`;
+
+const MIGRATE_REVISION_RUN = `
+  ALTER TABLE revisions RENAME TO revisions_required_run;
+  DROP INDEX revisions_pull_request;
+  DROP INDEX revisions_run;
+  ${CREATE_REVISIONS}
+  INSERT INTO revisions (
+    id, repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
+    started_at, alive_at, ended_at, feedback_cursor
+  )
+  SELECT
+    id, repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
+    started_at, alive_at, ended_at, feedback_cursor
+  FROM revisions_required_run;
+  DROP TABLE revisions_required_run;
 `;
 
 const CREATE_CONFLICT_RESOLUTIONS = `
@@ -845,6 +877,7 @@ const revisionFromRow = (row: RevisionRow): RevisionRecord => ({
   state: row.state as RevisionState,
   reason: row.reason as RevisionFailure | null,
   detail: row.detail,
+  failedStarts: row.failed_starts,
   startedAt: row.started_at,
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
@@ -1132,6 +1165,8 @@ export class Store {
     db.exec(CREATE_CONFLICT_RESOLUTIONS);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_DISPATCH, ADD_CONFLICT_RESOLUTION_DISPATCH);
     this.#addColumnsOnce(HAS_REVISION_FEEDBACK_CURSOR, ADD_REVISION_FEEDBACK_CURSOR);
+    this.#addColumnsOnce(HAS_REVISION_FAILED_STARTS, ADD_REVISION_FAILED_STARTS);
+    this.#addColumnsOnce(HAS_REVISION_OPTIONAL_RUN, MIGRATE_REVISION_RUN);
     db.exec(CREATE_FEEDBACK_WATCHES);
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
@@ -2412,7 +2447,18 @@ export class Store {
     const rows = this.#db
       .prepare(
         `SELECT repository, number, url, closes FROM feedback_watches
-        WHERE newest IS NOT NULL AND unixepoch(newest) <= unixepoch($now) - $quiet
+        WHERE (
+            newest IS NOT NULL AND unixepoch(newest) <= unixepoch($now) - $quiet
+          )
+          OR (
+            mergeable IS NOT NULL
+            AND (
+              SELECT latest.reason FROM revisions latest
+              WHERE latest.repository = feedback_watches.repository
+                AND latest.number = feedback_watches.number
+              ORDER BY latest.id DESC LIMIT 1
+            ) = 'not-started'
+          )
         ORDER BY unixepoch(newest), repository, number`,
       )
       .all({ now, quiet: quietSeconds }) as FeedbackWatchRow[];
@@ -2462,28 +2508,79 @@ export class Store {
       .map(({ repository, number, url }) => ({ repository, number, url }));
   }
 
-  recordFailedRevision(pullRequest: RevisedPullRequest, run: RunRecord): void {
-    const at = run.startTime;
+  recordRevisionStartFailure(pullRequest: RevisedPullRequest, detail: string, at: string): void {
     this.#transaction(() => {
       if (this.#revisionLive(pullRequest, at)) return;
-      this.insertRun(run);
-      this.#settleRun(run.id);
+      const latest = this.#latestRevision(pullRequest);
+      if (latest?.reason === 'not-started') {
+        this.#db
+          .prepare(
+            `UPDATE revisions SET
+              detail = $detail, failed_starts = COALESCE(failed_starts, 0) + 1,
+              started_at = $at, alive_at = $at, ended_at = $at
+            WHERE id = $id`,
+          )
+          .run({ id: latest.id, detail: boundedDetail(detail), at });
+        return;
+      }
       this.#db
         .prepare(
           `INSERT INTO revisions (
-            repository, number, url, run_id, dispatch_id, state, started_at, alive_at, ended_at
+            repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
+            started_at, alive_at, ended_at, feedback_cursor
           ) VALUES (
-            $repository, $number, $url, $run_id, $dispatch_id, 'error', $at, $at, $at
+            $repository, $number, $url, NULL, $dispatch_id, 'error', 'not-started', $detail, 1,
+            $at, $at, $at, $cursor
           )`,
         )
         .run({
           repository: pullRequest.repository,
           number: pullRequest.number,
           url: pullRequest.url,
-          run_id: run.id,
           dispatch_id: this.#openingDispatchId(pullRequest),
+          detail: boundedDetail(detail),
           at,
+          cursor: this.#feedbackCursor(pullRequest),
         });
+    });
+  }
+
+  failRevisionStart(id: number, detail: string, at: string): void {
+    this.#transaction(() => {
+      const row = this.#db.prepare(`SELECT * FROM revisions WHERE id = $id`).get({ id }) as
+        | RevisionRow
+        | undefined;
+      if (row === undefined) return;
+      const previous = this.#db
+        .prepare(
+          `SELECT id, reason FROM revisions
+          WHERE repository = $repository AND number = $number AND id < $id
+          ORDER BY id DESC LIMIT 1`,
+        )
+        .get({ repository: row.repository, number: row.number, id }) as
+        | { id: number; reason: string | null }
+        | undefined;
+      if (row.state === 'running') this.#giveFeedbackBack(id);
+      if (previous?.reason === 'not-started') {
+        this.#db
+          .prepare(
+            `UPDATE revisions SET
+              detail = $detail, failed_starts = COALESCE(failed_starts, 0) + 1,
+              started_at = $at, alive_at = $at, ended_at = $at
+            WHERE id = $id`,
+          )
+          .run({ id: previous.id, detail: boundedDetail(detail), at });
+        this.#db.prepare(`DELETE FROM revisions WHERE id = $id`).run({ id });
+        return;
+      }
+      this.#db
+        .prepare(
+          `UPDATE revisions SET
+            run_id = NULL, state = 'error', reason = 'not-started', detail = $detail,
+            failed_starts = 1, ended_at = $at
+          WHERE id = $id`,
+        )
+        .run({ id, detail: boundedDetail(detail), at });
     });
   }
 
@@ -2526,7 +2623,7 @@ export class Store {
         `SELECT
           id, repository, number, url, run_id, dispatch_id,
           CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
-          reason, detail, started_at, alive_at, ended_at
+          reason, detail, failed_starts, started_at, alive_at, ended_at
         FROM revisions
         ${where}
         ORDER BY id`,
@@ -2537,10 +2634,13 @@ export class Store {
 
   #revisionsOf(dispatchId: number, now: string): AttemptRevision[] {
     return this.#selectRevisions(
-      'WHERE dispatch_id = $dispatch_id AND EXISTS (SELECT 1 FROM runs WHERE runs.id = revisions.run_id)',
+      'WHERE dispatch_id = $dispatch_id AND (run_id IS NULL OR EXISTS (SELECT 1 FROM runs WHERE runs.id = revisions.run_id))',
       { dispatch_id: dispatchId },
       now,
-    ).map((revision) => ({ revision, run: this.getRun(revision.runId)! }));
+    ).map((revision) => ({
+      revision,
+      run: revision.runId === null ? null : this.getRun(revision.runId)!,
+    }));
   }
 
   pullRequestWorkloadOfRun(runId: string, now: string): RunPullRequestWorkload | null {
