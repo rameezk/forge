@@ -112,28 +112,89 @@ test('given a finished workload, when its run page is opened, then Run details i
   assert.match(section, /data-harness/);
 });
 
-test('given a workload that ended with a long error, when its run page is opened, then the error is a collapsed disclosure with a one-line cut-off summary and the full text inside', async () => {
-  const error = `build failed: ${'x'.repeat(400)}`;
-  const body = await page({ status: 'error', error });
+const REPORT = 'The build could not finish.\n\nRan `npm test` and it exited 1.\n\n<script>alert(1)</script>';
 
-  const disclosure = element(body, 'details', 'data-run-error');
-  assert.doesNotMatch(openingTag(disclosure), /\sopen[\s>]/);
-  assert.match(disclosure, /<summary[^>]*\btruncate\b/);
-  assert.match(disclosure, /<summary[^>]*before:content-\['▶'\]/);
-  assert.match(disclosure, /<summary[^>]*before:content-\['▶'\]/);
-  assert.match(disclosure, /bg-error-soft/);
-  assert.ok(disclosure.includes(error));
+const dispatchFailed = (store: Store, detail: string): void => {
+  const start = store.startDispatch(
+    { repository: 'forge', number: 381, url: 'https://github.com/rameezk/forge/issues/381' },
+    'run-01',
+    '2026-09-21T10:00:00.000Z',
+    10,
+  );
+  assert.ok('started' in start);
+  store.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail }, '2026-09-21T10:03:20.000Z');
+};
+
+const reasonOf = (body: string): string => element(body, 'details', 'data-reason');
+
+test('given a failed ticket run whose reason is a multi-paragraph report, when its run page is opened, then the header holds no reason text and a collapsed block below the meta line shows the label and the first line in the failed tone', async () => {
+  const body = await page({}, (store) => dispatchFailed(store, REPORT));
+
+  const header = element(body, 'header', 'data-run-head');
+  const block = reasonOf(header);
+  assert.doesNotMatch(header, /data-outcome-text/);
+  assert.ok(header.indexOf('data-summary') < header.indexOf('data-reason'));
+  assert.doesNotMatch(openingTag(block), /\sopen[\s>]/);
+  assert.match(openingTag(block), /bg-error-soft/);
+  assert.match(block, /<summary[^>]*\btruncate\b/);
+  assert.match(textOf(element(block, 'summary', 'data-reason-summary')), /^No pull request\s*: The build could not finish\.$/);
 });
 
-test('given an interrupted workload and an exceeded one, when their run pages are opened, then their one-line callouts use the warning tone', async () => {
-  const interrupted = await page({ status: 'interrupted', error: 'runner stopped without finishing' });
-  const exceeded = await page({ status: 'exceeded', exceededLimit: 'timeout', error: 'stopped after its timeout' });
+test('given a failed ticket run whose reason is a report, when the reason block is read, then the full report is rendered markdown with its HTML escaped', async () => {
+  const body = await page({}, (store) => dispatchFailed(store, REPORT));
 
-  const interruptedError = element(interrupted, 'details', 'data-run-error');
-  assert.match(interruptedError, /bg-warning-soft/);
-  assert.doesNotMatch(interruptedError, /bg-error-soft/);
-  assert.match(element(exceeded, 'p', 'data-exceeded'), /bg-warning-soft/);
-  assert.doesNotMatch(element(exceeded, 'p', 'data-exceeded'), /bg-error-soft/);
+  const block = reasonOf(body);
+  assert.match(block, /<code>npm test<\/code>/);
+  assert.doesNotMatch(block, /`/);
+  assert.match(block, /<p>The build could not finish\.<\/p>/);
+  assert.match(block, /&lt;script&gt;/);
+  assert.doesNotMatch(block, /<script>/);
+});
+
+test('given a ticket run that errored, when its run page is opened, then the error shows only in the reason block and no separate run error box exists', async () => {
+  const body = await page({ status: 'error', error: 'provider exploded' }, (store) => dispatchFailed(store, 'provider exploded'));
+
+  assert.equal(body.split('provider exploded').length - 1, 2);
+  assert.doesNotMatch(body, /data-run-error/);
+  assert.match(reasonOf(body), /provider exploded/);
+});
+
+test('given a manual run that errored, when its run page is opened, then the reason block shows the run error', async () => {
+  const body = await page({ status: 'error', error: 'harness exited', ticket: null });
+
+  assert.equal(textOf(element(reasonOf(body), 'summary', 'data-reason-summary')), 'harness exited');
+  assert.match(openingTag(reasonOf(body)), /bg-error-soft/);
+  assert.doesNotMatch(body, /data-run-error/);
+});
+
+test('given a run that stopped at its budget and an interrupted one, when their run pages are opened, then the reason block is in the warning tone and the Stopped at notice still shows above Run details', async () => {
+  const exceeded = await page({ status: 'exceeded', exceededLimit: 'budget', maxCostUsd: 0.1, error: 'stopped at its budget', ticket: null });
+  const interrupted = await page({ status: 'interrupted', error: 'runner stopped without finishing', ticket: null });
+
+  assert.match(openingTag(reasonOf(exceeded)), /bg-warning-soft/);
+  assert.doesNotMatch(openingTag(reasonOf(exceeded)), /bg-error-soft/);
+  assert.match(element(exceeded, 'p', 'data-exceeded'), /Stopped at/);
+  assert.ok(exceeded.indexOf('data-exceeded') < exceeded.indexOf('data-run-details'));
+  assert.match(openingTag(reasonOf(interrupted)), /bg-warning-soft/);
+});
+
+test('given a run that errored while its dispatch is done, when its run page is opened, then the reason block is in the failed tone and an empty error shows no block', async () => {
+  const done = await page({ status: 'error', error: 'provider exploded' }, (store) => {
+    const start = store.startDispatch({ repository: 'forge', number: 381, url: 'https://github.com/rameezk/forge/issues/381' }, 'run-01', '2026-09-21T10:00:00.000Z', 10);
+    assert.ok('started' in start);
+    store.endDispatch(start.started, { state: 'done', pullRequest: { number: 302, url: 'https://github.com/rameezk/forge/pull/302' } }, '2026-09-21T10:03:20.000Z');
+  });
+  const empty = await page({ status: 'error', error: '  ', ticket: null });
+
+  assert.match(openingTag(reasonOf(done)), /bg-error-soft/);
+  assert.doesNotMatch(openingTag(reasonOf(done)), /bg-success-soft/);
+  assert.doesNotMatch(empty, /data-reason/);
+});
+
+test('given a finished workload, when its run page is opened, then the Run details chevron rotates when its disclosure opens', async () => {
+  const body = await page({});
+
+  assert.match(element(details(body), 'summary', 'class'), /\[\[open\]&gt;&amp;\]:before:rotate-90/);
 });
 
 test('given a workload with calls, one of them a cache miss, when its run page is opened, then Calls is collapsed and its summary shows the count, total cost, cache hit rate and a miss badge', async () => {

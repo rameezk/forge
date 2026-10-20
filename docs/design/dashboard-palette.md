@@ -20,7 +20,7 @@ Each token is a Tailwind colour that switches between its light and dark value b
 | accent-text | #AE4A0A | #F79A63 | Links |
 | accent-soft | #FDE7DA | #4A3A35 | Reserved for an accent tint |
 | success / success-soft | #3F6B2B / #E4EEDC | #A3BE8C / #3E4A42 | Success pill |
-| error / error-soft | #A8404B / #F6E1E3 | #EE9CA3 / #4D3D46 | Error pill and badge, poll and run error callouts, the border and label of a failed tool, error message or failed result |
+| error / error-soft | #A8404B / #F6E1E3 | #EE9CA3 / #4D3D46 | Error pill and badge, poll error callouts, the failed reason block on the run page, the border and label of a failed tool, error message or failed result |
 | warning / warning-soft | #8A6512 / #F8EED6 | #EBCB8B / #4B4843 | Unconfirmed badge |
 | series-1 | #3B6EA8 | #88C0D0 | Insights chart: first cohort, provider |
 | series-2 | #B0563B | #D08770 | Insights chart: second cohort, provider |

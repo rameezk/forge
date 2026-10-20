@@ -67,7 +67,7 @@ const dashboard = () => {
 };
 
 const EXPECTED: [string, string][] = [
-  ['unanswered', 'success error Unanswered: https://github.com/rameezk/forge/pull/9#issuecomment-1 second line of the detail'],
+  ['unanswered', 'success error Unanswered: https://github.com/rameezk/forge/pull/9#issuecomment-1'],
   ['reasonless', 'success error no reason recorded'],
   ['good', 'success ok'],
 ];
@@ -84,13 +84,15 @@ test('given runs whose revisions ended with a reason, with no reason, and ok, wh
   }
 });
 
-test('given the same runs, when each run page is requested, then the summary shows success with the revision outcome beside it and the Revises link carries the outcome', async () => {
+test('given the same runs, when each run page is requested, then the summary shows success with the revision outcome beside it, the reason sits in its own block, and the Revises link carries the outcome', async () => {
   const app = dashboard();
 
   for (const [id, expected] of EXPECTED) {
     const body = await (await app.request(`/runs/${id}`)).text();
     const summary = body.match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? 'missing';
-    assert.ok(textOf(summary).startsWith(expected), id);
+    const [status, outcome] = expected.split(' ');
+    assert.ok(textOf(summary).startsWith([status, outcome].join(' ')), id);
+    assert.doesNotMatch(summary, /Unanswered|no reason recorded/, id);
     const revises = body.match(/<dd[^>]*\sdata-revised-pull-request[\s>][\s\S]*?<\/dd>/)?.[0] ?? 'missing';
     assert.match(revises, /\sdata-outcome="(ok|error)"/, id);
   }
@@ -104,6 +106,7 @@ test('given a conflict resolution that failed and one still running, when the li
   assert.match(textOf(row('resolved')), /success error Not merged: abc1234 is missing/);
   assert.doesNotMatch(row('resolving'), /data-outcome=/);
   const page = await (await app.request('/runs/resolved')).text();
-  assert.match(textOf(page.match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), /^success error Not merged: abc1234 is missing/);
+  assert.match(textOf(page.match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), /^success error/);
+  assert.match(textOf(page.match(/<details[^>]*\sdata-reason[\s>][\s\S]*?<\/details>/)?.[0] ?? ''), /Not merged\s*: abc1234 is missing/);
   assert.doesNotMatch(await (await app.request('/runs/resolving')).text(), /data-outcome=/);
 });

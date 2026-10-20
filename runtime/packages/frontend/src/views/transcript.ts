@@ -1,9 +1,8 @@
-import { html, raw } from 'hono/html';
+import { html } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { GenerationRecord, HarnessEvent, CompactionEvent, MessageEvent, ResultEvent, RetryEvent, RunSkillLoad, RunStatus, ToolCallEvent, ToolResultEvent } from '@forge/shared';
 import { formatTime, formatTokens } from '../format.ts';
-import { renderMarkdown } from '../markdown.ts';
-import { PROSE, BLOCK, LABEL, type Rendered, INLINE_DISCLOSURE, ERROR_CALLOUT, BADGE, DISCLOSURE, CODE, EMPTY, renderStatus, type Cost, renderTokens, renderCost, STACK } from './shared.ts';
+import { PROSE, BLOCK, LABEL, type Rendered, INLINE_DISCLOSURE, ERROR_CALLOUT, BADGE, DISCLOSURE, CODE, EMPTY, renderStatus, type Cost, renderTokens, renderCost, STACK, renderMarkdownBody, firstLine } from './shared.ts';
 
 const PATH = 'm-0 whitespace-pre-wrap break-words font-mono text-[0.85rem]';
 
@@ -27,20 +26,6 @@ const renderText = (
   </article>`;
 };
 
-const MARKDOWN = [
-  'prose prose-sm max-w-none break-words',
-  '[--tw-prose-body:var(--color-fg)] [--tw-prose-headings:var(--color-fg)] [--tw-prose-bold:var(--color-fg)]',
-  '[--tw-prose-code:var(--color-fg)] [--tw-prose-pre-code:var(--color-fg)] [--tw-prose-quotes:var(--color-fg)]',
-  '[--tw-prose-lead:var(--color-muted)] [--tw-prose-counters:var(--color-muted)] [--tw-prose-bullets:var(--color-muted)] [--tw-prose-captions:var(--color-muted)]',
-  '[--tw-prose-hr:var(--color-line)] [--tw-prose-quote-borders:var(--color-line)] [--tw-prose-th-borders:var(--color-line)] [--tw-prose-td-borders:var(--color-line)]',
-  '[--tw-prose-links:var(--color-accent-text)] [--tw-prose-pre-bg:var(--color-raised)]',
-  'prose-pre:overflow-x-auto prose-table:my-0 [&>div]:my-6 [&>:first-child]:mt-0 [&>:last-child]:mb-0',
-  '[&>:is(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6)]:max-w-[80ch]',
-  'prose-th:min-w-32 prose-td:min-w-32',
-  'prose-code:before:content-none prose-code:after:content-none',
-  '[&_blockquote_p]:before:content-none [&_blockquote_p]:after:content-none',
-].join(' ');
-
 const renderCard = (
   kind: string,
   meta: Rendered,
@@ -52,9 +37,6 @@ const renderCard = (
     ${body}
   </article>`;
 };
-
-const renderMarkdownBody = (text: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<div class="${MARKDOWN}" data-markdown>${raw(renderMarkdown(text))}</div>`;
 
 const renderProse = (
   kind: string,
@@ -81,9 +63,6 @@ const renderThinking = (thinking: string | undefined): Rendered =>
         <summary class="${INLINE_DISCLOSURE} inline-flex font-semibold">Thinking</summary>
         <pre class="${THINKING}">${thinking}</pre>
       </details>`;
-
-const firstLine = (text: string): string =>
-  text.split('\n').map((line) => line.trim()).find((line) => line !== '') ?? '';
 
 const renderThinkingPreview = (thinking: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<details class="group/thinking" data-thinking data-thinking-preview>
