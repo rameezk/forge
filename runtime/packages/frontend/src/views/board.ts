@@ -5,7 +5,7 @@ import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
-const ROW_GRID = 'grid grid-cols-9';
+const ROW_GRID = 'grid grid-cols-9 sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
 
 const LANE_HEAD = 'sticky left-0 w-[calc(100vw-2.25rem)] max-w-full';
 
@@ -241,7 +241,7 @@ export const renderBoard = (
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
-          <div class="min-w-[96rem]">
+          <div class="min-w-[96rem] sm:min-w-[76.5rem]">
             ${renderColumnHeaders(totals(lanes))}
             ${lanes.map((lane) => renderLane(lane, grouping === 'spec', attempted, display.timeZone, runs))}
           </div>
