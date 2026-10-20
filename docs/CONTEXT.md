@@ -111,6 +111,10 @@ _Avoid_: backlog, queue
 Forge picking up a frontier ticket that carries the `forge:ready` label and running a workload against it; the ticket's `forge:*` label tracks the dispatch from claim to outcome (ADR-0016). It is done only when its run succeeds and leaves a ready pull request closing the ticket with every required check green, however the repository's skills get there; anything less fails, and forge closes the pull requests its App left for the ticket (ADR-0065, ADR-0066).
 _Avoid_: assignment, scheduling
 
+**Approval**:
+A maintainer applying `forge:ready` to a ticket, which approves the ticket and its parent spec as they stood at that moment; a ticket is dispatched only while its latest approval stands (ADR-0079).
+_Avoid_: sign-off, review
+
 **Attempt**:
 A dispatch of a ticket, with the workload it ran. A ticket may have several, one per dispatch.
 _Avoid_: try
@@ -122,8 +126,12 @@ _Avoid_: failed attempt, try
 **Rework**:
 The commits on a dispatch's pull request authored by anyone other than forge's GitHub App (ADR-0051), as of the last time forge refreshed the pull request, which stops once it is merged or closed.
 
+**Maintainer**:
+A person whose permission on a managed repository is `write` or `admin`, and so the only kind of person forge takes direction from (ADR-0078).
+_Avoid_: trusted user, collaborator, owner
+
 **Feedback**:
-The review summaries, inline review comments and conversation comments on a pull request authored by forge's GitHub App, written by the repository's owner or an invited collaborator (ADR-0050, ADR-0063). A review with no body and no inline comments is not feedback.
+The review summaries, inline review comments and conversation comments on a pull request authored by forge's GitHub App, written by a maintainer (ADR-0050, ADR-0078). A review with no body and no inline comments is not feedback.
 _Avoid_: review, comments
 
 **Revision**:
