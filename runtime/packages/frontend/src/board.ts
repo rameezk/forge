@@ -102,6 +102,15 @@ const liveByPullRequest = <T extends PullRequestWorkloadRecord>(records: readonl
       .map((record) => [ticketKey(record.repository, record.number), { kind, runId: record.runId, startedAt: record.startedAt, pullRequest: { number: record.number, url: record.url } }]),
   );
 
+const runningCard = (ticket: Ticket | ClosedTicket, dispatch: DispatchRecord | undefined, workload: LiveWorkload): BoardCard => ({
+  column: 'running',
+  ticket,
+  dispatch,
+  workload,
+  conflictFailedStart: undefined,
+  revisionFailedStart: undefined,
+});
+
 export const buildLanes = (
   frontier: RepositoryFrontier[],
   dispatches: ReadonlyMap<string, DispatchRecord>,
@@ -129,7 +138,7 @@ export const buildLanes = (
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
       const workload = workloadOf(ticket.number);
       if (workload !== undefined) {
-        running.push({ column: 'running', ticket, dispatch, workload, conflictFailedStart: undefined, revisionFailedStart: undefined });
+        running.push(runningCard(ticket, dispatch, workload));
         continue;
       }
       const column = columnOf(ticket, dispatch);
@@ -147,7 +156,7 @@ export const buildLanes = (
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
       const workload = workloadOf(ticket.number);
       if (workload === undefined) columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined });
-      else running.push({ column: 'running', ticket, dispatch, workload, conflictFailedStart: undefined, revisionFailedStart: undefined });
+      else running.push(runningCard(ticket, dispatch, workload));
     }
     columns.running.push(...running);
     return { ...repository, columns };
