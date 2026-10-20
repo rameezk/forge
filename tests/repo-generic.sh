@@ -72,15 +72,23 @@ for tool in opentofu jq just nixos-anywhere nixos-rebuild sops age ssh-to-age; d
 	fi
 done
 
-flake_outputs="$(nix flake show --json 2>/dev/null || true)"
-host_count="$(printf '%s' "$flake_outputs" | jq ".nixosConfigurations // {} | length" 2>/dev/null || true)"
-if [ -z "$flake_outputs" ] || [ -z "$host_count" ]; then
-	echo "FAIL: the flake outputs did not evaluate; run 'nix flake show' to see the error"
+host_names="$(nix eval --json --impure --expr "builtins.attrNames ((builtins.getFlake \"git+file://$PWD\").nixosConfigurations or { })" 2>/dev/null || true)"
+if [ -z "$host_names" ]; then
+	echo "FAIL: the flake outputs did not evaluate; run 'nix eval --impure --expr \"(builtins.getFlake \\\"git+file://\$PWD\\\").nixosConfigurations\"' to see the error"
 	fail=1
-elif [ "$host_count" = "0" ]; then
+elif [ "$host_names" = "[]" ]; then
 	echo "ok: forge declares no concrete host"
 else
 	echo "FAIL: forge declares a concrete host; it must stay generic and declare none"
+	fail=1
+fi
+
+vm_tests="$(nix eval --json ".#vmTests.x86_64-linux" --apply builtins.attrNames 2>/dev/null | jq -r 'sort | join(" ")' || true)"
+expected_vm_tests="automatic-dispatch deploy-keeps-workloads github-app run-directories runtime-toolset workload-devshell workload-sandbox"
+if [ "$vm_tests" = "$expected_vm_tests" ]; then
+	echo "ok: vmTests lists the 7 VM tests by name"
+else
+	echo "FAIL: vmTests.x86_64-linux lists '$vm_tests', expected '$expected_vm_tests'"
 	fail=1
 fi
 

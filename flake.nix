@@ -1870,6 +1870,16 @@
           dashboard-browser-tests = pkgs.callPackage ./infra/nix/dashboard-browser-tests.nix {
             forge-runner = self.packages.${system}.forge-runner;
           };
+        }
+      );
+
+      vmTests = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          exampleSecretsFile = ./tests/fixtures/runtime-secrets.yaml;
+        in
+        lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           runtime-toolset = pkgs.callPackage ./infra/nix/runtime-toolset.nix {
             forge-runner = self.packages.${system}.forge-runner;
             sopsModule = sops-nix.nixosModules.sops;

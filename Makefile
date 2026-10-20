@@ -1,11 +1,13 @@
-.PHONY: check check-no-vm flake-check flake-check-no-vm vm-tests tofu-test test-generic test-scaffold test-check-selection test-markdown-only
+.PHONY: check check-no-vm flake-check flake-check-no-vm vm-tests tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only
 
-TESTS = tofu-test test-generic test-scaffold test-check-selection test-markdown-only
+TESTS = tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only
 
-check: flake-check $(TESTS)
+check: flake-check vm-tests $(TESTS)
 
 ifeq ($(shell uname -s),Darwin)
-check: vm-tests
+VM_SYSTEM = aarch64-linux
+else
+VM_SYSTEM = $(shell nix eval --raw --impure --expr builtins.currentSystem)
 endif
 
 check-no-vm: flake-check-no-vm $(TESTS)
@@ -14,11 +16,10 @@ flake-check:
 	nix flake check
 
 flake-check-no-vm:
-	nix flake check --no-build
-	scripts/checks.sh build no-vm "$$(nix eval --raw --impure --expr builtins.currentSystem)"
+	nix flake check --print-build-logs
 
 vm-tests:
-	scripts/checks.sh build vm aarch64-linux || { echo "If Nix found no Linux builder with KVM for the VM tests, see README.md#run-the-checks, or run 'make check-no-vm' and rely on CI." >&2; exit 1; }
+	names="$$(nix eval --json .#vmTests.$(VM_SYSTEM) --apply builtins.attrNames)" && installables="$$(printf '%s' "$$names" | jq -r '.[] | ".#vmTests.$(VM_SYSTEM)." + .')" && test -n "$$installables" && { nix build --print-build-logs --no-link $$installables || { echo "If Nix found no Linux builder with KVM for the VM tests, see README.md#run-the-checks, or run 'make check-no-vm' and rely on CI." >&2; exit 1; }; }
 
 tofu-test:
 	cd infra/opentofu && tofu init -input=false >/dev/null && tofu test
@@ -29,8 +30,8 @@ test-generic:
 test-scaffold:
 	bash tests/template-scaffold.sh
 
-test-check-selection:
-	bash tests/check-selection.sh
+test-failed-build-log:
+	bash tests/failed-build-log.sh
 
 test-markdown-only:
 	bash tests/markdown-only.sh
