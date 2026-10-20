@@ -110,6 +110,39 @@ export const relabel = async (
   }
 };
 
+export const FAILED_TICKET_COMMENT =
+  'Forge could not finish this ticket. Details are on the forge dashboard.';
+
+export const settleTicket = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  settled: 'done' | 'failed',
+): Promise<void> => {
+  await relabel(
+    fetch,
+    token,
+    github,
+    number,
+    settled === 'done' ? FORGE_DONE : FORGE_FAILED,
+    [FORGE_RUNNING, FORGE_READY],
+  );
+  if (settled === 'failed') {
+    const commented = await requestRest(
+      fetch,
+      token,
+      'POST',
+      github,
+      `/issues/${number}/comments`,
+      { body: FAILED_TICKET_COMMENT },
+    );
+    if (!commented.ok) {
+      throw new Error(`GitHub answered ${commented.status} commenting on ${github}#${number}`);
+    }
+  }
+};
+
 interface ExistingLabel {
   color: string;
   description: string | null;

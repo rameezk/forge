@@ -1,7 +1,7 @@
-import { FORGE_DONE, FORGE_FAILED, FORGE_READY, FORGE_RUNNING } from './dispatch.ts';
+import { FORGE_RUNNING } from './dispatch.ts';
 import { errorMessage } from './errors.ts';
 import { queryLabelled, type Fetch } from './frontier.ts';
-import { relabel } from './labels.ts';
+import { settleTicket } from './labels.ts';
 import type { Store } from './store.ts';
 
 export interface SettleRunningOptions {
@@ -28,14 +28,7 @@ export const settleRunningTickets = async ({
     for (const issue of await queryLabelled(fetch, writeToken, github, FORGE_RUNNING)) {
       const settled = store.reconcileDispatch({ repository, ...issue }, now());
       if (settled === null) continue;
-      await relabel(
-        fetch,
-        writeToken,
-        github,
-        issue.number,
-        settled === 'done' ? FORGE_DONE : FORGE_FAILED,
-        [FORGE_RUNNING, FORGE_READY],
-      );
+      await settleTicket(fetch, writeToken, github, issue.number, settled);
       log(`${repository}#${issue.number} was settled as ${settled}`);
     }
     return true;

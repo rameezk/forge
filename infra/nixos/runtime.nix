@@ -579,14 +579,14 @@ in
       type = lib.types.nullOr positiveNumber;
       default = 5;
       example = 10;
-      description = "Most a workload may spend unless its worker overrides it, subagents included, as a positive number of USD, or null for unlimited. Spend is each generation's billed cost where known and its estimated cost otherwise, checked after every generation, so a workload can overshoot it by the generations in flight. A workload that passes it is hard-stopped and ends as exceeded, and one whose model's list price cannot be fetched at start is refused before it spends anything; a dispatched one fails its dispatch and its ticket becomes `forge:failed`, with nothing posted to it.";
+      description = "Most a workload may spend unless its worker overrides it, subagents included, as a positive number of USD, or null for unlimited. Spend is each generation's billed cost where known and its estimated cost otherwise, checked after every generation, so a workload can overshoot it by the generations in flight. A workload that passes it is hard-stopped and ends as exceeded, and one whose model's list price cannot be fetched at start is refused before it spends anything; a dispatched one fails its dispatch and its ticket becomes `forge:failed` and gets forge's fixed failure comment.";
     };
 
     workload.timeout = lib.mkOption {
       type = lib.types.nullOr timeSpan;
       default = "2h";
       example = "30min";
-      description = "Longest a workload may run unless its worker overrides it, as a systemd time span of whole seconds, minutes, hours, days or weeks, or null for unlimited. It counts from the harness's start. A workload that passes it is hard-stopped, its subagents included, and ends as exceeded; a dispatched one fails its dispatch and its ticket becomes `forge:failed`, with nothing posted to it.";
+      description = "Longest a workload may run unless its worker overrides it, as a systemd time span of whole seconds, minutes, hours, days or weeks, or null for unlimited. It counts from the harness's start. A workload that passes it is hard-stopped, its subagents included, and ends as exceeded; a dispatched one fails its dispatch and its ticket becomes `forge:failed` and gets forge's fixed failure comment.";
     };
 
     toolset = lib.mkOption {
