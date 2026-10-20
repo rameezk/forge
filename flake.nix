@@ -108,7 +108,6 @@
           };
         in
         {
-          forge-shared = pkgs.callPackage ./infra/nix/shared.nix { };
           pi-coding-agent = pkgs.callPackage ./infra/nix/pi-coding-agent.nix { };
           claude-code = unfreePkgs.callPackage ./infra/nix/claude-code.nix { };
           forge-runner = pkgs.callPackage ./infra/nix/runner.nix {
@@ -1813,7 +1812,6 @@
               echo "a host running forge.runtime ships sqlite to inspect the store; an inert host does not" > $out
             '';
 
-          forge-shared = self.packages.${system}.forge-shared;
           forge-runner = self.packages.${system}.forge-runner;
           frontier-command = pkgs.callPackage ./infra/nix/frontier-command-check.nix { };
           runtime-secrets = pkgs.callPackage ./infra/nix/runtime-secrets-check.nix {

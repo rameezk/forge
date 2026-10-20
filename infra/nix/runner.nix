@@ -32,6 +32,11 @@ buildNpmPackage {
 
   npmDepsHash = "sha256-aMps8/5eF/ZZw72Upo7PR6fRaunG+V+5pZHhRduE5Qc=";
 
+  outputs = [
+    "out"
+    "browserTests"
+  ];
+
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [
     coreutils
@@ -48,6 +53,8 @@ buildNpmPackage {
 
   installPhase = ''
     runHook preInstall
+    mkdir -p "$browserTests"
+    cp -r package.json package-lock.json packages node_modules "$browserTests/"
     npm prune --omit=dev --offline --no-audit --no-fund
     mkdir -p "$out/lib/forge-runtime"
     cp -r package.json package-lock.json packages node_modules "$out/lib/forge-runtime/"
