@@ -7,8 +7,20 @@ import { isHeaderValue } from './http.ts';
 export type TokenAccess = 'read' | 'write' | 'workload';
 
 const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
-  read: { issues: 'read', pull_requests: 'read' },
-  write: { issues: 'write', pull_requests: 'read' },
+  read: {
+    issues: 'read',
+    pull_requests: 'read',
+    contents: 'read',
+    checks: 'read',
+    statuses: 'read',
+  },
+  write: {
+    issues: 'write',
+    pull_requests: 'read',
+    contents: 'read',
+    checks: 'read',
+    statuses: 'read',
+  },
   workload: {
     contents: 'write',
     issues: 'write',
@@ -16,6 +28,7 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
     workflows: 'write',
     checks: 'read',
     actions: 'read',
+    statuses: 'read',
   },
 };
 
@@ -126,11 +139,24 @@ export class GithubApp {
       throw new Error(`the GitHub App is not installed on ${github}`);
     }
     const installation = (await ok(lookup)) as { id: number };
+    const permissions = PERMISSIONS[access];
     const response = await this.#request(
       'POST',
       `/app/installations/${installation.id}/access_tokens`,
-      { repositories: [name], permissions: PERMISSIONS[access] },
+      { repositories: [name], permissions },
     );
+    if (response.status === 422) {
+      const requested = Object.entries(permissions)
+        .map(([permission, level]) => `${permission}: ${level}`)
+        .join(', ');
+      const answer = await ok(response).then(
+        () => '',
+        (error: Error) => error.message,
+      );
+      throw new Error(
+        `GitHub refused a ${access} token for ${github} with the permissions forge requested (${requested}): ${answer}`,
+      );
+    }
     const minted = (await ok(response)) as { token?: unknown; expires_at?: unknown };
     if (
       typeof minted.token !== 'string' ||

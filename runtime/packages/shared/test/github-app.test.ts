@@ -47,8 +47,8 @@ test('given an App whose private key is not the one GitHub knows, when a token i
 });
 
 for (const [access, permissions] of [
-  ['read', { issues: 'read', pull_requests: 'read' }],
-  ['write', { issues: 'write', pull_requests: 'read' }],
+  ['read', { issues: 'read', pull_requests: 'read', contents: 'read', checks: 'read', statuses: 'read' }],
+  ['write', { issues: 'write', pull_requests: 'read', contents: 'read', checks: 'read', statuses: 'read' }],
   [
     'workload',
     {
@@ -58,6 +58,7 @@ for (const [access, permissions] of [
       workflows: 'write',
       checks: 'read',
       actions: 'read',
+      statuses: 'read',
     },
   ],
 ] as const) {
@@ -69,6 +70,23 @@ for (const [access, permissions] of [
     assert.deepEqual(github.mints[0]?.body.permissions, permissions);
   });
 }
+
+test('given an installation that has not granted a permission forge requests, when a token is minted, then it fails naming the permissions forge requested and what GitHub answered', async () => {
+  const github = fakeGithubApp();
+  const refusing: typeof globalThis.fetch = async (input, init) =>
+    init?.method === 'POST'
+      ? new Response(
+          '{"message":"The permissions requested are not granted to this installation."}',
+          { status: 422 },
+        )
+      : github.fetch(input, init);
+
+  await assert.rejects(appOn({ ...github, fetch: refusing }).mint(INSTALLED, 'read'), {
+    message:
+      'GitHub refused a read token for rameezk/forge-app-test with the permissions forge requested (issues: read, pull_requests: read, contents: read, checks: read, statuses: read): GitHub answered 422: The permissions requested are not granted to this installation.',
+  });
+  assert.equal(github.mints.length, 0);
+});
 
 test('given GitHub answers a token that cannot be a header value, when a token is minted, then it fails instead of handing the token on', async () => {
   const github = fakeGithubApp();

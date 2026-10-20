@@ -389,6 +389,8 @@ repositories forge manages, and give the box its id and private key.
      cannot push.
    - Checks: read and Actions: read, so the agent can watch a pull request's
      required checks and read the logs of the ones that fail.
+   - Commit statuses: read, so forge can read the status of a pull request's
+     head commit.
    - Metadata: read, which GitHub always grants.
 2. Create the App, note its **App ID**, and generate a private key. GitHub
    downloads a `.pem` file once.
@@ -410,6 +412,21 @@ github_app_private_key: |
   ...
   -----END RSA PRIVATE KEY-----
 ```
+
+A private repository needs more than a public one appears to. Anyone can read
+a public repository's issues, pull requests, checks and statuses without
+authority, so a token with only Issues and Pull requests reads them there. On a
+private repository GitHub answers 404 to a token lacking the matching
+permission, so the read and write tokens also request Contents: read, Checks:
+read and Commit statuses: read. They let forge read a pull request's
+mergeability, its checks and its statuses on any repository, and they grant no
+new write: the read-only frontier token stays read-only.
+
+Upgrading an existing App: add **Commit statuses: read** to its repository
+permissions in the App's settings, then accept the new permission on the
+installation, which GitHub emails to the account owner and shows on the
+installation's page. Until you do, GitHub refuses to mint tokens and the
+frontier error and the dispatch failure name the permissions forge requested.
 
 Forge signs a short-lived JWT with the private key and exchanges it for an
 installation token that expires after an hour. It mints a read-only token for

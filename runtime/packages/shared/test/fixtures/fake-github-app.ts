@@ -19,7 +19,7 @@ export const tokenFor = (kind: 'read' | 'write' | 'workload', github: string, nt
   `ghs_${kind}_${github.replace('/', '_')}_${nth}`;
 
 const kindOf = (permissions: Record<string, string> = {}): 'read' | 'write' | 'workload' =>
-  'contents' in permissions ? 'workload' : permissions.issues === 'write' ? 'write' : 'read';
+  permissions.contents === 'write' ? 'workload' : permissions.issues === 'write' ? 'write' : 'read';
 
 export interface Mint {
   installation: string;
