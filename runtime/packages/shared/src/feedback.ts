@@ -223,7 +223,7 @@ export const FEEDBACK_WINDOW_QUERY = `
                   __typename
                   login
                 }
-                  body
+                body
                 createdAt
                 path
                 line
