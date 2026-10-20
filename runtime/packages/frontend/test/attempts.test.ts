@@ -495,7 +495,7 @@ test('given a dispatch whose pull request has a conflict resolution that failed 
   assert.match(textOf(/<p[^>]*data-conflict-failed-start[^>]*>[\s\S]*?<\/p>/.exec(card)![0]), /^Conflict resolution did not start \(2 times, last .* ago\): fatal: unable to access the repository$/);
 });
 
-test('given a conflict resolution that failed to start and is now running again, when the Board is requested, then the ticket card keeps the failed-start flag', async () => {
+test('given a conflict resolution that failed to start and is now running again, when the Board is requested, then the ticket card is in Running without the failed-start flag', async () => {
   const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
   store.replaceFrontier({
     repository: 'forge',
@@ -519,7 +519,8 @@ test('given a conflict resolution that failed to start and is now running again,
 
   const board = await (await app.request('/')).text();
 
-  assert.match(board, /data-conflict-failed-start/);
+  assert.match(board, /<div[^>]*data-column="running"[\s\S]*?data-ticket="42"/);
+  assert.doesNotMatch(board, /data-conflict-failed-start/);
 });
 
 const failRevisionToStart = (store: Store, at: string, detail: string, pullRequest = 9): void => {

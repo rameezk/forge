@@ -15,7 +15,7 @@ const MUTED_LINE = 'm-0 mt-1 text-xs text-muted';
 
 const RUNNING_TONE = 'bg-raised text-fg';
 
-const REVISING_TONE = 'bg-warning-soft text-warning';
+const KIND_TONE = 'text-muted ring-1 ring-line ring-inset';
 
 const QUEUED_TONE = 'text-muted ring-1 ring-line ring-inset';
 
@@ -45,15 +45,12 @@ const startOf = (runs: ReadonlyMap<string, RunRecord>, runId: string | null, fal
 const renderPill = (runId: string | null, pill: Rendered): Rendered =>
   runId === null ? pill : html`<a href="/runs/${encodeURIComponent(runId)}" class="rounded-full no-underline hover:opacity-80">${pill}</a>`;
 
-const renderRunning = ({ dispatch }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
-  if (dispatch === undefined) return '';
+const renderRunning = ({ workload }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+  if (workload === undefined) return '';
   const pill = html`<span class="${PILL} ${RUNNING_TONE}">running</span>`;
-  return html`<p class="${MUTED_LINE}">${renderPill(dispatch.runId, pill)}${renderElapsedSince(startOf(runs, dispatch.runId, dispatch.startedAt))}</p>`;
-};
-
-const renderRevising = (revision: RevisionRecord, runs: ReadonlyMap<string, RunRecord>): Rendered => {
-  const pill = html`<span data-revising class="${PILL} ${REVISING_TONE}">revising</span>`;
-  return html` <span class="whitespace-nowrap">${renderPill(revision.runId !== null && runs.has(revision.runId) ? revision.runId : null, pill)}${renderElapsedSince(startOf(runs, revision.runId, revision.startedAt))}</span>`;
+  const { pullRequest } = workload;
+  const label = pullRequest === null ? '' : `PR #${pullRequest.number}`;
+  return html`<p class="${MUTED_LINE}">${renderPill(workload.runId !== null && runs.has(workload.runId) ? workload.runId : null, pill)}${renderElapsedSince(startOf(runs, workload.runId, workload.startedAt))} <span data-workload-kind class="${PILL} ${KIND_TONE}">${workload.kind}</span>${pullRequest === null ? '' : html` ${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}`}</p>`;
 };
 
 const renderPullRequestFailedStart = (
@@ -67,11 +64,11 @@ const renderPullRequestFailedStart = (
   return html`<p ${raw(attribute)} class="${FAILURE_LINE}" title="${label} did not start${text}">${label} did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${text}</p>`;
 };
 
-const renderInReview = ({ dispatch, revision, conflictFailedStart, revisionFailedStart }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart }: BoardCard): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}${revision === undefined ? '' : renderRevising(revision, runs)}</p>${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
@@ -119,7 +116,7 @@ const renderDetails = (card: BoardCard, github: string, timeZone: string, runs: 
     case 'running':
       return renderRunning(card, runs);
     case 'in-review':
-      return renderInReview(card, runs);
+      return renderInReview(card);
     case 'failed':
       return renderFailure(card);
     case 'done':
@@ -210,7 +207,7 @@ const OPEN_TONE = 'bg-raised text-fg';
 
 const renderRunningLimit = ({ running, limit }: RunningSlots): Rendered => {
   const full = running >= limit;
-  return html`<span data-running-limit${full ? html` data-full` : ''} title="Dispatches and revisions running, out of the global limit" class="${PILL} mb-3 ${full ? FULL_TONE : OPEN_TONE} tabular-nums">Running ${running} / ${limit}</span>`;
+  return html`<span data-running-limit${full ? html` data-full` : ''} title="Workloads running, out of the global limit" class="${PILL} mb-3 ${full ? FULL_TONE : OPEN_TONE} tabular-nums">Running ${running} / ${limit}</span>`;
 };
 
 export type Grouping = 'none' | 'spec';

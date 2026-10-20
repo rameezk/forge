@@ -85,7 +85,7 @@ test('given a running workload whose elapsed time is ticking, when it ends, then
   await expect(duration).toHaveText('3m 20s');
 });
 
-test('given a running dispatch and a finished one, when the Board renders and time passes, then the running card\'s elapsed time and the revising card\'s elapsed time advance while the in-review card without a revision shows none', async ({
+test('given a running dispatch and a finished one, when the Board renders and time passes, then the running dispatch card\'s elapsed time and the running revision card\'s elapsed time advance while the in-review card without a revision shows none', async ({
   dashboard,
   page,
 }) => {
