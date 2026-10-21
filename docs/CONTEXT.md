@@ -168,6 +168,10 @@ _Avoid_: waiting, held
 The dashboard's home page: a read-only kanban view of every managed repository's requests and tickets, one swimlane per repository and one column per stage from refinement to done. Its Running column holds every ticket with a live workload, whether a dispatch, a revision or a conflict resolution, ahead of any other column. A person icon marks the columns where a human in the loop acts: refining, building a `ready-for-human` ticket, and reviewing.
 _Avoid_: Work page, frontier page, kanban
 
+**Card**:
+A request or ticket as the Board shows it, standing for wherever that work is now: the live run while Running, the pull request while In review, the latest attempt's run once Failed, and the issue in every other column or when that run or pull request does not exist.
+_Avoid_: tile, item
+
 **Operator**:
 A person who stands up and runs their own forge deployment - the reuser of forge, distinct from its author.
 
