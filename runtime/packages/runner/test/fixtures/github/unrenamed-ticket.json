@@ -1,0 +1,15 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "timelineItems": {
+          "pageInfo": {
+            "hasPreviousPage": false,
+            "startCursor": null
+          },
+          "nodes": []
+        }
+      }
+    }
+  }
+}
