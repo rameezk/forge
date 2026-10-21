@@ -201,6 +201,57 @@ const readinessResponse = ({ isDraft, checks }: Readiness) => ({
   },
 });
 
+interface LabeledEvent {
+  __typename: 'LabeledEvent';
+  createdAt: string;
+  label: { name: string };
+  actor: { __typename: string; login: string } | null;
+}
+
+interface ApprovalResponse {
+  data: {
+    repository: {
+      issue: {
+        timelineItems: {
+          pageInfo: { hasPreviousPage: boolean; startCursor: string | null };
+          nodes: LabeledEvent[];
+        };
+      };
+    };
+  };
+}
+
+const APPROVED_TICKET = recordedApproval('approved-ticket');
+
+function recordedApproval(name: string): ApprovalResponse {
+  return JSON.parse(readFileSync(join(GITHUB_FIXTURES, `${name}.json`), 'utf8')) as ApprovalResponse;
+}
+
+const approval = (
+  events: [label: string, login: string][],
+  hasPreviousPage = false,
+): ApprovalResponse => {
+  const response = structuredClone(APPROVED_TICKET);
+  const [template] = response.data.repository.issue.timelineItems.nodes;
+  assert.ok(template);
+  response.data.repository.issue.timelineItems = {
+    pageInfo: { hasPreviousPage, startCursor: hasPreviousPage ? 'older' : null },
+    nodes: events.map(([label, login], index) => ({
+      ...template,
+      createdAt: `2026-10-21T04:0${index}:00Z`,
+      label: { name: label },
+      actor: { __typename: login.endsWith('[bot]') ? 'Bot' : 'User', login },
+    })),
+  };
+  return response;
+};
+
+const PERMISSIONS: Record<string, string> = {
+  rameezk: 'admin',
+  teammate: 'write',
+  author: 'read',
+};
+
 interface LabelWrite {
   method: string;
   path: string;
@@ -238,8 +289,10 @@ const fakeGithub = (
   readiness: Readiness,
   piRecord: () => string,
   forgeLabels: boolean,
+  approvals: (before: string | null) => ApprovalResponse,
 ) => {
   const requests: GraphqlRequest[] = [];
+  const permissionChecks: string[] = [];
   const labelWrites: LabelWrite[] = [];
   const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), {
@@ -267,6 +320,9 @@ const fakeGithub = (
       if (operation === 'PullRequestReadiness') {
         return json(readinessResponse(readiness));
       }
+      if (operation === 'TicketApproval') {
+        return json(approvals((body.variables.before as string | null | undefined) ?? null));
+      }
       if (operation === 'LabelledIssues') {
         assert.equal(body.variables.label, 'forge:running');
         return json(running);
@@ -276,6 +332,15 @@ const fakeGithub = (
         throw new Error(`no recorded response for ${String(body.variables.number)}`);
       }
       return json(response);
+    }
+    const collaborator = /\/collaborators\/([^/]+)\/permission$/.exec(url.pathname)?.[1];
+    if (collaborator !== undefined) {
+      const login = decodeURIComponent(collaborator);
+      permissionChecks.push(login);
+      const permission = PERMISSIONS[login];
+      return permission === undefined
+        ? json({ message: 'Not Found' }, 404)
+        : json({ permission, user: { login } });
     }
     if ((init?.method ?? 'GET') === 'GET' && url.pathname.includes('/labels/')) {
       return json({ name: 'forge' }, forgeLabels ? 200 : 404);
@@ -290,7 +355,7 @@ const fakeGithub = (
     labelWrites.push(write);
     return json([], labelStatus(write));
   };
-  return { fetch, requests, labelWrites };
+  return { fetch, requests, labelWrites, permissionChecks };
 };
 
 const git = (cwd: string, ...args: string[]): string =>
@@ -343,6 +408,7 @@ interface Scenario {
   pullRequestsStatus?: number;
   readiness?: Readiness;
   forgeLabels?: boolean;
+  approvals?: (before: string | null) => ApprovalResponse;
   piPackage?: string;
   failing?: boolean;
   seed?: (store: Store) => void;
@@ -435,6 +501,7 @@ interface Outcome {
   nix: NixCall[];
   requests: GraphqlRequest[];
   labelWrites: LabelWrite[];
+  permissionChecks: string[];
 }
 
 const gitConfigOf = (
@@ -515,6 +582,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     scenario.readiness ?? readyPullRequest,
     () => record,
     scenario.forgeLabels ?? true,
+    scenario.approvals ?? (() => APPROVED_TICKET),
   );
   if (scenario.seed !== undefined) {
     const seeded = Store.open(join(stateDir, 'forge.db'));
@@ -609,6 +677,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         : [],
       requests: github.requests,
       labelWrites: github.labelWrites,
+      permissionChecks: github.permissionChecks,
       app,
     };
   } finally {
@@ -638,6 +707,11 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
       operation: 'Ticket',
       authorization: `bearer ${WRITE_TOKEN}`,
       variables: { owner: 'rameezk', name: 'forge', number: 113 },
+    },
+    {
+      operation: 'TicketApproval',
+      authorization: `bearer ${WRITE_TOKEN}`,
+      variables: { owner: 'rameezk', name: 'forge', number: 113, before: null },
     },
     {
       operation: 'ClosingPullRequests',
@@ -772,6 +846,96 @@ test('given a frontier ticket labelled forge:ready, when it is dispatched, then 
       piStarted: false,
     },
   ]);
+});
+
+const REAPPROVAL_COMMENT =
+  'Forge needs a maintainer to re-approve this ticket: it was approved or changed by someone without write access.';
+
+const refusedWrites = (): LabelWrite[] => [
+  {
+    method: 'POST',
+    path: '/repos/rameezk/forge/issues/113/labels',
+    authorization: `bearer ${WRITE_TOKEN}`,
+    body: { labels: ['forge:failed'] },
+    piStarted: false,
+  },
+  {
+    method: 'DELETE',
+    path: '/repos/rameezk/forge/issues/113/labels/forge%3Aready',
+    authorization: `bearer ${WRITE_TOKEN}`,
+    body: null,
+    piStarted: false,
+  },
+  {
+    method: 'POST',
+    path: '/repos/rameezk/forge/issues/113/comments',
+    authorization: `bearer ${WRITE_TOKEN}`,
+    body: { body: REAPPROVAL_COMMENT },
+    piStarted: false,
+  },
+];
+
+test('given a ticket opened by an outsider to which a maintainer applied forge:ready, when forge dispatches it, then the ticket is claimed and a workload starts', async () => {
+  const { code, pi, labelWrites, permissionChecks } = await dispatch({
+    approvals: () => approval([['ready-for-agent', 'author'], ['forge:ready', 'teammate']]),
+  });
+
+  assert.equal(code, 0);
+  assert.ok(pi);
+  assert.equal(labelWrites[0]?.body && JSON.stringify(labelWrites[0].body), '{"labels":["forge:running"]}');
+  assert.deepEqual(permissionChecks, ['teammate']);
+});
+
+test('given a ticket whose latest forge:ready was applied by its author who has read access only, or by a bot, or by someone GitHub does not know, when forge dispatches it, then forge:ready is replaced by forge:failed, the re-approval comment is posted once, the failure comment is not, and no workload starts', async () => {
+  for (const login of ['author', 'forge[bot]', 'stranger']) {
+    const { code, pi, labelWrites, dispatches, runs } = await dispatch({
+      approvals: () => approval([['forge:ready', login]]),
+    });
+
+    assert.equal(code, 1, login);
+    assert.equal(pi, null, login);
+    assert.deepEqual(labelWrites, refusedWrites(), login);
+    assert.deepEqual([dispatches, runs], [[], []], login);
+  }
+});
+
+test('given a ticket an outsider labelled forge:ready which a maintainer then applied again, or a maintainer labelled and an outsider applied again, when forge dispatches it, then the latest approval decides', async () => {
+  const reapproved = await dispatch({
+    approvals: () => approval([['forge:ready', 'author'], ['forge:ready', 'teammate']]),
+  });
+  assert.equal(reapproved.code, 0);
+  assert.ok(reapproved.pi);
+
+  const overridden = await dispatch({
+    approvals: () => approval([['forge:ready', 'teammate'], ['forge:ready', 'author']]),
+  });
+  assert.equal(overridden.pi, null);
+  assert.deepEqual(overridden.labelWrites, refusedWrites());
+});
+
+test('given a ticket whose latest forge:ready lies before the newest 100 label events, when forge dispatches it, then older events are read until it is found', async () => {
+  const { code, pi, requests } = await dispatch({
+    approvals: (before) =>
+      before === null
+        ? approval([['ready-for-agent', 'author']], true)
+        : approval([['forge:ready', 'teammate']]),
+  });
+
+  assert.equal(code, 0);
+  assert.ok(pi);
+  assert.deepEqual(
+    requests.filter(({ operation }) => operation === 'TicketApproval').map(({ variables }) => variables.before ?? null),
+    [null, 'older'],
+  );
+});
+
+test('given a ticket no forge:ready event of which GitHub lists, when forge dispatches it, then it is refused as unapproved', async () => {
+  const { pi, labelWrites } = await dispatch({
+    approvals: () => approval([['ready-for-agent', 'teammate']]),
+  });
+
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
 });
 
 const FLAKE = '{ outputs = { self }: { }; }\n';

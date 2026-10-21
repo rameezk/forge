@@ -518,7 +518,11 @@ just ssh sudo forge-dispatch forge 113
 
 Forge refuses a ticket that is not on the frontier or not labelled
 `forge:ready`, and refuses to start a workload beyond `maxConcurrent`, however
-the ticket was dispatched. Otherwise it claims the ticket by replacing `forge:ready` with
+the ticket was dispatched. It also refuses a ticket whose latest `forge:ready`
+was not applied by a maintainer, a person with `write` or `admin` permission
+on the repository: it swaps `forge:ready` for `forge:failed` and comments that
+a maintainer must re-approve the ticket. A maintainer applying `forge:ready`
+again approves it. Otherwise it claims the ticket by replacing `forge:ready` with
 `forge:running`, clones the tip of the repository's default branch into a
 fresh run directory and runs the worker there. The clone and the workload
 authenticate to `https://github.com` with an installation token for the

@@ -1,0 +1,49 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "timelineItems": {
+          "pageInfo": {
+            "hasPreviousPage": false,
+            "startCursor": "Y3Vyc29yOnYyOpPPAAABoVlUtPABqzMzNzQxODg0Mjc4"
+          },
+          "nodes": [
+            {
+              "__typename": "LabeledEvent",
+              "createdAt": "2026-10-20T12:41:26Z",
+              "label": {
+                "name": "ready-for-agent"
+              },
+              "actor": {
+                "__typename": "User",
+                "login": "rameezk"
+              }
+            },
+            {
+              "__typename": "LabeledEvent",
+              "createdAt": "2026-10-21T04:09:21Z",
+              "label": {
+                "name": "forge:ready"
+              },
+              "actor": {
+                "__typename": "User",
+                "login": "rameezk"
+              }
+            },
+            {
+              "__typename": "LabeledEvent",
+              "createdAt": "2026-10-21T04:10:00Z",
+              "label": {
+                "name": "forge:running"
+              },
+              "actor": {
+                "__typename": "Bot",
+                "login": "rameezk-forge"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

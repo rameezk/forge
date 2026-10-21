@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import {
   FRONTIER_PAGE_SIZE,
   requestClosingPullRequests,
+  requestTicketApproval,
   requestLabelledPage,
   requestTicket,
   type Fetch,
@@ -13,6 +14,8 @@ const REQUESTS = {
     requestTicket(fetch, token, github, Number(subject)),
   closing: (fetch: Fetch, token: string, github: string, subject: string) =>
     requestClosingPullRequests(fetch, token, github, Number(subject)),
+  approval: (fetch: Fetch, token: string, github: string, subject: string) =>
+    requestTicketApproval(fetch, token, github, Number(subject), null),
   labelled: (fetch: Fetch, token: string, github: string, subject: string) =>
     requestLabelledPage(fetch, token, github, subject, {
       first: FRONTIER_PAGE_SIZE,
@@ -28,7 +31,7 @@ if (
   name === undefined
 ) {
   throw new Error(
-    'usage: record-github.ts <owner/name> ticket|closing <issue> <fixture>, or <owner/name> labelled <label> <fixture>',
+    'usage: record-github.ts <owner/name> ticket|closing|approval <issue> <fixture>, or <owner/name> labelled <label> <fixture>',
   );
 }
 const token = process.env.GITHUB_TOKEN;

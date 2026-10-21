@@ -113,6 +113,39 @@ export const relabel = async (
 export const FAILED_TICKET_COMMENT =
   'Forge could not finish this ticket. Details are on the forge dashboard.';
 
+export const REAPPROVAL_TICKET_COMMENT =
+  'Forge needs a maintainer to re-approve this ticket: it was approved or changed by someone without write access.';
+
+const commentOn = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  body: string,
+): Promise<void> => {
+  const commented = await requestRest(
+    fetch,
+    token,
+    'POST',
+    github,
+    `/issues/${number}/comments`,
+    { body },
+  );
+  if (!commented.ok) {
+    throw new Error(`GitHub answered ${commented.status} commenting on ${github}#${number}`);
+  }
+};
+
+export const refuseTicket = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+): Promise<void> => {
+  await relabel(fetch, token, github, number, FORGE_FAILED, [FORGE_READY]);
+  await commentOn(fetch, token, github, number, REAPPROVAL_TICKET_COMMENT);
+};
+
 export const settleTicket = async (
   fetch: Fetch,
   token: string,
@@ -129,17 +162,7 @@ export const settleTicket = async (
     [FORGE_RUNNING, FORGE_READY],
   );
   if (settled === 'failed') {
-    const commented = await requestRest(
-      fetch,
-      token,
-      'POST',
-      github,
-      `/issues/${number}/comments`,
-      { body: FAILED_TICKET_COMMENT },
-    );
-    if (!commented.ok) {
-      throw new Error(`GitHub answered ${commented.status} commenting on ${github}#${number}`);
-    }
+    await commentOn(fetch, token, github, number, FAILED_TICKET_COMMENT);
   }
 };
 

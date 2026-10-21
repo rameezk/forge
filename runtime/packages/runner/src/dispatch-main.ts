@@ -7,10 +7,13 @@ import {
   FORGE_RUNNING,
   findOpenClosingPullRequest,
   githubAppFromEnv,
+  isApprovedByMaintainer,
   labelExists,
+  maintainerLookup,
   offFrontier,
   queryPullRequestReadiness,
   queryTicket,
+  refuseTicket,
   Store,
   settleTicket,
   relabel,
@@ -172,6 +175,20 @@ export const main = async (
       );
       if (refused !== null) {
         console.error(`${name}#${ticket.number} is not dispatchable: ${refused}`);
+        return 1;
+      }
+
+      const writeToken = await tokens(repository.github, 'write');
+      const approved = await isApprovedByMaintainer(
+        fetch,
+        writeToken,
+        repository.github,
+        ticket.number,
+        maintainerLookup(fetch, writeToken, repository.github),
+      );
+      if (!approved) {
+        await refuseTicket(fetch, writeToken, repository.github, ticket.number);
+        console.error(`${name}#${ticket.number} is not dispatchable: a maintainer has not approved it`);
         return 1;
       }
 
