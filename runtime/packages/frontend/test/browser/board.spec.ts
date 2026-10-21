@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import type { Store, Ticket } from '@forge/shared';
+import type { RunRecord, Store, Ticket } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
 const ticket = (number: number): Ticket => ({
@@ -443,4 +443,123 @@ test.describe('other pages on an ultra-wide screen', () => {
       for (const width of widths) expect(width).toBeLessThanOrEqual(1600);
     });
   }
+});
+
+const runRecord = (id: string): RunRecord => ({
+  id,
+  worker: 'builder',
+  harness: 'pi',
+  model: 'anthropic/claude-sonnet-5.5',
+  reasoningEffort: null,
+  startTime: '2026-09-21T10:00:00.000Z',
+  endTime: null,
+  status: 'running',
+  costStatus: 'pending',
+  costUsd: 0,
+  costEstimated: false,
+  unconfirmedEstimateUsd: 0,
+  listPrice: null,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  transcriptRef: null,
+  sessionId: null,
+  error: null,
+  ticket: null,
+  aliveAt: null,
+  harnessStartTime: null,
+  timeoutSeconds: null,
+  maxCostUsd: null,
+  exceededLimit: null,
+  counters: { toolCalls: 0, failedToolResults: 0, retries: 0, compactions: 0 },
+});
+
+const runningDispatch = (store: Store, number: number, runExists: boolean): void => {
+  seed(store, [{ ...ticket(number), forgeReady: true }]);
+  if (runExists) store.insertRun(runRecord(`run-${number}`));
+  const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100);
+  if (!('started' in started)) throw new Error('dispatch refused');
+};
+
+const bottomRight = async (card: ReturnType<Page['locator']>) => {
+  const box = (await card.boundingBox())!;
+  return { x: box.width - 6, y: box.height - 6 };
+};
+
+test.describe('clicking a card', () => {
+  test('given a Running card whose run exists, when its blank space is clicked, then the run page opens in the same tab', async ({ dashboard, page }) => {
+    runningDispatch(dashboard.store, 7, true);
+    await page.goto('/');
+    const card = page.locator('[data-ticket="7"]');
+
+    await card.click({ position: await bottomRight(card) });
+
+    await expect(page).toHaveURL(/\/runs\/run-7$/);
+    expect(page.context().pages()).toHaveLength(1);
+  });
+
+  test('given a Running card, when its #N link is clicked, then the GitHub issue opens in a new tab and the run page does not open', async ({ dashboard, page }) => {
+    await page.context().route('https://github.com/**', (route) => route.fulfill({ body: 'github' }));
+    runningDispatch(dashboard.store, 7, true);
+    await page.goto('/');
+
+    const popup = page.waitForEvent('popup');
+    await page.locator('[data-ticket="7"]').getByRole('link', { name: '#7', exact: true }).click();
+
+    expect((await popup).url()).toBe('https://github.com/rameezk/forge/issues/7');
+    expect(new URL(page.url()).pathname).toBe('/');
+  });
+
+  test('given a card on a desktop screen, when it is hovered and later focused with the keyboard, then the cursor is a pointer, the hover state moves no layout and a focus ring shows', async ({ dashboard, page }) => {
+    seed(dashboard.store, [ticket(8)]);
+    await page.goto('/');
+    const card = page.locator('[data-ticket="8"]');
+    const link = card.locator('[data-card-link]');
+    const look = () => card.evaluate((element) => ({ background: element.ownerDocument.defaultView!.getComputedStyle(element).backgroundColor, box: JSON.stringify(element.getBoundingClientRect()) }));
+    const resting = await look();
+
+    await card.hover({ position: await bottomRight(card) });
+
+    expect(await link.evaluate((element) => element.ownerDocument.defaultView!.getComputedStyle(element).cursor)).toBe('pointer');
+    const hovered = await look();
+    expect(hovered.background).not.toBe(resting.background);
+    expect(hovered.box).toBe(resting.box);
+
+    await page.mouse.move(0, 0);
+    for (let presses = 0; presses < 60 && !(await link.evaluate((element) => element === element.ownerDocument.activeElement)); presses += 1) await page.keyboard.press('Tab');
+    const ring = await link.evaluate((element) => {
+      const { outlineStyle, outlineWidth, boxShadow } = element.ownerDocument.defaultView!.getComputedStyle(element);
+      return { outline: outlineStyle !== 'none' && parseFloat(outlineWidth) > 0, shadow: boxShadow !== 'none' };
+    });
+    expect(ring.outline || ring.shadow).toBe(true);
+  });
+
+  test('given a Running card linking to the issue because its run does not exist yet, when the run starts and a live update arrives, then the card links to the run', async ({ dashboard, page }) => {
+    runningDispatch(dashboard.store, 7, false);
+    await page.goto('/');
+    const link = page.locator('[data-ticket="7"] [data-card-link]');
+    await expect(link).toHaveAttribute('href', 'https://github.com/rameezk/forge/issues/7');
+    await expect(link).toHaveAttribute('target', '_blank');
+
+    dashboard.store.insertRun(runRecord('run-7'));
+
+    await expect(link).toHaveAttribute('href', '/runs/run-7');
+    await expect(link).toHaveAccessibleName('Open run for #7');
+    await expect(link).not.toHaveAttribute('target');
+  });
+
+  test.describe('on a phone', () => {
+    test.use({ viewport: { width: 390, height: 800 }, hasTouch: true });
+
+    test('given the Board at phone width, when a card is tapped away from its inner links, then its destination opens', async ({ dashboard, page }) => {
+      runningDispatch(dashboard.store, 7, true);
+      await page.goto('/');
+      const card = page.locator('[data-ticket="7"]');
+
+      await card.tap({ position: await bottomRight(card) });
+
+      await expect(page).toHaveURL(/\/runs\/run-7$/);
+    });
+  });
 });
