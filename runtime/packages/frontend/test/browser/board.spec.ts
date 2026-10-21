@@ -17,32 +17,103 @@ const ticket = (number: number): Ticket => ({
 const seed = (store: Store, tickets: Ticket[]) =>
   store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets });
 
+const spec = (number: number) => ({ number, title: `Spec ${number}`, url: `https://github.com/rameezk/forge/issues/${number}` });
+
+const stagedTickets = (): Ticket[] => [
+  ticket(1),
+  { ...ticket(2), forHuman: true },
+  { ...ticket(3), blocked: true, blockedBy: [9] },
+];
+
+const stagesOf = (scope: ReturnType<Page['locator']>) =>
+  scope.locator('[data-column]:visible').evaluateAll((columns) =>
+    columns.map((column) => ({
+      key: column.getAttribute('data-column'),
+      header: [column.querySelector('[data-stage-title]'), column.querySelector('[data-stage-count]'), column.querySelector('[data-stage-subtitle]')].flatMap((part) => (part === null ? [] : [part.textContent])).join(' '),
+      cards: column.querySelectorAll('[data-ticket]').length,
+      cardWidth: Math.round(column.querySelector('[data-ticket]')!.getBoundingClientRect().width),
+      columnWidth: Math.round(column.getBoundingClientRect().width),
+    })),
+  );
+
 test.describe('on a narrow screen', () => {
   test.use({ viewport: { width: 390, height: 800 } });
 
-  test('given a phone-width screen, when the Board is opened, then all nine columns stay, the board scrolls sideways inside its own container and the page does not', async ({ dashboard, page }) => {
-    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
+  test('given a phone-width screen and a lane with cards in some stages, when the Board is opened, then the lane lists only its non-empty stages top to bottom in column order, each with its header and full-width cards, and nothing scrolls sideways', async ({ dashboard, page }) => {
+    seed(dashboard.store, stagedTickets());
 
     await page.goto('/');
 
-    await expect(page.locator('[data-column-header]')).toHaveCount(9);
-    expect(await page.locator('[data-board]').evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    await expect(page.locator('[data-column-header]:visible')).toHaveCount(0);
+    const stages = await stagesOf(page.locator('[data-repository="forge"]'));
+    expect(stages.map(({ key }) => key)).toEqual(['blocked', 'ready-for-human', 'ready-for-agent']);
+    expect(stages.map(({ header }) => header)).toEqual([
+      'Blocked 1 Waiting on open blockers',
+      'Ready for human 1 Needs a human in the loop',
+      'Ready for agent 1 Not handed off yet',
+    ]);
+    for (const { cardWidth, columnWidth } of stages) {
+      expect(columnWidth).toBeGreaterThan(300);
+      expect(columnWidth - cardWidth).toBeLessThanOrEqual(20);
+    }
+    const tops = await page.locator('[data-column]:visible').evaluateAll((columns) => columns.map((column) => Math.round(column.getBoundingClientRect().top)));
+    expect(tops).toEqual([...tops].sort((a, b) => a - b));
+    expect(new Set(tops).size).toBe(3);
+    expect(await page.locator('[data-board]').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
     expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
   });
 
-  test('given a phone-width screen, when the Board is opened, then every title fits whole and all headers share one height', async ({ dashboard, page }) => {
-    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
+  test('given a phone-width screen, when the Board is opened, then the person icon marks the human stages and every stage header keeps its title whole', async ({ dashboard, page }) => {
+    seed(dashboard.store, stagedTickets());
 
     await page.goto('/');
 
-    const headers = await page.locator('[data-column-header]').evaluateAll((elements) =>
+    const headers = await page.locator('[data-stage-header]:visible').evaluateAll((elements) =>
       elements.map((header) => ({
-        height: Math.round(header.getBoundingClientRect().height),
-        titleClipped: header.querySelector('[data-column-title]')!.scrollWidth > header.querySelector('[data-column-title]')!.clientWidth,
+        person: header.querySelector('svg') !== null,
+        titleClipped: header.querySelector('[data-stage-title]')!.scrollWidth > header.querySelector('[data-stage-title]')!.clientWidth,
       })),
     );
-    expect(new Set(headers.map(({ height }) => height)).size).toBe(1);
+    expect(headers.map(({ person }) => person)).toEqual([false, true, false]);
     expect(headers.some(({ titleClipped }) => titleClipped)).toBe(false);
+  });
+
+  test('given a phone-width screen with tickets under two specs plus a loose one, when the Board is opened with Group by Spec, then each spec band appears with No spec last and only that spec\'s non-empty stages appear under a compact title-and-count header', async ({ dashboard, page }) => {
+    seed(dashboard.store, [
+      { ...ticket(1), parent: spec(20) },
+      { ...ticket(2), parent: spec(20), forHuman: true },
+      { ...ticket(3), parent: spec(10), blocked: true, blockedBy: [9] },
+      ticket(4),
+    ]);
+
+    await page.goto('/?group=spec');
+
+    const bands = await page.locator('[data-spec-band]').evaluateAll((elements) => elements.map((band) => band.getAttribute('data-spec-band')));
+    expect(bands).toEqual(['10', '20', 'none']);
+    const stages = await Promise.all(bands.map((band) => stagesOf(page.locator(`[data-spec-band="${band}"]`))));
+    expect(stages.map((list) => list.map(({ key, header }) => [key, header]))).toEqual([
+      [['blocked', 'Blocked 1']],
+      [['ready-for-human', 'Ready for human 1'], ['ready-for-agent', 'Ready for agent 1']],
+      [['ready-for-agent', 'Ready for agent 1']],
+    ]);
+    expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+    expect(await page.locator('[data-board]').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+  });
+});
+
+test.describe('on a 640px screen', () => {
+  test.use({ viewport: { width: 640, height: 800 } });
+
+  test('given a 640px viewport, when the Board is opened, then it shows the nine-column layout, not the stacked one', async ({ dashboard, page }) => {
+    seed(dashboard.store, stagedTickets());
+
+    await page.goto('/');
+
+    await expect(page.locator('[data-column-header]:visible')).toHaveCount(9);
+    await expect(page.locator('[data-stage-header]:visible')).toHaveCount(0);
+    const tops = await page.locator('[data-column]:visible').evaluateAll((columns) => columns.map((column) => Math.round(column.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(9);
+    expect(new Set(tops).size).toBe(1);
   });
 });
 
@@ -259,25 +330,6 @@ test.describe('the board box', () => {
 
 test.describe('the board box on a narrow screen', () => {
   test.use({ viewport: { width: 390, height: 800 } });
-
-  test('given a phone viewport, when the board box is scrolled sideways, then each column header stays above its column and the page does not scroll', async ({ dashboard, page }) => {
-    crowd(dashboard.store, 'forge', 40);
-    await page.goto('/');
-
-    await page.locator('[data-board]').evaluate((element) => element.scrollTo({ top: 400, left: 300 }));
-
-    const aligned = await page.locator('[data-column-header]').evaluateAll((headers) =>
-      headers.map((header) => {
-        const key = header.getAttribute('data-column-header');
-        const column = header.ownerDocument.querySelector(`[data-column="${key}"]`)!.getBoundingClientRect();
-        const box = header.getBoundingClientRect();
-        return { left: Math.round(box.left - column.left), width: Math.round(box.width - column.width) };
-      }),
-    );
-    expect(aligned).toEqual(Array(9).fill({ left: 0, width: 0 }));
-    expect(await page.locator('html').evaluate((element) => element.scrollHeight - element.clientHeight)).toBe(0);
-    expect(await page.locator('[data-column-header]').first().evaluate((header) => header.getBoundingClientRect().top)).toBeGreaterThan(0);
-  });
 
   test('given a phone viewport, when the Board is opened, then the box ends above the footer and the lane header fits inside the box beside its scrollbar', async ({ dashboard, page }) => {
     crowd(dashboard.store, 'forge', 40);

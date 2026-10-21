@@ -5,7 +5,7 @@ import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
-const ROW_GRID = 'grid grid-cols-9 sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
+const ROW_GRID = 'sm:grid sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
 
 const LANE_HEAD = 'sticky left-0 w-[calc(100vw-2.25rem)] max-w-full';
 
@@ -145,7 +145,7 @@ const renderPolled = (polledAt: string | null, timeZone: string): Rendered =>
     : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt, timeZone)}</span>`;
 
 const renderColumnHeaders = (counts: Record<ColumnKey, number>): Rendered =>
-  html`<div class="sticky top-0 z-10 shadow-[0_1px_0_var(--color-line)] ${ROW_GRID}">${COLUMNS.map(
+  html`<div class="sticky top-0 z-10 hidden shadow-[0_1px_0_var(--color-line)] ${ROW_GRID}">${COLUMNS.map(
     ({ key, title, subtitle, hint, person }) => html`<div data-column-header="${key}" class="border-b border-line bg-raised px-2 py-2">
       <span class="flex h-4 items-center gap-1"><span data-column-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${person ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-column-total class="text-xs leading-4 tabular-nums text-muted">${counts[key]}</span></span></span>
       <span data-column-subtitle title="${hint ?? subtitle}" class="mt-0.5 block truncate text-[0.6875rem] leading-4 text-muted${hint === null ? '' : ' cursor-help underline decoration-dotted decoration-line underline-offset-[3px]'}">${subtitle}</span>
@@ -161,9 +161,15 @@ const renderLaneCounts = (lane: BoardLane): Rendered => {
       )}</span>`;
 };
 
+const renderStageHeader = ({ title, subtitle, person }: (typeof COLUMNS)[number], count: number, compact: boolean): Rendered =>
+  html`<div data-stage-header class="border-y border-line bg-raised px-3 sm:hidden ${compact ? 'py-1' : 'py-2'}">
+    <span class="flex h-4 items-center gap-1"><span data-stage-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${person && !compact ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-stage-count class="text-xs leading-4 tabular-nums text-muted">${count}</span></span></span>
+    ${compact ? '' : html`<span data-stage-subtitle class="mt-0.5 block truncate text-[0.6875rem] leading-4 text-muted">${subtitle}</span>`}
+  </div>`;
+
 const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(
-    ({ key }) => html`<div data-column="${key}" class="flex min-h-12 flex-col gap-2 border-l border-line p-2 first:border-l-0">${columns[key].map((card) => renderCard(repository, github, card, grouped, attempted, timeZone, runs))}</div>`,
+    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-line sm:min-h-12 sm:border-l sm:p-2 sm:first:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, attempted, timeZone, runs))}</div></div>`,
   )}</div>`;
 
 const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
@@ -238,7 +244,7 @@ export const renderBoard = (
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
-          <div class="min-w-[96rem] sm:min-w-[76.5rem]">
+          <div class="sm:min-w-[76.5rem]">
             ${renderColumnHeaders(totals(lanes))}
             ${lanes.map((lane) => renderLane(lane, grouping === 'spec', attempted, display.timeZone, runs))}
           </div>
