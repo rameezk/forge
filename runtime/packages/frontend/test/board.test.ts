@@ -402,6 +402,7 @@ test('given a ticket and a parent spec whose URLs are not GitHub https links, wh
 
   assert.doesNotMatch(body, /javascript:/);
   assert.match(cardOf(body, 1), /<p[^>]*>#1<\/p>/);
+  assert.equal(cardLinkOf(cardOf(body, 1)), undefined);
 });
 
 const runningLimit = (body: string): string => {
@@ -759,4 +760,113 @@ test('given the Board, when it is opened at / and at /?group=spec, then the grou
   assert.deepEqual(ungrouped, [['/', 'None', 'current'], ['/?group=spec', 'Spec', '']]);
   assert.deepEqual(grouped, [['/', 'None', ''], ['/?group=spec', 'Spec', 'current']]);
   assert.doesNotMatch(await (await app.request('/?group=bogus')).text(), /data-spec-band/);
+});
+
+const cardLinkOf = (card: string): { href: string; label: string; sameTab: boolean } | undefined => {
+  const tag = card.match(/<a\s[^>]*data-card-link[^>]*>/)?.[0];
+  if (tag === undefined) return undefined;
+  return {
+    href: tag.match(/\shref="([^"]*)"/)?.[1] ?? '',
+    label: tag.match(/\saria-label="([^"]*)"/)?.[1] ?? '',
+    sameTab: !/\starget="_blank"/.test(tag),
+  };
+};
+
+const issueLink = (number: number, label = `Open issue #${number}`) => ({ href: `https://github.com/rameezk/forge/issues/${number}`, label, sameTab: false });
+
+const cardLinks = async (app: ReturnType<typeof appWith>, path: string, numbers: number[]) => {
+  const body = await (await app.request(path)).text();
+  return Object.fromEntries(numbers.map((number) => [number, cardLinkOf(cardOf(body, number))]));
+};
+
+const spec = (number: number) => ({ number, title: `Spec ${number}`, url: `https://github.com/rameezk/forge/issues/${number}` });
+
+const named = (number: number, overrides: Partial<Ticket> = {}): Ticket =>
+  ticket({ number, url: `https://github.com/rameezk/forge/issues/${number}`, parent: null, forgeReady: true, ...overrides });
+
+const ticketsNamed = (numbers: number[]) => numbers.map((number) => named(number));
+
+test('given a running dispatch whose run exists, a running revision, a running conflict resolution and a running dispatch whose run does not exist yet, when the Board is requested, then each Running card links to its own workload run in the same tab, or to the issue in a new tab when the run does not exist', async () => {
+  const app = appWith([frontierOf(ticketsNamed([4, 5, 6, 7]))], (store) => {
+    store.insertRun(runOf(4));
+    dispatched(store, 4, new Date().toISOString());
+    inReview(store, 5);
+    store.insertRun({ ...runOf(105), id: 'revision-105' });
+    startRevisionOn(store, 5, 105);
+    inReview(store, 6);
+    store.insertRun({ ...runOf(106), id: 'resolution-106' });
+    startResolutionOn(store, 6, 106);
+    dispatched(store, 7, new Date().toISOString());
+  });
+
+  assert.deepEqual(await cardLinks(app, '/', [4, 5, 6, 7]), {
+    4: { href: '/runs/run-4', label: 'Open run for #4', sameTab: true },
+    5: { href: '/runs/revision-105', label: 'Open run for #5', sameTab: true },
+    6: { href: '/runs/resolution-106', label: 'Open run for #6', sameTab: true },
+    7: issueLink(7),
+  });
+});
+
+const failedAttempt = (store: Store, number: number, runId: string | null, startedAt: string): void => {
+  if (runId === null) {
+    store.recordFailedStart(forgeTicket(number), 'harness missing', startedAt);
+    return;
+  }
+  store.insertRun({ ...runOf(number), id: runId });
+  const start = store.startDispatch(forgeTicket(number), runId, startedAt, Number.POSITIVE_INFINITY);
+  assert.ok('started' in start);
+  store.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail: null }, startedAt);
+};
+
+const everyColumn = (): { tickets: Ticket[]; requests: RefinementRequest[]; closed: ClosedTicket[] } => ({
+  requests: [request({ number: 20, url: 'https://github.com/rameezk/forge/issues/20' })],
+  tickets: [
+    ...ticketsNamed([10, 11, 12]),
+    named(13, { blocked: true, blockedBy: [99] }),
+    named(14, { forHuman: true }),
+    named(15, { forgeReady: false }),
+    named(16),
+  ],
+  closed: [closedTicket({ number: 18, url: 'https://github.com/rameezk/forge/issues/18' })],
+});
+
+const seedEveryColumn = (store: Store): void => {
+  inReview(store, 10);
+  const merged = dispatched(store, 18);
+  store.endDispatch(merged, { state: 'done', pullRequest: pullRequest(118) }, '2026-09-30T09:00:00.000Z');
+  store.recordPullRequest(merged, { state: 'merged', settledAt: '2026-09-30T10:00:00.000Z', rework: 0 });
+  failedAttempt(store, 11, 'run-11a', '2026-09-30T06:00:00.000Z');
+  failedAttempt(store, 11, 'run-11b', '2026-09-30T08:00:00.000Z');
+  failedAttempt(store, 12, null, '2026-09-30T08:00:00.000Z');
+};
+
+const everyColumnDestinations = {
+  10: { href: 'https://github.com/rameezk/forge/pull/110', label: 'Open PR #110', sameTab: false },
+  11: { href: '/runs/run-11b', label: 'Open run for #11', sameTab: true },
+  12: issueLink(12),
+  13: issueLink(13),
+  14: issueLink(14),
+  15: issueLink(15),
+  16: issueLink(16),
+  18: issueLink(18),
+  20: issueLink(20),
+};
+
+test('given a ticket in each column, a failed ticket with an earlier attempt and a failed start, when the Board is requested, then In review links to the pull request, Failed to the latest attempt run, a failed start to the issue and every other column to the issue', async () => {
+  const { tickets, requests, closed } = everyColumn();
+  const app = appWith([frontierOf(tickets, requests, closed)], seedEveryColumn);
+
+  assert.deepEqual(await cardLinks(app, '/', Object.keys(everyColumnDestinations).map(Number)), everyColumnDestinations);
+});
+
+test('given the same tickets under two specs and loose, when /?group=spec is requested, then every card has the same destination as in the ungrouped Board', async () => {
+  const { tickets, requests, closed } = everyColumn();
+  const specs = [null, spec(440), spec(455)];
+  const parented = tickets.map((entry, index) => ({ ...entry, parent: specs[index % 3] ?? null }));
+  const app = appWith([frontierOf(parented, requests, closed)], seedEveryColumn);
+  const numbers = Object.keys(everyColumnDestinations).map(Number);
+
+  const body = await (await app.request('/?group=spec')).text();
+  assert.match(body, /data-spec-band="440"/);
+  assert.deepEqual(await cardLinks(app, '/?group=spec', numbers), everyColumnDestinations);
 });

@@ -126,10 +126,52 @@ const renderDetails = (card: BoardCard, github: string, timeZone: string, runs: 
   }
 };
 
+interface Destination {
+  href: string;
+  label: string;
+  external: boolean;
+}
+
+const runDestination = (runId: string | null | undefined, runs: ReadonlyMap<string, RunRecord>, number: number): Destination | null =>
+  runId == null || !runs.has(runId) ? null : { href: `/runs/${encodeURIComponent(runId)}`, label: `Open run for #${number}`, external: false };
+
+const pullRequestDestination = (dispatch: DispatchRecord | undefined): Destination | null => {
+  const pullRequest = dispatch?.pullRequest;
+  return pullRequest == null || !isGithubUrl(pullRequest.url) ? null : { href: pullRequest.url, label: `Open PR #${pullRequest.number}`, external: true };
+};
+
+const workDestination = ({ column, ticket, dispatch, workload }: BoardCard, runs: ReadonlyMap<string, RunRecord>): Destination | null => {
+  switch (column) {
+    case 'running':
+      return runDestination(workload?.runId, runs, ticket.number);
+    case 'in-review':
+      return pullRequestDestination(dispatch);
+    case 'failed':
+      return runDestination(dispatch?.runId, runs, ticket.number);
+    default:
+      return null;
+  }
+};
+
+const destinationOf = (card: BoardCard, runs: ReadonlyMap<string, RunRecord>): Destination | null =>
+  workDestination(card, runs) ?? (isGithubUrl(card.ticket.url) ? { href: card.ticket.url, label: `Open issue #${card.ticket.number}`, external: true } : null);
+
+const CARD_LINK = 'absolute inset-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const CARD_HOVER = 'has-[[data-card-link]:hover]:bg-raised';
+
+const INNER_LINKS = '[&_a:not([data-card-link])]:relative [&_a:not([data-card-link])]:z-10';
+
+const renderCardLink = (destination: Destination | null): Rendered =>
+  destination === null
+    ? ''
+    : html`<a href="${destination.href}" data-card-link aria-label="${destination.label}"${destination.external ? raw(' target="_blank" rel="noopener noreferrer"') : ''} class="${CARD_LINK}"></a>`;
+
 const renderCard = (repository: string, github: string, card: BoardCard, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const { ticket } = card;
   const parent = grouped || card.column === 'to-refine' ? null : card.ticket.parent;
-  return html`<article data-ticket="${ticket.number}" class="rounded-md border border-line bg-surface p-2 text-sm">
+  return html`<article data-ticket="${ticket.number}" class="relative rounded-md border border-line bg-surface p-2 text-sm ${CARD_HOVER} ${INNER_LINKS}">
+    ${renderCardLink(destinationOf(card, runs))}
     <p class="m-0 tabular-nums">${isGithubUrl(ticket.url) ? externalLink(ticket.url, `#${ticket.number}`) : html`#${ticket.number}`}${attempted.has(ticketKey(repository, ticket.number))
       ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
       : ''}</p>

@@ -114,7 +114,7 @@ export const createApp = ({
     const revisions = store.listRevisions(now);
     const conflictResolutions = store.listConflictResolutions(now);
     const runs = new Map<string, RunRecord>();
-    for (const runId of [...dispatches, ...revisions, ...conflictResolutions].filter(({ state }) => state === 'running').map(({ runId }) => runId)) {
+    for (const runId of [...dispatches, ...[...revisions, ...conflictResolutions].filter(({ state }) => state === 'running')].map(({ runId }) => runId)) {
       const run = runId === null ? undefined : store.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
