@@ -1,5 +1,5 @@
 source https://github.com/rameezk/skills.git
-rev 05f3d4db3a2c4a171bcf591fd8a924b89c25b2c0
+rev a81f1ccce8b0414834f27756930a20a428e3462e
 harness claude-code
 skill before-after
 skill code-review
