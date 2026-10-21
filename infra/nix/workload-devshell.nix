@@ -47,6 +47,8 @@ let
         return labelled;
       }
       if (operation === 'TicketApproval') return fixture('approved-ticket');
+      if (operation === 'TicketRenames') return fixture('unrenamed-ticket');
+      if (operation === 'TicketBodyEdits') return fixture('edited-ticket-body');
       if (operation === 'ClosingPullRequests') return fixture('no-pull-request');
       return { errors: [{ message: `no fake answer for ''${operation}` }] };
     };

@@ -31,6 +31,7 @@ export const TICKET_APPROVAL_QUERY = `
 `;
 
 interface LabeledEventNode {
+  createdAt: string;
   label: { name: string } | null;
   actor: Actor | null;
 }
@@ -79,13 +80,13 @@ const queryApprovalPage = async (
   return issue.timelineItems;
 };
 
-export const isApprovedByMaintainer = async (
+export const maintainerApprovalOf = async (
   fetch: Fetch,
   token: string,
   github: string,
   number: number,
   isMaintainer: MaintainerLookup,
-): Promise<boolean> => {
+): Promise<string | null> => {
   const cursors = new Set<string>();
   let before: string | null = null;
   do {
@@ -97,12 +98,12 @@ export const isApprovedByMaintainer = async (
       before,
     );
     const latest = nodes.findLast((node) => node.label?.name === FORGE_READY);
-    if (latest !== undefined) return isMaintainer(latest.actor);
+    if (latest !== undefined) return (await isMaintainer(latest.actor)) ? latest.createdAt : null;
     before = pageInfo.hasPreviousPage ? pageInfo.startCursor : null;
     if (before !== null && cursors.has(before)) {
       throw new Error(`GitHub paging did not advance for ${github}#${number}`);
     }
     if (before !== null) cursors.add(before);
   } while (before !== null);
-  return false;
+  return null;
 };

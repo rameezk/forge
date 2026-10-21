@@ -7,8 +7,9 @@ import {
   FORGE_RUNNING,
   findOpenClosingPullRequest,
   githubAppFromEnv,
-  isApprovedByMaintainer,
+  hasOutsiderEditSince,
   labelExists,
+  maintainerApprovalOf,
   maintainerLookup,
   offFrontier,
   queryPullRequestReadiness,
@@ -181,19 +182,31 @@ export const main = async (
       }
 
       const writeToken = await tokens(repository.github, 'write');
-      const approved = await isApprovedByMaintainer(
+      const isMaintainer = maintainerLookup(fetch, writeToken, repository.github);
+      const approvedAt = await maintainerApprovalOf(
         fetch,
         writeToken,
         repository.github,
         ticket.number,
-        maintainerLookup(fetch, writeToken, repository.github),
+        isMaintainer,
       );
-      if (!approved) {
+      if (approvedAt === null) {
         await refuseTicket(fetch, writeToken, repository.github, ticket.number);
         console.error(`${name}#${ticket.number} is not dispatchable: a maintainer has not approved it`);
         return 1;
       }
       const context = await queryTicketContext(fetch, writeToken, repository.github, ticket.number);
+      for (const { number } of context.spec === null ? [context.ticket] : [context.ticket, context.spec]) {
+        if (
+          await hasOutsiderEditSince(fetch, writeToken, repository.github, number, approvedAt, isMaintainer)
+        ) {
+          await refuseTicket(fetch, writeToken, repository.github, ticket.number);
+          console.error(
+            `${name}#${ticket.number} is not dispatchable: ${repository.github}#${number} was edited by someone other than a maintainer after it was approved`,
+          );
+          return 1;
+        }
+      }
 
       const dispatched = { ...unstarted, url: ticket.url };
       const runId = randomUUID();

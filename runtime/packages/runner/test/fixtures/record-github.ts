@@ -4,6 +4,8 @@ import {
   FRONTIER_PAGE_SIZE,
   requestClosingPullRequests,
   requestTicketApproval,
+  requestTicketBodyEdits,
+  requestTicketRenames,
   requestLabelledPage,
   requestTicket,
   requestTicketContext,
@@ -19,6 +21,10 @@ const REQUESTS = {
     requestClosingPullRequests(fetch, token, github, Number(subject)),
   approval: (fetch: Fetch, token: string, github: string, subject: string) =>
     requestTicketApproval(fetch, token, github, Number(subject), null),
+  renames: (fetch: Fetch, token: string, github: string, subject: string) =>
+    requestTicketRenames(fetch, token, github, Number(subject), null),
+  bodyedits: (fetch: Fetch, token: string, github: string, subject: string) =>
+    requestTicketBodyEdits(fetch, token, github, Number(subject), null),
   labelled: (fetch: Fetch, token: string, github: string, subject: string) =>
     requestLabelledPage(fetch, token, github, subject, {
       first: FRONTIER_PAGE_SIZE,
@@ -34,7 +40,7 @@ if (
   name === undefined
 ) {
   throw new Error(
-    'usage: record-github.ts <owner/name> ticket|context|closing|approval <issue> <fixture>, or <owner/name> labelled <label> <fixture>',
+    'usage: record-github.ts <owner/name> ticket|context|closing|approval|renames|bodyedits <issue> <fixture>, or <owner/name> labelled <label> <fixture>',
   );
 }
 const token = process.env.GITHUB_TOKEN;

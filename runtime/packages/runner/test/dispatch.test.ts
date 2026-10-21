@@ -286,6 +286,75 @@ const approval = (
   return response;
 };
 
+interface BodyEditsResponse {
+  data: {
+    repository: {
+      issue: {
+        userContentEdits: {
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          nodes: { editedAt: string; editor: { __typename: string; login: string } | null }[];
+        };
+      };
+    };
+  };
+}
+
+interface RenamesResponse {
+  data: {
+    repository: {
+      issue: {
+        timelineItems: {
+          pageInfo: { hasPreviousPage: boolean; startCursor: string | null };
+          nodes: {
+            __typename: 'RenamedTitleEvent';
+            createdAt: string;
+            actor: { __typename: string; login: string } | null;
+          }[];
+        };
+      };
+    };
+  };
+}
+
+const RECORDED_BODY_EDITS = recordedEdits<BodyEditsResponse>('edited-ticket-body');
+const RECORDED_RENAMES = recordedEdits<RenamesResponse>('unrenamed-ticket');
+
+function recordedEdits<Response>(name: string): Response {
+  return JSON.parse(readFileSync(join(GITHUB_FIXTURES, `${name}.json`), 'utf8')) as Response;
+}
+
+const actorOf = (login: string): { __typename: string; login: string } => ({
+  __typename: login.endsWith('[bot]') ? 'Bot' : 'User',
+  login,
+});
+
+const bodyEdits = (edits: [login: string, at: string][], hasNextPage = false): BodyEditsResponse => {
+  const response = structuredClone(RECORDED_BODY_EDITS);
+  response.data.repository.issue.userContentEdits = {
+    pageInfo: { hasNextPage, endCursor: hasNextPage ? 'newer' : null },
+    nodes: edits.map(([login, at]) => ({ editedAt: at, editor: actorOf(login) })),
+  };
+  return response;
+};
+
+const renames = (edits: [login: string, at: string][], hasPreviousPage = false): RenamesResponse => {
+  const response = structuredClone(RECORDED_RENAMES);
+  response.data.repository.issue.timelineItems = {
+    pageInfo: { hasPreviousPage, startCursor: hasPreviousPage ? 'older' : null },
+    nodes: edits.map(([login, at]) => ({
+      __typename: 'RenamedTitleEvent',
+      createdAt: at,
+      actor: actorOf(login),
+    })),
+  };
+  return response;
+};
+
+interface Edits {
+  body: (number: number, after: string | null) => BodyEditsResponse;
+  renames: (number: number, before: string | null) => RenamesResponse;
+}
+
 const PERMISSIONS: Record<string, string> = {
   rameezk: 'admin',
   teammate: 'write',
@@ -332,6 +401,7 @@ const fakeGithub = (
   approvals: (before: string | null) => ApprovalResponse,
   contexts: Record<number, RawContextResponse>,
   permissions: Record<string, string>,
+  edits: Edits,
 ) => {
   const requests: GraphqlRequest[] = [];
   const permissionChecks: string[] = [];
@@ -364,6 +434,16 @@ const fakeGithub = (
       }
       if (operation === 'TicketApproval') {
         return json(approvals((body.variables.before as string | null | undefined) ?? null));
+      }
+      if (operation === 'TicketBodyEdits') {
+        return json(
+          edits.body(Number(body.variables.number), (body.variables.after as string | null | undefined) ?? null),
+        );
+      }
+      if (operation === 'TicketRenames') {
+        return json(
+          edits.renames(Number(body.variables.number), (body.variables.before as string | null | undefined) ?? null),
+        );
       }
       if (operation === 'TicketContext') {
         const answer = contexts[Number(body.variables.number)];
@@ -482,6 +562,7 @@ interface Scenario {
   rejectBotLookup?: boolean;
   contexts?: Record<number, RawContextResponse>;
   permissions?: Record<string, string>;
+  edits?: Partial<Edits>;
 }
 
 interface FakeNix {
@@ -636,6 +717,10 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     scenario.approvals ?? (() => APPROVED_TICKET),
     scenario.contexts ?? { 113: context() },
     scenario.permissions ?? {},
+    {
+      body: scenario.edits?.body ?? (() => RECORDED_BODY_EDITS),
+      renames: scenario.edits?.renames ?? (() => RECORDED_RENAMES),
+    },
   );
   if (scenario.seed !== undefined) {
     const seeded = Store.open(join(stateDir, 'forge.db'));
@@ -770,6 +855,16 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
       operation: 'TicketContext',
       authorization: `bearer ${WRITE_TOKEN}`,
       variables: { owner: 'rameezk', name: 'forge', number: 113 },
+    },
+    {
+      operation: 'TicketRenames',
+      authorization: `bearer ${WRITE_TOKEN}`,
+      variables: { owner: 'rameezk', name: 'forge', number: 113, before: null },
+    },
+    {
+      operation: 'TicketBodyEdits',
+      authorization: `bearer ${WRITE_TOKEN}`,
+      variables: { owner: 'rameezk', name: 'forge', number: 113, after: null },
     },
     {
       operation: 'ClosingPullRequests',
@@ -941,7 +1036,7 @@ test('given a ticket opened by an outsider to which a maintainer applied forge:r
   assert.equal(code, 0);
   assert.ok(pi);
   assert.equal(labelWrites[0]?.body && JSON.stringify(labelWrites[0].body), '{"labels":["forge:running"]}');
-  assert.deepEqual(permissionChecks, ['teammate']);
+  assert.deepEqual(permissionChecks, ['teammate', 'rameezk']);
 });
 
 test('given a ticket whose latest forge:ready was applied by its author who has read access only, or by a bot, or by someone GitHub does not know, when forge dispatches it, then forge:ready is replaced by forge:failed, the re-approval comment is posted once, the failure comment is not, and no workload starts', async () => {
@@ -994,6 +1089,141 @@ test('given a ticket no forge:ready event of which GitHub lists, when forge disp
 
   assert.equal(pi, null);
   assert.deepEqual(labelWrites, refusedWrites());
+});
+
+const withSpec = (): RawContextResponse =>
+  withContext((issue) => {
+    issue.parent = {
+      number: 112,
+      title: 'The spec title',
+      url: 'https://github.com/rameezk/forge/issues/112',
+      body: 'The spec body.',
+      comments: { nodes: [] },
+      parent: null,
+    };
+  });
+
+const APPROVED_AT = '2026-10-21T04:01:00Z';
+const approvedByMaintainer = () =>
+  approval([['ready-for-agent', 'author'], ['forge:ready', 'teammate']]);
+
+test('given an approved ticket whose body, or whose title, or whose parent spec\'s body or title, an outsider, a bot or someone GitHub does not know edited after the approval, when forge dispatches it, then forge:ready is replaced by forge:failed, the re-approval comment is posted once, and no workload starts', async () => {
+  const after = '2026-10-21T05:00:00Z';
+  const cases: [string, Partial<Edits>][] = [];
+  for (const login of ['author', 'forge[bot]', 'stranger']) {
+    cases.push(
+      [`${login} edits the ticket body`, { body: (n) => bodyEdits(n === 113 ? [[login, after]] : []) }],
+      [`${login} retitles the ticket`, { renames: (n) => renames(n === 113 ? [[login, after]] : []) }],
+      [`${login} edits the spec body`, { body: (n) => bodyEdits(n === 112 ? [[login, after]] : []) }],
+      [`${login} retitles the spec`, { renames: (n) => renames(n === 112 ? [[login, after]] : []) }],
+    );
+  }
+  for (const [name, edits] of cases) {
+    const { code, pi, labelWrites, dispatches, runs } = await dispatch({
+      approvals: approvedByMaintainer,
+      contexts: { 113: withSpec() },
+      edits: { body: () => bodyEdits([]), renames: () => renames([]), ...edits },
+    });
+
+    assert.equal(code, 1, name);
+    assert.equal(pi, null, name);
+    assert.deepEqual(labelWrites, refusedWrites(), name);
+    assert.deepEqual([dispatches, runs], [[], []], name);
+  }
+});
+
+test('given an approved ticket and parent spec whose bodies and titles a maintainer edited after the approval, or an outsider edited before it, when forge dispatches it, then the ticket is claimed and a workload starts', async () => {
+  const before = '2026-10-21T03:00:00Z';
+  const after = '2026-10-21T05:00:00Z';
+  const edited = await dispatch({
+    approvals: approvedByMaintainer,
+    contexts: { 113: withSpec() },
+    edits: {
+      body: () => bodyEdits([['teammate', after], ['author', before]]),
+      renames: () => renames([['author', before], ['teammate', after]]),
+    },
+  });
+  assert.equal(edited.code, 0);
+  assert.ok(edited.pi);
+  assert.equal(edited.labelWrites[0]?.body && JSON.stringify(edited.labelWrites[0].body), '{"labels":["forge:running"]}');
+});
+
+test('given a refused ticket whose outsider edit a maintainer reviewed before applying forge:ready again, when forge dispatches it, then the ticket is claimed and a workload starts', async () => {
+  const { code, pi } = await dispatch({
+    approvals: () => approval([['forge:ready', 'teammate'], ['forge:failed', 'forge[bot]'], ['forge:ready', 'teammate']]),
+    edits: { body: () => bodyEdits([['author', '2026-10-21T04:00:30Z']]) },
+  });
+
+  assert.equal(code, 0);
+  assert.ok(pi);
+});
+
+test('given an outsider edit at the very second of the approval, when forge dispatches it, then it is refused', async () => {
+  const { pi, labelWrites } = await dispatch({
+    approvals: approvedByMaintainer,
+    edits: { body: () => bodyEdits([['author', APPROVED_AT]]) },
+  });
+
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
+});
+
+test('given more edits after the approval than one page holds, when forge dispatches it, then older pages are read until an outsider edit is found or an edit predates the approval', async () => {
+  const after = '2026-10-21T05:00:00Z';
+  const bodyRefused = await dispatch({
+    approvals: approvedByMaintainer,
+    edits: {
+      body: (_, cursor) =>
+        cursor === null ? bodyEdits([['teammate', after]], true) : bodyEdits([['author', after]]),
+      renames: () => renames([]),
+    },
+  });
+  assert.equal(bodyRefused.pi, null);
+  assert.deepEqual(bodyRefused.labelWrites, refusedWrites());
+  assert.deepEqual(
+    bodyRefused.requests
+      .filter(({ operation }) => operation === 'TicketBodyEdits')
+      .map(({ variables }) => variables.after ?? null),
+    [null, 'newer'],
+  );
+
+  const renamesRefused = await dispatch({
+    approvals: approvedByMaintainer,
+    edits: {
+      renames: (_, cursor) =>
+        cursor === null ? renames([['teammate', after]], true) : renames([['author', after]]),
+    },
+  });
+  assert.equal(renamesRefused.pi, null);
+  assert.deepEqual(renamesRefused.labelWrites, refusedWrites());
+  assert.deepEqual(
+    renamesRefused.requests
+      .filter(({ operation }) => operation === 'TicketRenames')
+      .map(({ variables }) => variables.before ?? null),
+    [null, 'older'],
+  );
+
+  const settled = await dispatch({
+    approvals: approvedByMaintainer,
+    edits: {
+      body: (_, cursor) =>
+        cursor === null
+          ? bodyEdits([['teammate', after], ['teammate', '2026-10-21T03:00:00Z']], true)
+          : bodyEdits([['author', after]]),
+      renames: (_, cursor) =>
+        cursor === null
+          ? renames([['teammate', '2026-10-21T03:00:00Z'], ['teammate', after]], true)
+          : renames([['author', after]]),
+    },
+  });
+  assert.equal(settled.code, 0);
+  assert.ok(settled.pi);
+  assert.deepEqual(
+    settled.requests
+      .filter(({ operation }) => operation === 'TicketBodyEdits' || operation === 'TicketRenames')
+      .map(({ operation, variables }) => [operation, variables.after ?? variables.before ?? null]),
+    [['TicketRenames', null], ['TicketBodyEdits', null]],
+  );
 });
 
 const FLAKE = '{ outputs = { self }: { }; }\n';
