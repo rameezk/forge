@@ -250,7 +250,7 @@ test('given a ticket whose only dispatch never started a workload, when the Boar
 
   const work = await (await app.request('/')).text();
 
-  assert.match(work, /data-column="failed"[^>]*>\s*<article/);
+  assert.match(work, /data-column="failed"[^>]*>(?:(?!data-column=)[\s\S])*<article/);
   assert.doesNotMatch(work, /data-attempts/);
 });
 
