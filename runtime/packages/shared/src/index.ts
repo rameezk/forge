@@ -165,6 +165,7 @@ export {
   type FeedbackKind,
   type WatchedPullRequest,
 } from './feedback.ts';
+export { isApprovedByMaintainer, requestTicketApproval } from './approval.ts';
 export { maintainerLookup, type MaintainerLookup } from './maintainers.ts';
 export type { ContextComment, ContextIssue, TicketContext } from './ticket-context.ts';
 export {
@@ -201,6 +202,7 @@ export {
   STATUS_LABELS,
   ensureLabels,
   labelExists,
+  refuseTicket,
   relabel,
   settleTicket,
 } from './labels.ts';

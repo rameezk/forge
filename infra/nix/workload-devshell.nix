@@ -46,6 +46,7 @@ let
         labelled.data.repository.issues.nodes = [];
         return labelled;
       }
+      if (operation === 'TicketApproval') return fixture('approved-ticket');
       if (operation === 'ClosingPullRequests') return fixture('no-pull-request');
       return { errors: [{ message: `no fake answer for ''${operation}` }] };
     };
@@ -67,6 +68,10 @@ let
           }
           if (request.url === '/repos/rameezk/forge/installation') {
             response.end(JSON.stringify({ id: 1 }));
+            return;
+          }
+          if (request.url === '/repos/rameezk/forge/collaborators/rameezk/permission') {
+            response.end(JSON.stringify({ permission: 'admin', user: { login: 'rameezk' } }));
             return;
           }
           if (request.url === '/app/installations/1/access_tokens') {

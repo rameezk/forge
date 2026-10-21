@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildClientSchema, extendSchema, type IntrospectionQuery, parse, validate } from 'graphql';
 import { schema as githubSchema } from '@octokit/graphql-schema';
+import * as approval from '../src/approval.ts';
 import * as feedback from '../src/feedback.ts';
 import * as frontier from '../src/frontier.ts';
 import * as ticketContext from '../src/ticket-context.ts';
@@ -24,7 +25,7 @@ const schema = extendSchema(
   `),
 );
 
-const queries = Object.entries<unknown>({ ...feedback, ...frontier, ...ticketContext }).filter(
+const queries = Object.entries<unknown>({ ...approval, ...feedback, ...frontier, ...ticketContext }).filter(
   (entry): entry is [string, string] => entry[0].endsWith('_QUERY') && typeof entry[1] === 'string',
 );
 
@@ -42,6 +43,7 @@ test('given the query constants the feedback and frontier code exports, then for
       'PULL_REQUEST_HEAD_QUERY',
       'PULL_REQUEST_QUERY',
       'PULL_REQUEST_READINESS_QUERY',
+      'TICKET_APPROVAL_QUERY',
       'TICKET_CONTEXT_QUERY',
       'TICKET_QUERY',
       'WATCHED_PULL_REQUESTS_QUERY',

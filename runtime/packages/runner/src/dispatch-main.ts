@@ -7,10 +7,13 @@ import {
   FORGE_RUNNING,
   findOpenClosingPullRequest,
   githubAppFromEnv,
+  isApprovedByMaintainer,
   labelExists,
+  maintainerLookup,
   offFrontier,
   queryPullRequestReadiness,
   queryTicket,
+  refuseTicket,
   queryTicketContext,
   Store,
   settleTicket,
@@ -177,12 +180,20 @@ export const main = async (
         return 1;
       }
 
-      const context = await queryTicketContext(
+      const writeToken = await tokens(repository.github, 'write');
+      const approved = await isApprovedByMaintainer(
         fetch,
-        await tokens(repository.github, 'write'),
+        writeToken,
         repository.github,
         ticket.number,
+        maintainerLookup(fetch, writeToken, repository.github),
       );
+      if (!approved) {
+        await refuseTicket(fetch, writeToken, repository.github, ticket.number);
+        console.error(`${name}#${ticket.number} is not dispatchable: a maintainer has not approved it`);
+        return 1;
+      }
+      const context = await queryTicketContext(fetch, writeToken, repository.github, ticket.number);
 
       const dispatched = { ...unstarted, url: ticket.url };
       const runId = randomUUID();
