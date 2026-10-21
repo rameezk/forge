@@ -98,36 +98,36 @@ const recorded = (name: string): IssueResponse =>
     readFileSync(join(GITHUB_FIXTURES, `${name}.json`), 'utf8'),
   ) as IssueResponse;
 
-interface ContextComment {
+interface RawComment {
   url: string;
   body: string;
   author: { __typename: string; login: string } | null;
 }
 
-interface ContextIssue {
+interface RawIssue {
   number: number;
   title: string;
   url: string;
   body: string;
-  comments: { nodes: ContextComment[] };
-  parent: ContextIssue | null;
+  comments: { nodes: RawComment[] };
+  parent: RawIssue | null;
 }
 
-interface ContextResponse {
-  data: { repository: { issue: ContextIssue } };
+interface RawContextResponse {
+  data: { repository: { issue: RawIssue } };
 }
 
-const context = (): ContextResponse => recorded('ticket-context') as unknown as ContextResponse;
+const context = (): RawContextResponse => recorded('ticket-context') as unknown as RawContextResponse;
 
 const withContext = (
-  edit: (issue: ContextIssue) => void,
-): ContextResponse => {
+  edit: (issue: RawIssue) => void,
+): RawContextResponse => {
   const response = structuredClone(context());
   edit(response.data.repository.issue);
   return response;
 };
 
-const comment = (login: string, body: string, typename = 'User'): ContextComment => ({
+const comment = (login: string, body: string, typename = 'User'): RawComment => ({
   url: `https://github.com/rameezk/forge/issues/0#issuecomment-${login}`,
   body,
   author: { __typename: typename, login },
@@ -278,7 +278,7 @@ const fakeGithub = (
   readiness: Readiness,
   piRecord: () => string,
   forgeLabels: boolean,
-  contexts: Record<number, ContextResponse>,
+  contexts: Record<number, RawContextResponse>,
   permissions: Record<string, string>,
 ) => {
   const requests: GraphqlRequest[] = [];
@@ -421,7 +421,7 @@ interface Scenario {
   claudeFixture?: string;
   stateDir?: string;
   rejectBotLookup?: boolean;
-  contexts?: Record<number, ContextResponse>;
+  contexts?: Record<number, RawContextResponse>;
   permissions?: Record<string, string>;
 }
 
@@ -1659,7 +1659,7 @@ const instructionOf = (pi: PiCall | null): string =>
     .join('\n');
 
 test('given a ticket and its parent spec, each with comments from a maintainer, an outsider and a bot, when forge dispatches the ticket, then the instruction carries both titles and bodies and only the maintainers\' comments', async () => {
-  const comments = (who: string): ContextComment[] => [
+  const comments = (who: string): RawComment[] => [
     comment('helper', `From a maintainer on the ${who}.`),
     comment('stranger', `From an outsider on the ${who}.`),
     comment('dependabot', `From a bot on the ${who}.`, 'Bot'),
@@ -1711,6 +1711,7 @@ test('given a ticket with no parent spec and a maintainer\'s comment, when forge
   assert.match(instruction, /The ticket body\./);
   assert.match(instruction, /From a maintainer\./);
   assert.doesNotMatch(instruction, /Parent spec/);
+  assert.doesNotMatch(instruction, /written by maintainers/);
 });
 
 const notLoaded = (journal: string): string[] =>

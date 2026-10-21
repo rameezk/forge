@@ -87,17 +87,17 @@ export const queryTicketContext = async (
   }
   const isMaintainer = maintainerLookup(fetch, token, github);
   const contextOf = async (node: ContextNode): Promise<ContextIssue> => {
-    const kept = await Promise.all(
-      node.comments.nodes.map(async ({ author }) => await isMaintainer(author)),
+    const comments = await Promise.all(
+      node.comments.nodes.map(async ({ url, body, author }) =>
+        author !== null && (await isMaintainer(author)) ? [{ author: author.login, url, body }] : [],
+      ),
     );
     return {
       number: node.number,
       title: node.title,
       url: node.url,
       body: node.body,
-      comments: node.comments.nodes.flatMap(({ url, body, author }, index) =>
-        kept[index] === true && author !== null ? [{ author: author.login, url, body }] : [],
-      ),
+      comments: comments.flat(),
     };
   };
   return {
