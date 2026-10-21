@@ -169,7 +169,7 @@ const renderStageHeader = ({ title, subtitle, person }: (typeof COLUMNS)[number]
 
 const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(
-    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-l border-line sm:min-h-12 sm:p-2 sm:first:border-l-0 max-sm:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, attempted, timeZone, runs))}</div></div>`,
+    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-line sm:min-h-12 sm:border-l sm:p-2 sm:first:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, attempted, timeZone, runs))}</div></div>`,
   )}</div>`;
 
 const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
