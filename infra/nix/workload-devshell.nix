@@ -40,6 +40,7 @@ let
         ticket.data.repository.issue.labels.nodes.push({ name: 'forge:ready' });
         return ticket;
       }
+      if (operation === 'TicketContext') return fixture('ticket-context');
       if (operation === 'LabelledIssues') {
         const labelled = fixture('labelled-issues');
         labelled.data.repository.issues.nodes = [];
