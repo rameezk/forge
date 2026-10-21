@@ -31,7 +31,7 @@ export const TICKET_APPROVAL_QUERY = `
 `;
 
 interface LabeledEventNode {
-  label: { name: string };
+  label: { name: string } | null;
   actor: Actor | null;
 }
 
