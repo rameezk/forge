@@ -11,6 +11,7 @@ import {
   offFrontier,
   queryPullRequestReadiness,
   queryTicket,
+  queryTicketContext,
   Store,
   settleTicket,
   relabel,
@@ -32,6 +33,7 @@ import {
   type RepositoryConfig,
 } from './config.ts';
 import { gitEnvironment } from './git.ts';
+import { dispatchInstruction } from './harness.ts';
 import { SkillNotFound } from './checkout.ts';
 import { launchInCheckout } from './checkout-workload.ts';
 import { DevShellFailed, nixErrorOf } from './devshell.ts';
@@ -175,6 +177,13 @@ export const main = async (
         return 1;
       }
 
+      const context = await queryTicketContext(
+        fetch,
+        await tokens(repository.github, 'write'),
+        repository.github,
+        ticket.number,
+      );
+
       const dispatched = { ...unstarted, url: ticket.url };
       const runId = randomUUID();
       const start = store.startDispatch(dispatched, runId, now(), maxConcurrentOf(config));
@@ -182,12 +191,12 @@ export const main = async (
         console.error(`${name}#${ticket.number} is not dispatchable: ${startRefusal(start)}`);
         return 1;
       }
-      prepared = { identity, ticket, dispatched, runId, dispatchId: start.started };
+      prepared = { identity, ticket, context, dispatched, runId, dispatchId: start.started };
     } catch (error) {
       store.recordFailedStart(unstarted, errorMessage(error), now());
       throw error;
     }
-    const { identity, ticket, dispatched, runId, dispatchId } = prepared;
+    const { identity, ticket, context, dispatched, runId, dispatchId } = prepared;
     const gitEnv = gitEnvironment(env, identity);
     const stopHeartbeat = startHeartbeat(
       () => store.touchDispatch(dispatchId, now()),
@@ -230,6 +239,7 @@ export const main = async (
             promptTemplate: worker.prompt,
           },
           github: repository.github,
+          instruction: dispatchInstruction(context),
           app,
           gitEnv,
           identity,

@@ -166,6 +166,12 @@ export {
   type WatchedPullRequest,
 } from './feedback.ts';
 export { maintainerLookup, type MaintainerLookup } from './maintainers.ts';
+export type { ContextComment, ContextIssue, TicketContext } from './ticket-context.ts';
+export {
+  queryTicketContext,
+  requestTicketContext,
+  TICKET_CONTEXT_QUERY,
+} from './ticket-context.ts';
 export { errorMessage } from './errors.ts';
 export { isHeaderValue } from './http.ts';
 export {

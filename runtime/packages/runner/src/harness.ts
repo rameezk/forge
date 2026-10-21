@@ -1,4 +1,4 @@
-import type { FeedbackItem, HarnessOutput } from '@forge/shared';
+import type { ContextIssue, FeedbackItem, HarnessOutput, TicketContext } from '@forge/shared';
 import type { DevShell } from './devshell.ts';
 import type { ListedModel } from './openrouter.ts';
 import type { Provider } from './provider.ts';
@@ -26,6 +26,23 @@ export const UNATTENDED_INSTRUCTION = [
   'Otherwise stop, and end with the question you need answered.',
   ...SCOPED_CHECK_RULE,
 ].join(' ');
+
+const contextBlock = (heading: string, issue: ContextIssue): string =>
+  [
+    `${heading} #${issue.number}: ${issue.title}\n${issue.url}\n\n${issue.body}`,
+    ...issue.comments.map(
+      (comment, index) =>
+        `Comment ${index + 1} by ${comment.author}: ${comment.url}\n${comment.body}`,
+    ),
+  ].join('\n\n');
+
+export const dispatchInstruction = ({ ticket, spec }: TicketContext): string =>
+  [
+    UNATTENDED_INSTRUCTION,
+    `This is the context of the ticket${spec === null ? '' : ' and of its parent spec'}, with only the comments maintainers wrote. Work from it instead of reading the ticket's issue or its comments yourself.`,
+    contextBlock('Ticket', ticket),
+    ...(spec === null ? [] : [contextBlock('Parent spec', spec)]),
+  ].join('\n\n');
 
 const REVISION_INSTRUCTION = [
   'A person reviews this pull request and will read your replies on it.',

@@ -5,12 +5,15 @@ import {
   requestClosingPullRequests,
   requestLabelledPage,
   requestTicket,
+  requestTicketContext,
   type Fetch,
 } from '@forge/shared';
 
 const REQUESTS = {
   ticket: (fetch: Fetch, token: string, github: string, subject: string) =>
     requestTicket(fetch, token, github, Number(subject)),
+  context: (fetch: Fetch, token: string, github: string, subject: string) =>
+    requestTicketContext(fetch, token, github, Number(subject)),
   closing: (fetch: Fetch, token: string, github: string, subject: string) =>
     requestClosingPullRequests(fetch, token, github, Number(subject)),
   labelled: (fetch: Fetch, token: string, github: string, subject: string) =>
@@ -28,7 +31,7 @@ if (
   name === undefined
 ) {
   throw new Error(
-    'usage: record-github.ts <owner/name> ticket|closing <issue> <fixture>, or <owner/name> labelled <label> <fixture>',
+    'usage: record-github.ts <owner/name> ticket|context|closing <issue> <fixture>, or <owner/name> labelled <label> <fixture>',
   );
 }
 const token = process.env.GITHUB_TOKEN;
