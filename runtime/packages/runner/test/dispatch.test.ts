@@ -907,7 +907,7 @@ test('given a frontier ticket labelled forge:ready, when it is dispatched, then 
 });
 
 const REAPPROVAL_COMMENT =
-  'Forge needs a maintainer to re-approve this ticket: it was approved or changed by someone without write access.';
+  'Forge needs a maintainer to re-approve this ticket: it was approved or changed by someone without write access. Review it, then apply the forge:ready label again to approve it.';
 
 const refusedWrites = (): LabelWrite[] => [
   {

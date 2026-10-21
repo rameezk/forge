@@ -14,7 +14,7 @@ On a public repository anyone can open an issue or comment on one. Forge dispatc
 
 ## Decision
 
-We will go with Option 3. Dispatch reads the timeline's `LabeledEvent`, `RenamedTitleEvent` and `UserContentEdit` records for the ticket and its parent spec. A refused ticket swaps `forge:ready` for `forge:failed` and gets one fixed comment, "Forge needs a maintainer to re-approve this ticket: it was approved or changed by someone without write access.", alongside the single failure comment of ADR-0077. Re-applying `forge:ready` after reviewing the change approves it again. The instruction carries the title, body and maintainer comments of the ticket and of its parent spec, and the skills work from it rather than fetching the issue or a pull request's comments themselves.
+We will go with Option 3. Dispatch reads the timeline's `LabeledEvent`, `RenamedTitleEvent` and `UserContentEdit` records for the ticket and its parent spec. A refused ticket swaps `forge:ready` for `forge:failed` and gets one fixed comment, "Forge needs a maintainer to re-approve this ticket: it was approved or changed by someone without write access. Review it, then apply the forge:ready label again to approve it.", alongside the single failure comment of ADR-0077. Re-applying `forge:ready` after reviewing the change approves it again. The instruction carries the title, body and maintainer comments of the ticket and of its parent spec, and the skills work from it rather than fetching the issue or a pull request's comments themselves.
 
 ## Consequences
 

@@ -114,7 +114,7 @@ export const FAILED_TICKET_COMMENT =
   'Forge could not finish this ticket. Details are on the forge dashboard.';
 
 export const REAPPROVAL_TICKET_COMMENT =
-  'Forge needs a maintainer to re-approve this ticket: it was approved or changed by someone without write access.';
+  'Forge needs a maintainer to re-approve this ticket: it was approved or changed by someone without write access. Review it, then apply the forge:ready label again to approve it.';
 
 const commentOn = async (
   fetch: Fetch,
