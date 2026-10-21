@@ -39,7 +39,7 @@ const contextBlock = (heading: string, issue: ContextIssue): string =>
 export const dispatchInstruction = ({ ticket, spec }: TicketContext): string =>
   [
     UNATTENDED_INSTRUCTION,
-    "This is the context of the ticket and of its parent spec if it has one, with only the comments maintainers wrote. Work from it instead of reading the ticket's issue or its comments yourself.",
+    `This is the context of the ticket${spec === null ? '' : ' and of its parent spec'}, with only the comments maintainers wrote. Work from it instead of reading the ticket's issue or its comments yourself.`,
     contextBlock('Ticket', ticket),
     ...(spec === null ? [] : [contextBlock('Parent spec', spec)]),
   ].join('\n\n');

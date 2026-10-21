@@ -1710,8 +1710,7 @@ test('given a ticket with no parent spec and a maintainer\'s comment, when forge
   assert.match(instruction, /The ticket title/);
   assert.match(instruction, /The ticket body\./);
   assert.match(instruction, /From a maintainer\./);
-  assert.doesNotMatch(instruction, /Parent spec/);
-  assert.doesNotMatch(instruction, /written by maintainers/);
+  assert.doesNotMatch(instruction, /parent spec/i);
 });
 
 const notLoaded = (journal: string): string[] =>
