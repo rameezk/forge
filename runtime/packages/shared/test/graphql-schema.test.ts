@@ -4,6 +4,7 @@ import { buildClientSchema, extendSchema, type IntrospectionQuery, parse, valida
 import { schema as githubSchema } from '@octokit/graphql-schema';
 import * as feedback from '../src/feedback.ts';
 import * as frontier from '../src/frontier.ts';
+import * as ticketContext from '../src/ticket-context.ts';
 
 const published = buildClientSchema(githubSchema.json as unknown as IntrospectionQuery);
 
@@ -23,7 +24,7 @@ const schema = extendSchema(
   `),
 );
 
-const queries = Object.entries<unknown>({ ...feedback, ...frontier }).filter(
+const queries = Object.entries<unknown>({ ...feedback, ...frontier, ...ticketContext }).filter(
   (entry): entry is [string, string] => entry[0].endsWith('_QUERY') && typeof entry[1] === 'string',
 );
 
@@ -41,6 +42,7 @@ test('given the query constants the feedback and frontier code exports, then for
       'PULL_REQUEST_HEAD_QUERY',
       'PULL_REQUEST_QUERY',
       'PULL_REQUEST_READINESS_QUERY',
+      'TICKET_CONTEXT_QUERY',
       'TICKET_QUERY',
       'WATCHED_PULL_REQUESTS_QUERY',
     ],

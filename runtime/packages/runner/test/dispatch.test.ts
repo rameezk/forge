@@ -31,7 +31,12 @@ import {
   type FakeGithubApp,
   tokenFor,
 } from '../../shared/test/fixtures/fake-github-app.ts';
-import { NARRATION_INSTRUCTION, UNATTENDED_INSTRUCTION, revisionInstruction } from '../src/harness.ts';
+import {
+  dispatchInstruction,
+  NARRATION_INSTRUCTION,
+  UNATTENDED_INSTRUCTION,
+  revisionInstruction,
+} from '../src/harness.ts';
 import {
   COVERAGE_PROMPT,
   COVERAGE_SKILL_FILES,
@@ -92,6 +97,41 @@ const recorded = (name: string): IssueResponse =>
   JSON.parse(
     readFileSync(join(GITHUB_FIXTURES, `${name}.json`), 'utf8'),
   ) as IssueResponse;
+
+interface ContextComment {
+  url: string;
+  body: string;
+  author: { __typename: string; login: string } | null;
+}
+
+interface ContextIssue {
+  number: number;
+  title: string;
+  url: string;
+  body: string;
+  comments: { nodes: ContextComment[] };
+  parent: ContextIssue | null;
+}
+
+interface ContextResponse {
+  data: { repository: { issue: ContextIssue } };
+}
+
+const context = (): ContextResponse => recorded('ticket-context') as unknown as ContextResponse;
+
+const withContext = (
+  edit: (issue: ContextIssue) => void,
+): ContextResponse => {
+  const response = structuredClone(context());
+  edit(response.data.repository.issue);
+  return response;
+};
+
+const comment = (login: string, body: string, typename = 'User'): ContextComment => ({
+  url: `https://github.com/rameezk/forge/issues/0#issuecomment-${login}`,
+  body,
+  author: { __typename: typename, login },
+});
 
 const labelled = (response: IssueResponse, label: string): IssueResponse => {
   const copy = structuredClone(response);
@@ -238,6 +278,8 @@ const fakeGithub = (
   readiness: Readiness,
   piRecord: () => string,
   forgeLabels: boolean,
+  contexts: Record<number, ContextResponse>,
+  permissions: Record<string, string>,
 ) => {
   const requests: GraphqlRequest[] = [];
   const labelWrites: LabelWrite[] = [];
@@ -267,6 +309,13 @@ const fakeGithub = (
       if (operation === 'PullRequestReadiness') {
         return json(readinessResponse(readiness));
       }
+      if (operation === 'TicketContext') {
+        const answer = contexts[Number(body.variables.number)];
+        if (answer === undefined) {
+          throw new Error(`no recorded context for ${String(body.variables.number)}`);
+        }
+        return json(answer);
+      }
       if (operation === 'LabelledIssues') {
         assert.equal(body.variables.label, 'forge:running');
         return json(running);
@@ -276,6 +325,13 @@ const fakeGithub = (
         throw new Error(`no recorded response for ${String(body.variables.number)}`);
       }
       return json(response);
+    }
+    const lookup = /^\/repos\/rameezk\/forge\/collaborators\/([^/]+)\/permission$/.exec(url.pathname);
+    if (lookup !== null) {
+      const permission = permissions[decodeURIComponent(lookup[1] as string)];
+      return permission === undefined
+        ? json({}, 404)
+        : json({ permission });
     }
     if ((init?.method ?? 'GET') === 'GET' && url.pathname.includes('/labels/')) {
       return json({ name: 'forge' }, forgeLabels ? 200 : 404);
@@ -365,6 +421,8 @@ interface Scenario {
   claudeFixture?: string;
   stateDir?: string;
   rejectBotLookup?: boolean;
+  contexts?: Record<number, ContextResponse>;
+  permissions?: Record<string, string>;
 }
 
 interface FakeNix {
@@ -515,6 +573,8 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     scenario.readiness ?? readyPullRequest,
     () => record,
     scenario.forgeLabels ?? true,
+    scenario.contexts ?? { 113: context() },
+    scenario.permissions ?? {},
   );
   if (scenario.seed !== undefined) {
     const seeded = Store.open(join(stateDir, 'forge.db'));
@@ -636,6 +696,11 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
     },
     {
       operation: 'Ticket',
+      authorization: `bearer ${WRITE_TOKEN}`,
+      variables: { owner: 'rameezk', name: 'forge', number: 113 },
+    },
+    {
+      operation: 'TicketContext',
       authorization: `bearer ${WRITE_TOKEN}`,
       variables: { owner: 'rameezk', name: 'forge', number: 113 },
     },
@@ -1473,6 +1538,17 @@ const projectInstructions = (path: string): string[] => [
   '</project_instructions>\n\n</project_context>',
 ];
 
+const DEFAULT_INSTRUCTION = dispatchInstruction({
+  ticket: {
+    title: context().data.repository.issue.title,
+    url: context().data.repository.issue.url,
+    number: 113,
+    body: context().data.repository.issue.body,
+    comments: [],
+  },
+  spec: null,
+});
+
 const childArgv = (pi: PiCall): string[] =>
   (JSON.parse(pi.subagentInvocation ?? 'null') as { argv: string[] }).argv;
 
@@ -1532,7 +1608,7 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
     join(root, '.pi', 'SYSTEM.md'),
     ...projectInstructions(join(root, 'AGENTS.md')),
     '--append-system-prompt',
-    UNATTENDED_INSTRUCTION,
+    DEFAULT_INSTRUCTION,
     '--append-system-prompt',
     NARRATION_INSTRUCTION,
   ];
@@ -1568,13 +1644,73 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
     join(root, '.pi', 'APPEND_SYSTEM.md'),
     ...projectInstructions(join(root, 'CLAUDE.md')),
     '--append-system-prompt',
-    UNATTENDED_INSTRUCTION,
+    DEFAULT_INSTRUCTION,
     '--append-system-prompt',
     NARRATION_INSTRUCTION,
     '-e',
     EXTENSION,
     `/skill:work-on ${TICKET_URL}`,
   ]);
+});
+
+const instructionOf = (pi: PiCall | null): string =>
+  (pi?.argv ?? [])
+    .filter((_, index) => pi?.argv[index - 1] === '--append-system-prompt')
+    .join('\n');
+
+test('given a ticket and its parent spec, each with comments from a maintainer, an outsider and a bot, when forge dispatches the ticket, then the instruction carries both titles and bodies and only the maintainers\' comments', async () => {
+  const comments = (who: string): ContextComment[] => [
+    comment('helper', `From a maintainer on the ${who}.`),
+    comment('stranger', `From an outsider on the ${who}.`),
+    comment('dependabot', `From a bot on the ${who}.`, 'Bot'),
+  ];
+  const { pi } = await dispatch({
+    permissions: { helper: 'write', dependabot: 'write' },
+    contexts: {
+      113: withContext((issue) => {
+        issue.title = 'The ticket title';
+        issue.body = 'The ticket body.';
+        issue.comments.nodes = comments('ticket');
+        issue.parent = {
+          number: 112,
+          title: 'The spec title',
+          url: 'https://github.com/rameezk/forge/issues/112',
+          body: 'The spec body.',
+          comments: { nodes: comments('spec') },
+          parent: null,
+        };
+      }),
+    },
+  });
+
+  const instruction = instructionOf(pi);
+  assert.match(instruction, /The ticket title/);
+  assert.match(instruction, /The ticket body\./);
+  assert.match(instruction, /The spec title/);
+  assert.match(instruction, /The spec body\./);
+  assert.match(instruction, /From a maintainer on the ticket\./);
+  assert.match(instruction, /From a maintainer on the spec\./);
+  assert.doesNotMatch(instruction, /From an outsider/);
+  assert.doesNotMatch(instruction, /From a bot/);
+});
+
+test('given a ticket with no parent spec and a maintainer\'s comment, when forge dispatches it, then the instruction carries the ticket\'s title, body and that comment, and nothing for a spec', async () => {
+  const { pi } = await dispatch({
+    permissions: { helper: 'write' },
+    contexts: {
+      113: withContext((issue) => {
+        issue.title = 'The ticket title';
+        issue.body = 'The ticket body.';
+        issue.comments.nodes = [comment('helper', 'From a maintainer.')];
+      }),
+    },
+  });
+
+  const instruction = instructionOf(pi);
+  assert.match(instruction, /The ticket title/);
+  assert.match(instruction, /The ticket body\./);
+  assert.match(instruction, /From a maintainer\./);
+  assert.doesNotMatch(instruction, /Parent spec/);
 });
 
 const notLoaded = (journal: string): string[] =>
