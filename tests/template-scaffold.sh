@@ -135,6 +135,22 @@ else
 	fail=1
 fi
 
+echo "==> case: the lock file is never gitignored and the README tells the operator to commit it"
+scaffold
+export lock_file="infra/opentofu/.terraform.lock.hcl"
+if git -C "$work" check-ignore -q "$lock_file"; then
+	echo "FAIL: $lock_file is gitignored"
+	fail=1
+else
+	echo "ok: $lock_file is not gitignored"
+fi
+if [ "$(grep -c -F "$lock_file" "$work/README.md")" = 1 ] && perl -0ne 'exit(!/\Q$ENV{lock_file}\E[^\n]*(?:\n[^\n]+)*?commit/i)' "$work/README.md"; then
+	echo "ok: the README names $lock_file once and says to commit it"
+else
+	echo "FAIL: the README must name $lock_file exactly once and say to commit it"
+	fail=1
+fi
+
 echo "==> case: the scaffold ships no plaintext token file"
 if [ "$(grep -v '^[[:space:]]*$' "$work/.envrc")" = "use flake" ]; then
 	echo "ok: the .envrc only activates the dev shell"
