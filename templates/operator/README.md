@@ -188,6 +188,11 @@ tailnet.
    away and points you to `just deploy`, or to teardown then standup for a fresh
    box. If an install fails part-way, just run standup again.
 
+   The first standup runs `tofu init`, which creates
+   `infra/opentofu/.terraform.lock.hcl`. That file pins the hcloud provider's
+   version and checksums, so commit it with the rest of your operator
+   repository.
+
    Every standup installs onto a clean disk, so the box joins the tailnet as a
    new device. Before installing, standup deletes any `tag:forge` device
    already named after your `hostname`, so the new box keeps that name rather
