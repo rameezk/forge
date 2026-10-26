@@ -129,6 +129,16 @@ Deploy through direnv, or run `nix develop -c env TMPDIR=/tmp just deploy`.
    host's authorized keys, the planned SSH key, and `config.json` are all
    byte-identical.
 
+6. Commit your setup, once the guard passes. Everything is already staged, and
+   this makes it the repository's first commit: `config.json`, `.sops.yaml`,
+   `known_hosts` and `secrets/`, the encrypted secrets included. Later
+   rotation and upgrade commits then hold only their own change:
+
+   ```bash
+   git add -A
+   git commit -m "chore: initial operator setup"
+   ```
+
 ## Standup, deploy, and teardown
 
 A box has three commands. Standup and teardown each ask for confirmation before
