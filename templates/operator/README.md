@@ -129,10 +129,11 @@ Deploy through direnv, or run `nix develop -c env TMPDIR=/tmp just deploy`.
    host's authorized keys, the planned SSH key, and `config.json` are all
    byte-identical.
 
-6. Commit your setup, once the guard passes. Everything is already staged, and
-   this makes it the repository's first commit: `config.json`, `.sops.yaml`,
-   `known_hosts` and `secrets/`, the encrypted secrets included. Later
-   rotation and upgrade commits then hold only their own change:
+6. Commit your setup, once the guard passes. Staging again picks up any edit
+   made since step 4, and the commit is the repository's first: the whole
+   scaffold, including your `config.json`, `.sops.yaml`, `known_hosts` and
+   `secrets/`, the encrypted secrets included. Later rotation and upgrade
+   commits then hold only their own change:
 
    ```bash
    git add -A
