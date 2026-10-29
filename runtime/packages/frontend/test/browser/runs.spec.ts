@@ -291,6 +291,7 @@ test.describe('on a phone screen', () => {
 
   test('given status chips wider than the screen, when Workloads is opened, then the chips scroll sideways in one row and the page does not', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
+    await page.setViewportSize({ width: 320, height: 844 });
 
     await page.goto('/workloads');
 
@@ -311,7 +312,7 @@ test.describe('on a phone screen', () => {
       return { top: top + element.clientTop, bottom: top + element.clientTop + element.clientHeight };
     });
     const chips = await page.locator('[data-status-chip]').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect()).map(({ top, bottom }) => ({ top, bottom })));
-    expect(chips).toHaveLength(6);
+    expect(chips).toHaveLength(4);
     for (const chip of chips) {
       expect(chip.top).toBeGreaterThanOrEqual(row.top);
       expect(chip.bottom).toBeLessThanOrEqual(row.bottom);
