@@ -45,7 +45,7 @@ const dashboard = () => {
   store.insertRun(sampleRun('revision'));
   const start = store.startRevision({ repository: 'forge', number: 489, url: PULL_REQUEST }, [], 'revision', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in start);
-  store.endRevision(start.started, 'ok', '2026-09-21T10:03:20.000Z');
+  store.endRevision(start.started, 'done', '2026-09-21T10:03:20.000Z');
   store.insertRun(sampleRun('first-build'));
   store.insertRun(sampleRun('resolution'));
   store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolution', new Date().toISOString(), 10, { headSha: 'head', defaultSha: 'default' });
@@ -59,7 +59,7 @@ test('given a revision run of PR #489, when its page is requested, then the summ
   const summary = await summaryOf('revision');
 
   assert.match(summary, /<span[^>]*\sdata-revision-pill>revision<\/span>/);
-  assert.match(textOf(summary), /^success ok revision revises PR #489/);
+  assert.match(textOf(summary), /^success done revision revises PR #489/);
   assert.match(summary, new RegExp(`<a[^>]*href="${PULL_REQUEST}"[^>]*>PR #489</a>`));
 });
 
@@ -72,17 +72,4 @@ test('given a first build run, when its page is requested, then the summary show
 
 test('given a conflict resolution run, when its page is requested, then the summary shows no revision pill', async () => {
   assert.doesNotMatch(await summaryOf('resolution'), /data-revision-pill/);
-});
-
-test('given a revision run, a first build and a conflict resolution, when /workloads is requested, then only the revision carries the revision pill in its row and card', async () => {
-  const body = await (await dashboard().request('/workloads')).text();
-  const row = (id: string): string => body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? 'missing';
-  const card = (id: string): string => body.match(new RegExp(`<article[^>]*\\sdata-run-card="${id}"[\\s\\S]*?</article>`))?.[0] ?? 'missing';
-
-  assert.match(row('revision'), /data-revision-pill/);
-  assert.match(card('revision'), /data-revision-pill/);
-  for (const id of ['first-build', 'resolution']) {
-    assert.doesNotMatch(row(id), /data-revision-pill/, id);
-    assert.doesNotMatch(card(id), /data-revision-pill/, id);
-  }
 });

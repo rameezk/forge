@@ -18,5 +18,18 @@ export const headRefusal = (pullRequest: PullRequestHead): string | null => {
   return null;
 };
 
-export const stateOf = ({ run }: LaunchResult): Exclude<RevisionState, 'running'> =>
-  run.status === 'success' ? 'ok' : run.status === 'running' ? 'error' : run.status;
+export interface WorkloadEnd {
+  state: Exclude<RevisionState, 'running'>;
+  failure?: { reason: 'interrupted' | 'exceeded'; detail: string | null };
+}
+
+export const endOf = ({ run }: LaunchResult): WorkloadEnd => {
+  if (run.status === 'success') return { state: 'done' };
+  if (run.status === 'exceeded') {
+    return { state: 'failed', failure: { reason: 'exceeded', detail: run.exceededLimit } };
+  }
+  if (run.status === 'interrupted') {
+    return { state: 'failed', failure: { reason: 'interrupted', detail: null } };
+  }
+  return { state: 'failed' };
+};

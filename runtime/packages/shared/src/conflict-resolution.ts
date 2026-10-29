@@ -13,7 +13,9 @@ export type ConflictResolutionFailure =
   | 'check-failed'
   | 'check-pending'
   | 'crashed'
-  | 'not-started';
+  | 'not-started'
+  | 'interrupted'
+  | 'exceeded';
 
 export interface ConflictResolutionFailureRecord {
   reason: ConflictResolutionFailure;

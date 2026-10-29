@@ -3,7 +3,7 @@ import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, 
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
-import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderRevisionPill, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
+import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
   pullRequestWorkload === undefined
@@ -162,26 +162,28 @@ const renderPager = (paged: Page<RunRecord>, filter: WorkloadFilter): Rendered =
     ${renderPageLink('older', 'Older', paged.hasOlder ? workloadsHref(filter, paged.page + 1) : undefined)}
   </nav>`;
 
-const renderTicketCell = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
-  run.ticket === null && pullRequestWorkload === undefined
-    ? html`<span class="text-muted">manual</span>`
-    : html`${renderRunTicket(run.ticket)}${renderRunPullRequest(pullRequestWorkload)}`;
+const WORKLOAD_KIND_LABEL = { revision: 'revision', 'conflict-resolution': 'conflict resolution' } as const;
+
+const workloadKindOf = (runWorkload: RunPullRequestWorkload | undefined, dispatch: DispatchRecord | undefined): string | null =>
+  runWorkload !== undefined ? WORKLOAD_KIND_LABEL[runWorkload.kind] : dispatch !== undefined ? 'dispatch' : null;
+
+const renderTicketCell = (run: RunRecord, runWorkload: RunPullRequestWorkload | undefined, dispatch: DispatchRecord | undefined): Rendered => {
+  const pullRequestWorkload = runWorkload?.workload;
+  if (run.ticket === null && pullRequestWorkload === undefined) return html`<span class="text-muted">manual</span>`;
+  const kind = workloadKindOf(runWorkload, dispatch);
+  return html`<div>${renderRunTicket(run.ticket)}${renderRunPullRequest(pullRequestWorkload)}</div>${kind === null ? '' : html`<div class="text-[0.85rem] text-muted" data-workload-kind>${kind}</div>`}`;
+};
 
 const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
-
-const renderStarted = (iso: string, runWorkload: RunPullRequestWorkload | undefined, timeZone: string): Rendered =>
-  runWorkload?.kind === 'revision'
-    ? html`<span class="inline-flex items-center gap-2 whitespace-nowrap">${renderTimestamp(iso, timeZone)}${renderRevisionPill()}</span>`
-    : renderTimestamp(iso, timeZone);
 
 const renderRunCard = (run: RunRecord, runWorkload: RunPullRequestWorkload | undefined, dispatch: DispatchRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered => {
   const pullRequestWorkload = runWorkload?.workload;
   const outcome = runOutcomeOf(pullRequestWorkload, dispatch);
   return html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
-    <div class="flex items-center justify-between gap-3">${renderStarted(run.startTime, runWorkload, timeZone)}<div class="flex flex-wrap items-center justify-end gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(outcome)}</div></div>
+    <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime, timeZone)}<div class="flex flex-wrap items-center justify-end gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(outcome)}</div></div>
     ${renderReasonLine(run, outcome)}
-    <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="relative" data-run-ticket>${renderTicketCell(run, pullRequestWorkload)}</span><span class="font-semibold">${run.worker}</span></div>
+    <div class="flex flex-wrap items-baseline justify-between gap-x-3"><div class="relative" data-run-ticket>${renderTicketCell(run, runWorkload, dispatch)}</div><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-5 gap-y-1 border-t border-line pt-2">
       <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Duration</dt><dd class="m-0 tabular-nums" data-duration>${renderDuration(run)}</dd></div>
@@ -234,8 +236,8 @@ export const renderList = (
               <tbody>
                 ${paged.items.map(
                   (run) => html`<tr class="${ROW}" data-run="${run.id}">
-                    <td class="${TD}">${renderStarted(run.startTime, pullRequestWorkloads.get(run.id), display.timeZone)}</td>
-                    <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderTicketCell(run, pullRequestWorkloads.get(run.id)?.workload)}</td>
+                    <td class="${TD}">${renderTimestamp(run.startTime, display.timeZone)}</td>
+                    <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderTicketCell(run, pullRequestWorkloads.get(run.id), dispatches.get(run.id))}</td>
                     <td class="${TD}">${renderStatusCell(run, pullRequestWorkloads.get(run.id)?.workload, dispatches.get(run.id))}</td>
                     <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK}">${run.worker}</a></td>
                     <td class="${TD} wrap-anywhere text-muted">${run.model}</td>

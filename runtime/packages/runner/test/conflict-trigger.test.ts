@@ -168,7 +168,7 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true }: 
   const resolve = (
     number: number,
     pair: { headSha: string; defaultSha: string },
-    state: Exclude<ConflictResolutionState, 'running'> | 'running' | 'not-started' = 'error',
+    state: Exclude<ConflictResolutionState, 'running'> | 'running' | 'not-started' = 'failed',
   ): number =>
     withStore((store) => {
       const start = store.startConflictResolution(
@@ -187,7 +187,7 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true }: 
           start.started,
           state,
           new Date().toISOString(),
-          state === 'ok' ? undefined : { reason: 'crashed', detail: null },
+          state === 'done' ? undefined : { reason: 'crashed', detail: null },
         );
       }
       return start.started;
@@ -268,7 +268,7 @@ test('given a conflicting pull request with a running revision, when the pass ru
   });
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 
-  setup.withStore((store) => store.endRevision(running, 'ok', new Date().toISOString()));
+  setup.withStore((store) => store.endRevision(running, 'done', new Date().toISOString()));
   assert.deepEqual(await setup.syncAndPass(pulls), [unit(143)]);
 });
 
@@ -277,7 +277,7 @@ test('given a conflicting pull request with a running conflict resolution for an
   const running = setup.resolve(143, { headSha: 'head-143-old', defaultSha: 'default-a' }, 'running');
   assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), []);
 
-  setup.withStore((store) => store.endConflictResolution(running, 'ok', new Date().toISOString()));
+  setup.withStore((store) => store.endConflictResolution(running, 'done', new Date().toISOString()));
   assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), [unit(143)]);
 });
 
@@ -307,24 +307,24 @@ test('given a live workload already holding one of two slots, when two conflict 
 test('given a conflict resolution that ended, ok or not, for a pull request\'s current head and default shas, when sync and the pass run again, then none starts', async () => {
   const setup = forge();
   const pulls = [pullRequest(143)];
-  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'error');
+  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'failed');
   assert.deepEqual(await setup.syncAndPass(pulls), []);
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 
   const ok = forge();
-  ok.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'ok');
+  ok.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'done');
   assert.deepEqual(await ok.syncAndPass(pulls), []);
 });
 
 test('given a failed conflict resolution for a sha pair, when the pull request\'s branch gains a commit and it still conflicts, then a new one starts', async () => {
   const setup = forge();
-  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'error');
+  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'failed');
   assert.deepEqual(await setup.syncAndPass([pullRequest(143, { headSha: 'head-143-b' })]), [unit(143)]);
 });
 
 test('given a failed conflict resolution for a sha pair, when the default branch gains a commit and the pull request still conflicts, then a new one starts', async () => {
   const setup = forge();
-  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'error');
+  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'failed');
   setup.world.defaultSha = 'default-b';
   assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), [unit(143)]);
 });
@@ -338,7 +338,7 @@ test('given a conflict resolution whose latest record is a failed start for the 
 test('given a failed start followed by a conflict resolution that ran and failed for the current shas, when sync and the pass run again, then none starts', async () => {
   const setup = forge();
   setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'not-started');
-  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'error');
+  setup.resolve(143, { headSha: 'head-143-a', defaultSha: 'default-a' }, 'failed');
   assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), []);
 });
 

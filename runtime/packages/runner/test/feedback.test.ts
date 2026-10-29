@@ -213,7 +213,7 @@ const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true }: Set
     return started().slice(before);
   };
 
-  const revise = (number: number, startedMinutesAgo: number, state: 'ok' | 'error' = 'ok'): void =>
+  const revise = (number: number, startedMinutesAgo: number, state: 'done' | 'failed' = 'done'): void =>
     withStore((store) => {
       const start = store.startRevision(
         { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
@@ -399,7 +399,7 @@ test('given feedback past its quiet period while a revision of the pull request 
   const held = [pullRequest(143, { reviews: [review(ago(60)), review(ago(30))] })];
   assert.deepEqual(await setup.syncAndPass(held), []);
 
-  setup.withStore((store) => store.endRevision(running, 'ok', new Date().toISOString()));
+  setup.withStore((store) => store.endRevision(running, 'done', new Date().toISOString()));
   assert.deepEqual(await setup.syncAndPass(held), [REVISE_UNIT]);
 });
 
@@ -421,7 +421,7 @@ test('given feedback past its quiet period while a conflict resolution of the pu
 
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 
-  setup.withStore((store) => store.endConflictResolution(running, 'ok', new Date().toISOString()));
+  setup.withStore((store) => store.endConflictResolution(running, 'done', new Date().toISOString()));
   assert.deepEqual(await setup.syncAndPass(pulls), [REVISE_UNIT]);
 });
 
@@ -444,7 +444,7 @@ test('given a revision that ended in error and no newer feedback, when later syn
   const setup = forge();
   const old = [pullRequest(143, { reviews: [review(ago(60))] })];
   assert.deepEqual(await setup.syncAndPass(old), [REVISE_UNIT]);
-  setup.revise(143, 45, 'error');
+  setup.revise(143, 45, 'failed');
 
   assert.deepEqual(await setup.syncAndPass(old), []);
   assert.deepEqual(await setup.syncAndPass(old), []);
@@ -533,7 +533,7 @@ test('given a revision that ended in error over feedback the pass already saw, w
   const pulls = [pullRequest(143, { reviews: [review(ago(30))] })];
   setup.revise(143, 40);
   await setup.syncAndPass(pulls);
-  setup.revise(143, 20, 'error');
+  setup.revise(143, 20, 'failed');
 
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 });
