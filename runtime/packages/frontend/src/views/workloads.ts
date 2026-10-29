@@ -3,7 +3,7 @@ import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, 
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
-import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderRevisionPill, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
+import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderRevisionPill, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
   pullRequestWorkload === undefined
