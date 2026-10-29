@@ -333,10 +333,10 @@ test.describe('on a phone screen', () => {
     const boxes = await page.locator('[data-range-presets], [data-filters] form input:not([type=hidden]), [data-filters] form select, [data-filters] form button').evaluateAll((elements) =>
       elements.map((element) => {
         const { top, left, width } = element.getBoundingClientRect();
-        return { top, left, width, name: element.getAttribute('name') ?? element.tagName.toLowerCase() };
+        return { top, left, width, name: element.getAttribute('name') ?? (element.hasAttribute('data-range-presets') ? 'started-chips' : 'apply') };
       }),
     );
-    expect(boxes.map(({ name }) => name)).toEqual(['nav', 'search', 'worker', 'repository', 'model', 'from', 'to', 'button']);
+    expect(boxes.map(({ name }) => name)).toEqual(['started-chips', 'search', 'worker', 'repository', 'model', 'from', 'to', 'apply']);
     const tops = boxes.map(({ top }) => top);
     expect(tops).toEqual([...tops].sort((a, b) => a - b));
     expect(new Set(tops).size).toBe(tops.length);
@@ -389,6 +389,10 @@ test.describe('on a laptop screen', () => {
     const tops = await row.locator('input:not([type=hidden]), select, button').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
     expect(tops).toHaveLength(7);
     expect(new Set(tops).size).toBe(1);
+    await page.goto('/workloads?status=error');
+    const filteredTops = await row.locator('input:not([type=hidden]), select, button, a[data-clear-filters]').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
+    expect(filteredTops).toHaveLength(8);
+    expect(filteredTops.map((top) => Math.abs(top - filteredTops[0]!)).every((offset) => offset <= 4)).toBe(true);
     const select = page.getByLabel('Model');
     expect((await select.boundingBox())!.width).toBeLessThanOrEqual(200);
     await expect(select.locator('option', { hasText: model })).toHaveText(model);
