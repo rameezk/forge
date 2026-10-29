@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
 import { renderMarkdown } from '../markdown.ts';
@@ -15,6 +15,8 @@ const FAILURE_LABEL: Record<RevisionFailure | ConflictResolutionFailure, string>
   'check-failed': 'Required check failed',
   'check-pending': 'Required check pending',
   'not-started': 'Did not start',
+  interrupted: 'Interrupted',
+  exceeded: 'Exceeded',
 };
 
 const DISPATCH_FAILURE_LABEL: Record<DispatchFailure, string> = {
@@ -85,7 +87,7 @@ export const runOutcomeOf = (workload: PullRequestWorkloadRecord | undefined, di
   const settled = settledOutcome(workload);
   if (settled !== null) return { state: settled.state, tone: WORKLOAD_TONE[settled.state], reason: pullRequestFailureReason(settled) };
   if (dispatch === undefined || dispatch.state === 'running') return null;
-  return { state: dispatch.state, tone: dispatch.state === 'done' ? WORKLOAD_TONE.ok : FAILED_TONE, reason: dispatchFailureReason(dispatch) };
+  return { state: dispatch.state, tone: WORKLOAD_TONE[dispatch.state], reason: dispatchFailureReason(dispatch) };
 };
 
 export interface RunReason extends FailureReason {
@@ -94,10 +96,10 @@ export interface RunReason extends FailureReason {
 
 export const runReasonOf = (run: Pick<RunRecord, 'status' | 'error'>, outcome: RunOutcome | null): RunReason | null => {
   const stopped = run.status === 'interrupted' || run.status === 'exceeded';
-  const tone = stopped ? WORKLOAD_TONE.exceeded : outcome?.reason != null ? outcome.tone : FAILED_TONE;
+  const tone = stopped ? STOPPED_TONE : outcome?.reason != null ? outcome.tone : FAILED_TONE;
   if (outcome?.reason != null) return { ...outcome.reason, tone };
   if (run.error !== null && run.error.trim() !== '') return { label: null, detail: run.error, tone };
-  return outcome?.state === 'error' ? { label: NO_REASON_RECORDED, detail: null, tone } : null;
+  return outcome?.state === 'failed' ? { label: NO_REASON_RECORDED, detail: null, tone } : null;
 };
 
 export const firstLine = (detail: string): string => detail.split('\n').find((line) => line.trim() !== '')?.trim() ?? '';
@@ -286,12 +288,12 @@ const STATUS_TONE: Record<RunStatus, string> = {
 
 export const FAILED_TONE = 'bg-error-soft text-error';
 
-export const WORKLOAD_TONE: Record<RevisionState, string> = {
+const STOPPED_TONE = 'bg-warning-soft text-warning';
+
+export const WORKLOAD_TONE: Record<RevisionState | DispatchState, string> = {
   running: 'bg-raised text-fg',
-  ok: 'bg-success-soft text-success',
-  error: FAILED_TONE,
-  exceeded: 'bg-warning-soft text-warning',
-  interrupted: 'bg-warning-soft text-warning',
+  done: 'bg-success-soft text-success',
+  failed: FAILED_TONE,
 };
 
 export const renderWorkloadOutcome = (workload: PullRequestWorkloadRecord): HtmlEscapedString | Promise<HtmlEscapedString> =>

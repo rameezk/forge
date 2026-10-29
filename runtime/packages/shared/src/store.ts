@@ -813,6 +813,26 @@ const conflictResolutionFromRow = (row: ConflictResolutionRow): ConflictResoluti
   endedAt: row.ended_at,
 });
 
+const OLD_WORKLOAD_TABLES = ['revisions', 'conflict_resolutions'];
+
+const HAS_OLD_WORKLOAD_STATES = `
+  SELECT 1 WHERE ${OLD_WORKLOAD_TABLES.map(
+    (table) => `EXISTS (SELECT 1 FROM ${table} WHERE state IN ('ok', 'error', 'exceeded', 'interrupted'))`,
+  ).join(' OR ')}
+`;
+
+const MIGRATE_WORKLOAD_STATES = OLD_WORKLOAD_TABLES.map(
+  (table) => `
+  UPDATE ${table} SET
+    reason = CASE state WHEN 'exceeded' THEN 'exceeded' WHEN 'interrupted' THEN 'interrupted' ELSE reason END,
+    detail = CASE WHEN state = 'exceeded' AND detail IS NULL
+      THEN (SELECT exceeded_limit FROM runs WHERE runs.id = ${table}.run_id)
+      ELSE detail END,
+    state = CASE state WHEN 'ok' THEN 'done' ELSE 'failed' END
+  WHERE state IN ('ok', 'error', 'exceeded', 'interrupted');
+`,
+).join('');
+
 const HAS_REVISION_FEEDBACK_CURSOR = `
   SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'feedback_cursor'
 `;
@@ -1175,6 +1195,9 @@ export class Store {
     this.#addColumnsOnce(HAS_DISPATCH_FAILED_STARTS, ADD_DISPATCH_FAILED_STARTS);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_FAILED_STARTS, ADD_CONFLICT_RESOLUTION_FAILED_STARTS);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_OPTIONAL_RUN, MIGRATE_CONFLICT_RESOLUTION_RUN);
+    if (this.#hasOldWorkloadStates()) {
+      this.#migrateWorkloadStates();
+    }
   }
 
   #useWriteAheadLog(): void {
@@ -1210,6 +1233,18 @@ export class Store {
     this.#transaction(() => {
       if (!has()) {
         this.#db.exec(add);
+      }
+    });
+  }
+
+  #hasOldWorkloadStates(): boolean {
+    return this.#db.prepare(HAS_OLD_WORKLOAD_STATES).get() !== undefined;
+  }
+
+  #migrateWorkloadStates(): void {
+    this.#transaction(() => {
+      if (this.#hasOldWorkloadStates()) {
+        this.#db.exec(MIGRATE_WORKLOAD_STATES);
       }
     });
   }
@@ -2192,7 +2227,7 @@ export class Store {
       if (latest?.state === 'running') {
         this.#db
           .prepare(
-            `UPDATE revisions SET state = 'interrupted', ended_at = $ended_at WHERE id = $id`,
+            `UPDATE revisions SET state = 'failed', reason = 'interrupted', ended_at = $ended_at WHERE id = $id`,
           )
           .run({ id: latest.id, ended_at: startedAt });
         this.#giveFeedbackBack(latest.id);
@@ -2267,7 +2302,7 @@ export class Store {
       if (latest?.state === 'running') {
         this.#db
           .prepare(
-            `UPDATE conflict_resolutions SET state = 'interrupted', ended_at = $ended_at WHERE id = $id`,
+            `UPDATE conflict_resolutions SET state = 'failed', reason = 'interrupted', ended_at = $ended_at WHERE id = $id`,
           )
           .run({ id: latest.id, ended_at: startedAt });
       }
@@ -2359,7 +2394,7 @@ export class Store {
       this.#db
         .prepare(
           `UPDATE conflict_resolutions SET
-            run_id = NULL, state = 'error', reason = 'not-started', detail = $detail,
+            run_id = NULL, state = 'failed', reason = 'not-started', detail = $detail,
             failed_starts = 1, ended_at = $at
           WHERE id = $id`,
         )
@@ -2376,8 +2411,9 @@ export class Store {
       .prepare(
         `SELECT
           id, repository, number, url, run_id, dispatch_id,
-          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
-          reason, detail, failed_starts, started_at, alive_at, ended_at
+          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'failed' ELSE state END AS state,
+          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE reason END AS reason,
+          detail, failed_starts, started_at, alive_at, ended_at
         FROM conflict_resolutions
         ${where}
         ORDER BY id`,
@@ -2529,7 +2565,7 @@ export class Store {
             repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
             started_at, alive_at, ended_at, feedback_cursor
           ) VALUES (
-            $repository, $number, $url, NULL, $dispatch_id, 'error', 'not-started', $detail, 1,
+            $repository, $number, $url, NULL, $dispatch_id, 'failed', 'not-started', $detail, 1,
             $at, $at, $at, $cursor
           )`,
         )
@@ -2576,7 +2612,7 @@ export class Store {
       this.#db
         .prepare(
           `UPDATE revisions SET
-            run_id = NULL, state = 'error', reason = 'not-started', detail = $detail,
+            run_id = NULL, state = 'failed', reason = 'not-started', detail = $detail,
             failed_starts = 1, ended_at = $at
           WHERE id = $id`,
         )
@@ -2613,7 +2649,7 @@ export class Store {
           detail: boundedDetail(failure?.detail ?? null),
           ended_at: endedAt,
         });
-      if (state !== 'ok' && before?.state === 'running') this.#giveFeedbackBack(id);
+      if (state === 'failed' && before?.state === 'running') this.#giveFeedbackBack(id);
     });
   }
 
@@ -2622,8 +2658,9 @@ export class Store {
       .prepare(
         `SELECT
           id, repository, number, url, run_id, dispatch_id,
-          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE state END AS state,
-          reason, detail, failed_starts, started_at, alive_at, ended_at
+          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'failed' ELSE state END AS state,
+          CASE WHEN state = 'running' AND alive_at < $live_since THEN 'interrupted' ELSE reason END AS reason,
+          detail, failed_starts, started_at, alive_at, ended_at
         FROM revisions
         ${where}
         ORDER BY id`,

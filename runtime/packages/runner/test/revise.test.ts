@@ -244,6 +244,8 @@ interface Scenario {
   botLookupFails?: boolean;
   permissions?: Record<string, string>;
   piPackage?: string;
+  timeoutSeconds?: number;
+  piLingerMs?: number;
 }
 
 interface Outcome {
@@ -295,6 +297,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
           harness: 'pi',
           model: 'z-ai/glm-5',
           prompt: scenario.prompt ?? '/address-feedback {url} on {branch} of {repo} (#{pr})',
+          ...(scenario.timeoutSeconds === undefined ? {} : { timeoutSeconds: scenario.timeoutSeconds }),
         },
       },
       repositories: {
@@ -367,7 +370,11 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
       FORGE_BWRAP: writeFakeBwrap(stateDir, {
         record: join(stateDir, 'bwrap-call.json'),
-        harnessEnv: { FAKE_PI_RECORD: record, FAKE_PI_OUTPUT: PI_OUTPUT },
+        harnessEnv: {
+          FAKE_PI_RECORD: record,
+          FAKE_PI_OUTPUT: PI_OUTPUT,
+          ...(scenario.piLingerMs === undefined ? {} : { FAKE_PI_LINGER_MS: String(scenario.piLingerMs) }),
+        },
       }),
       FORGE_GITHUB_APP_ID: APP_ID,
       FORGE_GITHUB_APP_PRIVATE_KEY_FILE: privateKeyFile,
@@ -452,7 +459,7 @@ test('given a feedback worker whose prompt starts with /address-feedback, when t
   assert.equal(missing.pi, null);
   assert.equal(missing.runs[0]?.status, 'error');
   assert.equal(missing.runs[0]?.error, "skill 'address-feedback' not found in the checkout");
-  assert.deepEqual(missing.revisions.map(({ state }) => state), ['error']);
+  assert.deepEqual(missing.revisions.map(({ state }) => state), ['failed']);
   assert.match(present.pi?.argv.at(-1) ?? '', /^\/skill:address-feedback /);
 });
 
@@ -494,7 +501,7 @@ test('given a revision handed one item, when the worker replies on the pull requ
 
   assert.equal(code, 0);
   assert.deepEqual(revisions.map(({ state, reason }) => ({ state, reason })), [
-    { state: 'ok', reason: null },
+    { state: 'done', reason: null },
   ]);
   assert.equal(nextAfter, revisions[0]?.startedAt);
 });
@@ -522,7 +529,7 @@ test('given a revision that ends ok, when it is recorded, then it is against its
     revisions.map(({ repository, number, url, runId, dispatchId, state }) => ({
       repository, number, url, runId, dispatchId, state,
     })),
-    [{ repository: 'forge', number: 143, url: PULL_REQUEST_URL, runId: runs[0]?.id, dispatchId: 1, state: 'ok' }],
+    [{ repository: 'forge', number: 143, url: PULL_REQUEST_URL, runId: runs[0]?.id, dispatchId: 1, state: 'done' }],
   );
 });
 
@@ -634,7 +641,7 @@ const previousRevisionAt = (startedAt: string) => (store: Store) => {
     10,
   );
   assert.ok('started' in start);
-  store.endRevision(start.started, 'ok', startedAt);
+  store.endRevision(start.started, 'done', startedAt);
 };
 
 test('given a window holding a review summary, an inline review comment and a conversation comment by the owner, when the revision runs, then the instruction lists all three with their kind, author, URL and body, and the inline comment with its file and line', async () => {
@@ -702,7 +709,7 @@ test('given a revision that ended in error over a comment, when forge-revise run
         10,
       );
       assert.ok('started' in failed);
-      store.endRevision(failed.started, 'error', '2026-09-21T10:11:00.000Z');
+      store.endRevision(failed.started, 'failed', '2026-09-21T10:11:00.000Z');
     },
     feedback: feedbackWindow({
       comments: [conversationComment({ body: 'Raised before the failure.', createdAt: '2026-09-21T10:05:00Z' })],
@@ -751,7 +758,7 @@ test('given a revision whose window holds no feedback, when it runs, then pi nev
   assert.equal(code, 0);
   assert.equal(pi, null);
   assert.deepEqual(runs, []);
-  assert.deepEqual(revisions.map(({ state }) => state), ['ok']);
+  assert.deepEqual(revisions.map(({ state }) => state), ['done']);
 });
 
 test('given a pull request with feedback and a bot user lookup that answers 401 Bad credentials, when forge-revise runs, then the revision is a failed start with no run carrying the error, and the runs list shows no run for it', async () => {
@@ -765,7 +772,7 @@ test('given a pull request with feedback and a bot user lookup that answers 401 
       repository: 'forge',
       number: 143,
       runId: null,
-      state: 'error',
+      state: 'failed',
       reason: 'not-started',
       detail: 'GitHub answered 401: Bad credentials',
       failedStarts: 1,
@@ -848,7 +855,7 @@ test('given a revision handed an inline comment, a review summary and a conversa
 
   assert.equal(code, 0);
   assert.deepEqual(revisions.map(({ state, reason }) => ({ state, reason })), [
-    { state: 'ok', reason: null },
+    { state: 'done', reason: null },
   ]);
 });
 
@@ -865,7 +872,7 @@ test('given GitHub answers the answered check with errors and no pull request, w
   assert.equal(code, 1);
   assert.equal(thrown, message);
   assert.deepEqual(revisions.map(({ runId, state, reason, detail }) => ({ runId, state, reason, detail })), [
-    { runId: runs[0]?.id, state: 'error', reason: 'crashed', detail: message },
+    { runId: runs[0]?.id, state: 'failed', reason: 'crashed', detail: message },
   ]);
 });
 
@@ -882,7 +889,7 @@ test('given GitHub answers the answered check with a complete answer and errors,
   assert.equal(code, 1);
   assert.equal(thrown, message);
   assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'crashed', detail: message },
+    { state: 'failed', reason: 'crashed', detail: message },
   ]);
 });
 
@@ -899,7 +906,7 @@ test('given GitHub rejects the feedback window query, when forge-revise runs, th
   assert.equal(thrown, message);
   assert.equal(pi, null);
   assert.deepEqual(revisions.map(({ runId, state, reason, detail }) => ({ runId, state, reason, detail })), [
-    { runId: null, state: 'error', reason: 'not-started', detail: message },
+    { runId: null, state: 'failed', reason: 'not-started', detail: message },
   ]);
 });
 
@@ -910,7 +917,7 @@ test('given launching the worker throws, when forge-revise runs, then the revisi
   assert.equal(pi, null);
   assert.notEqual(thrown, null);
   assert.deepEqual(revisions.map(({ runId, state, reason, detail }) => ({ runId, state, reason, detail })), [
-    { runId: null, state: 'error', reason: 'not-started', detail: thrown },
+    { runId: null, state: 'failed', reason: 'not-started', detail: thrown },
   ]);
 });
 
@@ -941,7 +948,7 @@ test('given a revision handed two items, when after the run only one has been an
 
   assert.equal(code, 1);
   assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'unanswered', detail: `${PULL_REQUEST_URL}#issuecomment-2` },
+    { state: 'failed', reason: 'unanswered', detail: `${PULL_REQUEST_URL}#issuecomment-2` },
   ]);
 });
 
@@ -959,7 +966,7 @@ test('given a revision handed a conversation comment, when the only response is 
 
   assert.equal(code, 1);
   assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'unanswered', detail: COMMENT_URL },
+    { state: 'failed', reason: 'unanswered', detail: COMMENT_URL },
   ]);
 });
 
@@ -972,7 +979,7 @@ test('given a revision handed a conversation comment, when forge\'s App reacted 
 
   assert.equal(code, 1);
   assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'unanswered', detail: COMMENT_URL },
+    { state: 'failed', reason: 'unanswered', detail: COMMENT_URL },
   ]);
 });
 
@@ -1013,4 +1020,15 @@ test('given forge\'s App commented with a URL that only starts with an unanswere
   assert.deepEqual(revisions.map(({ reason, detail }) => ({ reason, detail })), [
     { reason: 'unanswered', detail: COMMENT_URL },
   ]);
+});
+
+test('given a revision whose pi keeps running past the worker\'s timeout, when forge-revise runs, then the run ends exceeded and the revision fails with reason exceeded naming the timeout', async () => {
+  const { code, runs, revisions } = await revise({ piLingerMs: 10_000, timeoutSeconds: 1 });
+
+  assert.equal(code, 1);
+  assert.equal(runs[0]?.status, 'exceeded');
+  assert.deepEqual(
+    revisions.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'exceeded', detail: 'timeout' }],
+  );
 });
