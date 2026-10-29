@@ -166,8 +166,8 @@ interface CohortConfig {
 
 const renderCompareForm = (current: CohortConfig, against: CohortConfig | null, cohorts: CohortConfig[]): Rendered =>
   html`<form method="get" action="/cohorts/${current.hash}" class="mb-4 flex flex-wrap items-end gap-3" data-compare>
-    <label class="${FIELD}">Compare against
-      <select name="against" class="${INPUT}">
+    <label class="${FIELD} max-w-full">Compare against
+      <select name="against" class="${INPUT} max-w-full">
         <option value="">No comparison</option>
         ${cohorts
           .filter(({ hash }) => hash !== current.hash)
