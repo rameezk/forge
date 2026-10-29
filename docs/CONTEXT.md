@@ -64,6 +64,10 @@ _Avoid_: version, run config
 The workloads sharing one config fingerprint, compared as a group against other cohorts. Workloads recorded before fingerprints existed form the unknown-config cohort (ADR-0034).
 _Avoid_: variant, experiment, arm
 
+**Active cohort**:
+For a worker and repository pair, the cohort of that pair's most recent finished dispatched workload, so several cohorts can be active at once. It reflects the latest workload, not the config deployed now, because part of the fingerprint is known only once a run starts.
+_Avoid_: current cohort, live cohort
+
 **Cost status**:
 How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, including on an interrupted workload, where later generations may be unrecorded (ADR-0031), or `subscription` for a workload on a subscription provider, which is never billed and never settles (ADR-0047).
 _Avoid_: cost uncertain
