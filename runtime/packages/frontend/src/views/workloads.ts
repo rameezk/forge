@@ -70,7 +70,9 @@ const renderTotals = (runs: RunRecord[], all: RunRecord[], filter: WorkloadFilte
 
 const CONTROL = 'h-9 rounded-md border border-line bg-surface px-2 py-1.5 text-[0.9rem] font-normal normal-case tracking-normal text-fg';
 
-const FIELD = 'flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
+const LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
+
+const FIELD = `flex flex-col gap-1 ${LABEL}`;
 
 const CHIP = 'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-[0.85rem] font-medium text-fg no-underline hover:bg-raised';
 
@@ -83,7 +85,7 @@ const renderOptions = (values: string[], selected: string | undefined): Rendered
 
 const renderSelect = (label: string, name: string, values: string[], selected: string | undefined): Rendered =>
   html`<label class="${FIELD}">${label}
-    <select name="${name}" class="${CONTROL}">
+    <select name="${name}" class="${CONTROL} w-full sm:max-w-40">
       <option value="">All</option>
       ${renderOptions(values, selected)}
     </select>
@@ -105,13 +107,16 @@ const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string,
       count: scoped.filter((run) => stateOf(run) === status).length,
     })),
   ];
-  return html`<nav class="mb-2 flex gap-2 overflow-x-auto pb-1 sm:mb-3 sm:flex-wrap sm:pb-0" aria-label="Status" data-status-chips>
+  return html`<div class="mb-2 sm:mb-3">
+  <span class="${LABEL} mb-1 block" data-chip-label="status">Status</span>
+  <nav class="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:pb-0" aria-label="Status" data-status-chips>
     ${chips.map(({ key, label, status, count }) => {
       const { status: _current, ...rest } = filter;
       const current = filter.status === status;
       return html`<a href="${workloadsHref(status === undefined ? rest : { ...rest, status })}" class="${CHIP} ${current ? CHIP_CURRENT : CHIP_IDLE}" data-status-chip="${key}"${current ? html` aria-current="true"` : ''}>${label} <span class="tabular-nums text-muted">${count}</span></a>`;
     })}
-  </nav>`;
+  </nav>
+  </div>`;
 };
 
 const startedRange = ({ range, from, to }: WorkloadFilter): string =>
@@ -122,27 +127,30 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
   const { range: _range, from: _from, to: _to, ...rest } = filter;
   return html`<details class="mb-4 sm:[&:not([open])::details-content]:block sm:[&:not([open])::details-content]:[content-visibility:visible]" data-filters>
   <summary class="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-line bg-surface px-3 text-[0.9rem] font-semibold text-fg sm:hidden [&::-webkit-details-marker]:hidden">Filters${range === '' ? '' : html` <span class="font-normal text-muted" data-started-range>${range}</span>`}</summary>
-  <form method="get" action="/workloads" class="mt-3 flex flex-wrap items-end gap-3 sm:mt-0">
-    ${filter.status === undefined ? '' : html`<input type="hidden" name="status" value="${filter.status}" />`}
-    <label class="${FIELD}">Search
-      <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-60" />
-    </label>
-    ${renderSelect('Worker', 'worker', unique(all.map((run) => run.worker)), filter.worker)}
-    ${renderSelect('Repository', 'repository', unique(all.map((run) => run.ticket?.repository)), filter.repository)}
-    ${renderSelect('Model', 'model', unique(all.map((run) => run.model)), filter.model)}
-    <div class="flex w-full flex-wrap gap-2" aria-label="Started" data-range-presets>
+  <div class="mt-3 sm:mt-0">
+    <span class="${LABEL} mb-1 block" data-chip-label="started">Started</span>
+    <nav class="flex flex-wrap gap-2" aria-label="Started" data-range-presets>
       ${[{ key: 'any', label: 'Any time', range: undefined }, ...RANGE_PRESETS.map(({ key, label }) => ({ key, label, range: key }))].map(({ key, label, range }) => {
         const current = range === undefined ? filter.range === undefined && filter.from === undefined && filter.to === undefined : filter.range === range;
         return html`<a href="${workloadsHref(range === undefined ? rest : { ...rest, range })}" class="${CHIP} ${current ? CHIP_CURRENT : CHIP_IDLE}" data-range-preset="${key}"${current ? html` aria-current="true"` : ''}>${label}</a>`;
       })}
-    </div>
+    </nav>
+  </div>
+  <form method="get" action="/workloads" class="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+    ${filter.status === undefined ? '' : html`<input type="hidden" name="status" value="${filter.status}" />`}
+    <label class="${FIELD}">Search
+      <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-full sm:w-60" />
+    </label>
+    ${renderSelect('Worker', 'worker', unique(all.map((run) => run.worker)), filter.worker)}
+    ${renderSelect('Repository', 'repository', unique(all.map((run) => run.ticket?.repository)), filter.repository)}
+    ${renderSelect('Model', 'model', unique(all.map((run) => run.model)), filter.model)}
     <label class="${FIELD}">Started from
       <input type="date" name="from" value="${filter.from ?? ''}" class="${CONTROL}" />
     </label>
     <label class="${FIELD}">Started to
       <input type="date" name="to" value="${filter.to ?? ''}" class="${CONTROL}" />
     </label>
-    <button type="submit" class="h-9 rounded-md border border-line bg-raised px-3 text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
+    <button type="submit" class="h-9 w-full rounded-md border border-line bg-raised px-3 text-[0.9rem] font-semibold text-fg hover:bg-line sm:w-auto">Apply</button>
     ${isFiltered(filter) ? html`<a href="/workloads" class="${LINK} py-2 text-[0.9rem]" data-clear-filters>Clear filters</a>` : ''}
   </form>
   </details>`;
@@ -174,8 +182,6 @@ const renderTicketCell = (run: RunRecord, runWorkload: RunPullRequestWorkload | 
   return html`<div>${renderRunTicket(run.ticket)}${renderRunPullRequest(pullRequestWorkload)}</div>${kind === null ? '' : html`<div class="text-[0.85rem] text-muted" data-workload-kind>${kind}</div>`}`;
 };
 
-const STAT_LABEL = 'text-xs font-semibold uppercase tracking-[0.05em] text-muted';
-
 const renderRunCard = (run: RunRecord, runWorkload: RunPullRequestWorkload | undefined, dispatch: DispatchRecord | undefined, equivalents: Map<string, ListPriceEquivalent>, timeZone: string): Rendered => {
   const pullRequestWorkload = runWorkload?.workload;
   const outcome = runOutcomeOf(pullRequestWorkload, dispatch);
@@ -186,9 +192,9 @@ const renderRunCard = (run: RunRecord, runWorkload: RunPullRequestWorkload | und
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><div class="relative" data-run-ticket>${renderTicketCell(run, runWorkload, dispatch)}</div><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
     <dl class="m-0 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-5 gap-y-1 border-t border-line pt-2">
-      <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Duration</dt><dd class="m-0 tabular-nums" data-duration>${renderDuration(run)}</dd></div>
-      <div class="flex flex-col gap-0.5"><dt class="${STAT_LABEL}">Cache hit</dt><dd class="m-0 tabular-nums" data-cache-hit>${renderCacheHitRate(run)}</dd></div>
-      <div class="flex min-w-0 flex-col gap-0.5 text-right"><dt class="${STAT_LABEL}">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
+      <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Duration</dt><dd class="m-0 tabular-nums" data-duration>${renderDuration(run)}</dd></div>
+      <div class="flex flex-col gap-0.5"><dt class="${LABEL}">Cache hit</dt><dd class="m-0 tabular-nums" data-cache-hit>${renderCacheHitRate(run)}</dd></div>
+      <div class="flex min-w-0 flex-col gap-0.5 text-right"><dt class="${LABEL}">Cost</dt><dd class="m-0 tabular-nums" data-cost>${renderListCost(run, equivalents)}</dd></div>
     </dl>
   </article>`;
 };

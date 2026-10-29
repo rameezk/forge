@@ -153,6 +153,36 @@ test('given a filtered view, when it lists nothing or "Clear filters" is followe
   assert.equal(listed(await open(mixed, '/workloads')).length, 4);
 });
 
+const positions = (body: string, needles: string[]): number[] => needles.map((needle) => body.indexOf(needle));
+
+const ascending = (values: number[]): boolean => values.every((value, index) => value >= 0 && (index === 0 || value > values[index - 1]!));
+
+test('given recorded workloads, when opened, then the title and tiles lead, the labelled Status and Started chips come before every input, and the inputs run Search to Started to', async () => {
+  const body = await open(mixed);
+
+  assert.ok(
+    ascending(positions(body, ['<h1', 'data-showing', 'aria-label="Status" data-status-chips', 'data-range-presets', 'name="search"', 'name="worker"', 'name="repository"', 'name="model"', 'name="from"', 'name="to"', '<table'])),
+    'title, tiles, status chips, started chips, inputs in order, then the table',
+  );
+  assert.match(body, /<span[^>]*uppercase[^>]*data-chip-label="status"[^>]*>Status<\/span>/);
+  assert.match(body, /<span[^>]*uppercase[^>]*data-chip-label="started"[^>]*>Started<\/span>/);
+  assert.ok(ascending(positions(body, ['data-chip-label="status"', 'data-status-chips'])));
+  assert.ok(ascending(positions(body, ['data-chip-label="started"', 'data-range-presets'])));
+  assert.ok(body.indexOf('data-range-presets') < body.indexOf('<form'), 'the Started chips sit outside the input form');
+});
+
+test('given no filter, when opened, then Apply is the last control of the input row, and with a filter "Clear filters" follows it', async () => {
+  const controls = (body: string): string[] =>
+    [...(body.match(/<form[\s\S]*?<\/form>/)?.[0] ?? '').matchAll(/<(?:input|select|button|a)\b[^>]*>/g)].map(([tag]) => tag).filter((tag) => !/type="hidden"/.test(tag));
+
+  const plain = controls(await open(mixed));
+  assert.match(plain.at(-1)!, /<button[^>]*type="submit"/);
+  assert.ok(!plain.some((tag) => /data-clear-filters/.test(tag)));
+  const filtered = controls(await open(mixed, '/workloads?status=done'));
+  assert.match(filtered.at(-2)!, /<button[^>]*type="submit"/);
+  assert.match(filtered.at(-1)!, /data-clear-filters/);
+});
+
 test('given a ticketed and a manual workload, when opened, then the columns follow the agreed order and the manual one shows a muted manual', async () => {
   const body = await open([sampleRun({ id: 'ticketed', ticket: ticketIn('forge', 5) }), sampleRun({ id: 'by-hand' })]);
 
