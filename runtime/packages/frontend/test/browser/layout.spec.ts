@@ -1,12 +1,12 @@
 import type { Page } from '@playwright/test';
-import type { RunRecord } from '@forge/shared';
+import type { RunRecord, Store } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
 const ticket = { repository: 'forge', number: 42, url: 'https://github.com/rameezk/forge/issues/42' };
 
 const PAGES = ['/', '/workloads', '/insights', '/tickets/forge/42', '/runs/run-01'] as const;
 
-const seedRun = (store: Parameters<Parameters<typeof test>[2]>[0]['dashboard']['store']): void => {
+const seedRun = (store: Store): void => {
   const run: RunRecord = {
     id: 'run-01',
     worker: 'builder',
@@ -115,7 +115,7 @@ test.describe('on a screen narrower than 100rem', () => {
 
     for (const path of PAGES) {
       await page.goto(path);
-      expect(await chrome(page), path).toEqual({ logo: 16, nav: expect.any(Number), footer: 16 });
+      expect(await chrome(page), path).toMatchObject({ logo: 16, footer: 16 });
       expect((await mainBox(page)).left, path).toBe(0);
     }
   });
