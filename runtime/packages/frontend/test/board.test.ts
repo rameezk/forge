@@ -605,8 +605,8 @@ test('given a done dispatch with an open pull request whose latest revision has 
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
     inReview(store, 5);
     inReview(store, 6);
-    store.endRevision(startRevisionOn(store, 5, 105), 'ok', new Date().toISOString());
-    store.endConflictResolution(startResolutionOn(store, 6, 106), 'ok', new Date().toISOString());
+    store.endRevision(startRevisionOn(store, 5, 105), 'done', new Date().toISOString());
+    store.endConflictResolution(startResolutionOn(store, 6, 106), 'done', new Date().toISOString());
   });
 
   const body = await (await app.request('/')).text();

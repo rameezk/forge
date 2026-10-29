@@ -189,7 +189,7 @@ test('given a succeeded run whose revision crashed with a multi-line detail and 
       10,
     );
     assert.ok('started' in start);
-    store.endRevision(start.started, 'error', '2026-09-21T10:03:20.000Z', failure);
+    store.endRevision(start.started, 'failed', '2026-09-21T10:03:20.000Z', failure);
   };
   const app = appWith(
     [
@@ -221,7 +221,7 @@ test('given a succeeded run whose revision crashed with a multi-line detail and 
 });
 
 test('given a revision that ended ok and one that ended in error, when the list is requested, then both rows show their repository and pull request linked to it, and their outcome', async () => {
-  const revised = (store: Store, runId: string, number: number, state: 'ok' | 'error'): void => {
+  const revised = (store: Store, runId: string, number: number, state: 'done' | 'failed'): void => {
     const start = store.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
       [],
@@ -239,8 +239,8 @@ test('given a revision that ended ok and one that ended in error, when the list 
     ],
     undefined,
     (store) => {
-      revised(store, 'revision-ok', 143, 'ok');
-      revised(store, 'revision-error', 150, 'error');
+      revised(store, 'revision-ok', 143, 'done');
+      revised(store, 'revision-error', 150, 'failed');
     },
   );
 

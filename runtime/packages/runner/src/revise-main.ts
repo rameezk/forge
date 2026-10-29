@@ -18,7 +18,7 @@ import {
   resolveWorker,
 } from './config.ts';
 import { launchInCheckout } from './checkout-workload.ts';
-import { fillPrompt, headRefusal, stateOf } from './pull-request-workload.ts';
+import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
 import { gitEnvironment } from './git.ts';
 import { revisionInstruction } from './harness.ts';
 import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
@@ -116,6 +116,7 @@ export const main = async (
     );
     try {
       let launched: LaunchResult;
+      let ended: WorkloadEnd = { state: 'done' };
       let failure: RevisionFailureRecord | undefined;
       try {
         const feedback = await queryFeedbackWindow(
@@ -127,7 +128,7 @@ export const main = async (
           startedAt,
         );
         if (feedback.length === 0) {
-          store.endRevision(revisionId, 'ok', now());
+          store.endRevision(revisionId, 'done', now());
           return 0;
         }
         launched = await launchInCheckout({
@@ -154,7 +155,8 @@ export const main = async (
           );
           return 1;
         }
-        if (stateOf(launched) === 'ok') {
+        ended = endOf(launched);
+        if (ended.state === 'done') {
           const unanswered = await queryUnansweredFeedback(
             fetch,
             (await app.mint(repository.github, 'read')).token,
@@ -171,19 +173,15 @@ export const main = async (
         if (store.getRun(runId)?.harnessStartTime == null) {
           store.failRevisionStart(revisionId, errorMessage(error), now());
         } else {
-          store.endRevision(revisionId, 'error', now(), {
+          store.endRevision(revisionId, 'failed', now(), {
             reason: 'crashed',
             detail: errorMessage(error),
           });
         }
         throw error;
       }
-      store.endRevision(
-        revisionId,
-        failure === undefined ? stateOf(launched) : 'error',
-        now(),
-        failure,
-      );
+      const final = failure === undefined ? ended : { state: 'failed' as const, failure };
+      store.endRevision(revisionId, final.state, now(), final.failure);
       return failure !== undefined || launched.run.status === 'error' || launched.run.status === 'exceeded'
         ? 1
         : 0;
