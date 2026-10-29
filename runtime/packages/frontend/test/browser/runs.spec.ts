@@ -387,7 +387,7 @@ test.describe('on a laptop screen', () => {
     const tops = await row.locator('input:not([type=hidden]), select, button').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
     expect(tops).toHaveLength(7);
     expect(new Set(tops).size).toBe(1);
-    await page.goto('/workloads?status=error');
+    await page.goto('/workloads?status=failed');
     const filteredTops = await row.locator('input:not([type=hidden]), select, button, a[data-clear-filters]').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
     expect(filteredTops).toHaveLength(8);
     expect(filteredTops.map((top) => Math.abs(top - filteredTops[0]!)).every((offset) => offset <= 4)).toBe(true);

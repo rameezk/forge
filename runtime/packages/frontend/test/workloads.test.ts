@@ -178,7 +178,7 @@ test('given no filter, when opened, then Apply is the last control of the input 
   const plain = controls(await open(mixed));
   assert.match(plain.at(-1)!, /<button[^>]*type="submit"/);
   assert.ok(!plain.some((tag) => /data-clear-filters/.test(tag)));
-  const filtered = controls(await open(mixed, '/workloads?status=success'));
+  const filtered = controls(await open(mixed, '/workloads?status=done'));
   assert.match(filtered.at(-2)!, /<button[^>]*type="submit"/);
   assert.match(filtered.at(-1)!, /data-clear-filters/);
 });
