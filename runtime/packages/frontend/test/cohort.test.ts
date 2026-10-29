@@ -19,7 +19,7 @@ test('given a cohort, when its page is requested, then it shows the label and ev
 
   const page = await (await app.request(`/cohorts/${fingerprintHash(SONNET)}`)).text();
 
-  assert.match(textOf(page), /sonnet-5\.5 · high · prompt#3fa2/);
+  assert.match(textOf(page), new RegExp(`pi · sonnet-5\\.5 · high · prompt#3fa2 · ${fingerprintHash(SONNET).slice(0, 8)}`));
   assert.deepEqual(fieldsOf(page), new Map([
     ['harness', 'Harness pi'],
     ['provider', 'Provider openrouter'],
@@ -115,7 +115,13 @@ test('given three cohorts, when one is requested with another chosen, then the p
     choicesOf(page).map(({ value, selected }) => [value, selected]).sort(),
     [[fingerprintHash(RESKILLED), false], [fingerprintHash(GLM), true]].sort(),
   );
-  assert.ok(choicesOf(page).every(({ text }) => text.includes('·')));
+  assert.deepEqual(
+    choicesOf(page).map(({ text }) => text).sort(),
+    [
+      `pi · sonnet-5.5 · high · prompt#3fa2 · ${fingerprintHash(RESKILLED).slice(0, 8)}`,
+      `pi · glm-5 · default · prompt#9b1e · ${fingerprintHash(GLM).slice(0, 8)}`,
+    ].sort(),
+  );
 });
 
 test('given workloads recorded without a fingerprint, when the unknown-config cohort page is requested, then it says they predate fingerprints and offers no diff', async () => {
@@ -146,7 +152,7 @@ const cohortLinksOf = (page: string): string[] =>
 
 test('given a workload with a fingerprint, when the insights page and its run detail page are requested, then its cohort label links to the cohort page on both', async () => {
   const { app } = dashboard(SEEDS);
-  const link = `/cohorts/${fingerprintHash(SONNET)} sonnet-5.5 · high · prompt#3fa2`;
+  const link = `/cohorts/${fingerprintHash(SONNET)} pi · sonnet-5.5 · high · prompt#3fa2 · ${fingerprintHash(SONNET).slice(0, 8)}`;
 
   assert.deepEqual(cohortLinksOf(await (await app.request('/insights')).text()), [link]);
   assert.deepEqual(cohortLinksOf(await (await app.request('/runs/a1')).text()), [link]);

@@ -163,8 +163,8 @@ test('given three dispatches of one ticket under two cohorts with different outc
   assert.deepEqual([...rows.keys()], ['run-c', 'run-b', 'run-a']);
 
   const [a, b, c] = ['run-a', 'run-b', 'run-c'].map((id) => rows.get(id)!);
-  assert.equal(textOf(a!['cohort']!), 'sonnet-5.5 · high · prompt#3fa2');
-  assert.equal(textOf(b!['cohort']!), 'glm-5 · default · prompt#9b1e');
+  assert.equal(textOf(a!['cohort']!), `pi · sonnet-5.5 · high · prompt#3fa2 · ${fingerprintHash(SONNET).slice(0, 8)}`);
+  assert.equal(textOf(b!['cohort']!), `pi · glm-5 · default · prompt#9b1e · ${fingerprintHash(GLM).slice(0, 8)}`);
   assert.equal(textOf(a!['base-commit']!), 'aaaaaaa');
   assert.equal(textOf(c!['base-commit']!), 'not recorded');
   assert.equal(textOf(a!['outcome']!), 'closed');

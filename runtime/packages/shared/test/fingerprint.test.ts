@@ -35,17 +35,18 @@ test('given two fingerprints differing only in their skills hash, when hashed, t
   );
 });
 
-test('given a fingerprint, when labelled, then the label names the model, the effort and a short prompt hash', () => {
-  assert.equal(cohortLabel(aFingerprint()), 'sonnet-5.5 · high · prompt#3fa2');
+test('given a fingerprint, when labelled, then the label names the harness, the model, the effort, a short prompt hash and a short cohort hash', () => {
+  assert.equal(cohortLabel(aFingerprint(), 'd1ea4b0d9f'), 'pi · sonnet-5.5 · high · prompt#3fa2 · d1ea4b0d');
+  assert.equal(cohortLabel(aFingerprint({ harness: 'claude-code' }), 'd1ea4b0d9f'), 'claude-code · sonnet-5.5 · high · prompt#3fa2 · d1ea4b0d');
 });
 
 test('given a fingerprint with no reasoning effort, when labelled, then the label says default', () => {
   assert.equal(
-    cohortLabel(aFingerprint({ reasoningEffort: null })),
-    'sonnet-5.5 · default · prompt#3fa2',
+    cohortLabel(aFingerprint({ reasoningEffort: null }), 'd1ea4b0d9f'),
+    'pi · sonnet-5.5 · default · prompt#3fa2 · d1ea4b0d',
   );
 });
 
 test('given no fingerprint, when labelled, then the label is the unknown config', () => {
-  assert.equal(cohortLabel(null), 'unknown config');
+  assert.equal(cohortLabel(null, null), 'unknown config');
 });

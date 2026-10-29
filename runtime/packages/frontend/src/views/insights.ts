@@ -159,8 +159,6 @@ const renderFingerprintRow = (
   </tr>`;
 };
 
-const SHORT_COHORT_HASH_LENGTH = 8;
-
 interface CohortConfig {
   hash: string;
   fingerprint: ConfigFingerprint;
@@ -168,12 +166,12 @@ interface CohortConfig {
 
 const renderCompareForm = (current: CohortConfig, against: CohortConfig | null, cohorts: CohortConfig[]): Rendered =>
   html`<form method="get" action="/cohorts/${current.hash}" class="mb-4 flex flex-wrap items-end gap-3" data-compare>
-    <label class="${FIELD}">Compare against
-      <select name="against" class="${INPUT}">
+    <label class="${FIELD} max-w-full">Compare against
+      <select name="against" class="${INPUT} max-w-full">
         <option value="">No comparison</option>
         ${cohorts
           .filter(({ hash }) => hash !== current.hash)
-          .map(({ hash, fingerprint }) => html`<option value="${hash}"${hash === against?.hash ? html` selected` : ''}>${cohortLabel(fingerprint)} (${hash.slice(0, SHORT_COHORT_HASH_LENGTH)})</option>`)}
+          .map(({ hash, fingerprint }) => html`<option value="${hash}"${hash === against?.hash ? html` selected` : ''}>${cohortLabel(fingerprint, hash)}</option>`)}
       </select>
     </label>
     <button type="submit" class="rounded-md border border-line bg-raised px-3 py-1.5 text-[0.9rem] font-semibold text-fg hover:bg-line">Compare</button>
@@ -186,7 +184,7 @@ export const renderCohortPage = (
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/insights" class="${LINK}">&larr; Insights</a></p>
-    <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(fingerprint)}</h1>
+    <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(fingerprint, hash)}</h1>
     <p class="m-0 mb-4 break-all text-[0.9rem] text-muted tabular-nums" data-cohort-hash>${hash}</p>
     ${renderCompareForm({ hash, fingerprint }, against, cohorts)}
     <div class="${CARD}" data-fingerprint role="region" aria-label="Config fingerprint" tabindex="0">
@@ -197,18 +195,18 @@ export const renderCohortPage = (
               <tr>
                 <th class="${TH}">Field</th>
                 <th class="${TH}">This cohort</th>
-                <th class="${TH}">Compared with <a href="${cohortHref(against.hash)}" class="${LINK} normal-case tracking-normal">${cohortLabel(against.fingerprint)}</a></th>
+                <th class="${TH}">Compared with <a href="${cohortHref(against.hash)}" class="${LINK} normal-case tracking-normal">${cohortLabel(against.fingerprint, against.hash)}</a></th>
               </tr>
             </thead>`}
         <tbody>${FINGERPRINT_FIELDS.map((field) => renderFingerprintRow(field, fingerprint, against?.fingerprint ?? null))}</tbody>
       </table>
     </div>`;
-  return layout(cohortLabel(fingerprint), 'insights', true, display, body);
+  return layout(cohortLabel(fingerprint, hash), 'insights', true, display, body);
 };
 
 export const renderUnknownCohortPage = (display: Display): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/insights" class="${LINK}">&larr; Insights</a></p>
-    <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(null)}</h1>
+    <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(null, null)}</h1>
     <p class="${EMPTY}" data-unknown-cohort>These workloads were recorded before fingerprints existed, so their config is not known and there is nothing to compare.</p>`;
-  return layout(cohortLabel(null), 'insights', true, display, body);
+  return layout(cohortLabel(null, null), 'insights', true, display, body);
 };

@@ -46,7 +46,7 @@ const dashboard = () => {
   store.insertRun(sampleRun('revised'));
   const revision = store.startRevision({ repository: 'forge', number: 489, url: 'https://github.com/rameezk/forge/pull/489' }, [], 'revised', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in revision);
-  store.endRevision(revision.started, 'ok', '2026-09-21T10:03:20.000Z');
+  store.endRevision(revision.started, 'done', '2026-09-21T10:03:20.000Z');
   store.insertRun(sampleRun('resolved'));
   store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', new Date().toISOString(), 10, { headSha: 'head', defaultSha: 'default' });
   store.insertRun(sampleRun('manual'));

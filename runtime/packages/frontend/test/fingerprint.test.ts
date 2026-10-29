@@ -78,7 +78,7 @@ const configOf = async (id: string): Promise<{ cohort: string; forge: string }> 
 
 test('given a workload with a fingerprint, when its run detail page is requested, then it shows the cohort label and forge\'s git sha', async () => {
   assert.deepEqual(await configOf('fingerprinted'), {
-    cohort: 'sonnet-5.5 · high · prompt#3fa2',
+    cohort: `pi · sonnet-5.5 · high · prompt#3fa2 · ${fingerprintHash(fingerprint).slice(0, 8)}`,
     forge: 'abc1234',
   });
 });
