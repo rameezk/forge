@@ -1,7 +1,7 @@
-import type { RunRecord, RunStatus } from '@forge/shared';
+import type { DispatchState, RunRecord } from '@forge/shared';
 import { addDays, dayOf, dayRange, parseDay } from './days.ts';
 
-export const STATUSES: readonly RunStatus[] = ['running', 'success', 'error', 'interrupted', 'exceeded'];
+export const STATUSES: readonly DispatchState[] = ['running', 'done', 'failed'];
 
 export interface RangePreset {
   key: string;
@@ -21,7 +21,7 @@ export const RANGE_PRESETS: readonly RangePreset[] = [
 
 export interface WorkloadFilter {
   range?: string;
-  status?: RunStatus;
+  status?: DispatchState;
   search?: string;
   worker?: string;
   repository?: string;
@@ -58,6 +58,7 @@ export const filterWorkloads = (
   filter: WorkloadFilter,
   timeZone: string,
   now: number,
+  stateOf: (run: RunRecord) => DispatchState,
   ignoreStatus = false,
 ): RunRecord[] => {
   const preset = RANGE_PRESETS.find(({ key }) => key === filter.range);
@@ -65,7 +66,7 @@ export const filterWorkloads = (
   const { startedFrom, startedBefore } = dayRange(days.from, days.to, timeZone);
   return runs.filter(
     (run) =>
-      (ignoreStatus || filter.status === undefined || run.status === filter.status) &&
+      (ignoreStatus || filter.status === undefined || stateOf(run) === filter.status) &&
       (filter.search === undefined || matchesSearch(run, filter.search)) &&
       (filter.worker === undefined || run.worker === filter.worker) &&
       (filter.repository === undefined || run.ticket?.repository === filter.repository) &&

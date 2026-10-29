@@ -5,7 +5,7 @@ import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, format
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderStatus, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, renderRunOutcome, type RunOutcome, runReasonOf, renderReasonBlock, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderRunLead, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, type RunOutcome, runReasonOf, renderReasonBlock, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
 import { renderWidget } from './widget.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -347,8 +347,7 @@ const renderRevisionMarker = (runWorkload: RunPullRequestWorkload | null): Rende
 };
 
 const renderSummary = (run: RunRecord, effort: string, outcome: RunOutcome | null, workload: RunPullRequestWorkload | null, timeZone: string): Rendered => html`<p class="m-0 mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[0.9rem]" data-summary>
-    ${renderStatus(run.status)}
-    ${outcome === null ? '' : renderRunOutcome(outcome)}
+    ${renderRunLead(run.status, outcome)}
     ${renderRevisionMarker(workload)}
     ${run.ticket === null
       ? html`<span class="text-muted">manual</span>`

@@ -205,9 +205,10 @@ test('given a succeeded run whose revision crashed with a multi-line detail and 
 
   const body = await (await app.request('/workloads')).text();
   const statusCell = (id: string): string =>
-    rowFor(body, id).match(/<td[^>]*>(?:(?!<\/td>)[\s\S])*data-status[\s\S]*?<\/td>/)?.[0] ?? 'missing';
+    rowFor(body, id).match(/<td[^>]*>(?:(?!<\/td>)[\s\S])*data-(?:status|outcome)[\s\S]*?<\/td>/)?.[0] ?? 'missing';
 
-  assert.match(statusCell('crashed'), /\sdata-status="success"/);
+  assert.match(statusCell('crashed'), /\sdata-outcome="failed"/);
+  assert.doesNotMatch(statusCell('crashed'), /\sdata-status=/);
   assert.equal(
     textOf(statusCell('crashed').match(/<div[^>]*\sdata-reason[^>]*>[\s\S]*?<\/div>/)?.[0] ?? 'missing'),
     'Crashed: GitHub rejected the FeedbackAnswers query',
@@ -251,8 +252,8 @@ test('given a revision that ended ok and one that ended in error, when the list 
   assert.equal(textOf(ticketCell('revision-ok')), 'forge PR #143 revision');
   assert.match(ticketCell('revision-ok'), /<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/143"[^>]*>PR #143<\/a>/);
   assert.equal(textOf(ticketCell('revision-error')), 'forge PR #150 revision');
-  assert.equal(textOf(statusIn(rowFor(body, 'revision-ok'))), 'success');
-  assert.equal(textOf(statusIn(rowFor(body, 'revision-error'))), 'error');
+  assert.equal(statusIn(rowFor(body, 'revision-ok')), 'missing');
+  assert.equal(textOf(statusIn(rowFor(body, 'revision-error'))), 'harness error');
 });
 
 const dispatchedFor = (store: Store, runId: string, ticket: number, outcome?: DispatchOutcome): void => {
@@ -279,7 +280,7 @@ const dispatchOutcomeApp = () =>
   );
 
 const outcomesIn = (html: string): { status: string; outcome: string; text: string } => ({
-  status: html.match(/\sdata-status="([^"]+)"/)?.[1] ?? 'missing',
+  status: html.match(/\sdata-status="([^"]+)"/)?.[1] ?? 'none',
   outcome: html.match(/\sdata-outcome="([^"]+)"/)?.[1] ?? 'none',
   text: textOf(html.match(/<div[^>]*\sdata-reason(?=[\s>])[^>]*>[\s\S]*?<\/div>/)?.[0] ?? ''),
 });
@@ -287,24 +288,24 @@ const outcomesIn = (html: string): { status: string; outcome: string; text: stri
 const summaryOf = async (app: ReturnType<typeof appWith>, id: string): Promise<string> =>
   (await (await app.request(`/runs/${id}`)).text()).match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? 'missing';
 
-test('given a successful run whose dispatch failed with a reason, when the list and the run page are requested, then both show success beside the failed outcome, and the list shows the dispatch failure label with its detail as one line', async () => {
+test('given a successful run whose dispatch failed with a reason, when the list and the run page are requested, then both lead with the failed outcome and no success pill, and the list shows the dispatch failure label with its detail as one line', async () => {
   const app = dispatchOutcomeApp();
   const list = rowFor(await (await app.request('/workloads')).text(), 'failed');
 
   for (const found of [outcomesIn(list), outcomesIn(await summaryOf(app, 'failed'))]) {
-    assert.equal(found.status, 'success');
+    assert.equal(found.status, 'none');
     assert.equal(found.outcome, 'failed');
   }
   assert.equal(outcomesIn(list).text, 'No pull request: the worker pushed nothing');
   assert.equal(outcomesIn(await summaryOf(app, 'failed')).text, '');
 });
 
-test('given a successful run whose dispatch is done, when the list and the run page are requested, then both show the done outcome beside success', async () => {
+test('given a successful run whose dispatch is done, when the list and the run page are requested, then both show the done outcome alone', async () => {
   const app = dispatchOutcomeApp();
   const list = rowFor(await (await app.request('/workloads')).text(), 'done');
 
   for (const found of [outcomesIn(list), outcomesIn(await summaryOf(app, 'done'))]) {
-    assert.equal(found.status, 'success');
+    assert.equal(found.status, 'none');
     assert.equal(found.outcome, 'done');
     assert.equal(found.text, '');
   }
