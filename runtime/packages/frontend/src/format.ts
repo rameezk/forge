@@ -46,6 +46,13 @@ export const formatTime = (iso: string, timeZone: string): string => {
   return `${hour}:${minute}:${second}`;
 };
 
+export const formatMinute = (iso: string, timeZone: string): string => {
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) return iso;
+  const { hour, minute } = partsIn(time, timeZone);
+  return `${formatDate(iso, timeZone)} ${hour}:${minute}`;
+};
+
 export const formatStarted = (iso: string, timeZone: string): string =>
   Number.isNaN(Date.parse(iso)) ? iso : `${formatDate(iso, timeZone)} ${formatTime(iso, timeZone)}`;
 

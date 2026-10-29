@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, type ActivePair, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
 import { renderMarkdown } from '../markdown.ts';
@@ -263,6 +263,16 @@ const costBadge = (run: Cost): Rendered => {
 };
 
 export const SUBSCRIPTION_BADGE = html`<span class="${BADGE} bg-line text-fg" data-badge="subscription" title="Run on a Claude subscription, so not billed per generation">subscription</span>`;
+
+const activeTitle = (pairs: ActivePair[]): string => {
+  const repositories = new Map<string, string[]>();
+  for (const { worker, repository } of pairs) repositories.set(worker, [...(repositories.get(worker) ?? []), repository]);
+  const listed = [...repositories].map(([worker, names]) => `${worker} on ${names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`}`);
+  return `Active for ${listed.join('; ')}`;
+};
+
+export const renderActiveBadge = (pairs: ActivePair[]): Rendered =>
+  html`<span class="${BADGE} bg-accent-soft text-accent-text" data-badge="active" title="${activeTitle(pairs)}">active</span>`;
 
 export const renderCost = (run: Cost, unbillable = false): Rendered => {
   if (run.costStatus === 'subscription') return SUBSCRIPTION_BADGE;

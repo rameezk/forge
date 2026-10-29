@@ -2,8 +2,8 @@ import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, seriesOf } from '../chart.ts';
 import { cohortHref, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { cacheHitRate, formatCost, formatMeasure, formatElapsed, formatRate } from '../format.ts';
-import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
+import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
+import { type Rendered, ROW, renderActiveBadge, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
 
 export interface InsightsQuery extends InsightsFilter {
   from?: string;
@@ -54,9 +54,16 @@ const renderInsightsFilters = (
 
 const COST_TITLE = html` title="List-price equivalent, not billed"`;
 
-const renderCohort = (cohort: CohortInsight): HtmlEscapedString | Promise<HtmlEscapedString> =>
+const renderRunTime = (metric: string, iso: string | null, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  iso === null
+    ? html`<td class="${COHORT_TD}" data-metric="${metric}">n/a</td>`
+    : html`<td class="${COHORT_TD}" data-metric="${metric}" title="${formatStarted(iso, timeZone)}">${formatMinute(iso, timeZone)}</td>`;
+
+const renderCohort = (cohort: CohortInsight, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
-    <td class="border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}</td>
+    <td class="border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${cohort.activeFor.length === 0 ? '' : html` ${renderActiveBadge(cohort.activeFor)}`}</td>
+    ${renderRunTime('first-run', cohort.firstRun, timeZone)}
+    ${renderRunTime('last-run', cohort.lastRun, timeZone)}
     <td class="${COHORT_TD}" data-metric="workloads">${cohort.workloads}</td>
     <td class="${COHORT_TD}" data-metric="opened">${formatRate(cohort.openedRate)}</td>
     <td class="${COHORT_TD}" data-metric="merged">${formatRate(cohort.mergedRate)}</td>
@@ -104,6 +111,8 @@ export const renderInsights = (
             <thead>
               <tr>
                 <th class="${COHORT_TH} text-left">Cohort</th>
+                <th class="${COHORT_TH} text-right">First run</th>
+                <th class="${COHORT_TH} text-right">Last run</th>
                 <th class="${COHORT_TH} text-right">Workloads</th>
                 <th class="${COHORT_TH} text-right">Opened</th>
                 <th class="${COHORT_TH} text-right">Merged</th>
@@ -117,7 +126,7 @@ export const renderInsights = (
                 <th class="${COHORT_TH} text-right">Rework per merged PR</th>
               </tr>
             </thead>
-            <tbody>${cohorts.map(renderCohort)}</tbody>
+            <tbody>${cohorts.map((cohort) => renderCohort(cohort, display.timeZone))}</tbody>
           </table>
         </div>
         ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}
