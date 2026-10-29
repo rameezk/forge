@@ -372,7 +372,7 @@ export const renderAttemptsLink = (ticket: { repository: string; number: number 
   html`<a href="${attemptsPath(ticket)}" data-attempts class="${LINK}">${label}</a>`;
 
 export const renderCohortLink = (hash: string | null, fingerprint: ConfigFingerprint | null): Rendered =>
-  html`<a href="${cohortHref(hash)}" class="${LINK}">${cohortLabel(fingerprint)}</a>`;
+  html`<a href="${cohortHref(hash)}" class="${LINK}">${cohortLabel(fingerprint, hash)}</a>`;
 
 const MARKDOWN = [
   'prose prose-sm max-w-none break-words',

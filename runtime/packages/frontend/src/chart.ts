@@ -142,7 +142,7 @@ export const renderChartLegend = (
   return html`<div class="flex flex-col gap-3 text-[0.8rem] text-muted">
     <ul class="flex flex-col gap-1" data-legend="cohorts">
       ${cohorts.map(
-        ({ hash, fingerprint, listPrice }) => html`<li class="flex items-center gap-1.5" data-legend-cohort="${hash ?? ''}"><span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full ${seriesFor(series, hash).swatch}"></span><span>${cohortLabel(fingerprint)}${listPrice ? html` <span class="text-muted">${SUBSCRIPTION_LABEL}, list-price equivalent</span>` : ''}</span></li>`,
+        ({ hash, fingerprint, listPrice }) => html`<li class="flex items-center gap-1.5" data-legend-cohort="${hash ?? ''}"><span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full ${seriesFor(series, hash).swatch}"></span><span>${cohortLabel(fingerprint, hash)}${listPrice ? html` <span class="text-muted">${SUBSCRIPTION_LABEL}, list-price equivalent</span>` : ''}</span></li>`,
       )}
     </ul>
     <ul class="flex flex-wrap gap-x-4 gap-y-1 lg:flex-col lg:gap-y-1" data-legend="outcomes">
@@ -162,7 +162,7 @@ export const renderProviderShares = (cohorts: CohortInsight[], shares: ProviderS
       const served = byCohort.get(hash)?.providers ?? [];
       const total = served.reduce((sum, { tokens }) => sum + tokens, 0);
       return html`<div class="mt-4 first:mt-0">
-        <div class="mb-1.5 text-[0.8rem] font-medium text-fg">${cohortLabel(fingerprint)}</div>
+        <div class="mb-1.5 text-[0.8rem] font-medium text-fg">${cohortLabel(fingerprint, hash)}</div>
         ${total === 0
           ? html`<div class="text-[0.8rem] text-muted">No provider data</div>`
           : html`<div class="flex h-3 w-full overflow-hidden rounded-full" aria-hidden="true">

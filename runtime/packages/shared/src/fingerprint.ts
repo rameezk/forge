@@ -29,7 +29,9 @@ export const UNKNOWN_COHORT = 'unknown';
 
 export const cohortHref = (hash: string | null): string => `/cohorts/${hash ?? UNKNOWN_COHORT}`;
 
-const SHORT_HASH_LENGTH = 4;
+const SHORT_PROMPT_HASH_LENGTH = 4;
+
+const SHORT_COHORT_HASH_LENGTH = 8;
 
 export const sha256 = (text: string): string =>
   createHash('sha256').update(text).digest('hex');
@@ -56,11 +58,13 @@ export const fingerprintHash = (fingerprint: ConfigFingerprint): string =>
 const modelName = (model: string): string =>
   (model.split('/').pop() ?? model).replace(/^claude-/, '');
 
-export const cohortLabel = (fingerprint: ConfigFingerprint | null): string =>
-  fingerprint === null
+export const cohortLabel = (fingerprint: ConfigFingerprint | null, hash: string | null): string =>
+  fingerprint === null || hash === null
     ? UNKNOWN_CONFIG
     : [
+        fingerprint.harness ?? DEFAULT_HARNESS,
         modelName(fingerprint.model),
         fingerprint.reasoningEffort ?? 'default',
-        `prompt#${fingerprint.promptTemplate.slice(0, SHORT_HASH_LENGTH)}`,
+        `prompt#${fingerprint.promptTemplate.slice(0, SHORT_PROMPT_HASH_LENGTH)}`,
+        hash.slice(0, SHORT_COHORT_HASH_LENGTH),
       ].join(' · ');

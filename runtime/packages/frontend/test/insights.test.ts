@@ -33,7 +33,7 @@ test('given two cohorts of dispatched workloads, when the insights page is reque
   const rows = rowsOf(await dashboard(COHORT_SEEDS).page());
 
   assert.deepEqual(rows.get(fingerprintHash(SONNET)), {
-    label: 'sonnet-5.5 · high · prompt#3fa2',
+    label: `pi · sonnet-5.5 · high · prompt#3fa2 · ${fingerprintHash(SONNET).slice(0, 8)}`,
     workloads: '4',
     opened: '75.0%',
     merged: '50.0%',
@@ -47,7 +47,7 @@ test('given two cohorts of dispatched workloads, when the insights page is reque
     rework: '2',
   });
   assert.deepEqual(rows.get(fingerprintHash(GLM)), {
-    label: 'glm-5 · default · prompt#9b1e',
+    label: `pi · glm-5 · default · prompt#9b1e · ${fingerprintHash(GLM).slice(0, 8)}`,
     workloads: '2',
     opened: '100.0%',
     merged: '50.0%',
@@ -60,6 +60,37 @@ test('given two cohorts of dispatched workloads, when the insights page is reque
     retries: '0',
     rework: '0',
   });
+});
+
+const CLAUDE_CODE: ConfigFingerprint = { ...SONNET, harness: 'claude-code', provider: 'anthropic', harnessVersion: '2.0.0' };
+const CLAUDE_CODE_UPGRADED: ConfigFingerprint = { ...CLAUDE_CODE, harnessVersion: '2.1.0' };
+
+const labelOf = (fingerprint: ConfigFingerprint): string => {
+  const { reasoningEffort, promptTemplate, model } = fingerprint;
+  return `${fingerprint.harness ?? 'pi'} · ${model.split('/').pop()!.replace(/^claude-/, '')} · ${reasoningEffort ?? 'default'} · prompt#${promptTemplate.slice(0, 4)} · ${fingerprintHash(fingerprint).slice(0, 8)}`;
+};
+
+test('given a Claude Code cohort and a cohort recording no harness, when the insights page is requested, then their labels lead with the harness and end with the cohort hash', async () => {
+  const rows = rowsOf(await dashboard([
+    { id: 'a1', fingerprint: CLAUDE_CODE, seconds: 60, cost: 0.1, toolCalls: 1, retries: 0 },
+    { id: 'b1', fingerprint: SONNET, seconds: 60, cost: 0.1, toolCalls: 1, retries: 0 },
+  ]).page());
+
+  assert.equal(rows.get(fingerprintHash(CLAUDE_CODE))!['label'], labelOf(CLAUDE_CODE));
+  assert.match(rows.get(fingerprintHash(CLAUDE_CODE))!['label']!, /^claude-code · sonnet-5\.5 · high · prompt#3fa2 · [0-9a-f]{8}$/);
+  assert.equal(rows.get(fingerprintHash(SONNET))!['label'], labelOf(SONNET));
+  assert.match(rows.get(fingerprintHash(SONNET))!['label']!, /^pi · sonnet-5\.5 · high · prompt#3fa2 · [0-9a-f]{8}$/);
+});
+
+test('given two cohorts differing only in harness version, when the insights page is requested, then their labels differ only in the trailing hash', async () => {
+  const rows = rowsOf(await dashboard([
+    { id: 'a1', fingerprint: CLAUDE_CODE, seconds: 60, cost: 0.1, toolCalls: 1, retries: 0 },
+    { id: 'a2', fingerprint: CLAUDE_CODE_UPGRADED, seconds: 60, cost: 0.1, toolCalls: 1, retries: 0 },
+  ]).page());
+
+  const [older, newer] = [CLAUDE_CODE, CLAUDE_CODE_UPGRADED].map((f) => rows.get(fingerprintHash(f))!['label']!);
+  assert.notEqual(older, newer);
+  assert.equal(older!.replace(/ · [0-9a-f]{8}$/, ''), newer!.replace(/ · [0-9a-f]{8}$/, ''));
 });
 
 const MANUAL_SEEDS: Seed[] = [
