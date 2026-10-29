@@ -248,9 +248,9 @@ test('given a revision that ended ok and one that ended in error, when the list 
   const ticketCell = (id: string): string =>
     rowFor(body, id).match(/<td[^>]*\sdata-run-ticket(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? 'missing';
 
-  assert.equal(textOf(ticketCell('revision-ok')), 'forge PR #143');
+  assert.equal(textOf(ticketCell('revision-ok')), 'forge PR #143 revision');
   assert.match(ticketCell('revision-ok'), /<a href="https:\/\/github\.com\/rameezk\/forge\/pull\/143"[^>]*>PR #143<\/a>/);
-  assert.equal(textOf(ticketCell('revision-error')), 'forge PR #150');
+  assert.equal(textOf(ticketCell('revision-error')), 'forge PR #150 revision');
   assert.equal(textOf(statusIn(rowFor(body, 'revision-ok'))), 'success');
   assert.equal(textOf(statusIn(rowFor(body, 'revision-error'))), 'error');
 });
