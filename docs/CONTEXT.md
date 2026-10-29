@@ -146,7 +146,7 @@ _Avoid_: conflict, resolution, merge-up, rebase
 How long a pull request's newest feedback must have gone without more arriving before forge starts a revision for it, set by `forge.runtime.feedback.quietPeriod`. `forge-revise` skips it (ADR-0050).
 
 **Cursor**:
-The point in time a pull request's feedback has been consumed up to, set when a revision starts and put back when that revision does not end ok (ADR-0070). Only feedback newer than it can start the next revision, so a failed revision is never retried automatically.
+The point in time a pull request's feedback has been consumed up to, set when a revision starts and put back when that revision does not end done (ADR-0070, ADR-0080). Only feedback newer than it can start the next revision, so a failed revision is never retried automatically.
 
 **Outcome**:
 Whether a dispatch, revision or conflict resolution landed: `running`, `done` or `failed`, with the reason when it failed (ADR-0080), as opposed to its run's status, which says only whether the harness finished cleanly. The dashboard leads with it, and shows the run's status beside it only when that is not `success` (ADR-0081).
