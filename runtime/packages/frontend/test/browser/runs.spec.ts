@@ -71,7 +71,8 @@ test.describe('with JS disabled', () => {
 
     await expect(page.getByRole('heading', { name: 'Workloads' })).toBeVisible();
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
-    await expect(page.getByText(/Showing 1 of 1 workloads/)).toContainText('$0.1234');
+    await expect(page.locator('[data-tile="workloads"]')).toHaveText(/^\s*Workloads\s+1\s*$/);
+    await expect(page.locator('[data-tile="cost"]')).toContainText('$0.12');
   });
 });
 
@@ -382,6 +383,28 @@ test('given a finished workload, when its page is opened at laptop width, then R
   await expect(page.locator('[data-calls]')).toBeHidden();
   await page.locator('[data-calls-summary]').click();
   await expect(page.locator('[data-calls]')).toBeVisible();
+});
+
+test('given billed workloads, when the list is opened on a desktop screen and at phone width, then the totals tiles fit their content, sit apart from the edge to edge card and never scroll the page sideways', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.insertRun(recordedRun);
+  dashboard.store.insertRun({ ...recordedRun, id: 'run-02', costStatus: 'unconfirmed', costUsd: 0.5, unconfirmedEstimateUsd: 0.36 });
+
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto('/workloads');
+
+    const tiles = page.locator('[data-showing] [data-tile]');
+    await expect(tiles).toHaveCount(2);
+    const container = (await page.locator('[data-showing]').boundingBox())!;
+    for (const box of await tiles.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().toJSON()))) {
+      expect(box.right).toBeLessThanOrEqual(container.x + container.width + 1);
+      if (width > 600) expect(box.width).toBeLessThan(container.width / 2);
+    }
+    expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+  }
 });
 
 const unconfirmedRun: RunRecord = { ...recordedRun, costStatus: 'unconfirmed', costUsd: 0, unconfirmedEstimateUsd: 0.36, transcriptRef: null };

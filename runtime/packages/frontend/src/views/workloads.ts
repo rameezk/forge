@@ -3,7 +3,7 @@ import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, 
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
-import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderRevisionPill, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout } from './shared.ts';
+import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, PENDING, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderRevisionPill, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
   pullRequestWorkload === undefined
@@ -32,14 +32,15 @@ const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquiva
   return html`${SUBSCRIPTION_BADGE}<wbr><span class="ml-1.5 whitespace-nowrap text-muted" data-list-price-equivalent title="What this workload would have cost at the model's list price. Not billed.">${formatCost(equivalent.usd)} list price</span>${equivalent.partial ? html`<wbr>${PARTIAL_BADGE}` : ''}`;
 };
 
-const renderBilledTotal = (runs: RunRecord[], all: RunRecord[]): Rendered => {
+const pendingTitle = (count: number): string =>
+  `${count} ${count === 1 ? 'workload is' : 'workloads are'} still being billed`;
+
+const renderCostFigure = (runs: RunRecord[]): Rendered => {
+  const unconfirmed = totalUnconfirmedEstimate(runs);
   const pending = pendingCount(runs);
-  const unconfirmed = totalUnconfirmedEstimate(all);
-  return html`${formatTotal(totalCost(runs))} of ${formatTotal(totalCost(all))} billed${unconfirmed === 0
+  return html`${formatTotal(totalCost(runs))}${unconfirmed === 0
     ? ''
-    : html` + <span data-unconfirmed-estimate-total>~${formatTotal(totalUnconfirmedEstimate(runs))} of ~${formatTotal(unconfirmed)} unconfirmed estimate</span>`}${pending === 0
-    ? ''
-    : html` <span class="${PENDING}">+${pending} pending</span>`}`;
+    : html`<span class="text-[0.9rem] font-normal text-muted" data-unconfirmed-estimate-total title="${UNCONFIRMED_ESTIMATE_TITLE}">+ ~${formatTotal(unconfirmed)} unconfirmed</span>`}${pending === 0 ? '' : pendingBadge(pendingTitle(pending))}`;
 };
 
 const listPriceOf = (
@@ -57,16 +58,17 @@ const listPriceOf = (
   };
 };
 
-const renderListPriceTotal = (
-  runs: RunRecord[],
-  all: RunRecord[],
-  equivalents: Map<string, ListPriceEquivalent>,
-): Rendered => {
-  const whole = listPriceOf(all, equivalents);
-  if (whole.priced === 0) return '';
-  const shown = listPriceOf(runs, equivalents);
-  return html`<span class="text-muted" data-total="list-price-equivalent" title="What the subscription workloads would have cost at the models' list price. Not billed.">${formatTotal(shown.total)}${shown.partial ? html`<wbr>${PARTIAL_BADGE}` : ''} of ${formatTotal(whole.total)}${whole.partial ? html`<wbr>${PARTIAL_BADGE}` : ''} list-price equivalent, not billed</span>`;
+const renderListPriceNote = (runs: RunRecord[], equivalents: Map<string, ListPriceEquivalent>): Rendered => {
+  const { total, partial, priced } = listPriceOf(runs, equivalents);
+  if (priced === 0) return '';
+  return html`<span data-total="list-price-equivalent" title="What the subscription workloads would have cost at the models' list price. Not billed.">${formatTotal(total)} list price${partial ? html`<wbr>${PARTIAL_BADGE}` : ''}, not billed</span>`;
 };
+
+const renderTotals = (runs: RunRecord[], all: RunRecord[], filter: WorkloadFilter, equivalents: Map<string, ListPriceEquivalent>): Rendered =>
+  html`<div class="mb-4 flex flex-wrap items-start gap-3" data-showing>
+    ${renderTile('workloads', 'Workloads', html`${runs.length}`, isFiltered(filter) ? html`of ${all.length}` : '')}
+    ${renderTile('cost', 'Cost', renderCostFigure(runs), renderListPriceNote(runs, equivalents))}
+  </div>`;
 
 const CONTROL = 'h-9 rounded-md border border-line bg-surface px-2 py-1.5 text-[0.9rem] font-normal normal-case tracking-normal text-fg';
 
@@ -206,10 +208,7 @@ export const renderList = (
       ? html`<h1 class="${PAGE_TITLE}">Workloads</h1>
           <p class="${EMPTY}">No workloads have run yet.</p>`
       : html`<h1 class="${PAGE_TITLE}">Workloads</h1>
-          <p class="m-0 mb-4 flex flex-wrap gap-x-3 text-[0.9rem]" data-showing>
-            <span>Showing ${runs.length} of ${all.length} workloads, ${renderBilledTotal(runs, all)}</span>
-            ${renderListPriceTotal(runs, all, equivalents)}
-          </p>
+          ${renderTotals(runs, all, filter, equivalents)}
           ${renderChips(all, filter, display.timeZone, now)}
           ${renderFilters(all, filter)}
           ${runs.length === 0

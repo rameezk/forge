@@ -121,7 +121,7 @@ test('given the runs list filtered to Error, when a run fails and another succee
   await expect(page.getByRole('row', { name: /failing-worker/ })).toBeVisible();
   await expect(page.getByRole('row', { name: /earlier-worker/ })).toHaveCount(0);
   await expect(page.locator('[data-status-chip="all"]')).toContainText('2');
-  await expect(page.locator('[data-showing]')).toContainText('Showing 1 of 2 workloads');
+  await expect(page.locator('[data-tile="workloads"]')).toContainText('1 of 2');
   await expectNotReloaded(page);
 });
 

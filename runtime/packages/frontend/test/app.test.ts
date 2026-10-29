@@ -66,7 +66,8 @@ test('given several finished runs, when the list is requested, then they render 
   assert.deepEqual([...body.matchAll(/<tr[^>]*\sdata-run="([^"]+)"/g)].map((match) => match[1]), ['newest', 'mid', 'oldest']);
   assert.match(body, /anthropic\/claude-opus-4/);
   assert.match(body, /success/);
-  assert.match(body, /Showing 3 of 3 workloads, \$0\.6000 of \$0\.6000 billed/);
+  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 3');
+  assert.equal(textOf(tile(body, 'cost')), 'Cost $0.60');
 });
 
 const PENDING_BADGE = /<span[^>]*\sdata-badge="pending"[^>]*\stitle="Billed by OpenRouter so far[^"]*trailing them by a minute or two[^"]*"[^>]*>pending<\/span>/;
@@ -96,7 +97,8 @@ test('given a billed run costing $0.00093252, an unconfirmed run, a pending run 
   assert.match(rowFor(body, 'pending'), PENDING_BADGE);
   assert.equal(cost('unbilled'), 'pending');
   assert.doesNotMatch(rowFor(body, 'unbilled'), /data-badge=/);
-  assert.equal(textOf(body.match(/<p[^>]*\sdata-showing[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), 'Showing 4 of 4 workloads, $0.5134 of $0.5134 billed +2 pending');
+  assert.equal(textOf(tile(body, 'cost')), 'Cost $0.51 pending');
+  assert.match(tile(body, 'cost'), /<span[^>]*\sdata-badge="pending"[^>]*\stitle="2 workloads are still being billed"[^>]*>pending<\/span>/);
 });
 
 const ESTIMATED_BADGE = /<span[^>]*\sdata-badge="estimated"[^>]*\stitle="[^"]*estimate at OpenRouter's list price[^"]*replaced as generations are billed[^"]*"[^>]*>estimated<\/span>/;
@@ -125,7 +127,8 @@ test('given one workload fully billed, one with an unbilled generation and one u
   for (const cost of [listed('billed'), await detailed('billed')]) {
     assert.equal(textOf(cost), '$0.200000');
   }
-  assert.equal(textOf(list.match(/<p[^>]*\sdata-showing[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), 'Showing 3 of 3 workloads, $0.2600 of $0.2600 billed +1 pending');
+  assert.equal(textOf(tile(list, 'cost')), 'Cost $0.26 pending');
+  assert.match(tile(list, 'cost'), /\stitle="1 workload is still being billed"/);
 });
 
 test('given a successful, a failed, a running and an interrupted run, when the list is requested, then each row shows its own status, with interrupted in the warning tone rather than the error tone', async () => {
@@ -375,7 +378,8 @@ test('given only settled runs, when the list is requested, then the total carrie
 
   const body = await (await app.request('/workloads')).text();
 
-  assert.equal(textOf(body.match(/<p[^>]*\sdata-showing[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), 'Showing 2 of 2 workloads, $0.3000 of $0.3000 billed');
+  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 2');
+  assert.equal(textOf(tile(body, 'cost')), 'Cost $0.30');
 });
 
 test('given a billed run and a finished subscription run, when the list is requested, then the subscription run\'s cost reads subscription with its badge and the total counts neither a dollar figure nor a pending run for it', async () => {
@@ -392,7 +396,8 @@ test('given a billed run and a finished subscription run, when the list is reque
   assert.equal(cost, 'subscription');
   assert.match(rowFor(body, 'subscribed'), /<span[^>]*\sdata-badge="subscription"[^>]*\stitle="[^"]*not billed[^"]*"[^>]*>subscription<\/span>/);
   assert.doesNotMatch(rowFor(body, 'subscribed'), /\$0/);
-  assert.equal(textOf(body.match(/<p[^>]*\sdata-showing[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), 'Showing 2 of 2 workloads, $0.2000 of $0.2000 billed');
+  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 2');
+  assert.equal(textOf(tile(body, 'cost')), 'Cost $0.20');
 });
 
 const listPriced = (runId: string, ...equivalents: (number | null)[]) => (store: Store): void => {
@@ -410,7 +415,7 @@ const listPriced = (runId: string, ...equivalents: (number | null)[]) => (store:
   });
 };
 
-test('given billed OpenRouter runs, a subscription run and a subscription run with an unpriced call, when the list is requested, then the billed total counts the OpenRouter runs alone and a labelled list-price equivalent total follows it', async () => {
+test('given billed OpenRouter runs, a subscription run and a subscription run with an unpriced call, when the list is requested, then the figure of the Cost tile counts the OpenRouter runs alone and its note gives the list-price equivalent with one partial badge', async () => {
   const app = appWith(
     [
       sampleRun({ id: 'billed', costStatus: 'billed', costUsd: 0.2 }),
@@ -428,22 +433,22 @@ test('given billed OpenRouter runs, a subscription run and a subscription run wi
   const body = await (await app.request('/workloads')).text();
   const cell = (id: string): string =>
     textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '');
-  const header = body.match(/<p[^>]*\sdata-showing[\s>][\s\S]*?<\/p>/)?.[0] ?? '';
 
   assert.equal(cell('billed'), '$0.200000');
   assert.equal(cell('subscribed'), 'subscription $0.030000 list price');
   assert.equal(cell('partial'), 'subscription $0.500000 list price partial');
   assert.match(rowFor(body, 'subscribed'), /<span[^>]*\sdata-badge="subscription"/);
-  assert.equal(
-    textOf(header),
-    'Showing 4 of 4 workloads, $0.3000 of $0.3000 billed $0.5300 partial of $0.5300 partial list-price equivalent, not billed',
-  );
+  assert.equal(textOf(tile(body, 'cost')), 'Cost $0.30 $0.53 list price partial , not billed');
+  assert.equal(tile(body, 'cost').match(/data-badge="partial"/g)?.length, 1);
+  assert.match(tile(body, 'cost'), /\stitle="What the subscription workloads would have cost at the models' list price\. Not billed\."/);
 });
 
-test('given only billed runs, when the list is requested, then the header carries no list-price equivalent total', async () => {
+test('given only billed runs, when the list is requested, then the Cost tile carries no list-price note, pending badge or unconfirmed estimate', async () => {
   const body = await (await appWith([sampleRun({ id: 'billed', costUsd: 0.2 })]).request('/workloads')).text();
 
   assert.doesNotMatch(body, /list-price-equivalent/);
+  assert.equal(textOf(tile(body, 'cost')), 'Cost $0.20');
+  assert.doesNotMatch(tile(body, 'cost'), /\sdata-badge=|\sdata-unconfirmed-estimate-total/);
 });
 
 test('given a pending run billed $0.5 so far and an unconfirmed run, when each transcript page is requested, then the first shows its billed cost so far marked pending and the second its partial billed sum marked unconfirmed', async () => {
