@@ -119,16 +119,16 @@ test('given explicit from and to dates, when opened, then no preset is highlight
 });
 
 test('given explicit dates, a status and a worker, when opened, then every preset link keeps the status and worker and carries no dates', async () => {
-  const body = await open(spread, '/workloads?from=2026-10-01&to=2026-10-31&status=success&worker=refiner');
+  const body = await open(spread, '/workloads?from=2026-10-01&to=2026-10-31&status=done&worker=refiner');
   const hrefs = [...body.matchAll(/<a[^>]*\sdata-range-preset="([^"]+)"[^>]*>/g)].map(([tag, key]) => [key, hrefOf(tag)]);
 
   assert.deepEqual(hrefs, [
-    ['any', '/workloads?status=success&worker=refiner'],
-    ['today', '/workloads?status=success&worker=refiner&range=today'],
-    ['yesterday', '/workloads?status=success&worker=refiner&range=yesterday'],
-    ['7d', '/workloads?status=success&worker=refiner&range=7d'],
-    ['30d', '/workloads?status=success&worker=refiner&range=30d'],
-    ['month', '/workloads?status=success&worker=refiner&range=month'],
+    ['any', '/workloads?status=done&worker=refiner'],
+    ['today', '/workloads?status=done&worker=refiner&range=today'],
+    ['yesterday', '/workloads?status=done&worker=refiner&range=yesterday'],
+    ['7d', '/workloads?status=done&worker=refiner&range=7d'],
+    ['30d', '/workloads?status=done&worker=refiner&range=30d'],
+    ['month', '/workloads?status=done&worker=refiner&range=month'],
   ]);
 });
 

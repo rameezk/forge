@@ -76,13 +76,13 @@ const mixed = [
   sampleRun({ id: 'other-ok', ticket: ticketIn('other', 4), costUsd: 0.8 }),
 ];
 
-test('given workloads across statuses and repositories, when opened with Error and one repository, then only that repository\'s errored workloads list, the chips count within the repository and the header reads filtered of all', async () => {
-  const body = await open(mixed, '/workloads?status=error&repository=forge');
+test('given workloads across statuses and repositories, when opened with Failed and one repository, then only that repository\'s errored workloads list, the chips count within the repository and the header reads filtered of all', async () => {
+  const body = await open(mixed, '/workloads?status=failed&repository=forge');
 
   assert.deepEqual(listed(body), ['forge-err']);
   assert.equal(chip(body, 'all'), 'All 2');
-  assert.equal(chip(body, 'success'), 'Success 1');
-  assert.equal(chip(body, 'error'), 'Error 1');
+  assert.equal(chip(body, 'done'), 'Done 1');
+  assert.equal(chip(body, 'failed'), 'Failed 1');
   assert.equal(chip(body, 'running'), 'Running 0');
   assert.equal(workloadsTile(body), 'Workloads 1 of 4');
   assert.equal(costTile(body), 'Cost $0.20');
@@ -204,7 +204,7 @@ test('given 120 workloads, when the third page is opened, then the oldest 20 lis
 
 test('given more than 50 errored workloads among others, when filtered to Error and Older is followed, then the second page lists only errored workloads and Error stays selected', async () => {
   const runs = numbered(130, (index) => ({ status: index % 2 === 0 ? 'error' : 'success' }));
-  const first = await open(runs, '/workloads?status=error');
+  const first = await open(runs, '/workloads?status=failed');
   const older = pageLink(first, 'older');
   assert.equal(older.available, true);
 
@@ -212,9 +212,9 @@ test('given more than 50 errored workloads among others, when filtered to Error 
   const ids = listed(second);
   assert.equal(ids.length, 15);
   assert.ok(ids.every((id) => runs.find((run) => run.id === id)?.status === 'error'));
-  assert.match(second, /data-status-chip="error"[^>]*aria-current="true"/);
+  assert.match(second, /data-status-chip="failed"[^>]*aria-current="true"/);
   assert.equal(pageLink(second, 'older').available, false);
-  assert.match(pageLink(second, 'newer').href ?? '', /status=error/);
+  assert.match(pageLink(second, 'newer').href ?? '', /status=failed/);
 });
 
 test('given more than 50 matching workloads, when the second page is opened, then the counts and the header cover every matching workload', async () => {
@@ -225,7 +225,7 @@ test('given more than 50 matching workloads, when the second page is opened, the
   assert.equal(workloadsTile(body), 'Workloads 120');
   assert.equal(costTile(body), 'Cost $120.00');
   assert.match(chip(body, 'all'), /120/);
-  assert.match(chip(body, 'error'), /20/);
+  assert.match(chip(body, 'failed'), /20/);
 });
 
 test('given a page beyond the last, when opened, then the last page lists', async () => {
@@ -236,13 +236,13 @@ test('given a page beyond the last, when opened, then the last page lists', asyn
 
 test('given a filtered, paged runs list, when its links are read, then the filter form, status chips and paging links stay under /workloads', async () => {
   const runs = numbered(130, (index) => ({ status: index % 2 === 0 ? 'error' : 'success' }));
-  const body = await open(runs, '/workloads?status=error');
+  const body = await open(runs, '/workloads?status=failed');
 
   assert.match(body, /<form[^>]*\saction="\/workloads"/);
   const chipHrefs = [...body.matchAll(/<a[^>]*\sdata-status-chip="[^"]*"[^>]*>/g)].map(([tag]) => tag.match(/\shref="([^"]*)"/)?.[1]);
   assert.ok(chipHrefs.length > 0);
   assert.ok(chipHrefs.every((href) => href === '/workloads' || href?.startsWith('/workloads?')), chipHrefs.join(' '));
-  assert.match(pageLink(body, 'older').href ?? '', /^\/workloads\?status=error&page=2$/);
+  assert.match(pageLink(body, 'older').href ?? '', /^\/workloads\?status=failed&page=2$/);
 });
 
 test('given a billed workload and an unconfirmed one with an estimate, when the list is requested, then the Cost tile and the unconfirmed row show the estimate apart from billed cost', async () => {
