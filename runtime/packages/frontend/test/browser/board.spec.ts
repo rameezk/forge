@@ -432,19 +432,6 @@ test.describe('on a narrow laptop screen', () => {
   });
 });
 
-test.describe('other pages on an ultra-wide screen', () => {
-  test.use({ viewport: { width: 3440, height: 900 } });
-
-  for (const path of ['/workloads', '/insights']) {
-    test(`given a 3440px viewport, when ${path} is opened, then its content is no wider than 1600px`, async ({ page }) => {
-      await page.goto(path);
-
-      const widths = await page.locator('body').evaluate((body) => ['main', 'header > div', 'footer > div'].map((selector) => body.querySelector(selector)!.getBoundingClientRect().width));
-      for (const width of widths) expect(width).toBeLessThanOrEqual(1600);
-    });
-  }
-});
-
 const runRecord = (id: string): RunRecord => ({
   id,
   worker: 'builder',

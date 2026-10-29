@@ -221,31 +221,37 @@ test('given the script paths a page loads, when they are requested, then they re
 
 const classesOf = (tag: string): string[] => (attribute(tag, 'class') ?? '').split(/\s+/);
 
-test('given any dashboard page but the Board, when it is requested, then its header and main content are capped at 100rem and centred', async () => {
+test('given any dashboard page but the Board, when it is requested, then its main content is capped at 100rem and centred', async () => {
   const app = appWith({});
 
   for (const page of PAGES.filter((path) => path !== '/')) {
     const body = await (await app.request(page)).text();
+    const classes = classesOf(body.match(/<main[^>]*>/)?.[0] ?? '');
+    assert.ok(classes.includes('max-w-[100rem]'), `${page} main should be capped at 100rem`);
+    assert.ok(classes.includes('mx-auto'), `${page} main should be centred`);
+    assert.ok(classes.includes('px-4'), `${page} main should keep its side padding`);
+    assert.ok(!classes.includes('max-w-6xl'), `${page} main should drop the 72rem cap`);
+  }
+});
+
+test('given any dashboard page, when it is requested, then its header and footer have side padding and no width cap', async () => {
+  const app = appWith({});
+
+  for (const page of PAGES) {
+    const body = await (await app.request(page)).text();
     const header = body.match(/<header[^>]*>\s*(<div[^>]*>)/)?.[1] ?? '';
-    const main = body.match(/<main[^>]*>/)?.[0] ?? '';
-    for (const [name, tag] of [['header', header], ['main', main]] as const) {
+    const footer = body.match(/<footer[^>]*>\s*(<div[^>]*>)/)?.[1] ?? '';
+    for (const [name, tag] of [['header', header], ['footer', footer]] as const) {
       const classes = classesOf(tag);
-      assert.ok(classes.includes('max-w-[100rem]'), `${page} ${name} should be capped at 100rem`);
-      assert.ok(classes.includes('mx-auto'), `${page} ${name} should be centred`);
+      assert.ok(!classes.some((cls) => cls.startsWith('max-w-')), `${page} ${name} should have no width cap`);
       assert.ok(classes.includes('px-4'), `${page} ${name} should keep its side padding`);
-      assert.ok(!classes.includes('max-w-6xl'), `${page} ${name} should drop the 72rem cap`);
     }
   }
 });
 
-test('given the Board, when it is requested, then its header, main content and footer are centred with side padding and no width cap', async () => {
+test('given the Board, when it is requested, then its main content has side padding and no width cap', async () => {
   const body = await (await appWith({}).request('/')).text();
-  const header = body.match(/<header[^>]*>\s*(<div[^>]*>)/)?.[1] ?? '';
-  const main = body.match(/<main[^>]*>/)?.[0] ?? '';
-  const footer = body.match(/<footer[^>]*>\s*(<div[^>]*>)/)?.[1] ?? '';
-  for (const [name, tag] of [['header', header], ['main', main], ['footer', footer]] as const) {
-    const classes = classesOf(tag);
-    assert.ok(!classes.some((name) => name.startsWith('max-w-')), `${name} should have no width cap`);
-    assert.ok(classes.includes('px-4'), `${name} should keep its side padding`);
-  }
+  const classes = classesOf(body.match(/<main[^>]*>/)?.[0] ?? '');
+  assert.ok(!classes.some((cls) => cls.startsWith('max-w-')), 'main should have no width cap');
+  assert.ok(classes.includes('px-4'), 'main should keep its side padding');
 });

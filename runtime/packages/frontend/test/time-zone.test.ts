@@ -132,13 +132,13 @@ test('given no display time zone, when any page is requested, then its footer re
   for (const page of PAGES) assert.equal(footerOf(await get(page)), 'Times in UTC', page);
 });
 
-test('given Africa/Johannesburg, when any page is requested, then its footer reads Times in Africa/Johannesburg in the page width container with a top border, muted', async () => {
+test('given Africa/Johannesburg, when any page is requested, then its footer reads Times in Africa/Johannesburg with side padding, a top border, muted', async () => {
   const get = dashboard(JOHANNESBURG);
 
   for (const page of PAGES) {
     const body = await get(page);
     assert.equal(footerOf(body), 'Times in Africa/Johannesburg', page);
     assert.match(body, /<footer[^>]*class="[^"]*\bborder-t\b[^"]*\btext-muted\b[^"]*"/, page);
-    assert.match(body, /<footer[\s\S]*?<div[^>]*class="[^"]*\bmx-auto\b[^"]*\bpx-4\b[^"]*"/, page);
+    assert.match(body, /<footer[\s\S]*?<div[^>]*class="[^"]*\bpx-4\b[^"]*"/, page);
   }
 });
