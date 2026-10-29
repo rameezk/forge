@@ -318,6 +318,34 @@ test.describe('on a phone screen', () => {
     }
   });
 
+  test('given recorded workloads, when Workloads is opened, then the Status chips are outside the closed Filters drawer, which opens to the Started chips, the stacked inputs and a full-width Apply', async ({ dashboard, page }) => {
+    seedWorkloads(dashboard);
+
+    await page.goto('/workloads');
+
+    const drawer = page.locator('details[data-filters]');
+    await expect(page.locator('[data-status-chips]')).toBeVisible();
+    await expect(page.locator('[data-chip-label="status"]')).toBeVisible();
+    await expect(page.locator('[data-range-presets]')).toBeHidden();
+    await drawer.locator('summary').click();
+    await expect(page.locator('[data-range-presets]')).toBeVisible();
+    await expect(page.locator('[data-chip-label="started"]')).toBeVisible();
+    const boxes = await page.locator('[data-range-presets], [data-filters] form input:not([type=hidden]), [data-filters] form select, [data-filters] form button').evaluateAll((elements) =>
+      elements.map((element) => {
+        const { top, left, width } = element.getBoundingClientRect();
+        return { top, left, width, name: element.getAttribute('name') ?? element.tagName.toLowerCase() };
+      }),
+    );
+    expect(boxes.map(({ name }) => name)).toEqual(['nav', 'search', 'worker', 'repository', 'model', 'from', 'to', 'button']);
+    const tops = boxes.map(({ top }) => top);
+    expect(tops).toEqual([...tops].sort((a, b) => a - b));
+    expect(new Set(tops).size).toBe(tops.length);
+    const form = (await page.locator('[data-filters] form').boundingBox())!;
+    const apply = boxes.at(-1)!;
+    expect(Math.round(apply.width)).toBe(Math.round(form.width));
+    expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+  });
+
   test('given a started range in the address, when Workloads is opened, then the other filters are behind a collapsed Filters toggle showing the range, and opening it reveals them', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
@@ -348,6 +376,33 @@ test.describe('on a laptop screen', () => {
     await expect(page.locator('[data-run-card]').first()).toBeHidden();
     await expect(page.getByPlaceholder('Worker or ticket number')).toBeVisible();
     await expect(page.locator('[data-filters] summary')).toBeHidden();
+  });
+
+  test('given workloads with long model names, when Workloads is opened, then the whole input row including Apply sits on one line and the page does not scroll sideways', async ({ dashboard, page }) => {
+    seedWorkloads(dashboard);
+    const model = 'anthropic/claude-opus-4-with-a-remarkably-long-model-name-for-testing-the-select-width';
+    dashboard.store.insertRun({ ...recordedRun, id: 'run-long', model, startTime: '2026-09-23T10:00:00.000Z' });
+
+    await page.goto('/workloads');
+
+    const row = page.locator('[data-filters] form');
+    const tops = await row.locator('input:not([type=hidden]), select, button').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(7);
+    expect(new Set(tops).size).toBe(1);
+    const select = page.getByLabel('Model');
+    expect((await select.boundingBox())!.width).toBeLessThanOrEqual(200);
+    await expect(select.locator('option', { hasText: model })).toHaveText(model);
+    expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+  });
+
+  test('given recorded workloads, when Workloads is opened, then both chip rows come before the inputs and each carries its label', async ({ dashboard, page }) => {
+    seedWorkloads(dashboard);
+
+    await page.goto('/workloads');
+
+    const top = (selector: string) => page.locator(selector).first().evaluate((element) => element.getBoundingClientRect().top);
+    const order = [await top('[data-showing]'), await top('[data-chip-label="status"]'), await top('[data-status-chips]'), await top('[data-chip-label="started"]'), await top('[data-range-presets]'), await top('[data-filters] form'), await top('table')];
+    expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 });
 
