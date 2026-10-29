@@ -76,14 +76,14 @@ const mixed = [
   sampleRun({ id: 'other-ok', ticket: ticketIn('other', 4), costUsd: 0.8 }),
 ];
 
-test('given workloads across statuses and repositories, when opened with Failed and one repository, then only that repository\'s failed workloads list, the chips count within the repository and the header reads filtered of all', async () => {
+test('given workloads across statuses and repositories, when opened with Failed and one repository, then only that repository\'s errored workloads list, the chips count within the repository and the header reads filtered of all', async () => {
   const body = await open(mixed, '/workloads?status=failed&repository=forge');
 
   assert.deepEqual(listed(body), ['forge-err']);
   assert.equal(chip(body, 'all'), 'All 2');
-  assert.equal(chip(body, 'running'), 'Running 0');
   assert.equal(chip(body, 'done'), 'Done 1');
   assert.equal(chip(body, 'failed'), 'Failed 1');
+  assert.equal(chip(body, 'running'), 'Running 0');
   assert.equal(workloadsTile(body), 'Workloads 1 of 4');
   assert.equal(costTile(body), 'Cost $0.20');
   assert.doesNotMatch(body, /<tfoot/);
@@ -202,7 +202,7 @@ test('given 120 workloads, when the third page is opened, then the oldest 20 lis
   assert.equal(pageLink(body, 'newer').available, true);
 });
 
-test('given more than 50 failed workloads among others, when filtered to Failed and Older is followed, then the second page lists only failed workloads and Failed stays selected', async () => {
+test('given more than 50 errored workloads among others, when filtered to Error and Older is followed, then the second page lists only errored workloads and Error stays selected', async () => {
   const runs = numbered(130, (index) => ({ status: index % 2 === 0 ? 'error' : 'success' }));
   const first = await open(runs, '/workloads?status=failed');
   const older = pageLink(first, 'older');

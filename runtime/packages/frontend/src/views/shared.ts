@@ -78,7 +78,7 @@ export const settledOutcome = (workload: PullRequestWorkloadRecord | undefined):
   workload === undefined || workload.state === 'running' ? null : workload;
 
 export interface RunOutcome {
-  state: string;
+  state: DispatchState;
   tone: string;
   reason: FailureReason | null;
 }
@@ -301,17 +301,42 @@ export const WORKLOAD_TONE: Record<RevisionState | DispatchState, string> = {
   failed: FAILED_TONE,
 };
 
+const OUTCOME_TITLE: Record<DispatchState, string> = {
+  running: 'The work is still in progress',
+  done: 'The work finished and landed',
+  failed: 'The work did not land. The reason is shown below.',
+};
+
+const STATUS_TITLE: Record<RunStatus, string> = {
+  success: 'The harness finished cleanly',
+  error: 'The harness itself failed before it could finish',
+  running: 'The harness is still running',
+  interrupted: 'The harness was stopped before it finished',
+  exceeded: 'The harness was stopped at its budget or timeout',
+};
+
+const BESIDE_LABEL: Partial<Record<RunStatus, string>> = { error: 'harness error' };
+
 export const renderWorkloadOutcome = (workload: PullRequestWorkloadRecord): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="${PILL} ${WORKLOAD_TONE[workload.state]}" data-outcome="${workload.state}">${workload.state}</span>`;
+  html`<span class="${PILL} ${WORKLOAD_TONE[workload.state]}" data-outcome="${workload.state}" title="${OUTCOME_TITLE[workload.state]}">${workload.state}</span>`;
 
 export const renderRunOutcome = ({ state, tone }: RunOutcome): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="${PILL} ${tone}" data-outcome="${state}">${state}</span>`;
+  html`<span class="${PILL} ${tone}" data-outcome="${state}" title="${OUTCOME_TITLE[state]}">${state}</span>`;
 
 export const renderRevisionPill = (): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="${PILL} bg-warning-soft text-warning" data-revision-pill>revision</span>`;
 
-export const renderStatus = (status: RunStatus): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<span class="${PILL} ${STATUS_TONE[status]}" data-status="${status}">${status}</span>`;
+export const renderStatus = (status: RunStatus, label: string = status): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<span class="${PILL} ${STATUS_TONE[status]}" data-status="${status}" title="${STATUS_TITLE[status]}">${label}</span>`;
+
+export const renderStatusBeside = (status: RunStatus): Rendered =>
+  status === 'success' || status === 'running' ? '' : renderStatus(status, BESIDE_LABEL[status]);
+
+export const renderRunLead = (status: RunStatus, outcome: RunOutcome | null): Rendered =>
+  outcome === null ? renderStatus(status) : html`${renderRunOutcome(outcome)}${renderStatusBeside(status)}`;
+
+export const runStateOf = (status: RunStatus, outcome: RunOutcome | null): DispatchState =>
+  outcome !== null ? outcome.state : status === 'running' ? 'running' : status === 'success' ? 'done' : 'failed';
 
 export const renderTimestamp = (iso: string, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<time datetime="${iso}" title="${iso}" class="whitespace-nowrap">${formatStarted(iso, timeZone)}</time>`;

@@ -1,10 +1,22 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl, type AttemptConflictResolution, type AttemptRevision, type PullRequestWorkloadRecord, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
+import { isGithubUrl, type AttemptConflictResolution, type AttemptRevision, type PullRequestState, type PullRequestWorkloadRecord, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
-import { FAILED_TONE, renderWorkloadOutcome, PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
+import { FAILED_TONE, renderWorkloadOutcome, renderStatusBeside, PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
 
-const attemptOutcome = ({ run, pullRequest }: TicketAttempt): [string, string] => {
+type AttemptLabel = PullRequestState | 'running' | 'interrupted' | 'exceeded' | 'failed';
+
+const ATTEMPT_TITLE: Record<AttemptLabel, string> = {
+  open: 'The attempt opened a pull request that is still open',
+  merged: 'The attempt opened a pull request that was merged',
+  closed: 'The attempt opened a pull request that was closed without merging',
+  running: 'The attempt is still in progress',
+  interrupted: 'The attempt was stopped before it finished',
+  exceeded: 'The attempt was stopped at its budget or timeout',
+  failed: 'The attempt did not open a pull request',
+};
+
+const attemptOutcome = ({ run, pullRequest }: TicketAttempt): [AttemptLabel, string] => {
   if (pullRequest !== null) return [pullRequest.state, PULL_REQUEST_TONE[pullRequest.state]];
   if (run.endTime === null) return ['running', 'bg-raised text-fg'];
   if (run.status === 'interrupted' || run.status === 'exceeded') return [run.status, 'bg-warning-soft text-warning'];
@@ -13,7 +25,7 @@ const attemptOutcome = ({ run, pullRequest }: TicketAttempt): [string, string] =
 
 const renderOutcome = (attempt: TicketAttempt): Rendered => {
   const [label, tone] = attemptOutcome(attempt);
-  return html`<span class="${PILL} ${tone}" data-outcome="${label}">${label}</span>`;
+  return html`<span class="${PILL} ${tone}" data-outcome="${label}" title="${ATTEMPT_TITLE[label]}">${label}</span>`;
 };
 
 const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
@@ -49,7 +61,7 @@ const renderWorkload = (
     <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime, timeZone)}</a> <span class="text-muted">${kind}</span></td>
     <td class="${TD}"></td>
     <td class="${TD}"></td>
-    <td class="${TD}" data-field="outcome">${renderWorkloadOutcome(workload)}${renderWorkloadFailure(workload)}</td>
+    <td class="${TD}" data-field="outcome"><div class="flex items-center gap-1.5">${renderWorkloadOutcome(workload)}${renderStatusBeside(run.status)}</div>${renderWorkloadFailure(workload)}</td>
     <td class="${TD} ${NUMERIC}" data-field="cost">${renderRunCost(run)}</td>
     <td class="${TD} ${NUMERIC}" data-field="duration">${formatDuration(run.startTime, run.endTime)}</td>
     <td class="${TD}"></td>
