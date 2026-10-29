@@ -1,7 +1,23 @@
-import type { RunRecord, RunStatus } from '@forge/shared';
+import type { DispatchRecord, RunPullRequestWorkload, RunRecord } from '@forge/shared';
 import { addDays, dayOf, dayRange, parseDay } from './days.ts';
 
-export const STATUSES: readonly RunStatus[] = ['running', 'success', 'error', 'interrupted', 'exceeded'];
+export type OutcomeState = 'running' | 'done' | 'failed';
+
+export const OUTCOMES: readonly OutcomeState[] = ['running', 'done', 'failed'];
+
+export interface RunWorkloads {
+  pullRequestWorkloads: ReadonlyMap<string, RunPullRequestWorkload>;
+  dispatches: ReadonlyMap<string, DispatchRecord>;
+}
+
+export const outcomeOf = (run: RunRecord, { pullRequestWorkloads, dispatches }: RunWorkloads): OutcomeState => {
+  const workload = pullRequestWorkloads.get(run.id)?.workload;
+  if (workload !== undefined && workload.state !== 'running') return workload.state;
+  const dispatch = dispatches.get(run.id);
+  if (dispatch !== undefined) return dispatch.state;
+  if (workload !== undefined) return workload.state;
+  return run.status === 'running' ? 'running' : run.status === 'success' ? 'done' : 'failed';
+};
 
 export interface RangePreset {
   key: string;
@@ -21,7 +37,7 @@ export const RANGE_PRESETS: readonly RangePreset[] = [
 
 export interface WorkloadFilter {
   range?: string;
-  status?: RunStatus;
+  status?: OutcomeState;
   search?: string;
   worker?: string;
   repository?: string;
@@ -31,7 +47,7 @@ export interface WorkloadFilter {
 }
 
 export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilter => {
-  const status = STATUSES.find((candidate) => candidate === query['status']);
+  const status = OUTCOMES.find((candidate) => candidate === query['status']);
   const range = RANGE_PRESETS.find((candidate) => candidate.key === query['range'])?.key;
   const from = range === undefined ? parseDay(query['from']) : undefined;
   const to = range === undefined ? parseDay(query['to']) : undefined;
@@ -56,6 +72,7 @@ const matchesSearch = (run: RunRecord, search: string): boolean => {
 export const filterWorkloads = (
   runs: RunRecord[],
   filter: WorkloadFilter,
+  workloads: RunWorkloads,
   timeZone: string,
   now: number,
   ignoreStatus = false,
@@ -65,7 +82,7 @@ export const filterWorkloads = (
   const { startedFrom, startedBefore } = dayRange(days.from, days.to, timeZone);
   return runs.filter(
     (run) =>
-      (ignoreStatus || filter.status === undefined || run.status === filter.status) &&
+      (ignoreStatus || filter.status === undefined || outcomeOf(run, workloads) === filter.status) &&
       (filter.search === undefined || matchesSearch(run, filter.search)) &&
       (filter.worker === undefined || run.worker === filter.worker) &&
       (filter.repository === undefined || run.ticket?.repository === filter.repository) &&

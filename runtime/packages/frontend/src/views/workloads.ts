@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
-import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type PullRequestWorkloadRecord, type RunPullRequestWorkload, type DispatchRecord } from '@forge/shared';
+import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type PullRequestWorkloadRecord, type RunPullRequestWorkload, type DispatchRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
+import { filterWorkloads, isFiltered, paginate, outcomeOf, OUTCOMES, type OutcomeState, RANGE_PRESETS, type Page, type RunWorkloads, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
 import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
 
@@ -94,15 +94,15 @@ const renderSelect = (label: string, name: string, values: string[], selected: s
 const unique = (values: (string | undefined)[]): string[] =>
   [...new Set(values.filter((value): value is string => value !== undefined))].sort();
 
-const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string, now: number): Rendered => {
-  const scoped = filterWorkloads(all, filter, timeZone, now, true);
-  const chips: { key: string; label: string; status: RunStatus | undefined; count: number }[] = [
+const renderChips = (all: RunRecord[], filter: WorkloadFilter, workloads: RunWorkloads, timeZone: string, now: number): Rendered => {
+  const scoped = filterWorkloads(all, filter, workloads, timeZone, now, true);
+  const chips: { key: string; label: string; status: OutcomeState | undefined; count: number }[] = [
     { key: 'all', label: 'All', status: undefined, count: scoped.length },
-    ...STATUSES.map((status) => ({
+    ...OUTCOMES.map((status) => ({
       key: status,
       label: status[0]!.toUpperCase() + status.slice(1),
       status,
-      count: scoped.filter((run) => run.status === status).length,
+      count: scoped.filter((run) => outcomeOf(run, workloads) === status).length,
     })),
   ];
   return html`<nav class="mb-2 flex gap-2 overflow-x-auto pb-1 sm:mb-3 sm:flex-wrap sm:pb-0" aria-label="Status" data-status-chips>
@@ -203,7 +203,8 @@ export const renderList = (
   display: Display,
   now: number,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const runs = filterWorkloads(all, filter, display.timeZone, now);
+  const workloads = { pullRequestWorkloads, dispatches };
+  const runs = filterWorkloads(all, filter, workloads, display.timeZone, now);
   const paged = paginate(runs, requestedPage);
   const body =
     all.length === 0
@@ -211,7 +212,7 @@ export const renderList = (
           <p class="${EMPTY}">No workloads have run yet.</p>`
       : html`<h1 class="${PAGE_TITLE}">Workloads</h1>
           ${renderTotals(runs, all, filter, equivalents)}
-          ${renderChips(all, filter, display.timeZone, now)}
+          ${renderChips(all, filter, workloads, display.timeZone, now)}
           ${renderFilters(all, filter)}
           ${runs.length === 0
             ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`
