@@ -30,6 +30,7 @@ export interface Seed {
   worker?: string;
   repository?: string;
   dispatched?: boolean;
+  running?: boolean;
   start?: string;
   seconds: number;
   cost: number;
@@ -58,8 +59,8 @@ const runOf = (seed: Seed): RunRecord => {
     model: seed.fingerprint?.model ?? 'anthropic/claude-sonnet-5.5',
     reasoningEffort: seed.fingerprint?.reasoningEffort ?? null,
     startTime: start,
-    endTime: new Date(Date.parse(start) + seed.seconds * 1000).toISOString(),
-    status: 'success',
+    endTime: seed.running === true ? null : new Date(Date.parse(start) + seed.seconds * 1000).toISOString(),
+    status: seed.running === true ? 'running' : 'success',
     costStatus: seed.listPrice !== undefined ? 'subscription' : seed.unconfirmedEstimate !== undefined ? 'unconfirmed' : 'billed',
     costUsd: seed.cost,
     costEstimated: false,
@@ -147,6 +148,7 @@ export const seedStore = (store: Store, seeds: Seed[]): void => {
     if (run.ticket === null) continue;
     const started = store.startDispatch(run.ticket, seed.id, run.startTime, 100);
     assert.ok('started' in started);
+    if (seed.running === true) continue;
     store.endDispatch(
       started.started,
       seed.pullRequest === undefined

@@ -50,7 +50,7 @@ import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from '
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
-import type { CohortInsight, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
+import type { ActivePair, CohortActivity, CohortInsight, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
 import type { RunSkillLoad } from './skill-loads.ts';
 import type {
   CostStatus,
@@ -1743,6 +1743,41 @@ export class Store {
       .all(insightParameters(filter)) as InsightRow[];
   }
 
+  #cohortActivity(): CohortActivity[] {
+    const finished = `
+      FROM runs r
+      JOIN dispatches d ON d.run_id = r.id
+      WHERE r.end_time IS NOT NULL`;
+    const spans = this.#db
+      .prepare(
+        `SELECT r.fingerprint_hash AS hash, MIN(r.start_time) AS first_run, MAX(r.start_time) AS last_run
+        ${finished}
+        GROUP BY r.fingerprint_hash`,
+      )
+      .all() as { hash: string | null; first_run: string; last_run: string }[];
+    const latest = this.#db
+      .prepare(
+        `SELECT hash, worker, repository FROM (
+          SELECT r.fingerprint_hash AS hash, r.worker AS worker, r.repository AS repository,
+            ROW_NUMBER() OVER (PARTITION BY r.worker, r.repository ORDER BY r.start_time DESC, r.id DESC) AS position
+          ${finished}
+        )
+        WHERE position = 1 AND hash IS NOT NULL AND repository IS NOT NULL
+        ORDER BY worker, repository`,
+      )
+      .all() as { hash: string; worker: string; repository: string }[];
+    const activeFor = new Map<string, ActivePair[]>();
+    for (const { hash, worker, repository } of latest) {
+      activeFor.set(hash, [...(activeFor.get(hash) ?? []), { worker, repository }]);
+    }
+    return spans.map(({ hash, first_run, last_run }) => ({
+      hash,
+      firstRun: first_run,
+      lastRun: last_run,
+      activeFor: (hash === null ? undefined : activeFor.get(hash)) ?? [],
+    }));
+  }
+
   listCohorts(filter: InsightsFilter): CohortInsight[] {
     return aggregateCohorts(
       this.#insightRows(filter).map((row) => ({
@@ -1759,6 +1794,7 @@ export class Store {
         retries: row.retries,
         pullRequest: pullRequestOfRow(row),
       })),
+      this.#cohortActivity(),
     );
   }
 

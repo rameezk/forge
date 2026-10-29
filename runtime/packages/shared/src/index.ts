@@ -141,6 +141,8 @@ export {
   sha256,
 } from './fingerprint.ts';
 export type {
+  ActivePair,
+  CohortActivity,
   CohortInsight,
   InsightPoint,
   InsightsFilter,

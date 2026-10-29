@@ -24,8 +24,23 @@ export interface InsightWorkload {
   pullRequest: { state: PullRequestState; rework: number | null } | null;
 }
 
+export interface ActivePair {
+  worker: string;
+  repository: string;
+}
+
+export interface CohortActivity {
+  hash: string | null;
+  firstRun: string;
+  lastRun: string;
+  activeFor: ActivePair[];
+}
+
 export interface CohortInsight {
   hash: string | null;
+  firstRun: string | null;
+  lastRun: string | null;
+  activeFor: ActivePair[];
   fingerprint: ConfigFingerprint | null;
   workloads: number;
   listPrice: boolean;
@@ -97,7 +112,7 @@ const cacheHitRate = (workloads: InsightWorkload[]): number | null => {
   return ratio(read, prompt);
 };
 
-const summarize = (members: InsightWorkload[]): CohortInsight => {
+const summarize = (members: InsightWorkload[], activity: CohortActivity | undefined): CohortInsight => {
   const dispatched = members.filter(({ dispatched: isDispatched }) => isDispatched);
   const merged = dispatched.filter(({ pullRequest }) => pullRequest?.state === 'merged');
   const toolCalls = present(members.map(({ toolCalls: count }) => count));
@@ -110,6 +125,9 @@ const summarize = (members: InsightWorkload[]): CohortInsight => {
   const unpriced = dispatchedCosts.some((cost) => cost === null);
   return {
     hash: members[0]!.fingerprintHash,
+    firstRun: activity?.firstRun ?? null,
+    lastRun: activity?.lastRun ?? null,
+    activeFor: activity?.activeFor ?? [],
     fingerprint: members[0]!.fingerprint,
     workloads: members.length,
     listPrice: billed.length === 0,
@@ -126,17 +144,21 @@ const summarize = (members: InsightWorkload[]): CohortInsight => {
   };
 };
 
-export const aggregateCohorts = (workloads: InsightWorkload[]): CohortInsight[] => {
+export const aggregateCohorts = (workloads: InsightWorkload[], activity: CohortActivity[]): CohortInsight[] => {
   const groups = new Map<string | null, InsightWorkload[]>();
   for (const workload of workloads) {
     const members = groups.get(workload.fingerprintHash) ?? [];
     members.push(workload);
     groups.set(workload.fingerprintHash, members);
   }
-  return [...groups.values()].map(summarize).sort(
-    (a, b) =>
-      Number(a.hash === null) - Number(b.hash === null) ||
-      b.workloads - a.workloads ||
-      (a.hash ?? '').localeCompare(b.hash ?? ''),
-  );
+  const activityOf = new Map(activity.map((entry) => [entry.hash, entry]));
+  return [...groups.entries()]
+    .map(([hash, members]) => summarize(members, activityOf.get(hash)))
+    .sort(
+      (a, b) =>
+        Number(a.hash === null) - Number(b.hash === null) ||
+        Number(b.activeFor.length > 0) - Number(a.activeFor.length > 0) ||
+        (b.lastRun ?? '').localeCompare(a.lastRun ?? '') ||
+        (a.hash ?? '').localeCompare(b.hash ?? ''),
+    );
 };
