@@ -150,7 +150,7 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
     <label class="${FIELD}">Started to
       <input type="date" name="to" value="${filter.to ?? ''}" class="${CONTROL}" />
     </label>
-    <button type="submit" class="h-9 w-full rounded-md border border-line bg-raised px-3 sm:w-auto text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
+    <button type="submit" class="h-9 w-full rounded-md border border-line bg-raised px-3 text-[0.9rem] font-semibold text-fg hover:bg-line sm:w-auto">Apply</button>
     ${isFiltered(filter) ? html`<a href="/workloads" class="${LINK} py-2 text-[0.9rem]" data-clear-filters>Clear filters</a>` : ''}
   </form>
   </details>`;
