@@ -10,7 +10,7 @@ export const formatBudget = (usd: number): string => {
   return `$${whole}.${fraction.padEnd(2, '0')}`;
 };
 
-export const formatTotal = (usd: number): string => `$${usd.toFixed(4)}`;
+export const formatTotal = (usd: number): string => `$${usd.toFixed(2)}`;
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
