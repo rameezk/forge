@@ -5,7 +5,7 @@ import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, format
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderRunLead, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, type RunOutcome, runReasonOf, renderReasonBlock, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderRunLead, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, type RunOutcome, runReasonOf, renderReasonBlock, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout, renderTile, SUMMARY_FIGURE } from './shared.ts';
 import { renderWidget } from './widget.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
@@ -188,8 +188,6 @@ const renderExceeded = (run: RunRecord): Rendered => {
   return '';
 };
 
-const SUMMARY_FIGURE = 'text-[0.9rem] tabular-nums text-muted';
-
 const META_TERM = 'text-muted';
 
 const META_VALUE = 'm-0 min-w-0 break-words tabular-nums';
@@ -314,15 +312,6 @@ const renderConfig = (config: RunFingerprint | null): Rendered =>
         <dd class="${META_VALUE} tabular-nums" data-forge-sha>${config.forgeGitSha === null
           ? html`<span class="text-muted">unknown</span>`
           : html`<span title="${config.forgeGitSha}">${config.forgeGitSha.slice(0, SHORT_SHA_LENGTH)}</span>`}</dd>`}`;
-
-const TILE_LABEL = 'm-0 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
-
-const renderTile = (name: string, label: string, value: Rendered, note: Rendered = ''): Rendered =>
-  html`<div class="flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface px-4 py-3" data-tile="${name}">
-      <span class="${TILE_LABEL}">${label}</span>
-      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 break-words text-[1.15rem] font-semibold tabular-nums [&_[data-badge]]:ml-0" data-tile-value>${value}</div>
-      ${note === '' ? '' : html`<span class="${SUMMARY_FIGURE} break-words">${note}</span>`}
-    </div>`;
 
 const renderTiles = (
   run: RunRecord,

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
-import { textOf } from './html.ts';
+import { textOf, tile } from './html.ts';
 
 const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
   id: 'run-01',
@@ -65,8 +65,9 @@ const listed = (body: string): string[] =>
 const chip = (body: string, status: string): string =>
   textOf(body.match(new RegExp(`<a[^>]*\\sdata-status-chip="${status}"[^>]*>[\\s\\S]*?</a>`))?.[0] ?? 'missing');
 
-const showing = (body: string): string =>
-  textOf(body.match(/<p[^>]*\sdata-showing[\s>][\s\S]*?<\/p>/)?.[0] ?? 'missing');
+const workloadsTile = (body: string): string => textOf(tile(body, 'workloads'));
+
+const costTile = (body: string): string => textOf(tile(body, 'cost'));
 
 const mixed = [
   sampleRun({ id: 'forge-ok', ticket: ticketIn('forge', 1), costUsd: 0.1 }),
@@ -83,7 +84,8 @@ test('given workloads across statuses and repositories, when opened with Failed 
   assert.equal(chip(body, 'done'), 'Done 1');
   assert.equal(chip(body, 'failed'), 'Failed 1');
   assert.equal(chip(body, 'running'), 'Running 0');
-  assert.equal(showing(body), 'Showing 1 of 4 workloads, $0.2000 of $1.5000 billed');
+  assert.equal(workloadsTile(body), 'Workloads 1 of 4');
+  assert.equal(costTile(body), 'Cost $0.20');
   assert.doesNotMatch(body, /<tfoot/);
 });
 
@@ -119,7 +121,7 @@ test('given workloads started today and two weeks ago, when filtered to the last
   assert.deepEqual(listed(await open(runs, `/workloads?to=${day(7).slice(0, 10)}`)), ['old']);
 });
 
-test('given billed and subscription workloads, when filtered to the subscription ones, then the header also shows the list-price equivalent in filtered of all shape', async () => {
+test('given billed and subscription workloads, when filtered to the subscription ones, then the Cost tile reads $0.00 with the list-price note', async () => {
   const store = Store.open(':memory:');
   store.insertRun(sampleRun({ id: 'billed', costUsd: 0.2 }));
   store.insertRun(sampleRun({ id: 'sub', costStatus: 'subscription', costUsd: 0, model: 'x/sub' }));
@@ -137,10 +139,8 @@ test('given billed and subscription workloads, when filtered to the subscription
 
   const body = await (await app.request('/workloads?model=x%2Fsub')).text();
 
-  assert.equal(
-    showing(body),
-    'Showing 1 of 2 workloads, $0.0000 of $0.2000 billed $0.0300 of $0.0300 list-price equivalent, not billed',
-  );
+  assert.equal(workloadsTile(body), 'Workloads 1 of 2');
+  assert.equal(costTile(body), 'Cost $0.00 $0.03 list price, not billed');
   assert.doesNotMatch(await open([sampleRun()]), /list-price-equivalent/);
 });
 
@@ -222,7 +222,8 @@ test('given more than 50 matching workloads, when the second page is opened, the
   const body = await open(runs, '/workloads?page=2');
 
   assert.equal(listed(body).length, 50);
-  assert.equal(showing(body), 'Showing 120 of 120 workloads, $120.0000 of $120.0000 billed');
+  assert.equal(workloadsTile(body), 'Workloads 120');
+  assert.equal(costTile(body), 'Cost $120.00');
   assert.match(chip(body, 'all'), /120/);
   assert.match(chip(body, 'failed'), /20/);
 });
@@ -244,13 +245,14 @@ test('given a filtered, paged runs list, when its links are read, then the filte
   assert.match(pageLink(body, 'older').href ?? '', /^\/workloads\?status=failed&page=2$/);
 });
 
-test('given a billed workload and an unconfirmed one with an estimate, when the list is requested, then the header total and the unconfirmed row show the estimate apart from billed cost', async () => {
+test('given a billed workload and an unconfirmed one with an estimate, when the list is requested, then the Cost tile and the unconfirmed row show the estimate apart from billed cost', async () => {
   const body = await open([
     sampleRun({ id: 'billed', costUsd: 0.2 }),
     sampleRun({ id: 'unconfirmed', costStatus: 'unconfirmed', costUsd: 0, unconfirmedEstimateUsd: 0.36 }),
   ]);
 
-  assert.equal(showing(body), 'Showing 2 of 2 workloads, $0.2000 of $0.2000 billed + ~$0.3600 of ~$0.3600 unconfirmed estimate');
+  assert.equal(costTile(body), 'Cost $0.20 + ~$0.36 unconfirmed');
+  assert.match(tile(body, 'cost'), /<span[^>]*\sdata-unconfirmed-estimate-total[^>]*\stitle="[^"]*list price for generations billing gave up on[^"]*"/);
   assert.match(textOf(body.match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/g)?.find((cell) => /unconfirmed/.test(cell)) ?? ''), /\$0\.000000 billed \+ ~\$0\.360000 unconfirmed estimate/);
 });
 
@@ -260,5 +262,6 @@ test('given a subscription workload carrying an unconfirmed estimate, when the l
     sampleRun({ id: 'sub', costStatus: 'subscription', costUsd: 0, unconfirmedEstimateUsd: 0.5 }),
   ]);
 
-  assert.equal(showing(body), 'Showing 2 of 2 workloads, $0.2000 of $0.2000 billed');
+  assert.equal(workloadsTile(body), 'Workloads 2');
+  assert.equal(costTile(body), 'Cost $0.20');
 });

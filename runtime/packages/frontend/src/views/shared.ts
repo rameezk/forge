@@ -241,11 +241,16 @@ const unconfirmedBadge = (unbillable: boolean): Rendered =>
 
 export const ESTIMATED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="estimated" title="Includes forge's estimate at OpenRouter's list price for generations not yet billed, replaced as generations are billed">estimated</span>`;
 
-const PENDING_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="pending" title="Billed by OpenRouter so far. Rises as the run's generations are billed, trailing them by a minute or two.">pending</span>`;
+const PENDING_TITLE = "Billed by OpenRouter so far. Rises as the run's generations are billed, trailing them by a minute or two.";
+
+export const pendingBadge = (title: string = PENDING_TITLE): Rendered =>
+  html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="pending" title="${title}">pending</span>`;
+
+const PENDING_BADGE = pendingBadge();
 
 export type Cost = Pick<RunRecord, 'costStatus' | 'costUsd' | 'costEstimated' | 'unconfirmedEstimateUsd'>;
 
-const UNCONFIRMED_ESTIMATE_TITLE = "forge's estimate at OpenRouter's list price for generations billing gave up on. Not billed, and kept apart from the billed cost";
+export const UNCONFIRMED_ESTIMATE_TITLE = "forge's estimate at OpenRouter's list price for generations billing gave up on. Not billed, and kept apart from the billed cost";
 
 const renderUnconfirmedEstimate = (usd: number): Rendered =>
   usd > 0
@@ -429,3 +434,14 @@ export const renderReasonBlock = ({ label, detail, tone }: RunReason): Rendered 
     <div class="px-4 pb-3 pl-[2.375rem]">${renderMarkdownBody(detail)}</div>
   </details>`;
 };
+
+export const SUMMARY_FIGURE = 'text-[0.9rem] tabular-nums text-muted';
+
+const TILE_LABEL = 'm-0 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
+
+export const renderTile = (name: string, label: string, value: Rendered, note: Rendered = ''): Rendered =>
+  html`<div class="flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface px-4 py-3" data-tile="${name}">
+      <span class="${TILE_LABEL}">${label}</span>
+      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 break-words text-[1.15rem] font-semibold tabular-nums [&_[data-badge]]:ml-0" data-tile-value>${value}</div>
+      ${note === '' ? '' : html`<span class="${SUMMARY_FIGURE} break-words">${note}</span>`}
+    </div>`;
