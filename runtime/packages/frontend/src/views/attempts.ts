@@ -1,10 +1,12 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl, type AttemptConflictResolution, type AttemptRevision, type PullRequestWorkloadRecord, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
+import { isGithubUrl, type AttemptConflictResolution, type AttemptRevision, type PullRequestState, type PullRequestWorkloadRecord, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
 import { FAILED_TONE, renderWorkloadOutcome, renderStatusBeside, PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
 
-const ATTEMPT_TITLE: Record<string, string> = {
+type AttemptLabel = PullRequestState | 'running' | 'interrupted' | 'exceeded' | 'failed';
+
+const ATTEMPT_TITLE: Record<AttemptLabel, string> = {
   open: 'The attempt opened a pull request that is still open',
   merged: 'The attempt opened a pull request that was merged',
   closed: 'The attempt opened a pull request that was closed without merging',
@@ -14,7 +16,7 @@ const ATTEMPT_TITLE: Record<string, string> = {
   failed: 'The attempt did not open a pull request',
 };
 
-const attemptOutcome = ({ run, pullRequest }: TicketAttempt): [string, string] => {
+const attemptOutcome = ({ run, pullRequest }: TicketAttempt): [AttemptLabel, string] => {
   if (pullRequest !== null) return [pullRequest.state, PULL_REQUEST_TONE[pullRequest.state]];
   if (run.endTime === null) return ['running', 'bg-raised text-fg'];
   if (run.status === 'interrupted' || run.status === 'exceeded') return [run.status, 'bg-warning-soft text-warning'];
