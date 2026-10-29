@@ -159,7 +159,6 @@ const renderFingerprintRow = (
   </tr>`;
 };
 
-
 interface CohortConfig {
   hash: string;
   fingerprint: ConfigFingerprint;

@@ -117,7 +117,10 @@ test('given three cohorts, when one is requested with another chosen, then the p
   );
   assert.deepEqual(
     choicesOf(page).map(({ text }) => text).sort(),
-    [RESKILLED, GLM].map((f) => `${f.model.endsWith('glm-5') ? 'pi · glm-5 · default · prompt#9b1e' : 'pi · sonnet-5.5 · high · prompt#3fa2'} · ${fingerprintHash(f).slice(0, 8)}`).sort(),
+    [
+      `pi · sonnet-5.5 · high · prompt#3fa2 · ${fingerprintHash(RESKILLED).slice(0, 8)}`,
+      `pi · glm-5 · default · prompt#9b1e · ${fingerprintHash(GLM).slice(0, 8)}`,
+    ].sort(),
   );
 });
 
