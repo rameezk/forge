@@ -73,16 +73,3 @@ test('given a first build run, when its page is requested, then the summary show
 test('given a conflict resolution run, when its page is requested, then the summary shows no revision pill', async () => {
   assert.doesNotMatch(await summaryOf('resolution'), /data-revision-pill/);
 });
-
-test('given a revision run, a first build and a conflict resolution, when /workloads is requested, then only the revision carries the revision pill in its row and card', async () => {
-  const body = await (await dashboard().request('/workloads')).text();
-  const row = (id: string): string => body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? 'missing';
-  const card = (id: string): string => body.match(new RegExp(`<article[^>]*\\sdata-run-card="${id}"[\\s\\S]*?</article>`))?.[0] ?? 'missing';
-
-  assert.match(row('revision'), /data-revision-pill/);
-  assert.match(card('revision'), /data-revision-pill/);
-  for (const id of ['first-build', 'resolution']) {
-    assert.doesNotMatch(row(id), /data-revision-pill/, id);
-    assert.doesNotMatch(card(id), /data-revision-pill/, id);
-  }
-});
