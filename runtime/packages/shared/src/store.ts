@@ -50,7 +50,7 @@ import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from '
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
-import type { CohortActivity, CohortInsight, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
+import type { ActivePair, CohortActivity, CohortInsight, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
 import type { RunSkillLoad } from './skill-loads.ts';
 import type {
   CostStatus,
@@ -1747,7 +1747,7 @@ export class Store {
     const finished = `
       FROM runs r
       JOIN dispatches d ON d.run_id = r.id
-      WHERE r.end_time IS NOT NULL AND r.repository IS NOT NULL`;
+      WHERE r.end_time IS NOT NULL`;
     const spans = this.#db
       .prepare(
         `SELECT r.fingerprint_hash AS hash, MIN(r.start_time) AS first_run, MAX(r.start_time) AS last_run
@@ -1762,15 +1762,19 @@ export class Store {
             ROW_NUMBER() OVER (PARTITION BY r.worker, r.repository ORDER BY r.start_time DESC, r.id DESC) AS position
           ${finished}
         )
-        WHERE position = 1 AND hash IS NOT NULL
+        WHERE position = 1 AND hash IS NOT NULL AND repository IS NOT NULL
         ORDER BY worker, repository`,
       )
       .all() as { hash: string; worker: string; repository: string }[];
+    const activeFor = new Map<string, ActivePair[]>();
+    for (const { hash, worker, repository } of latest) {
+      activeFor.set(hash, [...(activeFor.get(hash) ?? []), { worker, repository }]);
+    }
     return spans.map(({ hash, first_run, last_run }) => ({
       hash,
       firstRun: first_run,
       lastRun: last_run,
-      activeFor: latest.filter((pair) => pair.hash === hash).map(({ worker, repository }) => ({ worker, repository })),
+      activeFor: (hash === null ? undefined : activeFor.get(hash)) ?? [],
     }));
   }
 
