@@ -18,7 +18,7 @@ import {
   resolveWorker,
 } from './config.ts';
 import { launchInCheckout } from './checkout-workload.ts';
-import { fillPrompt, endOf, headRefusal } from './pull-request-workload.ts';
+import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
 import { gitEnvironment } from './git.ts';
 import { revisionInstruction } from './harness.ts';
 import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
@@ -116,6 +116,7 @@ export const main = async (
     );
     try {
       let launched: LaunchResult;
+      let ended: WorkloadEnd = { state: 'done' };
       let failure: RevisionFailureRecord | undefined;
       try {
         const feedback = await queryFeedbackWindow(
@@ -154,7 +155,8 @@ export const main = async (
           );
           return 1;
         }
-        if (endOf(launched).state === 'done') {
+        ended = endOf(launched);
+        if (ended.state === 'done') {
           const unanswered = await queryUnansweredFeedback(
             fetch,
             (await app.mint(repository.github, 'read')).token,
@@ -178,8 +180,8 @@ export const main = async (
         }
         throw error;
       }
-      const ended = failure === undefined ? endOf(launched) : { state: 'failed' as const, failure };
-      store.endRevision(revisionId, ended.state, now(), ended.failure);
+      const final = failure === undefined ? ended : { state: 'failed' as const, failure };
+      store.endRevision(revisionId, final.state, now(), final.failure);
       return failure !== undefined || launched.run.status === 'error' || launched.run.status === 'exceeded'
         ? 1
         : 0;
