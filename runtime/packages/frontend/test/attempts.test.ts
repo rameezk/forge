@@ -278,7 +278,7 @@ const revise = (
   store: Store,
   runId: string,
   start: string,
-  state: 'ok' | 'error',
+  state: 'done' | 'failed',
   pullRequest = 9,
   failure?: RevisionFailureRecord,
 ): void => {
@@ -313,16 +313,16 @@ test('given a ticket whose second attempt opened a pull request revised twice, w
     { ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'closed' } },
     { ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } },
   ]);
-  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'ok');
-  revise(store, 'rev-error', '2026-09-25T10:00:00.000Z', 'error');
+  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'done');
+  revise(store, 'rev-error', '2026-09-25T10:00:00.000Z', 'failed');
 
   const page = await (await app.request('/tickets/forge/42')).text();
 
   const rows = revisionRows(page);
   assert.deepEqual([...rows.keys()], ['rev-ok', 'rev-error']);
   assert.match(rows.get('rev-ok')!['run']!, /<a href="\/runs\/rev-ok"/);
-  assert.equal(textOf(rows.get('rev-ok')!['outcome']!), 'ok');
-  assert.equal(textOf(rows.get('rev-error')!['outcome']!), 'error');
+  assert.equal(textOf(rows.get('rev-ok')!['outcome']!), 'done');
+  assert.equal(textOf(rows.get('rev-error')!['outcome']!), 'failed');
   assert.equal(textOf(rows.get('rev-ok')!['cost']!), '$0.500000');
   assert.equal(textOf(rows.get('rev-ok')!['duration']!), '2m 0s');
   const order = [...page.matchAll(/data-(attempt|revision)="([^"]*)"/g)].map(([, , id]) => id);
@@ -331,8 +331,8 @@ test('given a ticket whose second attempt opened a pull request revised twice, w
 
 test('given an attempt with a revision that failed as unanswered with a detail, when its attempts view is requested, then the revision shows its reason and detail beside its state, and a revision that ended ok shows neither', async () => {
   const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
-  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'ok');
-  revise(store, 'rev-unanswered', '2026-09-25T10:00:00.000Z', 'error', 9, {
+  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'done');
+  revise(store, 'rev-unanswered', '2026-09-25T10:00:00.000Z', 'failed', 9, {
     reason: 'unanswered',
     detail: 'https://github.com/rameezk/forge/pull/9#issuecomment-1',
   });
@@ -341,34 +341,34 @@ test('given an attempt with a revision that failed as unanswered with a detail, 
 
   assert.equal(
     textOf(rows.get('rev-unanswered')!['outcome']!),
-    'error Unanswered: https://github.com/rameezk/forge/pull/9#issuecomment-1',
+    'failed Unanswered: https://github.com/rameezk/forge/pull/9#issuecomment-1',
   );
-  assert.equal(textOf(rows.get('rev-ok')!['outcome']!), 'ok');
+  assert.equal(textOf(rows.get('rev-ok')!['outcome']!), 'done');
 });
 
 test('given an attempt with a revision that crashed with a multi-line detail, when its attempts view is requested, then the revision shows the same Crashed: detail text as the workloads list', async () => {
   const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
   const detail = 'GitHub rejected the FeedbackAnswers query\nfor rameezk/forge#9: boom';
-  revise(store, 'rev-crashed', '2026-09-25T10:00:00.000Z', 'error', 9, { reason: 'crashed', detail });
+  revise(store, 'rev-crashed', '2026-09-25T10:00:00.000Z', 'failed', 9, { reason: 'crashed', detail });
 
   const rows = revisionRows(await (await app.request('/tickets/forge/42')).text());
 
   assert.equal(
     textOf(rows.get('rev-crashed')!['outcome']!),
-    'error Crashed: GitHub rejected the FeedbackAnswers query for rameezk/forge#9: boom',
+    'failed Crashed: GitHub rejected the FeedbackAnswers query for rameezk/forge#9: boom',
   );
 });
 
 test('given a revision of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no revisions', async () => {
   const { app, store } = dashboard([{ ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'open' } }]);
-  revise(store, 'manual-rev', '2026-09-24T10:00:00.000Z', 'ok', 99);
+  revise(store, 'manual-rev', '2026-09-24T10:00:00.000Z', 'done', 99);
 
   assert.deepEqual([...revisionRows(await (await app.request('/tickets/forge/42')).text()).keys()], []);
 });
 
 test('given a revision run, when its run detail page is requested, then it shows the pull request it revised linked to GitHub', async () => {
   const { app, store } = dashboard([]);
-  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'ok', 143);
+  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'done', 143);
 
   const detail = await (await app.request('/runs/rev-ok')).text();
 
@@ -379,7 +379,7 @@ const resolve = (
   store: Store,
   runId: string,
   start: string,
-  state: 'ok' | 'error',
+  state: 'done' | 'failed',
   pullRequest = 9,
   failure?: ConflictResolutionFailureRecord,
 ): void => {
@@ -415,14 +415,14 @@ test('given a dispatch whose pull request had a revision and failed and ok confl
     { ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'closed' } },
     { ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } },
   ]);
-  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'ok');
-  resolve(store, 'res-ok', '2026-09-25T10:00:00.000Z', 'ok');
-  resolve(store, 'res-not-merged', '2026-09-26T10:00:00.000Z', 'error', 9, {
+  revise(store, 'rev-ok', '2026-09-24T10:00:00.000Z', 'done');
+  resolve(store, 'res-ok', '2026-09-25T10:00:00.000Z', 'done');
+  resolve(store, 'res-not-merged', '2026-09-26T10:00:00.000Z', 'failed', 9, {
     reason: 'not-merged',
     detail: 'the pull request does not contain abc1234',
   });
-  resolve(store, 'res-still', '2026-09-27T10:00:00.000Z', 'error', 9, { reason: 'still-conflicting', detail: null });
-  resolve(store, 'res-crashed', '2026-09-28T10:00:00.000Z', 'error', 9, { reason: 'crashed', detail: 'boom' });
+  resolve(store, 'res-still', '2026-09-27T10:00:00.000Z', 'failed', 9, { reason: 'still-conflicting', detail: null });
+  resolve(store, 'res-crashed', '2026-09-28T10:00:00.000Z', 'failed', 9, { reason: 'crashed', detail: 'boom' });
 
   const page = await (await app.request('/tickets/forge/42')).text();
 
@@ -430,10 +430,10 @@ test('given a dispatch whose pull request had a revision and failed and ok confl
   assert.deepEqual([...rows.keys()], ['res-ok', 'res-not-merged', 'res-still', 'res-crashed']);
   assert.match(rows.get('res-ok')!['run']!, /<a href="\/runs\/res-ok"/);
   assert.match(textOf(rows.get('res-ok')!['run']!), /conflict resolution$/);
-  assert.equal(textOf(rows.get('res-ok')!['outcome']!), 'ok');
-  assert.equal(textOf(rows.get('res-not-merged')!['outcome']!), 'error Not merged: the pull request does not contain abc1234');
-  assert.equal(textOf(rows.get('res-still')!['outcome']!), 'error Still conflicting');
-  assert.equal(textOf(rows.get('res-crashed')!['outcome']!), 'error Crashed: boom');
+  assert.equal(textOf(rows.get('res-ok')!['outcome']!), 'done');
+  assert.equal(textOf(rows.get('res-not-merged')!['outcome']!), 'failed Not merged: the pull request does not contain abc1234');
+  assert.equal(textOf(rows.get('res-still')!['outcome']!), 'failed Still conflicting');
+  assert.equal(textOf(rows.get('res-crashed')!['outcome']!), 'failed Crashed: boom');
   assert.equal(textOf(rows.get('res-ok')!['cost']!), '$0.500000');
   const order = [...page.matchAll(/data-(attempt|revision|conflict-resolution)="([^"]*)"/g)].map(([, , id]) => id);
   assert.deepEqual(order, ['second', 'rev-ok', 'res-ok', 'res-not-merged', 'res-still', 'res-crashed', 'first']);
@@ -468,7 +468,7 @@ test('given a dispatch whose pull request had a conflict resolution that failed 
   assert.match(textOf(row!), /conflict resolution/);
   assert.match(
     textOf(/<td[^>]*data-field="outcome"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!),
-    /^error Did not start \(2 times\): fatal: unable to access the repository$/,
+    /^failed Did not start \(2 times\): fatal: unable to access the repository$/,
   );
   assert.equal(textOf(/<td[^>]*data-field="cost"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!), '');
   assert.equal(textOf(/<td[^>]*data-field="duration"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!), '');
@@ -560,7 +560,7 @@ test('given a dispatch whose pull request had a revision that failed to start tw
   assert.doesNotMatch(textOf(row!), /conflict resolution/);
   assert.match(
     textOf(/<td[^>]*data-field="outcome"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!),
-    /^error Did not start \(2 times\): GitHub answered 401: Bad credentials$/,
+    /^failed Did not start \(2 times\): GitHub answered 401: Bad credentials$/,
   );
   assert.equal(textOf(/<td[^>]*data-field="cost"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!), '');
   assert.equal(textOf(/<td[^>]*data-field="duration"[^>]*>([\s\S]*?)<\/td>/.exec(row!)![1]!), '');
@@ -585,21 +585,21 @@ test('given a revision that failed to start and then ran, when the Board is requ
   failRevisionToStart(store, '2026-09-25T10:00:00.000Z', 'clone failed');
   const ran = store.startRevision({ repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` }, [TICKET.number], 'ran', '2026-09-25T11:00:00.000Z', 10);
   assert.ok('started' in ran);
-  store.endRevision(ran.started, 'ok', '2026-09-25T11:05:00.000Z');
+  store.endRevision(ran.started, 'done', '2026-09-25T11:05:00.000Z');
 
   assert.doesNotMatch(await (await app.request('/')).text(), /data-revision-failed-start/);
 });
 
 test('given a conflict resolution of a pull request no ticket dispatch opened, when the ticket attempts view is requested, then it shows no conflict resolutions', async () => {
   const { app, store } = dashboard([{ ...THREE[0]!, id: 'first', pullRequest: { number: 7, state: 'open' } }]);
-  resolve(store, 'manual-res', '2026-09-24T10:00:00.000Z', 'ok', 99);
+  resolve(store, 'manual-res', '2026-09-24T10:00:00.000Z', 'done', 99);
 
   assert.deepEqual([...conflictResolutionRows(await (await app.request('/tickets/forge/42')).text()).keys()], []);
 });
 
 test('given a conflict resolution run, when its run detail page is requested, then it reads as a conflict resolution of its pull request linked to GitHub', async () => {
   const { app, store } = dashboard([]);
-  resolve(store, 'res-ok', '2026-09-24T10:00:00.000Z', 'ok', 143);
+  resolve(store, 'res-ok', '2026-09-24T10:00:00.000Z', 'done', 143);
 
   const detail = await (await app.request('/runs/res-ok')).text();
 

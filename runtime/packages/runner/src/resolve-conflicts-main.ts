@@ -11,7 +11,6 @@ import {
   Store,
   type ConflictResolutionFailureRecord,
   type ConflictResolutionStart,
-  type ConflictResolutionState,
   type Fetch,
   type GithubApp,
   type Mergeable,
@@ -22,7 +21,7 @@ import { inspectCheckout, launchInCheckout } from './checkout-workload.ts';
 import { gitEnvironment } from './git.ts';
 import { conflictInstruction } from './harness.ts';
 import { conflictedFiles, containsCommit } from './merge.ts';
-import { fillPrompt, headRefusal, stateOf } from './pull-request-workload.ts';
+import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
 import { readRuntimeConfig, stateDirOf } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
@@ -187,7 +186,7 @@ export const main = async (
     try {
       let failure: ConflictResolutionFailureRecord | undefined;
       let code = 0;
-      let state: Exclude<ConflictResolutionState, 'running'> = 'ok';
+      let ended: WorkloadEnd = { state: 'done' };
       try {
         const files = await inspectCheckout({
           env,
@@ -230,9 +229,9 @@ export const main = async (
             );
             return 1;
           }
-          state = stateOf(launched);
+          ended = endOf(launched);
           code = launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
-          if (state === 'ok') {
+          if (ended.state === 'done') {
             failure = await unmetCondition({
               app,
               fetch,
@@ -251,19 +250,15 @@ export const main = async (
         if (store.getRun(runId)?.harnessStartTime == null) {
           store.failConflictResolutionStart(resolutionId, errorMessage(error), now());
         } else {
-          store.endConflictResolution(resolutionId, 'error', now(), {
+          store.endConflictResolution(resolutionId, 'failed', now(), {
             reason: 'crashed',
             detail: errorMessage(error),
           });
         }
         throw error;
       }
-      store.endConflictResolution(
-        resolutionId,
-        failure === undefined ? state : 'error',
-        now(),
-        failure,
-      );
+      const final = failure === undefined ? ended : { state: 'failed' as const, failure };
+      store.endConflictResolution(resolutionId, final.state, now(), final.failure);
       return failure !== undefined ? 1 : code;
     } finally {
       stopHeartbeat();

@@ -375,7 +375,7 @@ test('given a pull request GitHub reports as conflicting whose branch merges the
   assert.equal(code, 0);
   assert.equal(pi, null);
   assert.deepEqual(runs, []);
-  assert.deepEqual(resolutions.map(({ state }) => state), ['ok']);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['done']);
   assert.equal(git(origin.path, 'rev-parse', 'feature'), origin.featureTip);
 });
 
@@ -428,7 +428,7 @@ test('given a worker that merges the given sha and pushes, when the run ends, th
   const { code, resolutions, runs } = await resolve({ origin, worker: mergeAndPush });
 
   assert.equal(code, 0);
-  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'ok', reason: null }]);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'done', reason: null }]);
   assert.equal(resolutions[0]?.runId, runs[0]?.id);
   assert.equal(git(origin.path, 'merge-base', '--is-ancestor', origin.mainTip, 'feature'), '');
 });
@@ -438,7 +438,7 @@ test('given a worker that ends successfully without merging the given sha, when 
   const { code, resolutions, requests } = await resolve({ origin, worker: pushEmptyCommit });
 
   assert.equal(code, 1);
-  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'error', reason: 'not-merged' }]);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'failed', reason: 'not-merged' }]);
   assert.ok(resolutions[0]?.detail?.includes(origin.mainTip));
   assert.equal(requests.some((query) => query.includes('mutation')), false);
 });
@@ -448,7 +448,7 @@ test('given a worker that pushes but leaves the pull request conflicting with th
   const { code, resolutions } = await resolve({ origin, worker: mergeAndPush, mergeable: ['CONFLICTING'] });
 
   assert.equal(code, 1);
-  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'error', reason: 'still-conflicting' }]);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'failed', reason: 'still-conflicting' }]);
   assert.ok(resolutions[0]?.detail?.includes(origin.mainTip));
 });
 
@@ -461,7 +461,7 @@ test('given a worker that merges the given sha and leaves every required check g
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'ok', reason: null }]);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'done', reason: null }]);
 });
 
 test('given a worker that merges the given sha but leaves a required check red, when the run ends, then the conflict resolution fails, naming that check', async () => {
@@ -474,7 +474,7 @@ test('given a worker that merges the given sha but leaves a required check red, 
 
   assert.equal(code, 1);
   assert.deepEqual(resolutions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'check-failed', detail: 'unit tests' },
+    { state: 'failed', reason: 'check-failed', detail: 'unit tests' },
   ]);
   assert.match(textOf(runsList), /Required check failed: unit tests/);
 });
@@ -489,7 +489,7 @@ test('given a worker that merges the given sha and ends while a required check i
 
   assert.equal(code, 1);
   assert.deepEqual(resolutions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
-    { state: 'error', reason: 'check-pending', detail: 'nixos vm' },
+    { state: 'failed', reason: 'check-pending', detail: 'nixos vm' },
   ]);
   assert.match(textOf(runsList), /Required check pending: nixos vm/);
 });
@@ -503,7 +503,7 @@ test('given required checks that are green and a red check that is not required,
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(resolutions.map(({ state }) => state), ['ok']);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['done']);
 });
 
 test('given a repository with no required checks, when a conflict resolution merges the given sha and the pull request no longer conflicts, then it ends ok', async () => {
@@ -511,7 +511,7 @@ test('given a repository with no required checks, when a conflict resolution mer
   const { code, resolutions } = await resolve({ origin, worker: mergeAndPush, checks: null });
 
   assert.equal(code, 0);
-  assert.deepEqual(resolutions.map(({ state }) => state), ['ok']);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['done']);
 });
 
 test('given GitHub still reports the pull request as conflicting right after the push, then not conflicting once it has recomputed, when the run ends, then the conflict resolution waits and ends ok', async () => {
@@ -523,7 +523,7 @@ test('given GitHub still reports the pull request as conflicting right after the
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(resolutions.map(({ state }) => state), ['ok']);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['done']);
   assert.equal(pauses.length, 2);
 });
 
@@ -532,7 +532,7 @@ test('given GitHub never stops reporting UNKNOWN, when the run ends, then the co
   const { code, resolutions } = await resolve({ origin, worker: mergeAndPush, mergeable: ['UNKNOWN'] });
 
   assert.equal(code, 1);
-  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'error', reason: 'still-conflicting' }]);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'failed', reason: 'still-conflicting' }]);
   assert.match(resolutions[0]?.detail ?? '', /did not say/);
 });
 
@@ -541,7 +541,7 @@ test('given the default branch gains a conflicting commit while the conflict res
   const { code, resolutions } = await resolve({ origin, worker: moveMainOnThenMerge });
 
   assert.equal(code, 0);
-  assert.deepEqual(resolutions.map(({ state }) => state), ['ok']);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['done']);
   assert.notEqual(git(origin.path, 'rev-parse', 'main'), origin.mainTip);
 });
 
@@ -549,7 +549,7 @@ test('given a harness that fails, when the conflict resolution ends, then it end
   const { code, resolutions, runs, requests } = await resolve({ harnessEnv: { FAKE_PI_EXIT: '1' } });
 
   assert.equal(code, 1);
-  assert.deepEqual(resolutions.map(({ state }) => state), ['error']);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['failed']);
   assert.equal(runs[0]?.status, 'error');
   assert.equal(requests.some((query) => query.includes('mutation')), false);
 });
@@ -560,7 +560,7 @@ test('given a repository the trial merge cannot clone, when forge-resolve-confli
   assert.equal(code, 1);
   assert.deepEqual(
     resolutions.map(({ runId, state, reason, failedStarts }) => ({ runId, state, reason, failedStarts })),
-    [{ runId: null, state: 'error', reason: 'not-started', failedStarts: 1 }],
+    [{ runId: null, state: 'failed', reason: 'not-started', failedStarts: 1 }],
   );
   assert.match(resolutions[0]?.detail ?? '', /unable to access the repository/);
   assert.deepEqual(runs, []);
@@ -573,7 +573,7 @@ test('given the worker checkout cannot be cloned after the trial merge found con
   assert.equal(code, 1);
   assert.deepEqual(
     resolutions.map(({ runId, state, reason, failedStarts }) => ({ runId, state, reason, failedStarts })),
-    [{ runId: null, state: 'error', reason: 'not-started', failedStarts: 1 }],
+    [{ runId: null, state: 'failed', reason: 'not-started', failedStarts: 1 }],
   );
   assert.equal(pi, null);
 });
@@ -589,7 +589,7 @@ test('given a worker that ran and a GitHub that then fails the readiness check, 
 
   assert.deepEqual(
     resolutions.map(({ runId, state, reason, failedStarts }) => ({ runId, state, reason, failedStarts })),
-    [{ runId: runs[0]?.id, state: 'error', reason: 'crashed', failedStarts: null }],
+    [{ runId: runs[0]?.id, state: 'failed', reason: 'crashed', failedStarts: null }],
   );
 });
 

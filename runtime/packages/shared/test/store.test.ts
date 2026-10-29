@@ -1031,7 +1031,7 @@ test('given a conflict resolution left running past the heartbeat window, when c
 
   const later = '2026-09-21T11:00:00.000Z';
 
-  assert.deepEqual(store.listConflictResolutions(later).map(({ state }) => state), ['interrupted']);
+  assert.deepEqual(store.listConflictResolutions(later).map(({ state, reason }) => ({ state, reason })), [{ state: 'failed', reason: 'interrupted' }]);
   assert.equal(store.liveWorkloads(later), 0);
   assert.ok('started' in store.startRevision(CONFLICTING_PULL_REQUEST, [], 'run-02', later, 1));
 });
@@ -1041,14 +1041,14 @@ test('given a conflict resolution that ends in failure, when conflict resolution
   const start = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', '2026-09-21T10:00:00.000Z', 1, { headSha: 'head-a', defaultSha: 'default-a' });
   assert.ok('started' in start);
 
-  store.endConflictResolution(start.started, 'error', '2026-09-21T10:05:00.000Z', {
+  store.endConflictResolution(start.started, 'failed', '2026-09-21T10:05:00.000Z', {
     reason: 'not-merged',
     detail: 'the head does not contain abc',
   });
 
   assert.deepEqual(
     store.listConflictResolutions('2026-09-21T10:06:00.000Z').map(({ state, reason, detail, endedAt }) => ({ state, reason, detail, endedAt })),
-    [{ state: 'error', reason: 'not-merged', detail: 'the head does not contain abc', endedAt: '2026-09-21T10:05:00.000Z' }],
+    [{ state: 'failed', reason: 'not-merged', detail: 'the head does not contain abc', endedAt: '2026-09-21T10:05:00.000Z' }],
   );
 });
 
@@ -1067,7 +1067,7 @@ test('given a conflict resolution that fails before its harness starts, when con
 
   assert.deepEqual(
     store.listConflictResolutions('2026-09-21T10:01:00.000Z').map(({ runId, state, reason, detail, failedStarts }) => ({ runId, state, reason, detail, failedStarts })),
-    [{ runId: null, state: 'error', reason: 'not-started', detail: 'clone failed', failedStarts: 1 }],
+    [{ runId: null, state: 'failed', reason: 'not-started', detail: 'clone failed', failedStarts: 1 }],
   );
   assert.equal(store.liveWorkloads('2026-09-21T10:01:00.000Z'), 0);
 });
@@ -1088,7 +1088,7 @@ test('given a conflict resolution that ran and failed, when the next one fails t
   const store = Store.open(':memory:');
   const ran = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', '2026-09-21T10:00:00.000Z', 10, PAIR);
   assert.ok('started' in ran);
-  store.endConflictResolution(ran.started, 'error', '2026-09-21T10:05:00.000Z', { reason: 'crashed', detail: null });
+  store.endConflictResolution(ran.started, 'failed', '2026-09-21T10:05:00.000Z', { reason: 'crashed', detail: null });
 
   failToStart(store, 'run-02', '2026-09-21T10:10:00.000Z', 'clone failed');
 
@@ -1152,7 +1152,7 @@ test('given a revision that fails before its harness starts, when revisions are 
 
   assert.deepEqual(
     store.listRevisions('2026-09-21T10:01:00.000Z').map(({ runId, state, reason, detail, failedStarts }) => ({ runId, state, reason, detail, failedStarts })),
-    [{ runId: null, state: 'error', reason: 'not-started', detail: 'clone failed', failedStarts: 1 }],
+    [{ runId: null, state: 'failed', reason: 'not-started', detail: 'clone failed', failedStarts: 1 }],
   );
   assert.equal(store.liveWorkloads('2026-09-21T10:01:00.000Z'), 0);
 });
@@ -1177,7 +1177,7 @@ test('given a pull request with no revision started, when its pre-harness step f
 
   assert.deepEqual(
     store.listRevisions('2026-09-21T10:06:00.000Z').map(({ runId, state, reason, detail, failedStarts }) => ({ runId, state, reason, detail, failedStarts })),
-    [{ runId: null, state: 'error', reason: 'not-started', detail: 'second', failedStarts: 2 }],
+    [{ runId: null, state: 'failed', reason: 'not-started', detail: 'second', failedStarts: 2 }],
   );
 });
 
@@ -1192,7 +1192,7 @@ test('given a live revision of the pull request, when a pre-harness failure is r
 
 test('given a revision that ran and failed, when the next one fails to start, then the failed start is its own record with a count of one', () => {
   const store = Store.open(':memory:');
-  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'error', '2026-09-21T10:05:00.000Z', { reason: 'crashed', detail: null });
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'failed', '2026-09-21T10:05:00.000Z', { reason: 'crashed', detail: null });
 
   failRevisionToStart(store, '2026-09-21T10:10:00.000Z', 'clone failed');
 
@@ -1204,7 +1204,7 @@ test('given a revision that ran and failed, when the next one fails to start, th
 
 test('given a revision whose latest record is a failed start and feedback the timer already saw, when the timer checks, then the pull request is due again', () => {
   const store = Store.open(':memory:');
-  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'done', '2026-09-21T10:01:00.000Z');
   store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
   failRevisionToStart(store, '2026-09-21T10:10:00.000Z', 'clone failed');
   store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
@@ -1225,7 +1225,7 @@ test('given a failed start that a later revision ran past, when the timer checks
   const store = Store.open(':memory:');
   store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
   failRevisionToStart(store, '2026-09-21T10:10:00.000Z', 'clone failed');
-  store.endRevision(startedRevision(store, '2026-09-21T10:20:00.000Z').id, 'ok', '2026-09-21T10:21:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:20:00.000Z').id, 'done', '2026-09-21T10:21:00.000Z');
   store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
 
   assert.deepEqual(store.feedbackDue('2026-09-21T11:00:00.000Z', 600), []);
@@ -1256,12 +1256,12 @@ test('given a database from before revision failed starts, when it is opened, th
   );
 });
 
-for (const state of ['error', 'exceeded', 'interrupted'] as const) {
+for (const state of ['failed', 'exceeded', 'interrupted'] as const) {
   test(`given a revision that ended ${state}, when the next revision starts, then its window begins where the failed one's began`, () => {
     const store = Store.open(':memory:');
-    store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+    store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'done', '2026-09-21T10:01:00.000Z');
     const failed = startedRevision(store, '2026-09-21T10:10:00.000Z');
-    store.endRevision(failed.id, state, '2026-09-21T10:11:00.000Z');
+    store.endRevision(failed.id, 'failed', '2026-09-21T10:11:00.000Z', state === 'failed' ? undefined : { reason: state, detail: null });
 
     assert.equal(startedRevision(store, '2026-09-21T10:20:00.000Z').after, '2026-09-21T10:00:00.000Z');
   });
@@ -1269,23 +1269,23 @@ for (const state of ['error', 'exceeded', 'interrupted'] as const) {
 
 test('given a revision that ended ok, when the next revision starts, then its window begins where the ok one began', () => {
   const store = Store.open(':memory:');
-  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'done', '2026-09-21T10:01:00.000Z');
 
   assert.equal(startedRevision(store, '2026-09-21T10:10:00.000Z').after, '2026-09-21T10:00:00.000Z');
 });
 
 test('given a first revision that ended in error, when the next revision starts, then its window has no beginning', () => {
   const store = Store.open(':memory:');
-  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'error', '2026-09-21T10:01:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'failed', '2026-09-21T10:01:00.000Z');
 
   assert.equal(startedRevision(store, '2026-09-21T10:10:00.000Z').after, null);
 });
 
 test('given a revision that ended error over feedback the timer saw, when the timer checks later, then the pull request is not due until newer feedback arrives', () => {
   const store = Store.open(':memory:');
-  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'done', '2026-09-21T10:01:00.000Z');
   store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
-  store.endRevision(startedRevision(store, '2026-09-21T10:10:00.000Z').id, 'error', '2026-09-21T10:11:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:10:00.000Z').id, 'failed', '2026-09-21T10:11:00.000Z');
 
   store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:05:00.000Z')]);
   assert.deepEqual(store.feedbackDue('2026-09-21T11:00:00.000Z', 600), []);
@@ -1296,8 +1296,8 @@ test('given a revision that ended error over feedback the timer saw, when the ti
 
 test('given a revision that ended error and then new feedback, when the next revision starts, then its window begins before the failed revision so it holds both', () => {
   const store = Store.open(':memory:');
-  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
-  store.endRevision(startedRevision(store, '2026-09-21T10:10:00.000Z').id, 'error', '2026-09-21T10:11:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'done', '2026-09-21T10:01:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:10:00.000Z').id, 'failed', '2026-09-21T10:11:00.000Z');
   store.recordWatchedPullRequests('forge', [watched('2026-09-21T10:30:00.000Z')]);
 
   assert.equal(startedRevision(store, '2026-09-21T10:40:00.000Z').after, '2026-09-21T10:00:00.000Z');
@@ -1305,13 +1305,13 @@ test('given a revision that ended error and then new feedback, when the next rev
 
 test('given a revision left running with a stale heartbeat, when a new revision starts, then the stale one is interrupted and the new window begins where the stale one began', () => {
   const store = Store.open(':memory:');
-  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'ok', '2026-09-21T10:01:00.000Z');
+  store.endRevision(startedRevision(store, '2026-09-21T10:00:00.000Z').id, 'done', '2026-09-21T10:01:00.000Z');
   const stale = startedRevision(store, '2026-09-21T10:10:00.000Z');
 
   const next = startedRevision(store, '2026-09-21T11:00:00.000Z');
 
   assert.equal(next.after, '2026-09-21T10:00:00.000Z');
-  assert.equal(store.listRevisions('2026-09-21T11:00:00.000Z').find(({ id }) => id === stale.id)?.state, 'interrupted');
+  assert.equal(store.listRevisions('2026-09-21T11:00:00.000Z').find(({ id }) => id === stale.id)?.reason, 'interrupted');
 });
 
 test('given a repository with stored requests, when its frontier is replaced, then only the new requests remain', () => {
@@ -1357,3 +1357,37 @@ test('given a store file whose unconfirmed run predates the unconfirmed estimate
   assert.equal(run?.unconfirmedEstimateUsd, 0.36);
   store.close();
 });
+
+for (const [table, list] of [['revisions', 'listRevisions'], ['conflict_resolutions', 'listConflictResolutions']] as const) {
+  test(`given ${table} recorded as ok, error, exceeded and interrupted, when the store is opened, then they read as done, failed with their reason, failed exceeded with its limit, and failed interrupted`, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'forge-store-'));
+    const path = join(dir, 'forge.db');
+    const seeded = Store.open(path);
+    seeded.insertRun(sampleRun({ id: 'run-over', status: 'exceeded', exceededLimit: 'budget' }));
+    seeded.close();
+    const raw = new DatabaseSync(path);
+    const insert = raw.prepare(
+      `INSERT INTO ${table} (repository, number, url, run_id, state, reason, detail, started_at, alive_at, ended_at)
+      VALUES ('forge', $number, 'https://github.com/rameezk/forge/pull/1', $run_id, $state, $reason, $detail,
+        '2026-09-21T09:00:00.000Z', '2026-09-21T09:00:00.000Z', '2026-09-21T09:05:00.000Z')`,
+    );
+    insert.run({ number: 1, run_id: null, state: 'ok', reason: null, detail: null });
+    insert.run({ number: 2, run_id: null, state: 'error', reason: 'crashed', detail: 'boom' });
+    insert.run({ number: 3, run_id: 'run-over', state: 'exceeded', reason: null, detail: null });
+    insert.run({ number: 4, run_id: null, state: 'interrupted', reason: null, detail: null });
+    raw.close();
+
+    const store = Store.open(path);
+
+    assert.deepEqual(
+      store[list]('2026-09-21T09:06:00.000Z').map(({ state, reason, detail }) => ({ state, reason, detail })),
+      [
+        { state: 'done', reason: null, detail: null },
+        { state: 'failed', reason: 'crashed', detail: 'boom' },
+        { state: 'failed', reason: 'exceeded', detail: 'budget' },
+        { state: 'failed', reason: 'interrupted', detail: null },
+      ],
+    );
+    store.close();
+  });
+}
