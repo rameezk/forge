@@ -65,7 +65,7 @@ const renderListPriceNote = (runs: RunRecord[], equivalents: Map<string, ListPri
 };
 
 const renderTotals = (runs: RunRecord[], all: RunRecord[], filter: WorkloadFilter, equivalents: Map<string, ListPriceEquivalent>): Rendered =>
-  html`<div class="mb-4 flex flex-wrap items-start gap-3" data-showing>
+  html`<div class="mb-4 flex flex-wrap items-stretch gap-3" data-showing>
     ${renderTile('workloads', 'Workloads', html`${runs.length}`, isFiltered(filter) ? html`of ${all.length}` : '')}
     ${renderTile('cost', 'Cost', renderCostFigure(runs), renderListPriceNote(runs, equivalents))}
   </div>`;
