@@ -16,6 +16,8 @@ const COHORT_TH = 'border-b border-line bg-raised px-2.5 py-2.5 text-[0.65rem] f
 
 const COHORT_TD = 'border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap text-right tabular-nums';
 
+const RUN_TD = 'border-t border-line px-2.5 py-2.5 align-baseline text-right tabular-nums';
+
 const INPUT = 'rounded-md border border-line bg-surface px-2 py-1.5 text-[0.9rem] font-normal normal-case tracking-normal text-fg';
 
 const renderOptions = (values: string[], selected: string | undefined): Rendered =>
@@ -56,12 +58,12 @@ const COST_TITLE = html` title="List-price equivalent, not billed"`;
 
 const renderRunTime = (metric: string, iso: string | null, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   iso === null
-    ? html`<td class="${COHORT_TD}" data-metric="${metric}">n/a</td>`
-    : html`<td class="${COHORT_TD}" data-metric="${metric}" title="${formatStarted(iso, timeZone)}">${formatMinute(iso, timeZone)}</td>`;
+    ? html`<td class="${RUN_TD}" data-metric="${metric}">n/a</td>`
+    : html`<td class="${RUN_TD}" data-metric="${metric}" title="${formatStarted(iso, timeZone)}">${formatMinute(iso, timeZone).split(' ').map((part) => html`<span class="whitespace-nowrap">${part}</span>`).reduce((joined, part) => html`${joined} ${part}`)}</td>`;
 
 const renderCohort = (cohort: CohortInsight, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
-    <td class="border-t border-line px-2.5 py-2.5 align-baseline whitespace-nowrap font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${cohort.activeFor.length === 0 ? '' : html` ${renderActiveBadge(cohort.activeFor)}`}</td>
+    <td class="border-t border-line px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${cohort.activeFor.length === 0 ? '' : html` ${renderActiveBadge(cohort.activeFor)}`}</td>
     ${renderRunTime('first-run', cohort.firstRun, timeZone)}
     ${renderRunTime('last-run', cohort.lastRun, timeZone)}
     <td class="${COHORT_TD}" data-metric="workloads">${cohort.workloads}</td>
