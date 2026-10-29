@@ -1,9 +1,9 @@
 import { html } from 'hono/html';
-import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type RunStatus, type PullRequestWorkloadRecord, type RunPullRequestWorkload, type DispatchRecord } from '@forge/shared';
+import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type DispatchState, type PullRequestWorkloadRecord, type RunPullRequestWorkload, type DispatchRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
-import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderStatus, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, renderRunOutcome, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
+import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, ROW, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderRunLead, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, runStateOf, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
   pullRequestWorkload === undefined
@@ -11,8 +11,6 @@ const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | u
     : html`<span class="text-muted">${pullRequestWorkload.repository}</span> ${isGithubUrl(pullRequestWorkload.url)
     ? externalLink(pullRequestWorkload.url, `PR #${pullRequestWorkload.number}`)
     : html`PR #${pullRequestWorkload.number}`}`;
-
-const renderOutcomeBeside = (outcome: RunOutcome | null): Rendered => (outcome === null ? '' : renderRunOutcome(outcome));
 
 const renderReasonLine = (run: RunRecord, outcome: RunOutcome | null): Rendered => {
   const reason = runReasonOf(run, outcome);
@@ -23,7 +21,7 @@ const renderReasonLine = (run: RunRecord, outcome: RunOutcome | null): Rendered 
 
 const renderStatusCell = (run: RunRecord, pullRequestWorkload: PullRequestWorkloadRecord | undefined, dispatch: DispatchRecord | undefined): Rendered => {
   const outcome = runOutcomeOf(pullRequestWorkload, dispatch);
-  return html`<div class="flex flex-wrap items-center gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(outcome)}</div>${renderReasonLine(run, outcome)}`;
+  return html`<div class="flex flex-wrap items-center gap-1.5">${renderRunLead(run.status, outcome)}</div>${renderReasonLine(run, outcome)}`;
 };
 
 const renderListCost = (run: RunRecord, equivalents: Map<string, ListPriceEquivalent>): Rendered => {
@@ -96,15 +94,17 @@ const renderSelect = (label: string, name: string, values: string[], selected: s
 const unique = (values: (string | undefined)[]): string[] =>
   [...new Set(values.filter((value): value is string => value !== undefined))].sort();
 
-const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string, now: number): Rendered => {
-  const scoped = filterWorkloads(all, filter, timeZone, now, true);
-  const chips: { key: string; label: string; status: RunStatus | undefined; count: number }[] = [
+type StateOf = (run: RunRecord) => DispatchState;
+
+const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string, now: number, stateOf: StateOf): Rendered => {
+  const scoped = filterWorkloads(all, filter, timeZone, now, stateOf, true);
+  const chips: { key: string; label: string; status: DispatchState | undefined; count: number }[] = [
     { key: 'all', label: 'All', status: undefined, count: scoped.length },
     ...STATUSES.map((status) => ({
       key: status,
       label: status[0]!.toUpperCase() + status.slice(1),
       status,
-      count: scoped.filter((run) => run.status === status).length,
+      count: scoped.filter((run) => stateOf(run) === status).length,
     })),
   ];
   return html`<div class="mb-2 sm:mb-3">
@@ -187,7 +187,7 @@ const renderRunCard = (run: RunRecord, runWorkload: RunPullRequestWorkload | und
   const outcome = runOutcomeOf(pullRequestWorkload, dispatch);
   return html`<article class="relative flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 text-[0.9rem]" data-run-card="${run.id}">
     <a href="/runs/${run.id}" class="absolute -inset-px rounded-lg" aria-label="Open ${run.worker} workload" data-card-link></a>
-    <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime, timeZone)}<div class="flex flex-wrap items-center justify-end gap-1.5">${renderStatus(run.status)}${renderOutcomeBeside(outcome)}</div></div>
+    <div class="flex items-center justify-between gap-3">${renderTimestamp(run.startTime, timeZone)}<div class="flex flex-wrap items-center justify-end gap-1.5">${renderRunLead(run.status, outcome)}</div></div>
     ${renderReasonLine(run, outcome)}
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><div class="relative" data-run-ticket>${renderTicketCell(run, runWorkload, dispatch)}</div><span class="font-semibold">${run.worker}</span></div>
     <div class="flex flex-wrap items-baseline justify-between gap-x-3"><span class="wrap-anywhere text-muted">${run.model}</span><span data-effort>${configuredEffort(run)}</span></div>
@@ -209,7 +209,8 @@ export const renderList = (
   display: Display,
   now: number,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const runs = filterWorkloads(all, filter, display.timeZone, now);
+  const stateOf: StateOf = (run) => runStateOf(run.status, runOutcomeOf(pullRequestWorkloads.get(run.id)?.workload, dispatches.get(run.id)));
+  const runs = filterWorkloads(all, filter, display.timeZone, now, stateOf);
   const paged = paginate(runs, requestedPage);
   const body =
     all.length === 0
@@ -217,7 +218,7 @@ export const renderList = (
           <p class="${EMPTY}">No workloads have run yet.</p>`
       : html`<h1 class="${PAGE_TITLE}">Workloads</h1>
           ${renderTotals(runs, all, filter, equivalents)}
-          ${renderChips(all, filter, display.timeZone, now)}
+          ${renderChips(all, filter, display.timeZone, now, stateOf)}
           ${renderFilters(all, filter)}
           ${runs.length === 0
             ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`

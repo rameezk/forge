@@ -108,12 +108,12 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
   await expectNotReloaded(page);
 });
 
-test('given the runs list filtered to Error, when a run fails and another succeeds, then only the failed one joins the list and the counts follow without a reload', async ({
+test('given the runs list filtered to Failed, when a run fails and another succeeds, then only the failed one joins the list and the counts follow without a reload', async ({
   dashboard,
   page,
 }) => {
   dashboard.store.insertRun({ ...runningRun, id: 'earlier', worker: 'earlier-worker', status: 'success', endTime: '2026-09-21T10:03:20.000Z', costStatus: 'billed' });
-  await openLive(page, '/workloads?status=error');
+  await openLive(page, '/workloads?status=failed');
   await expect(page.getByText('No workloads match.')).toBeVisible();
 
   dashboard.store.insertRun({ ...runningRun, id: 'failed', worker: 'failing-worker', status: 'error', endTime: '2026-09-21T10:03:20.000Z', costStatus: 'billed' });

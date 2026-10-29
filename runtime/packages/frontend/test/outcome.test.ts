@@ -67,31 +67,31 @@ const dashboard = () => {
 };
 
 const EXPECTED: [string, string][] = [
-  ['unanswered', 'success failed Unanswered: https://github.com/rameezk/forge/pull/9#issuecomment-1'],
-  ['reasonless', 'success failed no reason recorded'],
-  ['good', 'success done'],
+  ['unanswered', 'failed Unanswered: https://github.com/rameezk/forge/pull/9#issuecomment-1'],
+  ['reasonless', 'failed no reason recorded'],
+  ['good', 'done'],
 ];
 
-test('given runs whose revisions ended with a reason, with no reason, and ok, when the list is requested, then each row shows success with its revision outcome beside it', async () => {
+test('given runs whose revisions ended with a reason, with no reason, and ok, when the list is requested, then each row leads with its revision outcome and no success pill', async () => {
   const body = await (await dashboard().request('/workloads')).text();
 
   for (const [id, expected] of EXPECTED) {
     const row = body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
-    const cell = row.match(/<td[^>]*>(?:(?!<\/td>)[\s\S])*data-status[\s\S]*?<\/td>/)?.[0] ?? 'missing';
+    const cell = row.match(/<td[^>]*>(?:(?!<\/td>)[\s\S])*data-(?:status|outcome)[\s\S]*?<\/td>/)?.[0] ?? 'missing';
     assert.equal(textOf(cell), expected, id);
     const card = body.match(new RegExp(`<article[^>]*\\sdata-run-card="${id}"[\\s\\S]*?</article>`))?.[0] ?? '';
     assert.ok(textOf(card).includes(expected), id);
   }
 });
 
-test('given the same runs, when each run page is requested, then the summary shows success with the revision outcome beside it, the reason sits in its own block, and the Revises link carries the outcome', async () => {
+test('given the same runs, when each run page is requested, then the summary leads with the revision outcome, the reason sits in its own block, and the Revises link carries the outcome', async () => {
   const app = dashboard();
 
   for (const [id, expected] of EXPECTED) {
     const body = await (await app.request(`/runs/${id}`)).text();
     const summary = body.match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? 'missing';
-    const [status, outcome] = expected.split(' ');
-    assert.ok(textOf(summary).startsWith([status, outcome].join(' ')), id);
+    assert.ok(textOf(summary).startsWith(expected.split(' ')[0]!), id);
+    assert.doesNotMatch(summary, /data-status="success"/, id);
     assert.doesNotMatch(summary, /Unanswered|no reason recorded/, id);
     const revises = body.match(/<dd[^>]*\sdata-revised-pull-request[\s>][\s\S]*?<\/dd>/)?.[0] ?? 'missing';
     assert.match(revises, /\sdata-outcome="(done|failed)"/, id);
@@ -103,10 +103,10 @@ test('given a conflict resolution that failed and one still running, when the li
   const list = await (await app.request('/workloads')).text();
   const row = (id: string): string => list.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
 
-  assert.match(textOf(row('resolved')), /success failed Not merged: abc1234 is missing/);
+  assert.match(textOf(row('resolved')), /failed Not merged: abc1234 is missing/);
   assert.doesNotMatch(row('resolving'), /data-outcome=/);
   const page = await (await app.request('/runs/resolved')).text();
-  assert.match(textOf(page.match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), /^success failed/);
+  assert.match(textOf(page.match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? ''), /^failed/);
   assert.match(textOf(page.match(/<details[^>]*\sdata-reason[\s>][\s\S]*?<\/details>/)?.[0] ?? ''), /Not merged\s*: abc1234 is missing/);
   assert.doesNotMatch(await (await app.request('/runs/resolving')).text(), /data-outcome=/);
 });
@@ -132,6 +132,6 @@ test('given a revision that failed as exceeded on its budget and one that failed
   ).text();
   const row = (id: string): string => textOf(body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '');
 
-  assert.match(row('over'), /success failed Exceeded: budget/);
-  assert.match(row('cut'), /success failed Interrupted/);
+  assert.match(row('over'), /failed Exceeded: budget/);
+  assert.match(row('cut'), /failed Interrupted/);
 });

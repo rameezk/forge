@@ -289,13 +289,11 @@ test.describe('on a phone screen', () => {
     expect(link).toEqual(box);
   });
 
-  test('given status chips wider than the screen, when Workloads is opened, then the chips scroll sideways in one row and the page does not', async ({ dashboard, page }) => {
+  test('given the status chips, when Workloads is opened, then they sit in one row and the page does not scroll sideways', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
     await page.goto('/workloads');
 
-    const chips = page.locator('[data-status-chips]');
-    expect(await chips.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
     const tops = await page.locator('[data-status-chip]').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
     expect(new Set(tops).size).toBe(1);
     expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
@@ -311,7 +309,7 @@ test.describe('on a phone screen', () => {
       return { top: top + element.clientTop, bottom: top + element.clientTop + element.clientHeight };
     });
     const chips = await page.locator('[data-status-chip]').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect()).map(({ top, bottom }) => ({ top, bottom })));
-    expect(chips).toHaveLength(6);
+    expect(chips).toHaveLength(4);
     for (const chip of chips) {
       expect(chip.top).toBeGreaterThanOrEqual(row.top);
       expect(chip.bottom).toBeLessThanOrEqual(row.bottom);

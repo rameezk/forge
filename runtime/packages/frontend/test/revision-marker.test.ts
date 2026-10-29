@@ -55,11 +55,11 @@ const dashboard = () => {
 const summaryOf = async (id: string): Promise<string> =>
   (await (await dashboard().request(`/runs/${id}`)).text()).match(/<p[^>]*\sdata-summary[\s>][\s\S]*?<\/p>/)?.[0] ?? 'missing';
 
-test('given a revision run of PR #489, when its page is requested, then the summary shows a revision pill after the status pill followed by revises PR #489 linked to the pull request', async () => {
+test('given a revision run of PR #489, when its page is requested, then the summary shows a revision pill after the outcome pill followed by revises PR #489 linked to the pull request', async () => {
   const summary = await summaryOf('revision');
 
   assert.match(summary, /<span[^>]*\sdata-revision-pill>revision<\/span>/);
-  assert.match(textOf(summary), /^success done revision revises PR #489/);
+  assert.match(textOf(summary), /^done revision revises PR #489/);
   assert.match(summary, new RegExp(`<a[^>]*href="${PULL_REQUEST}"[^>]*>PR #489</a>`));
 });
 
