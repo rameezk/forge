@@ -157,7 +157,7 @@ test.describe('on a desktop screen', () => {
         return {
           height: box.height,
           totalGap: box.right - total.right,
-          titleOffset: titleBox.left - box.left - parseFloat(style.paddingLeft),
+          titleOffset: titleBox.left - box.left - parseFloat(style.borderLeftWidth) - parseFloat(style.paddingLeft),
           titleClipped: title.scrollWidth > title.clientWidth,
           subtitleLines: Math.round(subtitle.getBoundingClientRect().height / parseFloat(view.getComputedStyle(subtitle).lineHeight)),
           icon: icon ? { gap: total.left - icon.right, centre: icon.top + icon.height / 2 - glyphCentre } : null,
@@ -548,5 +548,75 @@ test.describe('clicking a card', () => {
 
       await expect(page).toHaveURL(/\/runs\/run-7$/);
     });
+  });
+});
+
+const DIVIDER = { dark: 'rgb(97, 110, 136)', light: 'rgb(194, 202, 216)' };
+const LINE = { dark: 'rgb(76, 86, 106)', light: 'rgb(216, 222, 233)' };
+
+const leftBorders = (scope: ReturnType<Page['locator']>) =>
+  scope.evaluateAll((elements) =>
+    elements.map((element) => {
+      const style = element.ownerDocument.defaultView!.getComputedStyle(element);
+      return { left: element.getBoundingClientRect().left, border: { width: style.borderLeftWidth, style: style.borderLeftStyle, color: style.borderLeftColor } };
+    }),
+  );
+
+test.describe('column dividers', () => {
+  test.use({ viewport: { width: 1600, height: 800 } });
+
+  for (const scheme of ['dark', 'light'] as const) {
+    test(`given the Board in ${scheme} mode with a lane of cards, when it is opened, then every column header after the first carries a 1px left divider in the divider colour lined up with the card-row column below, and card borders keep the general border colour`, async ({ dashboard, page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      seed(dashboard.store, [ticket(1)]);
+      await page.goto('/');
+      await expect(page.locator('[data-column-header]')).toHaveCount(9);
+
+      const headers = await leftBorders(page.locator('[data-column-header]'));
+      const columns = await leftBorders(page.locator('[data-repository] [data-column]'));
+      const cardBorder = await page.locator('[data-ticket]').evaluate((card) => card.ownerDocument.defaultView!.getComputedStyle(card).borderLeftColor);
+
+      const divider = { width: '1px', style: 'solid', color: DIVIDER[scheme] };
+      for (const row of [headers, columns]) {
+        expect(row).toHaveLength(9);
+        expect(row[0]!.border.width).toBe('0px');
+        expect(row.slice(1).map(({ border }) => border)).toEqual(Array(8).fill(divider));
+      }
+      headers.forEach(({ left }, index) => expect(left).toBeCloseTo(columns[index]!.left, 0));
+      expect(cardBorder).toBe(LINE[scheme]);
+    });
+  }
+
+  test('given the Board grouped by Spec, when it is opened, then the repository header and each spec band heading span the full board width and carry no column dividers', async ({ dashboard, page }) => {
+    seed(dashboard.store, [{ ...ticket(1), parent: spec(20) }, { ...ticket(2), parent: spec(10) }]);
+    await page.goto('/?group=spec');
+    await expect(page.locator('[data-spec-band]')).toHaveCount(2);
+
+    const headers = await page.locator('[data-column-header]').evaluateAll((elements) => [elements[0]!.getBoundingClientRect().left, elements[elements.length - 1]!.getBoundingClientRect().right]);
+    const rows = await page.locator('[data-lane-toggle], [data-band-head]').evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        return { left: box.left, right: box.right, borderLeft: element.ownerDocument.defaultView!.getComputedStyle(element).borderLeftWidth, dividers: element.querySelectorAll('[data-column]').length };
+      }),
+    );
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.left).toBeLessThanOrEqual(headers[0]! + 2);
+      expect(row.right).toBeGreaterThanOrEqual(headers[1]! - 2);
+      expect(row.borderLeft).toBe('0px');
+      expect(row.dividers).toBe(0);
+    }
+  });
+});
+
+test.describe('column dividers on a narrow screen', () => {
+  test.use({ viewport: { width: 390, height: 800 } });
+
+  test('given a phone-width screen, when the Board is opened, then no stage section carries a left column divider', async ({ dashboard, page }) => {
+    seed(dashboard.store, stagedTickets());
+    await page.goto('/');
+
+    const columns = await leftBorders(page.locator('[data-column]:visible'));
+    expect(columns.map(({ border }) => border.width)).toEqual(['0px', '0px', '0px']);
   });
 });

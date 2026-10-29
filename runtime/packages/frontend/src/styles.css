@@ -6,6 +6,7 @@
   --color-surface: light-dark(#FFFFFF, #3B4252);
   --color-raised: light-dark(#F5F7FA, #434C5E);
   --color-line: light-dark(#D8DEE9, #4C566A);
+  --color-column-line: light-dark(#C2CAD8, #616E88);
   --color-fg: light-dark(#2E3440, #ECEFF4);
   --color-muted: light-dark(#4C566A, #AEB7C7);
   --color-accent: #F26B1D;
