@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, amended by ADR-0047 and ADR-0085
+Accepted, amended by ADR-0047, ADR-0085 and ADR-0088
 
 ## Context
 
