@@ -12,7 +12,7 @@ Forge records each workload's transcript, token usage and billed cost, and shows
 
 ![A 35-second tour of Forge](docs/media/forge-teaser.gif)
 
-The full walkthrough, at double speed:
+The full walkthrough:
 
 https://github.com/user-attachments/assets/a77af824-46ef-4097-97f2-26e4a7ff7ccd
 
