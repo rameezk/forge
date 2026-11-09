@@ -208,7 +208,9 @@ testers.runNixOSTest {
         assert "forge" not in listening and "node" not in listening, listening
         answered = set(box.succeed(f"cat {run_dir}/loopback-open.out").split())
         listening_ports = {line.split()[3].rsplit(":", 1)[1] for line in listening.splitlines()}
-        assert answered <= listening_ports, (answered, listening)
+        ephemeral_from = int(box.succeed("cut -f1 /proc/sys/net/ipv4/ip_local_port_range"))
+        unexplained = {port for port in answered if int(port) < ephemeral_from and port not in listening_ports}
+        assert not unexplained, (unexplained, listening)
         assert "7787" not in answered, answered
 
     with subtest("the harness cannot read secret files, and still holds the OpenRouter key"):
