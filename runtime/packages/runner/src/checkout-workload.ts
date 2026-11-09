@@ -82,7 +82,7 @@ export const launchInCheckout = async ({
     openWorkspace: async (workDir) => {
       await cloneCheckout(github, workDir, cloneEnv, { branch, blobless: !conflictResolution });
       const baseCommit = await headCommit(workDir, { ...hostEnv, ...gitEnv });
-      const checkout = resolveCheckout(workDir, loadSkills);
+      const checkout = await resolveCheckout(workDir, loadSkills);
       const devShell = await enterDevShell({
         sandbox: sandboxOf(env),
         system: nixSystem,

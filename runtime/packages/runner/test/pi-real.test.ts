@@ -343,7 +343,7 @@ const delegateSkill: Workload = async (workDir) => {
   }
   return {
     prompt: '/delegate both tasks',
-    checkout: resolveCheckout(
+    checkout: await resolveCheckout(
       workDir,
       await loadPiSkills(piPackage as string),
     ),
