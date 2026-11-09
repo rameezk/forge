@@ -75,21 +75,32 @@ export const enterDevShell = async ({
   system,
   root,
   env,
+  signal,
 }: {
   sandbox: Sandbox;
   system: string;
   root: string;
   env: Record<string, string>;
+  signal?: AbortSignal;
 }): Promise<DevShell | undefined> => {
   if (!existsSync(join(root, 'flake.nix'))) {
     return undefined;
   }
-  const { stdout, exited } = spawnSandboxed(
+  const { child, stdout, exited } = spawnSandboxed(
     sandbox,
     'nix',
     ['print-dev-env', '--json', '--no-write-lock-file', `.#.devShells.${system}.default`],
     { name: PRINT_DEV_ENV, workDir: root, env },
   );
+  const stop = (): void => {
+    child.kill('SIGKILL');
+  };
+  if (signal?.aborted) {
+    stop();
+  } else if (signal !== undefined) {
+    signal.addEventListener('abort', stop, { once: true });
+    void exited.finally(() => signal.removeEventListener('abort', stop));
+  }
   const printed = collect(stdout);
   const failure = await exited;
   if (failure instanceof SandboxUnavailable) {

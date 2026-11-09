@@ -16,11 +16,12 @@ import {
   type Mergeable,
   type PullRequestConflict,
 } from '@forge/shared';
-import { maxConcurrentOf, repositoryTriggeredBy, resolveWorker } from './config.ts';
+import { maxConcurrentOf, repositoryTriggeredBy, resolveWorker, setupTimeoutOf } from './config.ts';
 import { inspectCheckout, launchInCheckout } from './checkout-workload.ts';
 import { gitEnvironment } from './git.ts';
 import { conflictInstruction } from './harness.ts';
 import { conflictedFiles, containsCommit } from './merge.ts';
+import { SetupTimedOut } from './setup.ts';
 import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
 import { readRuntimeConfig, stateDirOf } from './workload.ts';
 
@@ -195,7 +196,9 @@ export const main = async (
           app,
           gitEnv,
           id: `${runId}-trial`,
-          inspect: (dir, cloneEnv) => conflictedFiles(dir, cloneEnv, target.defaultSha),
+          inspect: (dir, cloneEnv, signal) =>
+            conflictedFiles(dir, cloneEnv, target.defaultSha, signal),
+          setupTimeoutSeconds: setupTimeoutOf(config),
         });
         if (files.length > 0) {
           const launched = await launchInCheckout({
@@ -221,6 +224,13 @@ export const main = async (
             runId,
             conflictResolution: true,
           });
+          if (launched.run.harnessStartTime == null && launched.cause instanceof SetupTimedOut) {
+            store.endConflictResolution(resolutionId, 'failed', now(), {
+              reason: 'errored',
+              detail: launched.run.error,
+            });
+            return 1;
+          }
           if (launched.run.harnessStartTime == null) {
             store.failConflictResolutionStart(
               resolutionId,
@@ -247,7 +257,12 @@ export const main = async (
           }
         }
       } catch (error) {
-        if (store.getRun(runId)?.harnessStartTime == null) {
+        if (error instanceof SetupTimedOut) {
+          store.endConflictResolution(resolutionId, 'failed', now(), {
+            reason: 'errored',
+            detail: error.message,
+          });
+        } else if (store.getRun(runId)?.harnessStartTime == null) {
           store.failConflictResolutionStart(resolutionId, errorMessage(error), now());
         } else {
           store.endConflictResolution(resolutionId, 'failed', now(), {

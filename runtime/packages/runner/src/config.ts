@@ -45,12 +45,22 @@ export const DEFAULT_QUIET_PERIOD_SECONDS = 600;
 export const quietPeriodOf = (config: RuntimeConfig): number =>
   config.feedback?.quietPeriodSeconds ?? DEFAULT_QUIET_PERIOD_SECONDS;
 
+export interface WorkloadConfig {
+  setupTimeoutSeconds?: number;
+}
+
+export const DEFAULT_SETUP_TIMEOUT_SECONDS = 1800;
+
+export const setupTimeoutOf = (config: RuntimeConfig): number =>
+  config.workload?.setupTimeoutSeconds ?? DEFAULT_SETUP_TIMEOUT_SECONDS;
+
 export interface RuntimeConfig {
   harnesses: Record<string, HarnessConfig>;
   workers: Record<string, WorkerConfig>;
   repositories?: Record<string, RepositoryConfig>;
   dispatch?: DispatchConfig;
   feedback?: FeedbackConfig;
+  workload?: WorkloadConfig;
 }
 
 const effortsOf = (harness: string): readonly string[] | undefined =>

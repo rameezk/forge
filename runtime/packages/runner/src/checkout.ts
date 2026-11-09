@@ -1,9 +1,10 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { readdir, realpath, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Checkout } from './harness.ts';
+import { finish, killOnAbort } from './setup.ts';
 
 export type SkillLoader = (options: {
   cwd: string;
@@ -64,7 +65,11 @@ export const cloneCheckout = (
   github: string,
   dir: string,
   env: NodeJS.ProcessEnv,
-  { branch, blobless }: { branch?: string | undefined; blobless: boolean },
+  {
+    branch,
+    blobless,
+    signal,
+  }: { branch?: string | undefined; blobless: boolean; signal?: AbortSignal },
 ): Promise<void> =>
   new Promise((resolve, reject) => {
     const child = spawn(
@@ -78,8 +83,9 @@ export const cloneCheckout = (
         `https://github.com/${github}.git`,
         dir,
       ],
-      { env, stdio: ['ignore', 'ignore', 'pipe'] },
+      { env, stdio: ['ignore', 'ignore', 'pipe'], detached: signal !== undefined },
     );
+    if (signal !== undefined) killOnAbort(child, signal);
     let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
@@ -99,15 +105,21 @@ export const cloneCheckout = (
     });
   });
 
-export const headCommit = (
+export const headCommit = async (
   dir: string,
   env: NodeJS.ProcessEnv,
-): Promise<string> =>
-  new Promise((resolve, reject) => {
-    execFile('git', ['rev-parse', 'HEAD'], { cwd: dir, env }, (error, stdout) =>
-      error === null ? resolve(stdout.trim()) : reject(error),
-    );
+  signal?: AbortSignal,
+): Promise<string> => {
+  const { code, stdout, stderr } = await finish('git', ['rev-parse', 'HEAD'], {
+    cwd: dir,
+    env,
+    ...(signal === undefined ? {} : { signal }),
   });
+  if (code !== 0) {
+    throw new Error(`git rev-parse failed: ${stderr.trim() || `exited with ${code}`}`);
+  }
+  return stdout.trim();
+};
 
 const refuseUnsafeLinks = async (
   root: string,

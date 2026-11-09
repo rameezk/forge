@@ -1442,6 +1442,9 @@
             {
               workers,
               repositories ? { },
+              revised ? { },
+              resolved ? { },
+              setupTimeout ? null,
             }:
             secretsHost exampleSecretsFile {
               forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
@@ -1457,14 +1460,23 @@
               forge.runtime.repositories = lib.mapAttrs (_: worker: {
                 github = "rameezk/forge";
                 on.ticket = worker;
-              }) repositories;
+              }) repositories
+              // lib.mapAttrs' (name: worker: lib.nameValuePair "${name}-revised" {
+                github = "rameezk/forge";
+                on.feedback = worker;
+              }) revised
+              // lib.mapAttrs' (name: worker: lib.nameValuePair "${name}-resolved" {
+                github = "rameezk/forge";
+                on.conflict = worker;
+              }) resolved;
+              forge.runtime.workload.setupTimeout = lib.mkIf (setupTimeout != null) setupTimeout;
             };
           startTimeoutOf =
             host: unit: (host.config.systemd.services.${unit}.serviceConfig or { }).TimeoutStartSec or null;
           scheduledBackstopOf =
             host: name:
             (host.config.systemd.services."forge-runner@${name}".serviceConfig or { }).TimeoutStartSec or null;
-          scheduledBackstopIsTimeoutPlusThirtyMinutes =
+          scheduledBackstopCoversSetupAndTimeout =
             let
               host = backstopHost {
                 workers = {
@@ -1472,10 +1484,16 @@
                   default = { };
                 };
               };
+              slow = backstopHost {
+                workers.hour.timeout = "1h";
+                setupTimeout = "2h";
+              };
             in
             lib.asserts.assertMsg (
-              scheduledBackstopOf host "hour" == 5400 && scheduledBackstopOf host "default" == 9000
-            ) "a scheduled worker's runner unit must stop 30 minutes past its own worker's timeout: 90 minutes for a 1 hour timeout and 150 for the 2 hour default";
+              scheduledBackstopOf host "hour" == 6300
+              && scheduledBackstopOf host "default" == 9900
+              && scheduledBackstopOf slow "hour" == 11700
+            ) "a scheduled worker's runner unit must stop 15 minutes past the setup timeout plus its own worker's timeout: 105 minutes for a 1 hour timeout and 165 for the 2 hour default, and 195 once the setup timeout is 2 hours";
           scheduledBackstopKeepsTheWorkloadToolset =
             let
               host = backstopHost {
@@ -1496,8 +1514,27 @@
               };
             in
             lib.asserts.assertMsg (
-              scheduledBackstopOf host "forever" == null && scheduledBackstopOf host "hour" == 5400
+              scheduledBackstopOf host "forever" == null && scheduledBackstopOf host "hour" == 6300
             ) "a scheduled worker whose timeout is null must have no start timeout on its runner unit";
+          setupTimeoutDefaultsToThirtyMinutes =
+            let
+              setupOf = host: host.config.forge.runtime.settings.workload.setupTimeoutSeconds;
+            in
+            lib.asserts.assertMsg (
+              setupOf (backstopHost { workers.hour.timeout = "1h"; }) == 1800
+              && setupOf (backstopHost { workers.hour.timeout = "1h"; setupTimeout = "45min"; }) == 2700
+            ) "the runtime config must carry the setup timeout in seconds: 30 minutes by default and forge.runtime.workload.setupTimeout otherwise";
+          setupTimeoutCannotBeTurnedOff =
+            lib.asserts.assertMsg
+              (
+                !(evaluates (secretsHost exampleSecretsFile {
+                  imports = [ dispatchModule ];
+                  forge.runtime.workload.setupTimeout = null;
+                }))
+                && !(evaluates (backstopHost { workers.hour.timeout = "1h"; setupTimeout = "0s"; }))
+                && evaluates (backstopHost { workers.hour.timeout = "1h"; setupTimeout = "45min"; })
+              )
+              "forge.runtime.workload.setupTimeout must be a positive systemd time span, so null or zero must fail evaluation and setup is always bounded";
           workerNamesFitUnitNames =
             lib.asserts.assertMsg
               (
@@ -1510,7 +1547,7 @@
                 && evaluates (backstopHost { workers."Plain_name-2" = { }; })
               )
               "a worker name must use only letters, digits, `_` and `-`, so that the unit instance forge-runner@<name> and its backstop drop-in carry the same name";
-          dispatchBackstopIsLongestTimeoutPlusThirtyMinutes =
+          sharedBackstopCoversSetupAndLongestTimeout =
             let
               host = backstopHost {
                 workers = {
@@ -1522,11 +1559,15 @@
                   alpha = "short";
                   beta = "long";
                 };
+                revised.alpha = "long";
+                resolved.alpha = "long";
               };
             in
             lib.asserts.assertMsg (
-              startTimeoutOf host "forge-dispatch@" == 12600
-            ) "every dispatch unit must share one backstop: the longest timeout of any dispatching worker plus 30 minutes, and a worker no repository dispatches must not count";
+              startTimeoutOf host "forge-dispatch@" == 13500
+              && startTimeoutOf host "forge-revise@" == 13500
+              && startTimeoutOf host "forge-resolve-conflicts@" == 13500
+            ) "every dispatch, revision and conflict resolution unit must share one backstop: the setup timeout plus the longest timeout of the workers concerned plus 15 minutes, and a worker no repository uses must not count";
           unlimitedDispatchingWorkerRemovesDispatchBackstop =
             let
               host = backstopHost {
@@ -1805,14 +1846,16 @@
             '';
 
           runtime-workload-backstop =
-            assert scheduledBackstopIsTimeoutPlusThirtyMinutes;
+            assert setupTimeoutDefaultsToThirtyMinutes;
+            assert setupTimeoutCannotBeTurnedOff;
+            assert scheduledBackstopCoversSetupAndTimeout;
             assert scheduledBackstopKeepsTheWorkloadToolset;
             assert workerNamesFitUnitNames;
             assert unlimitedScheduledWorkerHasNoBackstop;
-            assert dispatchBackstopIsLongestTimeoutPlusThirtyMinutes;
+            assert sharedBackstopCoversSetupAndLongestTimeout;
             assert unlimitedDispatchingWorkerRemovesDispatchBackstop;
             pkgs.runCommand "runtime-workload-backstop" { } ''
-              echo "a scheduled worker's runner unit stops 30 minutes past its own timeout, every dispatch unit shares the longest dispatching timeout plus 30 minutes, and a null timeout leaves its units with no start timeout" > $out
+              echo "a scheduled worker's runner unit stops 15 minutes past the setup timeout plus its own timeout, every shared unit stops 15 minutes past the setup timeout plus the longest timeout of its workers, a null timeout leaves its units with no start timeout, and the setup timeout is 30 minutes by default and cannot be null" > $out
             '';
 
           runtime-workload-budget =

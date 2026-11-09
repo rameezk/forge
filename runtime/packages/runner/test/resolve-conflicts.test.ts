@@ -27,6 +27,7 @@ import {
   routedThrough,
 } from '../../shared/test/fixtures/fake-github-app.ts';
 import {
+  alive,
   billedAt,
   fakeOpenRouter,
   git,
@@ -110,6 +111,9 @@ interface Scenario {
   mergeable?: string[];
   failingQuery?: string;
   failingClone?: number;
+  hangingTrialMerge?: boolean;
+  hangingWorkerClone?: boolean;
+  setupTimeoutSeconds?: number;
   pullRequest?: Partial<PullRequestState>;
   harnessEnv?: Record<string, string>;
   maxConcurrent?: number;
@@ -129,6 +133,7 @@ interface Outcome {
   pauses: number[];
   runsList: string;
   thrown: string | null;
+  hungChild: number | null;
 }
 
 const conflictsWith = (origin: Origin, target: string): boolean => {
@@ -143,9 +148,15 @@ const conflictsWith = (origin: Origin, target: string): boolean => {
   }
 };
 
-const recordingGit = (dir: string, failingClone: number | undefined): { bin: string; log: string } => {
+const recordingGit = (
+  dir: string,
+  failingClone: number | undefined,
+  hangingTrialMerge: boolean,
+  hangingWorkerClone: boolean,
+): { bin: string; log: string; hung: string } => {
   const bin = join(dir, 'git-recorder');
   const log = join(dir, 'git-calls.log');
+  const hung = join(dir, 'hung-child.pid');
   const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
   mkdirSync(bin);
   writeFileSync(
@@ -154,16 +165,24 @@ const recordingGit = (dir: string, failingClone: number | undefined): { bin: str
       failingClone === undefined
         ? ''
         : `case " $* " in *" clone "*) [ "$(grep -cE '(^| )clone ' '${log}')" -ge ${failingClone} ] && { echo 'fatal: unable to access the repository' >&2; exit 128; };; esac\n`
+    }${
+      hangingWorkerClone
+        ? `case " $* " in *" clone "*) [ "$(grep -cE '(^| )clone ' '${log}')" -ge 2 ] && { sleep 300 & wait; };; esac\n`
+        : ''
+    }${
+      hangingTrialMerge
+        ? `case " $* " in *" merge --no-commit "*) sleep 300 & echo $! > '${hung}'; wait;; esac\n`
+        : ''
     }exec '${real}' "$@"\n`,
   );
   chmodSync(join(bin, 'git'), 0o755);
-  return { bin, log };
+  return { bin, log, hung };
 };
 
 const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin = scenario.origin ?? originWhere('conflicts');
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-resolve-conflicts-'));
-  const recorder = recordingGit(stateDir, scenario.failingClone);
+  const recorder = recordingGit(stateDir, scenario.failingClone, scenario.hangingTrialMerge === true, scenario.hangingWorkerClone === true);
   const record = join(stateDir, 'pi-call.json');
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -180,6 +199,9 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
       repositories: {
         forge: { github: 'rameezk/forge', on: { conflict: 'resolver' } },
       },
+      ...(scenario.setupTimeoutSeconds === undefined
+        ? {}
+        : { workload: { setupTimeoutSeconds: scenario.setupTimeoutSeconds } }),
       dispatch: {
         ...(scenario.maxConcurrent === undefined ? {} : { maxConcurrent: scenario.maxConcurrent }),
       },
@@ -346,6 +368,7 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
       requests,
       pauses,
       thrown,
+      hungChild: existsSync(recorder.hung) ? Number(readFileSync(recorder.hung, 'utf8')) : null,
       runsList: await (
         await createApp({
           store,
@@ -590,6 +613,42 @@ test('given a worker that ran and a GitHub that then fails the readiness check, 
   assert.deepEqual(
     resolutions.map(({ runId, state, reason, failedStarts }) => ({ runId, state, reason, failedStarts })),
     [{ runId: runs[0]?.id, state: 'failed', reason: 'crashed', failedStarts: null }],
+  );
+});
+
+test('given a conflict resolution whose trial merge never finishes, when forge-resolve-conflicts runs, then it ends failed as errored once the setup timeout passes, naming the limit, kills the merge, starts no worker and leaves the pull request untouched', async () => {
+  const { code, resolutions, runs, pi, requests, hungChild } = await resolve({
+    hangingTrialMerge: true,
+    setupTimeoutSeconds: 1,
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(
+    resolutions.map(({ state, reason }) => ({ state, reason })),
+    [{ state: 'failed', reason: 'errored' }],
+  );
+  assert.equal(
+    resolutions[0]?.detail,
+    'the trial merge did not finish within 1s, stuck in the merge',
+  );
+  assert.deepEqual(runs, []);
+  assert.equal(pi, null);
+  assert.equal(requests.some((query) => query.includes('mutation')), false);
+  assert.notEqual(hungChild, null);
+  assert.equal(alive(hungChild as number), false);
+});
+
+test('given a worker checkout whose clone never finishes after the trial merge found conflicts, when forge-resolve-conflicts runs, then the run ends error at the setup timeout and the conflict resolution fails as errored, naming the limit, with no harness started', async () => {
+  const { code, pi, runs, resolutions } = await resolve({ hangingWorkerClone: true, setupTimeoutSeconds: 1 });
+
+  const error = 'setup did not finish within 1s, stuck in the clone';
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.equal(runs[0]?.status, 'error');
+  assert.equal(runs[0]?.error, error);
+  assert.deepEqual(
+    resolutions.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'errored', detail: error }],
   );
 });
 

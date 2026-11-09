@@ -553,6 +553,7 @@ interface Scenario {
   nix?: FakeNix;
   bwrapFailure?: string;
   timeoutSeconds?: number;
+  setupTimeoutSeconds?: number;
   maxCostUsd?: number;
   models?: unknown;
   piLingerMs?: number;
@@ -570,6 +571,7 @@ interface FakeNix {
   stdout?: string;
   stderr?: string;
   exit?: number;
+  hangs?: boolean;
 }
 
 interface NixCall {
@@ -596,7 +598,7 @@ const writeFakeNix = (dir: string, record: string, nix: FakeNix): string => {
     `#!${process.execPath}
 import { appendFileSync, writeFileSync } from 'node:fs';
 appendFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env: process.env }) + '\\n');
-process.stdout.write(${JSON.stringify(stdout)});
+${nix.hangs === true ? 'setInterval(() => {}, 1000);\n' : ''}process.stdout.write(${JSON.stringify(stdout)});
 process.stderr.write(${JSON.stringify(nix.stderr ?? '')});
 process.exitCode = ${nix.exit ?? 0};
 if (process.env.FAKE_BWRAP_STATUS_FD) process.on('exit', (code) => writeFileSync(Number(process.env.FAKE_BWRAP_STATUS_FD), JSON.stringify({ 'exit-code': code }) + '\\n'));
@@ -690,6 +692,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       repositories: {
         forge: { github: 'rameezk/forge', on: { ticket: 'builder' } },
       },
+      ...(scenario.setupTimeoutSeconds === undefined
+        ? {}
+        : { workload: { setupTimeoutSeconds: scenario.setupTimeoutSeconds } }),
       dispatch: {
         ...(scenario.maxConcurrent === undefined
           ? {}
@@ -1377,6 +1382,34 @@ test('given a checkout whose devShell fails to evaluate, when the ticket is disp
     dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
     [{ state: 'failed', reason: 'devshell-failed', detail: "error: undefined variable 'mkShel'" }],
   );
+});
+
+test('given a dispatched ticket whose devShell never finishes, when forge-dispatch runs, then the run ends error at the setup timeout naming the limit and the stage, pi never starts, the dispatch fails as errored rather than exceeded, and the ticket becomes forge:failed with one fixed comment', async () => {
+  const { code, pi, runs, dispatches, labelWrites } = await dispatch({
+    origin: originWith({
+      '.claude/skills/work-on/SKILL.md': SKILL,
+      'flake.nix': FLAKE,
+    }),
+    nix: { hangs: true },
+    setupTimeoutSeconds: 1,
+    pullRequests: closing('no-pull-request'),
+  });
+
+  const error = 'setup did not finish within 1s, stuck in the devShell';
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.equal(runs[0]?.status, 'error');
+  assert.equal(runs[0]?.error, error);
+  assert.equal(runs[0]?.harnessStartTime, null);
+  assert.deepEqual(
+    dispatches.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'errored', detail: error }],
+  );
+  assert.deepEqual(
+    labelWrites.slice(2),
+    finalLabelWrites('forge:failed').map((write) => ({ ...write, piStarted: false })),
+  );
+  assert.equal(labelWrites.filter(({ path }) => path.endsWith('/comments')).length, 1);
 });
 
 const NIX_BUILD_FAILURE = [

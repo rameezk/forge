@@ -508,3 +508,12 @@ export const gitConfigOf = (entries: Record<string, string>): Record<string, str
       [`GIT_CONFIG_VALUE_${index}`, value],
     ]),
   ]);
+
+export const alive = (pid: number): boolean => {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return !stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z');
+  } catch {
+    return false;
+  }
+};

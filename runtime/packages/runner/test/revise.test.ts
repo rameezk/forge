@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -246,6 +247,8 @@ interface Scenario {
   piPackage?: string;
   timeoutSeconds?: number;
   piLingerMs?: number;
+  hangingClone?: boolean;
+  setupTimeoutSeconds?: number;
 }
 
 interface Outcome {
@@ -282,6 +285,20 @@ const nextRevisionAfter = (store: Store): string | null => {
   return 'started' in next ? next.after : null;
 };
 
+const hangingCloneGit = (dir: string): string => {
+  const bin = join(dir, 'git-hanging-clone');
+  mkdirSync(bin);
+  writeFileSync(
+    join(bin, 'git'),
+    `#!/bin/sh\ncase " $* " in *" clone "*) sleep 300 & wait;; esac\nexec git-real "$@"\n`.replace(
+      'git-real',
+      execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
+    ),
+  );
+  chmodSync(join(bin, 'git'), 0o755);
+  return bin;
+};
+
 const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin =
     scenario.origin ?? originWith({ '.claude/skills/address-feedback/SKILL.md': SKILL });
@@ -303,6 +320,9 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       repositories: {
         forge: { github: 'rameezk/forge', on: { feedback: 'reviser' } },
       },
+      ...(scenario.setupTimeoutSeconds === undefined
+        ? {}
+        : { workload: { setupTimeoutSeconds: scenario.setupTimeoutSeconds } }),
       dispatch: {
         ...(scenario.maxConcurrent === undefined ? {} : { maxConcurrent: scenario.maxConcurrent }),
       },
@@ -359,7 +379,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   const code = await main(
     ['forge', '143'],
     {
-      PATH: process.env.PATH,
+      PATH: scenario.hangingClone === true ? `${hangingCloneGit(stateDir)}:${process.env.PATH}` : process.env.PATH,
       HOME: stateDir,
       FORGE_NIX_SYSTEM: 'x86_64-linux',
       FORGE_RUNTIME_CONFIG: configPath,
@@ -907,6 +927,19 @@ test('given GitHub rejects the feedback window query, when forge-revise runs, th
   assert.equal(pi, null);
   assert.deepEqual(revisions.map(({ runId, state, reason, detail }) => ({ runId, state, reason, detail })), [
     { runId: null, state: 'failed', reason: 'not-started', detail: message },
+  ]);
+});
+
+test('given a worker checkout whose clone never finishes, when forge-revise runs, then the run ends error at the setup timeout and the revision fails as errored, naming the limit, with no harness started', async () => {
+  const { code, pi, runs, revisions } = await revise({ hangingClone: true, setupTimeoutSeconds: 1 });
+
+  const error = 'setup did not finish within 1s, stuck in the clone';
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.equal(runs[0]?.status, 'error');
+  assert.equal(runs[0]?.error, error);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'failed', reason: 'errored', detail: error },
   ]);
 });
 
