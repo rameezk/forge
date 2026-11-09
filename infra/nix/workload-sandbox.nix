@@ -200,7 +200,8 @@ testers.runNixOSTest {
 
     with subtest("the dashboard is up on its socket, and the harness can neither see it nor reach it over loopback or the tailnet"):
         dashboard_socket = "/run/forge-frontend/dashboard.sock"
-        assert "Runs" in box.succeed(f"runuser -u forge-runtime -- curl -fsS --unix-socket {dashboard_socket} http://dashboard/workloads")
+        page = box.succeed(f"runuser -u forge-runtime -- curl -fsS --unix-socket {dashboard_socket} http://dashboard/workloads")
+        assert "Workloads" in page, page
         assert seen["see dashboard socket"] == "denied", seen
         assert seen["reach tailnet address"] == "denied", seen
         listening = box.succeed("ss -Htlnp")
