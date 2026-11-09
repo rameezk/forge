@@ -541,7 +541,7 @@
           ) "the stateDir description must say run directories age out after 14 days and transcripts are kept, matching the tmpfiles rules";
 
           frontendUnit = workerHost.config.systemd.services.forge-frontend;
-          dashboardPort = workerHost.config.forge.runtime.dashboardPort;
+          dashboardSocket = "/run/forge-frontend/dashboard.sock";
 
           frontendDeclared = lib.asserts.assertMsg (
             (workerHost.config.systemd.services ? forge-frontend)
@@ -553,11 +553,17 @@
             && frontendUnit.serviceConfig.Group == "forge-runtime"
             && lib.hasInfix "forge-frontend" frontendUnit.serviceConfig.ExecStart
           ) "the dashboard must run forge-frontend as the forge-runtime user";
-          frontendLocalhostOnly = lib.asserts.assertMsg (
-            lib.any (e: e == "FORGE_FRONTEND_HOST=127.0.0.1") frontendUnit.serviceConfig.Environment
-            && frontendUnit.serviceConfig.IPAddressAllow == "localhost"
+          frontendSocketOnly = lib.asserts.assertMsg (
+            lib.elem "FORGE_FRONTEND_SOCKET=${dashboardSocket}" frontendUnit.serviceConfig.Environment
+            && !(lib.any (lib.hasPrefix "FORGE_FRONTEND_HOST=") frontendUnit.serviceConfig.Environment)
+            && !(lib.any (lib.hasPrefix "FORGE_FRONTEND_PORT=") frontendUnit.serviceConfig.Environment)
+            && frontendUnit.serviceConfig.RuntimeDirectory == "forge-frontend"
+            && frontendUnit.serviceConfig.RuntimeDirectoryMode == "0700"
+            && frontendUnit.serviceConfig.RestrictAddressFamilies == [ "AF_UNIX" ]
             && frontendUnit.serviceConfig.IPAddressDeny == "any"
-          ) "the dashboard must bind localhost and refuse non-loopback addresses";
+            && !(frontendUnit.serviceConfig ? IPAddressAllow)
+            && frontendUnit.serviceConfig.PrivateNetwork == true
+          ) "the dashboard must serve only on its unix socket in a runtime directory, with no TCP listener and no network";
           frontendTimeZone = unit: lib.findFirst (lib.hasPrefix "FORGE_DASHBOARD_TIME_ZONE=") null unit.serviceConfig.Environment;
           badTimeZoneHost = mkHost {
             configFile = exampleConfigFile;
@@ -602,18 +608,9 @@
               lib.hasInfix "forge.runtime.dashboard.timeZone" message && lib.hasInfix "Mars/Olympus" message
             ) (failedAssertions badTimeZoneHost)
           ) "a display time zone that is not an IANA zone in tzdata must fail evaluation with an assertion naming it";
-          firewall = workerHost.config.networking.firewall;
-          firewallAllowLists = [ firewall ] ++ lib.attrValues firewall.interfaces;
-          frontendNoPublicPort =
-            lib.asserts.assertMsg
-              (lib.all (
-                allowList:
-                !(lib.elem dashboardPort (allowList.allowedTCPPorts ++ allowList.allowedUDPPorts))
-                && lib.all (range: dashboardPort < range.from || dashboardPort > range.to) (
-                  allowList.allowedTCPPortRanges ++ allowList.allowedUDPPortRanges
-                )
-              ) firewallAllowLists)
-              "the dashboard port must never be opened in any firewall allow-list: it is reached only through tailscale serve";
+          noDashboardPortOption = lib.asserts.assertMsg (
+            !(workerHost.config.forge.runtime ? dashboardPort)
+          ) "the dashboard has no port option: it listens on a unix socket";
           frontendReachesOnlyItsState =
             unit:
             unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
@@ -648,21 +645,18 @@
             isUnitSandboxed unit
             && unit.serviceConfig.ProtectKernelTunables == true
             && frontendReachesOnlyItsState unit
-            &&
-              unit.serviceConfig.RestrictAddressFamilies == [
-                "AF_INET"
-                "AF_INET6"
-                "AF_UNIX"
-              ]
-            && unit.serviceConfig.IPAddressAllow == "localhost"
-            && unit.serviceConfig.IPAddressDeny == "any";
+            && unit.serviceConfig.RestrictAddressFamilies == [ "AF_UNIX" ]
+            && unit.serviceConfig.IPAddressDeny == "any"
+            && !(unit.serviceConfig ? IPAddressAllow)
+            && unit.serviceConfig.PrivateNetwork == true
+            && unit.serviceConfig.RuntimeDirectory == "forge-frontend"
+            && unit.serviceConfig.RuntimeDirectoryMode == "0700";
           frontendSandboxed = lib.asserts.assertMsg (frontendIsLockedDown frontendUnit) "the dashboard unit must be sandboxed like the runner, reach transcripts read-only, see neither the work nor the agent directory, and keep the rest of the state directory writable so forge.db's WAL files work (ADR-0083)";
           servesDashboardOnTailnet =
             host:
             let
               unit = host.config.systemd.services.forge-frontend-tailnet;
               tailscaleBin = lib.getExe host.config.services.tailscale.package;
-              port = toString host.config.forge.runtime.dashboardPort;
             in
             (host.config.systemd.services ? forge-frontend-tailnet)
             && unit.wantedBy == [ "multi-user.target" ]
@@ -670,7 +664,7 @@
               "tailscaled-autoconnect.service"
               "forge-frontend.service"
             ]
-            && unit.serviceConfig.ExecStart == "${tailscaleBin} serve --https=443 http://127.0.0.1:${port}"
+            && unit.serviceConfig.ExecStart == "${tailscaleBin} serve --https=443 unix:${dashboardSocket}"
             && unit.serviceConfig.Restart == "always"
             && unit.serviceConfig.NoNewPrivileges == true
             && unit.serviceConfig.ProtectSystem == "strict"
@@ -705,7 +699,7 @@
               (host.config.systemd.services ? forge-frontend)
               && !(host.config.systemd.services ? forge-frontend-tailnet)
             ) "a host without tailscale must run the dashboard without a tailscale serve unit";
-          frontendOnTailnet = lib.asserts.assertMsg (servesDashboardOnTailnet workerHost) "declaring a worker must serve the localhost dashboard over HTTPS on the tailnet through a supervised tailscale serve unit, locked down to talking to tailscaled over its local socket with no capabilities, no writable paths and blind to the secrets";
+          frontendOnTailnet = lib.asserts.assertMsg (servesDashboardOnTailnet workerHost) "declaring a worker must serve the unix socket dashboard over HTTPS on the tailnet through a supervised tailscale serve unit, locked down to talking to tailscaled over its local socket with no capabilities, no writable paths and blind to the secrets";
 
           workerAndRepositoryHost = mkHost {
             configFile = exampleConfigFile;
@@ -1719,16 +1713,16 @@
           runtime-dashboard =
             assert frontendDeclared;
             assert frontendRunsAsUser;
-            assert frontendLocalhostOnly;
+            assert frontendSocketOnly;
             assert dashboardTimeZone;
             assert dashboardTimeZoneValidated;
-            assert frontendNoPublicPort;
+            assert noDashboardPortOption;
             assert frontendSandboxed;
             assert migrateRunsBeforeDashboard;
             assert frontendOnTailnet;
             assert frontendOffTailnetWithoutTailscale;
             pkgs.runCommand "runtime-dashboard" { } ''
-              echo "declaring a worker wires an always-on forge-frontend dashboard bound to localhost, opening no public port, and served over HTTPS on the tailnet through tailscale serve" > $out
+              echo "declaring a worker wires an always-on forge-frontend dashboard listening only on a unix socket, and served over HTTPS on the tailnet through tailscale serve" > $out
             '';
 
           runtime-frontier =

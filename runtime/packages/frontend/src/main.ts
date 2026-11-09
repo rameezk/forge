@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { serve } from '@hono/node-server';
+import { createAdaptorServer } from '@hono/node-server';
 import { Store } from '@forge/shared';
 import { createApp, type AppOptions } from './app.ts';
 import { resolveServeConfig } from './config.ts';
@@ -24,12 +24,12 @@ export const createDashboard = (
   });
 
 export const main = (env: NodeJS.ProcessEnv): void => {
-  const { stateDir, hostname, port, maxConcurrent, timeZone } = resolveServeConfig(env);
+  const { stateDir, socketPath, maxConcurrent, timeZone } = resolveServeConfig(env);
 
   const app = createDashboard(stateDir, Store.openReadOnly(join(stateDir, 'forge.db')), { maxConcurrent, timeZone });
 
-  serve({ fetch: app.fetch, hostname, port }, (info) => {
-    console.log(`forge dashboard listening on http://${info.address}:${info.port}`);
+  createAdaptorServer({ fetch: app.fetch }).listen(socketPath, () => {
+    console.log(`forge dashboard listening on ${socketPath}`);
   });
 };
 

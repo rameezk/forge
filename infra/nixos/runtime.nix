@@ -519,12 +519,6 @@ in
       description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-resolve-conflicts, forge-dispatch-pass, forge-billing, forge-migrate, forge-frontier and forge-frontend entry points.";
     };
 
-    dashboardPort = lib.mkOption {
-      type = lib.types.port;
-      default = 7787;
-      description = "Localhost TCP port the read-only dashboard binds to; reached over the tailnet through tailscale serve, never exposed publicly.";
-    };
-
     dashboard.timeZone = lib.mkOption {
       type = lib.types.str;
       default = "UTC";
@@ -980,7 +974,7 @@ in
       };
 
       systemd.services.forge-frontend = {
-        description = "Forge read-only workload dashboard (localhost only)";
+        description = "Forge read-only workload dashboard (unix socket only)";
         wantedBy = [ "multi-user.target" ];
         after = [
           "network.target"
@@ -994,20 +988,17 @@ in
           WorkingDirectory = cfg.stateDir;
           Environment = [
             "FORGE_STATE_DIR=${cfg.stateDir}"
-            "FORGE_FRONTEND_HOST=127.0.0.1"
-            "FORGE_FRONTEND_PORT=${toString cfg.dashboardPort}"
+            "FORGE_FRONTEND_SOCKET=/run/forge-frontend/dashboard.sock"
             "FORGE_DASHBOARD_TIME_ZONE=${cfg.dashboard.timeZone}"
             "FORGE_MAX_CONCURRENT=${toString cfg.dispatch.maxConcurrent}"
           ];
           ExecStart = "${cfg.package}/bin/forge-frontend";
           Restart = "on-failure";
 
-          RestrictAddressFamilies = [
-            "AF_INET"
-            "AF_INET6"
-            "AF_UNIX"
-          ];
-          IPAddressAllow = "localhost";
+          RuntimeDirectory = "forge-frontend";
+          RuntimeDirectoryMode = "0700";
+          PrivateNetwork = true;
+          RestrictAddressFamilies = [ "AF_UNIX" ];
           IPAddressDeny = "any";
         }
         // hardening
@@ -1035,7 +1026,7 @@ in
         ];
         serviceConfig = {
           Type = "exec";
-          ExecStart = "${lib.getExe config.services.tailscale.package} serve --https=443 http://127.0.0.1:${toString cfg.dashboardPort}";
+          ExecStart = "${lib.getExe config.services.tailscale.package} serve --https=443 unix:/run/forge-frontend/dashboard.sock";
           Restart = "always";
           RestartSec = "5s";
           CapabilityBoundingSet = "";

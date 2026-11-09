@@ -68,6 +68,11 @@ testers.runNixOSTest {
         gid = box.succeed("id -g forge-runtime").strip()
         return f"nsenter -t {pid} -m -S {uid} -G {gid} -- sh -c {command!r}"
 
+    socket = "/run/forge-frontend/dashboard.sock"
+
+    def fetch(path):
+        return f"runuser -u forge-runtime -- curl -fsS --unix-socket {socket} http://dashboard{path}"
+
     box.wait_for_unit("forge-frontend.service")
 
     with subtest("forge-migrate creates forge.db before the dashboard starts, and the dashboard serves its home page"):
@@ -75,7 +80,16 @@ testers.runNixOSTest {
         migrated = int(box.succeed("systemctl show -P ActiveEnterTimestampMonotonic forge-migrate.service"))
         served = int(box.succeed("systemctl show -P ActiveEnterTimestampMonotonic forge-frontend.service"))
         assert migrated <= served, f"forge-migrate became active at {migrated}, after the dashboard at {served}"
-        box.wait_until_succeeds("curl -fsS http://127.0.0.1:7787/ > /dev/null")
+        box.wait_until_succeeds(fetch("/workloads"))
+
+    with subtest("the dashboard serves the Runs page through its socket from outside its sandbox, and listens on no TCP port"):
+        page = box.succeed(fetch("/workloads"))
+        assert "Workloads" in page, page
+        box.succeed(f"test -S {socket}")
+        assert box.succeed(f"stat -c '%a %U' {socket.rsplit('/', 1)[0]}").strip() == "700 forge-runtime"
+        box.fail("ss -Htln | grep -q 7787")
+        box.fail("curl -sS --max-time 5 http://127.0.0.1:7787/")
+        assert "Workloads" in box.succeed(f"curl -fsS --unix-socket {socket} http://dashboard/workloads"), "root, as tailscaled is, cannot reach the socket"
 
     box.succeed(f"runuser -u forge-runtime -- sh -c 'echo transcript > {state}/transcripts/run-01.jsonl'")
     box.succeed(f"runuser -u forge-runtime -- sh -c 'mkdir -p {state}/work/run-01 {state}/agent/run-01 && echo report > {state}/work/run-01/report.md && echo auth > {state}/agent/run-01/auth.json'")
