@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Checkout } from './harness.ts';
@@ -27,9 +28,19 @@ const CONTEXT_FILES = ['AGENTS.md', 'CLAUDE.md'];
 
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+export const MAX_SKILL_ENTRIES = 10_000;
+
 const realpathOf = (path: string): string | null => {
   try {
     return realpathSync(path);
+  } catch {
+    return null;
+  }
+};
+
+const realpathOfAsync = async (path: string): Promise<string | null> => {
+  try {
+    return await realpath(path);
   } catch {
     return null;
   }
@@ -98,24 +109,31 @@ export const headCommit = (
     );
   });
 
-const refuseUnsafeLinks = (
+const refuseUnsafeLinks = async (
   root: string,
   dir: string,
   linked: boolean,
   reached: string[],
-): void => {
-  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+  visited: { count: number },
+): Promise<void> => {
+  const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) =>
     a.name.localeCompare(b.name),
   );
   for (const entry of entries) {
+    visited.count += 1;
+    if (visited.count > MAX_SKILL_ENTRIES) {
+      throw new Error(
+        `the checkout's skills hold more than ${MAX_SKILL_ENTRIES.toLocaleString('en-US')} entries, links included`,
+      );
+    }
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      refuseUnsafeLinks(root, path, linked, reached);
+      await refuseUnsafeLinks(root, path, linked, reached, visited);
     }
     if (!entry.isSymbolicLink()) {
       continue;
     }
-    const target = realpathOf(path);
+    const target = await realpathOfAsync(path);
     if (target === null) {
       continue;
     }
@@ -124,7 +142,7 @@ const refuseUnsafeLinks = (
         `'${relative(root, path)}' in the checkout's skills links outside the checkout`,
       );
     }
-    if (!statSync(target).isDirectory()) {
+    if (!(await stat(target)).isDirectory()) {
       continue;
     }
     if (linked) {
@@ -140,7 +158,7 @@ const refuseUnsafeLinks = (
       );
     }
     reached.push(target);
-    refuseUnsafeLinks(root, path, true, reached);
+    await refuseUnsafeLinks(root, path, true, reached, visited);
   }
 };
 
@@ -193,10 +211,10 @@ const skillLinesIn = (
   return lines;
 };
 
-export const resolveCheckout = (
+export const resolveCheckout = async (
   dir: string,
   loadSkills: SkillLoader,
-): Checkout => {
+): Promise<Checkout> => {
   const root = realpathSync(dir);
   const file = (path: string): string | null =>
     isFile(root, join(root, path)) ? join(root, path) : null;
@@ -208,8 +226,9 @@ export const resolveCheckout = (
         .some((earlier) => realpathOf(earlier) === realpathOf(path)),
   );
   const reached: string[] = [];
+  const visited = { count: 0 };
   for (const skills of skillPaths) {
-    refuseUnsafeLinks(root, skills, false, reached);
+    await refuseUnsafeLinks(root, skills, false, reached, visited);
   }
   const skills = skillsIn(root, skillPaths, loadSkills);
   return {
