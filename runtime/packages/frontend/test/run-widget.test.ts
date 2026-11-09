@@ -120,3 +120,53 @@ test('given a workload with no transcript, when its run page is opened, then the
   assert.equal(rows(body).length, 0);
   assert.match(textOf(widget(body)), /No transcript captured\./);
 });
+
+const spawn = (id: string, task: string): HarnessEvent => ({ type: 'tool_call', id, name: 'subagent', arguments: { task } });
+
+const within = (event: HarnessEvent, subagent: string): HarnessEvent => ({ ...event, subagent }) as HarnessEvent;
+
+test('given a subagent that narrated twice before reporting, when its run page is opened, then its widget row shows its task and its second narration, and not its report', async () => {
+  const body = await runPage([
+    spawn('call_a', 'Review the change'),
+    within(say('Reading the diff.'), 'call_a'),
+    within(say('Checking the tests.'), 'call_a'),
+    within(say('Final report.'), 'call_a'),
+    answer('call_a', 'Final report.'),
+  ]);
+
+  const [row] = rows(body);
+  assert.equal(rows(body).length, 1);
+  assert.match(textOf(row!), /Review the change/);
+  assert.match(textOf(row!), /Checking the tests\./);
+  assert.doesNotMatch(textOf(row!), /Reading the diff\.|Final report\./);
+});
+
+test('given a running subagent that narrates again, when its run page is opened, then its widget row shows the new narration', async () => {
+  const body = await runPage([
+    spawn('call_a', 'Review the change'),
+    within(say('Reading the diff.'), 'call_a'),
+    within(say('Checking the tests.'), 'call_a'),
+  ], { status: 'running', endTime: null });
+
+  assert.match(textOf(rows(body)[0]!), /Review the change.*Checking the tests\./);
+});
+
+test('given a subagent that never narrated, when its run page is opened, then its widget row shows only its task', async () => {
+  const body = await runPage([
+    spawn('call_a', 'Review the change'),
+    within(say('Final report.'), 'call_a'),
+    answer('call_a', 'Final report.'),
+  ]);
+
+  assert.equal(textOf(rows(body)[0]!), 'subagent Review the change');
+});
+
+test('given a failed subagent that narrated, when its run page is opened, then its widget row shows only its task', async () => {
+  const body = await runPage([
+    spawn('call_a', 'Review the change'),
+    within(say('Reading the diff.'), 'call_a'),
+    answer('call_a', 'boom', true),
+  ]);
+
+  assert.doesNotMatch(textOf(rows(body)[0]!), /Reading the diff\./);
+});

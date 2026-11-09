@@ -316,6 +316,11 @@ const latestNarration = (
       event.type === 'message' && event.role === 'assistant' && event !== reported && oneLine(event.text) !== '',
   )?.text;
 
+const narrationOf = (events: ScopedEvent[], report: ToolResultEvent | undefined): string | undefined => {
+  const shown = withoutToolOnlyPreambles(events);
+  return report?.isError === true ? undefined : latestNarration(shown, reportMessage(shown, report));
+};
+
 const renderTaskSummary = (task: string, narration: string | undefined): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<span class="flex min-w-0 flex-1 basis-40 flex-col">
     <span class="truncate text-[0.9rem]" data-subagent-task title="${oneLine(task)}">${oneLine(task)}</span>${narration === undefined
@@ -450,7 +455,7 @@ const renderSubagentCall = (
     </header>
     ${renderGroup(
       'border-t border-line',
-      renderTaskSummary(task, failed ? undefined : latestNarration(shown, reported)),
+      renderTaskSummary(task, narrationOf(events, report)),
       renderFigures(scope, events, shown, report, context),
       [
         typeof cwd === 'string' ? renderText('cwd', cwd, PATH) : '',
@@ -590,6 +595,7 @@ export interface WidgetRow {
   anchor: number;
   kind: string;
   summary: string;
+  narration?: string;
   timestamp: string | undefined;
   failed: boolean;
 }
@@ -603,10 +609,17 @@ const messageRow = (event: MessageEvent, prompt: MessageEvent | undefined): Pick
 
 const toolSummary = (call: ToolCallEvent): string => [call.name, argumentSummary(call.arguments)].filter((part) => part !== '').join(' ');
 
-const rowOf = (entry: TranscriptEntry, prompt: MessageEvent | undefined): Pick<WidgetRow, 'kind' | 'summary' | 'timestamp'> => {
+const rowOf = (entry: TranscriptEntry, prompt: MessageEvent | undefined, results: ToolResults): Pick<WidgetRow, 'kind' | 'summary' | 'narration' | 'timestamp'> => {
   switch (entry.type) {
-    case 'subagent':
-      return { kind: 'subagent', summary: entry.call === undefined ? entry.scope : oneLine(taskText(entry.call.arguments)), timestamp: undefined };
+    case 'subagent': {
+      const narration = narrationOf(entry.events, entry.call === undefined ? undefined : results.get(entry.call));
+      return {
+        kind: 'subagent',
+        summary: entry.call === undefined ? entry.scope : oneLine(taskText(entry.call.arguments)),
+        ...(narration === undefined ? {} : { narration: oneLine(narration) }),
+        timestamp: undefined,
+      };
+    }
     case 'message':
       return { ...messageRow(entry, prompt), timestamp: entry.timestamp };
     case 'tool_call':
@@ -626,7 +639,7 @@ export const widgetRows = (events: HarnessEvent[]): WidgetRow[] => {
   const { entries, positions, results, prompt } = listedEntries(events);
   return entries.map((entry) => ({
     anchor: anchorOf(entry, positions),
-    ...rowOf(entry, prompt),
+    ...rowOf(entry, prompt, results),
     failed: kindsOf(entry, results).includes('errors'),
   }));
 };
