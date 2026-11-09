@@ -5,6 +5,7 @@
   writeShellScriptBin,
   bash,
   util-linux,
+  curl,
   forge-runner,
   sopsModule,
   secretsFile,
@@ -67,8 +68,13 @@ let
           attempt "write home" "touch $HOME/scratch"
           attempt "write tmp" "touch /tmp/scratch"
           attempt "write run directory" "echo inside > inside.out"
+          attempt "see dashboard socket" "test -e /run/forge-frontend/dashboard.sock"
+          attempt "reach tailnet address" "{ : <> /dev/tcp/100.100.100.100/443; }"
           attempt "create user namespace" "${lib.getExe' util-linux "unshare"} --user true 2> userns.err"
         } > sandbox.out
+        for port in $(seq 1 65535); do
+          if { : <> "/dev/tcp/127.0.0.1/$port"; } 2> /dev/null; then echo "$port"; fi
+        done > loopback-open.out
         env | cut -d= -f1 | sort > env.out
         bash -c "$environment" > harness-environment.out
         bash -l -c "$environment; $tools" > login-shell.out
@@ -99,6 +105,7 @@ let
     '';
     system.activationScripts.setupSecrets.deps = [ "hostKey" ];
     sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
+    environment.systemPackages = [ curl ];
     forge.runtime.secretsFile = secretsFile;
     forge.runtime.package = forge-runner;
     forge.runtime.harnesses.pi.command = lib.getExe stubHarness;
@@ -190,6 +197,18 @@ testers.runNixOSTest {
         box.fail("test -e /var/lib/forge/transcripts/planted.jsonl")
         box.fail("test -e /var/lib/forge/work/other-run/planted")
         assert box.succeed("cat /var/lib/forge/work/other-run/report.md").strip() == "report"
+
+    with subtest("the dashboard is up on its socket, and the harness can neither see it nor reach it over loopback or the tailnet"):
+        dashboard_socket = "/run/forge-frontend/dashboard.sock"
+        assert "Runs" in box.succeed(f"runuser -u forge-runtime -- curl -fsS --unix-socket {dashboard_socket} http://dashboard/workloads")
+        assert seen["see dashboard socket"] == "denied", seen
+        assert seen["reach tailnet address"] == "denied", seen
+        listening = box.succeed("ss -Htlnp")
+        assert "forge" not in listening and "node" not in listening, listening
+        answered = set(box.succeed(f"cat {run_dir}/loopback-open.out").split())
+        listening_ports = {line.split()[3].rsplit(":", 1)[1] for line in listening.splitlines()}
+        assert answered <= listening_ports, (answered, listening)
+        assert "7787" not in answered, answered
 
     with subtest("the harness cannot read secret files, and still holds the OpenRouter key"):
         for name in ["read secrets", "read runner key", "read app id", "read app private key", "read credentials"]:

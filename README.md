@@ -60,7 +60,7 @@ flowchart TB
     end
 
     subgraph box["Forge box [NixOS]"]
-        frontend["<b>forge-frontend</b><br/>[Node.js]<br/>Read-only dashboard on localhost"]
+        frontend["<b>forge-frontend</b><br/>[Node.js]<br/>Read-only dashboard on a unix socket behind tailscale serve"]
         state[("<b>State</b><br/>[SQLite, files]<br/>/var/lib/forge: runs, transcripts and the frontier")]
         runner["<b>forge-runner@worker</b><br/>[Node.js]<br/>Runs one workload, sandboxed"]
         harness["<b>Harness</b><br/>[pi CLI]<br/>Agent runtime for the workload"]

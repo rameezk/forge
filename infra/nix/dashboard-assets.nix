@@ -10,7 +10,7 @@ in
 runCommand "dashboard-assets"
   {
     nativeBuildInputs = [ curl ];
-    meta.description = "Migrates a fresh state directory with the packaged forge-migrate, starts the packaged forge-frontend and checks a page links a content-hashed stylesheet that the dashboard serves as the package's Tailwind build, styling the page's classes, with an immutable cache header, that it loads the packaged idiomorph and live client the same way, and that the build-only Tailwind toolchain does not ship.";
+    meta.description = "Migrates a fresh state directory with the packaged forge-migrate, starts the packaged forge-frontend on a unix socket and fetches over it, checking a page links a content-hashed stylesheet that the dashboard serves as the package's Tailwind build, styling the page's classes, with an immutable cache header, that it loads the packaged idiomorph and live client the same way, and that the build-only Tailwind toolchain does not ship.";
   }
   ''
     fail() { echo "$1"; shift; for file in "$@"; do cat "$file"; done; exit 1; }
@@ -18,12 +18,9 @@ runCommand "dashboard-assets"
     [ ! -e ${runtime}/node_modules/@tailwindcss/typography ] && [ ! -e ${runtime}/node_modules/tailwindcss ] && [ ! -e ${runtime}/node_modules/@tailwindcss/cli ] || fail "the packaged runtime ships the build-only Tailwind toolchain"
 
     export FORGE_STATE_DIR="$(mktemp -d)"
-    for candidate in $(seq 17787 17887); do
-      curl -s -o /dev/null "http://127.0.0.1:$candidate/" || { FORGE_FRONTEND_PORT=$candidate; break; }
-    done
-    [ -n "''${FORGE_FRONTEND_PORT:-}" ] || fail "no free loopback port to start forge-frontend on"
-    export FORGE_FRONTEND_PORT
-    base="http://127.0.0.1:$FORGE_FRONTEND_PORT"
+    export FORGE_FRONTEND_SOCKET="$FORGE_STATE_DIR/dashboard.sock"
+    base="http://dashboard"
+    fetch() { curl --unix-socket "$FORGE_FRONTEND_SOCKET" "$@"; }
 
     ${lib.getExe' forge-runner "forge-migrate"} || fail "forge-migrate failed"
 
@@ -32,7 +29,7 @@ runCommand "dashboard-assets"
     trap 'kill $frontend 2>/dev/null || true' EXIT
 
     for _ in $(seq 100); do
-      curl -sf "$base/workloads" -o page.html && break
+      fetch -sf "$base/workloads" -o page.html && break
       kill -0 $frontend 2>/dev/null || fail "forge-frontend exited:" frontend.log
       sleep 0.1
     done
@@ -44,7 +41,7 @@ runCommand "dashboard-assets"
       *) fail "the Runs page links no hashed stylesheet:" page.html ;;
     esac
 
-    curl -sf -D headers.txt "$base$href" -o served.css || fail "the linked stylesheet $href is not served"
+    fetch -sf -D headers.txt "$base$href" -o served.css || fail "the linked stylesheet $href is not served"
     grep -qi '^content-type: text/css' headers.txt || fail "the stylesheet is not served as CSS:" headers.txt
     grep -qi '^cache-control:.*immutable' headers.txt || fail "the stylesheet is not cached as immutable:" headers.txt
     cmp -s served.css ${runtime}/packages/frontend/dist/dashboard.css || fail "the served stylesheet is not the package's build"
@@ -81,7 +78,7 @@ runCommand "dashboard-assets"
       name="$1" source="$2"
       src="$(grep -o "<script src=\"/assets/$name-[^\"]*\" defer>" page.html | sed 's/.*src="//; s/".*//')"
       [ -n "$src" ] || fail "the Runs page loads no deferred, hashed $name script:" page.html
-      curl -sf -D "$name-headers.txt" "$base$src" -o "$name.js" || fail "the $name script $src is not served"
+      fetch -sf -D "$name-headers.txt" "$base$src" -o "$name.js" || fail "the $name script $src is not served"
       grep -qi '^content-type: text/javascript' "$name-headers.txt" || fail "the $name script is not served as JavaScript:" "$name-headers.txt"
       grep -qi '^cache-control:.*immutable' "$name-headers.txt" || fail "the $name script is not cached as immutable:" "$name-headers.txt"
       cmp -s "$name.js" "$source" || fail "the served $name script is not the packaged $source"
