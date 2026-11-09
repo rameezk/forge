@@ -1,6 +1,6 @@
-.PHONY: check check-no-vm flake-check flake-check-no-vm vm-tests tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only
+.PHONY: check check-no-vm flake-check flake-check-no-vm vm-tests tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only test-em-dash-check em-dash-check
 
-TESTS = tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only
+TESTS = tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only test-em-dash-check em-dash-check
 
 check: flake-check vm-tests $(TESTS)
 
@@ -35,3 +35,9 @@ test-failed-build-log:
 
 test-markdown-only:
 	bash tests/markdown-only.sh
+
+test-em-dash-check:
+	bash tests/em-dash-check.sh
+
+em-dash-check:
+	bash scripts/em-dash-check.sh
