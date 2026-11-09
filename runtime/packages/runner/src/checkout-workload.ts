@@ -88,8 +88,10 @@ export const launchInCheckout = async ({
         signal: setup.signal,
       });
       const baseCommit = await headCommit(workDir, { ...hostEnv, ...gitEnv }, setup.signal);
+      setup.signal.throwIfAborted();
       setup.stage('skills');
       const checkout = await resolveCheckout(workDir, loadSkills);
+      setup.signal.throwIfAborted();
       setup.stage('devShell');
       const devShell = await enterDevShell({
         sandbox: sandboxOf(env),

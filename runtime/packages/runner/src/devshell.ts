@@ -92,7 +92,15 @@ export const enterDevShell = async ({
     ['print-dev-env', '--json', '--no-write-lock-file', `.#.devShells.${system}.default`],
     { name: PRINT_DEV_ENV, workDir: root, env },
   );
-  signal?.addEventListener('abort', () => child.kill('SIGKILL'), { once: true });
+  const stop = (): void => {
+    child.kill('SIGKILL');
+  };
+  if (signal?.aborted) {
+    stop();
+  } else if (signal !== undefined) {
+    signal.addEventListener('abort', stop, { once: true });
+    void exited.finally(() => signal.removeEventListener('abort', stop));
+  }
   const printed = collect(stdout);
   const failure = await exited;
   if (failure instanceof SandboxUnavailable) {

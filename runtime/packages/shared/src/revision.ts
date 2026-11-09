@@ -1,6 +1,6 @@
 export type RevisionState = 'running' | 'done' | 'failed';
 
-export type RevisionFailure = 'unanswered' | 'crashed' | 'not-started' | 'interrupted' | 'exceeded';
+export type RevisionFailure = 'unanswered' | 'crashed' | 'errored' | 'not-started' | 'interrupted' | 'exceeded';
 
 export interface RevisionFailureRecord {
   reason: RevisionFailure;

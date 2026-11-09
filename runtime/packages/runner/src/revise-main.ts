@@ -19,6 +19,7 @@ import {
 } from './config.ts';
 import { launchInCheckout } from './checkout-workload.ts';
 import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
+import { SetupTimedOut } from './setup.ts';
 import { gitEnvironment } from './git.ts';
 import { revisionInstruction } from './harness.ts';
 import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
@@ -147,6 +148,13 @@ export const main = async (
           identity,
           runId,
         });
+        if (launched.run.harnessStartTime == null && launched.cause instanceof SetupTimedOut) {
+          store.endRevision(revisionId, 'failed', now(), {
+            reason: 'errored',
+            detail: launched.run.error,
+          });
+          return 1;
+        }
         if (launched.run.harnessStartTime == null) {
           store.failRevisionStart(
             revisionId,

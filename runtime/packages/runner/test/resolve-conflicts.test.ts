@@ -111,6 +111,7 @@ interface Scenario {
   failingQuery?: string;
   failingClone?: number;
   hangingTrialMerge?: boolean;
+  hangingWorkerClone?: boolean;
   setupTimeoutSeconds?: number;
   pullRequest?: Partial<PullRequestState>;
   harnessEnv?: Record<string, string>;
@@ -150,6 +151,7 @@ const recordingGit = (
   dir: string,
   failingClone: number | undefined,
   hangingTrialMerge: boolean,
+  hangingWorkerClone: boolean,
 ): { bin: string; log: string; hung: string } => {
   const bin = join(dir, 'git-recorder');
   const log = join(dir, 'git-calls.log');
@@ -163,6 +165,10 @@ const recordingGit = (
         ? ''
         : `case " $* " in *" clone "*) [ "$(grep -cE '(^| )clone ' '${log}')" -ge ${failingClone} ] && { echo 'fatal: unable to access the repository' >&2; exit 128; };; esac\n`
     }${
+      hangingWorkerClone
+        ? `case " $* " in *" clone "*) [ "$(grep -cE '(^| )clone ' '${log}')" -ge 2 ] && { sleep 300 & wait; };; esac\n`
+        : ''
+    }${
       hangingTrialMerge
         ? `case " $* " in *" merge --no-commit "*) sleep 300 & echo $! > '${hung}'; wait;; esac\n`
         : ''
@@ -175,7 +181,7 @@ const recordingGit = (
 const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin = scenario.origin ?? originWhere('conflicts');
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-resolve-conflicts-'));
-  const recorder = recordingGit(stateDir, scenario.failingClone, scenario.hangingTrialMerge === true);
+  const recorder = recordingGit(stateDir, scenario.failingClone, scenario.hangingTrialMerge === true, scenario.hangingWorkerClone === true);
   const record = join(stateDir, 'pi-call.json');
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -629,6 +635,20 @@ test('given a conflict resolution whose trial merge never finishes, when forge-r
   assert.equal(requests.some((query) => query.includes('mutation')), false);
   assert.notEqual(hungChild, null);
   assert.throws(() => process.kill(hungChild as number, 0));
+});
+
+test('given a worker checkout whose clone never finishes after the trial merge found conflicts, when forge-resolve-conflicts runs, then the run ends error at the setup timeout and the conflict resolution fails as errored, naming the limit, with no harness started', async () => {
+  const { code, pi, runs, resolutions } = await resolve({ hangingWorkerClone: true, setupTimeoutSeconds: 1 });
+
+  const error = 'setup did not finish within 1s, stuck in the clone';
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.equal(runs[0]?.status, 'error');
+  assert.equal(runs[0]?.error, error);
+  assert.deepEqual(
+    resolutions.map(({ state, reason, detail }) => ({ state, reason, detail })),
+    [{ state: 'failed', reason: 'errored', detail: error }],
+  );
 });
 
 const OPEN_ELSEWHERE = { repository: 'forge', url: PULL_REQUEST_URL };

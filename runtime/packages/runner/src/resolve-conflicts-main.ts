@@ -224,6 +224,13 @@ export const main = async (
             runId,
             conflictResolution: true,
           });
+          if (launched.run.harnessStartTime == null && launched.cause instanceof SetupTimedOut) {
+            store.endConflictResolution(resolutionId, 'failed', now(), {
+              reason: 'errored',
+              detail: launched.run.error,
+            });
+            return 1;
+          }
           if (launched.run.harnessStartTime == null) {
             store.failConflictResolutionStart(
               resolutionId,

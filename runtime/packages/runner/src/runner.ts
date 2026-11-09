@@ -230,6 +230,7 @@ export const runWorkload = async (
       { seconds: options.setupTimeoutSeconds ?? DEFAULT_SETUP_TIMEOUT_SECONDS },
       async (setup) => {
         const workspace = await openWorkspace(id, setup);
+        setup.signal.throwIfAborted();
         setup.stage('harness');
         const invocation = invocationFor(worker, workspace);
         const recorder = new FingerprintRecorder({
