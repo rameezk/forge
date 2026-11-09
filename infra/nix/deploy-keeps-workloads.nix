@@ -24,6 +24,7 @@ let
         (writeShellScriptBin "forge-frontier" "exit 0")
         (writeShellScriptBin "forge-dispatch-pass" "exit 0")
         (writeShellScriptBin "forge-billing" "exit 0")
+        (writeShellScriptBin "forge-migrate" "exit 0")
         (writeShellScriptBin "forge-frontend" "exec sleep infinity")
       ];
     };

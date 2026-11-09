@@ -10,7 +10,7 @@ in
 runCommand "dashboard-assets"
   {
     nativeBuildInputs = [ curl ];
-    meta.description = "Starts the packaged forge-frontend and checks a page links a content-hashed stylesheet that the dashboard serves as the package's Tailwind build, styling the page's classes, with an immutable cache header, that it loads the packaged idiomorph and live client the same way, and that the build-only Tailwind toolchain does not ship.";
+    meta.description = "Migrates a fresh state directory with the packaged forge-migrate, starts the packaged forge-frontend and checks a page links a content-hashed stylesheet that the dashboard serves as the package's Tailwind build, styling the page's classes, with an immutable cache header, that it loads the packaged idiomorph and live client the same way, and that the build-only Tailwind toolchain does not ship.";
   }
   ''
     fail() { echo "$1"; shift; for file in "$@"; do cat "$file"; done; exit 1; }
@@ -24,6 +24,8 @@ runCommand "dashboard-assets"
     [ -n "''${FORGE_FRONTEND_PORT:-}" ] || fail "no free loopback port to start forge-frontend on"
     export FORGE_FRONTEND_PORT
     base="http://127.0.0.1:$FORGE_FRONTEND_PORT"
+
+    ${lib.getExe' forge-runner "forge-migrate"} || fail "forge-migrate failed"
 
     ${lib.getExe' forge-runner "forge-frontend"} > frontend.log 2>&1 &
     frontend=$!

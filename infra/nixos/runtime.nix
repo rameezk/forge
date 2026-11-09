@@ -516,7 +516,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-resolve-conflicts, forge-dispatch-pass, forge-billing, forge-frontier and forge-frontend entry points.";
+      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-resolve-conflicts, forge-dispatch-pass, forge-billing, forge-migrate, forge-frontier and forge-frontend entry points.";
     };
 
     dashboardPort = lib.mkOption {
@@ -963,10 +963,30 @@ in
     (lib.mkIf hasDashboard {
       environment.systemPackages = [ pkgs.sqlite ];
 
+      systemd.services.forge-migrate = {
+        description = "Forge store migration: bring forge.db to the current schema before the dashboard reads it";
+        wantedBy = [ "multi-user.target" ];
+        restartTriggers = [ cfg.package ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          Environment = [ "FORGE_STATE_DIR=${cfg.stateDir}" ];
+          ExecStart = "${cfg.package}/bin/forge-migrate";
+        }
+        // hardening;
+      };
+
       systemd.services.forge-frontend = {
         description = "Forge read-only workload dashboard (localhost only)";
         wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
+        after = [
+          "network.target"
+          "forge-migrate.service"
+        ];
+        requires = [ "forge-migrate.service" ];
         serviceConfig = {
           Type = "exec";
           User = cfg.user;
@@ -990,7 +1010,14 @@ in
           IPAddressAllow = "localhost";
           IPAddressDeny = "any";
         }
-        // hardening;
+        // hardening
+        // {
+          ReadOnlyPaths = [ "${cfg.stateDir}/transcripts" ];
+          InaccessiblePaths = hardening.InaccessiblePaths ++ [
+            "${cfg.stateDir}/work"
+            "${cfg.stateDir}/agent"
+          ];
+        };
       };
     })
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -1391,3 +1391,58 @@ for (const [table, list] of [['revisions', 'listRevisions'], ['conflict_resoluti
     store.close();
   });
 }
+
+const columnsOf = (path: string, table: string): string[] => {
+  const raw = new DatabaseSync(path);
+  const columns = (raw.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as { name: string }[]).map(
+    ({ name }) => name,
+  );
+  raw.close();
+  return columns;
+};
+
+test('given a forge.db with an older schema, when it is opened read-only, then the schema is unchanged', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const raw = new DatabaseSync(path);
+  raw.exec('PRAGMA journal_mode = WAL');
+  raw.exec('CREATE TABLE runs (id TEXT PRIMARY KEY, worker TEXT NOT NULL) STRICT');
+  raw.close();
+
+  const store = Store.openReadOnly(path);
+  store.close();
+
+  assert.deepEqual(columnsOf(path, 'runs'), ['id', 'worker']);
+  assert.deepEqual(columnsOf(path, 'dispatches'), []);
+});
+
+test('given a WAL-mode forge.db whose last connection has closed, when it is opened read-only, then reads succeed without WAL files', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-store-'));
+  const path = join(dir, 'forge.db');
+  const writer = Store.open(path);
+  writer.insertRun(sampleRun());
+  writer.close();
+  assert.equal(existsSync(`${path}-wal`), false);
+  assert.equal(existsSync(`${path}-shm`), false);
+
+  const store = Store.openReadOnly(path);
+
+  assert.deepEqual(store.getRun('run-01'), sampleRun());
+  store.close();
+});
+
+test('given a read-only store open alongside a writer, when it attempts an insert or a journal-mode change and the writer commits, then its attempts fail and it reads the writer row', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const writer = Store.open(path);
+  const store = Store.openReadOnly(path);
+
+  assert.throws(() => store.insertRun(sampleRun({ id: 'run-ro' })), /readonly/i);
+  assert.equal(store.getRun('run-ro'), undefined);
+  writer.insertRun(sampleRun({ id: 'run-rw' }));
+
+  assert.deepEqual(store.getRun('run-rw'), sampleRun({ id: 'run-rw' }));
+  const raw = new DatabaseSync(path, { readOnly: true });
+  assert.equal((raw.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode, 'wal');
+  raw.close();
+  store.close();
+  writer.close();
+});

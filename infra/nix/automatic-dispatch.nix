@@ -56,6 +56,9 @@ let
       (writeShellScriptBin "forge-billing" ''
         exit 0
       '')
+      (writeShellScriptBin "forge-migrate" ''
+        exit 0
+      '')
       (runCommand "forge-dispatch-pass" { } ''
         mkdir -p $out/bin
         ln -s ${forge-runner}/bin/forge-dispatch-pass $out/bin/forge-dispatch-pass

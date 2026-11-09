@@ -43,6 +43,7 @@ let
       "forge-dispatch"
       "forge-dispatch-pass"
       "forge-billing"
+      "forge-migrate"
       "forge-frontier"
       "forge-frontend"
     ];
