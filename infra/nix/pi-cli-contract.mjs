@@ -84,7 +84,7 @@ const invocations = targets.flatMap((target) => [
     prompt: 'contract check',
     workDir: '.',
   }),
-  ...[{ reasoningEffort: 'high' }, {}].map((effort) => (workDir) => {
+  ...[{ reasoningEffort: 'high' }, {}].map((effort) => async (workDir) => {
     for (const [path, contents] of Object.entries(checkoutFiles)) {
       mkdirSync(dirname(join(workDir, path)), { recursive: true });
       writeFileSync(join(workDir, path), contents);
@@ -94,7 +94,7 @@ const invocations = targets.flatMap((target) => [
       prompt: '/prompted-skill contract check',
       workDir,
       ...effort,
-      checkout: resolveCheckout(workDir, loadSkills),
+      checkout: await resolveCheckout(workDir, loadSkills),
     };
   }),
 ]);
@@ -269,7 +269,7 @@ const readsDeclaredModel = () => {
 let failed = !readsDeclaredModel();
 for (const invocationIn of invocations) {
   const parent = plant();
-  const invocation = invocationIn(parent.workDir);
+  const invocation = await invocationIn(parent.workDir);
   const child = subagentInvocation(pi, invocation, extensions);
   const parentAccepted = accepts(
     parent,
