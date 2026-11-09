@@ -76,6 +76,10 @@ _Avoid_: cost uncertain
 The end state of a workload whose runner stopped heartbeating before finishing it, for example because its unit was killed; distinct from `error`, where the harness itself ended the workload with an error (ADR-0031).
 _Avoid_: crashed, stuck, abandoned
 
+**Setup**:
+Forge's preparation of a workload before its harness starts: the clone, its skills and its devShell, and a conflict resolution's trial merge. Bounded by the setup timeout, not the workload's timeout (ADR-0085).
+_Avoid_: pre-launch, bootstrap
+
 **Budget**:
 The most a workload may spend in USD, its subagents included, measured as billed cost where known and estimated cost otherwise, or as list-price equivalent on a subscription provider; set per worker over a global default (ADR-0045, ADR-0047).
 _Avoid_: cost cap, spend limit
