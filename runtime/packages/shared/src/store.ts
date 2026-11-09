@@ -1147,6 +1147,10 @@ export class Store {
 
   private constructor(db: DatabaseSync) {
     this.#db = db;
+  }
+
+  #migrate(): void {
+    const db = this.#db;
     this.#useWriteAheadLog();
     if (this.#hasCostUncertain()) {
       this.#migrateCostUncertain();
@@ -1273,7 +1277,13 @@ export class Store {
   }
 
   static open(path: string): Store {
-    return new Store(new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS }));
+    const store = new Store(new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS }));
+    store.#migrate();
+    return store;
+  }
+
+  static openReadOnly(path: string): Store {
+    return new Store(new DatabaseSync(path, { readOnly: true, timeout: BUSY_TIMEOUT_MS }));
   }
 
   insertRun(run: RunRecord): void {

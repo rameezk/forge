@@ -26,7 +26,7 @@ export const createDashboard = (
 export const main = (env: NodeJS.ProcessEnv): void => {
   const { stateDir, hostname, port, maxConcurrent, timeZone } = resolveServeConfig(env);
 
-  const app = createDashboard(stateDir, Store.open(join(stateDir, 'forge.db')), { maxConcurrent, timeZone });
+  const app = createDashboard(stateDir, Store.openReadOnly(join(stateDir, 'forge.db')), { maxConcurrent, timeZone });
 
   serve({ fetch: app.fetch, hostname, port }, (info) => {
     console.log(`forge dashboard listening on http://${info.address}:${info.port}`);

@@ -321,15 +321,19 @@
             && lib.hasInfix "%i" runnerUnit.serviceConfig.ExecStart
             && runnerUnit.serviceConfig.User == "forge-runtime"
           ) "the runner unit must be a per-worker oneshot invoking forge-run as the forge-runtime user";
-          isUnitHardened =
+          isUnitSandboxed =
             unit:
             unit.serviceConfig.NoNewPrivileges == true
             && unit.serviceConfig.ProtectSystem == "strict"
             && unit.serviceConfig.ProtectHome == true
             && unit.serviceConfig.PrivateTmp == true
-            && unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
             && unit.serviceConfig.RestrictSUIDSGID == true
-            && unit.serviceConfig.ProtectControlGroups == true
+            && unit.serviceConfig.ProtectControlGroups == true;
+          isUnitHardened =
+            unit:
+            isUnitSandboxed unit
+            && unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+            && !(unit.serviceConfig ? ReadOnlyPaths)
             &&
               (unit.serviceConfig.InaccessiblePaths or [ ]) == [
                 "/run/secrets"
@@ -610,9 +614,40 @@
                 )
               ) firewallAllowLists)
               "the dashboard port must never be opened in any firewall allow-list: it is reached only through tailscale serve";
+          frontendReachesOnlyItsState =
+            unit:
+            unit.serviceConfig.ReadWritePaths == [ "/var/lib/forge" ]
+            && unit.serviceConfig.ReadOnlyPaths == [ "/var/lib/forge/transcripts" ]
+            &&
+              unit.serviceConfig.InaccessiblePaths == [
+                "/run/secrets"
+                "/run/secrets.d"
+                "/var/lib/forge/work"
+                "/var/lib/forge/agent"
+              ];
+          frontendRunsAfterMigration =
+            host:
+            let
+              unit = host.config.systemd.services.forge-frontend;
+            in
+            lib.elem "forge-migrate.service" unit.requires && lib.elem "forge-migrate.service" unit.after;
+          migrateUnit = workerHost.config.systemd.services.forge-migrate;
+          migrateRunsBeforeDashboard = lib.asserts.assertMsg (
+            frontendRunsAfterMigration workerHost
+            && frontendRunsAfterMigration repositoryHost
+            && migrateUnit.wantedBy == [ "multi-user.target" ]
+            && migrateUnit.serviceConfig.Type == "oneshot"
+            && migrateUnit.serviceConfig.RemainAfterExit == true
+            && migrateUnit.serviceConfig.User == "forge-runtime"
+            && migrateUnit.serviceConfig.ExecStart == "${workerHost.config.forge.runtime.package}/bin/forge-migrate"
+            && lib.elem workerHost.config.forge.runtime.package migrateUnit.restartTriggers
+            && isHardened migrateUnit
+          ) "the dashboard must require forge-migrate and start after it, and forge-migrate must be a hardened oneshot that stays active, runs as the forge-runtime user, and restarts when the forge package changes";
           frontendIsLockedDown =
             unit:
-            isHardened unit
+            isUnitSandboxed unit
+            && unit.serviceConfig.ProtectKernelTunables == true
+            && frontendReachesOnlyItsState unit
             &&
               unit.serviceConfig.RestrictAddressFamilies == [
                 "AF_INET"
@@ -621,7 +656,7 @@
               ]
             && unit.serviceConfig.IPAddressAllow == "localhost"
             && unit.serviceConfig.IPAddressDeny == "any";
-          frontendSandboxed = lib.asserts.assertMsg (frontendIsLockedDown frontendUnit) "the dashboard unit must be sandboxed like the runner";
+          frontendSandboxed = lib.asserts.assertMsg (frontendIsLockedDown frontendUnit) "the dashboard unit must be sandboxed like the runner, reach transcripts read-only, see neither the work nor the agent directory, and keep the rest of the state directory writable so forge.db's WAL files work (ADR-0083)";
           servesDashboardOnTailnet =
             host:
             let
@@ -1689,6 +1724,7 @@
             assert dashboardTimeZoneValidated;
             assert frontendNoPublicPort;
             assert frontendSandboxed;
+            assert migrateRunsBeforeDashboard;
             assert frontendOnTailnet;
             assert frontendOffTailnetWithoutTailscale;
             pkgs.runCommand "runtime-dashboard" { } ''
@@ -1910,6 +1946,12 @@
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
           deploy-keeps-workloads = pkgs.callPackage ./infra/nix/deploy-keeps-workloads.nix {
+            sopsModule = sops-nix.nixosModules.sops;
+            secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
+          };
+          dashboard-reach = pkgs.callPackage ./infra/nix/dashboard-reach.nix {
+            forge-runner = self.packages.${system}.forge-runner;
             sopsModule = sops-nix.nixosModules.sops;
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
