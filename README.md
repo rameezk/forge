@@ -10,9 +10,9 @@ Forge stands up a NixOS box to run them on, and every run of a worker is an isol
 
 Forge records each workload's transcript, token usage and billed cost, and shows them on a dashboard, so you can trace what every worker did and feed that back into improving your workers. The dashboard also shows the **frontier** of each managed repository: the tickets ready for an agent to pick up now.
 
-[![A 35-second tour of Forge](docs/media/forge-teaser.gif)](docs/media/forge-demo-2x.mp4)
+A walkthrough of Forge:
 
-*A 35-second tour. Click it for the full walkthrough at double speed, about 2 minutes.*
+https://github.com/user-attachments/assets/a77af824-46ef-4097-97f2-26e4a7ff7ccd
 
 ## How it works
 
