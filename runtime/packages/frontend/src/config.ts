@@ -1,3 +1,5 @@
+import { isAbsolute } from 'node:path';
+
 const DEFAULT_MAX_CONCURRENT = 1;
 const DEFAULT_TIME_ZONE = 'UTC';
 
@@ -39,6 +41,11 @@ export const resolveServeConfig = (env: NodeJS.ProcessEnv): ServeConfig => {
   const socketPath = env.FORGE_FRONTEND_SOCKET;
   if (socketPath === undefined) {
     throw new Error('FORGE_FRONTEND_SOCKET is not set');
+  }
+  if (!isAbsolute(socketPath)) {
+    throw new Error(
+      `FORGE_FRONTEND_SOCKET must be an absolute path, got '${socketPath}'`,
+    );
   }
   return {
     stateDir,

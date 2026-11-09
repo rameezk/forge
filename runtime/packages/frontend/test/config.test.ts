@@ -17,6 +17,15 @@ test('given no socket, when resolved, then it throws naming FORGE_FRONTEND_SOCKE
   assert.throws(() => resolveServeConfig({ FORGE_STATE_DIR: '/s' }), /FORGE_FRONTEND_SOCKET/);
 });
 
+test('given a socket that is not an absolute path, when resolved, then it throws naming FORGE_FRONTEND_SOCKET', () => {
+  for (const value of ['', '7787', 'dashboard.sock']) {
+    assert.throws(
+      () => resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: value }),
+      /FORGE_FRONTEND_SOCKET/,
+    );
+  }
+});
+
 test('given no running limit, when resolved, then it defaults to 1', () => {
   assert.equal(resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock' }).maxConcurrent, 1);
 });
