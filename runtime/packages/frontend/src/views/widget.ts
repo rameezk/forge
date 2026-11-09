@@ -13,12 +13,17 @@ const ROW_LINK = 'flex items-baseline gap-3 px-4 py-1.5 text-[0.85rem] no-underl
 
 const transcriptPath = (run: RunRecord): string => `/runs/${encodeURIComponent(run.id)}/transcript`;
 
-const renderRow = (run: RunRecord, timeZone: string, { anchor, kind, summary, timestamp, failed }: WidgetRow, index: number): HtmlEscapedString | Promise<HtmlEscapedString> =>
+const renderRow = (run: RunRecord, timeZone: string, { anchor, kind, summary, narration, timestamp, failed }: WidgetRow, index: number): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<li id="widget-event-${anchor}" data-widget-row class="border-t border-line first:border-t-0${index < PHONE_LIMIT ? '' : ' max-sm:hidden'}">
     <a href="${transcriptPath(run)}#event-${anchor}" class="${ROW_LINK}">
       <span class="w-[6.5rem] shrink-0 whitespace-nowrap tabular-nums text-muted max-sm:hidden">${timestamp === undefined ? '' : html`<time datetime="${timestamp}" title="${timestamp}">${formatTime(timestamp, timeZone)}</time>`}</span>
       <span class="w-[5.5rem] shrink-0 font-semibold text-muted max-sm:w-[4.5rem]" data-widget-kind>${kind}</span>
-      <span class="min-w-0 flex-1 truncate" title="${summary}">${summary}</span>
+      ${narration === undefined
+        ? html`<span class="min-w-0 flex-1 truncate" title="${summary}">${summary}</span>`
+        : html`<span class="flex min-w-0 flex-1 items-baseline gap-2">
+          <span class="min-w-0 truncate" data-widget-task title="${summary}">${summary}</span>
+          <span class="min-w-0 flex-1 truncate text-muted" data-widget-narration title="${narration}">${narration}</span>
+        </span>`}
       ${failed ? html`<span class="${BADGE} bg-error-soft text-error" data-badge="error">error</span>` : ''}
     </a>
   </li>`;

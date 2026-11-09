@@ -157,6 +157,45 @@ test('given a running workload whose run page is open, when new events are recor
   await expect(page.locator('[data-widget-row]')).toHaveCount(2);
 });
 
+test('given a running subagent in the widget, when it narrates again, then its row shows the new narration without a reload', async ({ dashboard, page }) => {
+  dashboard.store.insertRun(runningRun);
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Review the change' } },
+    { type: 'message', role: 'assistant', text: 'Reading the diff.', usage, generationId: null, subagent: 'call_alpha' },
+  );
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/runs/run-01');
+  await expect(page.getByRole('status')).toHaveText('Live');
+  await expect(page.locator('[data-widget-narration]')).toHaveText('Reading the diff.');
+
+  dashboard.appendEvents('run-01.jsonl', { type: 'message', role: 'assistant', text: 'Checking the tests.', usage, generationId: null, subagent: 'call_alpha' });
+
+  await expect(page.locator('[data-widget-narration]')).toHaveText('Checking the tests.');
+  await expect(page.locator('[data-widget-task]')).toHaveText('Review the change');
+  await expect(page.locator('[data-widget-row]')).toHaveCount(1);
+});
+
+test('given a subagent with a long task and a long narration, when its run page is opened at phone width, then its widget row stays on one line', async ({ dashboard, page }) => {
+  dashboard.store.insertRun(runningRun);
+  const task = 'Review the change for standards, for the spec it implements and for security, reading every file it touches. '.repeat(2);
+  const narration = 'Reading every file under the runtime packages to map how the transcript view groups a subagent and where its row is drawn. '.repeat(3);
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task } },
+    { type: 'message', role: 'assistant', text: narration, usage, generationId: null, subagent: 'call_alpha' },
+  );
+  await page.setViewportSize({ width: 390, height: 800 });
+
+  await page.goto('/runs/run-01');
+
+  const row = page.locator('[data-widget-row]');
+  await expect(row.locator('[data-widget-narration]')).toContainText('Reading every file');
+  expect((await row.boundingBox())?.height ?? 0).toBeLessThan(40);
+  expect(await row.locator('[data-widget-narration]').evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+});
+
 test('given a workload with a transcript, when its run page is opened at laptop width and at phone width, then the transcript starts level with the first stat box under a header spanning both columns, and on the phone everything stacks without sideways scroll', async ({ dashboard, page }) => {
   seed(dashboard);
   await page.setViewportSize({ width: 1280, height: 720 });
