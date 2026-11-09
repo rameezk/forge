@@ -27,6 +27,7 @@ import {
   routedThrough,
 } from '../../shared/test/fixtures/fake-github-app.ts';
 import {
+  alive,
   billedAt,
   fakeOpenRouter,
   git,
@@ -634,7 +635,7 @@ test('given a conflict resolution whose trial merge never finishes, when forge-r
   assert.equal(pi, null);
   assert.equal(requests.some((query) => query.includes('mutation')), false);
   assert.notEqual(hungChild, null);
-  assert.throws(() => process.kill(hungChild as number, 0));
+  assert.equal(alive(hungChild as number), false);
 });
 
 test('given a worker checkout whose clone never finishes after the trial merge found conflicts, when forge-resolve-conflicts runs, then the run ends error at the setup timeout and the conflict resolution fails as errored, naming the limit, with no harness started', async () => {

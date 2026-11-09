@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cloneCheckout, resolveCheckout, type SkillLoader } from '../src/checkout.ts';
 import { boundedBySetupTimeout } from '../src/setup.ts';
+import { alive } from './helpers.ts';
 
 const noSkills: SkillLoader = () => ({ skills: [], diagnostics: [] });
 
@@ -65,15 +66,6 @@ test('given a checkout whose skills hold 10,000 entries or fewer directly, but m
     /more than 10,000 entries/,
   );
 });
-
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 test('given a clone stopped at the setup timeout while a child process git started is still running, when the setup ends, then that child process is no longer running', async () => {
   const bin = mkdtempSync(join(tmpdir(), 'forge-fake-git-'));
