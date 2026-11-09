@@ -111,6 +111,7 @@ else
 fi
 
 expected_timeouts='changes=5
+em-dash=5
 check-no-vm=15
 vm-tests=5
 vm-test=15
