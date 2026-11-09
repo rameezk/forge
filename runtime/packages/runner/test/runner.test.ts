@@ -378,7 +378,7 @@ test('given a run whose heartbeat write fails, when its 20 seconds pass, then th
   assert.ok(stderr.includes('run run-1: could not refresh its heartbeat: database is locked\n'), stderr.join(''));
 });
 
-test('given a worker with a one-second timeout whose workspace takes longer than that to set up, when the harness then works for less than a second, then the run succeeds and records the moment its harness started', async () => {
+test('given a worker with a one-second timeout whose workspace takes longer than that to set up but less than its setup timeout, when the harness then works for less than a second, then the run succeeds and records the moment its harness started', async () => {
   const store = Store.open(':memory:');
   const clock = ['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:02.000Z', '2026-09-21T10:00:03.000Z'];
   const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -396,6 +396,7 @@ test('given a worker with a one-second timeout whose workspace takes longer than
       await sleep(1200);
       return { workDir: '/work/run-1' };
     },
+    setupTimeoutSeconds: 5,
     now: fixedClock(clock),
     newId: () => 'run-1',
     ...withoutModelEntry,
@@ -551,4 +552,54 @@ test('given a subscription run whose cache is warmed, when the workload ends, th
   assert.ok(Math.abs((warm?.listPriceEquivalentUsd ?? 0) - 0.003) < 1e-12);
   assert.equal(warm?.billedCostUsd, null);
   assert.equal(store.getRun('run-1')?.costStatus, 'subscription');
+});
+
+const hangingSetup = async (
+  worker: Parameters<typeof aWorker>[0],
+  stage: string,
+  setupTimeoutSeconds = 0.2,
+) => {
+  const store = Store.open(':memory:');
+  const harness = fakeHarness([message(), result({ status: 'success' })]);
+  const stopped: boolean[] = [];
+  const { cause } = await runWorkload({
+    store,
+    harness,
+    worker: aWorker(worker),
+    openTranscript: arrayTranscripts().open,
+    openRawEvents: discardLines,
+    openRequestRecord: discardLines,
+    openWorkspace: (_, setup) => {
+      setup.stage(stage);
+      return new Promise((_resolve, reject) => {
+        setup.signal.addEventListener('abort', () => {
+          stopped.push(true);
+          reject(new Error('aborted'));
+        });
+      });
+    },
+    setupTimeoutSeconds,
+    now: fixedClock(['2026-09-21T10:00:00.000Z', '2026-09-21T10:00:05.000Z']),
+    newId: () => 'run-1',
+    ...withoutModelEntry,
+  });
+  return { run: store.getRun('run-1'), harness, stopped, cause };
+};
+
+test('given a worker with a timeout and a workspace whose setup never finishes, when the run starts, then it ends as an error once the setup timeout passes, naming the limit and the stage, and the harness never starts', async () => {
+  const { run, harness, stopped } = await hangingSetup({ timeoutSeconds: 3600 }, 'devShell');
+
+  assert.equal(run?.status, 'error');
+  assert.equal(run?.exceededLimit, null);
+  assert.equal(run?.error, 'setup did not finish within 0.2s, stuck in the devShell');
+  assert.equal(run?.harnessStartTime, null);
+  assert.equal(harness.invocations.length, 0);
+  assert.deepEqual(stopped, [true]);
+});
+
+test('given a worker with no timeout and a workspace whose setup never finishes, when the run starts, then it ends as an error at the setup timeout', async () => {
+  const { run } = await hangingSetup({ timeoutSeconds: null }, 'clone');
+
+  assert.equal(run?.status, 'error');
+  assert.equal(run?.error, 'setup did not finish within 0.2s, stuck in the clone');
 });

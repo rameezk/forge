@@ -13,6 +13,7 @@ export type ConflictResolutionFailure =
   | 'check-failed'
   | 'check-pending'
   | 'crashed'
+  | 'errored'
   | 'not-started'
   | 'interrupted'
   | 'exceeded';

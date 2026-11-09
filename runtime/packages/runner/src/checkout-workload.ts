@@ -5,6 +5,7 @@ import type { RuntimeConfig } from './config.ts';
 import { cloneCheckout, headCommit, loadPiSkills, resolveCheckout } from './checkout.ts';
 import { enterDevShell } from './devshell.ts';
 import { gitEnvironment } from './git.ts';
+import { boundedBySetupTimeout, type Setup } from './setup.ts';
 import { GithubTokenFile, keepFresh } from './github-token-file.ts';
 import type { Worker } from './harness.ts';
 import { withoutCredentials } from './provider.ts';
@@ -79,15 +80,23 @@ export const launchInCheckout = async ({
     secrets: () => redactions,
     ...(ticket === undefined ? {} : { ticket }),
     runId,
-    openWorkspace: async (workDir) => {
-      await cloneCheckout(github, workDir, cloneEnv, { branch, blobless: !conflictResolution });
-      const baseCommit = await headCommit(workDir, { ...hostEnv, ...gitEnv });
+    openWorkspace: async (workDir, setup) => {
+      setup.stage('clone');
+      await cloneCheckout(github, workDir, cloneEnv, {
+        branch,
+        blobless: !conflictResolution,
+        signal: setup.signal,
+      });
+      const baseCommit = await headCommit(workDir, { ...hostEnv, ...gitEnv }, setup.signal);
+      setup.stage('skills');
       const checkout = await resolveCheckout(workDir, loadSkills);
+      setup.stage('devShell');
       const devShell = await enterDevShell({
         sandbox: sandboxOf(env),
         system: nixSystem,
         root: checkout.root,
         env: systemEnvironment(env),
+        signal: setup.signal,
       });
       return {
         workDir,
@@ -111,6 +120,7 @@ export const inspectCheckout = async <Result>({
   gitEnv,
   id,
   inspect,
+  setupTimeoutSeconds,
 }: {
   env: NodeJS.ProcessEnv;
   github: string;
@@ -118,7 +128,8 @@ export const inspectCheckout = async <Result>({
   app: GithubApp;
   gitEnv: Record<string, string>;
   id: string;
-  inspect: (dir: string, env: NodeJS.ProcessEnv) => Promise<Result>;
+  inspect: (dir: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<Result>;
+  setupTimeoutSeconds?: number;
 }): Promise<Result> => {
   const tokenFile = GithubTokenFile.create(
     join(stateDirOf(env), 'credentials'),
@@ -128,9 +139,23 @@ export const inspectCheckout = async <Result>({
   );
   const dir = join(stateDirOf(env), 'inspections', id);
   const gitEnvWithCredentials = { ...withoutCredentials(env), ...tokenFile.environment, ...gitEnv };
+  const inspectIn = async (setup?: Setup): Promise<Result> => {
+    setup?.stage('clone');
+    await cloneCheckout(github, dir, gitEnvWithCredentials, {
+      branch,
+      blobless: false,
+      ...(setup === undefined ? {} : { signal: setup.signal }),
+    });
+    setup?.stage('merge');
+    return inspect(dir, gitEnvWithCredentials, setup?.signal);
+  };
   try {
-    await cloneCheckout(github, dir, gitEnvWithCredentials, { branch, blobless: false });
-    return await inspect(dir, gitEnvWithCredentials);
+    return setupTimeoutSeconds === undefined
+      ? await inspectIn()
+      : await boundedBySetupTimeout(
+          { seconds: setupTimeoutSeconds, what: 'the trial merge' },
+          inspectIn,
+        );
   } finally {
     rmSync(dir, { recursive: true, force: true });
     tokenFile.remove();

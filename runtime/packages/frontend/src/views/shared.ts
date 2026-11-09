@@ -10,6 +10,7 @@ export type Rendered = HtmlEscapedString | Promise<HtmlEscapedString> | '';
 const FAILURE_LABEL: Record<RevisionFailure | ConflictResolutionFailure, string> = {
   unanswered: 'Unanswered',
   crashed: 'Crashed',
+  errored: 'Errored',
   'not-merged': 'Not merged',
   'still-conflicting': 'Still conflicting',
   'check-failed': 'Required check failed',

@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store, type RunRecord, type RunTicket } from '@forge/shared';
-import type { RuntimeConfig } from './config.ts';
+import { setupTimeoutOf, type RuntimeConfig } from './config.ts';
 import type { Worker, Workspace } from './harness.ts';
 import { stateDirOf } from './environment.ts';
 import { builtInHarnesses, harnessFor, type HarnessRegistry } from './harnesses.ts';
@@ -15,6 +15,7 @@ import { providerSpec, type Provider } from './provider.ts';
 import { anthropicModel } from './anthropic-models.ts';
 import { JsonLinesFile } from './transcript.ts';
 import { runWorkload } from './runner.ts';
+import type { Setup } from './setup.ts';
 
 export {
   absolutePath,
@@ -47,7 +48,7 @@ export interface LaunchOptions {
   config: RuntimeConfig;
   worker: Worker;
   env: NodeJS.ProcessEnv;
-  openWorkspace: (workDir: string) => Workspace | Promise<Workspace>;
+  openWorkspace: (workDir: string, setup: Setup) => Workspace | Promise<Workspace>;
   harnessEnv?: Record<string, string>;
   harnesses?: HarnessRegistry;
   ticket?: RunTicket;
@@ -104,7 +105,8 @@ export const launchWorkload = async ({
       openRawEvents: (runId) => JsonLinesFile.rawEvents(transcriptsDir, runId),
       openRequestRecord: (runId) =>
         JsonLinesFile.requestRecord(transcriptsDir, runId),
-      openWorkspace: (runId) => openWorkspace(join(workDirs, runId)),
+      openWorkspace: (runId, setup) => openWorkspace(join(workDirs, runId), setup),
+      setupTimeoutSeconds: setupTimeoutOf(config),
       now: () => new Date().toISOString(),
       newId: () => runId,
       lookUpModel,

@@ -22,7 +22,9 @@ import {
 } from './harness.ts';
 import { FingerprintRecorder, skillsHash } from './fingerprint.ts';
 import type { LookUpModel } from './openrouter.ts';
+import { DEFAULT_SETUP_TIMEOUT_SECONDS } from './config.ts';
 import { providerSpec } from './provider.ts';
+import { boundedBySetupTimeout, type Setup } from './setup.ts';
 import {
   transcriptPolicy,
   type JsonLinesWriter,
@@ -36,7 +38,8 @@ export interface RunWorkloadOptions {
   openTranscript: (runId: string) => TranscriptWriter;
   openRawEvents: (runId: string) => JsonLinesWriter;
   openRequestRecord: (runId: string) => JsonLinesWriter;
-  openWorkspace: (runId: string) => Workspace | Promise<Workspace>;
+  openWorkspace: (runId: string, setup: Setup) => Workspace | Promise<Workspace>;
+  setupTimeoutSeconds?: number;
   now: () => string;
   newId: () => string;
   lookUpModel: LookUpModel;
@@ -223,17 +226,24 @@ export const runWorkload = async (
       generationId: null,
     });
     await transcript.append(promptEvent);
-    const workspace = await openWorkspace(id);
-    const invocation = invocationFor(worker, workspace);
-    const recorder = new FingerprintRecorder({
-      worker,
-      identity: await harnessRun.identity(),
-      basis: harnessRun.fingerprintBasis(invocation),
-      skills: skillsHash(invocation.checkout),
-      baseCommit: invocation.baseCommit ?? null,
-      forgeGitSha: options.forgeGitSha ?? null,
-      record: (recorded) => store.recordFingerprint(id, recorded),
-    });
+    const { invocation, recorder } = await boundedBySetupTimeout(
+      { seconds: options.setupTimeoutSeconds ?? DEFAULT_SETUP_TIMEOUT_SECONDS },
+      async (setup) => {
+        const workspace = await openWorkspace(id, setup);
+        setup.stage('harness');
+        const invocation = invocationFor(worker, workspace);
+        const recorder = new FingerprintRecorder({
+          worker,
+          identity: await harnessRun.identity(),
+          basis: harnessRun.fingerprintBasis(invocation),
+          skills: skillsHash(invocation.checkout),
+          baseCommit: invocation.baseCommit ?? null,
+          forgeGitSha: options.forgeGitSha ?? null,
+          record: (recorded) => store.recordFingerprint(id, recorded),
+        });
+        return { invocation, recorder };
+      },
+    );
     fingerprint = recorder;
     const sinks = {
       stop: stop.signal,

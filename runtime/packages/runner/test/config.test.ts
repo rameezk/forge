@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveWorker } from '../src/index.ts';
+import { setupTimeoutOf } from '../src/config.ts';
+import { spanLabel } from '../src/setup.ts';
 import type { RuntimeConfig } from '../src/index.ts';
 
 const config: RuntimeConfig = {
@@ -182,4 +184,16 @@ test('given a worker whose prompt starts with a dash or an at sign, when it is r
     };
     assert.throws(() => resolveWorker(risky, 'risky'), /risky.*prompt/);
   }
+});
+
+test('given a setup timeout in seconds, when it is named in an error, then it reads in the largest whole unit', () => {
+  assert.deepEqual(
+    [1800, 7200, 90, 604800, 1, 0.2].map(spanLabel),
+    ['30min', '2h', '90s', '1w', '1s', '0.2s'],
+  );
+});
+
+test('given a runtime config with and without a setup timeout, when it is read, then the global value or 30 minutes applies', () => {
+  assert.equal(setupTimeoutOf({ harnesses: {}, workers: {}, workload: { setupTimeoutSeconds: 600 } }), 600);
+  assert.equal(setupTimeoutOf({ harnesses: {}, workers: {} }), 1800);
 });

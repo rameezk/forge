@@ -125,7 +125,7 @@ let
         default = cfg.workload.timeout;
         defaultText = lib.literalExpression "config.forge.runtime.workload.timeout";
         example = "30min";
-        description = "Longest this worker's workload may run, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"2h\"`, or null for unlimited. It counts from the harness's start, so checkout and devShell setup do not use it, and a workload that passes it is hard-stopped, its subagents included, and ends as exceeded. A scheduled run's systemd unit also stops 30 minutes past it, as a backstop for a runner that hangs, and the run then ends interrupted; dispatched workloads share one backstop from the longest timeout of any dispatching worker, and none when any of them is unlimited. Defaults to `forge.runtime.workload.timeout`.";
+        description = "Longest this worker's workload may run, as a systemd time span of whole seconds, minutes, hours, days or weeks such as `\"2h\"`, or null for unlimited. It counts from the harness's start, so checkout and devShell setup do not use it, and a workload that passes it is hard-stopped, its subagents included, and ends as exceeded. Setup is bounded by `forge.runtime.workload.setupTimeout` instead. A scheduled run's systemd unit also stops 15 minutes past the setup timeout plus this timeout, as a backstop for a runner that hangs, and the run then ends interrupted; dispatched, revised and conflict-resolved workloads share one backstop from the setup timeout plus the longest timeout of the workers concerned, and none when any of them is unlimited. Defaults to `forge.runtime.workload.timeout`.";
       };
     };
   });
@@ -183,6 +183,9 @@ let
       }
     ) cfg.repositories;
   }
+  // {
+    workload.setupTimeoutSeconds = timeSpanSeconds cfg.workload.setupTimeout;
+  }
   // lib.optionalAttrs (hasDispatch || hasRevision || hasConflictResolution) {
     dispatch = {
       inherit (cfg.dispatch) maxConcurrent;
@@ -204,8 +207,13 @@ let
   resolvedRepositories = lib.filterAttrs (_: r: r.on.conflict != null) cfg.repositories;
   hasConflictResolution = resolvedRepositories != { };
 
-  backstopMarginSeconds = 30 * 60;
-  backstopSeconds = w: if w.timeout == null then null else timeSpanSeconds w.timeout + backstopMarginSeconds;
+  backstopMarginSeconds = 15 * 60;
+  backstopSeconds =
+    w:
+    if w.timeout == null then
+      null
+    else
+      timeSpanSeconds cfg.workload.setupTimeout + timeSpanSeconds w.timeout + backstopMarginSeconds;
   startTimeout = seconds: lib.optionalAttrs (seconds != null) { TimeoutStartSec = seconds; };
   scheduledBackstops = lib.mapAttrs' (
     name: w:
@@ -580,7 +588,14 @@ in
       type = lib.types.nullOr timeSpan;
       default = "2h";
       example = "30min";
-      description = "Longest a workload may run unless its worker overrides it, as a systemd time span of whole seconds, minutes, hours, days or weeks, or null for unlimited. It counts from the harness's start. A workload that passes it is hard-stopped, its subagents included, and ends as exceeded; a dispatched one fails its dispatch and its ticket becomes `forge:failed` and gets forge's fixed failure comment.";
+      description = "Longest a workload may run unless its worker overrides it, as a systemd time span of whole seconds, minutes, hours, days or weeks, or null for unlimited. It counts from the harness's start, so setup is bounded by `forge.runtime.workload.setupTimeout` instead. A workload that passes it is hard-stopped, its subagents included, and ends as exceeded; a dispatched one fails its dispatch and its ticket becomes `forge:failed` and gets forge's fixed failure comment. Each systemd unit also stops 15 minutes past the setup timeout plus this timeout, as a backstop for a runner that hangs, and a run it kills ends interrupted.";
+    };
+
+    workload.setupTimeout = lib.mkOption {
+      type = timeSpan;
+      default = "30min";
+      example = "1h";
+      description = "Longest a workload's setup may take, as a systemd time span of whole seconds, minutes, hours, days or weeks. Setup is everything from the run starting to the harness starting: the clone, the checkout's skills and its devShell, plus a conflict resolution's trial merge, which runs before its run exists. It is global, with no per-worker or per-repository override, and it cannot be null, so setup is always bounded, even for a worker with no timeout. A setup that passes it is stopped, the child processes it started are killed, and the run ends as an error naming the limit and the stage that hung, never as exceeded, so the workload's own timeout does not count setup; a dispatch, revision or conflict resolution fails as errored, and a dispatched ticket becomes `forge:failed` and gets forge's fixed failure comment. A trial merge that passes it ends the conflict resolution failed as errored and leaves the pull request untouched. A repository whose cold devShell build takes longer needs this raised. It also sets each systemd backstop: the unit of a worker with a timeout stops 15 minutes past this plus that timeout.";
     };
 
     toolset = lib.mkOption {
