@@ -403,8 +403,9 @@ repositories forge manages, and give the box its id and private key.
    - Workflows: read and write. GitHub rejects any push that adds or changes a
      file under `.github/workflows/` without it, so a run that sets up CI
      cannot push.
-   - Checks: read and Actions: read, so the agent can watch a pull request's
-     required checks and read the logs of the ones that fail.
+   - Checks: read and Actions: read and write, so the agent can watch a pull
+     request's required checks, read the logs of the ones that fail, and re-run
+     a run that failed for infrastructure reasons.
    - Commit statuses: read, so forge can read the status of a pull request's
      head commit.
    - Metadata: read, which GitHub always grants.
@@ -443,6 +444,11 @@ permissions in the App's settings, then accept the new permission on the
 installation, which GitHub emails to the account owner and shows on the
 installation's page. Until you do, GitHub refuses to mint tokens and the
 frontier error and the dispatch failure name the permissions forge requested.
+
+Upgrading an existing App for re-runs: change **Actions** from read to **read
+and write** in the App's repository permissions, then accept the new permission
+on the installation. Until you do, every dispatch fails to mint its workload
+token and the dispatch failure names the permissions forge requested.
 
 Forge signs a short-lived JWT with the private key and exchanges it for an
 installation token that expires after an hour. It mints a read-only token for

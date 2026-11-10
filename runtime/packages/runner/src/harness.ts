@@ -20,11 +20,22 @@ const SCOPED_CHECK_RULE = [
   "A missing dependency install is something to do as the repository's instructions say, not a required command that cannot run.",
 ];
 
+const CI_RERUN_RULE = [
+  'You may re-run a CI run, and only under these rules.',
+  'Re-run only a failed run on the head of the pull request you work on.',
+  'Re-run only when it failed for infrastructure reasons: no jobs created, a startup failure, a lost runner, or a cancellation you did not cause.',
+  'Re-run the same run at most twice; if it still fails for infrastructure reasons, leave the pull request a draft and name the run, the failure and the attempts in your report.',
+  'Never re-run a failing test or step, flaky or not: fix it.',
+  'Never dispatch, disable, enable or delete anything in Actions.',
+  'Never re-trigger CI with an empty commit or by closing and reopening the pull request.',
+];
+
 export const UNATTENDED_INSTRUCTION = [
   'You are running unattended: no human will answer questions or confirm anything while you work.',
   'Where a skill asks you to confirm something the ticket or its spec already settles, proceed without asking.',
   'Otherwise stop, and end with the question you need answered.',
   ...SCOPED_CHECK_RULE,
+  ...CI_RERUN_RULE,
 ].join(' ');
 
 const contextBlock = (heading: string, issue: ContextIssue): string =>
@@ -50,6 +61,7 @@ const REVISION_INSTRUCTION = [
   'Otherwise ask the question as a reply on the pull request and end your run at once, without waiting or polling for an answer.',
   'If you stop because you are blocked or have a question, post that as a reply on the pull request.',
   ...SCOPED_CHECK_RULE,
+  ...CI_RERUN_RULE,
 ].join(' ');
 
 export const revisionInstruction = (feedback: readonly FeedbackItem[]): string =>
