@@ -984,7 +984,9 @@ lists the subjects of the upstream commits it pulls in. It makes no commit when
 forge has not moved. When the guard fails it pushes nothing and keeps one open
 issue in this repository reporting the failure, and the issue closes once a later
 bump passes. The workflow needs permission to push to `main` and to write issues,
-so a branch protection rule on `main` must let the workflow's token push.
+so a branch protection rule on `main` must let the workflow's token push. The
+job evaluates forge's latest code with that token and the failure issue quotes
+the guard's output, so follow forge only if you trust it, and pin it otherwise.
 
 To stop following forge's latest commit, pin the `forge` input to a rev by
 setting its URL in `flake.nix` to the full 40-character commit, then lock it:

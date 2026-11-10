@@ -224,4 +224,33 @@ else
 	fail=1
 fi
 
+echo "==> case: the forge input is pinned in the github form the README documents"
+perl -pi -e "s{forge\\.url = \"[^\"]*\";}{forge.url = \"github:rameezk/forge/$x_commit\";}" "$work/flake.nix"
+git -C "$work" commit -q -am "pin forge to github"
+git -C "$work" push -q origin main
+before="$(origin_head)"
+lock_before="$(cat "$work/flake.lock")"
+github_pin_status=0
+run_bump >"$scratch/github-pinned.log" 2>&1 || github_pin_status=$?
+if [ "$github_pin_status" = 0 ] &&
+	[ "$(origin_head)" = "$before" ] &&
+	[ "$(cat "$work/flake.lock")" = "$lock_before" ]; then
+	echo "ok: a github:owner/repo/<commit> pin is left alone"
+else
+	echo "FAIL: the bump touched a forge input pinned as github:owner/repo/<commit>"
+	tail -20 "$scratch/github-pinned.log"
+	fail=1
+fi
+
+echo "==> case: a failure issue still open when the input is pinned is closed"
+jq '. + [{number: 99, title: "The forge bump failed the divergence guard", body: "stale", state: "open"}]' "$gh_state/issues.json" >"$gh_state/issues.new"
+mv "$gh_state/issues.new" "$gh_state/issues.json"
+run_bump >"$scratch/stale-pinned.log" 2>&1 || true
+if [ "$(open_issues | jq 'length')" = 0 ]; then
+	echo "ok: the stale failure issue is closed"
+else
+	echo "FAIL: the failure issue stayed open while the input is pinned"
+	fail=1
+fi
+
 exit $fail

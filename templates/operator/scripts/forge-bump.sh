@@ -11,9 +11,18 @@ open_issue_number() {
 		jq -r --arg title "$1" '[.[] | select(.title == $title)][0].number // empty'
 }
 
+close_failure_issue() {
+	local number
+	number="$(open_issue_number "$failure_title")"
+	if [ -n "$number" ]; then
+		gh issue close "$number" --comment "$1"
+	fi
+}
+
 forge_input_url="$(sed -n 's/^[[:space:]]*forge\.url[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' flake.nix | head -n 1)"
 if [[ $forge_input_url =~ (rev=|/)[0-9a-f]{40}([?#\&].*)?$ ]]; then
 	echo "the forge input is pinned to a rev in flake.nix; nothing to bump"
+	close_failure_issue "The \`forge\` input is now pinned to a rev in \`flake.nix\`, so the bump no longer moves it."
 	exit 0
 fi
 
@@ -23,6 +32,7 @@ new_rev="$(jq -r '.nodes.forge.locked.rev' flake.lock)"
 
 if [ "$old_rev" = "$new_rev" ]; then
 	echo "forge has not moved from ${old_rev:0:7}; nothing to bump"
+	close_failure_issue "The locked \`forge\` input is already at forge's latest commit, ${old_rev:0:7}."
 	exit 0
 fi
 
@@ -65,7 +75,4 @@ git add flake.lock
 git commit --quiet --file "$scratch/message"
 git push --quiet origin HEAD:main
 
-number="$(open_issue_number "$failure_title")"
-if [ -n "$number" ]; then
-	gh issue close "$number" --comment "The divergence guard passes on forge ${new_rev:0:7}, which is now on \`main\`."
-fi
+close_failure_issue "The divergence guard passes on forge ${new_rev:0:7}, which is now on \`main\`."
