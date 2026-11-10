@@ -88,11 +88,12 @@ export interface ConflictBrief {
   files: readonly string[];
 }
 
+export const withContext = (prompt: string, context: string): string => `${prompt}\n\n${context}`;
+
 export const conflictBrief = (brief: ConflictBrief): string =>
   [
     `Resolve the merge conflicts on pull request #${brief.number} (${brief.url}).`,
     `Merge the default branch ${brief.defaultBranch} at ${brief.sha} into the pull request's branch ${brief.branch}, resolve the conflicts, and push the merge commit to ${brief.branch}.`,
-    'Merge exactly that sha: never rebase, and never force-push.',
     `These files conflicted:\n${brief.files.map((file) => `- ${file}`).join('\n')}`,
   ].join('\n');
 

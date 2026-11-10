@@ -534,7 +534,7 @@ for (const { given, instruction, context, marker } of OWN_CONTEXT_CASES) {
       assert.ok(first);
       assert.match(firstUserMessageOf(first), marker);
       assert.doesNotMatch(JSON.stringify(first.system), marker);
-      assert.ok(JSON.stringify(first.system).includes(instruction.slice(0, 40)));
+      assert.ok(JSON.stringify(first.system).includes(instruction.slice(-40)));
     },
   );
 }

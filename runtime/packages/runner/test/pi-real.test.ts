@@ -721,7 +721,7 @@ for (const { given, instruction, context, marker } of OWN_CONTEXT_CASES) {
       assert.ok(first);
       assert.match(firstUserTextOf(first), marker);
       assert.doesNotMatch(systemTextOf(first), marker);
-      assert.ok(systemTextOf(first).includes(instruction.slice(0, 40)));
+      assert.ok(systemTextOf(first).includes(instruction.slice(-40)));
     },
   );
 }
