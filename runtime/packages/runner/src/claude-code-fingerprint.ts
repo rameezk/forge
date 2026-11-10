@@ -88,6 +88,8 @@ const slugOf = (path: string): string => path.replace(/[^a-zA-Z0-9]/g, '-');
 
 const BUILD_SUFFIX = /(cc_version=\d+\.\d+\.\d+)\.[0-9a-f]+/g;
 
+const PREVIOUS_REQUEST = /(cc_prev_req=)[^;\s]+/g;
+
 const TODAY = /(Today's date is )\d{4}-\d{2}-\d{2}/g;
 
 const GIT_STATUS_INTRO =
@@ -115,6 +117,7 @@ export const claudeCodeNormalizer = ({
       slugs
         .reduce((replaced, slug) => replaced.replaceAll(slug, '<work dir slug>'), text)
         .replace(BUILD_SUFFIX, '$1.<build>')
+        .replace(PREVIOUS_REQUEST, '$1<request>')
         .replace(TODAY, '$1<date>')
         .replace(GIT_STATUS, '$1\n\n<git status>'),
     );

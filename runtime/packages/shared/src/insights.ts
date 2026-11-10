@@ -10,6 +10,8 @@ export interface InsightsFilter {
 }
 
 export interface InsightWorkload {
+  worker: string;
+  repository: string | null;
   fingerprintHash: string | null;
   fingerprint: ConfigFingerprint | null;
   dispatched: boolean;
@@ -29,6 +31,11 @@ export interface ActivePair {
   repository: string;
 }
 
+export interface RanPair {
+  worker: string;
+  repository: string | null;
+}
+
 export interface CohortActivity {
   hash: string | null;
   firstRun: string;
@@ -41,6 +48,7 @@ export interface CohortInsight {
   firstRun: string | null;
   lastRun: string | null;
   activeFor: ActivePair[];
+  ranFor: RanPair[];
   fingerprint: ConfigFingerprint | null;
   workloads: number;
   listPrice: boolean;
@@ -112,6 +120,14 @@ const cacheHitRate = (workloads: InsightWorkload[]): number | null => {
   return ratio(read, prompt);
 };
 
+const ranFor = (members: InsightWorkload[]): RanPair[] => {
+  const pairs = new Map<string, RanPair>();
+  for (const { worker, repository } of members) pairs.set(JSON.stringify([worker, repository]), { worker, repository });
+  return [...pairs.values()].sort(
+    (a, b) => a.worker.localeCompare(b.worker) || (a.repository ?? '').localeCompare(b.repository ?? ''),
+  );
+};
+
 const summarize = (members: InsightWorkload[], activity: CohortActivity | undefined): CohortInsight => {
   const dispatched = members.filter(({ dispatched: isDispatched }) => isDispatched);
   const merged = dispatched.filter(({ pullRequest }) => pullRequest?.state === 'merged');
@@ -128,6 +144,7 @@ const summarize = (members: InsightWorkload[], activity: CohortActivity | undefi
     firstRun: activity?.firstRun ?? null,
     lastRun: activity?.lastRun ?? null,
     activeFor: activity?.activeFor ?? [],
+    ranFor: ranFor(members),
     fingerprint: members[0]!.fingerprint,
     workloads: members.length,
     listPrice: billed.length === 0,

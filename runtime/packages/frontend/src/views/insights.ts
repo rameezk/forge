@@ -1,9 +1,9 @@
 import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, seriesOf } from '../chart.ts';
-import { cohortHref, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
+import { cohortHref, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
-import { type Rendered, ROW, renderActiveBadge, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
+import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
 
 export interface InsightsQuery extends InsightsFilter {
   from?: string;
@@ -61,9 +61,25 @@ const renderRunTime = (metric: string, iso: string | null, timeZone: string): Ht
     ? html`<td class="${RUN_TD}" data-metric="${metric}">n/a</td>`
     : html`<td class="${RUN_TD}" data-metric="${metric}" title="${formatStarted(iso, timeZone)}">${formatMinute(iso, timeZone).split(' ').map((part) => html`<span class="whitespace-nowrap">${part}</span>`).reduce((joined, part) => html`${joined} ${part}`)}</td>`;
 
+const joinNames = (names: string[]): string =>
+  names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+
+const ownersOf = (pairs: RanPair[]): string => {
+  const repositories = new Map<string, string[]>();
+  for (const { worker, repository } of pairs) {
+    repositories.set(worker, repository === null ? (repositories.get(worker) ?? []) : [...(repositories.get(worker) ?? []), repository]);
+  }
+  return [...repositories].map(([worker, names]) => (names.length === 0 ? worker : `${worker} on ${joinNames(names)}`)).join('; ');
+};
+
+const COLUMNS = 14;
+
+const renderOwners = ({ activeFor, ranFor }: CohortInsight): Rendered =>
+  html`<p class="m-0 mt-0.5 text-[0.8rem] font-normal text-muted" data-owner>${activeFor.length === 0 ? `Ran for ${ownersOf(ranFor)}` : `Active for ${ownersOf(activeFor)}`}</p>`;
+
 const renderCohort = (cohort: CohortInsight, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
-    <td class="border-t border-line px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${cohort.activeFor.length === 0 ? '' : html` ${renderActiveBadge(cohort.activeFor)}`}</td>
+    <td class="border-t border-line px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${renderOwners(cohort)}</td>
     ${renderRunTime('first-run', cohort.firstRun, timeZone)}
     ${renderRunTime('last-run', cohort.lastRun, timeZone)}
     <td class="${COHORT_TD}" data-metric="workloads">${cohort.workloads}</td>
@@ -78,6 +94,26 @@ const renderCohort = (cohort: CohortInsight, timeZone: string): HtmlEscapedStrin
     <td class="${COHORT_TD}" data-metric="retries">${formatMeasure(cohort.retriesPerWorkload)}</td>
     <td class="${COHORT_TD}" data-metric="rework">${formatMeasure(cohort.reworkPerMerged)}</td>
   </tr>`;
+
+const GROUP_HEADER = 'border-t border-line bg-raised px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-[0.05em] text-fg';
+
+const renderGroup = (
+  group: 'active' | 'previous',
+  title: string,
+  cohorts: CohortInsight[],
+  timeZone: string,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  if (cohorts.length === 0) return html``;
+  const lastRun = cohorts.map((cohort) => cohort.lastRun).filter((iso): iso is string => iso !== null).sort().at(-1) ?? null;
+  const header =
+    group === 'active'
+      ? html`<th scope="colgroup" colspan="${COLUMNS}" class="${GROUP_HEADER}"><span class="sticky left-2.5">${title}</span></th>`
+      : html`<th scope="colgroup" colspan="${COLUMNS}" class="${GROUP_HEADER}"><button type="button" data-group-toggle aria-expanded="false" class="group flex w-full cursor-pointer items-baseline gap-2 border-0 bg-transparent p-0 text-left font-[inherit] text-[inherit] uppercase tracking-[inherit] text-fg"><span class="sticky left-2.5 flex items-baseline gap-2"><span aria-hidden="true" class="inline-block w-3 text-center text-[0.65rem] text-muted transition-transform group-aria-expanded:rotate-90">▶</span>${title}<span class="tabular-nums" data-group-count>${cohorts.length}</span>${lastRun === null ? '' : html`<span class="font-normal normal-case tracking-normal text-muted" data-group-last-run>last run ${formatMinute(lastRun, timeZone)}</span>`}</span></button></th>`;
+  return html`<tbody data-cohort-group="${group}"${group === 'active' ? '' : html` data-collapsed`} class="data-[collapsed]:[&>tr:not([data-group-header])]:hidden">
+    <tr data-group-header>${header}</tr>
+    ${cohorts.map((cohort) => renderCohort(cohort, timeZone))}
+  </tbody>`;
+};
 
 const renderCostOverTime = (
   cohorts: CohortInsight[],
@@ -128,7 +164,8 @@ export const renderInsights = (
                 <th class="${COHORT_TH} text-right">Rework per merged PR</th>
               </tr>
             </thead>
-            <tbody>${cohorts.map((cohort) => renderCohort(cohort, display.timeZone))}</tbody>
+            ${renderGroup('active', 'Active cohorts', cohorts.filter(({ activeFor }) => activeFor.length > 0), display.timeZone)}
+            ${renderGroup('previous', 'Previous cohorts', cohorts.filter(({ activeFor }) => activeFor.length === 0), display.timeZone)}
           </table>
         </div>
         ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}

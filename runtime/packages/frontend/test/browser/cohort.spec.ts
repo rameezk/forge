@@ -57,6 +57,7 @@ test('given two cohorts, when a cohort label is followed from the insights page 
   record(dashboard.store, 'one', fingerprint);
   record(dashboard.store, 'two', reskilled);
   await page.goto('/insights?manual=1');
+  await page.getByRole('button', { name: /Previous cohorts/ }).click();
 
   await page.locator(`[data-cohort="${fingerprintHash(fingerprint)}"]`).getByRole('link').click();
   await page.getByLabel('Compare against').selectOption(fingerprintHash(reskilled));
