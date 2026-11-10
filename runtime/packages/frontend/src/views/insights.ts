@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { renderChartLegend, renderCostChart, renderProviderShares, seriesOf } from '../chart.ts';
+import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
 import { cohortHref, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
@@ -121,7 +121,7 @@ const renderCostOverTime = (
   shares: ProviderShare[],
   timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const series = seriesOf(cohorts.map(({ hash }) => hash));
+  const series = cohortSeriesOf(cohorts);
   return html`<section class="${CARD} mt-4 p-4" data-cost-chart aria-label="Cost over time">
     <h2 class="mb-2 text-sm font-semibold text-fg">Cost over time</h2>
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">

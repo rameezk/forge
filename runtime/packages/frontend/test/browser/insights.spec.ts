@@ -108,6 +108,39 @@ test('given workloads on the insights page, when it is opened at phone width, th
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
 
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`given an active and a previous cohort in ${colorScheme} mode, when the insights page loads, then the chart, legend and provider shares draw the previous cohort in a receding grey and the active one in a series colour`, async ({ dashboard, page }) => {
+    const previous: ConfigFingerprint = { ...fingerprint, model: 'z-ai/glm-5', reasoningEffort: null, promptTemplate: '9b1e77aa' };
+    const hashOf = (config: ConfigFingerprint): string => fingerprintHash(config);
+    const dispatched = (id: string, startTime: string, endTime: string, config: ConfigFingerprint): void => {
+      const run = workload(id, { startTime, endTime, ticket: { repository: 'forge', number: Number(id.slice(-1)), url: 'https://github.com/rameezk/forge/issues/1' } });
+      dashboard.store.insertRun(run);
+      dashboard.store.recordFingerprint(id, { fingerprint: config, hash: hashOf(config), forgeGitSha: null, baseCommit: null });
+      const started = dashboard.store.startDispatch(run.ticket!, id, startTime, 100, null);
+      if (!('started' in started)) throw new Error('dispatch did not start');
+      dashboard.store.endDispatch(started.started, { state: 'failed', reason: 'no-pull-request', detail: null }, endTime);
+    };
+    dispatched('old1', '2026-09-20T10:00:00.000Z', '2026-09-20T10:03:00.000Z', previous);
+    dispatched('new2', '2026-09-21T10:00:00.000Z', '2026-09-21T10:03:00.000Z', fingerprint);
+    await page.emulateMedia({ colorScheme });
+
+    await page.goto('/insights');
+
+    const styleOf = (selector: string, property: 'stroke' | 'backgroundColor'): Promise<string> =>
+      page.locator(selector).evaluate((element, name) => element.ownerDocument.defaultView!.getComputedStyle(element)[name], property);
+    const activePoint = '[data-point][data-run="new2"]';
+    const previousPoint = '[data-point][data-run="old1"]';
+    await expect(page.locator(`${activePoint} [data-shape]`)).toBeVisible();
+    await expect(page.locator(`${previousPoint} [data-shape]`)).toBeVisible();
+    expect(await styleOf(previousPoint, 'stroke')).not.toBe(await styleOf(activePoint, 'stroke'));
+    await expect(page.locator(activePoint)).toHaveCSS('opacity', '1');
+    await expect(page.locator(previousPoint)).toHaveCSS('opacity', '0.6');
+    const swatch = (hash: string): string => `[data-legend-cohort="${hash}"] span:first-child`;
+    expect(await styleOf(swatch(hashOf(previous)), 'backgroundColor')).not.toBe(await styleOf(swatch(hashOf(fingerprint)), 'backgroundColor'));
+    await page.screenshot({ path: `test-results/insights-charts-${colorScheme}.png`, fullPage: true });
+  });
+}
+
 const THIRD: ConfigFingerprint = { ...SONNET, promptTemplate: 'c3c3c3c3' };
 const quick = { seconds: 60, cost: 0.1, toolCalls: 1, retries: 0 };
 
