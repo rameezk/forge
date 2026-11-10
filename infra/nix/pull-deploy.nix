@@ -94,7 +94,10 @@ testers.runNixOSTest {
       virtualisation.memorySize = 2048;
       nix.settings.sandbox = false;
       environment.systemPackages = [ git ];
-      systemd.tmpfiles.rules = [ "d ${record} 1777 root root - -" ];
+      systemd.tmpfiles.rules = [
+        "d ${record} 1777 root root - -"
+        "f ${record}/built 0666 root root - -"
+      ];
 
       forge.runtime.secretsFile = secretsFile;
       forge.runtime.package = pkgs.emptyDirectory;
@@ -212,6 +215,7 @@ testers.runNixOSTest {
     with subtest("a hand deploy is reverted at the next pull"):
         box.succeed("mkdir -p /run/hand-deployed && ln -sfn $(readlink -f /run/booted-system/sw) /run/hand-deployed/sw && ln -sfn /run/hand-deployed /run/current-system")
         retry(lambda _: lines("${record}/switched") == [a, b, d, d], 120)
+        retry(lambda _: lines("/var/lib/forge-pull-deploy/system") == ["/run/hand-deployed"], 120)
         box.succeed("ln -sfn $(readlink -f /run/booted-system) /run/current-system")
         retry(lambda _: lines("${record}/switched") == [a, b, d, d, d], 120)
 
