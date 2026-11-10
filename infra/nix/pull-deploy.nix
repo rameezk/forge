@@ -47,6 +47,7 @@ let
         exit 1
       ''}
       ${coreutils}/bin/mkdir -p $out/bin
+      echo operator > $out/nixos-version
       {
         echo '#!${bash}/bin/bash'
         echo "echo $rev >> ${record}/switched"
@@ -93,6 +94,7 @@ testers.runNixOSTest {
       sops.secrets.tailscale_auth_key.sopsFile = secretsFile;
       virtualisation.memorySize = 2048;
       nix.settings.sandbox = false;
+      nix.settings.substituters = lib.mkForce [ ];
       environment.systemPackages = [ git ];
       systemd.tmpfiles.rules = [
         "d ${record} 1777 root root - -"
