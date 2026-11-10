@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store, type PolledFrontier, type Ticket } from '@forge/shared';
 import { main } from '../src/pass-main.ts';
-import { journaled, startedDispatch } from './helpers.ts';
+import { journaled, leaveOpenPullRequests, startedDispatch } from './helpers.ts';
 
 const ticket = (github: string, number: number, overrides: Partial<Ticket> = {}): Ticket => ({
   number,
@@ -31,12 +31,13 @@ const polled = (repository: string, github: string, tickets: Ticket[]): PolledFr
 interface Scenario {
   frontier: PolledFrontier[];
   maxConcurrent?: number;
+  maxOpenPullRequests?: number | null;
   seed?: (store: Store) => void;
   failingUnit?: string;
   failedPolls?: string[];
 }
 
-const pass = async ({ frontier, maxConcurrent, seed, failingUnit, failedPolls = [] }: Scenario) => {
+const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failingUnit, failedPolls = [] }: Scenario) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-pass-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -49,7 +50,10 @@ const pass = async ({ frontier, maxConcurrent, seed, failingUnit, failedPolls = 
         dotfiles: { github: 'rameezk/dotfiles', on: { ticket: 'builder' } },
         notes: { github: 'rameezk/notes' },
       },
-      dispatch: maxConcurrent === undefined ? {} : { maxConcurrent },
+      dispatch: {
+        ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
+        ...(maxOpenPullRequests === undefined ? {} : { maxOpenPullRequests }),
+      },
     }),
   );
   const record = join(stateDir, 'systemctl-calls');
@@ -203,4 +207,113 @@ test('given maxConcurrent = 1, a revision of a pull request still running and a 
 
   assert.deepEqual(started, []);
   assert.match(journal, /forge#113: waits, 1 of 1 workloads would be running/);
+});
+
+const dispatchUnit = (repository: string, number: number): string =>
+  `start --no-block --no-ask-password -- forge-dispatch@${repository}:${number}.service`;
+
+test('given 5 open pull requests left by done dispatches and a forge:ready frontier ticket, when the pass runs, then no dispatch unit starts and the log says the ticket waits because 5 of 5 pull requests are open for review', async () => {
+  const { started, journal } = await pass({
+    maxConcurrent: 5,
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)])],
+    seed: (store) => leaveOpenPullRequests(store, 'forge', 5),
+  });
+
+  assert.deepEqual(started, []);
+  assert.match(journal, /forge#113: waits, 5 of 5 pull requests are open for review/);
+});
+
+test('given 3 open dispatch pull requests, 2 running dispatches, maxConcurrent 5 and two forge:ready tickets, when the pass runs, then no dispatch unit starts', async () => {
+  const { started, journal } = await pass({
+    maxConcurrent: 5,
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113), ticket('rameezk/forge', 114)])],
+    seed: (store) => {
+      leaveOpenPullRequests(store, 'forge', 3);
+      startedDispatch(store, 'forge', 301, 'run-301', new Date().toISOString());
+      startedDispatch(store, 'forge', 302, 'run-302', new Date().toISOString());
+    },
+  });
+
+  assert.deepEqual(started, []);
+  assert.match(journal, /forge#113: waits, 5 of 5 pull requests are open for review/);
+  assert.match(journal, /forge#114: waits, 5 of 5 pull requests are open for review/);
+});
+
+test('given 3 open dispatch pull requests, nothing running, maxConcurrent 5 and three forge:ready tickets, when the pass runs, then only the two oldest are dispatched and the third waits on the review limit', async () => {
+  const { started, journal } = await pass({
+    maxConcurrent: 5,
+    frontier: [
+      polled('forge', 'rameezk/forge', [
+        ticket('rameezk/forge', 113, { createdAt: '2026-09-28T10:00:00Z' }),
+        ticket('rameezk/forge', 114, { createdAt: '2026-09-28T10:01:00Z' }),
+        ticket('rameezk/forge', 115, { createdAt: '2026-09-28T10:02:00Z' }),
+      ]),
+    ],
+    seed: (store) => leaveOpenPullRequests(store, 'forge', 3),
+  });
+
+  assert.deepEqual(started, [dispatchUnit('forge', 113), dispatchUnit('forge', 114)]);
+  assert.match(journal, /forge#115: waits, 5 of 5 pull requests are open for review/);
+});
+
+test('given 3 open dispatch pull requests in one repository, 2 in another and a forge:ready ticket in a third, when the pass runs, then the ticket waits', async () => {
+  const { started, journal } = await pass({
+    maxConcurrent: 5,
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)])],
+    seed: (store) => {
+      leaveOpenPullRequests(store, 'dotfiles', 3);
+      leaveOpenPullRequests(store, 'notes', 2);
+    },
+  });
+
+  assert.deepEqual(started, []);
+  assert.match(journal, /forge#113: waits, 5 of 5 pull requests are open for review/);
+});
+
+test('given 5 dispatch pull requests of which one is merged, when the pass runs with a forge:ready ticket, then it is dispatched; and the same when one is closed', async () => {
+  for (const state of ['merged', 'closed'] as const) {
+    const { started } = await pass({
+      maxConcurrent: 5,
+      frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)])],
+      seed: (store) => leaveOpenPullRequests(store, 'forge', 5, { 2: state }),
+    });
+    assert.deepEqual(started, [dispatchUnit('forge', 113)]);
+  }
+});
+
+test('given no maxOpenPullRequests, 4 open dispatch pull requests, maxConcurrent 3 and two forge:ready tickets, when the pass runs, then exactly one dispatch unit starts', async () => {
+  const { started, journal } = await pass({
+    maxConcurrent: 3,
+    frontier: [
+      polled('forge', 'rameezk/forge', [
+        ticket('rameezk/forge', 113, { createdAt: '2026-09-28T10:00:00Z' }),
+        ticket('rameezk/forge', 114, { createdAt: '2026-09-28T10:01:00Z' }),
+      ]),
+    ],
+    seed: (store) => leaveOpenPullRequests(store, 'forge', 4),
+  });
+
+  assert.deepEqual(started, [dispatchUnit('forge', 113)]);
+  assert.match(journal, /forge#114: waits, 5 of 5 pull requests are open for review/);
+});
+
+test('given maxOpenPullRequests null and 10 open dispatch pull requests, when the pass runs with a forge:ready ticket, then it is dispatched', async () => {
+  const { started } = await pass({
+    maxOpenPullRequests: null,
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)])],
+    seed: (store) => leaveOpenPullRequests(store, 'forge', 10),
+  });
+
+  assert.deepEqual(started, [dispatchUnit('forge', 113)]);
+});
+
+test('given maxOpenPullRequests 2 and 2 open dispatch pull requests, when the pass runs, then the ticket waits and the log names the configured limit', async () => {
+  const { started, journal } = await pass({
+    maxOpenPullRequests: 2,
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)])],
+    seed: (store) => leaveOpenPullRequests(store, 'forge', 2),
+  });
+
+  assert.deepEqual(started, []);
+  assert.match(journal, /forge#113: waits, 2 of 2 pull requests are open for review/);
 });

@@ -64,6 +64,7 @@ const dashboard = () => {
     'run-01',
     '2026-09-29T09:00:00.000Z',
     Number.POSITIVE_INFINITY,
+    null,
   );
   assert.ok('started' in dispatch);
   store.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, '2026-09-29T09:03:20.000Z');

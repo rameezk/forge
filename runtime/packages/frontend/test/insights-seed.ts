@@ -146,7 +146,7 @@ export const seedStore = (store: Store, seeds: Seed[]): void => {
     }
     seedGenerations(store, seed);
     if (run.ticket === null) continue;
-    const started = store.startDispatch(run.ticket, seed.id, run.startTime, 100);
+    const started = store.startDispatch(run.ticket, seed.id, run.startTime, 100, null);
     assert.ok('started' in started);
     if (seed.running === true) continue;
     store.endDispatch(

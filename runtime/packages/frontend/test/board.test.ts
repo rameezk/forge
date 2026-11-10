@@ -111,7 +111,7 @@ test('given a stored frontier, when the Board is requested, then it shows the ni
 const forgeTicket = (number: number) => ({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` });
 
 const dispatched = (store: Store, number: number, startedAt = '2026-09-30T08:00:00.000Z'): number => {
-  const start = store.startDispatch(forgeTicket(number), `run-${number}`, startedAt, Number.POSITIVE_INFINITY);
+  const start = store.startDispatch(forgeTicket(number), `run-${number}`, startedAt, Number.POSITIVE_INFINITY, null);
   assert.ok('started' in start);
   return start.started;
 };
@@ -634,7 +634,7 @@ test('given a limit of 4 with one running dispatch, one live revision and one li
     dispatched(store, 4, now);
     inReview(store, 5);
     startRevisionOn(store, 5, 105);
-    const dispatch = store.startDispatch({ repository: 'other', number: 9, url: 'https://github.com/rameezk/other/issues/9' }, 'run-9', now, Number.POSITIVE_INFINITY);
+    const dispatch = store.startDispatch({ repository: 'other', number: 9, url: 'https://github.com/rameezk/other/issues/9' }, 'run-9', now, Number.POSITIVE_INFINITY, null);
     assert.ok('started' in dispatch);
     store.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 109, url: 'https://github.com/rameezk/other/pull/109' } }, now);
     const start = store.startConflictResolution({ repository: 'other', number: 109, url: 'https://github.com/rameezk/other/pull/109' }, [9], 'resolution-109', now, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
@@ -813,7 +813,7 @@ const failedAttempt = (store: Store, number: number, runId: string | null, start
     return;
   }
   store.insertRun({ ...runOf(number), id: runId });
-  const start = store.startDispatch(forgeTicket(number), runId, startedAt, Number.POSITIVE_INFINITY);
+  const start = store.startDispatch(forgeTicket(number), runId, startedAt, Number.POSITIVE_INFINITY, null);
   assert.ok('started' in start);
   store.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail: null }, startedAt);
 };

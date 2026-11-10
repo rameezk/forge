@@ -32,6 +32,7 @@ import {
 } from '@forge/shared';
 import {
   maxConcurrentOf,
+  maxOpenPullRequestsOf,
   repositoryTriggeredBy,
   resolveWorker,
   type RepositoryConfig,
@@ -60,10 +61,19 @@ const refusal = async (
     : `the forge labels are missing from ${github}, and the frontier sync creates them once it can write to GitHub as the App`;
 };
 
-const startRefusal = (start: Exclude<DispatchStart, { started: number }>): string =>
-  start.refused === 'dispatching'
-    ? 'it is already being dispatched'
-    : `${start.live} dispatched ${start.live === 1 ? 'workload is' : 'workloads are'} already running, the most forge.runtime.dispatch.maxConcurrent allows`;
+const startRefusal = (
+  start: Exclude<DispatchStart, { started: number }>,
+  maxOpenPullRequests: number | null,
+): string => {
+  switch (start.refused) {
+    case 'dispatching':
+      return 'it is already being dispatched';
+    case 'full':
+      return `${start.live} dispatched ${start.live === 1 ? 'workload is' : 'workloads are'} already running, the most forge.runtime.dispatch.maxConcurrent allows`;
+    case 'review-limit':
+      return `${start.open} of ${maxOpenPullRequests} pull requests are open for review, the most forge.runtime.dispatch.maxOpenPullRequests allows`;
+  }
+};
 
 const fillPrompt = (
   template: string,
@@ -210,9 +220,18 @@ export const main = async (
 
       const dispatched = { ...unstarted, url: ticket.url };
       const runId = randomUUID();
-      const start = store.startDispatch(dispatched, runId, now(), maxConcurrentOf(config));
+      const maxOpenPullRequests = maxOpenPullRequestsOf(config);
+      const start = store.startDispatch(
+        dispatched,
+        runId,
+        now(),
+        maxConcurrentOf(config),
+        maxOpenPullRequests,
+      );
       if ('refused' in start) {
-        console.error(`${name}#${ticket.number} is not dispatchable: ${startRefusal(start)}`);
+        console.error(
+          `${name}#${ticket.number} is not dispatchable: ${startRefusal(start, maxOpenPullRequests)}`,
+        );
         return 1;
       }
       prepared = { identity, ticket, context, dispatched, runId, dispatchId: start.started };

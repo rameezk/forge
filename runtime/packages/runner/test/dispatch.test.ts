@@ -53,6 +53,7 @@ import {
   fakeOpenRouter,
   LISTED_MODELS,
   journaled,
+  leaveOpenPullRequests,
   startedDispatch,
   PI_CONTRACT,
   PI_EXTENSIONS,
@@ -548,6 +549,7 @@ interface Scenario {
   privateKey?: string | null;
   piOutput?: string;
   maxConcurrent?: number;
+  maxOpenPullRequests?: number | null;
   gitConfig?: Record<string, string>;
   env?: Record<string, string>;
   nix?: FakeNix;
@@ -699,6 +701,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         ...(scenario.maxConcurrent === undefined
           ? {}
           : { maxConcurrent: scenario.maxConcurrent }),
+        ...(scenario.maxOpenPullRequests === undefined
+          ? {}
+          : { maxOpenPullRequests: scenario.maxOpenPullRequests }),
       },
     }),
   );
@@ -1803,6 +1808,38 @@ test('given maxConcurrent = 1 and a dispatched workload of another ticket still 
   });
   assert.equal(stale.code, 0);
   assert.notEqual(stale.pi, null);
+});
+
+test('given the review limit is reached, when forge-dispatch runs for a forge:ready ticket, then it refuses citing the review limit without claiming the ticket or starting a workload, and once a pull request is merged it dispatches', async () => {
+  const { result, journal } = await journaled(() =>
+    dispatch({
+      maxConcurrent: 10,
+      seed: (store) => leaveOpenPullRequests(store, 'forge', 5),
+    }),
+  );
+
+  assert.equal(result.code, 1);
+  assert.equal(result.pi, null);
+  assert.deepEqual(result.runs, []);
+  assert.deepEqual(result.labelWrites, []);
+  assert.match(
+    journal,
+    /forge#113 is not dispatchable: 5 of 5 pull requests are open for review, the most forge\.runtime\.dispatch\.maxOpenPullRequests allows/,
+  );
+
+  const freed = await dispatch({
+    maxConcurrent: 10,
+    seed: (store) => leaveOpenPullRequests(store, 'forge', 5, { 0: 'merged' }),
+  });
+  assert.equal(freed.code, 0);
+  assert.notEqual(freed.pi, null);
+
+  const off = await dispatch({
+    maxOpenPullRequests: null,
+    seed: (store) => leaveOpenPullRequests(store, 'forge', 10),
+  });
+  assert.equal(off.code, 0);
+  assert.notEqual(off.pi, null);
 });
 
 test('given maxConcurrent = 2 and one dispatched workload still running, when forge-dispatch runs for another ticket, then its workload starts beside the first', async () => {

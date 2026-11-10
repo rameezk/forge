@@ -871,10 +871,11 @@
               (
                 dispatchHost.config.forge.runtime.settings.dispatch == {
                   maxConcurrent = 1;
+                  maxOpenPullRequests = 5;
                 }
                 && !(workerAndRepositoryHost.config.forge.runtime.settings ? dispatch)
               )
-              "the generated runtime config must carry a concurrency limit of 1 by default on a host that dispatches, and no dispatch settings on one that does not";
+              "the generated runtime config must carry a concurrency limit of 1 and a review limit of 5 by default on a host that dispatches, and no dispatch settings on one that does not";
           removedGitIdentityHost = secretsHost exampleSecretsFile {
             forge.runtime.dispatch.gitIdentity = {
               name = "Forge Operator";
@@ -906,6 +907,28 @@
                 }))
               )
               "a host built with mkHost { modules } that sets dispatch.maxConcurrent must carry it into the runtime config, and a limit below 1 must fail evaluation";
+          unlimitedReviewHost = dispatchHostWith {
+            dispatch = {
+              maxOpenPullRequests = null;
+            };
+          };
+          dispatchConfigReflectsReviewLimit =
+            lib.asserts.assertMsg
+              (
+                evaluates unlimitedReviewHost
+                && unlimitedReviewHost.config.forge.runtime.settings.dispatch.maxOpenPullRequests == null
+                && (dispatchHostWith {
+                  dispatch = {
+                    maxOpenPullRequests = 2;
+                  };
+                }).config.forge.runtime.settings.dispatch.maxOpenPullRequests == 2
+                && !(evaluates (dispatchHostWith {
+                  dispatch = {
+                    maxOpenPullRequests = 0;
+                  };
+                }))
+              )
+              "a host that sets dispatch.maxOpenPullRequests must carry it into the runtime config, null must turn the limit off, and a limit below 1 must fail evaluation";
           dashboardCarriesMaxConcurrent =
             lib.asserts.assertMsg
               (
@@ -1813,6 +1836,7 @@
             assert dispatchConfigReflectsDefaultLimit;
             assert setGitIdentityFails;
             assert dispatchConfigReflectsMaxConcurrent;
+            assert dispatchConfigReflectsReviewLimit;
             assert dashboardCarriesMaxConcurrent;
             assert dispatchPassFollowsSync;
             assert dispatchPassStartsUnits;

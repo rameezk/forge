@@ -120,6 +120,7 @@ const dispatchFailed = (store: Store, detail: string): void => {
     'run-01',
     '2026-09-21T10:00:00.000Z',
     10,
+    null,
   );
   assert.ok('started' in start);
   store.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail }, '2026-09-21T10:03:20.000Z');
@@ -180,7 +181,7 @@ test('given a run that stopped at its budget and an interrupted one, when their 
 
 test('given a run that errored while its dispatch is done, when its run page is opened, then the reason block is in the failed tone and an empty error shows no block', async () => {
   const done = await page({ status: 'error', error: 'provider exploded' }, (store) => {
-    const start = store.startDispatch({ repository: 'forge', number: 381, url: 'https://github.com/rameezk/forge/issues/381' }, 'run-01', '2026-09-21T10:00:00.000Z', 10);
+    const start = store.startDispatch({ repository: 'forge', number: 381, url: 'https://github.com/rameezk/forge/issues/381' }, 'run-01', '2026-09-21T10:00:00.000Z', 10, null);
     assert.ok('started' in start);
     store.endDispatch(start.started, { state: 'done', pullRequest: { number: 302, url: 'https://github.com/rameezk/forge/pull/302' } }, '2026-09-21T10:03:20.000Z');
   });

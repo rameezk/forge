@@ -666,6 +666,7 @@ const refusals: [string, Scenario, RegExp][] = [
           'opening-run',
           new Date().toISOString(),
           10,
+          null,
         );
         assert.ok('started' in start);
       },

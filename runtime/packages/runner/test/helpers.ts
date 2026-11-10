@@ -354,9 +354,33 @@ export const startedDispatch = (
     runId,
     at,
     Number.POSITIVE_INFINITY,
+    null,
   );
   assert.ok('started' in start);
   return start.started;
+};
+
+let nextPullRequest = 200;
+
+export const leaveOpenPullRequests = (
+  store: Store,
+  repository: string,
+  count: number,
+  settled: Record<number, 'merged' | 'closed'> = {},
+): void => {
+  for (let index = 0; index < count; index += 1) {
+    const number = nextPullRequest;
+    nextPullRequest += 1;
+    const at = new Date().toISOString();
+    const id = startedDispatch(store, repository, number, `run-${repository}-${number}`, at);
+    store.endDispatch(
+      id,
+      { state: 'done', pullRequest: { number, url: `https://github.com/rameezk/${repository}/pull/${number}` } },
+      at,
+    );
+    const state = settled[index];
+    if (state !== undefined) store.recordPullRequest(id, { state, settledAt: at, rework: 0 });
+  }
 };
 
 export const lockedPiPackage = (): string => {

@@ -93,7 +93,7 @@ test('given a running dispatch and a finished one, when the Board renders and ti
   dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: START, closed: [], requests: [], tickets: [ticket(56), ticket(57), ticket(58)] });
   const began = new Date();
   const dispatch = (number: number) => {
-    const started = dashboard.store.startDispatch({ repository: 'forge', number, url: ticket(number).url }, `run-${number}`, began.toISOString(), Number.POSITIVE_INFINITY);
+    const started = dashboard.store.startDispatch({ repository: 'forge', number, url: ticket(number).url }, `run-${number}`, began.toISOString(), Number.POSITIVE_INFINITY, null);
     if (!('started' in started)) throw new Error('dispatch refused');
     return started.started;
   };

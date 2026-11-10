@@ -67,7 +67,7 @@ const dashboard = (timeZone?: string) => {
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((event) => JSON.stringify(event)).join('\n') + '\n');
   const store = Store.open(':memory:');
   store.insertRun(run);
-  const started = store.startDispatch(TICKET, run.id, run.startTime, 100);
+  const started = store.startDispatch(TICKET, run.id, run.startTime, 100, null);
   assert.ok('started' in started);
   store.endDispatch(started.started, { state: 'failed', reason: 'no-pull-request', detail: null }, run.endTime!);
   store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T23:15:00.000Z', closed: [], requests: [], tickets: [ticket] });

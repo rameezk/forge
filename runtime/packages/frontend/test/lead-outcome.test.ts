@@ -42,7 +42,7 @@ const sampleRun = (id: string, status: RunStatus, ticketNumber: number | null): 
 
 const dispatchRun = (store: Store, id: string, status: RunStatus, number: number, outcome?: DispatchOutcome): void => {
   store.insertRun(sampleRun(id, status, number));
-  const started = store.startDispatch({ repository: 'forge', number, url: `${GITHUB}forge/issues/${number}` }, id, status === 'running' ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10);
+  const started = store.startDispatch({ repository: 'forge', number, url: `${GITHUB}forge/issues/${number}` }, id, status === 'running' ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10, null);
   assert.ok('started' in started);
   if (outcome !== undefined) store.endDispatch(started.started, outcome, '2026-09-21T10:03:20.000Z');
 };

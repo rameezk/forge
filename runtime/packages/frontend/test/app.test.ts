@@ -266,6 +266,7 @@ const dispatchedFor = (store: Store, runId: string, ticket: number, outcome?: Di
     runId,
     at,
     10,
+    null,
   );
   assert.ok('started' in start);
   if (outcome !== undefined) store.endDispatch(start.started, outcome, at);
@@ -331,6 +332,7 @@ const dispatchedWithPullRequest = (store: Store, runId: string, ticket: number, 
     runId,
     at,
     10,
+    null,
   );
   assert.ok('started' in start);
   store.endDispatch(
