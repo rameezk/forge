@@ -88,6 +88,10 @@ report_drift() {
 		head -c "$diff_limit" "$scratch/drift.diff"
 		echo
 		echo "$fence"
+		if [ "$(wc -c <"$scratch/drift.diff")" -gt "$diff_limit" ]; then
+			echo
+			echo "The diff is truncated; read the rest in forge's history between those commits."
+		fi
 	} >"$scratch/drift.md"
 	local number
 	number="$(open_issue_number "$drift_title")"

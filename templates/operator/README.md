@@ -1083,11 +1083,11 @@ merge them.
    [First run](#first-run). A missing runtime secret fails the build on the
    box, and a missing operator secret fails standup and teardown.
 
-6. Move the template marker to the forge commit you merged the template at, so
-   the drift issue closes on the next bump:
+6. Move the template marker to the forge commit you scaffolded the template at
+   in step 2, so the drift issue closes on the next bump:
 
    ```bash
-   jq -r '.nodes.forge.locked.rev' flake.lock >.forge-template-rev
+   echo "$rev" >.forge-template-rev
    ```
 
 7. Run the divergence guard, then stage and commit:

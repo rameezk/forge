@@ -285,7 +285,8 @@ if [ "$big_status" = 0 ] &&
 	[ "$(open_issues | jq 'length')" = 1 ] &&
 	grep -q "${big_commit:0:7}" <<<"$big_body" &&
 	[ "${#big_body}" -lt 65000 ] &&
-	grep -qx '````diff' <<<"$big_body"; then
+	grep -qx '````diff' <<<"$big_body" &&
+	grep -q "The diff is truncated" <<<"$big_body"; then
 	echo "ok: the large diff was truncated, fenced safely and the issue updated"
 else
 	echo "FAIL: expected the issue to be updated with a truncated, safely fenced diff"
