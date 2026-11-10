@@ -24,8 +24,6 @@ const HUMAN_TONE = 'text-accent-text ring-1 ring-line ring-inset';
 
 const MERGED_TONE = 'bg-success-soft text-success';
 
-const FAILED_TONE = 'bg-error-soft text-error';
-
 const HELD_TONE = 'bg-warning-soft text-warning';
 
 const ELAPSED = 'ml-1.5 text-xs tabular-nums text-muted';
@@ -300,15 +298,17 @@ const shortCommit = (commit: string): string => commit.slice(0, 7);
 const renderDeployStatus = (deploy: DeployStatus | null): Rendered => {
   if (deploy === null) return '';
   const current = deploy.running !== null && deploy.running === deploy.head;
-  return html`<section data-deploy-status aria-label="Deploy status" class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-    <span class="font-semibold uppercase tracking-[0.05em]">Deploy</span>
-    <span title="The operator commit the box runs">Running ${deploy.running === null ? 'unknown' : html`<code class="font-mono text-fg">${shortCommit(deploy.running)}</code>`}</span>
-    ${current
-      ? html`<span data-deploy-current class="${PILL} ${MERGED_TONE}">up to date</span>`
-      : deploy.head === null
-        ? ''
-        : html`<span title="The commit at the head of the operator repository's main">Head <code class="font-mono text-fg">${shortCommit(deploy.head)}</code></span>`}
-    ${deploy.error === null ? '' : html`<span data-deploy-error title="${deploy.error}" class="${PILL} ${FAILED_TONE} max-w-full truncate">${deploy.error}</span>`}
+  return html`<section data-deploy-status aria-label="Deploy status" class="mb-3 text-xs text-muted">
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span class="font-semibold uppercase tracking-[0.05em]">Deploy</span>
+      <span title="The operator commit the box runs">Running ${deploy.running === null ? 'unknown' : html`<code class="font-mono text-fg">${shortCommit(deploy.running)}</code>`}</span>
+      ${current
+        ? html`<span data-deploy-current class="${PILL} ${MERGED_TONE}">up to date</span>`
+        : deploy.head === null
+          ? ''
+          : html`<span title="The commit at the head of the operator repository's main">Head <code class="font-mono text-fg">${shortCommit(deploy.head)}</code></span>`}
+    </div>
+    ${deploy.error === null ? '' : html`<p data-deploy-error title="${deploy.error}" class="${ERROR_CALLOUT} mt-1.5 line-clamp-4 break-words whitespace-pre-line">${deploy.error}</p>`}
   </section>`;
 };
 
