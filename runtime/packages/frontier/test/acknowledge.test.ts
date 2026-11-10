@@ -72,10 +72,15 @@ const pull = (number: number, overrides: Partial<Pull> = {}): Pull => ({
 
 const actor = ({ login, type }: Person) => ({ __typename: type, login });
 
-const reactionGroups = (eyes: Person[]) =>
+const reactionGroups = (eyes: Person[], viewer: Person | null) =>
   eyes.length === 0
     ? []
-    : [{ content: 'EYES', reactors: { nodes: eyes.map((person) => actor(person)) } }];
+    : [
+        {
+          content: 'EYES',
+          viewerHasReacted: viewer !== null && eyes.some(({ login }) => login === viewer.login),
+        },
+      ];
 
 const watchedNode = (p: Pull) => ({
   number: p.number,
@@ -95,7 +100,7 @@ const watchedNode = (p: Pull) => ({
   comments: { nodes: p.comments.map((c) => ({ author: actor(c.author), createdAt: c.at })) },
 });
 
-const windowNode = (p: Pull) => ({
+const windowNode = (p: Pull, viewer: Person | null) => ({
   reviews: {
     nodes: p.reviews.map((r) => ({
       id: r.id,
@@ -103,7 +108,7 @@ const windowNode = (p: Pull) => ({
       author: actor(r.author),
       body: r.body,
       submittedAt: r.at,
-      reactionGroups: reactionGroups(r.eyes),
+      reactionGroups: reactionGroups(r.eyes, viewer),
       comments: {
         nodes: r.inline.map((c) => ({
           id: c.id,
@@ -114,7 +119,7 @@ const windowNode = (p: Pull) => ({
           path: 'src/index.ts',
           line: 3,
           originalLine: 3,
-          reactionGroups: reactionGroups(c.eyes),
+          reactionGroups: reactionGroups(c.eyes, viewer),
         })),
       },
     })),
@@ -126,7 +131,7 @@ const windowNode = (p: Pull) => ({
       author: actor(c.author),
       body: 'A thought',
       createdAt: c.at,
-      reactionGroups: reactionGroups(c.eyes),
+      reactionGroups: reactionGroups(c.eyes, viewer),
     })),
   },
 });
@@ -174,6 +179,9 @@ const github = (pulls: Pull[], refused: string[] = []) => {
         ? json({ data: null, errors: [{ message: 'Resource not accessible by integration' }] })
         : json({ data: { addReaction: { reaction: { content: 'EYES' } } } });
     }
+    const viewer = /^bearer ghs_read_/.test(new Headers(init?.headers).get('authorization') ?? '')
+      ? FORGE
+      : null;
     const operation = /query (\w+)/.exec(body.query)?.[1];
     const target = pulls.find(({ number }) => number === body.variables.number);
     const data =
@@ -190,7 +198,7 @@ const github = (pulls: Pull[], refused: string[] = []) => {
               },
             }
           : operation === 'FeedbackWindow' && target !== undefined
-            ? { repository: { pullRequest: windowNode(target) } }
+            ? { repository: { pullRequest: windowNode(target, viewer) } }
             : undefined;
     if (data === undefined) throw new Error(`unexpected GitHub request ${String(operation)}`);
     return json({ data });

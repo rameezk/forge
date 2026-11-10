@@ -87,11 +87,7 @@ const watchedPolling =
   };
 
 const acknowledging =
-  (
-    tokens: InstallationTokens,
-    fetch: Fetch,
-    identity: (github: string) => Promise<{ name: string }>,
-  ): Acknowledge =>
+  (tokens: InstallationTokens, fetch: Fetch): Acknowledge =>
   async (name, github, watched, cursors) => {
     let acknowledged = true;
     for (const { number } of watched) {
@@ -104,7 +100,6 @@ const acknowledging =
           github,
           number,
           cursors.get(number) ?? null,
-          (await identity(github)).name,
         );
       } catch (error) {
         console.error(`${where}: could not read feedback to acknowledge: ${errorMessage(error)}`);
@@ -341,7 +336,7 @@ export const main = async (
         pullRequestPolling(tokens, fetch),
         async (github) => (await identity(github)).email,
         watchedPolling(tokens, fetch, identity),
-        acknowledging(tokens, fetch, identity),
+        acknowledging(tokens, fetch),
         githubWrites(config, tokens, fetch),
       )
     : list(config, poll);
