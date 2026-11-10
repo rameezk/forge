@@ -565,6 +565,7 @@ interface Scenario {
   rejectBotLookup?: boolean;
   contexts?: Record<number, RawContextResponse>;
   permissions?: Record<string, string>;
+  unaccepted?: Record<string, string>;
   edits?: Partial<Edits>;
 }
 
@@ -707,7 +708,11 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       },
     }),
   );
-  const app = fakeGithubApp(scenario.installed ?? ['rameezk/forge'], scenario.lifetimeSeconds);
+  const app = fakeGithubApp(
+    scenario.installed ?? ['rameezk/forge'],
+    scenario.lifetimeSeconds,
+    scenario.unaccepted,
+  );
   const privateKeyFile = join(stateDir, 'github-app-private-key.pem');
   const privateKey = scenario.privateKey === undefined ? app.privateKey : scenario.privateKey;
   if (privateKey !== null) {
@@ -2110,6 +2115,19 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
   ]);
 });
 
+test('given a dispatch and a revision, when each starts its harness, then each instruction says to re-run only infrastructure failures on its own pull request\'s head, at most twice, and never to re-run a failing test or step, touch Actions otherwise, or re-trigger CI with an empty commit or by reopening', async () => {
+  const { pi } = await dispatch();
+  for (const instruction of [instructionOf(pi), revisionInstruction([])]) {
+    assert.match(instruction, /Re-run only a failed run on the head of the pull request you work on/);
+    assert.match(instruction, /no jobs created, a startup failure, a lost runner, or a cancellation you did not cause/);
+    assert.match(instruction, /Re-run the same run at most twice/);
+    assert.match(instruction, /leave the pull request a draft and name the run, the failure and the attempts in your report/);
+    assert.match(instruction, /Never re-run a failing test or step, flaky or not: fix it/);
+    assert.match(instruction, /Never dispatch, disable, enable or delete anything in Actions/);
+    assert.match(instruction, /Never re-trigger CI with an empty commit or by closing and reopening the pull request/);
+  }
+});
+
 const instructionOf = (pi: PiCall | null): string =>
   (pi?.argv ?? [])
     .filter((_, index) => pi?.argv[index - 1] === '--append-system-prompt')
@@ -2338,10 +2356,28 @@ test('given a dispatched workload, when its token is minted, then it is scoped t
       pull_requests: 'write',
       workflows: 'write',
       checks: 'read',
-      actions: 'read',
+      actions: 'write',
       statuses: 'read',
     },
   });
+});
+
+test('given an installation that has not accepted Actions: write, when forge-dispatch runs, then minting the workload token fails naming the permissions forge requested, no workload starts, and the dispatch fails', async () => {
+  const { failure, pi, dispatches } = await dispatch({
+    unaccepted: { actions: 'write' },
+    failing: true,
+  });
+
+  assert.ok(failure instanceof Error);
+  assert.match(
+    failure.message,
+    /GitHub refused a workload token for rameezk\/forge with the permissions forge requested \(.*actions: write.*\)/,
+  );
+  assert.equal(pi, null);
+  assert.deepEqual(
+    dispatches.map(({ state }) => state),
+    ['failed'],
+  );
 });
 
 test('given a runner whose own environment holds its git config, the write-token file and more, when a ticket is dispatched, then the harness environment holds only the system settings, its HOME, the OpenRouter key, the path of the write-token file, the git identity and credential helper, the NixOS environment marker, and pi\'s own variables', async () => {

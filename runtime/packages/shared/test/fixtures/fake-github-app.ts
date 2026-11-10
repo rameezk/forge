@@ -72,6 +72,7 @@ const jwtClaims = (
 export const fakeGithubApp = (
   installed: string[] = [INSTALLED],
   lifetimeSeconds = 3600,
+  unaccepted: Record<string, string> = {},
 ): FakeGithubApp => {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const mints: Mint[] = [];
@@ -127,6 +128,15 @@ export const fakeGithubApp = (
     const mintFor = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(url.pathname);
     if (mintFor !== null && init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as Mint['body'];
+      const requestedUnaccepted = Object.entries(body.permissions ?? {}).some(
+        ([name, level]) => unaccepted[name] === level,
+      );
+      if (requestedUnaccepted) {
+        return json(
+          { message: 'The permissions requested are not granted to this installation.' },
+          422,
+        );
+      }
       const kind = kindOf(body.permissions);
       const repository = `${INSTALLATION_OWNER}/${body.repositories?.[0] ?? ''}`;
       const nth = mints.filter((mint) => mint.kind === kind && mint.repository === repository).length + 1;
