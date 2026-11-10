@@ -25,20 +25,21 @@ const SERIES: Series[] = [
 
 const PREVIOUS_SERIES: Series = { mark: 'fill-muted stroke-muted opacity-60', swatch: 'bg-muted opacity-60' };
 
-const PREVIOUS_SHADES = ['opacity-80', 'opacity-55', 'opacity-35', 'opacity-20'];
-
-export const seriesOf = (keys: string[]): Map<string, Series> =>
+export const providerSeriesOf = (keys: string[]): Map<string, Series> =>
   new Map(keys.map((key, index) => [key, SERIES[index % SERIES.length]!]));
 
+const isPreviousCohort = ({ hash, activeFor }: CohortInsight): boolean => hash === null || activeFor.length === 0;
+
 export const cohortSeriesOf = (cohorts: CohortInsight[]): Map<string | null, Series> => {
-  const active = cohorts.filter(({ hash, activeFor }) => hash !== null && activeFor.length > 0);
+  const active = cohorts.filter((cohort) => !isPreviousCohort(cohort));
   return new Map<string | null, Series>([
     ...cohorts.map(({ hash }): [string | null, Series] => [hash, PREVIOUS_SERIES]),
     ...active.map(({ hash }, index): [string | null, Series] => [hash, SERIES[index % SERIES.length]!]),
   ]);
 };
 
-const isPrevious = (series: Series): boolean => series === PREVIOUS_SERIES;
+const previousFirst = (series: Map<string | null, Series>) => (a: InsightPoint, b: InsightPoint): number =>
+  Number(seriesFor(series, b.fingerprintHash) === PREVIOUS_SERIES) - Number(seriesFor(series, a.fingerprintHash) === PREVIOUS_SERIES);
 
 const SUBSCRIPTION_LABEL = 'subscription';
 
@@ -129,7 +130,7 @@ export const renderCostChart = (
       </g>`,
     )}
     <line x1="${left}" x2="${right}" y1="${bottom}" y2="${bottom}" class="stroke-muted" stroke-width="1"></line>
-    ${[...points].sort((a, b) => Number(isPrevious(seriesFor(series, b.fingerprintHash))) - Number(isPrevious(seriesFor(series, a.fingerprintHash)))).map(
+    ${[...points].sort(previousFirst(series)).map(
       ({ runId, fingerprintHash, startTime, costUsd, listPrice, outcome }) => html`<g data-point data-run="${runId}" data-cohort="${fingerprintHash ?? ''}" data-cost-basis="${listPrice ? 'list-price' : 'billed'}" data-outcome="${markOf(outcome)}" class="${seriesFor(series, fingerprintHash).mark}" transform="translate(${x(new Date(startTime))} ${y(costUsd)})">
         <title>${runId} - ${formatCost(costUsd)}${listPrice ? ' list-price equivalent' : ''} - ${markOf(outcome)}</title>
         <circle r="10" fill="transparent" stroke-width="0"></circle>
@@ -163,10 +164,10 @@ export const renderChartLegend = (
 
 export const renderProviderShares = (cohorts: CohortInsight[], shares: ProviderShare[]): Rendered => {
   const byCohort = new Map(shares.map((share) => [share.hash, share]));
-  const swatches = seriesOf([...new Set(shares.flatMap(({ providers }) => providers.map(({ provider }) => provider)))].sort());
-  const previous = new Set(cohorts.filter(({ activeFor }) => activeFor.length === 0).map(({ hash }) => hash));
-  const swatchOf = (hash: string | null, provider: string, index: number): string =>
-    previous.has(hash) ? `bg-muted ${PREVIOUS_SHADES[index % PREVIOUS_SHADES.length]}` : (swatches.get(provider)?.swatch ?? '');
+  const swatches = providerSeriesOf([...new Set(shares.flatMap(({ providers }) => providers.map(({ provider }) => provider)))].sort());
+  const previous = new Set(cohorts.filter(isPreviousCohort).map(({ hash }) => hash));
+  const swatchOf = (hash: string | null, provider: string): string =>
+    previous.has(hash) ? PREVIOUS_SERIES.swatch : (swatches.get(provider)?.swatch ?? '');
   return html`<section class="overflow-x-auto rounded-lg border border-line bg-surface mt-4 p-4" data-provider-shares aria-label="Provider share">
     <h2 class="mb-2 text-sm font-semibold text-fg">Provider share</h2>
     ${cohorts.map(({ hash, fingerprint }) => {
@@ -176,11 +177,11 @@ export const renderProviderShares = (cohorts: CohortInsight[], shares: ProviderS
         <div class="mb-1.5 text-[0.8rem] font-medium text-fg">${cohortLabel(fingerprint, hash)}</div>
         ${total === 0
           ? html`<div class="text-[0.8rem] text-muted">No provider data</div>`
-          : html`<div class="flex h-3 w-full overflow-hidden rounded-full" aria-hidden="true" data-provider-bar="${hash ?? ''}">
-                ${served.map(({ provider, tokens }, index) => html`<div class="${swatchOf(hash, provider, index)}" style="width: ${(tokens / total) * 100}%" title="${provider}"></div>`)}
+          : html`<div class="flex h-3 w-full gap-px overflow-hidden rounded-full" aria-hidden="true" data-provider-bar="${hash ?? ''}">
+                ${served.map(({ provider, tokens }) => html`<div class="${swatchOf(hash, provider)}" style="width: ${(tokens / total) * 100}%" title="${provider}"></div>`)}
               </div>
               <ul class="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[0.8rem] text-muted" data-provider-share="${hash ?? ''}">
-                ${served.map(({ provider, tokens }, index) => html`<li class="flex items-center gap-1.5" data-provider="${provider}" data-share="${(tokens / total) * 100}"><span class="inline-block h-2.5 w-2.5 rounded-full ${swatchOf(hash, provider, index)}"></span>${provider} ${formatRate(tokens / total)}</li>`)}
+                ${served.map(({ provider, tokens }) => html`<li class="flex items-center gap-1.5" data-provider="${provider}" data-share="${(tokens / total) * 100}"><span class="inline-block h-2.5 w-2.5 rounded-full ${swatchOf(hash, provider)}"></span>${provider} ${formatRate(tokens / total)}</li>`)}
               </ul>`}
       </div>`;
     })}
