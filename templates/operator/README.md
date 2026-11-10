@@ -296,10 +296,10 @@ until you restart the unit by hand on the box:
 just ssh sudo systemctl restart forge-pull-deploy
 ```
 
-The box records its deploy status in `/var/lib/forge/deploy-status.json`: the
+The box records its deploy status in `/var/lib/forge-pull-deploy/status.json`: the
 operator commit it runs (`running`), the commit at the head of `main` (`head`)
 and the last switch error, if any (`error`). Read it with
-`just ssh cat /var/lib/forge/deploy-status.json`. A box that has never pulled
+`just ssh cat /var/lib/forge-pull-deploy/status.json`. A box that has never pulled
 shows `running` as `null` until its first switch.
 
 A pull deploy never interrupts a running workload, for the same reason a

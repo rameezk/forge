@@ -121,7 +121,7 @@ testers.runNixOSTest {
   testScript = ''
     import json
 
-    status_file = "/var/lib/forge/deploy-status.json"
+    status_file = "/var/lib/forge-pull-deploy/status.json"
     requests_file = "/var/lib/fake-github/requests.jsonl"
     commit_options = "-c user.name=operator -c user.email=operator@example.com"
 
@@ -136,6 +136,10 @@ testers.runNixOSTest {
 
     def requests():
         return [json.loads(line) for line in box.succeed(f"cat {requests_file} 2>/dev/null || true").splitlines()]
+
+    def assert_log(name, expected):
+        actual = lines(f"${record}/{name}")
+        assert actual == expected, (name, actual, expected)
 
     def polls():
         return len([r for r in requests() if r["method"] == "GET"])
@@ -163,7 +167,7 @@ testers.runNixOSTest {
     with subtest("the box switches to the head of main and records it as both running and head"):
         a = push("${operatorFlake false}", "operator commit A")
         wait_for_status(running=a, head=a, error=None)
-        assert lines("${record}/switched") == [a], lines("${record}/switched")
+        assert_log("switched", [a])
 
     with subtest("the box asks for an installation token narrowed to the operator repository with read access to contents"):
         posts = [r for r in requests() if r["method"] == "POST"]
@@ -176,14 +180,14 @@ testers.runNixOSTest {
     with subtest("the box does not rebuild or switch while main is unchanged"):
         box.wait_for_unit("forge-pull-deploy.service")
         wait_for_polls(3)
-        assert lines("${record}/built") == [a], lines("${record}/built")
-        assert lines("${record}/switched") == [a], lines("${record}/switched")
+        assert_log("built", [a])
+        assert_log("switched", [a])
         wait_for_status(running=a, head=a, error=None)
 
     with subtest("the box switches when main moves to a commit that builds"):
         b = push("${operatorFlake false}", "operator commit B")
         wait_for_status(running=b, head=b, error=None)
-        assert lines("${record}/switched") == [a, b], lines("${record}/switched")
+        assert_log("switched", [a, b])
 
     with subtest("a commit that fails to build is remembered and not tried again"):
         box.wait_for_unit("forge-pull-deploy.service")
@@ -193,27 +197,31 @@ testers.runNixOSTest {
         assert failed["error"] is not None and "operator build failed for " + c in failed["error"], failed
         wait_for_polls(3)
         assert lines("${record}/built").count(c) == 1, lines("${record}/built")
-        assert lines("${record}/switched") == [a, b], lines("${record}/switched")
+        assert_log("switched", [a, b])
         assert status() == failed, status()
 
     with subtest("restarting the unit by hand tries the remembered commit again"):
         box.succeed("systemctl restart forge-pull-deploy.service")
         retry(lambda _: lines("${record}/built").count(c) == 2, 120)
-        wait_for_status(running=b, head=c)
 
     with subtest("the box recovers when main moves past the failed commit"):
         d = push("${operatorFlake false}", "operator commit D")
         wait_for_status(running=d, head=d, error=None)
-        assert lines("${record}/switched") == [a, b, d], lines("${record}/switched")
+        assert_log("switched", [a, b, d])
+
+    with subtest("a hand deploy is reverted at the next pull"):
+        box.succeed("ln -sfn ${coreutils} /run/current-system")
+        retry(lambda _: lines("${record}/switched") == [a, b, d, d], 120)
+        wait_for_status(running=d, head=d, error=None)
 
     with subtest("the box does nothing when the pull deploy is off"):
-        box.succeed("/run/current-system/specialisation/off/bin/switch-to-configuration test")
+        box.succeed("/run/booted-system/specialisation/off/bin/switch-to-configuration test")
         box.fail("systemctl cat forge-pull-deploy.service")
         before = len(requests())
         e = push("${operatorFlake false}", "operator commit E")
         box.sleep(10)
         assert len(requests()) == before, requests()[before:]
-        assert lines("${record}/switched") == [a, b, d], lines("${record}/switched")
+        assert_log("switched", [a, b, d, d])
         assert status()["head"] == d, status()
   '';
 }

@@ -611,10 +611,9 @@ in
 
       statusFile = lib.mkOption {
         type = lib.types.path;
-        default = "${cfg.stateDir}/deploy-status.json";
-        defaultText = lib.literalExpression ''"''${config.forge.runtime.stateDir}/deploy-status.json"'';
+        default = "/var/lib/forge-pull-deploy/status.json";
         readOnly = true;
-        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`) and `error` (the last switch error, or null), each null while unknown. The box writes it and the dashboard reads it.";
+        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`) and `error` (the last switch error, or null), each null while unknown. The root-owned unit writes it into a root-owned directory and the dashboard only reads it.";
       };
     };
 
@@ -847,6 +846,7 @@ in
           Restart = "always";
           RestartSec = "10s";
           StateDirectory = "forge-pull-deploy";
+          StateDirectoryMode = "0755";
           EnvironmentFile = envFile "forge-github-app.env";
           Environment = [
             "FORGE_PULL_DEPLOY_REPOSITORY=${cfg.pullDeploy.repository}"
@@ -855,7 +855,6 @@ in
             "FORGE_PULL_DEPLOY_HOSTNAME=${config.networking.hostName}"
             "FORGE_PULL_DEPLOY_INTERVAL=${toString cfg.pullDeploy.intervalSeconds}"
             "FORGE_PULL_DEPLOY_STATUS_FILE=${cfg.pullDeploy.statusFile}"
-            "FORGE_PULL_DEPLOY_STATUS_OWNER=${cfg.user}:${cfg.user}"
             "HOME=/var/lib/forge-pull-deploy"
             appKeyFileVariable
           ];

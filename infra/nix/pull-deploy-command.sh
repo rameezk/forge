@@ -4,7 +4,6 @@
 : "${FORGE_PULL_DEPLOY_HOSTNAME:?}"
 : "${FORGE_PULL_DEPLOY_INTERVAL:?}"
 : "${FORGE_PULL_DEPLOY_STATUS_FILE:?}"
-: "${FORGE_PULL_DEPLOY_STATUS_OWNER:?}"
 : "${FORGE_GITHUB_APP_ID:?}"
 : "${FORGE_GITHUB_APP_PRIVATE_KEY_FILE:?}"
 : "${STATE_DIRECTORY:?}"
@@ -12,11 +11,10 @@
 repository="$FORGE_PULL_DEPLOY_REPOSITORY"
 name="${repository#*/}"
 running_file="$STATE_DIRECTORY/running"
+system_file="$STATE_DIRECTORY/system"
+switched=3
 
 running=""
-if [ -f "$running_file" ]; then
-  running="$(< "$running_file")"
-fi
 head=""
 failed=""
 failure=""
@@ -58,22 +56,22 @@ authed_git() {
 
 record_status() {
   local staged
-  staged="$(mktemp "$FORGE_PULL_DEPLOY_STATUS_FILE.XXXXXX")"
+  staged="$(mktemp "$FORGE_PULL_DEPLOY_STATUS_FILE.XXXXXX")" || return 1
   jq -n --arg running "$running" --arg head "$head" --arg error "$failure" \
-    '{running: ($running | if . == "" then null else . end), head: ($head | if . == "" then null else . end), error: ($error | if . == "" then null else . end)}' > "$staged"
-  chown "$FORGE_PULL_DEPLOY_STATUS_OWNER" "$staged"
-  chmod 0640 "$staged"
+    '{running: ($running | if . == "" then null else . end), head: ($head | if . == "" then null else . end), error: ($error | if . == "" then null else . end)}' > "$staged" || return 1
+  chmod 0644 "$staged" || return 1
   mv "$staged" "$FORGE_PULL_DEPLOY_STATUS_FILE"
 }
 
-build_and_switch() {
-  local token="$1" checkout="$2"
-  authed_git "$token" clone --quiet --depth 1 --branch main "$FORGE_PULL_DEPLOY_REMOTE" "$checkout" || return 1
-  nixos-rebuild switch --flake "$checkout#$FORGE_PULL_DEPLOY_HOSTNAME"
+running_commit() {
+  if [ -f "$running_file" ] && [ -f "$system_file" ] && [ "$(< "$system_file")" = "$(readlink -f /run/current-system)" ]; then
+    cat "$running_file"
+  fi
 }
 
 poll() {
   local token checkout output
+  running="$(running_commit)" || return 1
   token="$(mint_token)" || return 1
   head="$(authed_git "$token" ls-remote "$FORGE_PULL_DEPLOY_REMOTE" refs/heads/main | cut -f1)"
   if [ -z "$head" ]; then
@@ -83,23 +81,33 @@ poll() {
   if [ "$head" = "$running" ]; then
     failure=""
     record_status
-    return 0
+    return
   fi
   if [ "$head" = "$failed" ]; then
     record_status
-    return 0
+    return
+  fi
+  checkout="$(mktemp -d "$STATE_DIRECTORY/checkout.XXXXXX")" || return 1
+  if ! authed_git "$token" clone --quiet --depth 1 --branch main "$FORGE_PULL_DEPLOY_REMOTE" "$checkout"; then
+    rm -rf "$checkout"
+    return 1
+  fi
+  head="$(git -C "$checkout" rev-parse HEAD)" || return 1
+  if [ "$head" = "$running" ] || [ "$head" = "$failed" ]; then
+    rm -rf "$checkout"
+    record_status
+    return
   fi
   echo "forge-pull-deploy: switching to $head"
-  checkout="$(mktemp -d "$STATE_DIRECTORY/checkout.XXXXXX")"
-  if output="$(build_and_switch "$token" "$checkout" 2>&1)"; then
-    head="$(git -C "$checkout" rev-parse HEAD)"
+  if output="$(nixos-rebuild switch --flake "$checkout#$FORGE_PULL_DEPLOY_HOSTNAME" 2>&1)"; then
     rm -rf "$checkout"
     printf '%s\n' "$head" > "$running_file"
+    readlink -f /run/current-system > "$system_file"
     running="$head"
     failure=""
     record_status
     echo "forge-pull-deploy: switched to $head"
-    exit 0
+    return "$switched"
   fi
   rm -rf "$checkout"
   printf '%s\n' "$output" >&2
@@ -109,6 +117,12 @@ poll() {
 }
 
 while true; do
-  poll || echo "forge-pull-deploy: could not read $repository, trying again in $FORGE_PULL_DEPLOY_INTERVAL seconds" >&2
+  status=0
+  poll || status=$?
+  case "$status" in
+    0) ;;
+    "$switched") exit 0 ;;
+    *) echo "forge-pull-deploy: could not complete a look at $repository, trying again in $FORGE_PULL_DEPLOY_INTERVAL seconds" >&2 ;;
+  esac
   sleep "$FORGE_PULL_DEPLOY_INTERVAL"
 done
