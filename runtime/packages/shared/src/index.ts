@@ -142,6 +142,7 @@ export {
 } from './fingerprint.ts';
 export type {
   ActivePair,
+  RanPair,
   CohortActivity,
   CohortInsight,
   InsightPoint,

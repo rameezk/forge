@@ -562,6 +562,8 @@ type DispatchRow = {
 
 type InsightRow = {
   id: string;
+  worker: string;
+  repository: string | null;
   fingerprint: string | null;
   fingerprint_hash: string | null;
   start_time: string;
@@ -1741,7 +1743,7 @@ export class Store {
     return this.#db
       .prepare(
         `SELECT
-          r.id, r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time,
+          r.id, r.worker, r.repository, r.fingerprint, r.fingerprint_hash, r.start_time, r.end_time,
           CASE WHEN r.cost_status = 'subscription'
             THEN (SELECT CASE WHEN COUNT(*) = COUNT(list_price_equivalent_usd) THEN SUM(list_price_equivalent_usd) END FROM generations WHERE run_id = r.id)
             ELSE r.cost_usd + r.unconfirmed_estimate_usd END AS cost_usd,
@@ -1791,6 +1793,8 @@ export class Store {
   listCohorts(filter: InsightsFilter): CohortInsight[] {
     return aggregateCohorts(
       this.#insightRows(filter).map((row) => ({
+        worker: row.worker,
+        repository: row.repository,
         fingerprintHash: row.fingerprint_hash,
         fingerprint: row.fingerprint === null ? null : (JSON.parse(row.fingerprint) as ConfigFingerprint),
         dispatched: row.dispatched === 1,
