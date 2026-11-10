@@ -308,7 +308,7 @@ const renderDeployStatus = (deploy: DeployStatus | null): Rendered => {
           ? ''
           : html`<span title="The commit at the head of the operator repository's main">Head <code class="font-mono text-fg">${shortCommit(deploy.head)}</code></span>`}
     </div>
-    ${deploy.error === null ? '' : html`<p data-deploy-error title="${deploy.error}" class="${ERROR_CALLOUT} mt-1.5 line-clamp-4 break-words whitespace-pre-line">${deploy.error}</p>`}
+    ${deploy.error === null ? '' : html`<p data-deploy-error title="${deploy.error}" class="${ERROR_CALLOUT} mt-1.5 whitespace-pre-line">${deploy.error}</p>`}
   </section>`;
 };
 
