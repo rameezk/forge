@@ -10,6 +10,7 @@ export interface ServeConfig {
   maxConcurrent: number;
   maxOpenPullRequests: number | null;
   timeZone: string;
+  deployStatusFile: string | null;
 }
 
 const resolveMaxConcurrent = (value: string | undefined): number => {
@@ -61,11 +62,18 @@ export const resolveServeConfig = (env: NodeJS.ProcessEnv): ServeConfig => {
       `FORGE_FRONTEND_SOCKET must be an absolute path, got '${socketPath}'`,
     );
   }
+  const deployStatusFile = env.FORGE_PULL_DEPLOY_STATUS_FILE ?? null;
+  if (deployStatusFile !== null && !isAbsolute(deployStatusFile)) {
+    throw new Error(
+      `FORGE_PULL_DEPLOY_STATUS_FILE must be an absolute path, got '${deployStatusFile}'`,
+    );
+  }
   return {
     stateDir,
     socketPath,
     maxConcurrent: resolveMaxConcurrent(env.FORGE_MAX_CONCURRENT),
     maxOpenPullRequests: resolveMaxOpenPullRequests(env.FORGE_MAX_OPEN_PULL_REQUESTS),
     timeZone: resolveTimeZone(env.FORGE_DASHBOARD_TIME_ZONE),
+    deployStatusFile,
   };
 };

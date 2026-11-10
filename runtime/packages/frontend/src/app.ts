@@ -11,6 +11,7 @@ import { parseTranscriptShow, renderFullTranscript } from './views/full-transcri
 import { renderCohortPage, renderInsights, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs, type Display } from './views/shared.ts';
+import type { DeployStatus } from './deploy-status.ts';
 import { dayRange, parseDay } from './days.ts';
 import { parsePage, parseWorkloadFilter } from './workload-filter.ts';
 import { renderList } from './views/workloads.ts';
@@ -52,6 +53,7 @@ export interface AppOptions {
   checkIntervalMs?: number;
   maxConcurrent?: number;
   maxOpenPullRequests?: number | null;
+  deployStatus?: () => DeployStatus | null;
 }
 
 export const createApp = ({
@@ -66,6 +68,7 @@ export const createApp = ({
   checkIntervalMs = 1000,
   maxConcurrent = 1,
   maxOpenPullRequests = 5,
+  deployStatus = () => null,
 }: AppOptions): Hono => {
   const app = new Hono();
   const assets: AssetHrefs = {
@@ -78,7 +81,7 @@ export const createApp = ({
 
   const watch = (page: string | undefined): (() => Check) | undefined => {
     if (page === undefined) return undefined;
-    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page) || COHORT_PAGE.test(page)) return () => ({ version: String(store.dataVersion()), finished: false });
+    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page) || COHORT_PAGE.test(page)) return () => ({ version: JSON.stringify([store.dataVersion(), deployStatus()]), finished: false });
     const runId = runOfDetailPage(page);
     if (runId === undefined || store.getRun(runId) === undefined) return undefined;
     return () => {
@@ -120,7 +123,7 @@ export const createApp = ({
       const run = runId === null ? undefined : store.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
-    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none'));
+    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', deployStatus()));
   });
 
   app.get('/work', (c) => c.redirect('/'));
