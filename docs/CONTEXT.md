@@ -158,6 +158,10 @@ _Avoid_: trusted user, collaborator, owner
 The review summaries, inline review comments and conversation comments on a pull request authored by forge's GitHub App, written by a maintainer (ADR-0050, ADR-0078). A review with no body and no inline comments is not feedback.
 _Avoid_: review, comments
 
+**Acknowledged**:
+Feedback carrying a 👀 reaction from forge's GitHub App, meaning forge has seen it and will act on it (ADR-0093, ADR-0099). Being acknowledged never counts as being answered.
+_Avoid_: seen, noticed, reacted
+
 **Revision**:
 A workload forge runs against a pull request's new feedback, on the pull request's own branch. A pull request may have several (ADR-0050).
 _Avoid_: iteration, round, follow-up
