@@ -105,7 +105,7 @@ poll() {
     return
   fi
   echo "forge-pull-deploy: switching to $head"
-  if output="$(nixos-rebuild switch --flake "$checkout#$FORGE_PULL_DEPLOY_HOSTNAME" 2>&1)"; then
+  if output="$(nixos-rebuild switch --no-reexec --flake "$checkout#$FORGE_PULL_DEPLOY_HOSTNAME" 2>&1)"; then
     rm -rf "$checkout"
     { printf '%s\n' "$head" > "$running_file" && readlink -f /run/current-system > "$system_file"; } || return 1
     running="$head"
