@@ -120,7 +120,7 @@ export const createApp = ({
       const run = runId === null ? undefined : store.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
-    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { open: store.dispatchesInReview(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none'));
+    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none'));
   });
 
   app.get('/work', (c) => c.redirect('/'));

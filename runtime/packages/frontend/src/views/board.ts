@@ -195,18 +195,52 @@ const renderPolled = (polledAt: string | null, timeZone: string): Rendered =>
     ? html`<span class="${POLLED}">Never polled</span>`
     : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt, timeZone)}</span>`;
 
-const reviewFull = ({ open, limit }: ReviewSlots): boolean => limit !== null && open >= limit;
+const MAX_PIPS = 8;
 
-const renderReviewLimit = (review: ReviewSlots): Rendered => {
+const reviewTaken = ({ pullRequests, running }: ReviewSlots): number => pullRequests + running;
+
+const reviewFull = (review: ReviewSlots): boolean => review.limit !== null && reviewTaken(review) >= review.limit;
+
+const reviewTooltip = (review: ReviewSlots, limit: number): string => {
+  const free = Math.max(limit - reviewTaken(review), 0);
+  const parts = [
+    review.pullRequests > 0 ? `${review.pullRequests} open for review` : '',
+    review.running > 0 ? `${review.running} running` : '',
+    free > 0 ? `${free} free` : 'new dispatches wait',
+  ];
+  return parts.filter((part) => part !== '').join(', ');
+};
+
+const PIP = 'inline-block size-2 shrink-0 rounded-full border border-current box-border';
+
+const renderPips = (review: ReviewSlots, limit: number): Rendered => {
+  const free = Math.max(limit - reviewTaken(review), 0);
+  const kinds = [
+    ...Array<string>(review.pullRequests).fill('open'),
+    ...Array<string>(review.running).fill('running'),
+    ...Array<string>(free).fill('free'),
+  ].slice(0, limit);
+  return html`<span aria-hidden="true" class="flex items-center gap-0.5">${kinds.map(
+    (kind) => html`<span data-pip="${kind}" class="${PIP} ${kind === 'open' ? 'bg-current' : kind === 'free' ? 'opacity-30' : ''}"></span>`,
+  )}</span>`;
+};
+
+const renderReviewCount = (review: ReviewSlots, limit: number): Rendered =>
+  limit <= MAX_PIPS || review.running === 0
+    ? html`${reviewTaken(review)} / ${limit}`
+    : html`${review.pullRequests} <span data-review-running class="opacity-70">+${review.running}</span> / ${limit}`;
+
+const renderReviewLimit = (review: ReviewSlots, withPips: boolean): Rendered => {
   if (review.limit === null) return '';
   const full = reviewFull(review);
-  return html`<span data-review-limit${full ? html` data-full` : ''} title="Dispatches running or awaiting review, out of the review limit" class="text-xs leading-4 tabular-nums ${full ? 'font-semibold text-warning' : 'text-muted'}">${review.open} / ${review.limit}</span>`;
+  return html`<span data-review-limit${full ? html` data-full` : ''} title="${reviewTooltip(review, review.limit)}" class="flex items-center gap-1.5 text-xs leading-4 tabular-nums ${full ? 'font-semibold text-warning' : 'text-muted'}">${withPips && review.limit <= MAX_PIPS ? renderPips(review, review.limit) : ''}<span>${renderReviewCount(review, review.limit)}</span></span>`;
 };
 
 const renderColumnHeaders = (counts: Record<ColumnKey, number>, review: ReviewSlots): Rendered =>
   html`<div class="sticky top-0 z-10 hidden shadow-[0_1px_0_var(--color-line)] ${ROW_GRID}">${COLUMNS.map(
     ({ key, title, subtitle, hint, person }) => html`<div data-column-header="${key}" class="border-b border-line border-l-column-line bg-raised px-2 py-2 sm:border-l sm:first:border-l-0">
-      <span class="flex h-4 items-center gap-1"><span data-column-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${key === 'in-review' ? renderReviewLimit(review) : ''}${person ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-column-total class="text-xs leading-4 tabular-nums text-muted">${counts[key]}</span></span></span>
+      <span class="flex h-4 items-center gap-1"><span data-column-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${person ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-column-total class="text-xs leading-4 tabular-nums text-muted">${counts[key]}</span></span></span>
+      ${key === 'in-review' && review.limit !== null ? html`<span class="mt-0.5 flex h-4 items-center">${renderReviewLimit(review, true)}</span>` : ''}
       <span data-column-subtitle title="${hint ?? subtitle}" class="mt-0.5 block truncate text-[0.6875rem] leading-4 text-muted${hint === null ? '' : ' cursor-help underline decoration-dotted decoration-line underline-offset-[3px]'}">${subtitle}</span>
     </div>`,
   )}</div>`;
@@ -220,26 +254,26 @@ const renderLaneCounts = (lane: BoardLane): Rendered => {
       )}</span>`;
 };
 
-const renderStageHeader = ({ title, subtitle, person }: (typeof COLUMNS)[number], count: number, compact: boolean): Rendered =>
+const renderStageHeader = ({ key, title, subtitle, person }: (typeof COLUMNS)[number], count: number, compact: boolean, review: ReviewSlots): Rendered =>
   html`<div data-stage-header class="border-y border-line bg-raised px-3 sm:hidden ${compact ? 'py-1' : 'py-2'}">
-    <span class="flex h-4 items-center gap-1"><span data-stage-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${person && !compact ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-stage-count class="text-xs leading-4 tabular-nums text-muted">${count}</span></span></span>
+    <span class="flex h-4 items-center gap-1"><span data-stage-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${key === 'in-review' ? renderReviewLimit(review, !compact) : ''}${person && !compact ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-stage-count class="text-xs leading-4 tabular-nums text-muted">${count}</span></span></span>
     ${compact ? '' : html`<span data-stage-subtitle class="mt-0.5 block truncate text-[0.6875rem] leading-4 text-muted">${subtitle}</span>`}
   </div>`;
 
-const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, full: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, review: ReviewSlots, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(
-    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-column-line sm:min-h-12 sm:border-l sm:p-2 sm:first:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, full, attempted, timeZone, runs))}</div></div>`,
+    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-column-line sm:min-h-12 sm:border-l sm:p-2 sm:first:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped, review)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, reviewFull(review), attempted, timeZone, runs))}</div></div>`,
   )}</div>`;
 
-const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, full: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, review: ReviewSlots, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
   html`<div data-spec-band="${spec === null ? 'none' : spec.number}">
     <header data-band-head class="flex items-baseline gap-2.5 border-t border-dashed border-line bg-bg px-3 py-1.5 text-[0.8125rem]">${spec === null
       ? html`<span class="font-semibold text-muted">No spec</span>`
       : html`<span class="tabular-nums">${isGithubUrl(spec.url) ? externalLink(spec.url, `#${spec.number}`) : html`#${spec.number}`}</span><span class="font-semibold">${spec.title}</span>`}<span class="tabular-nums text-muted">${count} ${count === 1 ? 'ticket' : 'tickets'}</span></header>
-    ${renderRow(lane.repository, lane.github, columns, true, full, attempted, timeZone, runs)}
+    ${renderRow(lane.repository, lane.github, columns, true, review, attempted, timeZone, runs)}
   </div>`;
 
-const renderLane = (lane: BoardLane, grouped: boolean, full: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
+const renderLane = (lane: BoardLane, grouped: boolean, review: ReviewSlots, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const empty = COLUMNS.every(({ key }) => lane.columns[key].length === 0);
   return html`<section class="group border-t border-line" data-repository="${lane.repository}"${empty ? html` data-empty data-collapsed` : ''}${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
@@ -257,8 +291,8 @@ const renderLane = (lane: BoardLane, grouped: boolean, full: boolean, attempted:
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
     </div>
     <div class="group-data-[collapsed]:hidden">${grouped
-      ? specBands(lane.columns).map((band) => renderBand(lane, band, full, attempted, timeZone, runs))
-      : renderRow(lane.repository, lane.github, lane.columns, false, full, attempted, timeZone, runs)}</div>
+      ? specBands(lane.columns).map((band) => renderBand(lane, band, review, attempted, timeZone, runs))
+      : renderRow(lane.repository, lane.github, lane.columns, false, review, attempted, timeZone, runs)}</div>
   </section>`;
 };
 
@@ -276,7 +310,8 @@ const renderRunningLimit = ({ running, limit }: RunningSlots): Rendered => {
 };
 
 export interface ReviewSlots {
-  open: number;
+  pullRequests: number;
+  running: number;
   limit: number | null;
 }
 
@@ -311,7 +346,7 @@ export const renderBoard = (
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
           <div class="sm:min-w-[76.5rem]">
             ${renderColumnHeaders(totals(lanes), review)}
-            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', reviewFull(review), attempted, display.timeZone, runs))}
+            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', review, attempted, display.timeZone, runs))}
           </div>
         </div>`}`;
   return layout('Board', 'board', true, display, body, 'always');
