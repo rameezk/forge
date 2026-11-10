@@ -1333,6 +1333,13 @@
             lib.asserts.assertMsg
               (!pullDeployService.restartIfChanged && !pullDeployService.stopIfChanged)
               "the pull deploy unit must not be restarted or stopped by the switch it is running";
+          pullDeployReadsRootOwnedEnvironment =
+            lib.asserts.assertMsg
+              (
+                pullDeployHost.config.sops.templates."forge-pull-deploy.env".owner == "root"
+                && pullDeployService.serviceConfig.EnvironmentFile == pullDeployHost.config.sops.templates."forge-pull-deploy.env".path
+              )
+              "the pull deploy unit runs as root, so the environment file it loads must be owned by root, never by the runtime user";
           pullDeployTalksToGithub =
             lib.asserts.assertMsg
               (
@@ -1962,9 +1969,10 @@
           runtime-pull-deploy =
             assert pullDeployOffByDefault;
             assert pullDeployKeepsItselfRunning;
+            assert pullDeployReadsRootOwnedEnvironment;
             assert pullDeployTalksToGithub;
             pkgs.runCommand "runtime-pull-deploy" { } ''
-              echo "the pull deploy is off unless enabled, survives the switch it runs, and talks to github.com and its API by default" > $out
+              echo "the pull deploy is off unless enabled, survives the switch it runs, loads an environment file only root owns, and talks to github.com and its API by default" > $out
             '';
 
           forge-runner = self.packages.${system}.forge-runner;

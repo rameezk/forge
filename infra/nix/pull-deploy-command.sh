@@ -14,6 +14,8 @@ running_file="$STATE_DIRECTORY/running"
 system_file="$STATE_DIRECTORY/system"
 switched=3
 
+rm -rf "$STATE_DIRECTORY"/checkout.*
+
 running=""
 head=""
 failed=""
@@ -70,10 +72,11 @@ running_commit() {
 }
 
 poll() {
-  local token checkout output
+  local token checkout output listing
   running="$(running_commit)" || return 1
   token="$(mint_token)" || return 1
-  head="$(authed_git "$token" ls-remote "$FORGE_PULL_DEPLOY_REMOTE" refs/heads/main | cut -f1)"
+  listing="$(authed_git "$token" ls-remote "$FORGE_PULL_DEPLOY_REMOTE" refs/heads/main)" || return 1
+  head="$(cut -f1 <<< "$listing")"
   if [ -z "$head" ]; then
     echo "forge-pull-deploy: $FORGE_PULL_DEPLOY_REMOTE has no main branch" >&2
     return 1
@@ -92,7 +95,10 @@ poll() {
     rm -rf "$checkout"
     return 1
   fi
-  head="$(git -C "$checkout" rev-parse HEAD)" || return 1
+  if ! head="$(git -C "$checkout" rev-parse HEAD)"; then
+    rm -rf "$checkout"
+    return 1
+  fi
   if [ "$head" = "$running" ] || [ "$head" = "$failed" ]; then
     rm -rf "$checkout"
     record_status

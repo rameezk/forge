@@ -213,6 +213,8 @@ testers.runNixOSTest {
         box.succeed("ln -sfn ${coreutils} /run/current-system")
         retry(lambda _: lines("${record}/switched") == [a, b, d, d], 120)
         wait_for_status(running=d, head=d, error=None)
+        box.succeed("ln -sfn $(readlink -f /run/booted-system) /run/current-system")
+        retry(lambda _: lines("${record}/switched") == [a, b, d, d, d], 120)
 
     with subtest("the box does nothing when the pull deploy is off"):
         box.succeed("/run/booted-system/specialisation/off/bin/switch-to-configuration test")
@@ -221,7 +223,7 @@ testers.runNixOSTest {
         e = push("${operatorFlake false}", "operator commit E")
         box.sleep(10)
         assert len(requests()) == before, requests()[before:]
-        assert_log("switched", [a, b, d, d])
+        assert_log("switched", [a, b, d, d, d])
         assert status()["head"] == d, status()
   '';
 }

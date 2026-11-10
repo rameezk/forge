@@ -829,10 +829,15 @@ in
         owner = cfg.user;
         mode = "0400";
       };
-      sops.templates."forge-github-app.env" = envTemplate "FORGE_GITHUB_APP_ID" "github_app_id";
     })
 
     (lib.mkIf cfg.pullDeploy.enable {
+      sops.templates."forge-pull-deploy.env" = {
+        content = "FORGE_GITHUB_APP_ID=${config.sops.placeholder.github_app_id}\n";
+        owner = "root";
+        mode = "0400";
+      };
+
       systemd.services.forge-pull-deploy = {
         description = "Forge pull deploy: switch to the operator repository's main whenever it moves";
         after = [ "network-online.target" ];
@@ -847,7 +852,7 @@ in
           RestartSec = "10s";
           StateDirectory = "forge-pull-deploy";
           StateDirectoryMode = "0755";
-          EnvironmentFile = envFile "forge-github-app.env";
+          EnvironmentFile = envFile "forge-pull-deploy.env";
           Environment = [
             "FORGE_PULL_DEPLOY_REPOSITORY=${cfg.pullDeploy.repository}"
             "FORGE_PULL_DEPLOY_REMOTE=${cfg.pullDeploy.remote}"
@@ -865,6 +870,8 @@ in
     })
 
     (lib.mkIf hasRepositories {
+      sops.templates."forge-github-app.env" = envTemplate "FORGE_GITHUB_APP_ID" "github_app_id";
+
       environment.systemPackages = [
         (pkgs.callPackage ../nix/frontier-command.nix {
           forge-runner = cfg.package;
