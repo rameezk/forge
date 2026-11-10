@@ -2115,9 +2115,9 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
   ]);
 });
 
-test('given a dispatch, a revision and a conflict resolution, when each starts its harness, then each instruction says to re-run only infrastructure failures on its own pull request\'s head, at most twice, and never to re-run a failing test or step, touch Actions otherwise, or re-trigger CI with an empty commit or by reopening', async () => {
+test('given a dispatch and a revision, when each starts its harness, then each instruction says to re-run only infrastructure failures on its own pull request\'s head, at most twice, and never to re-run a failing test or step, touch Actions otherwise, or re-trigger CI with an empty commit or by reopening', async () => {
   const { pi } = await dispatch();
-  for (const instruction of [instructionOf(pi), revisionInstruction([]), UNATTENDED_INSTRUCTION]) {
+  for (const instruction of [instructionOf(pi), revisionInstruction([])]) {
     assert.match(instruction, /Re-run only a failed run on the head of the pull request you work on/);
     assert.match(instruction, /no jobs created, a startup failure, a lost runner, or a cancellation you did not cause/);
     assert.match(instruction, /Re-run the same run at most twice/);

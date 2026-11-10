@@ -403,9 +403,9 @@ repositories forge manages, and give the box its id and private key.
    - Workflows: read and write. GitHub rejects any push that adds or changes a
      file under `.github/workflows/` without it, so a run that sets up CI
      cannot push.
-   - Checks: read and Actions: read and write, so the agent can watch a pull
-     request's required checks, read the logs of the ones that fail, and re-run
-     a run that failed for infrastructure reasons.
+   - Checks: read, so the agent can watch a pull request's required checks.
+   - Actions: read and write, so the agent can read the logs of the checks
+     that fail and re-run a run that failed for infrastructure reasons.
    - Commit statuses: read, so forge can read the status of a pull request's
      head commit.
    - Metadata: read, which GitHub always grants.

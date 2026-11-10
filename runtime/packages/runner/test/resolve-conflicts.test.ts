@@ -402,6 +402,18 @@ test('given a pull request GitHub reports as conflicting whose branch merges the
   assert.equal(git(origin.path, 'rev-parse', 'feature'), origin.featureTip);
 });
 
+test('given a branch that conflicts with the default branch, when forge-resolve-conflicts runs, then the harness is told to re-run only infrastructure failures of its own pull request, at most twice, and never to dispatch or disable anything in Actions or re-trigger CI with an empty commit', async () => {
+  const { pi } = await resolve({ origin: originWhere('conflicts'), worker: mergeAndPush });
+
+  assert.ok(pi);
+  const instruction = pi.argv.filter((_, index) => pi.argv[index - 1] === '--append-system-prompt').join('\n');
+  assert.match(instruction, /Re-run only a failed run on the head of the pull request you work on/);
+  assert.match(instruction, /Re-run the same run at most twice/);
+  assert.match(instruction, /Never re-run a failing test or step, flaky or not: fix it/);
+  assert.match(instruction, /Never dispatch, disable, enable or delete anything in Actions/);
+  assert.match(instruction, /Never re-trigger CI with an empty commit or by closing and reopening the pull request/);
+});
+
 test('given a branch that conflicts with the default branch in two files, when forge-resolve-conflicts runs, then the worker is told the pull request, the default branch, the sha to merge and both files, in a prompt the transcript shows', async () => {
   const origin = originWhere('conflicts');
   const { pi, transcript, runs } = await resolve({ origin, worker: mergeAndPush });
