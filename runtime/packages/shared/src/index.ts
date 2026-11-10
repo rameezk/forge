@@ -160,7 +160,9 @@ export {
   ticketKey,
 } from './dispatch.ts';
 export {
+  addEyes,
   queryFeedbackWindow,
+  queryUnacknowledgedFeedback,
   queryUnansweredFeedback,
   queryWatchedPullRequests,
   type FeedbackItem,

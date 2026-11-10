@@ -2525,6 +2525,13 @@ export class Store {
     });
   }
 
+  feedbackCursors(repository: string): Map<number, string | null> {
+    const rows = this.#db
+      .prepare(`SELECT number, cursor FROM feedback_watches WHERE repository = $repository`)
+      .all({ repository }) as { number: number; cursor: string | null }[];
+    return new Map(rows.map(({ number, cursor }) => [number, cursor]));
+  }
+
   feedbackDue(now: string, quietSeconds: number): RevisedPullRequest[] {
     const rows = this.#db
       .prepare(

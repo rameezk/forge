@@ -404,7 +404,7 @@ export const requestGraphql = (
   });
 };
 
-const QUERY_NAME = /\bquery\s+(\w+)/;
+const QUERY_NAME = /\b(?:query|mutation)\s+(\w+)/;
 
 export const readGraphql = async <Data>(
   response: Response,

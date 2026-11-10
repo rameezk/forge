@@ -140,9 +140,11 @@ const github = (
                 },
               },
             }
-          : operation === 'PullRequest'
-            ? { repository: { pullRequest: { state: 'OPEN', mergedAt: null, closedAt: null, commits: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } }
-            : undefined;
+          : operation === 'FeedbackWindow'
+            ? { repository: { pullRequest: { reviews: { nodes: [] }, comments: { nodes: [] } } } }
+            : operation === 'PullRequest'
+              ? { repository: { pullRequest: { state: 'OPEN', mergedAt: null, closedAt: null, commits: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } }
+              : undefined;
     if (data === undefined) throw new Error(`unexpected GitHub request ${String(operation)}`);
     return new Response(JSON.stringify({ data }), { headers: { 'content-type': 'application/json' } });
   };

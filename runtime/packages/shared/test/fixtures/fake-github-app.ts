@@ -15,17 +15,25 @@ export const BOT_EMAIL = `${BOT_USER_ID}+${BOT_LOGIN}@users.noreply.github.com`;
 export const INSTALLED = 'rameezk/forge-app-test';
 const INSTALLATION_OWNER = 'rameezk';
 
-export const tokenFor = (kind: 'read' | 'write' | 'workload', github: string, nth = 1): string =>
+type TokenKind = 'read' | 'write' | 'reactions' | 'workload';
+
+export const tokenFor = (kind: TokenKind, github: string, nth = 1): string =>
   `ghs_${kind}_${github.replace('/', '_')}_${nth}`;
 
-const kindOf = (permissions: Record<string, string> = {}): 'read' | 'write' | 'workload' =>
-  permissions.contents === 'write' ? 'workload' : permissions.issues === 'write' ? 'write' : 'read';
+const kindOf = (permissions: Record<string, string> = {}): TokenKind =>
+  permissions.contents === 'write'
+    ? 'workload'
+    : permissions.pull_requests === 'write'
+      ? 'reactions'
+      : permissions.issues === 'write'
+        ? 'write'
+        : 'read';
 
 export interface Mint {
   installation: string;
   body: { repositories?: string[]; permissions?: Record<string, string> };
   jwt: string;
-  kind: 'read' | 'write' | 'workload';
+  kind: TokenKind;
   repository: string;
 }
 

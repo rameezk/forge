@@ -1,4 +1,5 @@
 import {
+  GITHUB_GRAPHQL_API,
   pullRequestUrl,
   readGraphql,
   requestGraphql,
@@ -210,6 +211,7 @@ export const FEEDBACK_WINDOW_QUERY = `
         reviews(last: 100) {
           nodes {
             url
+            ...Acknowledgement
             author {
               __typename
               login
@@ -219,6 +221,7 @@ export const FEEDBACK_WINDOW_QUERY = `
             comments(first: 100) {
               nodes {
                 url
+                ...Acknowledgement
                 author {
                   __typename
                   login
@@ -235,6 +238,7 @@ export const FEEDBACK_WINDOW_QUERY = `
         comments(last: 100) {
           nodes {
             url
+            ...Acknowledgement
             author {
               __typename
               login
@@ -246,12 +250,34 @@ export const FEEDBACK_WINDOW_QUERY = `
       }
     }
   }
+
+  fragment Acknowledgement on Reactable {
+    id
+    reactionGroups {
+      content
+      reactors(first: 100) {
+        nodes {
+          __typename
+          ... on Actor {
+            login
+          }
+        }
+      }
+    }
+  }
 `;
 
+interface Reactor {
+  __typename: string;
+  login?: string;
+}
+
 interface AuthoredNode {
+  id: string;
   url: string;
   author: Actor | null;
   body: string;
+  reactionGroups: { content: string; reactors: { nodes: (Reactor | null)[] } }[];
 }
 
 interface FeedbackWindowResponse {
@@ -289,27 +315,25 @@ export interface FeedbackItem {
 
 const authorOf = (author: Actor | null): string => author?.login ?? 'ghost';
 
-export const queryFeedbackWindow = async (
-  fetch: Fetch,
-  token: string,
-  github: string,
-  number: number,
+type FeedbackWindowPullRequest = NonNullable<
+  NonNullable<FeedbackWindowResponse['repository']>['pullRequest']
+>;
+
+interface SelectedFeedback extends FeedbackItem {
+  id: string;
+  reactors: (Reactor | null)[];
+}
+
+const selectFeedback = async (
+  pullRequest: FeedbackWindowPullRequest,
   after: string | null,
-  until: string,
-): Promise<FeedbackItem[]> => {
-  const data = await readGraphql<FeedbackWindowResponse>(
-    await requestGraphql(fetch, token, FEEDBACK_WINDOW_QUERY, github, { number }),
-    FEEDBACK_WINDOW_QUERY,
-    `${github}#${number}`,
-  );
-  const pullRequest = data?.repository?.pullRequest;
-  if (pullRequest === undefined || pullRequest === null) {
-    throw new Error(`GitHub found no pull request ${github}#${number}`);
-  }
+  until: string | null,
+  isMaintainer: MaintainerLookup,
+): Promise<SelectedFeedback[]> => {
   const instant = (time: string): number => Date.parse(time);
   const inWindow = (time: string): boolean =>
-    (after === null || instant(time) > instant(after)) && instant(time) <= instant(until);
-  const isMaintainer = maintainerLookup(fetch, token, github);
+    (after === null || instant(time) > instant(after)) &&
+    (until === null || instant(time) <= instant(until));
   const keep = async <Node extends AuthoredNode>(
     nodes: Node[],
     at: (node: Node) => string | null,
@@ -322,17 +346,21 @@ export const queryFeedbackWindow = async (
     );
     return nodes.filter((_, index) => counted[index]);
   };
+  const reactorsOf = (node: AuthoredNode): (Reactor | null)[] =>
+    node.reactionGroups.filter(({ content }) => content === 'EYES').flatMap(({ reactors }) => reactors.nodes);
   const reviews = await keep(pullRequest.reviews.nodes, (review) => review.submittedAt);
   const inline = await keep(
     pullRequest.reviews.nodes.flatMap((review) => review.comments.nodes),
     (comment) => comment.createdAt,
   );
   const conversation = await keep(pullRequest.comments.nodes, (comment) => comment.createdAt);
-  const items: FeedbackItem[] = [
-    ...reviews.flatMap((review): FeedbackItem[] =>
+  const items: SelectedFeedback[] = [
+    ...reviews.flatMap((review): SelectedFeedback[] =>
       review.body.trim() !== ''
         ? [
             {
+              id: review.id,
+              reactors: reactorsOf(review),
               kind: 'review summary' as const,
               author: authorOf(review.author),
               url: review.url,
@@ -345,6 +373,8 @@ export const queryFeedbackWindow = async (
         : [],
     ),
     ...inline.map((comment) => ({
+      id: comment.id,
+      reactors: reactorsOf(comment),
       kind: 'inline review comment' as const,
       author: authorOf(comment.author),
       url: comment.url,
@@ -354,6 +384,8 @@ export const queryFeedbackWindow = async (
       line: comment.line ?? comment.originalLine,
     })),
     ...conversation.map((comment) => ({
+      id: comment.id,
+      reactors: reactorsOf(comment),
       kind: 'conversation comment' as const,
       author: authorOf(comment.author),
       url: comment.url,
@@ -364,6 +396,84 @@ export const queryFeedbackWindow = async (
     })),
   ];
   return items.sort((a, b) => instant(a.createdAt) - instant(b.createdAt));
+};
+
+const readFeedbackWindow = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  after: string | null,
+  until: string | null,
+): Promise<SelectedFeedback[]> => {
+  const data = await readGraphql<FeedbackWindowResponse>(
+    await requestGraphql(fetch, token, FEEDBACK_WINDOW_QUERY, github, { number }),
+    FEEDBACK_WINDOW_QUERY,
+    `${github}#${number}`,
+  );
+  const pullRequest = data?.repository?.pullRequest;
+  if (pullRequest === undefined || pullRequest === null) {
+    throw new Error(`GitHub found no pull request ${github}#${number}`);
+  }
+  return selectFeedback(pullRequest, after, until, maintainerLookup(fetch, token, github));
+};
+
+export const queryFeedbackWindow = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  after: string | null,
+  until: string,
+): Promise<FeedbackItem[]> =>
+  (await readFeedbackWindow(fetch, token, github, number, after, until)).map(
+    ({ id: _id, reactors: _reactors, ...item }) => item,
+  );
+
+export interface UnacknowledgedFeedback {
+  id: string;
+  url: string;
+}
+
+export const queryUnacknowledgedFeedback = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  after: string | null,
+  appName: string,
+): Promise<UnacknowledgedFeedback[]> => {
+  const app = botLoginOf(appName);
+  return (await readFeedbackWindow(fetch, token, github, number, after, null))
+    .filter(
+      ({ reactors }) =>
+        !reactors.some(
+          (reactor) => reactor?.__typename === 'Bot' && reactor.login?.toLowerCase() === app,
+        ),
+    )
+    .map(({ id, url }) => ({ id, url }));
+};
+
+export const ADD_EYES_MUTATION = `
+  mutation AddEyes($subjectId: ID!) {
+    addReaction(input: { subjectId: $subjectId, content: EYES }) {
+      reaction {
+        content
+      }
+    }
+  }
+`;
+
+export const addEyes = async (fetch: Fetch, token: string, subjectId: string, where: string): Promise<void> => {
+  await readGraphql(
+    await fetch(GITHUB_GRAPHQL_API, {
+      method: 'POST',
+      headers: { authorization: `bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ query: ADD_EYES_MUTATION, variables: { subjectId } }),
+    }),
+    ADD_EYES_MUTATION,
+    where,
+  );
 };
 
 export const FEEDBACK_ANSWERS_QUERY = `
