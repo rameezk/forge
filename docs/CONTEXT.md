@@ -57,7 +57,7 @@ What a subscription workload's generations would have cost at the model's list p
 _Avoid_: subscription cost, saved cost
 
 **Config fingerprint**:
-The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), harness when not `pi`, reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files, plus on Claude Code the repository's Claude Code settings and hooks. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034, ADR-0057).
+The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), harness when not `pi`, reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files, plus on Claude Code the repository's Claude Code settings and hooks and its `AGENTS.md` or `CLAUDE.md`. A workload's own context, such as its ticket or feedback, is never part of it. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034, ADR-0057, ADR-0095, ADR-0096).
 _Avoid_: version, run config
 
 **Cohort**:
@@ -67,6 +67,10 @@ _Avoid_: variant, experiment, arm
 **Active cohort**:
 For a worker and repository pair, the cohort of that pair's most recent finished dispatched workload, so several cohorts can be active at once. It reflects the latest workload, not the config deployed now, because part of the fingerprint is known only once a run starts.
 _Avoid_: current cohort, live cohort
+
+**Previous cohort**:
+A cohort that is not active for any worker and repository pair.
+_Avoid_: old cohort, inactive cohort, archived cohort
 
 **Cost status**:
 How settled a workload's billed cost is: `pending` until the workload ends and every generation is billed, `billed` once it has, `unconfirmed` once forge gave up on any generation, including on an interrupted workload, where later generations may be unrecorded (ADR-0031), or `subscription` for a workload on a subscription provider, which is never billed and never settles (ADR-0047).
