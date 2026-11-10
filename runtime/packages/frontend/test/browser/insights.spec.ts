@@ -1,5 +1,7 @@
 import { fingerprintHash } from '@forge/shared';
 import type { ConfigFingerprint, RunRecord, Store } from '@forge/shared';
+import { GLM, SONNET, seedStore, type Seed } from '../insights-seed.ts';
+import type { Page } from '@playwright/test';
 import { expect, test } from './dashboard.ts';
 
 const fingerprint: ConfigFingerprint = {
@@ -138,3 +140,70 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.screenshot({ path: `test-results/insights-charts-${colorScheme}.png`, fullPage: true });
   });
 }
+
+const THIRD: ConfigFingerprint = { ...SONNET, promptTemplate: 'c3c3c3c3' };
+const quick = { seconds: 60, cost: 0.1, toolCalls: 1, retries: 0 };
+
+const COHORTS: Seed[] = [
+  { id: 'old', fingerprint: GLM, worker: 'refiner', start: '2026-09-01T10:00:00.000Z', ...quick },
+  { id: 'unknown', start: '2026-09-02T10:00:00.000Z', ...quick },
+  { id: 'later', fingerprint: THIRD, worker: 'refiner', start: '2026-09-05T10:00:00.000Z', ...quick },
+  { id: 'now', fingerprint: SONNET, start: '2026-09-21T10:00:00.000Z', ...quick },
+];
+
+const previousToggle = (page: Page) => page.getByRole('button', { name: /Previous cohorts/ });
+
+test('given active and previous cohorts, when the insights page loads, then previous cohorts are collapsed under a header with their count and last run', async ({ dashboard, page }) => {
+  seedStore(dashboard.store, COHORTS);
+
+  await page.goto('/insights');
+
+  await expect(page.locator('[data-cohort-group="active"] [data-cohort]')).toHaveCount(2);
+  await expect(page.locator('[data-cohort-group="previous"] [data-cohort]').first()).toBeHidden();
+  await expect(previousToggle(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(previousToggle(page)).toContainText('2');
+  await expect(previousToggle(page)).toContainText('last run 2026-09-02 10:00');
+});
+
+test('given collapsed previous cohorts, when the header is activated, then they show in the same table aligned with the active rows, and a fresh load shows them collapsed again', async ({ dashboard, page }) => {
+  seedStore(dashboard.store, COHORTS);
+  await page.goto('/insights');
+
+  await previousToggle(page).click();
+
+  const previous = page.locator('[data-cohort-group="previous"] [data-cohort]');
+  await expect(previous).toHaveCount(2);
+  await expect(previous.first()).toBeVisible();
+  await expect(previous.locator('[data-owner]')).toHaveText(['Ran for refiner on forge', 'Ran for builder on forge']);
+  await expect(previousToggle(page)).toHaveAttribute('aria-expanded', 'true');
+  const columns = (selector: string) =>
+    page.locator(selector).first().locator('td').evaluateAll((cells) => cells.map((cell) => Math.round(cell.getBoundingClientRect().right)));
+  expect(await columns('[data-cohort-group="previous"] [data-cohort]')).toEqual(await columns('[data-cohort-group="active"] [data-cohort]'));
+
+  await page.reload();
+
+  await expect(previous.first()).toBeHidden();
+});
+
+test('given expanded previous cohorts, when a workload ends and the page updates live, then they stay expanded', async ({ dashboard, page }) => {
+  seedStore(dashboard.store, [...COHORTS, { id: 'running', fingerprint: GLM, worker: 'refiner', dispatched: false, running: true, start: '2026-09-03T10:00:00.000Z', ...quick }]);
+  await page.goto('/insights?manual=1');
+  await expect(page.locator('#live')).toHaveText('Live');
+  await previousToggle(page).click();
+
+  dashboard.store.finalizeRun('running', { status: 'success', sessionId: null, error: null, endTime: '2026-09-03T10:05:00.000Z' });
+
+  await expect(page.locator(`tr[data-cohort="${fingerprintHash(GLM)}"] [data-metric="workloads"]`)).toHaveText('2');
+  await expect(page.locator(`tr[data-cohort="${fingerprintHash(GLM)}"]`)).toBeVisible();
+});
+
+test('given expanded previous cohorts, when the page is opened at phone width, then the group headers and owner lines sit inside the table and the page does not scroll sideways', async ({ dashboard, page }) => {
+  seedStore(dashboard.store, COHORTS);
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.goto('/insights');
+
+  await previousToggle(page).click();
+
+  await expect(page.locator('[data-cohort-group="previous"] [data-owner]').first()).toBeVisible();
+  expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+});

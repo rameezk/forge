@@ -23,14 +23,14 @@ test('given a system prompt carrying the date and a git status snapshot, when it
   assert.match(first, /conversation\.\n\n<git status>\n\nTrailing text that is part of the prompt\.$/);
 });
 
-test('given a system prompt naming the work dir, the config dir, the work dir\'s memory slug and a build suffix, when it is normalized, then each becomes its placeholder', () => {
+test('given a system prompt naming the work dir, the config dir, the work dir\'s memory slug and a build suffix and a previous request id, when it is normalized, then each becomes its placeholder', () => {
   const normalize = claudeCodeNormalizer({ workDir: '/runs/7/work', configDir: '/runs/7/config' });
 
   assert.equal(
     normalize(
-      'cc_version=2.1.296.a7e in /runs/7/work with memory at /runs/7/config/projects/-runs-7-work/memory/',
+      'cc_version=2.1.296.a7e; cc_entrypoint=sdk-cli; cc_prev_req=req_011CVkqzXbq in /runs/7/work with memory at /runs/7/config/projects/-runs-7-work/memory/',
     ),
-    'cc_version=2.1.296.<build> in <work dir> with memory at <config dir>/projects/<work dir slug>/memory/',
+    'cc_version=2.1.296.<build>; cc_entrypoint=sdk-cli; cc_prev_req=<request> in <work dir> with memory at <config dir>/projects/<work dir slug>/memory/',
   );
 });
 

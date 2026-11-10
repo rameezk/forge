@@ -14,7 +14,7 @@ const rowsOf = (page: string): Map<string, Row> =>
       Object.fromEntries(
         [...body!.matchAll(/<td[^>]*\sdata-metric="([^"]+)"[^>]*>([\s\S]*?)<\/td>/g)].map(([, name, cell]) => [
           name!,
-          textOf(cell!.replace(/<span[^>]*data-badge="active"[^>]*>[\s\S]*?<\/span>/, '')),
+          textOf(cell!.replace(/<p[^>]*data-owner[^>]*>[\s\S]*?<\/p>/, '')),
         ]),
       ),
     ]),
@@ -23,8 +23,21 @@ const rowsOf = (page: string): Map<string, Row> =>
 const rowHtml = (page: string, hash: string): string =>
   page.match(new RegExp(`<tr[^>]*\\sdata-cohort="${hash}"[^>]*>[\\s\\S]*?</tr>`))?.[0] ?? 'missing';
 
-const activeTitle = (page: string, hash: string): string | undefined =>
-  rowHtml(page, hash).match(/data-badge="active"[^>]*\stitle="([^"]*)"/)?.[1];
+const ownerLine = (page: string, hash: string): string | undefined => {
+  const line = rowHtml(page, hash).match(/<p[^>]*data-owner[^>]*>([\s\S]*?)<\/p>/)?.[1];
+  return line === undefined ? undefined : textOf(line);
+};
+
+const groupOf = (page: string, hash: string): string | undefined =>
+  [...page.matchAll(/<tbody[^>]*\sdata-cohort-group="([^"]+)"[^>]*>([\s\S]*?)<\/tbody>/g)].find(([, , body]) =>
+    body!.includes(`data-cohort="${hash}"`),
+  )?.[1];
+
+const groupHeader = (page: string, group: string): string | undefined => {
+  const body = page.match(new RegExp(`<tbody[^>]*\\sdata-cohort-group="${group}"[^>]*>([\\s\\S]*?)</tbody>`))?.[1];
+  const header = body?.match(/<tr[^>]*data-group-header[^>]*>([\s\S]*?)<\/tr>/)?.[1];
+  return header === undefined ? undefined : textOf(header.replace(/<span[^>]*aria-hidden[^>]*>[\s\S]*?<\/span>/, ''));
+};
 
 const cellTitle = (page: string, hash: string, metric: string): string | undefined =>
   rowHtml(page, hash).match(new RegExp(`<td[^>]*\\sdata-metric="${metric}"[^>]*\\stitle="([^"]*)"`))?.[1];
@@ -247,25 +260,25 @@ const HASH = { sonnet: fingerprintHash(SONNET), glm: fingerprintHash(GLM) };
 const THIRD: ConfigFingerprint = { ...SONNET, promptTemplate: 'c3c3c3c3' };
 const FOURTH: ConfigFingerprint = { ...SONNET, promptTemplate: 'd4d4d4d4' };
 
-test('given a worker whose latest workload on one repository is in cohort B and on another in cohort A, when the insights page is requested, then both cohorts are active and each tooltip names its own repository', async () => {
+test('given a worker whose latest workload on one repository is in cohort B and on another in cohort A, when the insights page is requested, then both cohorts are active and each row names its own repository', async () => {
   const page = await dashboard([
     { id: 'p1', fingerprint: SONNET, repository: 'forge', start: '2026-09-01T10:00:00.000Z', ...quick },
     { id: 'p2', fingerprint: GLM, repository: 'forge', start: '2026-09-10T10:00:00.000Z', ...quick },
     { id: 'p3', fingerprint: SONNET, repository: 'site', start: '2026-09-05T10:00:00.000Z', ...quick },
   ]).page();
 
-  assert.equal(activeTitle(page, HASH.sonnet), 'Active for builder on site');
-  assert.equal(activeTitle(page, HASH.glm), 'Active for builder on forge');
+  assert.equal(ownerLine(page, HASH.sonnet), 'Active for builder on site');
+  assert.equal(ownerLine(page, HASH.glm), 'Active for builder on forge');
 });
 
-test('given workers active in one cohort on several repositories, when the insights page is requested, then the tooltip lists every worker and repository pair', async () => {
+test('given workers active in one cohort on several repositories, when the insights page is requested, then the row lists every worker and repository pair', async () => {
   const page = await dashboard([
     { id: 'p1', fingerprint: SONNET, worker: 'refiner', repository: 'forge', start: '2026-09-01T10:00:00.000Z', ...quick },
     { id: 'p2', fingerprint: SONNET, worker: 'refiner', repository: 'dotfiles', start: '2026-09-02T10:00:00.000Z', ...quick },
     { id: 'p3', fingerprint: SONNET, worker: 'builder', repository: 'forge', start: '2026-09-03T10:00:00.000Z', ...quick },
   ]).page();
 
-  assert.equal(activeTitle(page, HASH.sonnet), 'Active for builder on forge; refiner on dotfiles and forge');
+  assert.equal(ownerLine(page, HASH.sonnet), 'Active for builder on forge; refiner on dotfiles and forge');
 });
 
 test('given a pair whose latest workload moved from cohort A to cohort B, when the insights page is requested, then only B is active', async () => {
@@ -274,8 +287,8 @@ test('given a pair whose latest workload moved from cohort A to cohort B, when t
     { id: 'p2', fingerprint: GLM, start: '2026-09-10T10:00:00.000Z', ...quick },
   ]).page();
 
-  assert.equal(activeTitle(page, HASH.sonnet), undefined);
-  assert.equal(activeTitle(page, HASH.glm), 'Active for builder on forge');
+  assert.equal(ownerLine(page, HASH.sonnet), 'Ran for builder on forge');
+  assert.equal(ownerLine(page, HASH.glm), 'Active for builder on forge');
 });
 
 test('given a manual workload and a running workload after the latest finished dispatched one, when the insights page is requested with manual workloads included, then neither decides what is active nor shows in Last run', async () => {
@@ -287,8 +300,8 @@ test('given a manual workload and a running workload after the latest finished d
   ]).page('?manual=1');
   const rows = rowsOf(page);
 
-  assert.equal(activeTitle(page, HASH.sonnet), 'Active for builder on forge');
-  assert.equal(activeTitle(page, HASH.glm), undefined);
+  assert.equal(ownerLine(page, HASH.sonnet), 'Active for builder on forge');
+  assert.equal(ownerLine(page, HASH.glm), 'Ran for builder on forge');
   assert.equal(rows.get(HASH.glm)!['last-run'], '2026-09-02 10:00');
   assert.equal(rows.get(HASH.glm)!['workloads'], '2');
   assert.equal(rows.has(fingerprintHash(THIRD)), false);
@@ -325,8 +338,8 @@ test('given a cohort with workloads inside and outside a window on two repositor
   assert.equal(some!['workloads'], '1');
   assert.deepEqual([some!['first-run'], some!['last-run']], [all!['first-run'], all!['last-run']]);
   assert.deepEqual([all!['first-run'], all!['last-run']], ['2026-09-14 10:00', '2026-09-28 10:00']);
-  assert.equal(activeTitle(filtered, HASH.sonnet), 'Active for builder on forge and site');
-  assert.equal(activeTitle(filtered, HASH.sonnet), activeTitle(everything, HASH.sonnet));
+  assert.equal(ownerLine(filtered, HASH.sonnet), 'Active for builder on forge and site');
+  assert.equal(ownerLine(filtered, HASH.sonnet), ownerLine(everything, HASH.sonnet));
 });
 
 test('given a large inactive cohort, a small active one, two others and the unknown-config cohort, when the insights page is requested, then active comes first, then Last run newest first, then unknown-config', async () => {
@@ -355,6 +368,36 @@ test('given workloads recorded without a fingerprint that are the latest for the
 
   assert.deepEqual([...rows.keys()], [HASH.sonnet, '']);
   assert.deepEqual([rows.get('')!['first-run'], rows.get('')!['last-run']], ['2026-09-10 10:00', '2026-09-11 10:00']);
-  assert.equal(activeTitle(page, ''), undefined);
-  assert.equal(activeTitle(page, HASH.sonnet), undefined);
+  assert.equal(groupOf(page, ''), 'previous');
+  assert.equal(groupOf(page, HASH.sonnet), 'previous');
+  assert.equal(ownerLine(page, ''), 'Ran for builder on forge');
+});
+
+test('given cohorts active for some pairs, cohorts active for none and the unknown-config cohort, when the insights page is requested, then active cohorts sit under Active cohorts and the rest under a collapsed Previous cohorts header with their count and last run', async () => {
+  const page = await dashboard([
+    { id: 'u1', start: '2026-09-12T10:00:00.000Z', ...quick },
+    { id: 'l1', fingerprint: FOURTH, start: '2026-09-01T10:00:00.000Z', ...quick },
+    { id: 'o1', fingerprint: THIRD, start: '2026-09-05T10:00:00.000Z', ...quick },
+    { id: 's1', fingerprint: SONNET, repository: 'site', start: '2026-09-09T10:00:00.000Z', ...quick },
+  ]).page();
+
+  assert.equal(groupOf(page, HASH.sonnet), 'active');
+  assert.deepEqual([fingerprintHash(THIRD), fingerprintHash(FOURTH), ''].map((hash) => groupOf(page, hash)), ['previous', 'previous', 'previous']);
+  assert.match(groupHeader(page, 'active')!, /^Active cohorts/);
+  assert.match(groupHeader(page, 'previous')!, /^Previous cohorts\s*3\s*last run 2026-09-12 10:00$/i);
+  assert.match(page, /<tbody[^>]*\sdata-cohort-group="previous"[^>]*\sdata-collapsed/);
+  assert.doesNotMatch(page, /<tbody[^>]*\sdata-cohort-group="active"[^>]*\sdata-collapsed/);
+});
+
+test('given an active cohort for one worker on two repositories and a previous cohort that ran for another worker on one, when the insights page is requested, then each row says who it belongs to and none carries an active badge', async () => {
+  const page = await dashboard([
+    { id: 'p1', fingerprint: SONNET, worker: 'builder', repository: 'forge', start: '2026-09-09T10:00:00.000Z', ...quick },
+    { id: 'p2', fingerprint: SONNET, worker: 'builder', repository: 'site', start: '2026-09-10T10:00:00.000Z', ...quick },
+    { id: 'p3', fingerprint: GLM, worker: 'refiner', repository: 'forge', start: '2026-09-01T10:00:00.000Z', ...quick },
+    { id: 'p4', fingerprint: THIRD, worker: 'refiner', repository: 'forge', start: '2026-09-11T10:00:00.000Z', ...quick },
+  ]).page();
+
+  assert.equal(ownerLine(page, HASH.sonnet), 'Active for builder on forge and site');
+  assert.equal(ownerLine(page, HASH.glm), 'Ran for refiner on forge');
+  assert.doesNotMatch(page, /data-badge="active"/);
 });

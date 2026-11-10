@@ -248,6 +248,8 @@ const instructionOf = (pi: PiCall | null): string =>
     .filter((_, index) => pi?.argv[index - 1] === '--append-system-prompt')
     .join('\n');
 
+const userMessageOf = (pi: PiCall | null): string => pi?.argv.at(-1) ?? '';
+
 interface FeedbackAnswersRejection {
   data?: FeedbackAnswersResponse['data'] | { repository: { pullRequest: null } };
   errors: { message: string }[];
@@ -467,9 +469,10 @@ test('given a repository with on.feedback and an open pull request on branch fea
 
   assert.equal(code, 0);
   assert.ok(pi);
-  assert.equal(
-    pi.argv.at(-1),
-    `/skill:address-feedback ${PULL_REQUEST_URL} on feature of rameezk/forge (#143)`,
+  assert.ok(
+    userMessageOf(pi).startsWith(
+      `/skill:address-feedback ${PULL_REQUEST_URL} on feature of rameezk/forge (#143)\n\n`,
+    ),
   );
   const workDir = realpathSync(pi.cwd);
   assert.equal(git(workDir, 'branch', '--show-current'), 'feature');
@@ -715,7 +718,7 @@ test('given a window holding a review summary, an inline review comment and a co
     }),
   });
 
-  const instruction = instructionOf(pi);
+  const instruction = userMessageOf(pi);
   assert.match(instruction, /review summary by rameezk: .*#pullrequestreview-7/);
   assert.match(instruction, /Overall this needs a second look\./);
   assert.match(instruction, /inline review comment by rameezk on src\/loop\.ts:42: .*#discussion_r9/);
@@ -723,6 +726,7 @@ test('given a window holding a review summary, an inline review comment and a co
   assert.match(instruction, /conversation comment by rameezk: .*#issuecomment-1/);
   assert.match(instruction, /Please rename the helper\./);
   assert.match(instruction, /Address exactly these items and answer each one/);
+  assert.doesNotMatch(instructionOf(pi), /Overall this needs a second look|This loop is off by one|Please rename the helper|Address exactly these items/);
 });
 
 test('given a comment from before the previous revision started and one from after, when the next revision runs, then only the later comment is in the instruction', async () => {
@@ -736,7 +740,7 @@ test('given a comment from before the previous revision started and one from aft
     }),
   });
 
-  const instruction = instructionOf(pi);
+  const instruction = userMessageOf(pi);
   assert.match(instruction, /Newly raised\./);
   assert.doesNotMatch(instruction, /Already handled earlier\./);
 });
@@ -761,7 +765,7 @@ test('given a revision that ended in error over a comment, when forge-revise run
   });
 
   assert.equal(code, 0);
-  assert.match(instructionOf(pi), /Raised before the failure\./);
+  assert.match(userMessageOf(pi), /Raised before the failure\./);
 });
 
 test('given a window holding comments from a maintainer, a read-only collaborator, an outsider and a bot, when the revision runs, then only the maintainer\'s comment is in the instruction', async () => {
@@ -789,7 +793,7 @@ test('given a window holding comments from a maintainer, a read-only collaborato
     }),
   });
 
-  const instruction = instructionOf(pi);
+  const instruction = userMessageOf(pi);
   assert.match(instruction, /From a maintainer\./);
   assert.doesNotMatch(instruction, /From a reader\./);
   assert.doesNotMatch(instruction, /From a stranger\./);

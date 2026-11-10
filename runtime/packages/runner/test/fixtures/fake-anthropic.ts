@@ -35,9 +35,21 @@ export interface ClaudeScenario {
   args?: string[];
 }
 
+const withRequestIdSuffix = (res: ServerResponse, suffix: string): void => {
+  const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => ServerResponse;
+  res.writeHead = ((status: number, headers?: Record<string, string>) =>
+    writeHead(
+      status,
+      headers?.['request-id'] === undefined
+        ? headers
+        : { ...headers, 'request-id': `${headers['request-id']}${suffix}` },
+    )) as ServerResponse['writeHead'];
+};
+
 export const serveMessages = async (
   respond: RespondMessages,
   requests: MessagesRequest[] = [],
+  requestIdSuffix = '',
 ): Promise<Server> => {
   let calls = 0;
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -52,6 +64,7 @@ export const serveMessages = async (
       calls += 1;
       const request = JSON.parse(body) as MessagesRequest;
       requests.push(request);
+      withRequestIdSuffix(res, requestIdSuffix);
       respond(calls, res, request);
     });
   });

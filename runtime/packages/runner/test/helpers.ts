@@ -9,8 +9,15 @@ import type {
   MessageEvent,
   ResultEvent,
   Store,
+  TicketContext,
 } from '@forge/shared';
-import type { Checkout } from '../src/harness.ts';
+import {
+  CONFLICT_INSTRUCTION,
+  conflictBrief,
+  REVISION_INSTRUCTION,
+  revisionContext,
+  type Checkout,
+} from '../src/harness.ts';
 import type {
   Harness,
   HarnessInvocation,
@@ -555,3 +562,52 @@ export const alive = (pid: number): boolean => {
     return false;
   }
 };
+
+export const ticketContextOf = (number: number, title: string): TicketContext => ({
+  ticket: {
+    number,
+    title,
+    url: `https://github.com/rameezk/forge/issues/${number}`,
+    body: `Build ${title} for ticket ${number}.`,
+    comments: [],
+  },
+  spec: {
+    number: number + 1000,
+    title: `Spec of ${title}`,
+    url: `https://github.com/rameezk/forge/issues/${number + 1000}`,
+    body: `The spec behind ${title}.`,
+    comments: [],
+  },
+});
+
+export const OWN_CONTEXT_CASES = [
+  {
+    given: 'a revision with feedback items',
+    instruction: REVISION_INSTRUCTION,
+    context: revisionContext([
+      {
+        kind: 'conversation comment',
+        author: 'rameezk',
+        url: 'https://github.com/rameezk/forge/pull/143#issuecomment-1',
+        body: 'Please rename the helper.',
+        path: null,
+        line: null,
+        createdAt: '2026-09-22T09:00:00Z',
+      },
+    ]),
+    marker: /Please rename the helper\./,
+  },
+  {
+    given: 'a conflict resolution with its brief',
+    instruction: CONFLICT_INSTRUCTION,
+    context: conflictBrief({
+      number: 143,
+      url: 'https://github.com/rameezk/forge/pull/143',
+      branch: 'feature',
+      defaultBranch: 'main',
+      sha: '0123456789abcdef',
+      files: ['conflicted-file.txt'],
+    }),
+    marker: /conflicted-file\.txt/,
+  },
+];

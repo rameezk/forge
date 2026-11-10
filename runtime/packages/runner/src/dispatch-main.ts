@@ -38,7 +38,7 @@ import {
   type RepositoryConfig,
 } from './config.ts';
 import { gitEnvironment } from './git.ts';
-import { dispatchInstruction } from './harness.ts';
+import { dispatchContext, withContext } from './harness.ts';
 import { SkillNotFound } from './checkout.ts';
 import { launchInCheckout } from './checkout-workload.ts';
 import { DevShellFailed, nixErrorOf } from './devshell.ts';
@@ -278,11 +278,10 @@ export const main = async (
           config,
           worker: {
             ...worker,
-            prompt: fillPrompt(worker.prompt, repository.github, ticket),
+            prompt: withContext(fillPrompt(worker.prompt, repository.github, ticket), dispatchContext(context)),
             promptTemplate: worker.prompt,
           },
           github: repository.github,
-          instruction: dispatchInstruction(context),
           app,
           gitEnv,
           identity,
