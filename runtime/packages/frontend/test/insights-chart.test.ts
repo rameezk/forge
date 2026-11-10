@@ -202,3 +202,39 @@ test('given only subscription workloads the catalog could not price, when the in
   assert.match(page, /data-chart-empty/);
   assert.match(page, /data-cohort="[0-9a-f]+"/);
 });
+
+const PREVIOUS_SEEDS: Seed[] = [
+  { id: 'old1', fingerprint: GLM, start: '2026-09-20T10:00:00.000Z', seconds: 60, cost: 0.4, toolCalls: 1, retries: 0, providers: { Anthropic: 100, 'Amazon Bedrock': 100 } },
+  { id: 'new1', fingerprint: SONNET, start: '2026-09-21T10:00:00.000Z', seconds: 60, cost: 0.9, toolCalls: 1, retries: 0, providers: { Anthropic: 100, 'Amazon Bedrock': 100 } },
+];
+
+const slice = (page: string, pattern: RegExp): string => page.match(pattern)?.[0] ?? '';
+
+test('given an active cohort and a previous cohort, when the insights page is requested, then the chart plots both, the active points in a series colour and the previous points in muted grey', async () => {
+  const points = pointsOf(await dashboard(PREVIOUS_SEEDS).page());
+
+  assert.deepEqual([...points.keys()].sort(), ['new1', 'old1']);
+  assert.match(points.get('new1')!.color, /fill-series-\d/);
+  assert.match(points.get('old1')!.color, /fill-muted/);
+  assert.doesNotMatch(points.get('old1')!.color, /series/);
+});
+
+test('given an active cohort and a previous cohort, when the insights page is requested, then the legend shows the active cohort in its series colour and the previous one in muted grey', async () => {
+  const page = await dashboard(PREVIOUS_SEEDS).page();
+  const legend = (hash: string): string => slice(page, new RegExp(`<li[^>]*data-legend-cohort="${hash}"[^>]*>[\\s\\S]*?</li>`));
+
+  assert.match(legend(fingerprintHash(SONNET)), /bg-series-\d/);
+  assert.match(legend(fingerprintHash(GLM)), /bg-muted/);
+  assert.doesNotMatch(legend(fingerprintHash(GLM)), /series/);
+});
+
+test('given an active cohort and a previous cohort with provider shares, when the insights page is requested, then both are listed and the previous cohort bar is muted grey', async () => {
+  const page = await dashboard(PREVIOUS_SEEDS).page();
+  const bar = (hash: string): string =>
+    slice(page, new RegExp(`<div[^>]*data-provider-bar="${hash}"[^>]*>[\\s\\S]*?</div>\\s*</div>`));
+
+  assert.equal(barsOf(page).size, 2);
+  assert.match(bar(fingerprintHash(SONNET)), /bg-series-\d/);
+  assert.match(bar(fingerprintHash(GLM)), /bg-muted/);
+  assert.doesNotMatch(bar(fingerprintHash(GLM)), /series/);
+});
