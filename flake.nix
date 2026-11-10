@@ -1340,6 +1340,19 @@
                 && pullDeployService.serviceConfig.EnvironmentFile == pullDeployHost.config.sops.templates."forge-pull-deploy.env".path
               )
               "the pull deploy unit runs as root, so the environment file it loads must be owned by root, never by the runtime user";
+          pullDeployAlsoManagedHost = secretsHost exampleSecretsFile {
+            forge.runtime.pullDeploy = pullDeployModule.forge.runtime.pullDeploy;
+            forge.runtime.repositories.operator.github = "Operator-Org/Operator";
+          };
+          pullDeployRepositoryIsNotManaged =
+            lib.asserts.assertMsg
+              (
+                builtins.any (lib.hasInfix "is also declared in forge.runtime.repositories") (
+                  failedAssertions pullDeployAlsoManagedHost
+                )
+                && failedAssertions pullDeployHost == [ ]
+              )
+              "the pull deploy must refuse an operator repository that is also a managed repository, and accept one that is not";
           pullDeployTalksToGithub =
             lib.asserts.assertMsg
               (
@@ -1970,9 +1983,10 @@
             assert pullDeployOffByDefault;
             assert pullDeployKeepsItselfRunning;
             assert pullDeployReadsRootOwnedEnvironment;
+            assert pullDeployRepositoryIsNotManaged;
             assert pullDeployTalksToGithub;
             pkgs.runCommand "runtime-pull-deploy" { } ''
-              echo "the pull deploy is off unless enabled, survives the switch it runs, loads an environment file only root owns, and talks to github.com and its API by default" > $out
+              echo "the pull deploy is off unless enabled, survives the switch it runs, loads an environment file only root owns, refuses an operator repository that is also managed, and talks to github.com and its API by default" > $out
             '';
 
           forge-runner = self.packages.${system}.forge-runner;

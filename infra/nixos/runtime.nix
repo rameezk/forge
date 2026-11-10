@@ -399,6 +399,15 @@ let
     line: builtins.match "[[:space:]]*(extra-)?trusted-users[[:space:]]*=.*" line != null
   ) (lib.splitString "\n" config.nix.extraOptions);
 
+  pullDeployRepositoryAssertion = {
+    assertion =
+      !cfg.pullDeploy.enable
+      || !(lib.any (
+        repository: lib.toLower repository.github == lib.toLower cfg.pullDeploy.repository
+      ) (lib.attrValues cfg.repositories));
+    message = "forge.runtime.pullDeploy.repository '${cfg.pullDeploy.repository}' is also declared in forge.runtime.repositories: the box runs that repository's main as root, so a workload that can push to it would be running code as root. Remove it from forge.runtime.repositories";
+  };
+
   untrustedAssertion = {
     assertion =
       !(lib.any (name: lib.elem name runtimeTrustNames) trustedUsers) && !extraOptionsSetTrust;
@@ -705,6 +714,7 @@ in
         removedGitIdentityAssertion
         removedMemoryMaxAssertion
         untrustedAssertion
+        pullDeployRepositoryAssertion
         dashboardTimeZoneAssertion
       ]
       ++ workerNameAssertions

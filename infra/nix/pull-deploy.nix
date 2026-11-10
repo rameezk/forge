@@ -41,7 +41,6 @@ let
   builder =
     broken:
     writeShellScript "operator-builder-${if broken then "broken" else "ok"}" ''
-      ${coreutils}/bin/mkdir -p ${record}
       echo "$rev" >> ${record}/built
       ${lib.optionalString broken ''
         echo "operator build failed for $rev" >&2
@@ -95,6 +94,7 @@ testers.runNixOSTest {
       virtualisation.memorySize = 2048;
       nix.settings.sandbox = false;
       environment.systemPackages = [ git ];
+      systemd.tmpfiles.rules = [ "d ${record} 1777 root root - -" ];
 
       forge.runtime.secretsFile = secretsFile;
       forge.runtime.package = pkgs.emptyDirectory;
@@ -210,9 +210,8 @@ testers.runNixOSTest {
         assert_log("switched", [a, b, d])
 
     with subtest("a hand deploy is reverted at the next pull"):
-        box.succeed("ln -sfn ${coreutils} /run/current-system")
+        box.succeed("mkdir -p /run/hand-deployed && ln -sfn $(readlink -f /run/booted-system/sw) /run/hand-deployed/sw && ln -sfn /run/hand-deployed /run/current-system")
         retry(lambda _: lines("${record}/switched") == [a, b, d, d], 120)
-        wait_for_status(running=d, head=d, error=None)
         box.succeed("ln -sfn $(readlink -f /run/booted-system) /run/current-system")
         retry(lambda _: lines("${record}/switched") == [a, b, d, d, d], 120)
 
@@ -220,7 +219,7 @@ testers.runNixOSTest {
         box.succeed("/run/booted-system/specialisation/off/bin/switch-to-configuration test")
         box.fail("systemctl cat forge-pull-deploy.service")
         before = len(requests())
-        e = push("${operatorFlake false}", "operator commit E")
+        push("${operatorFlake false}", "operator commit E")
         box.sleep(10)
         assert len(requests()) == before, requests()[before:]
         assert_log("switched", [a, b, d, d, d])

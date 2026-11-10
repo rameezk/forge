@@ -288,6 +288,11 @@ repository alone with read access to contents. So:
    even if you declare no managed repository. The build fails, naming the
    missing key, without them.
 
+Whoever can push to `main` runs code as root on the box, so protect `main`
+with a branch ruleset that limits who can push to it. Do not also declare this
+repository in `forge.runtime.repositories`: the build fails if you do, since a
+workload that could push to `main` would be running code as root.
+
 A commit that fails to build or switch is remembered. The box keeps running its
 previous commit and does not try the failed one again until `main` moves, or
 until you restart the unit by hand on the box:
