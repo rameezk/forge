@@ -43,6 +43,14 @@ forge_commit() {
 	git -C "$upstream" rev-parse HEAD
 }
 
+template_commit() {
+	mkdir -p "$(dirname "$upstream/templates/operator/$1")"
+	echo "$2" >>"$upstream/templates/operator/$1"
+	git -C "$upstream" add -A
+	git -C "$upstream" commit -q -m "template: $2"
+	git -C "$upstream" rev-parse HEAD
+}
+
 cat >"$stubs/gh" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -112,6 +120,7 @@ x_commit="$(forge_commit "first change")"
 	perl -pi -e "s{forge\\.url = \"[^\"]*\";}{forge.url = \"git+file://$upstream\";}" flake.nix
 	git init -q -b main
 	git remote add origin "$origin"
+	echo "$x_commit" >.forge-template-rev
 	git add -A
 	nix flake lock >"$scratch/lock.log" 2>&1 || { cat "$scratch/lock.log"; exit 1; }
 	git add -A
@@ -143,6 +152,14 @@ if [ "$(git -C "$origin" rev-list --count "$before..main")" = 1 ] &&
 else
 	echo "FAIL: expected one commit 'chore: update forge to ${z_commit:0:7}' listing the upstream subjects"
 	tail -20 "$scratch/moved.log"
+	fail=1
+fi
+
+echo "==> case: forge moved but its operator template did not, no drift is reported"
+if [ "$(jq 'length' "$gh_state/issues.json")" = 0 ]; then
+	echo "ok: no drift issue while the operator template is unchanged since the marker"
+else
+	echo "FAIL: a drift issue was opened although the operator template did not change"
 	fail=1
 fi
 
@@ -205,6 +222,84 @@ else
 	tail -20 "$scratch/recovers.log"
 	fail=1
 fi
+
+drift_title="Forge's operator template has changed"
+
+echo "==> case: the operator template changed since the marker, one issue lists the files and the diff"
+template_commit README.md "a new required secret" >/dev/null
+drift_commit="$(template_commit scripts/new-script.sh "a new script")"
+before="$(origin_head)"
+run_bump >"$scratch/drift.log" 2>&1 || true
+if [ "$(git -C "$origin" rev-list --count "$before..main")" = 1 ] &&
+	[ "$(open_issues | jq 'length')" = 1 ] &&
+	[ "$(open_issues | jq -r '.[0].title')" = "$drift_title" ] &&
+	open_issues | jq -r '.[0].body' | grep -q "templates/operator/README.md" &&
+	open_issues | jq -r '.[0].body' | grep -q "templates/operator/scripts/new-script.sh" &&
+	open_issues | jq -r '.[0].body' | grep -q "^+a new required secret$" &&
+	open_issues | jq -r '.[0].body' | grep -q "${x_commit:0:7}" &&
+	open_issues | jq -r '.[0].body' | grep -q "${drift_commit:0:7}"; then
+	echo "ok: one open issue lists the changed template files and the upstream diff"
+else
+	echo "FAIL: expected one open drift issue listing the changed files and the diff"
+	tail -20 "$scratch/drift.log"
+	fail=1
+fi
+
+echo "==> case: drift is still outstanding, the issue is updated and not duplicated"
+newer_commit="$(template_commit justfile "a new recipe")"
+run_bump >"$scratch/drift-again.log" 2>&1 || true
+if [ "$(open_issues | jq 'length')" = 1 ] && [ "$(jq 'length' "$gh_state/issues.json")" = 2 ] &&
+	open_issues | jq -r '.[0].body' | grep -q "templates/operator/justfile" &&
+	open_issues | jq -r '.[0].body' | grep -q "${newer_commit:0:7}"; then
+	echo "ok: the existing issue was updated and no second issue opened"
+else
+	echo "FAIL: expected the one drift issue to be updated"
+	tail -20 "$scratch/drift-again.log"
+	fail=1
+fi
+
+echo "==> case: drift is outstanding and forge has not moved, the issue stays open"
+run_bump >"$scratch/drift-quiet.log" 2>&1 || true
+if [ "$(jq 'length' "$gh_state/issues.json")" = 2 ] && [ "$(open_issues | jq 'length')" = 1 ]; then
+	echo "ok: the drift issue stays open and is not duplicated"
+else
+	echo "FAIL: the drift issue was duplicated or closed with drift outstanding"
+	fail=1
+fi
+
+echo "==> case: the marker moves to the locked commit, the issue closes"
+locked_now="$(jq -r '.nodes.forge.locked.rev' "$work/flake.lock")"
+echo "$locked_now" >"$work/.forge-template-rev"
+git -C "$work" add -A
+git -C "$work" commit -q -m "chore: sync template to ${locked_now:0:7}"
+git -C "$work" push -q origin main
+run_bump >"$scratch/drift-cleared.log" 2>&1 || true
+if [ "$(open_issues | jq 'length')" = 0 ]; then
+	echo "ok: the drift issue is closed once the marker catches up"
+else
+	echo "FAIL: the drift issue stayed open after the marker moved to the locked commit"
+	tail -20 "$scratch/drift-cleared.log"
+	fail=1
+fi
+
+echo "==> case: the marker is empty, no drift is reported"
+: >"$work/.forge-template-rev"
+template_commit README.md "another change" >/dev/null
+git -C "$work" commit -q -am "blank the marker"
+git -C "$work" push -q origin main
+empty_status=0
+run_bump >"$scratch/empty-marker.log" 2>&1 || empty_status=$?
+if [ "$empty_status" = 0 ] && [ "$(open_issues | jq 'length')" = 0 ]; then
+	echo "ok: an empty marker reports no drift"
+else
+	echo "FAIL: an empty marker should report no drift"
+	tail -20 "$scratch/empty-marker.log"
+	fail=1
+fi
+locked_now="$(jq -r '.nodes.forge.locked.rev' "$work/flake.lock")"
+echo "$locked_now" >"$work/.forge-template-rev"
+git -C "$work" commit -q -am "restore the marker"
+git -C "$work" push -q origin main
 
 echo "==> case: the forge input is pinned to a rev in flake.nix, the lock and main stay put"
 forge_commit "change after the pin" >/dev/null
