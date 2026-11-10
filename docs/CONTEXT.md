@@ -22,7 +22,7 @@ The thinking level a worker asks its model for, one of the levels its harness ta
 _Avoid_: thinking level, reasoning level
 
 **Harness**:
-The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract. Everything harness specific, from its CLI and event format to its per-run state, request capture and skill loads, belongs to its adapter in the runner, not to operator config or the rest of forge (ADR-0008, ADR-0055). A Claude Code run loads the repository's own setup natively and nothing from the host (ADR-0057).
+The agent runtime that executes a workload's task (for example `pi` or Claude Code). Forge's config surface is harness agnostic - harnesses are declared by name behind a common contract. Everything harness specific, from its CLI and event format to its per-run state, request capture and skill loads, belongs to its adapter in the runner, not to operator config or the rest of forge (ADR-0008, ADR-0055). A Claude Code run loads the repository's instructions, skills, agents and commands through files forge owns, and none of its settings, hooks or MCP servers, and nothing from the host (ADR-0057, ADR-0097, ADR-0098).
 
 **Workload toolset**:
 The generic command-line tools forge puts on every workload's `PATH`, after its repository's devShell. Forge ships a base set, and operators may extend or replace it. A repository's own stack, a browser included, belongs in its devShell, not here. Forge's own `gh`, which carries the GitHub token, is not part of it: it sits in a directory of its own that comes before the devShell too, so no devShell hides it and no operator can remove it (ADR-0073). It is a convenience, not a limit: the workload sandbox exposes the Nix store and the nix daemon, so a workload can run anything in the store (ADR-0024, ADR-0027).
@@ -33,8 +33,16 @@ The per-workload working directory a harness runs in, kept after the run as an a
 _Avoid_: workdir, sandbox
 
 **Workload sandbox**:
-The bubblewrap sandbox a workload's harness and its subagents run in: the Nix store and system files read-only, the run directory read-write, a throwaway `/tmp` and HOME, and no view of the state directory (bar the run's pi agent dir, read-only), the secrets or any other process. The harness holds only the credentials the runner deliberately puts in its environment (ADR-0024).
+The bubblewrap sandbox a workload's harness and its subagents run in: the Nix store and system files read-only, the run directory read-write, a throwaway `/tmp` and a read-only HOME, and no view of the state directory (bar the run's pi agent dir, read-only), the secrets or any other process, the tools sandbox's included. The harness holds only the credentials the runner deliberately puts in its environment (ADR-0024, ADR-0098).
 _Avoid_: container, jail
+
+**Tools sandbox**:
+The sibling bubblewrap sandbox, one per run, in which every command a workload's agent drives runs, under the repository's devShell. It shares the run directory and the network with the workload sandbox but not its processes, so nothing in it can see or signal the harness (ADR-0098).
+_Avoid_: inner sandbox, nested sandbox
+
+**Command broker**:
+The process in the tools sandbox that runs each command the harness hands it and reports its output and exit back. The harness reaches the tools sandbox only through it (ADR-0098).
+_Avoid_: executor, proxy
 
 **Generation**:
 One billed model call within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time. Its kind is a `message` from the harness's agent loop, a `compaction` summary, or a `cache_warm` request (ADR-0052). The store also keeps a given-up row with no id where a response used tokens without one, or where a workload never ended and later generations may be unrecorded.
@@ -57,7 +65,7 @@ What a subscription workload's generations would have cost at the model's list p
 _Avoid_: subscription cost, saved cost
 
 **Config fingerprint**:
-The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), harness when not `pi`, reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files, plus on Claude Code the repository's Claude Code settings and hooks and its `AGENTS.md` or `CLAUDE.md`. A workload's own context, such as its ticket or feedback, is never part of it. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034, ADR-0057, ADR-0095, ADR-0096).
+The behaviour-relevant config a workload ran under, recorded at its start as a snapshot with a hash over it: model, provider when not `openrouter` (ADR-0048), harness when not `pi`, reasoning effort, harness extra args, harness version, and hashes of the prompt template, system prompt, tool definitions and skill files, plus on Claude Code forge's settings for the run, the repository's skills, agents and commands it loads, and its `AGENTS.md` or `CLAUDE.md`. A workload's own context, such as its ticket or feedback, is never part of it. Forge's git sha and the base commit are recorded beside it, not in it (ADR-0034, ADR-0057, ADR-0095, ADR-0096, ADR-0098).
 _Avoid_: version, run config
 
 **Cohort**:
