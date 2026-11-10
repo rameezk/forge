@@ -11,7 +11,7 @@ import { FileTranscriptSource } from './transcript.ts';
 export const createDashboard = (
   stateDir: string,
   store: Store,
-  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs' | 'maxConcurrent'> = {},
+  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs' | 'maxConcurrent' | 'maxOpenPullRequests'> = {},
 ): ReturnType<typeof createApp> =>
   createApp({
     store,
@@ -24,9 +24,9 @@ export const createDashboard = (
   });
 
 export const main = (env: NodeJS.ProcessEnv): void => {
-  const { stateDir, socketPath, maxConcurrent, timeZone } = resolveServeConfig(env);
+  const { stateDir, socketPath, maxConcurrent, maxOpenPullRequests, timeZone } = resolveServeConfig(env);
 
-  const app = createDashboard(stateDir, Store.openReadOnly(join(stateDir, 'forge.db')), { maxConcurrent, timeZone });
+  const app = createDashboard(stateDir, Store.openReadOnly(join(stateDir, 'forge.db')), { maxConcurrent, maxOpenPullRequests, timeZone });
 
   createAdaptorServer({ fetch: app.fetch }).listen(socketPath, () => {
     console.log(`forge dashboard listening on ${socketPath}`);

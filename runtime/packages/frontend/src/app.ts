@@ -51,6 +51,7 @@ export interface AppOptions {
   clock?: () => Date;
   checkIntervalMs?: number;
   maxConcurrent?: number;
+  maxOpenPullRequests?: number | null;
 }
 
 export const createApp = ({
@@ -64,6 +65,7 @@ export const createApp = ({
   clock = () => new Date(),
   checkIntervalMs = 1000,
   maxConcurrent = 1,
+  maxOpenPullRequests = 5,
 }: AppOptions): Hono => {
   const app = new Hono();
   const assets: AssetHrefs = {
@@ -118,7 +120,7 @@ export const createApp = ({
       const run = runId === null ? undefined : store.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
-    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none'));
+    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { open: store.dispatchesInReview(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none'));
   });
 
   app.get('/work', (c) => c.redirect('/'));

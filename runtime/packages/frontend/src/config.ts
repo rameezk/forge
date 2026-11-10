@@ -1,12 +1,14 @@
 import { isAbsolute } from 'node:path';
 
 const DEFAULT_MAX_CONCURRENT = 1;
+const DEFAULT_MAX_OPEN_PULL_REQUESTS = 5;
 const DEFAULT_TIME_ZONE = 'UTC';
 
 export interface ServeConfig {
   stateDir: string;
   socketPath: string;
   maxConcurrent: number;
+  maxOpenPullRequests: number | null;
   timeZone: string;
 }
 
@@ -16,6 +18,18 @@ const resolveMaxConcurrent = (value: string | undefined): number => {
   if (!Number.isInteger(limit) || limit < 1) {
     throw new Error(
       `FORGE_MAX_CONCURRENT must be a positive integer, got '${value}'`,
+    );
+  }
+  return limit;
+};
+
+const resolveMaxOpenPullRequests = (value: string | undefined): number | null => {
+  if (value === undefined) return DEFAULT_MAX_OPEN_PULL_REQUESTS;
+  if (value === 'null') return null;
+  const limit = Number(value);
+  if (value === '' || !Number.isInteger(limit) || limit < 1) {
+    throw new Error(
+      `FORGE_MAX_OPEN_PULL_REQUESTS must be a positive integer or 'null', got '${value}'`,
     );
   }
   return limit;
@@ -51,6 +65,7 @@ export const resolveServeConfig = (env: NodeJS.ProcessEnv): ServeConfig => {
     stateDir,
     socketPath,
     maxConcurrent: resolveMaxConcurrent(env.FORGE_MAX_CONCURRENT),
+    maxOpenPullRequests: resolveMaxOpenPullRequests(env.FORGE_MAX_OPEN_PULL_REQUESTS),
     timeZone: resolveTimeZone(env.FORGE_DASHBOARD_TIME_ZONE),
   };
 };

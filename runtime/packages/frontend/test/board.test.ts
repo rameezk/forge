@@ -25,7 +25,7 @@ type Seed =
   | (PolledFrontier & { lastError?: PollFailure })
   | { repository: string; github: string; polledAt: null; lastError: PollFailure };
 
-const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number) => {
+const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number, maxOpenPullRequests?: number | null) => {
   const store = Store.open(':memory:');
   dispatch(store);
   for (const seed of frontier) {
@@ -42,6 +42,7 @@ const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, 
     idiomorph: '',
     client: '',
     ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
+    ...(maxOpenPullRequests === undefined ? {} : { maxOpenPullRequests }),
   });
 };
 
@@ -869,4 +870,58 @@ test('given the same tickets under two specs and loose, when /?group=spec is req
   const body = await (await app.request('/?group=spec')).text();
   assert.match(body, /data-spec-band="440"/);
   assert.deepEqual(await cardLinks(app, '/?group=spec', numbers), everyColumnDestinations);
+});
+
+const reviewLimit = (body: string): string => {
+  const header = body.match(/<span[^>]*\sdata-review-limit[^>]*>[^<]*<\/span>/)?.[0];
+  assert.ok(header, 'the In review column header shows the review limit');
+  return header;
+};
+
+const inReviewHeader = (body: string): string => columnHeaders(body).find((header) => header.includes('data-column-header="in-review"')) ?? '';
+
+test('given 3 open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested, then the In review header reads 4 / 5, not flagged', async () => {
+  const app = appWith([frontierOf([ticket({ number: 9, forgeReady: true })])], (store) => {
+    for (const number of [1, 2, 3]) inReview(store, number);
+    dispatched(store, 4, new Date().toISOString());
+  }, 5, 5);
+
+  const body = await (await app.request('/')).text();
+  const gauge = reviewLimit(inReviewHeader(body));
+
+  assert.equal(textOf(gauge).replace(/\s+/g, ' ').trim(), '4 / 5');
+  assert.doesNotMatch(gauge, /data-full/);
+  assert.doesNotMatch(cardOf(body, 9), /data-held/);
+});
+
+test('given the review limit is reached, an unblocked forge:ready ticket and a blocked forge:ready ticket, when the Board is requested, then the In review header is flagged, the unblocked ticket is held and the queued ticket keeps its Blocked look', async () => {
+  const app = appWith([frontierOf([ticket({ number: 9, forgeReady: true }), ticket({ number: 10, forgeReady: true, blocked: true, blockedBy: [9] })])], (store) => {
+    for (const number of [1, 2, 3]) inReview(store, number);
+    dispatched(store, 4, new Date().toISOString());
+    dispatched(store, 5, new Date().toISOString());
+  }, 5, 5);
+
+  const body = await (await app.request('/')).text();
+  const gauge = reviewLimit(inReviewHeader(body));
+  const held = cardOf(body, 9);
+  const queued = cardOf(body, 10);
+
+  assert.equal(textOf(gauge).replace(/\s+/g, ' ').trim(), '5 / 5');
+  assert.match(gauge, /data-full/);
+  assert.deepEqual(pillsOf(held), ['held: review limit']);
+  assert.match(held, /data-held/);
+  assert.doesNotMatch(queued, /data-held/);
+  assert.deepEqual(pillsOf(queued), ['queued']);
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))).blocked, ['10']);
+});
+
+test('given a null review limit and 10 open pull requests, when the Board is requested, then the In review header shows only the count and nothing is held', async () => {
+  const app = appWith([frontierOf([ticket({ number: 9, forgeReady: true })])], (store) => {
+    for (let number = 1; number <= 10; number++) inReview(store, number);
+  }, 5, null);
+
+  const body = await (await app.request('/')).text();
+
+  assert.doesNotMatch(inReviewHeader(body), /data-review-limit/);
+  assert.doesNotMatch(cardOf(body, 9), /data-held/);
 });
