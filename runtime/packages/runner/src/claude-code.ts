@@ -10,7 +10,6 @@ import {
 import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
-  errorMessage,
   SkillLoadTracker,
   type CompactionEvent,
   type HarnessEvent,
@@ -239,42 +238,12 @@ class RecordedBodies {
     this.#dir = dir;
   }
 
-  async of(messageId: string, signal: AbortSignal): Promise<Recorded> {
-    return this.#await(
-      () => this.peek(messageId),
-      `its response ${messageId}`,
-      signal,
-    );
-  }
-
-  async nextCompaction(signal: AbortSignal): Promise<Recorded> {
-    return this.#await(() => this.#peekCompaction(), 'its compaction request', signal);
-  }
-
   hasUnclaimedCompactions(): boolean {
     this.#refresh();
     return this.#compactions.length > 0;
   }
 
-  async #await(
-    read: () => Recorded | null,
-    what: string,
-    signal: AbortSignal,
-  ): Promise<Recorded> {
-    const deadline = Date.now() + BODIES_TIMEOUT_MS;
-    for (;;) {
-      const recorded = read();
-      if (recorded !== null) return recorded;
-      if (signal.aborted || Date.now() >= deadline) {
-        throw new Error(
-          `claude recorded no usage for ${what}, so the run's generations would be incomplete`,
-        );
-      }
-      await sleep(BODIES_POLL_MS);
-    }
-  }
-
-  #peekCompaction(): Recorded | null {
+  peekCompaction(): Recorded | null {
     this.#refresh();
     const entry = this.#compactions[0];
     if (entry === undefined) return null;
@@ -350,7 +319,17 @@ interface Turn {
   text: string[];
   thinking: string[];
   calls: ToolCallEvent[];
+  end: { signal: string; at: number } | null;
 }
+
+type CompactionKnown = Partial<
+  Pick<CompactionEvent, 'reason' | 'tokensBefore' | 'tokensAfter'>
+>;
+
+type Entry =
+  | { kind: 'turn'; turn: Turn }
+  | { kind: 'event'; scope: string | null; event: ToolResultEvent | RetryEvent }
+  | { kind: 'compaction'; scope: string | null; known: CompactionKnown };
 
 const toolResultText = (content: unknown): string =>
   typeof content === 'string'
@@ -399,10 +378,12 @@ class ClaudeCodeStream {
   readonly #bodies: RecordedBodies;
   readonly #stop: AbortSignal;
   readonly #turns = new Map<string | null, Turn>();
+  readonly #queue: Entry[] = [];
   readonly #flushed = new Set<string>();
   readonly #holders = new Map<string, string | null>();
   readonly #announced = new Set<string | null>();
   readonly #spoken = new Set<string | null>();
+  #compactionSince: number | null = null;
   #sessionId: string | null = null;
   #outcome: { error: string | null } | null = null;
   #malformed: string | null = null;
@@ -434,44 +415,42 @@ class ClaudeCodeStream {
     switch (parsed.type) {
       case 'assistant':
         yield* this.#assistant(parsed);
-        yield* this.settle();
-        return;
+        break;
       case 'user':
         yield* this.#user(parsed);
-        return;
+        break;
       case 'system':
-        yield* this.#system(parsed);
-        return;
+        this.#system(parsed);
+        break;
       case 'result':
-        yield* this.#flushAll();
+        this.#endAll('a result line');
         this.#outcome = {
           error:
             parsed.is_error === true
               ? (nonEmpty(parsed.result) ?? 'claude reported an error without saying which')
               : null,
         };
-        return;
+        break;
     }
+    yield* this.advance();
   }
 
   async *finish(): AsyncGenerator<HarnessEvent> {
-    yield* this.#flushAll();
+    this.#endAll('the end of the stream');
+    yield* this.#drainAll();
     while (this.malformed === null && this.#bodies.hasUnclaimedCompactions()) {
-      yield* this.#compaction(null, {});
+      this.#queue.push({ kind: 'compaction', scope: null, known: {} });
+      yield* this.#drainAll();
     }
   }
 
   get pending(): boolean {
-    return this.#turns.size > 0;
+    return this.#queue.length > 0;
   }
 
-  async *settle(): AsyncGenerator<HarnessEvent> {
-    for (const turn of [...this.#turns.values()]) {
-      const recorded = this.#bodies.peek(turn.messageId);
-      if (recorded !== null && recorded.contentBlocks > 0 && recorded.contentBlocks <= turn.blocks) {
-        yield* this.#flush(turn.scope, recorded);
-      }
-    }
+  async *advance(): AsyncGenerator<HarnessEvent> {
+    yield* this.#release();
+    this.#audit();
   }
 
   result(exitFailure: Error | null): HarnessEvent {
@@ -488,6 +467,110 @@ class ClaudeCodeStream {
     };
   }
 
+  async *#drainAll(): AsyncGenerator<HarnessEvent> {
+    while (this.#queue.length > 0 && this.malformed === null) {
+      yield* this.advance();
+      if (this.#queue.length === 0 || this.malformed !== null) return;
+      await sleep(BODIES_POLL_MS);
+    }
+  }
+
+  #expired(since: number): boolean {
+    return this.#stop.aborted || Date.now() - since >= BODIES_TIMEOUT_MS;
+  }
+
+  #audit(): void {
+    if (this.malformed !== null) return;
+    for (const entry of this.#queue) {
+      if (entry.kind !== 'turn') continue;
+      const { turn } = entry;
+      if (turn.end === null || turn.model === SYNTHETIC_MODEL) continue;
+      if (!this.#expired(turn.end.at)) continue;
+      if (this.#bodies.peek(turn.messageId) !== null) continue;
+      const waited = ((Date.now() - turn.end.at) / 1000).toFixed(1);
+      this.fail(
+        `claude recorded no usage for its response ${turn.messageId}, so the run's generations would be incomplete: waited ${waited}s after ${turn.end.signal}`,
+      );
+      return;
+    }
+  }
+
+  async *#release(): AsyncGenerator<HarnessEvent> {
+    while (this.malformed === null) {
+      const entry = this.#queue[0];
+      if (entry === undefined) return;
+      if (entry.kind === 'event') {
+        this.#queue.shift();
+        yield scoped(entry.event, entry.scope);
+      } else if (entry.kind === 'turn') {
+        const recorded = this.#readyBody(entry.turn);
+        if (recorded === undefined) return;
+        this.#queue.shift();
+        if (this.#turns.get(entry.turn.scope) === entry.turn) {
+          this.#turns.delete(entry.turn.scope);
+        }
+        yield* this.#report(entry.turn, recorded);
+      } else {
+        if (!(yield* this.#releaseCompaction(entry))) return;
+        this.#queue.shift();
+      }
+    }
+  }
+
+  #readyBody(turn: Turn): Recorded | null | undefined {
+    if (turn.model === SYNTHETIC_MODEL) return turn.end === null ? undefined : null;
+    const recorded = this.#bodies.peek(turn.messageId);
+    if (recorded === null) return undefined;
+    const complete =
+      turn.end !== null ||
+      (recorded.contentBlocks > 0 && recorded.contentBlocks <= turn.blocks);
+    return complete ? recorded : undefined;
+  }
+
+  async *#releaseCompaction(
+    entry: Extract<Entry, { kind: 'compaction' }>,
+  ): AsyncGenerator<HarnessEvent, boolean> {
+    const recorded = this.#bodies.peekCompaction();
+    if (recorded === null) {
+      this.#compactionSince ??= Date.now();
+      if (this.#expired(this.#compactionSince)) {
+        this.fail(
+          "claude recorded no usage for its compaction request, so the run's generations would be incomplete",
+        );
+      }
+      return false;
+    }
+    this.#compactionSince = null;
+    if (recorded.messageId !== null) {
+      this.#record({ messageId: recorded.messageId, scope: entry.scope });
+    }
+    const { usage } = recorded;
+    const { known } = entry;
+    const compaction: CompactionEvent = {
+      type: 'compaction',
+      reason: known.reason ?? null,
+      tokensBefore:
+        known.tokensBefore ?? usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+      tokensAfter: known.tokensAfter ?? null,
+      summary: null,
+      error: null,
+      calls: [{ generationId: recorded.requestId, usage }],
+    };
+    yield scoped(compaction, entry.scope);
+    return true;
+  }
+
+  #end(scope: string | null, signal: string): void {
+    const turn = this.#turns.get(scope);
+    if (turn === undefined) return;
+    this.#turns.delete(scope);
+    turn.end = { signal, at: Date.now() };
+  }
+
+  #endAll(signal: string): void {
+    for (const scope of [...this.#turns.keys()]) this.#end(scope, signal);
+  }
+
   async *#assistant(line: ClaudeLine): AsyncGenerator<HarnessEvent> {
     const { message } = line;
     const messageId = nonEmpty(message?.id);
@@ -498,7 +581,6 @@ class ClaudeCodeStream {
     const scope = nonEmpty(line.parent_tool_use_id);
     if (!this.#known(scope)) return;
     this.#spoken.add(scope);
-    yield* this.#flushSpawner(scope);
     if (this.#flushed.has(messageId)) {
       for (const block of blocksOf(message?.content)) {
         if (block.type === 'tool_use') {
@@ -509,7 +591,7 @@ class ClaudeCodeStream {
       return;
     }
     if (this.#turns.get(scope)?.messageId !== messageId) {
-      yield* this.#flush(scope);
+      this.#end(scope, 'a new assistant message');
     }
     let turn = this.#turns.get(scope);
     if (turn === undefined) {
@@ -523,8 +605,10 @@ class ClaudeCodeStream {
         text: [],
         thinking: [],
         calls: [],
+        end: null,
       };
       this.#turns.set(scope, turn);
+      this.#queue.push({ kind: 'turn', turn });
     }
     turn.requestId ??= nonEmpty(line.request_id);
     turn.timestamp ??= nonEmpty(line.timestamp);
@@ -545,19 +629,22 @@ class ClaudeCodeStream {
     }
   }
 
-  async *#system(line: ClaudeLine): AsyncGenerator<HarnessEvent> {
+  #system(line: ClaudeLine): void {
     if (line.subtype !== 'api_retry' && line.subtype !== 'compact_boundary') return;
     const scope = nonEmpty(line.parent_tool_use_id);
     if (!this.#known(scope)) return;
-    yield* this.#flushSpawner(scope);
-    yield* this.#flush(scope);
+    this.#end(scope, 'a system line');
     if (line.subtype === 'compact_boundary') {
       this.#announced.add(scope);
       const meta = line.compact_metadata;
-      yield* this.#compaction(scope, {
-        reason: nonEmpty(meta?.trigger),
-        tokensBefore: tokenCount(meta?.pre_tokens),
-        tokensAfter: tokenCount(meta?.post_tokens),
+      this.#queue.push({
+        kind: 'compaction',
+        scope,
+        known: {
+          reason: nonEmpty(meta?.trigger),
+          tokensBefore: tokenCount(meta?.pre_tokens),
+          tokensAfter: tokenCount(meta?.post_tokens),
+        },
       });
       return;
     }
@@ -568,42 +655,15 @@ class ClaudeCodeStream {
       delayMs: tokenCount(line.retry_delay_ms),
       error: retryError(line),
     };
-    yield scoped(retry, scope);
+    this.#queue.push({ kind: 'event', scope, event: retry });
   }
 
-  async *#compaction(
-    scope: string | null,
-    known: Partial<Pick<CompactionEvent, 'reason' | 'tokensBefore' | 'tokensAfter'>>,
-  ): AsyncGenerator<HarnessEvent> {
-    let recorded: Recorded;
-    try {
-      recorded = await this.#bodies.nextCompaction(this.#stop);
-    } catch (error) {
-      this.fail(errorMessage(error));
-      return;
-    }
-    if (recorded.messageId !== null) this.#record({ messageId: recorded.messageId, scope });
-    const { usage } = recorded;
-    const compaction: CompactionEvent = {
-      type: 'compaction',
-      reason: known.reason ?? null,
-      tokensBefore:
-        known.tokensBefore ?? usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
-      tokensAfter: known.tokensAfter ?? null,
-      summary: null,
-      error: null,
-      calls: [{ generationId: recorded.requestId, usage }],
-    };
-    yield scoped(compaction, scope);
-  }
-
-  async *#handoff(line: ClaudeLine): AsyncGenerator<HarnessEvent> {
+  #handoff(line: ClaudeLine): void {
     const scope = nonEmpty(line.parent_tool_use_id);
     if (!this.#known(scope) || !this.#spoken.has(scope)) return;
     if (this.#announced.delete(scope)) return;
-    yield* this.#flushSpawner(scope);
-    yield* this.#flush(scope);
-    yield* this.#compaction(scope, {});
+    this.#end(scope, 'a compaction hand-off');
+    this.#queue.push({ kind: 'compaction', scope, known: {} });
   }
 
   async *#user(line: ClaudeLine): AsyncGenerator<HarnessEvent> {
@@ -611,13 +671,11 @@ class ClaudeCodeStream {
       (block) => block.type === 'tool_result',
     );
     if (results.length === 0) {
-      if (isCompactionHandoff(line)) yield* this.#handoff(line);
+      if (isCompactionHandoff(line)) this.#handoff(line);
       return;
     }
     const scope = nonEmpty(line.parent_tool_use_id);
     if (!this.#known(scope)) return;
-    yield* this.#flushSpawner(scope);
-    yield* this.#flush(scope);
     for (const block of results) {
       const event: ToolResultEvent = {
         type: 'tool_result',
@@ -625,26 +683,14 @@ class ClaudeCodeStream {
         isError: block.is_error === true,
         text: toolResultText(block.content),
       };
-      yield scoped(event, scope);
+      this.#queue.push({ kind: 'event', scope, event });
     }
-  }
-
-  async *#flushSpawner(scope: string | null): AsyncGenerator<HarnessEvent> {
-    if (scope === null) return;
-    const holder = this.#holders.get(scope);
-    if (holder !== undefined && holder !== scope) yield* this.#flush(holder);
   }
 
   #known(scope: string | null): boolean {
     if (scope === null || this.#holders.has(scope)) return true;
     this.fail(`claude attributed a message to tool call ${scope}, which it never made`);
     return false;
-  }
-
-  async *#flushAll(): AsyncGenerator<HarnessEvent> {
-    for (const scope of [...this.#turns.keys()]) {
-      yield* this.#flush(scope);
-    }
   }
 
   #record({ messageId, scope }: Pick<Turn, 'messageId' | 'scope'>): void {
@@ -660,18 +706,13 @@ class ClaudeCodeStream {
     }
   }
 
-  async *#flush(
-    scope: string | null,
-    known?: Recorded,
-  ): AsyncGenerator<HarnessEvent> {
-    const turn = this.#turns.get(scope);
-    if (turn === undefined) return;
-    this.#turns.delete(scope);
+  async *#report(turn: Turn, recorded: Recorded | null): AsyncGenerator<HarnessEvent> {
     this.#flushed.add(turn.messageId);
+    const { scope } = turn;
     const text = turn.text.join('');
     const thinking = turn.thinking.join('\n\n');
     const when = timestampOf(turn.timestamp ?? undefined);
-    if (turn.model === SYNTHETIC_MODEL) {
+    if (recorded === null) {
       const failed: MessageEvent = {
         type: 'message',
         role: 'assistant',
@@ -683,13 +724,6 @@ class ClaudeCodeStream {
         generationId: null,
       };
       yield scoped(failed, scope);
-      return;
-    }
-    let recorded: Recorded;
-    try {
-      recorded = known ?? (await this.#bodies.of(turn.messageId, this.#stop));
-    } catch (error) {
-      this.fail(errorMessage(error));
       return;
     }
     this.#record(turn);
@@ -822,7 +856,7 @@ class ClaudeCodeRun implements HarnessRun {
           ? await Promise.race([next, sleep(BODIES_POLL_MS).then(() => null)])
           : await next;
         if (read === null) {
-          yield* withSkillLoads(skillLoads, stream.settle());
+          yield* withSkillLoads(skillLoads, stream.advance());
           continue;
         }
         if (read.done === true) break;

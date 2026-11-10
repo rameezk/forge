@@ -214,10 +214,23 @@ const modeOf = (path) => (path ? statSync(path).mode & 0o777 : null);
 const modes = { run: modeOf(dirname(env.CLAUDE_CONFIG_DIR ?? '')), config: modeOf(env.CLAUDE_CONFIG_DIR), bodies: modeOf(bodies) };
 writeFileSync(env.FAKE_CLAUDE_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, env, modes }));
 const perRun = (text) => text.replaceAll('{{WORK_DIR}}', realpathSync(process.cwd())).replaceAll('{{CONFIG_DIR}}', env.CLAUDE_CONFIG_DIR ?? '').replaceAll('{{WORK_DIR_SLUG}}', realpathSync(process.cwd()).replace(/[^a-zA-Z0-9]/g, '-'));
+const copyBodies = () => {
 if (bodies && env.FAKE_CLAUDE_BODIES && existsSync(env.FAKE_CLAUDE_BODIES)) { mkdirSync(bodies, { recursive: true }); for (const file of readdirSync(env.FAKE_CLAUDE_BODIES)) { cpSync(env.FAKE_CLAUDE_BODIES + '/' + file, bodies + '/' + file); if (file.endsWith('.request.json')) writeFileSync(bodies + '/' + file, perRun(readFileSync(bodies + '/' + file, 'utf8'))); } }
 if (bodies && env.FAKE_CLAUDE_INDEX === 'fifo') { rmSync(bodies + '/index.jsonl', { force: true }); execFileSync(env.FAKE_CLAUDE_MKFIFO, [bodies + '/index.jsonl']); }
 if (bodies && env.FAKE_CLAUDE_INDEX === 'symlink') { rmSync(bodies + '/index.jsonl', { force: true }); symlinkSync(env.FAKE_CLAUDE_BODIES + '/index.jsonl', bodies + '/index.jsonl'); }
-process.stdout.write(readFileSync(env.FAKE_CLAUDE_STREAM, 'utf8'));
+};
+const stream = readFileSync(env.FAKE_CLAUDE_STREAM, 'utf8');
+if (env.FAKE_CLAUDE_PAUSE_AFTER) {
+const lines = stream.split('\\n');
+const held = lines.findIndex((line) => line.includes(env.FAKE_CLAUDE_PAUSE_AFTER));
+process.stdout.write(lines.slice(0, held + 1).join('\\n') + '\\n');
+await new Promise((resolve) => setTimeout(resolve, Number(env.FAKE_CLAUDE_PAUSE_MS)));
+copyBodies();
+process.stdout.write(lines.slice(held + 1).join('\\n'));
+} else {
+copyBodies();
+process.stdout.write(stream);
+}
 process.exitCode = Number(env.FAKE_CLAUDE_EXIT ?? '0');
 if (env.FAKE_CLAUDE_LINGER_MS) setTimeout(() => {}, Number(env.FAKE_CLAUDE_LINGER_MS));
 if (env.FAKE_BWRAP_STATUS_FD) process.on('exit', (code) => writeFileSync(Number(env.FAKE_BWRAP_STATUS_FD), JSON.stringify({ 'exit-code': code }) + '\\n'));
