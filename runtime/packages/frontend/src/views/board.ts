@@ -201,23 +201,26 @@ const reviewTaken = ({ pullRequests, running }: ReviewSlots): number => pullRequ
 
 const reviewFull = (review: ReviewSlots): boolean => review.limit !== null && reviewTaken(review) >= review.limit;
 
-const reviewTooltip = (review: ReviewSlots, limit: number): string => {
-  const free = Math.max(limit - reviewTaken(review), 0);
-  const parts = [
-    review.pullRequests > 0 ? `${review.pullRequests} open for review` : '',
-    review.running > 0 ? `${review.running} running` : '',
+interface ReviewGauge extends ReviewSlots {
+  limit: number;
+  free: number;
+}
+
+const reviewTooltip = ({ pullRequests, running, free }: ReviewGauge): string =>
+  [
+    pullRequests > 0 ? `${pullRequests} open for review` : '',
+    running > 0 ? `${running} running` : '',
     free > 0 ? `${free} free` : 'new dispatches wait',
-  ];
-  return parts.filter((part) => part !== '').join(', ');
-};
+  ]
+    .filter((part) => part !== '')
+    .join(', ');
 
 const PIP = 'inline-block size-2 shrink-0 rounded-full border border-current box-border';
 
-const renderPips = (review: ReviewSlots, limit: number): Rendered => {
-  const free = Math.max(limit - reviewTaken(review), 0);
+const renderPips = ({ pullRequests, running, free, limit }: ReviewGauge): Rendered => {
   const kinds = [
-    ...Array<string>(review.pullRequests).fill('open'),
-    ...Array<string>(review.running).fill('running'),
+    ...Array<string>(pullRequests).fill('open'),
+    ...Array<string>(running).fill('running'),
     ...Array<string>(free).fill('free'),
   ].slice(0, limit);
   return html`<span aria-hidden="true" class="flex items-center gap-0.5">${kinds.map(
@@ -225,15 +228,16 @@ const renderPips = (review: ReviewSlots, limit: number): Rendered => {
   )}</span>`;
 };
 
-const renderReviewCount = (review: ReviewSlots, limit: number): Rendered =>
-  limit <= MAX_PIPS || review.running === 0
-    ? html`${reviewTaken(review)} / ${limit}`
-    : html`${review.pullRequests} <span data-review-running class="opacity-70">+${review.running}</span> / ${limit}`;
+const renderReviewCount = ({ pullRequests, running, limit }: ReviewGauge): Rendered =>
+  limit <= MAX_PIPS || running === 0
+    ? html`${pullRequests + running} / ${limit}`
+    : html`${pullRequests} <span data-review-running class="opacity-70">+${running}</span> / ${limit}`;
 
 const renderReviewLimit = (review: ReviewSlots, withPips: boolean): Rendered => {
   if (review.limit === null) return '';
+  const gauge: ReviewGauge = { ...review, limit: review.limit, free: Math.max(review.limit - reviewTaken(review), 0) };
   const full = reviewFull(review);
-  return html`<span data-review-limit${full ? html` data-full` : ''} title="${reviewTooltip(review, review.limit)}" class="flex items-center gap-1.5 text-xs leading-4 tabular-nums ${full ? 'font-semibold text-warning' : 'text-muted'}">${withPips && review.limit <= MAX_PIPS ? renderPips(review, review.limit) : ''}<span>${renderReviewCount(review, review.limit)}</span></span>`;
+  return html`<span data-review-limit${full ? html` data-full` : ''} title="${reviewTooltip(gauge)}" class="flex items-center gap-1.5 text-xs leading-4 tabular-nums ${full ? 'font-semibold text-warning' : 'text-muted'}">${withPips && gauge.limit <= MAX_PIPS ? renderPips(gauge) : ''}<span>${renderReviewCount(gauge)}</span></span>`;
 };
 
 const renderColumnHeaders = (counts: Record<ColumnKey, number>, review: ReviewSlots): Rendered =>
