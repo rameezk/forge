@@ -39,7 +39,6 @@ fi
 forge_url="$(jq -r '.nodes.forge.locked | if .type == "github" then "https://github.com/\(.owner)/\(.repo)" else .url end' flake.lock)"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
-git clone --quiet --bare "$forge_url" "$scratch/forge"
 
 guard_log="$scratch/guard.log"
 if ! bash -c "$guard" >"$guard_log" 2>&1; then
@@ -68,7 +67,9 @@ fi
 {
 	echo "chore: update forge to ${new_rev:0:7}"
 	echo
-	git -C "$scratch/forge" log --format='%s' "$old_rev..$new_rev"
+	if git clone --quiet --bare "$forge_url" "$scratch/forge"; then
+		git -C "$scratch/forge" log --format='%s' "$old_rev..$new_rev" || true
+	fi
 } >"$scratch/message"
 
 git add flake.lock

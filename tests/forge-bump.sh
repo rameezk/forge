@@ -96,6 +96,7 @@ chmod +x "$stubs/gh"
 
 cat >"$scratch/guard.sh" <<GUARD
 #!/usr/bin/env bash
+jq -r '.nodes.forge.locked.rev' flake.lock >"$scratch/guard-saw-rev"
 [ "\$(cat "$guard_flag")" = pass ]
 GUARD
 echo pass >"$guard_flag"
@@ -136,6 +137,7 @@ body="$(git -C "$origin" log -1 --format=%b main)"
 if [ "$(git -C "$origin" rev-list --count "$before..main")" = 1 ] &&
 	[ "$subject" = "chore: update forge to ${z_commit:0:7}" ] &&
 	[ "$(git -C "$origin" show main:flake.lock | jq -r '.nodes.forge.locked.rev')" = "$z_commit" ] &&
+	[ "$(cat "$scratch/guard-saw-rev")" = "$z_commit" ] &&
 	grep -qx "second change" <<<"$body" && grep -qx "third change" <<<"$body" && ! grep -q "first change" <<<"$body"; then
 	echo "ok: one commit '$subject' pushed, listing the upstream subjects"
 else
@@ -250,6 +252,38 @@ if [ "$(open_issues | jq 'length')" = 0 ]; then
 	echo "ok: the stale failure issue is closed"
 else
 	echo "FAIL: the failure issue stayed open while the input is pinned"
+	fail=1
+fi
+
+echo "==> case: a failure issue still open when forge has not moved is closed"
+perl -pi -e "s{forge\\.url = \"[^\"]*\";}{forge.url = \"git+file://$upstream\";}" "$work/flake.nix"
+git -C "$work" commit -q -am "follow forge again"
+git -C "$work" push -q origin main
+run_bump >"$scratch/follow-again.log" 2>&1 || true
+head_after_follow="$(origin_head)"
+jq '. + [{number: 98, title: "The forge bump failed the divergence guard", body: "stale", state: "open"}]' "$gh_state/issues.json" >"$gh_state/issues.new"
+mv "$gh_state/issues.new" "$gh_state/issues.json"
+run_bump >"$scratch/stale-unchanged.log" 2>&1 || true
+if [ "$(open_issues | jq 'length')" = 0 ] && [ "$(origin_head)" = "$head_after_follow" ]; then
+	echo "ok: the stale failure issue is closed and no commit is made"
+else
+	echo "FAIL: the failure issue stayed open while forge has not moved"
+	fail=1
+fi
+
+echo "==> case: forge history was rewritten, the bump still lands with an empty body"
+git -C "$upstream" reset -q --hard "$(git -C "$upstream" rev-parse HEAD~1)"
+rewritten_commit="$(forge_commit "after the rewrite")"
+before="$(origin_head)"
+rewrite_status=0
+run_bump >"$scratch/rewritten.log" 2>&1 || rewrite_status=$?
+if [ "$rewrite_status" = 0 ] &&
+	[ "$(git -C "$origin" rev-list --count "$before..main")" = 1 ] &&
+	[ "$(git -C "$origin" log -1 --format=%s main)" = "chore: update forge to ${rewritten_commit:0:7}" ]; then
+	echo "ok: the bump landed although the locked commit is gone upstream"
+else
+	echo "FAIL: the bump did not land after forge's history was rewritten"
+	tail -20 "$scratch/rewritten.log"
 	fail=1
 fi
 
