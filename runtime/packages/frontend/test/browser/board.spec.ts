@@ -165,7 +165,7 @@ test.describe('on a desktop screen', () => {
       }),
     );
     expect(headers).toHaveLength(9);
-    expect(headers.map(({ height }) => Math.round(height))).toEqual(Array(9).fill(51));
+    expect(headers.map(({ height }) => Math.round(height))).toEqual(Array(9).fill(69));
     expect(new Set(headers.map(({ totalGap }) => Math.round(totalGap))).size).toBe(1);
     for (const header of headers) {
       expect(header.titleOffset).toBeCloseTo(0, 0);

@@ -2136,16 +2136,19 @@ export class Store {
     return live;
   }
 
-  dispatchesInReview(now: string): number {
-    const { open } = this.#db
+  reviewSlotsTaken(now: string): { pullRequests: number; running: number } {
+    return this.#db
       .prepare(
         `SELECT
-          (SELECT COUNT(*) FROM dispatches WHERE state = 'running' AND alive_at >= $live_since)
-          + (SELECT COUNT(*) FROM dispatches WHERE pr_state = 'open')
-          AS open`,
+          (SELECT COUNT(*) FROM dispatches WHERE pr_state = 'open') AS pullRequests,
+          (SELECT COUNT(*) FROM dispatches WHERE state = 'running' AND alive_at >= $live_since) AS running`,
       )
-      .get({ live_since: liveSince(now) }) as { open: number };
-    return open;
+      .get({ live_since: liveSince(now) }) as { pullRequests: number; running: number };
+  }
+
+  dispatchesInReview(now: string): number {
+    const { pullRequests, running } = this.reviewSlotsTaken(now);
+    return pullRequests + running;
   }
 
   startDispatch(
