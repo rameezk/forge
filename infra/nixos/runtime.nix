@@ -188,7 +188,7 @@ let
   }
   // lib.optionalAttrs (hasDispatch || hasRevision || hasConflictResolution) {
     dispatch = {
-      inherit (cfg.dispatch) maxConcurrent;
+      inherit (cfg.dispatch) maxConcurrent maxOpenPullRequests;
     };
   }
   // lib.optionalAttrs hasRevision {
@@ -558,6 +558,13 @@ in
       default = 1;
       example = 2;
       description = "How many workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync, or running a revision started with `forge-revise` or a conflict resolution started with `forge-resolve-conflicts`. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch, revision or conflict resolution over it is refused. Workloads running at once share the memory budget, `forge.runtime.workload.sharedMemoryMax`.";
+    };
+
+    dispatch.maxOpenPullRequests = lib.mkOption {
+      type = lib.types.nullOr lib.types.ints.positive;
+      default = 5;
+      example = 3;
+      description = "The review limit: the most dispatches forge may have in flight or awaiting review across every managed repository, counting its running dispatches plus the open pull requests it opened for dispatches. At the limit the dispatch pass starts no new dispatch, logging each ticket that waits, and `forge-dispatch` refuses to start one, while revisions and conflict resolutions keep running. A pull request stops counting once the frontier sync records it as merged or closed. `null` turns the limit off.";
     };
 
     feedback.quietPeriod = lib.mkOption {

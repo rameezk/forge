@@ -57,7 +57,8 @@ export interface DispatchRecord extends DispatchTicket {
 export type DispatchStart =
   | { started: number }
   | { refused: 'dispatching' }
-  | { refused: 'full'; live: number };
+  | { refused: 'full'; live: number }
+  | { refused: 'review-limit'; open: number };
 
 export type DispatchOutcome =
   | { state: 'done'; pullRequest: PullRequestRef }

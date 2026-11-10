@@ -9,7 +9,7 @@ import {
   type RevisedPullRequest,
   type Ticket,
 } from '@forge/shared';
-import { maxConcurrentOf, quietPeriodOf, type RuntimeConfig } from './config.ts';
+import { maxConcurrentOf, maxOpenPullRequestsOf, quietPeriodOf, type RuntimeConfig } from './config.ts';
 import { absolutePath, readRuntimeConfig, stateDirOf } from './workload.ts';
 
 const run = promisify(execFile);
@@ -69,9 +69,11 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   const config = readRuntimeConfig(env);
   const systemctl = absolutePath(env, 'FORGE_SYSTEMCTL');
   const maxConcurrent = maxConcurrentOf(config);
+  const maxOpenPullRequests = maxOpenPullRequestsOf(config);
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   let running: Set<string>;
   let live: number;
+  let inReview: number;
   let candidates: Pending[];
   try {
     const now = new Date().toISOString();
@@ -82,6 +84,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
         .map(({ repository, number }) => ticketKey(repository, number)),
     );
     live = store.liveWorkloads(now);
+    inReview = store.dispatchesInReview(now);
     const conflicts = store
       .conflictsDue(now)
       .filter(({ repository }) => declaresConflictWorker(config, repository));
@@ -102,14 +105,29 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   }
 
   const slots = Math.max(0, maxConcurrent - live);
-  for (const { repository, number } of candidates.slice(slots)) {
-    console.error(
-      `${repository}#${number}: waits, ${maxConcurrent} of ${maxConcurrent} workloads would be running`,
-    );
+  const starting: Pending[] = [];
+  for (const pending of candidates) {
+    const { repository, number } = pending;
+    if (starting.length >= slots) {
+      console.error(
+        `${repository}#${number}: waits, ${maxConcurrent} of ${maxConcurrent} workloads would be running`,
+      );
+      continue;
+    }
+    if (pending.kind === 'dispatch' && maxOpenPullRequests !== null) {
+      const open = inReview + starting.filter(({ kind }) => kind === 'dispatch').length;
+      if (open >= maxOpenPullRequests) {
+        console.error(
+          `${repository}#${number}: waits, ${open} of ${maxOpenPullRequests} pull requests are open for review`,
+        );
+        continue;
+      }
+    }
+    starting.push(pending);
   }
 
   let failed = false;
-  for (const pending of candidates.slice(0, slots)) {
+  for (const pending of starting) {
     const unit = unitOf(pending);
     try {
       await run(systemctl, ['start', '--no-block', '--no-ask-password', '--', unit], { env });

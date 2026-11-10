@@ -29,12 +29,20 @@ export interface RepositoryConfig {
 
 export interface DispatchConfig {
   maxConcurrent?: number;
+  maxOpenPullRequests?: number | null;
 }
 
 export const DEFAULT_MAX_CONCURRENT = 1;
 
+export const DEFAULT_MAX_OPEN_PULL_REQUESTS = 5;
+
 export const maxConcurrentOf = (config: RuntimeConfig): number =>
   config.dispatch?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
+
+export const maxOpenPullRequestsOf = (config: RuntimeConfig): number | null =>
+  config.dispatch?.maxOpenPullRequests === undefined
+    ? DEFAULT_MAX_OPEN_PULL_REQUESTS
+    : config.dispatch.maxOpenPullRequests;
 
 export interface FeedbackConfig {
   quietPeriodSeconds?: number;

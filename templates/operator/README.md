@@ -526,6 +526,15 @@ pass may start only `forge-dispatch@` units of repositories that declare
 together with the `forge-resolve-conflicts@` units of repositories that declare
 `on.conflict`.
 
+`forge.runtime.dispatch.maxOpenPullRequests`, 5 by default, is the review
+limit: the most dispatches forge may have in flight or awaiting review across
+every repository, counting running dispatches plus the open pull requests
+forge's App opened for them. At the limit the pass starts no new dispatch and
+logs each `forge:ready` ticket that waits, while revisions and conflict
+resolutions keep running. A pull request stops counting once the frontier sync
+records it as merged or closed, and one turned back into a draft still counts.
+Set it to `null` to turn the limit off.
+
 To dispatch a ticket straight away rather than waiting for the next sync, run:
 
 ```bash
@@ -533,7 +542,8 @@ just ssh sudo forge-dispatch forge 113
 ```
 
 Forge refuses a ticket that is not on the frontier or not labelled
-`forge:ready`, and refuses to start a workload beyond `maxConcurrent`, however
+`forge:ready`, and refuses to start a workload beyond `maxConcurrent`, or a dispatch beyond
+`maxOpenPullRequests`, however
 the ticket was dispatched. It also refuses a ticket whose latest `forge:ready`
 was not applied by a maintainer, a person with `write` or `admin` permission
 on the repository: it swaps `forge:ready` for `forge:failed` and comments that

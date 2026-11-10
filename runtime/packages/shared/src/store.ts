@@ -2136,11 +2136,24 @@ export class Store {
     return live;
   }
 
+  dispatchesInReview(now: string): number {
+    const { open } = this.#db
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM dispatches WHERE state = 'running' AND alive_at >= $live_since)
+          + (SELECT COUNT(*) FROM dispatches WHERE pr_state = 'open')
+          AS open`,
+      )
+      .get({ live_since: liveSince(now) }) as { open: number };
+    return open;
+  }
+
   startDispatch(
     ticket: DispatchTicket,
     runId: string,
     startedAt: string,
     maxConcurrent: number,
+    maxOpenPullRequests: number | null = null,
   ): DispatchStart {
     let start: DispatchStart = { refused: 'dispatching' };
     this.#transaction(() => {
@@ -2150,6 +2163,13 @@ export class Store {
       if (live >= maxConcurrent) {
         start = { refused: 'full', live };
         return;
+      }
+      if (maxOpenPullRequests !== null) {
+        const open = this.dispatchesInReview(startedAt);
+        if (open >= maxOpenPullRequests) {
+          start = { refused: 'review-limit', open };
+          return;
+        }
       }
       if (latest?.state === 'running') this.#interruptStale(latest, startedAt);
       start = { started: this.#insertDispatch(ticket, runId, 'running', null, startedAt) };

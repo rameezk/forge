@@ -13,7 +13,7 @@ import {
   fakeGithubApp,
   routedThrough,
 } from '../../shared/test/fixtures/fake-github-app.ts';
-import { journaled, startedDispatch } from './helpers.ts';
+import { journaled, leaveOpenPullRequests, startedDispatch } from './helpers.ts';
 
 const MINUTE = 60_000;
 
@@ -286,6 +286,22 @@ test('given a conflicting pull request with a running conflict resolution for an
 test('given a conflicting pull request that also has feedback past its quiet period, when the pass runs, then the conflict resolution starts and the revision does not', async () => {
   const setup = forge({ maxConcurrent: 5 });
   assert.deepEqual(await setup.syncAndPass([pullRequest(143, { feedbackAt: ago(60) })]), [unit(143)]);
+});
+
+test('given the review limit is reached by 5 open dispatch pull requests, one conflicting and one with feedback past its quiet period, when the pass runs, then a conflict resolution and a revision start', async () => {
+  const setup = forge({ maxConcurrent: 5 });
+  setup.withStore((store) => leaveOpenPullRequests(store, 'forge', 5));
+  const numbers = setup.withStore((store) => store.unsettledPullRequests('forge').map(({ number }) => number));
+  const [conflicting, revised, ...others] = numbers;
+  assert.ok(conflicting !== undefined && revised !== undefined);
+  assert.deepEqual(
+    await setup.syncAndPass([
+      pullRequest(conflicting),
+      pullRequest(revised, { mergeable: 'MERGEABLE', feedbackAt: ago(60) }),
+      ...others.map((number) => pullRequest(number, { mergeable: 'MERGEABLE' })),
+    ]),
+    [unit(conflicting), `start --no-block --no-ask-password -- forge-revise@forge:${revised}.service`],
+  );
 });
 
 test('given more due conflict resolutions and revisions than free slots, when the pass runs, then no more units start than there are free slots and conflict resolutions take them first', async () => {
