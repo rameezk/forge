@@ -23,6 +23,8 @@ const HUMAN_TONE = 'text-accent-text ring-1 ring-line ring-inset';
 
 const MERGED_TONE = 'bg-success-soft text-success';
 
+const HELD_TONE = 'bg-warning-soft text-warning';
+
 const ELAPSED = 'ml-1.5 text-xs tabular-nums text-muted';
 
 const FAILURE_LINE = 'm-0 mt-1 line-clamp-4 text-xs break-words whitespace-pre-line text-muted';
@@ -109,6 +111,12 @@ const renderDone = ({ ticket, dispatch }: BoardCard & { column: 'done' }, timeZo
   return html`<p class="${MUTED_LINE}">${merged ? html`<span data-merged class="${PILL} ${MERGED_TONE}">merged</span> ${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, `PR #${pullRequest.number}`) : html`PR #${pullRequest.number}`} ` : ''}${renderTimestamp(ticket.closedAt, timeZone)}${ticket.forHuman ? html` <span class="ml-1 inline-flex align-middle">${BUILT_BY_PERSON_ICON}</span>` : ''}</p>`;
 };
 
+const isHeld = ({ column, ticket }: BoardCard, full: boolean): boolean =>
+  full && (column === 'waiting-for-slot' || column === 'failed') && ticket.forgeReady && !ticket.blocked && !ticket.forHuman;
+
+const renderHeld = (): Rendered =>
+  html`<p class="${MUTED_LINE}"><span data-held title="Held back until a pull request is merged or closed" class="${PILL} ${HELD_TONE}">held: review limit</span></p>`;
+
 const renderDetails = (card: BoardCard, github: string, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   switch (card.column) {
     case 'blocked':
@@ -167,7 +175,7 @@ const renderCardLink = (destination: Destination | null): Rendered =>
     ? ''
     : html`<a href="${destination.href}" data-card-link aria-label="${destination.label}"${destination.external ? raw(' target="_blank" rel="noopener noreferrer"') : ''} class="${CARD_LINK}"></a>`;
 
-const renderCard = (repository: string, github: string, card: BoardCard, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+const renderCard = (repository: string, github: string, card: BoardCard, grouped: boolean, full: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
   const { ticket } = card;
   const parent = grouped || card.column === 'to-refine' ? null : card.ticket.parent;
   return html`<article data-ticket="${ticket.number}" class="relative rounded-md border border-line bg-surface p-2 text-sm ${CARD_HOVER} ${INNER_LINKS}">
@@ -178,6 +186,7 @@ const renderCard = (repository: string, github: string, card: BoardCard, grouped
     <p class="m-0 mt-1 break-words">${ticket.title}</p>
     ${parent === null ? '' : renderSpecLine(parent)}
     ${renderDetails(card, github, timeZone, runs)}
+    ${isHeld(card, full) ? renderHeld() : ''}
   </article>`;
 };
 
@@ -186,10 +195,18 @@ const renderPolled = (polledAt: string | null, timeZone: string): Rendered =>
     ? html`<span class="${POLLED}">Never polled</span>`
     : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt, timeZone)}</span>`;
 
-const renderColumnHeaders = (counts: Record<ColumnKey, number>): Rendered =>
+const reviewFull = ({ open, limit }: ReviewSlots): boolean => limit !== null && open >= limit;
+
+const renderReviewLimit = (review: ReviewSlots): Rendered => {
+  if (review.limit === null) return '';
+  const full = reviewFull(review);
+  return html`<span data-review-limit${full ? html` data-full` : ''} title="Dispatches running or awaiting review, out of the review limit" class="text-xs leading-4 tabular-nums ${full ? 'font-semibold text-warning' : 'text-muted'}">${review.open} / ${review.limit}</span>`;
+};
+
+const renderColumnHeaders = (counts: Record<ColumnKey, number>, review: ReviewSlots): Rendered =>
   html`<div class="sticky top-0 z-10 hidden shadow-[0_1px_0_var(--color-line)] ${ROW_GRID}">${COLUMNS.map(
     ({ key, title, subtitle, hint, person }) => html`<div data-column-header="${key}" class="border-b border-line border-l-column-line bg-raised px-2 py-2 sm:border-l sm:first:border-l-0">
-      <span class="flex h-4 items-center gap-1"><span data-column-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${person ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-column-total class="text-xs leading-4 tabular-nums text-muted">${counts[key]}</span></span></span>
+      <span class="flex h-4 items-center gap-1"><span data-column-title class="min-w-0 truncate text-[0.7rem] font-semibold leading-4 uppercase tracking-[0.05em] text-fg">${title}</span><span class="ml-auto flex shrink-0 items-center gap-1.5">${key === 'in-review' ? renderReviewLimit(review) : ''}${person ? html`<span class="flex h-4 shrink-0 items-center">${PERSON_ICON}</span>` : ''}<span data-column-total class="text-xs leading-4 tabular-nums text-muted">${counts[key]}</span></span></span>
       <span data-column-subtitle title="${hint ?? subtitle}" class="mt-0.5 block truncate text-[0.6875rem] leading-4 text-muted${hint === null ? '' : ' cursor-help underline decoration-dotted decoration-line underline-offset-[3px]'}">${subtitle}</span>
     </div>`,
   )}</div>`;
@@ -209,20 +226,20 @@ const renderStageHeader = ({ title, subtitle, person }: (typeof COLUMNS)[number]
     ${compact ? '' : html`<span data-stage-subtitle class="mt-0.5 block truncate text-[0.6875rem] leading-4 text-muted">${subtitle}</span>`}
   </div>`;
 
-const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, full: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(
-    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-column-line sm:min-h-12 sm:border-l sm:p-2 sm:first:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, attempted, timeZone, runs))}</div></div>`,
+    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-column-line sm:min-h-12 sm:border-l sm:p-2 sm:first:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, full, attempted, timeZone, runs))}</div></div>`,
   )}</div>`;
 
-const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, full: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
   html`<div data-spec-band="${spec === null ? 'none' : spec.number}">
     <header data-band-head class="flex items-baseline gap-2.5 border-t border-dashed border-line bg-bg px-3 py-1.5 text-[0.8125rem]">${spec === null
       ? html`<span class="font-semibold text-muted">No spec</span>`
       : html`<span class="tabular-nums">${isGithubUrl(spec.url) ? externalLink(spec.url, `#${spec.number}`) : html`#${spec.number}`}</span><span class="font-semibold">${spec.title}</span>`}<span class="tabular-nums text-muted">${count} ${count === 1 ? 'ticket' : 'tickets'}</span></header>
-    ${renderRow(lane.repository, lane.github, columns, true, attempted, timeZone, runs)}
+    ${renderRow(lane.repository, lane.github, columns, true, full, attempted, timeZone, runs)}
   </div>`;
 
-const renderLane = (lane: BoardLane, grouped: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
+const renderLane = (lane: BoardLane, grouped: boolean, full: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const empty = COLUMNS.every(({ key }) => lane.columns[key].length === 0);
   return html`<section class="group border-t border-line" data-repository="${lane.repository}"${empty ? html` data-empty data-collapsed` : ''}${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
@@ -240,8 +257,8 @@ const renderLane = (lane: BoardLane, grouped: boolean, attempted: ReadonlySet<st
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
     </div>
     <div class="group-data-[collapsed]:hidden">${grouped
-      ? specBands(lane.columns).map((band) => renderBand(lane, band, attempted, timeZone, runs))
-      : renderRow(lane.repository, lane.github, lane.columns, false, attempted, timeZone, runs)}</div>
+      ? specBands(lane.columns).map((band) => renderBand(lane, band, full, attempted, timeZone, runs))
+      : renderRow(lane.repository, lane.github, lane.columns, false, full, attempted, timeZone, runs)}</div>
   </section>`;
 };
 
@@ -257,6 +274,11 @@ const renderRunningLimit = ({ running, limit }: RunningSlots): Rendered => {
   const full = running >= limit;
   return html`<span data-running-limit${full ? html` data-full` : ''} title="Workloads running, out of the global limit" class="${PILL} mb-3 ${full ? FULL_TONE : OPEN_TONE} tabular-nums">Running ${running} / ${limit}</span>`;
 };
+
+export interface ReviewSlots {
+  open: number;
+  limit: number | null;
+}
 
 export type Grouping = 'none' | 'spec';
 
@@ -278,6 +300,7 @@ export const renderBoard = (
   runs: ReadonlyMap<string, RunRecord>,
   attempted: ReadonlySet<string>,
   slots: RunningSlots,
+  review: ReviewSlots,
   display: Display,
   grouping: Grouping = 'none',
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
@@ -287,8 +310,8 @@ export const renderBoard = (
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
           <div class="sm:min-w-[76.5rem]">
-            ${renderColumnHeaders(totals(lanes))}
-            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', attempted, display.timeZone, runs))}
+            ${renderColumnHeaders(totals(lanes), review)}
+            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', reviewFull(review), attempted, display.timeZone, runs))}
           </div>
         </div>`}`;
   return layout('Board', 'board', true, display, body, 'always');

@@ -936,6 +936,13 @@
                 && lib.elem "FORGE_MAX_CONCURRENT=1" dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment
               )
               "the dashboard must be configured with dispatch.maxConcurrent, and with 1 when it is unset";
+          dashboardCarriesReviewLimit =
+            lib.asserts.assertMsg
+              (
+                lib.elem "FORGE_MAX_OPEN_PULL_REQUESTS=5" dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+                && lib.elem "FORGE_MAX_OPEN_PULL_REQUESTS=null" unlimitedReviewHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+              )
+              "the dashboard must be configured with dispatch.maxOpenPullRequests, with 5 when it is unset and null when the limit is off";
           passUnit = dispatchHost.config.systemd.services.forge-dispatch-pass;
           dispatchPassFollowsSync =
             lib.asserts.assertMsg
@@ -1838,6 +1845,7 @@
             assert dispatchConfigReflectsMaxConcurrent;
             assert dispatchConfigReflectsReviewLimit;
             assert dashboardCarriesMaxConcurrent;
+            assert dashboardCarriesReviewLimit;
             assert dispatchPassFollowsSync;
             assert dispatchPassStartsUnits;
             assert dispatchPassMayStartOnlyDispatchUnits;

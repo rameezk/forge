@@ -9,7 +9,7 @@ test('given state dir and socket, when resolved, then they are used', () => {
       FORGE_FRONTEND_SOCKET: '/run/forge-frontend/dashboard.sock',
       FORGE_MAX_CONCURRENT: '3',
     }),
-    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, timeZone: 'UTC' },
+    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, timeZone: 'UTC' },
   );
 });
 
@@ -59,4 +59,23 @@ test('given an invalid display time zone, when resolved, then it throws', () => 
     () => resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock', FORGE_DASHBOARD_TIME_ZONE: 'Mars/Olympus' }),
     /FORGE_DASHBOARD_TIME_ZONE.*Mars\/Olympus/,
   );
+});
+
+test('given a review limit, when resolved, then it is used, and null turns it off', () => {
+  const base = { FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock' };
+  assert.equal(resolveServeConfig({ ...base, FORGE_MAX_OPEN_PULL_REQUESTS: '3' }).maxOpenPullRequests, 3);
+  assert.equal(resolveServeConfig({ ...base, FORGE_MAX_OPEN_PULL_REQUESTS: 'null' }).maxOpenPullRequests, null);
+});
+
+test('given no review limit, when resolved, then it defaults to 5', () => {
+  assert.equal(resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock' }).maxOpenPullRequests, 5);
+});
+
+test('given a review limit that is not a positive integer or null, when resolved, then it throws', () => {
+  for (const value of ['nope', '0', '-1', '1.5', '']) {
+    assert.throws(
+      () => resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock', FORGE_MAX_OPEN_PULL_REQUESTS: value }),
+      /FORGE_MAX_OPEN_PULL_REQUESTS/,
+    );
+  }
 });

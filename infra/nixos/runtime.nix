@@ -1034,6 +1034,7 @@ in
             "FORGE_FRONTEND_SOCKET=/run/forge-frontend/dashboard.sock"
             "FORGE_DASHBOARD_TIME_ZONE=${cfg.dashboard.timeZone}"
             "FORGE_MAX_CONCURRENT=${toString cfg.dispatch.maxConcurrent}"
+            "FORGE_MAX_OPEN_PULL_REQUESTS=${if cfg.dispatch.maxOpenPullRequests == null then "null" else toString cfg.dispatch.maxOpenPullRequests}"
           ];
           ExecStart = "${cfg.package}/bin/forge-frontend";
           Restart = "on-failure";
