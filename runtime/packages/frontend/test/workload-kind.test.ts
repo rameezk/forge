@@ -41,7 +41,7 @@ const sampleRun = (id: string, ticketNumber: number | null = null): RunRecord =>
 const dashboard = () => {
   const store = Store.open(':memory:');
   store.insertRun(sampleRun('dispatched', 7));
-  const dispatch = store.startDispatch({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/issues/7' }, 'dispatched', '2026-09-21T10:00:00.000Z', 10);
+  const dispatch = store.startDispatch({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/issues/7' }, 'dispatched', '2026-09-21T10:00:00.000Z', 10, null);
   assert.ok('started' in dispatch);
   store.insertRun(sampleRun('revised'));
   const revision = store.startRevision({ repository: 'forge', number: 489, url: 'https://github.com/rameezk/forge/pull/489' }, [], 'revised', '2026-09-21T10:00:00.000Z', 10);

@@ -545,6 +545,7 @@ test('given a revision that ends ok, when it is recorded, then it is against its
         'opening-run',
         '2026-09-21T10:00:00.000Z',
         10,
+        null,
       );
       assert.ok('started' in start);
       store.endDispatch(
@@ -572,6 +573,7 @@ test('given the dispatch that opened the pull request is still running, when for
         'opening-run',
         new Date().toISOString(),
         10,
+        null,
       );
       assert.ok('started' in start);
     },
@@ -633,6 +635,7 @@ test('given dispatch.maxConcurrent workloads already live, when forge-revise run
         'other-run',
         new Date().toISOString(),
         1,
+        null,
       );
       assert.ok('started' in start);
     },

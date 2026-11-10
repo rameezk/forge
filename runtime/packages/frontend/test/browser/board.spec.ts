@@ -465,7 +465,7 @@ const runRecord = (id: string): RunRecord => ({
 const runningDispatch = (store: Store, number: number, runExists: boolean): void => {
   seed(store, [{ ...ticket(number), forgeReady: true }]);
   if (runExists) store.insertRun(runRecord(`run-${number}`));
-  const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100);
+  const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
   if (!('started' in started)) throw new Error('dispatch refused');
 };
 

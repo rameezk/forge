@@ -899,6 +899,7 @@ const dispatchedEarlier = (stateDir: string, numbers: Record<number, string>): v
         `run-${number}`,
         startedAt,
         10,
+        null,
       );
     }
   } finally {
@@ -1088,6 +1089,7 @@ const dispatchedWithPullRequest = (
       `run-${ticket}`,
       at,
       10,
+      null,
     );
     assert.ok('started' in start);
     store.endDispatch(start.started, { state: 'done', pullRequest: pullRequestOf(pullRequest) }, at);

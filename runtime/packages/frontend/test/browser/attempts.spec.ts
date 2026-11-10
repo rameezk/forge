@@ -52,7 +52,7 @@ const attempt = (store: Store, id: string, start: string, merged: boolean): void
     forgeGitSha: null,
     baseCommit: 'aaaaaaa1111111111111111111111111111111aa',
   });
-  const started = store.startDispatch(ticket, id, start, 100);
+  const started = store.startDispatch(ticket, id, start, 100, null);
   if (!('started' in started)) throw new Error('dispatch refused');
   store.endDispatch(
     started.started,

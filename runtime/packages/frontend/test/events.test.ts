@@ -315,7 +315,7 @@ test('given a client streaming events for a ticket attempts page, when an attemp
   const { app, writer } = dashboard(t);
   const ticket = { repository: 'forge', number: 42, url: 'https://github.com/rameezk/forge/issues/42' };
   writer.insertRun({ ...runningRun, ticket });
-  const started = writer.startDispatch(ticket, 'run-01', runningRun.startTime, 100);
+  const started = writer.startDispatch(ticket, 'run-01', runningRun.startTime, 100, null);
   assert.ok('started' in started);
   const stream = await streamEvents(t, app, '/tickets/forge/42');
 

@@ -908,6 +908,7 @@ test('given a store file whose dispatches predate pull request tracking, when th
     'run-113',
     at,
     10,
+    null,
   );
   assert.ok('started' in start);
   store.endDispatch(start.started, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);

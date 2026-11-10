@@ -2153,7 +2153,7 @@ export class Store {
     runId: string,
     startedAt: string,
     maxConcurrent: number,
-    maxOpenPullRequests: number | null = null,
+    maxOpenPullRequests: number | null,
   ): DispatchStart {
     let start: DispatchStart = { refused: 'dispatching' };
     this.#transaction(() => {

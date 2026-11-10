@@ -82,7 +82,7 @@ const seed = (store: Store, attempts: Attempt[]): void => {
       forgeGitSha: null,
       baseCommit: attempt.baseCommit,
     });
-    const started = store.startDispatch(run.ticket!, attempt.id, run.startTime, 100);
+    const started = store.startDispatch(run.ticket!, attempt.id, run.startTime, 100, null);
     assert.ok('started' in started);
     store.endDispatch(
       started.started,
@@ -256,7 +256,7 @@ test('given a ticket whose only dispatch never started a workload, when the Boar
 
 test('given a ticket with an earlier attempt that was dispatched again with no workload yet, when the Board is requested, then it still links to the attempts view', async () => {
   const { app, store } = dashboard(THREE.slice(0, 1));
-  const again = store.startDispatch(TICKET, 'not-started', '2026-09-30T08:00:00.000Z', 100);
+  const again = store.startDispatch(TICKET, 'not-started', '2026-09-30T08:00:00.000Z', 100, null);
   assert.ok('started' in again);
   store.replaceFrontier({
     repository: 'forge',

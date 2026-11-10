@@ -354,6 +354,7 @@ export const startedDispatch = (
     runId,
     at,
     Number.POSITIVE_INFINITY,
+    null,
   );
   assert.ok('started' in start);
   return start.started;

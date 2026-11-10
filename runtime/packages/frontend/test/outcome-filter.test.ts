@@ -47,7 +47,7 @@ const dashboard = () => {
   const store = Store.open(':memory:');
   const dispatch = (id: string, status: RunStatus, number: number, outcome?: Parameters<Store['endDispatch']>[1]) => {
     store.insertRun(sampleRun(id, status));
-    const started = store.startDispatch(issue(number), id, outcome === undefined ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10);
+    const started = store.startDispatch(issue(number), id, outcome === undefined ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10, null);
     assert.ok('started' in started);
     if (outcome !== undefined) store.endDispatch(started.started, outcome, '2026-09-21T10:03:20.000Z');
   };
