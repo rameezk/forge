@@ -19,7 +19,7 @@ import {
 import { maxConcurrentOf, repositoryTriggeredBy, resolveWorker, setupTimeoutOf } from './config.ts';
 import { inspectCheckout, launchInCheckout } from './checkout-workload.ts';
 import { gitEnvironment } from './git.ts';
-import { conflictInstruction } from './harness.ts';
+import { CONFLICT_INSTRUCTION, conflictBrief, withContext } from './harness.ts';
 import { conflictedFiles, containsCommit } from './merge.ts';
 import { SetupTimedOut } from './setup.ts';
 import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
@@ -206,18 +206,19 @@ export const main = async (
             config,
             worker: {
               ...worker,
-              prompt: `${fillPrompt(worker.prompt, repository.github, pullRequest)}\n\n${conflictInstruction({
+              prompt: withContext(fillPrompt(worker.prompt, repository.github, pullRequest), conflictBrief({
                 number: pullRequest.number,
                 url: pullRequest.url,
                 branch: pullRequest.branch,
                 defaultBranch: target.defaultBranch,
                 sha: target.defaultSha,
                 files,
-              })}`,
+              })),
               promptTemplate: worker.prompt,
             },
             github: repository.github,
             branch: pullRequest.branch,
+            instruction: CONFLICT_INSTRUCTION,
             app,
             gitEnv,
             identity,

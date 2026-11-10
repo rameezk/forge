@@ -20,6 +20,7 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import { main } from '../src/resolve-conflicts-main.ts';
+import { CONFLICT_INSTRUCTION } from '../src/harness.ts';
 import { textOf } from '../../frontend/test/html.ts';
 import {
   APP_ID,
@@ -429,6 +430,10 @@ test('given a branch that conflicts with the default branch in two files, when f
   assert.equal(runs.length, 1);
   assert.ok(transcript.includes(origin.mainTip));
   assert.ok(transcript.includes('a.txt'));
+  const instruction = pi.argv.filter((_, index) => pi.argv[index - 1] === '--append-system-prompt').join('\n');
+  assert.ok(instruction.includes(CONFLICT_INSTRUCTION));
+  assert.ok(!instruction.includes(origin.mainTip));
+  assert.doesNotMatch(instruction, /a\.txt|b\.txt|pull request #143/);
 });
 
 test('given a conflicting pull request, when forge-resolve-conflicts runs, then the trial merge, the worker and the check after it each clone the repository in full, without a partial-clone filter', async () => {
