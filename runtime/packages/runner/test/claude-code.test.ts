@@ -61,6 +61,7 @@ interface Scenario {
   models?: unknown;
   lingerMs?: number;
   indexAs?: 'fifo' | 'symlink';
+  pause?: { after: string; ms: number };
   rewrite?: (stream: string) => string;
   requests?: Record<string, unknown>;
 }
@@ -99,6 +100,7 @@ const runClaude = async ({
   models = OPENROUTER_MODELS,
   lingerMs,
   indexAs,
+  pause,
   rewrite,
   requests = {},
 }: Scenario): Promise<Outcome> => {
@@ -128,6 +130,9 @@ const runClaude = async ({
       ...(lingerMs === undefined ? {} : { FAKE_CLAUDE_LINGER_MS: String(lingerMs) }),
       ...(indexAs === 'fifo' ? { FAKE_CLAUDE_MKFIFO: commandPath('mkfifo') } : {}),
       ...(indexAs === undefined ? {} : { FAKE_CLAUDE_INDEX: indexAs }),
+      ...(pause === undefined
+        ? {}
+        : { FAKE_CLAUDE_PAUSE_AFTER: pause.after, FAKE_CLAUDE_PAUSE_MS: String(pause.ms) }),
     },
   });
   const configPath = join(stateDir, 'runtime.json');
@@ -539,6 +544,78 @@ test('given a claude-code worker whose first subagent is already answering a too
     const first = events.findIndex((event) => event.subagent === id);
     assert.ok(call !== -1 && first !== -1 && call < first, `${id} call at ${String(call)} after its first subagent event at ${String(first)}`);
   }
+});
+
+test('given a claude-code worker whose response is still streaming when its first tool result arrives and finishes more than 10 seconds later, when its workload runs, then the run succeeds, the response is reported once with its recorded usage, and both tool calls appear each followed by its own result', { timeout: 40_000 }, async () => {
+  const streamSecondCallLate = (stream: string): string => {
+    const lines = stream.split('\n');
+    const call = lines.findIndex((line) => line.includes('"id":"toolu_1","name":"Bash"'));
+    const result = lines.findIndex((line) => line.includes('"tool_use_id":"toolu_1","type":"tool_result"'));
+    const second = (line: string | undefined): string =>
+      (line as string).replaceAll('toolu_1', 'toolu_2').replaceAll('echo forge', 'echo again');
+    lines.splice(result + 1, 0, second(lines[call]), second(lines[result]));
+    return lines.join('\n');
+  };
+
+  const { run, transcript } = await runClaude({
+    fixture: 'success',
+    rewrite: streamSecondCallLate,
+    pause: { after: '"tool_use_id":"toolu_1","type":"tool_result"', ms: 11_000 },
+  });
+
+  assert.equal(run.status, 'success');
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  const parentMessages = events.filter((event) => event.type === 'message' && event.role === 'assistant');
+  assert.equal(parentMessages.length, 2);
+  assert.deepEqual((parentMessages[0]?.usage as Record<string, unknown>).outputTokens, 40);
+  const calls = events.filter((event) => event.type === 'tool_call').map((event) => event.id);
+  assert.deepEqual(calls, ['toolu_1', 'toolu_2']);
+  for (const id of calls) {
+    const call = events.findIndex((event) => event.type === 'tool_call' && event.id === id);
+    const result = events.findIndex((event) => event.type === 'tool_result' && event.id === id);
+    assert.ok(call !== -1 && result > call, `${String(id)} result at ${String(result)} follows its call at ${String(call)}`);
+  }
+  assert.ok(events.indexOf(parentMessages[0] as Record<string, unknown>) < events.findIndex((event) => event.type === 'tool_call'));
+});
+
+test('given a claude-code worker whose first subagent starts acting while its parent response keeps streaming for more than 10 seconds before delivering its second Agent call, when its workload runs, then the run succeeds and each spawning Agent call precedes everything its subagent did', { timeout: 40_000 }, async () => {
+  const delaySecondCall = (stream: string): string => {
+    const lines = stream.split('\n');
+    const second = lines.findIndex((line) => line.includes('"id":"toolu_beta"') && line.includes('"tool_use"'));
+    const skillResult = lines.findIndex((line) => line.includes('"tool_use_id":"toolu_skill"') && line.includes('"tool_result"'));
+    const [moved] = lines.splice(second, 1);
+    lines.splice(skillResult, 0, moved as string);
+    return lines.join('\n');
+  };
+
+  const { run, transcript } = await runClaude({
+    fixture: 'subagents',
+    rewrite: delaySecondCall,
+    pause: { after: '"id":"toolu_skill"', ms: 11_000 },
+  });
+
+  assert.equal(run.status, 'success');
+  const events = parseTranscript(transcript) as unknown as Record<string, unknown>[];
+  for (const id of ['toolu_alpha', 'toolu_beta']) {
+    const call = events.findIndex((event) => event.type === 'tool_call' && event.id === id);
+    const first = events.findIndex((event) => event.subagent === id);
+    assert.ok(call !== -1 && first !== -1 && call < first, `${id} call at ${String(call)} after its first subagent event at ${String(first)}`);
+  }
+});
+
+test('given a claude-code worker whose response clearly ends but whose body claude never recorded, when its workload runs, then the run ends error after 10 seconds saying no usage was recorded for that response, which signal ended it and how long the runner waited', { timeout: 40_000 }, async () => {
+  const started = Date.now();
+  const { run } = await runClaude({
+    fixture: 'success',
+    rewrite: (stream) => stream.replaceAll('msg_forge_success_1', 'msg_forge_unrecorded'),
+  });
+
+  assert.equal(run.status, 'error');
+  assert.ok(Date.now() - started >= 10_000);
+  assert.match(
+    run.error ?? '',
+    /claude recorded no usage for its response msg_forge_unrecorded.*waited \d+\.\ds after a new assistant message/,
+  );
 });
 
 test('given a claude-code worker whose stream attributes a message to a tool call claude never made, when its workload runs, then the run ends error naming it and nothing is attributed to that call', async () => {
