@@ -543,7 +543,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, and `github_app_id` and `github_app_private_key` (the id and private key of the operator's GitHub App, installed on every managed repository) when any repository is declared. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the App private key, a credential only the frontier sync and forge-dispatch are given.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, and `github_app_id` and `github_app_private_key` (the id and private key of the operator's GitHub App, installed on every managed repository and on the operator repository) when any repository is declared or `pullDeploy.enable` is set. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the App private key, a credential only the frontier sync, forge-dispatch and the pull deploy are given.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -579,6 +579,43 @@ in
       default = "5min";
       example = "15min";
       description = "How often the frontier poller syncs the managed repositories' frontier from GitHub, as a systemd time span.";
+    };
+
+    pullDeploy = {
+      enable = lib.mkEnableOption "the pull deploy: every `pullDeploy.intervalSeconds` seconds the box compares the commit at the head of its operator repository's `main` with the operator commit it runs and builds and switches to `main` when they differ, recording the commit it runs, the head and the last switch error in `pullDeploy.statusFile`. A commit that fails to build or switch is not tried again until `main` moves or the `forge-pull-deploy` unit is restarted by hand. The box reads the operator repository with the operator's GitHub App (`github_app_id` and `github_app_private_key`), through an installation token narrowed to that repository with read access to contents, so the App must be installed on it";
+
+      repository = lib.mkOption {
+        type = lib.types.strMatching "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+";
+        example = "your-org/forge-operator";
+        description = "The operator repository, as `owner/name`, whose `main` the box follows.";
+      };
+
+      remote = lib.mkOption {
+        type = lib.types.str;
+        default = "https://github.com/${cfg.pullDeploy.repository}.git";
+        defaultText = lib.literalExpression ''"https://github.com/''${config.forge.runtime.pullDeploy.repository}.git"'';
+        description = "The git remote the box clones the operator repository from. Only a test points it elsewhere.";
+      };
+
+      apiBase = lib.mkOption {
+        type = lib.types.str;
+        default = "https://api.github.com";
+        description = "The GitHub API base the box mints its installation token from. Only a test points it elsewhere.";
+      };
+
+      intervalSeconds = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 300;
+        description = "Seconds between two looks at the head of the operator repository's `main`. Only a test shortens it.";
+      };
+
+      statusFile = lib.mkOption {
+        type = lib.types.path;
+        default = "${cfg.stateDir}/deploy-status.json";
+        defaultText = lib.literalExpression ''"''${config.forge.runtime.stateDir}/deploy-status.json"'';
+        readOnly = true;
+        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`) and `error` (the last switch error, or null), each null while unknown. The box writes it and the dashboard reads it.";
+      };
     };
 
     workload.memoryMax = lib.mkOption {
@@ -786,7 +823,7 @@ in
       };
     })
 
-    (lib.mkIf hasRepositories {
+    (lib.mkIf (hasRepositories || cfg.pullDeploy.enable) {
       sops.secrets.github_app_id.sopsFile = cfg.secretsFile;
       sops.secrets.github_app_private_key = {
         sopsFile = cfg.secretsFile;
@@ -794,7 +831,41 @@ in
         mode = "0400";
       };
       sops.templates."forge-github-app.env" = envTemplate "FORGE_GITHUB_APP_ID" "github_app_id";
+    })
 
+    (lib.mkIf cfg.pullDeploy.enable {
+      systemd.services.forge-pull-deploy = {
+        description = "Forge pull deploy: switch to the operator repository's main whenever it moves";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        wantedBy = [ "multi-user.target" ];
+        restartIfChanged = false;
+        stopIfChanged = false;
+        path = [ config.nix.package ];
+        serviceConfig = {
+          Type = "simple";
+          Restart = "always";
+          RestartSec = "10s";
+          StateDirectory = "forge-pull-deploy";
+          EnvironmentFile = envFile "forge-github-app.env";
+          Environment = [
+            "FORGE_PULL_DEPLOY_REPOSITORY=${cfg.pullDeploy.repository}"
+            "FORGE_PULL_DEPLOY_REMOTE=${cfg.pullDeploy.remote}"
+            "FORGE_PULL_DEPLOY_API=${cfg.pullDeploy.apiBase}"
+            "FORGE_PULL_DEPLOY_HOSTNAME=${config.networking.hostName}"
+            "FORGE_PULL_DEPLOY_INTERVAL=${toString cfg.pullDeploy.intervalSeconds}"
+            "FORGE_PULL_DEPLOY_STATUS_FILE=${cfg.pullDeploy.statusFile}"
+            "FORGE_PULL_DEPLOY_STATUS_OWNER=${cfg.user}:${cfg.user}"
+            "HOME=/var/lib/forge-pull-deploy"
+            appKeyFileVariable
+          ];
+          ExecStart = lib.getExe (pkgs.callPackage ../nix/pull-deploy-command.nix { });
+        }
+        // appKeyCredential;
+      };
+    })
+
+    (lib.mkIf hasRepositories {
       environment.systemPackages = [
         (pkgs.callPackage ../nix/frontier-command.nix {
           forge-runner = cfg.package;
