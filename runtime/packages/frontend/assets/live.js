@@ -141,6 +141,31 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+const expandedGroups = new Set();
+
+const showGroup = (body, expanded) => {
+  body.toggleAttribute('data-collapsed', !expanded);
+  body.querySelector('[data-group-toggle]')?.setAttribute('aria-expanded', String(expanded));
+};
+
+const applyGroups = () => {
+  for (const body of document.querySelectorAll('tbody[data-cohort-group]')) {
+    if (body.querySelector('[data-group-toggle]') !== null) showGroup(body, expandedGroups.has(body.dataset.cohortGroup));
+  }
+};
+
+applyGroups();
+
+document.addEventListener('click', (event) => {
+  const toggle = event.target.closest?.('[data-group-toggle]');
+  if (toggle === null || toggle === undefined) return;
+  const body = toggle.closest('tbody[data-cohort-group]');
+  const group = body.dataset.cohortGroup;
+  if (expandedGroups.has(group)) expandedGroups.delete(group);
+  else expandedGroups.add(group);
+  showGroup(body, expandedGroups.has(group));
+});
+
 const scroller = document.scrollingElement;
 
 const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
@@ -181,6 +206,7 @@ const refresh = async () => {
     },
   });
   applyLanes();
+  applyGroups();
   rememberRendered();
   rememberControls(edits);
   tick();
