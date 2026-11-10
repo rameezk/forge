@@ -279,7 +279,8 @@ rewrite_status=0
 run_bump >"$scratch/rewritten.log" 2>&1 || rewrite_status=$?
 if [ "$rewrite_status" = 0 ] &&
 	[ "$(git -C "$origin" rev-list --count "$before..main")" = 1 ] &&
-	[ "$(git -C "$origin" log -1 --format=%s main)" = "chore: update forge to ${rewritten_commit:0:7}" ]; then
+	[ "$(git -C "$origin" log -1 --format=%s main)" = "chore: update forge to ${rewritten_commit:0:7}" ] &&
+	[ -z "$(git -C "$origin" log -1 --format=%b main)" ]; then
 	echo "ok: the bump landed although the locked commit is gone upstream"
 else
 	echo "FAIL: the bump did not land after forge's history was rewritten"
