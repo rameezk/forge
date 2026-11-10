@@ -22,6 +22,7 @@ import {
   APP_ID,
   fakeGithubApp,
   routedThrough,
+  sentWith,
   BOT_EMAIL,
   BOT_LOGIN,
   APP_SLUG,
@@ -166,7 +167,7 @@ const conversationComment = (
 
 interface ReactionGroup {
   content: string;
-  reactors: { edges: { reactedAt: string; node: { __typename: string; login: string } }[] };
+  reactedBy: Actor | null;
 }
 
 interface Reacted {
@@ -195,19 +196,26 @@ interface FeedbackAnswersResponse {
 
 const FORGE_APP: Actor = { __typename: 'Bot', login: APP_SLUG };
 
-const reactedWith = (
-  content: string,
-  reactor: Actor = FORGE_APP,
-  reactedAt = '2026-09-22T11:00:00Z',
-): Reacted => ({
-  reactionGroups: [{ content, reactors: { edges: [{ reactedAt, node: reactor }] } }],
+const reactedWith = (content: string, reactor: Actor = FORGE_APP): Reacted => ({
+  reactionGroups: [{ content, reactedBy: reactor }],
 });
 
-const thumbsUp = (reactor: Actor = FORGE_APP, reactedAt = '2026-09-22T11:00:00Z'): Reacted =>
-  reactedWith('THUMBS_UP', reactor, reactedAt);
+const thumbsUp = (reactor: Actor = FORGE_APP): Reacted => reactedWith('THUMBS_UP', reactor);
 
 const noReactions: Reacted = {
-  reactionGroups: [{ content: 'THUMBS_UP', reactors: { edges: [] } }],
+  reactionGroups: [{ content: 'THUMBS_UP', reactedBy: null }],
+};
+
+const viewedBy = (value: unknown, viewer: Actor | null): unknown => {
+  if (Array.isArray(value)) return value.map((entry) => viewedBy(entry, viewer));
+  if (value === null || typeof value !== 'object') return value;
+  if ('reactedBy' in value) {
+    const { content, reactedBy } = value as ReactionGroup;
+    return { content, viewerHasReacted: reactedBy !== null && reactedBy.login === viewer?.login };
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, viewedBy(entry, viewer)]),
+  );
 };
 
 const feedbackAnswers = (
@@ -258,6 +266,7 @@ interface Scenario {
   piPackage?: string;
   timeoutSeconds?: number;
   piLingerMs?: number;
+  viewerKind?: 'read' | 'write';
   hangingClone?: boolean;
   setupTimeoutSeconds?: number;
 }
@@ -358,6 +367,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
     }
     assert.equal(pathname, '/graphql');
     const { query } = JSON.parse(String(init?.body)) as { query: string };
+    const viewer = sentWith(init, scenario.viewerKind ?? 'read') ? FORGE_APP : null;
     const answer = query.includes('query FeedbackWindow')
       ? scenario.feedback ?? feedbackWindow({ comments: [conversationComment()] })
       : query.includes('query FeedbackAnswers')
@@ -366,7 +376,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
             comments: [{ ...conversationComment(), ...thumbsUp() }],
           })
         : pullRequest;
-    return new Response(JSON.stringify(answer), {
+    return new Response(JSON.stringify(viewedBy(answer, viewer)), {
       headers: { 'content-type': 'application/json' },
     });
   };
@@ -999,6 +1009,15 @@ test('given a revision handed two items, when after the run only one has been an
   ]);
 });
 
+test('given a revision handed a conversation comment that forge\'s App reacted to with a 👍, when forge-revise checks answers with a token for a different identity, then the comment is unanswered', async () => {
+  const { code, revisions } = await revise({ viewerKind: 'write' });
+
+  assert.equal(code, 1);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'failed', reason: 'unanswered', detail: COMMENT_URL },
+  ]);
+});
+
 test('given a revision handed a conversation comment, when the only response is a 👍 from someone other than forge\'s App, then the revision fails as unanswered', async () => {
   const { code, revisions } = await revise({
     answers: feedbackAnswers({
@@ -1028,23 +1047,6 @@ test('given a revision handed a conversation comment, when forge\'s App reacted 
   assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
     { state: 'failed', reason: 'unanswered', detail: COMMENT_URL },
   ]);
-});
-
-test('given a 👍 from forge\'s App made before the previous revision started, when the next revision runs, then it is not an answer', async () => {
-  const { code, revisions } = await revise({
-    seed: previousRevisionAt('2026-09-21T10:00:00.000Z'),
-    feedback: feedbackWindow({
-      comments: [conversationComment({ createdAt: '2026-09-21T10:01:00Z' })],
-    }),
-    answers: feedbackAnswers({
-      comments: [
-        { ...conversationComment(), ...thumbsUp(FORGE_APP, '2026-09-21T09:00:00Z') },
-      ],
-    }),
-  });
-
-  assert.equal(code, 1);
-  assert.deepEqual(revisions.map(({ reason }) => reason).slice(-1), ['unanswered']);
 });
 
 test('given forge\'s App commented with a URL that only starts with an unanswered item\'s URL, when the revision ends, then the item is still unanswered', async () => {

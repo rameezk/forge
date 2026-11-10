@@ -255,21 +255,14 @@ export const FEEDBACK_WINDOW_QUERY = `
     id
     reactionGroups {
       content
-      reactors(first: 100) {
-        nodes {
-          __typename
-          ... on Actor {
-            login
-          }
-        }
-      }
+      viewerHasReacted
     }
   }
 `;
 
-interface Reactor {
-  __typename: string;
-  login?: string;
+interface ReactionGroup {
+  content: string;
+  viewerHasReacted: boolean;
 }
 
 interface AuthoredNode {
@@ -277,7 +270,7 @@ interface AuthoredNode {
   url: string;
   author: Actor | null;
   body: string;
-  reactionGroups: { content: string; reactors: { nodes: (Reactor | null)[] } }[];
+  reactionGroups: ReactionGroup[];
 }
 
 interface FeedbackWindowResponse {
@@ -321,7 +314,7 @@ type FeedbackWindowPullRequest = NonNullable<
 
 interface SelectedFeedback extends FeedbackItem {
   id: string;
-  reactors: (Reactor | null)[];
+  acknowledged: boolean;
 }
 
 const selectFeedback = async (
@@ -346,8 +339,8 @@ const selectFeedback = async (
     );
     return nodes.filter((_, index) => counted[index]);
   };
-  const reactorsOf = (node: AuthoredNode): (Reactor | null)[] =>
-    node.reactionGroups.filter(({ content }) => content === 'EYES').flatMap(({ reactors }) => reactors.nodes);
+  const acknowledgedOf = (node: AuthoredNode): boolean =>
+    node.reactionGroups.some(({ content, viewerHasReacted }) => content === 'EYES' && viewerHasReacted);
   const reviews = await keep(pullRequest.reviews.nodes, (review) => review.submittedAt);
   const inline = await keep(
     pullRequest.reviews.nodes.flatMap((review) => review.comments.nodes),
@@ -360,7 +353,7 @@ const selectFeedback = async (
         ? [
             {
               id: review.id,
-              reactors: reactorsOf(review),
+              acknowledged: acknowledgedOf(review),
               kind: 'review summary' as const,
               author: authorOf(review.author),
               url: review.url,
@@ -374,7 +367,7 @@ const selectFeedback = async (
     ),
     ...inline.map((comment) => ({
       id: comment.id,
-      reactors: reactorsOf(comment),
+      acknowledged: acknowledgedOf(comment),
       kind: 'inline review comment' as const,
       author: authorOf(comment.author),
       url: comment.url,
@@ -385,7 +378,7 @@ const selectFeedback = async (
     })),
     ...conversation.map((comment) => ({
       id: comment.id,
-      reactors: reactorsOf(comment),
+      acknowledged: acknowledgedOf(comment),
       kind: 'conversation comment' as const,
       author: authorOf(comment.author),
       url: comment.url,
@@ -427,7 +420,7 @@ export const queryFeedbackWindow = async (
   until: string,
 ): Promise<FeedbackItem[]> =>
   (await readFeedbackWindow(fetch, token, github, number, after, until)).map(
-    ({ id: _id, reactors: _reactors, ...item }) => item,
+    ({ id: _id, acknowledged: _acknowledged, ...item }) => item,
   );
 
 export interface UnacknowledgedFeedback {
@@ -441,18 +434,10 @@ export const queryUnacknowledgedFeedback = async (
   github: string,
   number: number,
   after: string | null,
-  appName: string,
-): Promise<UnacknowledgedFeedback[]> => {
-  const app = botLoginOf(appName);
-  return (await readFeedbackWindow(fetch, token, github, number, after, null))
-    .filter(
-      ({ reactors }) =>
-        !reactors.some(
-          (reactor) => reactor?.__typename === 'Bot' && reactor.login?.toLowerCase() === app,
-        ),
-    )
+): Promise<UnacknowledgedFeedback[]> =>
+  (await readFeedbackWindow(fetch, token, github, number, after, null))
+    .filter(({ acknowledged }) => !acknowledged)
     .map(({ id, url }) => ({ id, url }));
-};
 
 export const ADD_EYES_MUTATION = `
   mutation AddEyes($subjectId: ID!) {
@@ -520,27 +505,10 @@ export const FEEDBACK_ANSWERS_QUERY = `
   fragment ThumbsUp on Reactable {
     reactionGroups {
       content
-      reactors(first: 100) {
-        edges {
-          reactedAt
-          node {
-            __typename
-            ... on Actor {
-              login
-            }
-          }
-        }
-      }
+      viewerHasReacted
     }
   }
 `;
-
-interface ReactionGroup {
-  content: string;
-  reactors: {
-    edges: { reactedAt: string; node: { __typename: string; login?: string } | null }[];
-  };
-}
 
 type Reactions = ReactionGroup[];
 
@@ -596,14 +564,8 @@ export const queryUnansweredFeedback = async (
   const instant = (time: string): number => Date.parse(time);
   const isApp = (actor: { __typename: string; login?: string } | null): boolean =>
     actor !== null && actor.__typename === 'Bot' && actor.login?.toLowerCase() === app;
-  const reactedBy = (reactions: Reactions, since: string): boolean =>
-    reactions.some(
-      ({ content, reactors }) =>
-        content === 'THUMBS_UP' &&
-        reactors.edges.some(
-          ({ reactedAt, node }) => isApp(node) && instant(reactedAt) > instant(since),
-        ),
-    );
+  const reactedByApp = (reactions: Reactions): boolean =>
+    reactions.some(({ content, viewerHasReacted }) => content === 'THUMBS_UP' && viewerHasReacted);
   const reactionsByUrl = new Map<string, Reactions>([
     ...pullRequest.reviews.nodes.map(({ url, reactionGroups }): [string, Reactions] => [
       url,
@@ -620,7 +582,7 @@ export const queryUnansweredFeedback = async (
   const linking = pullRequest.comments.nodes.filter(({ author }) => isApp(author));
   const answered = (item: FeedbackItem): boolean => {
     const since = item.createdAt;
-    const reacted = reactedBy(reactionsByUrl.get(item.url) ?? [], since);
+    const reacted = reactedByApp(reactionsByUrl.get(item.url) ?? []);
     const linked = linking.some(
       ({ body, createdAt }) => mentions(body, item.url) && instant(createdAt) > instant(since),
     );

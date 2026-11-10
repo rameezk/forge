@@ -20,6 +20,9 @@ type TokenKind = 'read' | 'write' | 'reactions' | 'workload';
 export const tokenFor = (kind: TokenKind, github: string, nth = 1): string =>
   `ghs_${kind}_${github.replace('/', '_')}_${nth}`;
 
+export const sentWith = (init: RequestInit | undefined, kind: TokenKind): boolean =>
+  (new Headers(init?.headers).get('authorization') ?? '').startsWith(`bearer ghs_${kind}_`);
+
 const kindOf = (permissions: Record<string, string> = {}): TokenKind =>
   permissions.contents === 'write'
     ? 'workload'
