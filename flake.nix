@@ -1367,6 +1367,17 @@
                 && lib.elem "FORGE_PULL_DEPLOY_API=https://api.github.com" pullDeployService.serviceConfig.Environment
               )
               "the pull deploy must default to the operator repository on github.com and the GitHub API";
+          pullDeployWithDashboardHost = secretsHost exampleSecretsFile {
+            forge.runtime.pullDeploy = pullDeployModule.forge.runtime.pullDeploy;
+            forge.runtime.repositories.forge.github = "rameezk/forge";
+          };
+          pullDeployStatusReachesDashboard =
+            lib.asserts.assertMsg
+              (
+                lib.elem "FORGE_PULL_DEPLOY_STATUS_FILE=/var/lib/forge-pull-deploy/status.json" pullDeployWithDashboardHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+                && !(lib.any (lib.hasPrefix "FORGE_PULL_DEPLOY_STATUS_FILE=") frontendUnit.serviceConfig.Environment)
+              )
+              "the dashboard must read the deploy status when the pull deploy is on and must not look for it when it is off";
 
           tailscale = nixos.config.services.tailscale;
           tailnetJoined =
@@ -1993,6 +2004,7 @@
             assert pullDeployReadsRootOwnedEnvironment;
             assert pullDeployRepositoryIsNotManaged;
             assert pullDeployTalksToGithub;
+            assert pullDeployStatusReachesDashboard;
             pkgs.runCommand "runtime-pull-deploy" { } ''
               echo "the pull deploy is off unless enabled, survives the switch it runs, loads an environment file only root owns, refuses an operator repository that is also managed, and talks to github.com and its API by default" > $out
             '';
