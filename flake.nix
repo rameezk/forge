@@ -819,6 +819,12 @@
           repositoryModule = {
             forge.runtime.repositories.forge.github = "rameezk/forge";
           };
+          pullDeployModule = {
+            forge.runtime.pullDeploy = {
+              enable = true;
+              repository = "operator-org/operator";
+            };
+          };
           dispatchModuleWith =
             {
               prompt ? "/work-on {url}",
@@ -1324,6 +1330,43 @@
           sqliteInert = lib.asserts.assertMsg (
             !(hasSqlite nixos)
           ) "a host with no workers or repositories must not ship sqlite";
+
+          pullDeployHost = secretsHost exampleSecretsFile pullDeployModule;
+          pullDeployService = pullDeployHost.config.systemd.services.forge-pull-deploy;
+          pullDeployOffByDefault = lib.asserts.assertMsg (
+            !(nixos.config.systemd.services ? forge-pull-deploy)
+          ) "a host that does not enable forge.runtime.pullDeploy must not run the pull deploy";
+          pullDeployKeepsItselfRunning =
+            lib.asserts.assertMsg
+              (!pullDeployService.restartIfChanged && !pullDeployService.stopIfChanged)
+              "the pull deploy unit must not be restarted or stopped by the switch it is running";
+          pullDeployReadsRootOwnedEnvironment =
+            lib.asserts.assertMsg
+              (
+                pullDeployHost.config.sops.templates."forge-pull-deploy.env".owner == "root"
+                && pullDeployService.serviceConfig.EnvironmentFile == pullDeployHost.config.sops.templates."forge-pull-deploy.env".path
+              )
+              "the pull deploy unit runs as root, so the environment file it loads must be owned by root, never by the runtime user";
+          pullDeployAlsoManagedHost = secretsHost exampleSecretsFile {
+            forge.runtime.pullDeploy = pullDeployModule.forge.runtime.pullDeploy;
+            forge.runtime.repositories.operator.github = "Operator-Org/Operator";
+          };
+          pullDeployRepositoryIsNotManaged =
+            lib.asserts.assertMsg
+              (
+                builtins.any (lib.hasInfix "is also declared in forge.runtime.repositories") (
+                  failedAssertions pullDeployAlsoManagedHost
+                )
+                && failedAssertions pullDeployHost == [ ]
+              )
+              "the pull deploy must refuse an operator repository that is also a managed repository, and accept one that is not";
+          pullDeployTalksToGithub =
+            lib.asserts.assertMsg
+              (
+                lib.elem "FORGE_PULL_DEPLOY_REMOTE=https://github.com/operator-org/operator.git" pullDeployService.serviceConfig.Environment
+                && lib.elem "FORGE_PULL_DEPLOY_API=https://api.github.com" pullDeployService.serviceConfig.Environment
+              )
+              "the pull deploy must default to the operator repository on github.com and the GitHub API";
 
           tailscale = nixos.config.services.tailscale;
           tailnetJoined =
@@ -1944,6 +1987,16 @@
               echo "a host running forge.runtime ships sqlite to inspect the store; an inert host does not" > $out
             '';
 
+          runtime-pull-deploy =
+            assert pullDeployOffByDefault;
+            assert pullDeployKeepsItselfRunning;
+            assert pullDeployReadsRootOwnedEnvironment;
+            assert pullDeployRepositoryIsNotManaged;
+            assert pullDeployTalksToGithub;
+            pkgs.runCommand "runtime-pull-deploy" { } ''
+              echo "the pull deploy is off unless enabled, survives the switch it runs, loads an environment file only root owns, refuses an operator repository that is also managed, and talks to github.com and its API by default" > $out
+            '';
+
           forge-runner = self.packages.${system}.forge-runner;
           frontier-command = pkgs.callPackage ./infra/nix/frontier-command-check.nix { };
           runtime-secrets = pkgs.callPackage ./infra/nix/runtime-secrets-check.nix {
@@ -1957,6 +2010,11 @@
               {
                 name = "repository-without-app-private-key";
                 host = secretsHost ./tests/fixtures/runtime-secrets-without-github-app-private-key.yaml repositoryModule;
+                refusedKey = "github_app_private_key";
+              }
+              {
+                name = "pull-deploy-without-app-private-key";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-app-private-key.yaml pullDeployModule;
                 refusedKey = "github_app_private_key";
               }
               {
@@ -2050,6 +2108,10 @@
             forge-runner = self.packages.${system}.forge-runner;
             sopsModule = sops-nix.nixosModules.sops;
             secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
+          };
+          pull-deploy = pkgs.callPackage ./infra/nix/pull-deploy.nix {
+            sopsModule = sops-nix.nixosModules.sops;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
           run-directories = pkgs.callPackage ./infra/nix/run-directories.nix {

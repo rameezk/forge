@@ -250,6 +250,67 @@ tailnet.
    the device alone while it is still connected, since it may be a running box
    that OpenTofu has lost track of.
 
+## Following main
+
+With the pull deploy on, the box follows this repository's `main` on its own:
+`main` is what the box runs. Every 5 minutes it compares the commit at the head
+of `main` with the commit it runs, and only when they differ does it build that
+commit on the box and switch to it. A hand `just deploy` of changes you have not
+pushed is reverted at the next pull, so use `just deploy` to try a change before
+you push it, and push it to keep it.
+
+Enable it in `flake.nix` by passing a module to `forge.lib.mkHost`, then run
+`just deploy` once, since the box cannot pull until it runs a version that has
+the option:
+
+```nix
+host = forge.lib.mkHost {
+  inherit configFile secretsFile;
+  modules = [
+    { forge.runtime.pullDeploy = { enable = true; repository = "your-org/your-operator-repo"; }; }
+  ];
+};
+```
+
+`repository` is this repository as `owner/name`. The option is off unless you
+enable it.
+
+The box reads this repository, which is usually private, with your
+[GitHub App](#the-github-app), through an installation token narrowed to this
+repository alone with read access to contents. So:
+
+1. Add this repository to the App's installation: open the installation in your
+   GitHub settings and select this repository next to the ones forge manages.
+   Selecting it does not make it a managed repository; that stays what
+   `forge.runtime.repositories` declares. The App's Contents permission already
+   covers the read.
+2. Keep `github_app_id` and `github_app_private_key` in `secrets/runtime.yaml`,
+   even if you declare no managed repository. The build fails, naming the
+   missing key, without them.
+
+Whoever can push to `main` runs code as root on the box, so protect `main`
+with a branch ruleset that limits who can push to it. Do not also declare this
+repository in `forge.runtime.repositories`: the build fails if you do, since a
+workload that could push to `main` would be running code as root.
+
+A commit that fails to build or switch is remembered. The box keeps running its
+previous commit and does not try the failed one again until `main` moves, or
+until you restart the unit by hand on the box:
+
+```bash
+just ssh sudo systemctl restart forge-pull-deploy
+```
+
+The box records its deploy status in `/var/lib/forge-pull-deploy/status.json`: the
+operator commit it runs (`running`), the commit at the head of `main` (`head`)
+and the last switch error, if any (`error`). Read it with
+`just ssh sudo cat /var/lib/forge-pull-deploy/status.json`. A box that has never pulled
+shows `running` as `null` until its first switch.
+
+A pull deploy never interrupts a running workload, for the same reason a
+`just deploy` does not: a dispatch or worker run in flight finishes on what it
+started with.
+
 ## Tailnet setup
 
 Every box joins your [Tailscale](https://tailscale.com) tailnet as a device
