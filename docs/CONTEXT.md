@@ -119,6 +119,10 @@ _Avoid_: backlog, queue
 Forge picking up a frontier ticket that carries the `forge:ready` label and running a workload against it; the ticket's `forge:*` label tracks the dispatch from claim to outcome (ADR-0016). It is done only when its run succeeds and leaves a ready pull request closing the ticket with every required check green, however the repository's skills get there; anything less fails, and forge closes the pull requests its App left for the ticket (ADR-0065, ADR-0066).
 _Avoid_: assignment, scheduling
 
+**Review limit**:
+The most dispatches forge may have in flight or awaiting review across all managed repositories: its running dispatches plus the open pull requests its App opened for them. At the limit forge starts no new dispatch, though revisions and conflict resolutions still run (ADR-0092).
+_Avoid_: WIP limit, PR cap
+
 **Approval**:
 A maintainer applying `forge:ready` to a ticket, which approves the ticket and its parent spec as they stood at that moment; a ticket is dispatched only while its latest approval stands (ADR-0079).
 _Avoid_: sign-off, review
