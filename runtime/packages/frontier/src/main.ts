@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   errorMessage,
+  addEyes,
   appIdentity,
   ensureLabels,
   installationTokens,
@@ -10,6 +11,7 @@ import {
   queryFrontier,
   queryPullRequest,
   queryRequests,
+  queryUnacknowledgedFeedback,
   queryWatchedPullRequests,
   reworkOf,
   settleRunningTickets,
@@ -34,6 +36,13 @@ type RequestPoll = (github: string) => Promise<RefinementRequest[]>;
 type PullRequestPoll = (github: string, number: number) => Promise<PullRequestSnapshot>;
 
 type WatchedPoll = (github: string) => Promise<WatchedPullRequest[]>;
+
+type Acknowledge = (
+  name: string,
+  github: string,
+  watched: readonly WatchedPullRequest[],
+  cursors: ReadonlyMap<number, string | null>,
+) => Promise<boolean>;
 
 const readConfig = (env: NodeJS.ProcessEnv): FrontierConfig => {
   const configPath = env.FORGE_RUNTIME_CONFIG;
@@ -75,6 +84,43 @@ const watchedPolling =
     const { name } = await identity(github);
     const login = name.endsWith(BOT_SUFFIX) ? name.slice(0, -BOT_SUFFIX.length) : name;
     return queryWatchedPullRequests(fetch, await tokens(github, 'read'), github, login);
+  };
+
+const acknowledging =
+  (
+    tokens: InstallationTokens,
+    fetch: Fetch,
+    identity: (github: string) => Promise<{ name: string }>,
+  ): Acknowledge =>
+  async (name, github, watched, cursors) => {
+    let acknowledged = true;
+    for (const { number } of watched) {
+      const where = `${name}#${number}`;
+      let unacknowledged: Awaited<ReturnType<typeof queryUnacknowledgedFeedback>>;
+      try {
+        unacknowledged = await queryUnacknowledgedFeedback(
+          fetch,
+          await tokens(github, 'read'),
+          github,
+          number,
+          cursors.get(number) ?? null,
+          (await identity(github)).name,
+        );
+      } catch (error) {
+        console.error(`${where}: could not read feedback to acknowledge: ${errorMessage(error)}`);
+        acknowledged = false;
+        continue;
+      }
+      for (const { id, url } of unacknowledged) {
+        try {
+          await addEyes(fetch, await tokens(github, 'reactions'), id, where);
+        } catch (error) {
+          console.error(`${where}: could not react to ${url}: ${errorMessage(error)}`);
+          acknowledged = false;
+        }
+      }
+    }
+    return acknowledged;
   };
 
 const refreshPullRequests = async (
@@ -145,6 +191,7 @@ const sync = async (
   pullRequest: PullRequestPoll,
   forgeEmail: (github: string) => Promise<string>,
   watched: WatchedPoll,
+  acknowledge: Acknowledge,
   writes: GithubWrites | null,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
@@ -192,10 +239,18 @@ const sync = async (
         failed = true;
       }
       if (on?.feedback !== undefined || on?.conflict !== undefined) {
+        let pulls: WatchedPullRequest[] = [];
         try {
-          store.recordWatchedPullRequests(name, await watched(github));
+          pulls = await watched(github);
+          store.recordWatchedPullRequests(name, pulls);
         } catch (error) {
           console.error(`${name}: could not poll watched pull requests: ${errorMessage(error)}`);
+          failed = true;
+        }
+        if (
+          on?.feedback !== undefined &&
+          !(await acknowledge(name, github, pulls, store.feedbackCursors(name)))
+        ) {
           failed = true;
         }
       }
@@ -286,6 +341,7 @@ export const main = async (
         pullRequestPolling(tokens, fetch),
         async (github) => (await identity(github)).email,
         watchedPolling(tokens, fetch, identity),
+        acknowledging(tokens, fetch, identity),
         githubWrites(config, tokens, fetch),
       )
     : list(config, poll);

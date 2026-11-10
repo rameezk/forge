@@ -636,6 +636,18 @@ the dispatch that opened it included. A review followed by a comment becomes
 one revision, and a revision therefore starts within roughly the quiet period
 plus the `frontier.pollInterval` of feedback being left.
 
+Forge acknowledges feedback long before that: within one
+`frontier.pollInterval` of a maintainer leaving it, the App adds a 👀 reaction
+to each review summary with a body, inline review comment and conversation
+comment newer than the pull request's cursor, including feedback left while a
+revision runs. A 👀 means forge has seen the comment and the next revision will
+act on it. It stays once the revision has answered, never counts as an answer,
+and is put back by the next sync if a person removes it. Forge reacts with its
+own installation token, which can write issues and pull requests and is used
+for nothing else; the App installation already grants both. A refused reaction
+is logged and fails the sync, and the next sync retries it. Lower
+`frontier.pollInterval` for faster acknowledgements.
+
 Feedback is consumed when a revision starts, so a failed revision is never
 retried automatically, and feedback that arrives during a revision waits for
 the next one. Leave new feedback to start another, or run `forge-revise`.

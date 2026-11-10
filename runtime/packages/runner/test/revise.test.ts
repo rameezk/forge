@@ -127,6 +127,12 @@ interface FeedbackWindowResponse {
 
 const OWNER: Actor = { __typename: 'User', login: 'rameezk' };
 
+const acknowledgeable = <Node extends { url: string }>(node: Node) => ({
+  ...node,
+  id: node.url,
+  reactionGroups: [],
+});
+
 const feedbackWindow = (
   window: {
     reviews?: FeedbackWindowResponse['data']['repository']['pullRequest']['reviews']['nodes'];
@@ -136,8 +142,13 @@ const feedbackWindow = (
   data: {
     repository: {
       pullRequest: {
-        reviews: { nodes: window.reviews ?? [] },
-        comments: { nodes: window.comments ?? [] },
+        reviews: {
+          nodes: (window.reviews ?? []).map((review) => ({
+            ...acknowledgeable(review),
+            comments: { nodes: review.comments.nodes.map(acknowledgeable) },
+          })),
+        },
+        comments: { nodes: (window.comments ?? []).map(acknowledgeable) },
       },
     },
   },

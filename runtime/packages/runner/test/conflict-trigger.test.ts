@@ -137,9 +137,11 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true }: 
                   },
                 },
               }
-            : operation === 'PullRequest'
-              ? { repository: { pullRequest: { state: 'OPEN', mergedAt: null, closedAt: null, commits: empty } } }
-              : undefined;
+            : operation === 'FeedbackWindow'
+              ? { repository: { pullRequest: { reviews: { nodes: [] }, comments: { nodes: [] } } } }
+              : operation === 'PullRequest'
+                ? { repository: { pullRequest: { state: 'OPEN', mergedAt: null, closedAt: null, commits: empty } } }
+                : undefined;
       if (data === undefined) throw new Error(`unexpected GitHub request ${String(operation)}`);
       return new Response(JSON.stringify({ data }), { headers: { 'content-type': 'application/json' } });
     };

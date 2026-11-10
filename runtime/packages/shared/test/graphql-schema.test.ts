@@ -27,13 +27,14 @@ const schema = extendSchema(
 );
 
 const queries = Object.entries<unknown>({ ...approval, ...edits, ...feedback, ...frontier, ...ticketContext }).filter(
-  (entry): entry is [string, string] => entry[0].endsWith('_QUERY') && typeof entry[1] === 'string',
+  (entry): entry is [string, string] => (entry[0].endsWith('_QUERY') || entry[0].endsWith('_MUTATION')) && typeof entry[1] === 'string',
 );
 
 test('given the query constants the feedback and frontier code exports, then forge sends GitHub every query it knows', () => {
   assert.deepEqual(
     queries.map(([name]) => name).sort(),
     [
+      'ADD_EYES_MUTATION',
       'CLOSED_QUERY',
       'CLOSING_PULL_REQUESTS_QUERY',
       'FEEDBACK_ANSWERS_QUERY',
