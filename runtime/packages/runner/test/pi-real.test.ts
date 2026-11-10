@@ -438,6 +438,7 @@ test(
     const { systemPrompt: after, ...others } = second.fingerprint.fingerprint;
     assert.notEqual(before, null);
     assert.notEqual(before, after);
+    assert.equal('instructions' in first.fingerprint.fingerprint, false);
     assert.deepEqual(rest, others);
   },
 );

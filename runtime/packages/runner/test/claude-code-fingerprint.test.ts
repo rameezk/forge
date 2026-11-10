@@ -133,6 +133,6 @@ test('given a checkout whose AGENTS.md is a symlink to a file outside it, when i
   const before = claudeCodeInstructionsHash(first);
   writeFileSync(join(outside, 'secret.md'), 'three\n');
 
-  assert.notEqual(before, null);
+  assert.match(before ?? '', /^[0-9a-f]{64}$/);
   assert.equal(claudeCodeInstructionsHash(first), before);
 });

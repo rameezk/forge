@@ -1,6 +1,6 @@
 import { lstatSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { canonicalHash } from '@forge/shared';
+import { canonicalHash, sha256 } from '@forge/shared';
 import {
   contentHash,
   realpathOrSelf,
@@ -79,7 +79,7 @@ const INSTRUCTIONS_FILES = ['AGENTS.md', 'CLAUDE.md'];
 export const claudeCodeInstructionsHash = (workDir: string): string | null => {
   for (const file of INSTRUCTIONS_FILES) {
     const hash = entryHash(workDir, join(workDir, file));
-    if (hash !== null) return hash;
+    if (hash !== null) return sha256(hash);
   }
   return null;
 };
