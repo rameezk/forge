@@ -1324,21 +1324,46 @@
               )
               "a workload must not reach the tailnet: the runner and dispatch units, and the nix daemon whose builds a workload can start, deny every tailnet address, and the box keeps its own DNS rather than the tailnet's resolver, so workloads still resolve names";
           memoryHost =
-            memoryMax:
+            sharedMemoryMax:
             secretsHost exampleSecretsFile {
               imports = [ dispatchModule ];
-              forge.runtime.workload.memoryMax = memoryMax;
+              forge.runtime.workload.sharedMemoryMax = sharedMemoryMax;
             };
-          workloadMemoryBound =
-            host: memoryMax:
-            lib.all
-              (unit: unit.serviceConfig.MemoryMax == memoryMax && unit.serviceConfig.OOMPolicy == "continue")
-              [
-                host.config.systemd.services."forge-runner@"
-                host.config.systemd.services."forge-dispatch@"
-              ];
-          workloadMemoryBounded = lib.asserts.assertMsg (workloadMemoryBound dispatchHost "80%") "the runner and dispatch units must cap a workload at 80% of the box's memory by default, and carry on when the kernel OOM-kills one of its processes, so the agent sees the command fail rather than the whole workload stopping";
-          workloadMemoryConfigurable = lib.asserts.assertMsg (workloadMemoryBound (memoryHost "6G") "6G") "forge.runtime.workload.memoryMax must set the runner and dispatch units' memory cap";
+          sharedSlice = "forge-workloads.slice";
+          workloadUnits = [
+            dispatchHost.config.systemd.services."forge-runner@"
+            dispatchHost.config.systemd.services."forge-dispatch@"
+            reviseHost.config.systemd.services."forge-revise@"
+            resolveHost.config.systemd.services."forge-resolve-conflicts@"
+          ];
+          workloadsShareSlice =
+            lib.asserts.assertMsg
+              (
+                lib.all (
+                  unit:
+                  unit.serviceConfig.Slice == sharedSlice
+                  && !(unit.serviceConfig ? MemoryMax)
+                  && unit.serviceConfig.OOMPolicy == "continue"
+                ) workloadUnits
+                && dispatchHost.config.systemd.services.nix-daemon.serviceConfig.Slice == sharedSlice
+              )
+              "the runner, dispatch, revise and resolve-conflicts units and the nix daemon must share forge-workloads.slice, with no workload unit setting its own MemoryMax, and the workload units must carry on past a kernel OOM kill";
+          sliceMemoryMax = host: host.config.systemd.slices.forge-workloads.sliceConfig.MemoryMax;
+          sharedMemoryConfigurable =
+            lib.asserts.assertMsg
+              (sliceMemoryMax dispatchHost == "80%" && sliceMemoryMax (memoryHost "6G") == "6G")
+              "forge.runtime.workload.sharedMemoryMax must set the shared slice's MemoryMax, 80% of the box's memory by default";
+          daemonContinuesPastOom = lib.asserts.assertMsg (
+            dispatchHost.config.systemd.services.nix-daemon.serviceConfig.OOMPolicy == "continue"
+          ) "the nix daemon must carry on past a kernel OOM kill, so only the killed build fails";
+          removedMemoryMaxFails = lib.asserts.assertMsg (
+            !(evaluates (
+              secretsHost exampleSecretsFile {
+                imports = [ dispatchModule ];
+                forge.runtime.workload.memoryMax = "6G";
+              }
+            ))
+          ) "setting the removed forge.runtime.workload.memoryMax must fail evaluation";
           malformedMemoryMaxFails =
             lib.asserts.assertMsg
               (
@@ -1364,7 +1389,7 @@
                   "infinity"
                 ]
               )
-              "a forge.runtime.workload.memoryMax that systemd would not read as a non-zero size, a percentage up to 100% or infinity must fail evaluation, rather than systemd ignoring it and leaving the workload unbounded";
+              "a forge.runtime.workload.sharedMemoryMax that systemd would not read as a non-zero size, a percentage up to 100% or infinity must fail evaluation, rather than systemd ignoring it and leaving the workloads unbounded";
           timeoutModule =
             {
               workload ? null,
@@ -1830,11 +1855,13 @@
             '';
 
           runtime-workload-memory =
-            assert workloadMemoryBounded;
-            assert workloadMemoryConfigurable;
+            assert workloadsShareSlice;
+            assert sharedMemoryConfigurable;
+            assert daemonContinuesPastOom;
+            assert removedMemoryMaxFails;
             assert malformedMemoryMaxFails;
             pkgs.runCommand "runtime-workload-memory" { } ''
-              echo "the runner and dispatch units cap a workload's memory at forge.runtime.workload.memoryMax, 80% of the box by default, and carry on past a kernel OOM kill" > $out
+              echo "the workload units and the nix daemon share forge-workloads.slice, capped at forge.runtime.workload.sharedMemoryMax, 80% of the box by default, and carry on past a kernel OOM kill; the removed forge.runtime.workload.memoryMax fails evaluation" > $out
             '';
 
           runtime-workload-timeout =

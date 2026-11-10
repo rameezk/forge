@@ -253,6 +253,11 @@ let
     message = "forge.runtime.dispatch.gitIdentity was removed: commits are authored by the GitHub App's bot, so drop the option";
   };
 
+  removedMemoryMaxAssertion = {
+    assertion = cfg.workload.memoryMax == null;
+    message = "forge.runtime.workload.memoryMax was removed: workloads and the nix daemon now share one memory budget, so set forge.runtime.workload.sharedMemoryMax instead";
+  };
+
   workerPairingAssertions = lib.concatLists (
     lib.mapAttrsToList (
       name: w:
@@ -466,8 +471,10 @@ let
     IPAddressDeny = tailnetAddresses;
   };
 
+  workloadSlice = "forge-workloads.slice";
+
   workloadMemory = {
-    MemoryMax = cfg.workload.memoryMax;
+    Slice = workloadSlice;
     OOMPolicy = "continue";
   };
 
@@ -550,7 +557,7 @@ in
       type = lib.types.ints.positive;
       default = 1;
       example = 2;
-      description = "How many workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync, or running a revision started with `forge-revise` or a conflict resolution started with `forge-resolve-conflicts`. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch, revision or conflict resolution over it is refused.";
+      description = "How many workloads may run at once, across every managed repository, whether dispatched by hand with `forge-dispatch` or by the dispatch pass that follows each frontier sync, or running a revision started with `forge-revise` or a conflict resolution started with `forge-resolve-conflicts`. Tickets from the same repository may run in parallel. A ticket over the limit stays `forge:ready` until a later pass finds a free slot, and a manual dispatch, revision or conflict resolution over it is refused. Workloads running at once share the memory budget, `forge.runtime.workload.sharedMemoryMax`.";
     };
 
     feedback.quietPeriod = lib.mkOption {
@@ -568,13 +575,20 @@ in
     };
 
     workload.memoryMax = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      visible = false;
+      description = "Removed: use `forge.runtime.workload.sharedMemoryMax`. Setting it fails evaluation.";
+    };
+
+    workload.sharedMemoryMax = lib.mkOption {
       type =
         lib.types.addCheck
           (lib.types.strMatching "[0-9]+|[0-9]+(\\.[0-9]+)?[KMGTPE]|[0-9]{1,2}(\\.[0-9]{1,2})?%|100(\\.0{1,2})?%|infinity")
           (value: builtins.match "[0.]+[KMGTPE%]?" value == null);
       default = "80%";
       example = "6G";
-      description = "Memory a single workload may use, harness, subagents and every command they run included, as a systemd `MemoryMax=` value: a size such as `6G`, or a percentage of the box's physical memory. A workload that goes over it has its largest process, in practice the runaway command, killed by the kernel, and carries on: the agent sees that command exit with 137. The limit is per workload, so workloads running at once can together use more, and builds the nix daemon runs for a workload fall outside it.";
+      description = "Memory every running workload, harness, subagents and commands included, and every build the nix daemon runs, deploy builds included, may use together, as a systemd `MemoryMax=` value: a size such as `6G`, or a percentage of the box's physical memory. The rest is kept for the box's own services. A workload or build that takes the budget past it has the largest process in the budget, in practice the runaway command or builder, killed by the kernel, and the agent sees that command exit with 137. Because the budget is shared, a workload can lose a command to another workload or build, and a deploy that builds while workloads are busy can fail (safe to re-run) or cause a workload's command to be killed. The box has no swap: size it for the heaviest set of workloads running at once with their builds.";
     };
 
     workload.maxCost = lib.mkOption {
@@ -646,6 +660,7 @@ in
     {
       assertions = [
         removedGitIdentityAssertion
+        removedMemoryMaxAssertion
         untrustedAssertion
         dashboardTimeZoneAssertion
       ]
@@ -663,7 +678,13 @@ in
         "flakes"
       ];
 
-      systemd.services.nix-daemon.serviceConfig.IPAddressDeny = tailnetAddresses;
+      systemd.services.nix-daemon.serviceConfig = {
+        IPAddressDeny = tailnetAddresses;
+        Slice = workloadSlice;
+        OOMPolicy = "continue";
+      };
+
+      systemd.slices.forge-workloads.sliceConfig.MemoryMax = cfg.workload.sharedMemoryMax;
 
       nix.gc = {
         automatic = true;
