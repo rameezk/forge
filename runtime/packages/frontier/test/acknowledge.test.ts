@@ -11,6 +11,7 @@ import {
   APP_SLUG,
   fakeGithubApp,
   routedThrough,
+  sentWith,
   tokenFor,
 } from '../../shared/test/fixtures/fake-github-app.ts';
 
@@ -148,7 +149,7 @@ const json = (body: unknown, status = 200): Response =>
     headers: { 'content-type': 'application/json' },
   });
 
-const github = (pulls: Pull[], refused: string[] = []) => {
+const github = (pulls: Pull[], refused: string[] = [], viewerKind: 'read' | 'write' = 'read') => {
   const reactions: Reaction[] = [];
   const people = pulls.flatMap((p) => [
     p.author,
@@ -179,9 +180,7 @@ const github = (pulls: Pull[], refused: string[] = []) => {
         ? json({ data: null, errors: [{ message: 'Resource not accessible by integration' }] })
         : json({ data: { addReaction: { reaction: { content: 'EYES' } } } });
     }
-    const viewer = /^bearer ghs_read_/.test(new Headers(init?.headers).get('authorization') ?? '')
-      ? FORGE
-      : null;
+    const viewer = sentWith(init, viewerKind) ? FORGE : null;
     const operation = /query (\w+)/.exec(body.query)?.[1];
     const target = pulls.find(({ number }) => number === body.variables.number);
     const data =
@@ -323,6 +322,19 @@ test('given the same feedback where each item already carries the App\'s eyes, w
   assert.equal(code, 0);
   assert.deepEqual(fake.reactions, []);
   assert.equal(setup.app.mints.filter(({ kind }) => kind === 'reactions').length, 0);
+});
+
+test('given feedback the App has reacted to with eyes, when sync reads it with a token for a different identity, then it reads as unacknowledged and the App adds eyes again', async (t) => {
+  quietly(t);
+  const setup = declaring(FEEDBACK_REPOSITORY);
+  revised(setup.stateDir, 7, 60, true);
+  const comment = item(ago(18), MAINTAINER, [FORGE]);
+  const fake = github([pull(7, { comments: [comment] })], [], 'write');
+
+  const code = await syncWith(setup, fake);
+
+  assert.equal(code, 0);
+  assert.deepEqual(reactedTo(fake), [comment.id]);
 });
 
 test('given a maintainer comment newer than the cursor that carries a person\'s eyes but not the App\'s, when sync runs, then the App adds its eyes', async (t) => {

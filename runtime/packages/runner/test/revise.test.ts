@@ -22,6 +22,7 @@ import {
   APP_ID,
   fakeGithubApp,
   routedThrough,
+  sentWith,
   BOT_EMAIL,
   BOT_LOGIN,
   APP_SLUG,
@@ -265,6 +266,7 @@ interface Scenario {
   piPackage?: string;
   timeoutSeconds?: number;
   piLingerMs?: number;
+  viewerKind?: 'read' | 'write';
   hangingClone?: boolean;
   setupTimeoutSeconds?: number;
 }
@@ -365,9 +367,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
     }
     assert.equal(pathname, '/graphql');
     const { query } = JSON.parse(String(init?.body)) as { query: string };
-    const viewer = /^bearer ghs_read_/.test(new Headers(init?.headers).get('authorization') ?? '')
-      ? FORGE_APP
-      : null;
+    const viewer = sentWith(init, scenario.viewerKind ?? 'read') ? FORGE_APP : null;
     const answer = query.includes('query FeedbackWindow')
       ? scenario.feedback ?? feedbackWindow({ comments: [conversationComment()] })
       : query.includes('query FeedbackAnswers')
@@ -1006,6 +1006,15 @@ test('given a revision handed two items, when after the run only one has been an
   assert.equal(code, 1);
   assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
     { state: 'failed', reason: 'unanswered', detail: `${PULL_REQUEST_URL}#issuecomment-2` },
+  ]);
+});
+
+test('given a revision handed a conversation comment that forge\'s App reacted to with a 👍, when forge-revise checks answers with a token for a different identity, then the comment is unanswered', async () => {
+  const { code, revisions } = await revise({ viewerKind: 'write' });
+
+  assert.equal(code, 1);
+  assert.deepEqual(revisions.map(({ state, reason, detail }) => ({ state, reason, detail })), [
+    { state: 'failed', reason: 'unanswered', detail: COMMENT_URL },
   ]);
 });
 
