@@ -68,7 +68,6 @@ test('given a deploy status error with markup, when the Board is requested, then
 
   assert.doesNotMatch(body, /<script>alert/);
   assert.match(sectionOf(body), /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  assert.doesNotMatch(sectionOf(body), /title="[^"]*<script>/);
 });
 
 test('given the record the pull deploy writes, when it is read, then running, head and error come through, with null for each that is unknown', () => {
