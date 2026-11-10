@@ -276,6 +276,36 @@ test(
   },
 );
 
+test(
+  'given the locked claude and two repos that differ only in AGENTS.md, when each runs, then the fingerprints differ in their instructions and nothing else',
+  { skip },
+  async () => {
+    const first = await runRealClaude({ files: { 'AGENTS.md': 'Prefer tabs.\n' } });
+    const second = await runRealClaude({ files: { 'AGENTS.md': 'Prefer spaces.\n' } });
+
+    assert.ok(first.fingerprint);
+    assert.ok(second.fingerprint);
+    assert.notEqual(first.fingerprint.hash, second.fingerprint.hash);
+    const { instructions: before, ...rest } = first.fingerprint.fingerprint;
+    const { instructions: after, ...others } = second.fingerprint.fingerprint;
+    assert.equal(typeof before, 'string');
+    assert.equal(typeof after, 'string');
+    assert.notEqual(before, after);
+    assert.deepEqual(rest, others);
+  },
+);
+
+test(
+  'given the locked claude and a repo with no AGENTS.md or CLAUDE.md, when it runs, then the fingerprint records that it has no instructions',
+  { skip },
+  async () => {
+    const { fingerprint } = await runRealClaude({ files: { 'README.md': 'a repo\n' } });
+
+    assert.ok(fingerprint);
+    assert.equal(fingerprint.fingerprint.instructions, null);
+  },
+);
+
 const PROJECT_HOOK = {
   hooks: {
     PreToolUse: [

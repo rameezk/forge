@@ -13,7 +13,8 @@ import type { ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { CacheWarmEvent, CompactionEvent, HarnessEvent, MessageEvent } from '@forge/shared';
+import type { CacheWarmEvent, CompactionEvent, HarnessEvent, MessageEvent, RunFingerprint } from '@forge/shared';
+import { FingerprintRecorder } from '../src/fingerprint.ts';
 import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { PiHarness, piModelsJson } from '../src/index.ts';
 import type { ListedModel } from '../src/openrouter.ts';
@@ -122,6 +123,7 @@ interface RealPiRun {
   agentDir: string[];
   rawEvents: unknown[];
   requestRecord: unknown[];
+  fingerprint: RunFingerprint | null;
 }
 
 const LISTED_REASONING_MODEL: ListedModel = {
@@ -203,27 +205,36 @@ const runRealPi = async (
   const events: HarnessEvent[] = [];
   const rawEvents: unknown[] = [];
   const requestRecord: unknown[] = [];
+  let fingerprint: RunFingerprint | null = null;
   try {
-    for await (const event of harness.open({ runId: 'run-1', model, listedModel: null }).run(
-      {
-        model,
-        workDir,
-        ...effort,
-        ...(await workload(workDir)),
+    const invocation = { model, workDir, ...effort, ...(await workload(workDir)) };
+    const run = harness.open({ runId: 'run-1', model, listedModel: null });
+    const recorder = new FingerprintRecorder({
+      worker: { name: 'refiner', harness: 'pi', provider: 'openrouter', model, prompt: invocation.prompt, promptTemplate: 'work the ticket' },
+      identity: await run.identity(),
+      basis: run.fingerprintBasis(invocation),
+      skills: null,
+      baseCommit: null,
+      forgeGitSha: null,
+      record: (recorded) => {
+        fingerprint = recorded;
       },
-      {
-        stop: new AbortController().signal,
-        rawEvent: (event) => rawEvents.push(event),
-        requestRecord: (line) => requestRecord.push(line),
+    });
+    for await (const event of run.run(invocation, {
+      stop: new AbortController().signal,
+      rawEvent: (event) => rawEvents.push(event),
+      requestRecord: (line) => {
+        recorder.observe(line);
+        requestRecord.push(line);
       },
-    )) {
+    })) {
       if (event.type !== 'skill_load') events.push(event);
     }
   } finally {
     server.close();
     await once(server, 'close');
   }
-  return { events, agentDir: readdirSync(agentDir), rawEvents, requestRecord };
+  return { events, agentDir: readdirSync(agentDir), rawEvents, requestRecord, fingerprint: fingerprint as RunFingerprint | null };
 };
 
 const assistantMessages = (events: HarnessEvent[]): MessageEvent[] =>
@@ -400,6 +411,34 @@ test(
       error: null,
     });
     assert.deepEqual(agentDir, ['models.json']);
+  },
+);
+
+const withInstructions =
+  (instructions: string): Workload =>
+  async (workDir) => {
+    writeFileSync(join(workDir, 'AGENTS.md'), instructions);
+    return {
+      prompt: 'Run echo forge, then say what it printed.',
+      checkout: await resolveCheckout(workDir, await loadPiSkills(piPackage as string)),
+    };
+  };
+
+test(
+  'given the locked pi and two repos that differ only in AGENTS.md, when each runs, then the fingerprints differ in the system prompt and nothing else',
+  { skip },
+  async () => {
+    const first = await runRealPi(replies, { workload: withInstructions('Prefer tabs.\n') });
+    const second = await runRealPi(replies, { workload: withInstructions('Prefer spaces.\n') });
+
+    assert.ok(first.fingerprint);
+    assert.ok(second.fingerprint);
+    assert.notEqual(first.fingerprint.hash, second.fingerprint.hash);
+    const { systemPrompt: before, ...rest } = first.fingerprint.fingerprint;
+    const { systemPrompt: after, ...others } = second.fingerprint.fingerprint;
+    assert.notEqual(before, null);
+    assert.notEqual(before, after);
+    assert.deepEqual(rest, others);
   },
 );
 

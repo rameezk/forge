@@ -74,6 +74,16 @@ export const claudeCodeSettingsHash = (workDir: string): string | null => {
   return entries.length === 0 ? null : canonicalHash(entries);
 };
 
+const INSTRUCTIONS_FILES = ['AGENTS.md', 'CLAUDE.md'];
+
+export const claudeCodeInstructionsHash = (workDir: string): string | null => {
+  for (const file of INSTRUCTIONS_FILES) {
+    const hash = entryHash(workDir, join(workDir, file));
+    if (hash !== null) return hash;
+  }
+  return null;
+};
+
 const slugOf = (path: string): string => path.replace(/[^a-zA-Z0-9]/g, '-');
 
 const BUILD_SUFFIX = /(cc_version=\d+\.\d+\.\d+)\.[0-9a-f]+/g;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { claudeCodeNormalizer, claudeCodeSettingsHash } from '../src/claude-code-fingerprint.ts';
+import { claudeCodeInstructionsHash, claudeCodeNormalizer, claudeCodeSettingsHash } from '../src/claude-code-fingerprint.ts';
 
 const GIT_STATUS = (branch: string, status: string, commits: string): string =>
   `Intro.\n# gitStatus\nThis is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.\n\nCurrent branch: ${branch}\n\nMain branch (you will usually use this for PRs): main\n\nGit user: n\n\nStatus:\n${status}\n\nRecent commits:\n${commits}\n\nTrailing text that is part of the prompt.`;
@@ -111,4 +111,28 @@ test('given a hook that is a symlink to a file inside the checkout, when that fi
 
   writeFileSync(join(root, 'scripts/check.sh'), 'echo two\n');
   assert.notEqual(claudeCodeSettingsHash(root), before);
+});
+
+test('given checkouts with and without AGENTS.md and CLAUDE.md, when their instructions are hashed, then none is null, AGENTS.md wins over CLAUDE.md as in pi, and each change to the chosen file changes the hash', () => {
+  const hash = claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'one\n' }));
+
+  assert.equal(claudeCodeInstructionsHash(checkout({})), null);
+  assert.equal(claudeCodeInstructionsHash(checkout({ 'README.md': 'x' })), null);
+  assert.equal(claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'one\n' })), hash);
+  assert.notEqual(claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'two\n' })), hash);
+  assert.notEqual(claudeCodeInstructionsHash(checkout({ 'CLAUDE.md': 'one\n' })), null);
+  assert.equal(claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'one\n', 'CLAUDE.md': 'two\n' })), hash);
+});
+
+test('given a checkout whose AGENTS.md is a symlink to a file outside it, when its instructions are hashed, then the outside file is not read', () => {
+  const outside = checkout({ 'secret.md': 'one\n' });
+  const first = checkout({});
+  symlinkSync(join(outside, 'secret.md'), join(first, 'AGENTS.md'));
+  writeFileSync(join(outside, 'secret.md'), 'two\n');
+
+  const before = claudeCodeInstructionsHash(first);
+  writeFileSync(join(outside, 'secret.md'), 'three\n');
+
+  assert.notEqual(before, null);
+  assert.equal(claudeCodeInstructionsHash(first), before);
 });
