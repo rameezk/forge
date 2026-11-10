@@ -75,7 +75,7 @@ let
         echo "$?" > build-after.out
         ;;
       pair*)
-        bash -c 'tail /dev/zero'
+        bash -c 'x=$(head -c 160000000 /dev/zero | tr "\\0" a); sleep 600'
         echo "$?" > pair.out
         ;;
       probe*)
@@ -213,7 +213,8 @@ testers.runNixOSTest {
     with subtest("workloads running at once are killed together inside the shared budget, and the box carries on"):
         box.succeed("dmesg --clear")
         box.succeed("systemctl start --no-block forge-runner@pair1 forge-runner@pair2")
-        box.wait_until_succeeds("test $(cat /var/lib/forge/work/*/pair.out | grep -c '^137$') = 2", timeout=120)
+        box.wait_until_succeeds("cat /var/lib/forge/work/*/pair.out | grep -qx 137", timeout=120)
+        box.succeed("systemctl stop forge-runner@pair1 forge-runner@pair2")
         kill = box.succeed("dmesg | grep oom-kill:")
         assert "oom_memcg=/forge.slice/forge-workloads.slice" in kill and "CONSTRAINT_NONE" not in kill, kill
         box.succeed("systemctl is-active forge-frontend.service sshd.service")
