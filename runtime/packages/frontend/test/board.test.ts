@@ -925,3 +925,15 @@ test('given a null review limit and 10 open pull requests, when the Board is req
   assert.doesNotMatch(inReviewHeader(body), /data-review-limit/);
   assert.doesNotMatch(cardOf(body, 9), /data-held/);
 });
+
+test('given the review limit is reached and a forge:ready ticket whose earlier dispatch failed, when the Board is requested, then it stays in Failed and is held', async () => {
+  const app = appWith([frontierOf([ticket({ number: 9, forgeReady: true })])], (store) => {
+    for (const number of [1, 2, 3, 4, 5]) inReview(store, number);
+    failedAttempt(store, 9, null, '2026-09-30T08:00:00.000Z');
+  }, 5, 5);
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))).failed, ['9']);
+  assert.deepEqual(pillsOf(cardOf(body, 9)).filter((pill) => pill === 'held: review limit'), ['held: review limit']);
+});

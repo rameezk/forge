@@ -195,9 +195,12 @@ const renderPolled = (polledAt: string | null, timeZone: string): Rendered =>
     ? html`<span class="${POLLED}">Never polled</span>`
     : html`<span class="${POLLED}">Last polled ${renderTimestamp(polledAt, timeZone)}</span>`;
 
-const renderReviewLimit = ({ open, limit }: ReviewSlots): Rendered => {
-  if (limit === null) return '';
-  return html`<span data-review-limit${open >= limit ? html` data-full` : ''} title="Dispatches running or awaiting review, out of the review limit" class="${PILL} ${open >= limit ? FULL_TONE : OPEN_TONE} tabular-nums">${open} / ${limit}</span>`;
+const reviewFull = ({ open, limit }: ReviewSlots): boolean => limit !== null && open >= limit;
+
+const renderReviewLimit = (review: ReviewSlots): Rendered => {
+  if (review.limit === null) return '';
+  const full = reviewFull(review);
+  return html`<span data-review-limit${full ? html` data-full` : ''} title="Dispatches running or awaiting review, out of the review limit" class="${PILL} ${full ? FULL_TONE : OPEN_TONE} tabular-nums">${review.open} / ${review.limit}</span>`;
 };
 
 const renderColumnHeaders = (counts: Record<ColumnKey, number>, review: ReviewSlots): Rendered =>
@@ -308,7 +311,7 @@ export const renderBoard = (
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
           <div class="sm:min-w-[76.5rem]">
             ${renderColumnHeaders(totals(lanes), review)}
-            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', review.limit !== null && review.open >= review.limit, attempted, display.timeZone, runs))}
+            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', reviewFull(review), attempted, display.timeZone, runs))}
           </div>
         </div>`}`;
   return layout('Board', 'board', true, display, body, 'always');
