@@ -78,7 +78,7 @@ testers.runNixOSTest {
   name = "pull-deploy";
 
   nodes.box =
-    { pkgs, ... }:
+    { config, pkgs, ... }:
     {
       imports = [
         sopsModule
@@ -110,7 +110,9 @@ testers.runNixOSTest {
         apiBase = "http://127.0.0.1:8080";
         intervalSeconds = 2;
       };
-      systemd.services.forge-pull-deploy.serviceConfig.RestartSec = lib.mkForce "1s";
+      systemd.services = lib.mkIf config.forge.runtime.pullDeploy.enable {
+        forge-pull-deploy.serviceConfig.RestartSec = lib.mkForce "1s";
+      };
 
       systemd.services.fake-github = {
         wantedBy = [ "multi-user.target" ];
