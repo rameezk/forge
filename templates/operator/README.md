@@ -976,15 +976,41 @@ just ssh sudo -u forge-runtime sqlite3 -readonly /var/lib/forge/forge.db \
 
 ## Pinning forge
 
-`flake.nix` consumes forge as `github:rameezk/forge`. Pin it to a specific ref
-for reproducible builds:
+`.github/workflows/forge-bump.yml` runs `scripts/forge-bump.sh` every hour. The
+script moves the locked `forge` input to forge's latest commit, runs the
+divergence guard on the bumped lock, and only if the guard passes pushes one
+commit, `chore: update forge to <short-rev>`, straight to `main`. The commit body
+lists the subjects of the upstream commits it pulls in. It makes no commit when
+forge has not moved. When the guard fails it pushes nothing and keeps one open
+issue in this repository reporting the failure, and the issue closes once a later
+bump passes. The workflow needs permission to push to `main` and to write issues,
+so a branch protection rule on `main` must let the workflow's token push. The
+job evaluates forge's latest code with that token and the failure issue quotes
+the guard's output, so follow forge only if you trust it, and pin it otherwise.
 
-```bash
-nix flake lock --override-input forge github:rameezk/forge/<commit>
+To stop following forge's latest commit, pin the `forge` input to a rev by
+setting its URL in `flake.nix` to the full 40-character commit, then lock it:
+
+```nix
+forge.url = "github:rameezk/forge/<commit>";
 ```
 
+```bash
+nix flake update forge
+```
+
+The bump leaves a `forge` input pinned to a rev alone. Do not pin with
+`nix flake lock --override-input forge ...`: the lock it writes does not match
+`flake.nix`, and the next bump replaces it with forge's latest commit. To follow
+forge again, set the URL back to `github:rameezk/forge`.
+
+GitHub disables scheduled workflows in a repository after 60 days without
+repository activity. A long quiet spell in forge, with no bump landing here, stops
+the bump silently until you re-enable the workflow under the repository's Actions
+tab.
+
 For co-developing forge and this repository together, override the input with a
-local path:
+local path for a single command, which leaves the lock alone:
 
 ```bash
 nix flake check --override-input forge path:/path/to/forge
@@ -998,8 +1024,9 @@ the two references in step. To co-develop against a local forge, point the modul
 ## Upgrading forge
 
 Updating the forge input changes the box's NixOS system and your toolchain, but
-not the files this repository was scaffolded with. `justfile`, this README and
-`tests/divergence-guard.sh` are copies of forge's template, so a new forge
+not the files this repository was scaffolded with. `justfile`, this README,
+`tests/divergence-guard.sh`, `scripts/forge-bump.sh` and
+`.github/workflows/forge-bump.yml` are copies of forge's template, so a new forge
 version can need new copies of them, and new secrets.
 
 1. Update the forge input, or lock it to a new commit as
@@ -1021,7 +1048,8 @@ version can need new copies of them, and new secrets.
    ```
 
 3. Copy over each file that differs and that you have not changed yourself,
-   such as `justfile`, `README.md` and `tests/divergence-guard.sh`. Merge
+   such as `justfile`, `README.md`, `tests/divergence-guard.sh`, `scripts/forge-bump.sh`
+   and `.github/workflows/forge-bump.yml`. Merge
    `flake.nix`, `.sops.yaml` and `infra/opentofu/main.tf` by hand instead,
    since they hold your workers, recipients and module ref. `config.json`,
    `known_hosts` and `secrets/` are never in the template.

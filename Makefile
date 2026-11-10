@@ -1,6 +1,6 @@
-.PHONY: check check-no-vm flake-check flake-check-no-vm vm-tests tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only test-em-dash-check em-dash-check
+.PHONY: check check-no-vm flake-check flake-check-no-vm vm-tests tofu-test test-generic test-scaffold test-forge-bump test-failed-build-log test-markdown-only test-em-dash-check em-dash-check
 
-TESTS = tofu-test test-generic test-scaffold test-failed-build-log test-markdown-only test-em-dash-check em-dash-check
+TESTS = tofu-test test-generic test-scaffold test-forge-bump test-failed-build-log test-markdown-only test-em-dash-check em-dash-check
 
 check: flake-check vm-tests $(TESTS)
 
@@ -29,6 +29,9 @@ test-generic:
 
 test-scaffold:
 	bash tests/template-scaffold.sh
+
+test-forge-bump:
+	bash tests/forge-bump.sh
 
 test-failed-build-log:
 	bash tests/failed-build-log.sh
