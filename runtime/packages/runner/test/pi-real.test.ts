@@ -13,12 +13,26 @@ import type { ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { CacheWarmEvent, CompactionEvent, HarnessEvent, MessageEvent } from '@forge/shared';
+import type {
+  CacheWarmEvent,
+  CompactionEvent,
+  HarnessEvent,
+  MessageEvent,
+  RunFingerprint,
+  TicketContext,
+} from '@forge/shared';
 import { SUBAGENT_TOOL } from '@forge/pi-subagent';
 import { PiHarness, piModelsJson } from '../src/index.ts';
 import type { ListedModel } from '../src/openrouter.ts';
 import { loadPiSkills, resolveCheckout } from '../src/checkout.ts';
-import { withEffort, type HarnessInvocation } from '../src/harness.ts';
+import { FingerprintRecorder } from '../src/fingerprint.ts';
+import {
+  dispatchContext,
+  NARRATION_INSTRUCTION,
+  UNATTENDED_INSTRUCTION,
+  withEffort,
+  type HarnessInvocation,
+} from '../src/harness.ts';
 import {
   alphaChild,
   bash,
@@ -42,6 +56,8 @@ import {
   FORCE_CACHE_WARM_EXTENSION,
   PI_EXTENSIONS,
   PASSTHROUGH_BWRAP,
+  OWN_CONTEXT_CASES,
+  ticketContextOf,
 } from './helpers.ts';
 
 const piPackage = process.env.FORGE_PI_PACKAGE;
@@ -81,23 +97,27 @@ const recording = (
   respond(call, res, request, headers);
 };
 
-const replies: Respond = (call, res) =>
+const repliesWith =
+  (suffix: string): Respond =>
+  (call, res) =>
   sse(
     res,
     call === 1
       ? toolCallReply(
-          'gen-real-1',
+          `gen-real-1${suffix}`,
           'Let me look.',
           [bash('echo forge')],
           usage(1200, 0, 40, 1000),
           'I should run the command.',
         )
       : textReply(
-          'gen-real-2',
+          `gen-real-2${suffix}`,
           'The command printed forge.',
           usage(1300, 1000, 25, 200),
         ),
   );
+
+const replies: Respond = repliesWith('');
 
 const unreadCacheDetail =
   (respond: Respond): Respond =>
@@ -112,12 +132,13 @@ const unreadCacheDetail =
 
 type Workload = (
   workDir: string,
-) => Promise<Pick<HarnessInvocation, 'prompt' | 'checkout'>>;
+) => Promise<Pick<HarnessInvocation, 'prompt' | 'checkout' | 'instruction'>>;
 
 const echoForge: Workload = () =>
   Promise.resolve({ prompt: 'Run echo forge, then say what it printed.' });
 
 interface RealPiRun {
+  fingerprint: RunFingerprint | null;
   events: HarnessEvent[];
   agentDir: string[];
   rawEvents: unknown[];
@@ -203,27 +224,54 @@ const runRealPi = async (
   const events: HarnessEvent[] = [];
   const rawEvents: unknown[] = [];
   const requestRecord: unknown[] = [];
+  let fingerprint: RunFingerprint | null = null;
   try {
-    for await (const event of harness.open({ runId: 'run-1', model, listedModel: null }).run(
-      {
+    const invocation: HarnessInvocation = {
+      model,
+      workDir,
+      ...effort,
+      ...(await workload(workDir)),
+    };
+    const run = harness.open({ runId: 'run-1', model, listedModel: null });
+    const recorder = new FingerprintRecorder({
+      worker: {
+        name: 'builder',
+        harness: 'pi',
+        provider: 'openrouter',
         model,
-        workDir,
-        ...effort,
-        ...(await workload(workDir)),
+        prompt: invocation.prompt,
+        promptTemplate: 'work the ticket',
       },
-      {
-        stop: new AbortController().signal,
-        rawEvent: (event) => rawEvents.push(event),
-        requestRecord: (line) => requestRecord.push(line),
+      identity: await run.identity(),
+      basis: run.fingerprintBasis(invocation),
+      skills: null,
+      baseCommit: null,
+      forgeGitSha: null,
+      record: (recorded) => {
+        fingerprint = recorded;
       },
-    )) {
+    });
+    for await (const event of run.run(invocation, {
+      stop: new AbortController().signal,
+      rawEvent: (event) => rawEvents.push(event),
+      requestRecord: (line) => {
+        recorder.observe(line);
+        requestRecord.push(line);
+      },
+    })) {
       if (event.type !== 'skill_load') events.push(event);
     }
   } finally {
     server.close();
     await once(server, 'close');
   }
-  return { events, agentDir: readdirSync(agentDir), rawEvents, requestRecord };
+  return {
+    fingerprint: fingerprint as RunFingerprint | null,
+    events,
+    agentDir: readdirSync(agentDir),
+    rawEvents,
+    requestRecord,
+  };
 };
 
 const assistantMessages = (events: HarnessEvent[]): MessageEvent[] =>
@@ -349,6 +397,13 @@ const delegateSkill: Workload = async (workDir) => {
     ),
   };
 };
+
+const ticketWorkload =
+  (ticket: TicketContext): Workload =>
+  async (workDir) => {
+    const base = await delegateSkill(workDir);
+    return { ...base, prompt: `${base.prompt}\n\n${dispatchContext(ticket)}` };
+  };
 
 const generationsBy = (
   events: HarnessEvent[],
@@ -598,3 +653,75 @@ test(
     );
   },
 );
+
+const systemTextOf = ({ messages }: Requested): string =>
+  JSON.stringify(messages.filter(({ role }) => role === 'system'));
+
+const firstUserTextOf = ({ messages }: Requested): string =>
+  JSON.stringify(messages.find(({ role }) => role === 'user'));
+
+test(
+  'given the locked pi and a dispatch with ticket and parent spec context that spawns subagents, when it runs, then the context is in the first user message and in no system prompt, and every system prompt still carries forge\'s unattended and narration instructions',
+  { skip },
+  async () => {
+    const requested: Requested[] = [];
+    await runRealPi(delegating(alphaChild, 'Both sub-agents reported back.'), {
+      requested,
+      workload: ticketWorkload(ticketContextOf(687, 'the context ticket')),
+    });
+
+    const parents = requested.filter((request) => !mentions(request, 'You are a sub-agent'));
+    const children = requested.filter((request) => mentions(request, 'You are a sub-agent'));
+    assert.ok(parents.length > 0);
+    assert.ok(children.length > 0);
+    for (const request of requested) {
+      assert.doesNotMatch(systemTextOf(request), /the context ticket|ticket 687|The spec behind/);
+      assert.ok(systemTextOf(request).includes(UNATTENDED_INSTRUCTION.slice(0, 40)));
+      assert.ok(systemTextOf(request).includes(NARRATION_INSTRUCTION.slice(0, 40)));
+    }
+    assert.match(firstUserTextOf(parents[0] as Requested), /Build the context ticket for ticket 687/);
+    assert.match(firstUserTextOf(parents[0] as Requested), /The spec behind the context ticket/);
+  },
+);
+
+test(
+  'given the locked pi and two runs of one worker in different work dirs, with different prompts, ticket and parent spec context and generation ids, when each runs, then both fingerprints hash alike',
+  { skip },
+  async () => {
+    const first = await runRealPi(repliesWith('-one'), {
+      workload: ticketWorkload(ticketContextOf(113, 'the first ticket')),
+    });
+    const second = await runRealPi(repliesWith('-two'), {
+      workload: ticketWorkload(ticketContextOf(214, 'the second ticket')),
+    });
+
+    assert.ok(first.fingerprint);
+    assert.ok(second.fingerprint);
+    assert.notEqual(first.fingerprint.fingerprint.systemPrompt, null);
+    assert.equal(first.fingerprint.fingerprint.systemPrompt, second.fingerprint.fingerprint.systemPrompt);
+    assert.equal(first.fingerprint.hash, second.fingerprint.hash);
+  },
+);
+
+for (const { given, instruction, context, marker } of OWN_CONTEXT_CASES) {
+  test(
+    `given the locked pi and ${given}, when it runs, then the context is in the first user message and not in the system prompt`,
+    { skip },
+    async () => {
+      const requested: Requested[] = [];
+      await runRealPi(replies, {
+        requested,
+        workload: async (workDir) => {
+          const base = await delegateSkill(workDir);
+          return { ...base, prompt: `/delegate both tasks\n\n${context}`, instruction };
+        },
+      });
+
+      const [first] = requested;
+      assert.ok(first);
+      assert.match(firstUserTextOf(first), marker);
+      assert.doesNotMatch(systemTextOf(first), marker);
+      assert.ok(systemTextOf(first).includes(instruction.slice(0, 40)));
+    },
+  );
+}

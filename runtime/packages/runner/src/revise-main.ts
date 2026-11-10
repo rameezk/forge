@@ -21,7 +21,7 @@ import { launchInCheckout } from './checkout-workload.ts';
 import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
 import { SetupTimedOut } from './setup.ts';
 import { gitEnvironment } from './git.ts';
-import { revisionInstruction } from './harness.ts';
+import { revisionContext, REVISION_INSTRUCTION } from './harness.ts';
 import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
@@ -137,12 +137,12 @@ export const main = async (
           config,
           worker: {
             ...worker,
-            prompt: fillPrompt(worker.prompt, repository.github, pullRequest),
+            prompt: `${fillPrompt(worker.prompt, repository.github, pullRequest)}\n\n${revisionContext(feedback)}`,
             promptTemplate: worker.prompt,
           },
           github: repository.github,
           branch: pullRequest.branch,
-          instruction: revisionInstruction(feedback),
+          instruction: REVISION_INSTRUCTION,
           app,
           gitEnv,
           identity,

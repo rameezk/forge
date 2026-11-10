@@ -47,15 +47,14 @@ const contextBlock = (heading: string, issue: ContextIssue): string =>
     ),
   ].join('\n\n');
 
-export const dispatchInstruction = ({ ticket, spec }: TicketContext): string =>
+export const dispatchContext = ({ ticket, spec }: TicketContext): string =>
   [
-    UNATTENDED_INSTRUCTION,
     `This is the context of the ticket${spec === null ? '' : ' and of its parent spec'}, with only the comments maintainers wrote. Work from it instead of reading the ticket's issue or its comments yourself.`,
     contextBlock('Ticket', ticket),
     ...(spec === null ? [] : [contextBlock('Parent spec', spec)]),
   ].join('\n\n');
 
-const REVISION_INSTRUCTION = [
+export const REVISION_INSTRUCTION = [
   'A person reviews this pull request and will read your replies on it.',
   'Where a skill asks you to confirm something their feedback already settles, proceed without asking.',
   'Otherwise ask the question as a reply on the pull request and end your run at once, without waiting or polling for an answer.',
@@ -64,9 +63,8 @@ const REVISION_INSTRUCTION = [
   ...CI_RERUN_RULE,
 ].join(' ');
 
-export const revisionInstruction = (feedback: readonly FeedbackItem[]): string =>
+export const revisionContext = (feedback: readonly FeedbackItem[]): string =>
   [
-    REVISION_INSTRUCTION,
     'This revision exists because of the feedback below. Address exactly these items and answer each one on the pull request, linking its URL in your answer.',
     ...feedback.map(
       (item, index) =>
@@ -75,6 +73,11 @@ export const revisionInstruction = (feedback: readonly FeedbackItem[]): string =
         }: ${item.url}\n${item.body}`,
     ),
   ].join('\n\n');
+
+export const CONFLICT_INSTRUCTION = [
+  UNATTENDED_INSTRUCTION,
+  "You are resolving the merge conflicts of a pull request against its default branch. Merge only the default branch sha the task names into the pull request's branch, and push the merge commit to that branch: never rebase, and never force-push.",
+].join(' ');
 
 export interface ConflictBrief {
   number: number;
@@ -85,7 +88,7 @@ export interface ConflictBrief {
   files: readonly string[];
 }
 
-export const conflictInstruction = (brief: ConflictBrief): string =>
+export const conflictBrief = (brief: ConflictBrief): string =>
   [
     `Resolve the merge conflicts on pull request #${brief.number} (${brief.url}).`,
     `Merge the default branch ${brief.defaultBranch} at ${brief.sha} into the pull request's branch ${brief.branch}, resolve the conflicts, and push the merge commit to ${brief.branch}.`,

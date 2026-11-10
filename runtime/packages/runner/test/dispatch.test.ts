@@ -32,10 +32,10 @@ import {
   tokenFor,
 } from '../../shared/test/fixtures/fake-github-app.ts';
 import {
-  dispatchInstruction,
+  dispatchContext,
   NARRATION_INSTRUCTION,
   UNATTENDED_INSTRUCTION,
-  revisionInstruction,
+  REVISION_INSTRUCTION,
 } from '../src/harness.ts';
 import {
   COVERAGE_PROMPT,
@@ -843,7 +843,7 @@ test('given a frontier ticket labelled forge:ready in a repository whose worker 
 
   assert.equal(code, 0);
   assert.ok(pi);
-  assert.equal(pi.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
+  assert.equal(pi.argv.at(-1), withTicketContext(`/skill:work-on ${TICKET_URL}`));
   const workDir = realpathSync(pi.cwd);
   assert.ok(workDir.startsWith(realpathSync(stateDir) + sep));
   assert.equal(git(workDir, 'rev-parse', 'HEAD'), origin.tip);
@@ -2000,7 +2000,7 @@ const projectInstructions = (path: string): string[] => [
   '</project_instructions>\n\n</project_context>',
 ];
 
-const DEFAULT_INSTRUCTION = dispatchInstruction({
+const DEFAULT_CONTEXT = dispatchContext({
   ticket: {
     title: context().data.repository.issue.title,
     url: context().data.repository.issue.url,
@@ -2011,6 +2011,8 @@ const DEFAULT_INSTRUCTION = dispatchInstruction({
   spec: null,
 });
 
+const withTicketContext = (prompt: string): string => `${prompt}\n\n${DEFAULT_CONTEXT}`;
+
 const childArgv = (pi: PiCall): string[] =>
   (JSON.parse(pi.subagentInvocation ?? 'null') as { argv: string[] }).argv;
 
@@ -2018,13 +2020,13 @@ test('given a dispatch and a revision, when each runs, then the dispatch instruc
   assert.doesNotMatch(UNATTENDED_INSTRUCTION, /comment/);
   assert.doesNotMatch(UNATTENDED_INSTRUCTION, /blocked or have a question/);
   assert.match(
-    revisionInstruction([]),
+    REVISION_INSTRUCTION,
     /stop because you are blocked or have a question, post that as a reply on the pull request/,
   );
 });
 
 test('given a dispatch and a revision, when each runs, then its instruction says a missing dependency install is something to do as the repository\'s instructions say, not a required command that cannot run', () => {
-  for (const instruction of [UNATTENDED_INSTRUCTION, revisionInstruction([])]) {
+  for (const instruction of [UNATTENDED_INSTRUCTION, REVISION_INSTRUCTION]) {
     assert.match(
       instruction,
       /missing dependency install is something to do as the repository's instructions say, not a required command that cannot run/,
@@ -2045,7 +2047,7 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
 
   assert.ok(pi);
   assert.match(UNATTENDED_INSTRUCTION, /no human will answer/);
-  for (const instruction of [UNATTENDED_INSTRUCTION, revisionInstruction([])]) {
+  for (const instruction of [UNATTENDED_INSTRUCTION, REVISION_INSTRUCTION]) {
     assert.match(instruction, /only the scoped local commands AGENTS\.md lists/);
     assert.match(instruction, /never the full `make check-no-vm`/);
     assert.match(instruction, /one line naming the local commands that passed.*"full suite: CI"/);
@@ -2070,7 +2072,7 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
     join(root, '.pi', 'SYSTEM.md'),
     ...projectInstructions(join(root, 'AGENTS.md')),
     '--append-system-prompt',
-    DEFAULT_INSTRUCTION,
+    UNATTENDED_INSTRUCTION,
     '--append-system-prompt',
     NARRATION_INSTRUCTION,
   ];
@@ -2078,7 +2080,7 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
     ...flags,
     '-e',
     EXTENSION,
-    `/skill:work-on ${TICKET_URL}`,
+    withTicketContext(`/skill:work-on ${TICKET_URL}`),
   ]);
   assert.deepEqual(childArgv(pi).slice(1), flags);
 });
@@ -2106,18 +2108,18 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
     join(root, '.pi', 'APPEND_SYSTEM.md'),
     ...projectInstructions(join(root, 'CLAUDE.md')),
     '--append-system-prompt',
-    DEFAULT_INSTRUCTION,
+    UNATTENDED_INSTRUCTION,
     '--append-system-prompt',
     NARRATION_INSTRUCTION,
     '-e',
     EXTENSION,
-    `/skill:work-on ${TICKET_URL}`,
+    withTicketContext(`/skill:work-on ${TICKET_URL}`),
   ]);
 });
 
 test('given a dispatch and a revision, when each starts its harness, then each instruction says to re-run only infrastructure failures on its own pull request\'s head, at most twice, and never to re-run a failing test or step, touch Actions otherwise, or re-trigger CI with an empty commit or by reopening', async () => {
   const { pi } = await dispatch();
-  for (const instruction of [instructionOf(pi), revisionInstruction([])]) {
+  for (const instruction of [instructionOf(pi), REVISION_INSTRUCTION]) {
     assert.match(instruction, /Re-run only a failed run on the head of the pull request you work on/);
     assert.match(instruction, /no jobs created, a startup failure, a lost runner, or a cancellation you did not cause/);
     assert.match(instruction, /Re-run the same run at most twice/);
@@ -2133,7 +2135,9 @@ const instructionOf = (pi: PiCall | null): string =>
     .filter((_, index) => pi?.argv[index - 1] === '--append-system-prompt')
     .join('\n');
 
-test('given a ticket and its parent spec, each with comments from a maintainer, an outsider and a bot, when forge dispatches the ticket, then the instruction carries both titles and bodies and only the maintainers\' comments', async () => {
+const userMessageOf = (pi: PiCall | null): string => pi?.argv.at(-1) ?? '';
+
+test('given a ticket and its parent spec, each with comments from a maintainer, an outsider and a bot, when forge dispatches the ticket, then the user message carries both titles and bodies and only the maintainers\' comments and the system prompt carries none of them', async () => {
   const comments = (who: string): RawComment[] => [
     comment('helper', `From a maintainer on the ${who}.`),
     comment('stranger', `From an outsider on the ${who}.`),
@@ -2158,7 +2162,7 @@ test('given a ticket and its parent spec, each with comments from a maintainer, 
     },
   });
 
-  const instruction = instructionOf(pi);
+  const instruction = userMessageOf(pi);
   assert.match(instruction, /The ticket title/);
   assert.match(instruction, /The ticket body\./);
   assert.match(instruction, /The spec title/);
@@ -2167,9 +2171,12 @@ test('given a ticket and its parent spec, each with comments from a maintainer, 
   assert.match(instruction, /From a maintainer on the spec\./);
   assert.doesNotMatch(instruction, /From an outsider/);
   assert.doesNotMatch(instruction, /From a bot/);
+  assert.doesNotMatch(instructionOf(pi), /The ticket title|The ticket body|The spec title|The spec body|From a maintainer/);
+  assert.match(instructionOf(pi), /You are running unattended/);
+  assert.match(instructionOf(pi), /Narrate your work/);
 });
 
-test('given a ticket with no parent spec and a maintainer\'s comment, when forge dispatches it, then the instruction carries the ticket\'s title, body and that comment, and nothing for a spec', async () => {
+test('given a ticket with no parent spec and a maintainer\'s comment, when forge dispatches it, then the user message carries the ticket\'s title, body and that comment, and nothing for a spec, and the system prompt carries none of them', async () => {
   const { pi } = await dispatch({
     permissions: { helper: 'write' },
     contexts: {
@@ -2181,11 +2188,12 @@ test('given a ticket with no parent spec and a maintainer\'s comment, when forge
     },
   });
 
-  const instruction = instructionOf(pi);
+  const instruction = userMessageOf(pi);
   assert.match(instruction, /The ticket title/);
   assert.match(instruction, /The ticket body\./);
   assert.match(instruction, /From a maintainer\./);
   assert.doesNotMatch(instruction, /parent spec/i);
+  assert.doesNotMatch(instructionOf(pi), /The ticket title|The ticket body|From a maintainer/);
 });
 
 const notLoaded = (journal: string): string[] =>
@@ -2231,8 +2239,8 @@ test('given a checkout root with .pi/settings.json and .pi/extensions beside .pi
   assert.deepEqual(
     runs.map(({ result }) => [result.code, result.pi?.argv.at(-1)]),
     [
-      [0, `/skill:work-on ${TICKET_URL}`],
-      [0, `/skill:work-on ${TICKET_URL}`],
+      [0, withTicketContext(`/skill:work-on ${TICKET_URL}`)],
+      [0, withTicketContext(`/skill:work-on ${TICKET_URL}`)],
     ],
   );
 });
@@ -2291,11 +2299,11 @@ test('given worker prompts using the {repo}, {issue} and {url} placeholders, wit
 
   assert.equal(
     withCommand.pi?.argv.at(-1),
-    `/skill:work-on rameezk/forge#113 at ${TICKET_URL}`,
+    withTicketContext(`/skill:work-on rameezk/forge#113 at ${TICKET_URL}`),
   );
   assert.equal(
     withoutCommand.pi?.argv.at(-1),
-    `Build rameezk/forge#113: ${TICKET_URL}`,
+    withTicketContext(`Build rameezk/forge#113: ${TICKET_URL}`),
   );
 });
 
@@ -2509,7 +2517,7 @@ test('given work-on skill directories that pi would not load as work-on, because
       '.claude/skills/work-on/SKILL.md': "---\ndescription: 'Drive one ticket.'\n---\n",
     }),
   });
-  assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
+  assert.equal(pi?.argv.at(-1), withTicketContext(`/skill:work-on ${TICKET_URL}`));
 });
 
 test('given a checkout with two different files pi would load as work-on, from two skill directories, from a differently named directory, from a nested directory, from a markdown file at a skill directory root, or from below a SKILL.md an ignore file hides, when forge-dispatch runs, then pi never starts and the run names both files', async () => {
@@ -2567,7 +2575,7 @@ test('given a checkout whose work-on skill appears in two skill directories thro
   ]) {
     const { pi } = await dispatch({ origin });
 
-    assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
+    assert.equal(pi?.argv.at(-1), withTicketContext(`/skill:work-on ${TICKET_URL}`));
   }
 });
 
@@ -2579,7 +2587,7 @@ test('given a skill whose frontmatter name is a number, when forge-dispatch runs
     prompt: '/123 {url}',
   });
 
-  assert.equal(pi?.argv.at(-1), `/skill:123 ${TICKET_URL}`);
+  assert.equal(pi?.argv.at(-1), withTicketContext(`/skill:123 ${TICKET_URL}`));
 });
 
 test('given a checkout with a link under a skill directory that resolves outside the checkout, directly or through a directory elsewhere in the checkout, when forge-dispatch runs, then pi never starts and the run names the link', async () => {
@@ -2682,9 +2690,9 @@ test('given a worker prompt whose skill command is followed by a newline rather 
   ).then(({ result }) => result);
 
   assert.equal(pi, null);
-  assert.equal(
-    runs[0]?.error,
-    `skill 'work-on\n${TICKET_URL}' not found in the checkout`,
+  assert.match(
+    runs[0]?.error ?? '',
+    new RegExp(`^skill 'work-on\\n${TICKET_URL}\\n\\n\\S*' not found in the checkout$`),
   );
 });
 
@@ -2736,7 +2744,7 @@ test('given a checkout whose .claude/skills links to .agents/skills, which links
     ),
   });
 
-  assert.equal(pi?.argv.at(-1), `/skill:work-on ${TICKET_URL}`);
+  assert.equal(pi?.argv.at(-1), withTicketContext(`/skill:work-on ${TICKET_URL}`));
   assert.deepEqual(
     pi?.argv.filter((arg, i) => pi.argv[i - 1] === '--skill').map((path) => relative(pi.cwd, path)),
     ['.claude/skills'],

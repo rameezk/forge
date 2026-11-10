@@ -20,8 +20,9 @@ import type {
 } from '@forge/shared';
 import { ClaudeCodeHarness } from '../src/index.ts';
 import { FingerprintRecorder } from '../src/fingerprint.ts';
-import { PASSTHROUGH_BWRAP, skillCheckout } from './helpers.ts';
+import { OWN_CONTEXT_CASES, PASSTHROUGH_BWRAP, skillCheckout, ticketContextOf } from './helpers.ts';
 import {
+  dispatchContext,
   NARRATION_INSTRUCTION,
   UNATTENDED_INSTRUCTION,
 } from '../src/harness.ts';
@@ -69,6 +70,8 @@ interface RealClaudeOptions {
   prompt?: string;
   args?: string[];
   untracked?: Record<string, string>;
+  requestIdSuffix?: string;
+  instruction?: string;
 }
 
 const git = (cwd: string, ...args: string[]): void => {
@@ -94,9 +97,11 @@ const runRealClaude = async ({
   prompt = 'Run echo forge, then say what it printed.',
   args = [],
   untracked,
+  requestIdSuffix = '',
+  instruction,
 }: RealClaudeOptions = {}): Promise<RealClaudeRun> => {
   const requests: MessagesRequest[] = [];
-  const server = await serveMessages(respond, requests);
+  const server = await serveMessages(respond, requests, requestIdSuffix);
   const { port } = server.address() as AddressInfo;
   const root = mkdtempSync(join(tmpdir(), 'forge-real-claude-'));
   const home = join(root, 'home');
@@ -137,6 +142,7 @@ const runRealClaude = async ({
       workDir,
       prompt,
       checkout: skillCheckout(workDir, files),
+      ...(instruction === undefined ? {} : { instruction }),
     };
     const run = harness.open({ runId: 'run-1', model: 'claude-opus-4-5', listedModel: null });
     const recorder = new FingerprintRecorder({
@@ -233,15 +239,21 @@ test(
 );
 
 test(
-  'given the locked claude and two runs of one worker in different work dirs, with different prompts, git statuses and times, when each runs, then both fingerprints hash alike',
+  'given the locked claude and two runs of one worker in different work dirs, with different prompts, ticket and parent spec context, git statuses, times and request ids, when each runs, then both fingerprints hash alike',
   { skip },
   async () => {
     const files = { 'README.md': 'a repo\n' };
-    const first = await runRealClaude({ files, untracked: { 'notes.md': 'one\n' } });
+    const first = await runRealClaude({
+      files,
+      untracked: { 'notes.md': 'one\n' },
+      prompt: `Run echo forge, then say what it printed.\n\n${dispatchContext(ticketContextOf(113, 'the first ticket'))}`,
+      requestIdSuffix: '_one',
+    });
     const second = await runRealClaude({
       files,
       untracked: { 'other.md': 'two\n', 'more.md': 'three\n' },
-      prompt: 'Say hello, then run echo forge.',
+      prompt: `Say hello, then run echo forge.\n\n${dispatchContext(ticketContextOf(214, 'the second ticket'))}`,
+      requestIdSuffix: '_two',
     });
 
     assert.notEqual(first.workDir, second.workDir);
@@ -478,3 +490,51 @@ test(
     );
   },
 );
+
+const firstUserMessageOf = ({ messages }: MessagesRequest): string =>
+  JSON.stringify(messages.find(({ role }) => role === 'user'));
+
+test(
+  'given the locked claude and a dispatch with ticket and parent spec context that spawns subagents, when it runs, then the context is in the first user message, neither the main agent\'s nor a subagent\'s system prompt contains it, and both still carry forge\'s unattended and narration instructions',
+  { skip },
+  async () => {
+    const { requests } = await runRealClaude({
+      files: CLAUDE_SKILL_FILES,
+      prompt: `/first-skill start the work\n\n${dispatchContext(ticketContextOf(687, 'the context ticket'))}`,
+      respond: subagentsScenario().respond,
+    });
+
+    const children = requests.filter(isSubagentRequest);
+    const parents = requests.filter((request) => !isSubagentRequest(request));
+    assert.ok(children.length > 0);
+    assert.ok(parents.length > 0);
+    for (const request of requests) {
+      const system = JSON.stringify(request.system);
+      assert.doesNotMatch(system, /the context ticket|ticket 687|The spec behind/);
+      assert.ok(system.includes(UNATTENDED_INSTRUCTION.slice(0, 40)));
+      assert.ok(system.includes(NARRATION_INSTRUCTION.slice(0, 40)));
+    }
+    const first = firstUserMessageOf(parents[0] as MessagesRequest);
+    assert.match(first, /Build the context ticket for ticket 687/);
+    assert.match(first, /The spec behind the context ticket/);
+  },
+);
+
+for (const { given, instruction, context, marker } of OWN_CONTEXT_CASES) {
+  test(
+    `given the locked claude and ${given}, when it runs, then the context is in the first user message and not in the system prompt`,
+    { skip },
+    async () => {
+      const { requests } = await runRealClaude({
+        prompt: `Do the work.\n\n${context}`,
+        instruction,
+      });
+
+      const [first] = requests;
+      assert.ok(first);
+      assert.match(firstUserMessageOf(first), marker);
+      assert.doesNotMatch(JSON.stringify(first.system), marker);
+      assert.ok(JSON.stringify(first.system).includes(instruction.slice(0, 40)));
+    },
+  );
+}
