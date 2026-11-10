@@ -200,6 +200,7 @@ testers.runNixOSTest {
         assert "constraint=CONSTRAINT_MEMCG" in kill and "forge-runner@hog.service" in kill, kill
 
     with subtest("a runaway nix daemon build is killed inside the shared budget, and the daemon and the box carry on"):
+        box.succeed("dmesg --clear")
         box.succeed("systemctl start forge-runner@build")
         assert box.succeed("cat /var/lib/forge/work/*/build.out").strip() != "0"
         assert box.succeed("cat /var/lib/forge/work/*/build-after.out").strip() == "0"
