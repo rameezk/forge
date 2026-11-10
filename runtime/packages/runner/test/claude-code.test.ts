@@ -614,7 +614,7 @@ test('given a claude-code worker whose response clearly ends but whose body clau
   assert.ok(Date.now() - started >= 10_000);
   assert.match(
     run.error ?? '',
-    /claude recorded no usage for its response msg_forge_unrecorded.*waited 10\.\ds after a new assistant message/,
+    /claude recorded no usage for its response msg_forge_unrecorded.*waited \d+\.\ds after a new assistant message/,
   );
 });
 

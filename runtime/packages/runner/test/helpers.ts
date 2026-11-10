@@ -223,6 +223,7 @@ const stream = readFileSync(env.FAKE_CLAUDE_STREAM, 'utf8');
 if (env.FAKE_CLAUDE_PAUSE_AFTER) {
 const lines = stream.split('\\n');
 const held = lines.findIndex((line) => line.includes(env.FAKE_CLAUDE_PAUSE_AFTER));
+if (held === -1) throw new Error('no stream line holds ' + env.FAKE_CLAUDE_PAUSE_AFTER);
 process.stdout.write(lines.slice(0, held + 1).join('\\n') + '\\n');
 await new Promise((resolve) => setTimeout(resolve, Number(env.FAKE_CLAUDE_PAUSE_MS)));
 copyBodies();
