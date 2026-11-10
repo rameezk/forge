@@ -267,6 +267,32 @@ else
 	fail=1
 fi
 
+echo "==> case: a large diff with a code fence in it still updates the issue within GitHub's size limit"
+{
+	echo '```'
+	echo "[click](https://example.com)"
+	seq 1 20000
+} >"$scratch/big.txt"
+mkdir -p "$upstream/templates/operator"
+cp "$scratch/big.txt" "$upstream/templates/operator/big.txt"
+git -C "$upstream" add -A
+git -C "$upstream" commit -q -m "template: a large change"
+big_commit="$(git -C "$upstream" rev-parse HEAD)"
+big_status=0
+run_bump >"$scratch/drift-big.log" 2>&1 || big_status=$?
+big_body="$(open_issues | jq -r '.[0].body')"
+if [ "$big_status" = 0 ] &&
+	[ "$(open_issues | jq 'length')" = 1 ] &&
+	grep -q "${big_commit:0:7}" <<<"$big_body" &&
+	[ "${#big_body}" -lt 65000 ] &&
+	grep -qx '````diff' <<<"$big_body"; then
+	echo "ok: the large diff was truncated, fenced safely and the issue updated"
+else
+	echo "FAIL: expected the issue to be updated with a truncated, safely fenced diff"
+	tail -20 "$scratch/drift-big.log"
+	fail=1
+fi
+
 echo "==> case: the marker moves to the locked commit, the issue closes"
 locked_now="$(jq -r '.nodes.forge.locked.rev' "$work/flake.lock")"
 echo "$locked_now" >"$work/.forge-template-rev"

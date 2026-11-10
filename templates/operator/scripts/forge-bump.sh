@@ -50,6 +50,10 @@ report_drift() {
 		echo "$marker_file does not hold a forge commit; template drift is not checked"
 		return 0
 	fi
+	if ! [[ $locked =~ ^[0-9a-f]{40}$ ]]; then
+		echo "the locked forge input has no commit; template drift is not checked"
+		return 0
+	fi
 	if [ "$marker" = "$locked" ]; then
 		close_drift_issue "The template copies are synced to the locked \`forge\` commit, ${locked:0:7}."
 		return 0
@@ -65,20 +69,25 @@ report_drift() {
 		close_drift_issue "Forge's operator template has not changed between ${marker:0:7} and the locked \`forge\` commit, ${locked:0:7}."
 		return 0
 	fi
+	git -C "$scratch/forge" diff "$marker" "$locked" -- "$template_path" >"$scratch/drift.diff"
+	local fence longest
+	longest="$(grep -o '`*' "$scratch/drift.diff" | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')"
+	fence="$(printf '%*s' "$((longest > 2 ? longest + 1 : 3))" '' | tr ' ' '`')"
 	{
 		echo "Forge's operator template changed between \`${marker:0:7}\`, the commit \`$marker_file\` records, and \`${locked:0:7}\`, the locked \`forge\` input. The bump never merges template files."
 		echo
 		echo "Changed files:"
 		echo
-		sed 's|^|- `|; s|$|`|' <<<"$files"
+		tr -d '`' <<<"$files" | sed 's|^|- `|; s|$|`|'
 		echo
 		echo "Merge them as the README's Upgrading forge section describes, and move \`$marker_file\` to \`$locked\`. This issue closes on the next bump once it has moved."
 		echo
 		echo "Upstream diff:"
 		echo
-		echo '```diff'
-		git -C "$scratch/forge" diff "$marker" "$locked" -- "$template_path" | head -c "$diff_limit"
-		echo '```'
+		echo "${fence}diff"
+		head -c "$diff_limit" "$scratch/drift.diff"
+		echo
+		echo "$fence"
 	} >"$scratch/drift.md"
 	local number
 	number="$(open_issue_number "$drift_title")"
@@ -107,8 +116,6 @@ if [ "$old_rev" = "$new_rev" ]; then
 	report_drift
 	exit 0
 fi
-
-forge_url="$(jq -r '.nodes.forge.locked | if .type == "github" then "https://github.com/\(.owner)/\(.repo)" else .url end' flake.lock)"
 
 guard_log="$scratch/guard.log"
 if ! bash -c "$guard" >"$guard_log" 2>&1; then
