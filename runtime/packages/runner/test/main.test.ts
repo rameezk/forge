@@ -2284,6 +2284,76 @@ test('given a worker with a generous budget and a listed model with no cache pri
   }
 });
 
+test('given a worker with a budget and a model listed with input and output prices of 0 and no cache prices, when generations with cache read and cache write tokens are recorded before they are billed, then each is estimated at 0 and the workload ends success', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [{ id: 'z-ai/glm-5', pricing: { prompt: '0', completion: '0' } }],
+  });
+  try {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      worker: { maxCostUsd: 100 },
+    });
+
+    assert.equal(run.status, 'success');
+    assert.deepEqual(
+      storedGenerations(stateDir, run.id).map(({ estimatedCostUsd }) => estimatedCostUsd),
+      [0, 0],
+    );
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a worker with a budget and a model listed with a non-zero output price and no cache prices, when a generation with cache tokens is recorded before it is billed, then the workload ends exceeded on its budget', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [{ id: 'z-ai/glm-5', pricing: { prompt: '0', completion: '0.00001' } }],
+  });
+  try {
+    const { run } = await runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      lingerMs: 10_000,
+      worker: { maxCostUsd: 100 },
+    });
+
+    assert.equal(run.status, 'exceeded');
+    assert.equal(run.exceededLimit, 'budget');
+  } finally {
+    openRouter.close();
+  }
+});
+
+test('given a worker with a budget and a model listed with input and output prices of 0 and non-zero cache prices, when generations with cache tokens are recorded before they are billed, then each is estimated at the listed cache prices', async () => {
+  const openRouter = await fakeOpenRouter(billedAt({}), {
+    data: [
+      {
+        id: 'z-ai/glm-5',
+        pricing: {
+          prompt: '0',
+          completion: '0',
+          input_cache_read: '0.0000002',
+          input_cache_write: '0.0000025',
+        },
+      },
+    ],
+  });
+  try {
+    const { stateDir, run } = await runWorker({
+      output: fixture('success.jsonl'),
+      openRouterBaseUrl: openRouter.baseUrl,
+      worker: { maxCostUsd: 100 },
+    });
+
+    assert.equal(run.status, 'success');
+    const [first, second] = storedGenerations(stateDir, run.id);
+    assertCost(first?.estimatedCostUsd, 1000 * 0.0000025);
+    assertCost(second?.estimatedCostUsd, 1000 * 0.0000002 + 200 * 0.0000025);
+  } finally {
+    openRouter.close();
+  }
+});
+
 test('given a worker, recorded pi output of a successful run, and an OpenRouter that answers not found for every generation, when the worker runs, then the run is success with its tokens and a pending cost, the runner never calls OpenRouter, and the dashboard shows the cost as pending', async () => {
   const openRouter = await fakeOpenRouter(billedAt({}));
   try {

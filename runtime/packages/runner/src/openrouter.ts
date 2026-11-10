@@ -133,14 +133,16 @@ const perToken = (value: unknown): number | null => {
 const listPriceOf = (pricing: Record<string, unknown>): ListPrice | null => {
   const input = perToken(pricing.prompt);
   const output = perToken(pricing.completion);
-  return input === null || output === null
-    ? null
-    : {
-        input,
-        output,
-        cacheRead: perToken(pricing.input_cache_read),
-        cacheWrite: perToken(pricing.input_cache_write),
-      };
+  if (input === null || output === null) return null;
+  const free = input === 0 && output === 0;
+  const cachePrice = (value: unknown): number | null =>
+    perToken(value) ?? (free ? 0 : null);
+  return {
+    input,
+    output,
+    cacheRead: cachePrice(pricing.input_cache_read),
+    cacheWrite: cachePrice(pricing.input_cache_write),
+  };
 };
 
 const limitOf = (value: unknown): number | null =>

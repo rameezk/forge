@@ -853,6 +853,8 @@ cannot fetch from OpenRouter at start is refused before the harness starts and
 spends nothing, and its run ends `error`. A generation that has neither a billed
 cost nor an estimate, such as one that used cache tokens of a model with no
 cache price, ends the workload exceeded, since forge cannot tell what it cost.
+A free model, one whose input and output list prices are both 0, is exempt: forge
+prices its missing cache prices at 0.
 
 When spend passes the budget, forge kills the workload's sandbox at once, the
 harness and every subagent with it, and ends the run `exceeded` on its budget,
