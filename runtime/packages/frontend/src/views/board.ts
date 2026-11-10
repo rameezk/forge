@@ -200,7 +200,7 @@ const reviewFull = ({ open, limit }: ReviewSlots): boolean => limit !== null && 
 const renderReviewLimit = (review: ReviewSlots): Rendered => {
   if (review.limit === null) return '';
   const full = reviewFull(review);
-  return html`<span data-review-limit${full ? html` data-full` : ''} title="Dispatches running or awaiting review, out of the review limit" class="${PILL} ${full ? FULL_TONE : OPEN_TONE} tabular-nums">${review.open} / ${review.limit}</span>`;
+  return html`<span data-review-limit${full ? html` data-full` : ''} title="Dispatches running or awaiting review, out of the review limit" class="text-xs leading-4 tabular-nums ${full ? 'font-semibold text-warning' : 'text-muted'}">${review.open} / ${review.limit}</span>`;
 };
 
 const renderColumnHeaders = (counts: Record<ColumnKey, number>, review: ReviewSlots): Rendered =>
