@@ -1049,6 +1049,21 @@ so a branch protection rule on `main` must let the workflow's token push. The
 job evaluates forge's latest code with that token and the failure issue quotes
 the guard's output, so follow forge only if you trust it, and pin it otherwise.
 
+The bump never merges template files. `.forge-template-rev` records the forge
+commit this repository last synced its template copies to. After each run the
+script compares forge's operator template between that commit and the locked
+`forge` commit, and when anything changed it keeps one open issue, "Forge's
+operator template has changed", listing the changed files and the upstream diff,
+updating it rather than opening another. A new required secret shows up there,
+since it always comes with a README change. Merge the drift as
+[Upgrading forge](#upgrading-forge) describes, which moves the marker, and the
+issue closes on the next run. Set the marker once after scaffolding by writing
+the locked commit to it, since an empty marker reports no drift:
+
+```bash
+jq -r '.nodes.forge.locked.rev' flake.lock >.forge-template-rev
+```
+
 To stop following forge's latest commit, pin the `forge` input to a rev by
 setting its URL in `flake.nix` to the full 40-character commit, then lock it:
 
@@ -1088,7 +1103,9 @@ Updating the forge input changes the box's NixOS system and your toolchain, but
 not the files this repository was scaffolded with. `justfile`, this README,
 `tests/divergence-guard.sh`, `scripts/forge-bump.sh` and
 `.github/workflows/forge-bump.yml` are copies of forge's template, so a new forge
-version can need new copies of them, and new secrets.
+version can need new copies of them, and new secrets. The forge bump reports
+these changes as template drift in one open issue, and this section is how you
+merge them.
 
 1. Update the forge input, or lock it to a new commit as
    [Pinning forge](#pinning-forge) describes, and move the ref in
@@ -1127,7 +1144,14 @@ version can need new copies of them, and new secrets.
    [First run](#first-run). A missing runtime secret fails the build on the
    box, and a missing operator secret fails standup and teardown.
 
-6. Run the divergence guard, then stage and commit:
+6. Move the template marker to the forge commit you scaffolded the template at
+   in step 2, so the drift issue closes on the next bump:
+
+   ```bash
+   echo "$rev" >.forge-template-rev
+   ```
+
+7. Run the divergence guard, then stage and commit:
 
    ```bash
    bash tests/divergence-guard.sh
@@ -1135,7 +1159,7 @@ version can need new copies of them, and new secrets.
    git commit -m "chore: upgrade forge"
    ```
 
-7. Apply the upgrade with `just deploy`, which keeps the box's state. If the
+8. Apply the upgrade with `just deploy`, which keeps the box's state. If the
    upgrade changed how the box is reached, as the move to the tailnet did, or
    changed `infra/opentofu`, run `just teardown` then `just standup` instead,
    which loses the box's state.
