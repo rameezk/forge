@@ -196,3 +196,15 @@ _Avoid_: redeploy, reinstall
 **Deploy**:
 The non-destructive application of a changed NixOS configuration to an already stood-up box, preserving its state (ADR-0007).
 _Avoid_: re-standup, update
+
+**Forge bump**:
+The operator repository's scheduled CI job moving its locked `forge` input to forge's latest commit, landing as one commit on its `main` (ADR-0090).
+_Avoid_: forge upgrade, auto-update
+
+**Pull deploy**:
+The box deploying its operator repository's `main` to itself whenever `main` moves, so `main` is what the box runs (ADR-0090).
+_Avoid_: auto-upgrade, self-deploy
+
+**Template drift**:
+The changes forge made to its operator template between the forge commit the operator repository last synced its template copies to and the forge commit it now locks. Surfaced to the operator, never merged automatically.
+_Avoid_: template diff, divergence
