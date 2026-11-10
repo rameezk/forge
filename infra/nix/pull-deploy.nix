@@ -110,16 +110,18 @@ testers.runNixOSTest {
         apiBase = "http://127.0.0.1:8080";
         intervalSeconds = 2;
       };
-      systemd.services = lib.mkIf config.forge.runtime.pullDeploy.enable {
-        forge-pull-deploy.serviceConfig.RestartSec = lib.mkForce "1s";
-      };
 
-      systemd.services.fake-github = {
-        wantedBy = [ "multi-user.target" ];
-        serviceConfig = {
-          ExecStart = "${python3}/bin/python3 ${fakeGithub}";
-          StateDirectory = "fake-github";
+      systemd.services = {
+        fake-github = {
+          wantedBy = [ "multi-user.target" ];
+          serviceConfig = {
+            ExecStart = "${python3}/bin/python3 ${fakeGithub}";
+            StateDirectory = "fake-github";
+          };
         };
+      }
+      // lib.optionalAttrs config.forge.runtime.pullDeploy.enable {
+        forge-pull-deploy.serviceConfig.RestartSec = lib.mkForce "1s";
       };
 
       specialisation.off.configuration.forge.runtime.pullDeploy.enable = lib.mkForce false;
