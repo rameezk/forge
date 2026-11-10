@@ -207,7 +207,7 @@ testers.runNixOSTest {
         status = box.succeed("sqlite3 /var/lib/forge/forge.db \"select status from runs where worker = 'build'\"").strip()
         assert status == "success", status
         kill = box.succeed("dmesg | grep oom-kill:")
-        assert "constraint=CONSTRAINT_MEMCG" in kill and "oom_memcg=/forge-workloads.slice" in kill and "nix-daemon.service" in kill, kill
+        assert "constraint=CONSTRAINT_MEMCG" in kill and "oom_memcg=/forge.slice/forge-workloads.slice" in kill and "nix-daemon.service" in kill, kill
         box.succeed("systemctl is-active nix-daemon.service forge-frontend.service sshd.service")
 
     with subtest("workloads running at once are killed together inside the shared budget, and the box carries on"):
@@ -215,7 +215,7 @@ testers.runNixOSTest {
         box.succeed("systemctl start --no-block forge-runner@pair1 forge-runner@pair2")
         box.wait_until_succeeds("test $(cat /var/lib/forge/work/*/pair.out | grep -c '^137$') = 2", timeout=120)
         kill = box.succeed("dmesg | grep oom-kill:")
-        assert "oom_memcg=/forge-workloads.slice" in kill and "CONSTRAINT_NONE" not in kill, kill
+        assert "oom_memcg=/forge.slice/forge-workloads.slice" in kill and "CONSTRAINT_NONE" not in kill, kill
         box.succeed("systemctl is-active forge-frontend.service sshd.service")
 
     box.succeed("install -d -o forge-runtime -g forge-runtime /var/lib/forge/work/other-run")
