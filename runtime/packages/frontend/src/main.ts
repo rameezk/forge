@@ -5,13 +5,14 @@ import { createAdaptorServer } from '@hono/node-server';
 import { Store } from '@forge/shared';
 import { createApp, type AppOptions } from './app.ts';
 import { resolveServeConfig } from './config.ts';
+import { readDeployStatus } from './deploy-status.ts';
 import { readStylesheet } from './assets.ts';
 import { FileTranscriptSource } from './transcript.ts';
 
 export const createDashboard = (
   stateDir: string,
   store: Store,
-  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs' | 'maxConcurrent' | 'maxOpenPullRequests'> = {},
+  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs' | 'maxConcurrent' | 'maxOpenPullRequests' | 'deployStatus'> = {},
 ): ReturnType<typeof createApp> =>
   createApp({
     store,
@@ -24,9 +25,14 @@ export const createDashboard = (
   });
 
 export const main = (env: NodeJS.ProcessEnv): void => {
-  const { stateDir, socketPath, maxConcurrent, maxOpenPullRequests, timeZone } = resolveServeConfig(env);
+  const { stateDir, socketPath, maxConcurrent, maxOpenPullRequests, timeZone, deployStatusFile } = resolveServeConfig(env);
 
-  const app = createDashboard(stateDir, Store.openReadOnly(join(stateDir, 'forge.db')), { maxConcurrent, maxOpenPullRequests, timeZone });
+  const app = createDashboard(stateDir, Store.openReadOnly(join(stateDir, 'forge.db')), {
+    maxConcurrent,
+    maxOpenPullRequests,
+    timeZone,
+    ...(deployStatusFile === null ? {} : { deployStatus: () => readDeployStatus(deployStatusFile) }),
+  });
 
   createAdaptorServer({ fetch: app.fetch }).listen(socketPath, () => {
     console.log(`forge dashboard listening on ${socketPath}`);

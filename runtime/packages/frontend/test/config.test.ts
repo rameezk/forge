@@ -9,7 +9,7 @@ test('given state dir and socket, when resolved, then they are used', () => {
       FORGE_FRONTEND_SOCKET: '/run/forge-frontend/dashboard.sock',
       FORGE_MAX_CONCURRENT: '3',
     }),
-    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, timeZone: 'UTC' },
+    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, timeZone: 'UTC', deployStatusFile: null },
   );
 });
 
@@ -78,4 +78,20 @@ test('given a review limit that is not a positive integer or null, when resolved
       /FORGE_MAX_OPEN_PULL_REQUESTS/,
     );
   }
+});
+
+test('given a deploy status file, when resolved, then it is used', () => {
+  const config = resolveServeConfig({
+    FORGE_STATE_DIR: '/s',
+    FORGE_FRONTEND_SOCKET: '/run/d.sock',
+    FORGE_PULL_DEPLOY_STATUS_FILE: '/var/lib/forge-pull-deploy/status.json',
+  });
+  assert.equal(config.deployStatusFile, '/var/lib/forge-pull-deploy/status.json');
+});
+
+test('given a deploy status file that is not an absolute path, when resolved, then it throws naming FORGE_PULL_DEPLOY_STATUS_FILE', () => {
+  assert.throws(
+    () => resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/run/d.sock', FORGE_PULL_DEPLOY_STATUS_FILE: 'status.json' }),
+    /FORGE_PULL_DEPLOY_STATUS_FILE/,
+  );
 });
