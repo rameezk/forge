@@ -794,23 +794,31 @@ or `nix.settings.extra-trusted-users`, by name, by one of its groups or through
 
 ### Workload memory
 
-A workload, with its harness, its subagents and every command they run, may
-use at most `forge.runtime.workload.memoryMax` of memory, 80% of the box's by
-default. Set it to a size such as `"6G"` or another percentage. A workload
-that reaches it does not stop: the kernel kills its largest process, in
-practice the command that ran away, and the agent sees that command exit with
-137. The agent is told to stop and report a required command that is killed
-rather than substitute another check. The box has no swap.
+Every running workload, with its harness, its subagents and every command they
+run, and every build the nix daemon runs, deploy builds included, share one
+memory budget: `forge.runtime.workload.sharedMemoryMax`, 80% of the box's
+memory by default. Set it to a size such as `"6G"` or another percentage. The
+rest is kept for the box's own services, so a workload can no longer take down
+the dashboard, tailscale or SSH. The box has no swap.
 
-The limit is per workload. Workloads running at once, up to
-`dispatch.maxConcurrent` dispatches plus any scheduled ones, can together use
-more than it, and builds the nix daemon runs for a workload are outside it, so
-either can still exhaust the box.
+When the budget is reached, the kernel kills the largest process inside it, in
+practice the command or build that ran away, and the agent sees that command
+exit with 137. The agent is told to stop and report a required command that is
+killed rather than substitute another check. The nix daemon and the workload
+carry on.
 
-Size the box for the checks your managed repositories run. A check that
-evaluates or builds Nix, such as `nix flake check`, can need more memory than
-a cx23's 3.7 GB usable, so use a cx33 or larger for a box that manages such a
-repository.
+Because the budget is shared, a workload can lose a command to another
+workload or to a build. A deploy that builds while workloads are busy can fail,
+which is safe to re-run, or cause a workload's command to be killed.
+
+Size the box for the heaviest set of workloads running at once with their
+builds. A check that evaluates or builds Nix, such as `nix flake check`, can
+need more memory than a cx23's 3.7 GB usable, so use a cx33 or larger for a box
+that manages such a repository, and larger again for a higher
+`dispatch.maxConcurrent`.
+
+`forge.runtime.workload.memoryMax` has been removed, and setting it fails
+evaluation: use `sharedMemoryMax`.
 
 ### Workload timeout
 

@@ -4,6 +4,8 @@
   testers,
   writeShellScriptBin,
   bash,
+  coreutils,
+  writeText,
   util-linux,
   curl,
   forge-runner,
@@ -25,6 +27,28 @@ let
     }
   '';
 
+  runawayBuild = writeText "runaway.nix" ''
+    let
+      bash = builtins.storePath "${bash}";
+      coreutils = builtins.storePath "${coreutils}";
+    in
+    derivation {
+      name = "runaway";
+      system = "${system}";
+      builder = "''${bash}/bin/bash";
+      args = [ "-c" "''${coreutils}/bin/tail /dev/zero" ];
+    }
+  '';
+
+  fineBuild = writeText "fine.nix" ''
+    derivation {
+      name = "fine";
+      system = "${system}";
+      builder = builtins.storePath "${bash}" + "/bin/bash";
+      args = [ "-c" "echo fine > $out" ];
+    }
+  '';
+
   stubHarness = writeShellScriptBin "stub-harness" ''
     set -u
     attempt() {
@@ -43,6 +67,16 @@ let
       hog)
         bash -c 'tail /dev/zero'
         echo "$?" > hog.out
+        ;;
+      build)
+        nix build --offline --impure --no-link -f ${runawayBuild} > build.log 2>&1
+        echo "$?" > build.out
+        nix build --offline --impure --no-link -f ${fineBuild} > build-after.log 2>&1
+        echo "$?" > build-after.out
+        ;;
+      pair*)
+        bash -c 'tail /dev/zero'
+        echo "$?" > pair.out
         ;;
       probe*)
         {
@@ -111,7 +145,7 @@ let
     forge.runtime.harnesses.pi.command = lib.getExe stubHarness;
     forge.runtime.workload.maxCost = null;
     forge.runtime.workers =
-      lib.genAttrs [ "plant" "linger" "hog" ] (name: {
+      lib.genAttrs [ "plant" "linger" "hog" "build" "pair1" "pair2" ] (name: {
         harness = "pi";
         model = "stub/sandbox";
         prompt = name;
@@ -134,7 +168,7 @@ testers.runNixOSTest {
 
   nodes.box = box {
     boot.kernel.sysctl."vm.panic_on_oom" = 0;
-    forge.runtime.workload.memoryMax = "256M";
+    forge.runtime.workload.sharedMemoryMax = "256M";
   };
 
   nodes.unconfinable = box {
@@ -164,6 +198,24 @@ testers.runNixOSTest {
         assert status == "success", status
         kill = box.succeed("dmesg | grep oom-kill:")
         assert "constraint=CONSTRAINT_MEMCG" in kill and "forge-runner@hog.service" in kill, kill
+
+    with subtest("a runaway nix daemon build is killed inside the shared budget, and the daemon and the box carry on"):
+        box.succeed("systemctl start forge-runner@build")
+        assert box.succeed("cat /var/lib/forge/work/*/build.out").strip() != "0"
+        assert box.succeed("cat /var/lib/forge/work/*/build-after.out").strip() == "0"
+        status = box.succeed("sqlite3 /var/lib/forge/forge.db \"select status from runs where worker = 'build'\"").strip()
+        assert status == "success", status
+        kill = box.succeed("dmesg | grep oom-kill:")
+        assert "constraint=CONSTRAINT_MEMCG" in kill and "oom_memcg=/forge-workloads.slice" in kill and "nix-daemon.service" in kill, kill
+        box.succeed("systemctl is-active nix-daemon.service forge-frontend.service sshd.service")
+
+    with subtest("workloads running at once are killed together inside the shared budget, and the box carries on"):
+        box.succeed("dmesg --clear")
+        box.succeed("systemctl start --no-block forge-runner@pair1 forge-runner@pair2")
+        box.wait_until_succeeds("test $(cat /var/lib/forge/work/*/pair.out | grep -c '^137$') = 2", timeout=120)
+        kill = box.succeed("dmesg | grep oom-kill:")
+        assert "oom_memcg=/forge-workloads.slice" in kill and "CONSTRAINT_NONE" not in kill, kill
+        box.succeed("systemctl is-active forge-frontend.service sshd.service")
 
     box.succeed("install -d -o forge-runtime -g forge-runtime /var/lib/forge/work/other-run")
     box.succeed("runuser -u forge-runtime -- sh -c 'echo report > /var/lib/forge/work/other-run/report.md'")
