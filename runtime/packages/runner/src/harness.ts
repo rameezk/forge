@@ -133,6 +133,7 @@ export interface HarnessIdentity {
 
 export interface FingerprintBasis {
   settings: string | null;
+  instructions?: { hash: string | null };
   normalize(text: string): string;
 }
 

@@ -96,6 +96,23 @@ test('given a pi cohort and a Claude Code cohort, when the diff between them is 
   await expect(page.locator('[data-field="settings"]')).toHaveAttribute('data-changed', 'true');
 });
 
+test('given two Claude Code cohorts differing only in the repository instructions, when one is compared with the other, then the instructions row is marked changed and no other row is', async ({
+  dashboard,
+  page,
+}) => {
+  const instructed = { ...claudeCode, instructions: 'a'.repeat(64) };
+  const reinstructed = { ...claudeCode, instructions: 'b'.repeat(64) };
+  record(dashboard.store, 'one', instructed);
+  record(dashboard.store, 'two', reinstructed);
+
+  await page.goto(`/cohorts/${fingerprintHash(instructed)}`);
+  await page.getByLabel('Compare against').selectOption(fingerprintHash(reinstructed));
+  await page.getByRole('button', { name: 'Compare' }).click();
+
+  await expect(page.locator('[data-field][data-changed="true"]')).toHaveCount(1);
+  await expect(page.locator('[data-field="instructions"]')).toHaveAttribute('data-changed', 'true');
+});
+
 test('given a cohort page with a comparison, when it is opened at phone width, then the page does not scroll sideways', async ({ dashboard, page }) => {
   record(dashboard.store, 'one', fingerprint);
   record(dashboard.store, 'two', reskilled);

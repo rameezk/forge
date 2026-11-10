@@ -458,6 +458,35 @@ test(
   },
 );
 
+const withInstructions =
+  (instructions: string): Workload =>
+  async (workDir) => {
+    writeFileSync(join(workDir, 'AGENTS.md'), instructions);
+    return {
+      prompt: 'Run echo forge, then say what it printed.',
+      checkout: await resolveCheckout(workDir, await loadPiSkills(piPackage as string)),
+    };
+  };
+
+test(
+  'given the locked pi and two repos that differ only in AGENTS.md, when each runs, then the fingerprints differ in the system prompt and nothing else',
+  { skip },
+  async () => {
+    const first = await runRealPi(replies, { workload: withInstructions('Prefer tabs.\n') });
+    const second = await runRealPi(replies, { workload: withInstructions('Prefer spaces.\n') });
+
+    assert.ok(first.fingerprint);
+    assert.ok(second.fingerprint);
+    assert.notEqual(first.fingerprint.hash, second.fingerprint.hash);
+    const { systemPrompt: before, ...rest } = first.fingerprint.fingerprint;
+    const { systemPrompt: after, ...others } = second.fingerprint.fingerprint;
+    assert.notEqual(before, null);
+    assert.notEqual(before, after);
+    assert.equal('instructions' in first.fingerprint.fingerprint, false);
+    assert.deepEqual(rest, others);
+  },
+);
+
 const delegateTwo: Workload = () =>
   Promise.resolve({ prompt: SUBAGENTS_PROMPT });
 

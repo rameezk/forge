@@ -155,6 +155,7 @@ export class FingerprintRecorder {
       tools,
       skills,
       ...(basis.settings === null ? {} : { settings: basis.settings }),
+      ...(basis.instructions === undefined ? {} : { instructions: basis.instructions.hash }),
     };
     try {
       record({ fingerprint, hash: fingerprintHash(fingerprint), forgeGitSha, baseCommit });

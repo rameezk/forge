@@ -32,6 +32,7 @@ test('given a cohort, when its page is requested, then it shows the label and ev
     ['tools', 'Tool definitions t'],
     ['skills', 'Skill files k'],
     ['settings', 'Settings and hooks none'],
+    ['instructions', 'Repository instructions not recorded'],
   ]));
 });
 
@@ -91,6 +92,32 @@ test('given two Claude Code cohorts differing only in their settings and hooks h
   const page = await (await app.request(`/cohorts/${fingerprintHash(CLAUDE_CODE)}?against=${fingerprintHash(HOOKED)}`)).text();
 
   assert.deepEqual(changedFieldsOf(page), ['settings']);
+});
+
+const INSTRUCTED: ConfigFingerprint = { ...CLAUDE_CODE, instructions: 'i1' };
+
+const REINSTRUCTED: ConfigFingerprint = { ...INSTRUCTED, instructions: 'i2' };
+
+const UNINSTRUCTED: ConfigFingerprint = { ...INSTRUCTED, instructions: null };
+
+test('given two Claude Code cohorts differing only in the repository instructions hash, when one is requested with the other chosen, then the diff marks only the instructions as changed', async () => {
+  const { app } = dashboard([
+    { id: 'c1', fingerprint: INSTRUCTED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+    { id: 'c2', fingerprint: REINSTRUCTED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+  ]);
+
+  const page = await (await app.request(`/cohorts/${fingerprintHash(INSTRUCTED)}?against=${fingerprintHash(REINSTRUCTED)}`)).text();
+
+  assert.deepEqual(changedFieldsOf(page), ['instructions']);
+  assert.equal(fieldsOf(page).get('instructions'), 'Repository instructions changed i1 i2');
+});
+
+test('given a Claude Code cohort whose repository has no instructions file, when its page is requested, then the instructions row says so instead of showing a hash', async () => {
+  const { app } = dashboard([{ id: 'c1', fingerprint: UNINSTRUCTED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 }]);
+
+  const page = await (await app.request(`/cohorts/${fingerprintHash(UNINSTRUCTED)}`)).text();
+
+  assert.equal(fieldsOf(page).get('instructions'), 'Repository instructions no instructions file');
 });
 
 const choicesOf = (page: string): { value: string; selected: boolean; text: string }[] =>

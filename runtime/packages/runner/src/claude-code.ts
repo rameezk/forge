@@ -21,7 +21,7 @@ import {
   type ToolResultEvent,
 } from '@forge/shared';
 import { recordOf } from '@forge/pi-request-record';
-import { claudeCodeNormalizer, claudeCodeSettingsHash } from './claude-code-fingerprint.ts';
+import { claudeCodeInstructionsHash, claudeCodeNormalizer, claudeCodeSettingsHash } from './claude-code-fingerprint.ts';
 import { underDevShell } from './devshell.ts';
 import {
   NARRATION_INSTRUCTION,
@@ -795,6 +795,7 @@ class ClaudeCodeRun implements HarnessRun {
   fingerprintBasis({ workDir }: HarnessInvocation): FingerprintBasis {
     return {
       settings: claudeCodeSettingsHash(workDir),
+      instructions: { hash: claudeCodeInstructionsHash(workDir) },
       normalize: claudeCodeNormalizer({ workDir, configDir: this.#configDir }),
     };
   }
