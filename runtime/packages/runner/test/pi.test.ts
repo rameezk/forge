@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PiHarness } from '../src/index.ts';
-import { PI_EXTENSIONS, writeFakeBwrap, writeFakePi } from './helpers.ts';
+import { PI_EXTENSIONS, writeFakeBroker, writeFakeBwrap, writeFakePi } from './helpers.ts';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'pi');
 
@@ -16,6 +16,7 @@ test('given a request record sink that fails to write, when pi records a request
     command: writeFakePi(dir),
     openAgentDir: () => dir,
     extensions: PI_EXTENSIONS,
+    tools: writeFakeBroker(dir),
     sandbox: {
       bwrap: writeFakeBwrap(dir, {
         record: join(dir, 'bwrap-call.json'),
@@ -59,6 +60,7 @@ test('given a read of a skill file, when pi reports its result, then each skill 
     command: writeFakePi(dir),
     openAgentDir: () => dir,
     extensions: PI_EXTENSIONS,
+    tools: writeFakeBroker(dir),
     sandbox: {
       bwrap: writeFakeBwrap(dir, {
         record: join(dir, 'bwrap-call.json'),

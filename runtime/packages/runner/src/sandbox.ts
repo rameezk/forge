@@ -14,6 +14,15 @@ const NIXOS_ENVIRONMENT_MARKER = { __NIXOS_SET_ENVIRONMENT_DONE: '1' };
 
 export const REQUEST_RECORD_FD = 4;
 
+export const BROKER_DIR = '/run/forge-tools';
+
+export type SandboxRole = 'workload' | 'tools';
+
+export interface BrokerMount {
+  dir: string;
+  role: SandboxRole;
+}
+
 const readOnly = (path: string): string[] => ['--ro-bind', path, path];
 
 export const sandboxArgs = (
@@ -22,10 +31,12 @@ export const sandboxArgs = (
   agentDir?: string,
   writableDirs: string[] = [],
   readOnlyDirs: string[] = [],
+  { dir: brokerDir, role }: BrokerMount = { dir: '', role: 'workload' },
 ): string[] => [
   '--unshare-user',
   '--disable-userns',
   '--unshare-pid',
+  ...(role === 'tools' ? ['--as-pid-1'] : []),
   '--unshare-ipc',
   '--unshare-uts',
   '--die-with-parent',
@@ -46,6 +57,9 @@ export const sandboxArgs = (
   ...(agentDir === undefined ? [] : readOnly(agentDir)),
   ...readOnlyDirs.flatMap(readOnly),
   ...writableDirs.flatMap((dir) => ['--bind', dir, dir]),
+  ...(brokerDir === ''
+    ? []
+    : [role === 'tools' ? '--bind' : '--ro-bind', brokerDir, BROKER_DIR]),
   '--bind',
   workDir,
   workDir,
@@ -99,6 +113,7 @@ const stderrTail = (stderr: Readable): Promise<string> =>
   });
 
 const exitOf = async (
+  role: SandboxRole,
   name: string,
   child: ChildProcess,
   ran: Promise<boolean>,
@@ -112,7 +127,7 @@ const exitOf = async (
   });
   if (!(await ran)) {
     const why = closing instanceof Error ? closing.message : await tail;
-    return new SandboxUnavailable(`the workload sandbox could not start: ${why}`);
+    return new SandboxUnavailable(`the ${role} sandbox could not start: ${why}`);
   }
   if (closing instanceof Error) {
     return closing;
@@ -138,12 +153,14 @@ export const spawnSandboxed = (
     agentDir,
     writableDirs,
     env,
+    broker,
   }: {
     name: string;
     workDir: string;
     agentDir?: string;
     writableDirs?: string[];
     env: NodeJS.ProcessEnv;
+    broker?: BrokerMount;
   },
 ): SandboxedProcess => {
   const tokenFile = env[GITHUB_TOKEN_FILE_ENV];
@@ -156,6 +173,7 @@ export const spawnSandboxed = (
         agentDir,
         writableDirs,
         tokenFile === undefined ? [] : [dirname(tokenFile)],
+        broker,
       ),
       '--',
       command,
@@ -172,6 +190,7 @@ export const spawnSandboxed = (
     stdout: child.stdout as Readable,
     requestRecord: child.stdio[REQUEST_RECORD_FD] as Readable,
     exited: exitOf(
+      broker?.role ?? 'workload',
       name,
       child,
       reportsExit(child.stdio[STATUS_FD] as Readable),

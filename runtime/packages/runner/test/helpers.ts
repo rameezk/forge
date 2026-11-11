@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
+import type { ToolsConfig } from '../src/environment.ts';
 import type {
   HarnessEvent,
   MessageEvent,
@@ -267,7 +268,7 @@ export const claudeReplay = (
 const FAKE_BWRAP_RECORDER = `import { writeFileSync } from 'node:fs';
 const [record, ...argv] = process.argv.slice(2);
 const { PWD, SHLVL, _, __CF_USER_TEXT_ENCODING, ...env } = process.env;
-writeFileSync(record, JSON.stringify({ argv, env }));
+writeFileSync(argv.includes('--as-pid-1') ? record + '.tools' : record, JSON.stringify({ argv, env }));
 `;
 
 const quoted = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
@@ -310,6 +311,30 @@ export const writeFakeBwrap = (
   );
   chmodSync(path, 0o755);
   return path;
+};
+
+export const FAKE_BROKER_CLIENT = '/nix/store/00000000000000000000000000000000-forge-command-broker/bin/forge-shell';
+
+export const writeFakeBroker = (dir: string): ToolsConfig => {
+  const broker = join(dir, 'fake-broker.mjs');
+  writeFileSync(
+    broker,
+    [
+      `#!${process.execPath}`,
+      "import { existsSync, writeSync } from 'node:fs';",
+      "import { join } from 'node:path';",
+      "if (existsSync(join(import.meta.dirname, 'broker-dies'))) { writeSync(3, '{\"exit-code\":137}\\n'); process.exit(137); }",
+      'setTimeout(() => {}, 600000);',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(broker, 0o755);
+  return { broker, client: FAKE_BROKER_CLIENT };
+};
+
+export const brokerEnv = (dir: string): Record<string, string> => {
+  const { broker, client } = writeFakeBroker(dir);
+  return { FORGE_BROKER: broker, FORGE_BROKER_CLIENT: client };
 };
 
 export const LOCKDOWN = [
@@ -517,12 +542,15 @@ export const fakeOpenRouter = async (
 };
 
 export const PASSTHROUGH_BWRAP = `#!/bin/sh
+tools=no
 while [ "$1" != -- ]; do
   if [ "$1" = --chdir ]; then dir=$2; fi
+  if [ "$1" = --as-pid-1 ]; then tools=yes; fi
   shift
 done
 shift
 cd "$dir" || exit 1
+if [ "$tools" = yes ]; then exec "$@"; fi
 "$@"
 code=$?
 printf '{"exit-code": %s}\\n' "$code" >&3

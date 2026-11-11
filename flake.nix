@@ -2099,6 +2099,13 @@
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
           };
+          tools-sandbox = pkgs.callPackage ./infra/nix/tools-sandbox.nix {
+            forge-runner = self.packages.${system}.forge-runner;
+            pi-coding-agent = self.packages.${system}.pi-coding-agent;
+            sopsModule = sops-nix.nixosModules.sops;
+            secretsFile = exampleSecretsFile;
+            secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;
+          };
           workload-devshell = pkgs.callPackage ./infra/nix/workload-devshell.nix {
             forge-runner = self.packages.${system}.forge-runner;
             sopsModule = sops-nix.nixosModules.sops;

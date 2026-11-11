@@ -7,6 +7,7 @@ import {
   picked,
   sandboxOf,
   systemEnvironment,
+  toolsOf,
 } from './environment.ts';
 import type { Harness, Worker } from './harness.ts';
 import { PiHarness } from './pi.ts';
@@ -37,9 +38,11 @@ const piFactory: HarnessFactory = ({
       `worker '${worker.name}' pairs harness 'pi' with provider '${worker.provider}': harness 'pi' only takes provider ${PI_PROVIDER}`,
     );
   }
+  const tools = toolsOf(env);
   return new PiHarness({
     command: config.command,
-    openAgentDir: agentDirsIn(join(stateDir, 'agent')),
+    openAgentDir: agentDirsIn(join(stateDir, 'agent'), tools.client),
+    tools,
     extensions: {
       subagent: absolutePath(env, 'FORGE_PI_SUBAGENT_EXTENSION'),
       modelDefaultReasoning: absolutePath(

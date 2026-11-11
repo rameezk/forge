@@ -43,6 +43,8 @@ import {
   type GenerationStats,
   type Lookup,
   isAlive,
+  brokerEnv,
+  FAKE_BROKER_CLIENT,
 } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { NARRATION_INSTRUCTION } from '../src/harness.ts';
@@ -113,6 +115,7 @@ interface Scenario {
   stderr?: string;
   exit?: number;
   lingerMs?: number;
+  toolsDie?: boolean;
   bwrapFailure?: string;
   harness?: 'direct' | 'linked' | 'missing' | 'relative';
   piVersion?: string | null;
@@ -127,6 +130,7 @@ interface Outcome {
   rawEvents: Record<string, unknown>[];
   requestRecord: Record<string, unknown>[];
   bwrap: BwrapCall;
+  tools: BwrapCall;
   piStarted: boolean;
   openRouterRequests: number;
   pi: {
@@ -188,6 +192,9 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const fakePi = writeFakePi(stateDir, scenario.piVersion);
   const record = join(stateDir, 'pi-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
+  if (scenario.toolsDie === true) {
+    writeFileSync(join(stateDir, 'broker-dies'), '');
+  }
   const fakeBwrap = writeFakeBwrap(stateDir, {
     record: bwrapRecord,
     harnessEnv: {
@@ -246,6 +253,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
       FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
       FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
+      ...brokerEnv(stateDir),
       FORGE_BWRAP: fakeBwrap,
       ...scenario.env,
     });
@@ -287,6 +295,9 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     },
     get bwrap() {
       return JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall;
+    },
+    get tools() {
+      return JSON.parse(readFileSync(`${bwrapRecord}.tools`, 'utf8')) as BwrapCall;
     },
     piStarted: existsSync(record),
     openRouterRequests,
@@ -1914,6 +1925,17 @@ test('given the models endpoint lists the worker\'s model with a context window,
   }
 });
 
+test('given a workload about to start, when pi\'s agent dir is written, then its read-only settings point pi\'s shell at the command broker\'s client, a path no repository can override', async () => {
+  const { pi } = await runWorker({ output: fixture('success.jsonl') });
+
+  assert.ok(pi.agentDir);
+  const settings = join(pi.agentDir, 'settings.json');
+  assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), {
+    shellPath: FAKE_BROKER_CLIENT,
+  });
+  assert.equal(statSync(settings).mode & 0o222, 0);
+});
+
 test('given the models endpoint lists the worker\'s model without an output limit, without reasoning and at a price too large to scale, when the workload starts, then models.json declares only the context window and that the model does not reason', async () => {
   const openRouter = await fakeOpenRouter(billedAt({}), {
     data: [
@@ -1965,12 +1987,14 @@ test('given any worker, when it runs, then pi works in a fresh per-run directory
 });
 
 test('given a workload about to start, when the runner launches its harness, then pi runs inside bubblewrap with the nix store, the daemon socket and the system files read-only, its own agent dir read-only, its run directory read-write at its real path, fresh /dev, /proc, /tmp and HOME, its own pid, ipc and uts namespaces, no nested user namespaces, and nothing else from the box', async () => {
-  const { bwrap, pi, run, stateDir } = await runWorker({
+  const { bwrap, tools, pi, run, stateDir } = await runWorker({
     output: fixture('success.jsonl'),
   });
 
   const workDir = join(stateDir, 'work', run.id);
   const agentDir = join(stateDir, 'agent', run.id);
+  const brokerDir = tools.argv[tools.argv.indexOf('/run/forge-tools') - 1];
+  assert.match(brokerDir ?? '', /forge-tools-/);
   const separator = bwrap.argv.indexOf('--');
   assert.deepEqual(bwrap.argv.slice(0, separator), [
     '--unshare-user',
@@ -1990,6 +2014,7 @@ test('given a workload about to start, when the runner launches its harness, the
     '--tmpfs', '/tmp',
     '--tmpfs', RUNNER_HOME,
     '--ro-bind', agentDir, agentDir,
+    '--ro-bind', brokerDir, '/run/forge-tools',
     '--bind', workDir, workDir,
     '--remount-ro', '/',
     '--chdir', workDir,
@@ -1997,6 +2022,64 @@ test('given a workload about to start, when the runner launches its harness, the
   ]);
   assert.deepEqual(bwrap.argv.slice(separator + 1).slice(1), pi.argv);
   assert.equal(pi.cwd, realpathSync(workDir));
+});
+
+test('given a workload about to start, when the runner launches its harness, then a sibling tools sandbox is started first with the command broker as its pid 1, the same system view and its own HOME, no nested user namespaces, the run directory and the broker socket directory read-write, and the broker withholds the variables only pi is given', async () => {
+  const { bwrap, tools, pi, run, stateDir } = await runWorker({
+    output: fixture('success.jsonl'),
+  });
+
+  const workDir = join(stateDir, 'work', run.id);
+  const separator = tools.argv.indexOf('--');
+  const brokerDir = tools.argv[tools.argv.indexOf('/run/forge-tools') - 1] ?? '';
+  assert.deepEqual(tools.argv.slice(0, separator), [
+    '--unshare-user',
+    '--disable-userns',
+    '--unshare-pid',
+    '--as-pid-1',
+    '--unshare-ipc',
+    '--unshare-uts',
+    '--die-with-parent',
+    '--new-session',
+    '--ro-bind', '/nix/store', '/nix/store',
+    '--ro-bind', '/nix/var/nix/daemon-socket', '/nix/var/nix/daemon-socket',
+    '--ro-bind', '/etc', '/etc',
+    '--ro-bind', '/bin', '/bin',
+    '--ro-bind', '/usr', '/usr',
+    '--dev', '/dev',
+    '--proc', '/proc',
+    '--tmpfs', '/tmp',
+    '--tmpfs', RUNNER_HOME,
+    '--bind', brokerDir, '/run/forge-tools',
+    '--bind', workDir, workDir,
+    '--remount-ro', '/',
+    '--chdir', workDir,
+    '--json-status-fd', '3',
+  ]);
+  assert.deepEqual(tools.argv.slice(separator + 2), [
+    '--withhold',
+    'PI_CODING_AGENT_DIR',
+    '--withhold',
+    'FORGE_PI_REQUEST_RECORD_FD',
+    '--withhold',
+    'FORGE_PI_SUBAGENT_INVOCATION',
+  ]);
+  assert.equal(tools.env.HOME, RUNNER_HOME);
+  assert.equal(tools.env.PI_CODING_AGENT_DIR, undefined);
+  assert.equal(tools.env.FORGE_PI_SUBAGENT_INVOCATION, undefined);
+  assert.ok(bwrap.argv.includes('--ro-bind'));
+  assert.ok(pi.argv.length > 0);
+});
+
+test('given a tools sandbox that ends while pi is still running, when the worker runs, then pi is stopped and the run is an error naming the tools sandbox', async () => {
+  const { run } = await runWorker({
+    output: fixture('success.jsonl'),
+    toolsDie: true,
+    lingerMs: 60_000,
+  });
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /^the tools sandbox ended while the run was still going: .*137/);
 });
 
 test('given a harness command reached through a link the sandbox does not carry, like /run/current-system/sw/bin/pi, when the runner launches the harness, then pi and its subagents are started by its real path', async () => {
@@ -2083,7 +2166,7 @@ test('given a sandbox that cannot set up or a bubblewrap that is missing, when t
   ).then(({ result }) => result);
   const missing = await runWorker({
     output: fixture('success.jsonl'),
-    env: { FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap' },
+    env: { FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap', FORGE_BROKER: '/not/used', FORGE_BROKER_CLIENT: '/not/used' },
   });
 
   assert.equal(
@@ -2894,6 +2977,8 @@ test('given a runner whose subagent extension, model default reasoning extension
     FORGE_PI_SUBAGENT_EXTENSION: EXTENSION,
     FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
     FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
+    FORGE_BROKER: '/not/used',
+    FORGE_BROKER_CLIENT: '/not/used',
     FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap',
     HOME: RUNNER_HOME,
   };

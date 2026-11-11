@@ -58,6 +58,7 @@ import {
   PASSTHROUGH_BWRAP,
   OWN_CONTEXT_CASES,
   ticketContextOf,
+  writeFakeBroker,
 } from './helpers.ts';
 
 const piPackage = process.env.FORGE_PI_PACKAGE;
@@ -216,6 +217,7 @@ const runRealPi = async (
     command: join(piPackage as string, '..', '..', '..', 'bin', 'pi'),
     openAgentDir: () => agentDir,
     extensions: PI_EXTENSIONS,
+    tools: writeFakeBroker(root),
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
     env: { OPENROUTER_API_KEY: 'sk-fake' },
