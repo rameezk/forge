@@ -316,17 +316,31 @@ export const writeFakeBwrap = (
 export const FAKE_BROKER_CLIENT = '/nix/store/00000000000000000000000000000000-forge-command-broker/bin/forge-shell';
 
 export const writeFakeBroker = (dir: string): ToolsConfig => {
-  const broker = join(dir, 'fake-broker.mjs');
+  const broker = join(dir, 'fake-broker.sh');
+  const script = join(dir, 'fake-broker.mjs');
+  writeFileSync(
+    script,
+    `import { existsSync, writeSync } from 'node:fs';
+import { join } from 'node:path';
+const dies = () => {
+  writeSync(3, '{"exit-code":137}\\n');
+  process.exit(137);
+};
+if (existsSync(join(import.meta.dirname, 'broker-fails-to-start'))) dies();
+writeSync(1, 'ready\\n');
+if (existsSync(join(import.meta.dirname, 'broker-dies'))) setTimeout(dies, 300);
+setTimeout(() => {}, 600000);
+`,
+  );
   writeFileSync(
     broker,
-    [
-      `#!${process.execPath}`,
-      "import { existsSync, writeSync } from 'node:fs';",
-      "import { join } from 'node:path';",
-      "if (existsSync(join(import.meta.dirname, 'broker-dies'))) { writeSync(3, '{\"exit-code\":137}\\n'); process.exit(137); }",
-      'setTimeout(() => {}, 600000);',
-      '',
-    ].join('\n'),
+    `#!/bin/sh
+if [ "$1" = --prelisten ]; then
+  shift 3
+  exec "$@"
+fi
+exec ${quoted(process.execPath)} ${quoted(script)} "$@"
+`,
   );
   chmodSync(broker, 0o755);
   return { broker, client: FAKE_BROKER_CLIENT };

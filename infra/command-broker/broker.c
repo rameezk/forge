@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -16,7 +17,7 @@
 
 #include "protocol.h"
 
-#define MAX_CONNECTIONS 4096
+#define MAX_CONNECTIONS 1024
 #define MAX_SIGNAL 64
 
 enum stage { HEAD, BODY, RUNNING };
@@ -53,9 +54,14 @@ static void refuse(struct connection *c, const char *why) {
   release(c);
 }
 
+static const char *const LOADER_AND_SHELL[] = {"BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4", "GLIBC_TUNABLES", "IFS"};
+
 static int is_withheld(const char *entry) {
   const char *eq = strchr(entry, '=');
   size_t n = eq == NULL ? strlen(entry) : (size_t)(eq - entry);
+  if (strncmp(entry, "LD_", 3) == 0 || strncmp(entry, "BASH_FUNC_", 10) == 0) return 1;
+  for (size_t i = 0; i < sizeof LOADER_AND_SHELL / sizeof *LOADER_AND_SHELL; i++)
+    if (strlen(LOADER_AND_SHELL[i]) == n && strncmp(LOADER_AND_SHELL[i], entry, n) == 0) return 1;
   for (int i = 0; i < withheld_count; i++)
     if (strlen(withheld[i]) == n && strncmp(withheld[i], entry, n) == 0) return 1;
   return 0;
@@ -168,8 +174,17 @@ static void start(struct connection *c) {
     sigemptyset(&none);
     sigprocmask(SIG_SETMASK, &none, NULL);
     setpgid(0, 0);
+    int staged[FORGE_REQUEST_FDS];
     for (int i = 0; i < FORGE_REQUEST_FDS; i++) {
-      if (dup2(c->fds[i], i) < 0) _exit(FORGE_REFUSED_STATUS);
+      staged[i] = fcntl(c->fds[i], F_DUPFD, 10);
+      if (staged[i] < 0) _exit(FORGE_REFUSED_STATUS);
+    }
+    for (int i = 0; i < FORGE_REQUEST_FDS; i++) {
+      if (dup2(staged[i], i) < 0) _exit(FORGE_REFUSED_STATUS);
+    }
+    for (int i = 0; i < FORGE_REQUEST_FDS; i++) {
+      close(staged[i]);
+      if (c->fds[i] >= FORGE_REQUEST_FDS) close(c->fds[i]);
     }
     if (chdir(cwd) < 0) {
       dprintf(2, "forge-broker: cannot enter %s: %s\n", cwd, strerror(errno));
@@ -204,7 +219,6 @@ static void take_head(struct connection *c) {
   msg.msg_controllen = sizeof control.space;
   ssize_t got = recvmsg(c->fd, &msg, MSG_CMSG_CLOEXEC);
   if (got < 0 && (errno == EAGAIN || errno == EINTR)) return;
-  if (got != (ssize_t)sizeof data) return release(c);
   for (struct cmsghdr *h = CMSG_FIRSTHDR(&msg); h != NULL; h = CMSG_NXTHDR(&msg, h)) {
     if (h->cmsg_level != SOL_SOCKET || h->cmsg_type != SCM_RIGHTS) continue;
     int count = (int)((h->cmsg_len - CMSG_LEN(0)) / sizeof(int));
@@ -214,6 +228,7 @@ static void take_head(struct connection *c) {
       else close(sent[i]);
     }
   }
+  if (got != (ssize_t)sizeof data || (msg.msg_flags & MSG_CTRUNC) != 0) return release(c);
   memcpy(&c->length, data, sizeof data);
   if (c->received != FORGE_REQUEST_FDS) return refuse(c, "expected three descriptors");
   if (c->length == 0 || c->length > FORGE_MAX_REQUEST) return refuse(c, "bad request length");
@@ -279,14 +294,31 @@ static int listen_on(const char *path) {
   return fd;
 }
 
+static void prelisten(const char *path, char **command) {
+  int fd = listen_on(path);
+  if (fd != FORGE_LISTEN_FD) {
+    if (dup2(fd, FORGE_LISTEN_FD) < 0) {
+      perror("forge-broker: dup2");
+      exit(2);
+    }
+    close(fd);
+  }
+  fcntl(FORGE_LISTEN_FD, F_SETFD, 0);
+  execv(command[0], command);
+  perror("forge-broker: exec");
+  exit(2);
+}
+
 int main(int argc, char **argv) {
-  const char *socket_path = FORGE_BROKER_SOCKET;
+  const char *socket_path = NULL;
   withheld = calloc((size_t)argc, sizeof *withheld);
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) socket_path = argv[++i];
+    else if (strcmp(argv[i], "--prelisten") == 0 && i + 3 < argc && strcmp(argv[i + 2], "--") == 0)
+      prelisten(argv[i + 1], argv + i + 3);
     else if (strcmp(argv[i], "--withhold") == 0 && i + 1 < argc) withheld[withheld_count++] = argv[++i];
     else {
-      fprintf(stderr, "usage: forge-broker [--socket PATH] [--withhold NAME]...\n");
+      fprintf(stderr, "usage: forge-broker [--socket PATH] [--withhold NAME]... | --prelisten PATH -- COMMAND...\n");
       return 2;
     }
   }
@@ -300,7 +332,15 @@ int main(int argc, char **argv) {
     perror("forge-broker: signalfd");
     return 2;
   }
-  int listener = listen_on(socket_path);
+  struct rlimit files;
+  if (getrlimit(RLIMIT_NOFILE, &files) == 0) {
+    files.rlim_cur = files.rlim_max;
+    setrlimit(RLIMIT_NOFILE, &files);
+  }
+  int listener = FORGE_LISTEN_FD;
+  if (socket_path != NULL) listener = listen_on(socket_path);
+  else fcntl(listener, F_SETFD, FD_CLOEXEC);
+  if (write(1, "ready\n", 6) != 6) return 2;
   static struct pollfd polled[MAX_CONNECTIONS + 2];
   for (;;) {
     polled[0] = (struct pollfd){listener, POLLIN, 0};

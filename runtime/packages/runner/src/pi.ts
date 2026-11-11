@@ -37,7 +37,6 @@ import type { OpenAgentDir } from './agent-dir.ts';
 import { PI_PROVIDER } from './provider.ts';
 import {
   REQUEST_RECORD_FD,
-  SandboxUnavailable,
   spawnSandboxed,
   type Sandbox,
 } from './sandbox.ts';
@@ -663,11 +662,16 @@ class PiRun implements HarnessRun {
       env: underDevShell(invocation.devShell, this.#system, this.#env),
       withheld: Object.keys(harnessOnly),
     });
-    const { child, stdout, requestRecord, exited: exit } = spawnSandboxed(
-      this.#sandbox,
-      command,
-      args,
-      {
+    try {
+      await tools.ready;
+    } catch (cause) {
+      await tools.stop();
+      yield stream.result(cause instanceof Error ? cause : new Error(String(cause)));
+      return;
+    }
+    let spawned: ReturnType<typeof spawnSandboxed>;
+    try {
+      spawned = spawnSandboxed(this.#sandbox, command, args, {
         name: 'pi',
         workDir: invocation.workDir,
         agentDir: this.#agentDir,
@@ -676,17 +680,16 @@ class PiRun implements HarnessRun {
           ...harnessOnly,
         }),
         broker: { dir: tools.dir, role: 'workload' },
-      },
-    );
+      });
+    } catch (cause) {
+      await tools.stop();
+      throw cause;
+    }
+    const { child, stdout, requestRecord, exited: exit } = spawned;
     let toolsFailure: Error | null = null;
-    let toolsUnavailable: Error | null = null;
     let running = true;
     void tools.exited.then((failure) => {
       if (!running) return;
-      if (failure instanceof SandboxUnavailable) {
-        toolsUnavailable = failure;
-        return;
-      }
       toolsFailure = new Error(
         `the tools sandbox ended while the run was still going: ${failure?.message ?? 'its command broker exited'}`,
       );
@@ -732,7 +735,7 @@ class PiRun implements HarnessRun {
       const harnessExit = await exit;
       running = false;
       await tools.stop();
-      exitFailure = toolsFailure ?? harnessExit ?? toolsUnavailable;
+      exitFailure = toolsFailure ?? harnessExit;
       await recordFailure;
     }
 

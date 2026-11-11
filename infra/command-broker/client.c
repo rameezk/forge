@@ -112,13 +112,13 @@ int main(int argc, char **argv) {
   if (argc < 2) fail("usage: forge-shell -c COMMAND");
   size_t length;
   char *body = encode(argc, argv, &length);
+  int broker = connect_broker();
   sigset_t forwarded;
   sigemptyset(&forwarded);
   for (size_t i = 0; i < sizeof FORWARDED / sizeof *FORWARDED; i++) sigaddset(&forwarded, FORWARDED[i]);
   sigprocmask(SIG_BLOCK, &forwarded, NULL);
   int signals = signalfd(-1, &forwarded, SFD_CLOEXEC);
   if (signals < 0) fail("cannot watch signals");
-  int broker = connect_broker();
   send_request(broker, body, length);
   free(body);
   struct pollfd polled[2] = {{broker, POLLIN, 0}, {signals, POLLIN, 0}};

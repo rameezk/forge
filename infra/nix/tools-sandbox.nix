@@ -5,6 +5,7 @@
   writeShellScriptBin,
   writeText,
   runCommand,
+  bash,
   coreutils,
   curl,
   gcc,
@@ -47,34 +48,40 @@ let
   '';
 
   scenarioSet = {
-      signals = [
-        "echo ready > ready.out"
-        "${procps}/bin/pkill -f '${markerPattern}'; echo $? > pkill.out"
-        "kill -TERM -1; true"
-        "kill -KILL -1; true"
-        "until [ -s harness-pid ]; do sleep 0.2; done; kill -TERM $(cat harness-pid); true"
-        "kill -KILL 1; kill -TERM 1; kill -INT 1; kill -HUP 1; true"
-        "echo alive > after-signals.out"
-      ];
-      background = [
-        "echo hello > /tmp/hello.txt; cd /tmp && nohup ${python3}/bin/python3 -m http.server 8124 --bind 127.0.0.1 > /tmp/server.log 2>&1 &"
-        "for attempt in $(seq 50); do ${curl}/bin/curl -fs http://127.0.0.1:8124/hello.txt > served.out && break; sleep 0.2; done; true"
-      ];
-      userns = [
-        "${util-linux}/bin/unshare -U true 2> userns.err; echo $? > userns.status; true"
-      ];
-      stop = [
-        {
-          command = "sleep 300 & sleep 301 & wait";
-          timeout = 2;
-        }
-        "sleep 1; ${procps}/bin/pgrep -f 'sleep 30[01]' > leftover.out; echo done > stopped.out; true"
-      ];
-      orphans = [
-        "for i in 1 2 3 4 5; do (sleep 0.1 &); done; true"
-        "sleep 1; ${procps}/bin/ps -eo stat= | grep -c '^Z' > zombies.out; true"
-      ];
-      dead = [ "echo started > started.out; sleep 600" ];
+    signals = [
+      "echo ready > ready.out"
+      "${procps}/bin/pkill -f '${markerPattern}'; echo $? > pkill.out"
+      "kill -TERM -1; true"
+      "kill -KILL -1; true"
+      "until [ -s harness-pid ]; do sleep 0.2; done; kill -TERM $(cat harness-pid); true"
+      "kill -KILL 1; kill -TERM 1; kill -INT 1; kill -HUP 1; true"
+      "echo alive > after-signals.out"
+    ];
+    background = [
+      "echo hello > /tmp/hello.txt; cd /tmp && nohup ${python3}/bin/python3 -m http.server 8124 --bind 127.0.0.1 > /tmp/server.log 2>&1 &"
+      "for attempt in $(seq 50); do ${curl}/bin/curl -fs http://127.0.0.1:8124/hello.txt > served.out && break; sleep 0.2; done; true"
+    ];
+    userns = [
+      "${util-linux}/bin/unshare -U true 2> userns.err; echo $? > userns.status; true"
+    ];
+    stop = [
+      {
+        command = "sleep 300 & sleep 301 & wait";
+        timeout = 2;
+      }
+      "sleep 1; ${procps}/bin/pgrep -f 'sleep 30[01]' > leftover.out; echo done > stopped.out; true"
+    ];
+    orphans = [
+      "for i in 1 2 3 4 5; do (sleep 0.1 &); done; true"
+      "sleep 1; ${procps}/bin/ps -eo stat= | grep -c '^Z' > zombies.out; true"
+    ];
+    loader = [
+      "LD_PRELOAD=${loaderTraps}/trap.so ${coreutils}/bin/true; test -e /tmp/ld-preload-ran && rm /tmp/ld-preload-ran && echo preload-works > control.out"
+      "BASH_ENV=${loaderTraps}/trap.sh ${bash}/bin/bash -c true; test -e /tmp/bash-env-ran && rm /tmp/bash-env-ran && echo bash-env-works >> control.out"
+      "LD_PRELOAD=${loaderTraps}/trap.so BASH_ENV=${loaderTraps}/trap.sh ${client} -c 'echo ran > client.out'; echo $? > client.status"
+      "if [ ! -e /tmp/ld-preload-ran ] && [ ! -e /tmp/bash-env-ran ]; then echo clean > traps.out; fi"
+    ];
+    dead = [ "echo started > started.out; sleep 600" ];
   };
 
   scenarios = writeText "scenarios.json" (builtins.toJSON scenarioSet);
@@ -217,12 +224,16 @@ testers.runNixOSTest {
         assert output_of("orphans", "zombies.out") == "0"
         assert_nothing_left_running()
 
-    with subtest("the client ignores loader and shell variables"):
-        box.succeed("LD_PRELOAD=${loaderTraps}/trap.so ${coreutils}/bin/true")
-        box.succeed("test -e /tmp/ld-preload-ran && rm /tmp/ld-preload-ran")
-        box.fail("LD_PRELOAD=${loaderTraps}/trap.so BASH_ENV=${loaderTraps}/trap.sh ${client} -c true")
+    with subtest("the client and the broker ignore loader and shell variables"):
+        run("loader")
+        assert database("select status from runs where worker = 'loader'") == "success"
+        assert output_of("loader", "control.out") == "preload-works\nbash-env-works"
+        assert output_of("loader", "client.status") == "0"
+        assert output_of("loader", "client.out") == "ran"
+        assert output_of("loader", "traps.out") == "clean"
         box.fail("test -e /tmp/ld-preload-ran")
         box.fail("test -e /tmp/bash-env-ran")
+        assert_nothing_left_running()
 
     with subtest("a dead broker fails the run, naming the tools sandbox, long before its timeout"):
         box.succeed("systemctl start --no-block forge-runner@dead")

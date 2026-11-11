@@ -116,6 +116,7 @@ interface Scenario {
   exit?: number;
   lingerMs?: number;
   toolsDie?: boolean;
+  toolsFailToStart?: boolean;
   bwrapFailure?: string;
   harness?: 'direct' | 'linked' | 'missing' | 'relative';
   piVersion?: string | null;
@@ -194,6 +195,9 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
   if (scenario.toolsDie === true) {
     writeFileSync(join(stateDir, 'broker-dies'), '');
+  }
+  if (scenario.toolsFailToStart === true) {
+    writeFileSync(join(stateDir, 'broker-fails-to-start'), '');
   }
   const fakeBwrap = writeFakeBwrap(stateDir, {
     record: bwrapRecord,
@@ -2025,7 +2029,7 @@ test('given a workload about to start, when the runner launches its harness, the
 });
 
 test('given a workload about to start, when the runner launches its harness, then a sibling tools sandbox is started first with the command broker as its pid 1, the same system view and its own HOME, no nested user namespaces, the run directory and the broker socket directory read-write, and the broker withholds the variables only pi is given', async () => {
-  const { bwrap, tools, pi, run, stateDir } = await runWorker({
+  const { tools, run, stateDir } = await runWorker({
     output: fixture('success.jsonl'),
   });
 
@@ -2050,7 +2054,7 @@ test('given a workload about to start, when the runner launches its harness, the
     '--proc', '/proc',
     '--tmpfs', '/tmp',
     '--tmpfs', RUNNER_HOME,
-    '--bind', brokerDir, '/run/forge-tools',
+    '--ro-bind', brokerDir, '/run/forge-tools',
     '--bind', workDir, workDir,
     '--remount-ro', '/',
     '--chdir', workDir,
@@ -2067,8 +2071,6 @@ test('given a workload about to start, when the runner launches its harness, the
   assert.equal(tools.env.HOME, RUNNER_HOME);
   assert.equal(tools.env.PI_CODING_AGENT_DIR, undefined);
   assert.equal(tools.env.FORGE_PI_SUBAGENT_INVOCATION, undefined);
-  assert.ok(bwrap.argv.includes('--ro-bind'));
-  assert.ok(pi.argv.length > 0);
 });
 
 test('given a tools sandbox that ends while pi is still running, when the worker runs, then pi is stopped and the run is an error naming the tools sandbox', async () => {
@@ -2080,6 +2082,17 @@ test('given a tools sandbox that ends while pi is still running, when the worker
 
   assert.equal(run.status, 'error');
   assert.match(run.error ?? '', /^the tools sandbox ended while the run was still going: .*137/);
+});
+
+test('given a tools sandbox whose broker ends before it is ready, when the worker runs, then pi never starts and the run is an error naming the tools sandbox', async () => {
+  const { run, piStarted } = await runWorker({
+    output: fixture('success.jsonl'),
+    toolsFailToStart: true,
+  });
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /^the tools sandbox ended before its command broker was ready: .*137/);
+  assert.equal(piStarted, false);
 });
 
 test('given a harness command reached through a link the sandbox does not carry, like /run/current-system/sw/bin/pi, when the runner launches the harness, then pi and its subagents are started by its real path', async () => {
@@ -2157,7 +2170,7 @@ test('given a runner whose own environment holds more than the harness needs, wh
   assert.equal(bwrap.env.__NIXOS_SET_ENVIRONMENT_DONE, '1');
 });
 
-test('given a sandbox that cannot set up or a bubblewrap that is missing, when the runner launches the harness, then the run is error naming the sandbox and why, and pi never starts', async () => {
+test('given a sandbox that cannot set up or a command broker that is missing, when the runner launches the harness, then the run is error naming the sandbox and why, and pi never starts', async () => {
   const refused = await journaled(() =>
     runWorker({
       output: fixture('success.jsonl'),
@@ -2171,11 +2184,11 @@ test('given a sandbox that cannot set up or a bubblewrap that is missing, when t
 
   assert.equal(
     refused.run.error,
-    'the workload sandbox could not start: bwrap: setting up uid map: Permission denied',
+    'the tools sandbox could not start: bwrap: setting up uid map: Permission denied',
   );
   assert.equal(
     missing.run.error,
-    'the workload sandbox could not start: spawn /nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap ENOENT',
+    'the tools sandbox could not start: spawn /not/used ENOENT',
   );
   for (const { code, run, piStarted } of [refused, missing]) {
     assert.equal(code, 1);

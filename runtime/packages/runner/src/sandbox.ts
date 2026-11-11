@@ -23,7 +23,9 @@ export interface BrokerMount {
   role: SandboxRole;
 }
 
-const readOnly = (path: string): string[] => ['--ro-bind', path, path];
+const readOnlyAt = (path: string, at: string): string[] => ['--ro-bind', path, at];
+
+const readOnly = (path: string): string[] => readOnlyAt(path, path);
 
 export const sandboxArgs = (
   { home }: Sandbox,
@@ -57,9 +59,7 @@ export const sandboxArgs = (
   ...(agentDir === undefined ? [] : readOnly(agentDir)),
   ...readOnlyDirs.flatMap(readOnly),
   ...writableDirs.flatMap((dir) => ['--bind', dir, dir]),
-  ...(brokerDir === ''
-    ? []
-    : [role === 'tools' ? '--bind' : '--ro-bind', brokerDir, BROKER_DIR]),
+  ...(brokerDir === '' ? [] : readOnlyAt(brokerDir, BROKER_DIR)),
   '--bind',
   workDir,
   workDir,
@@ -154,6 +154,7 @@ export const spawnSandboxed = (
     writableDirs,
     env,
     broker,
+    prefix = [],
   }: {
     name: string;
     workDir: string;
@@ -161,12 +162,15 @@ export const spawnSandboxed = (
     writableDirs?: string[];
     env: NodeJS.ProcessEnv;
     broker?: BrokerMount;
+    prefix?: string[];
   },
 ): SandboxedProcess => {
   const tokenFile = env[GITHUB_TOKEN_FILE_ENV];
+  const [launcher = sandbox.bwrap, ...launcherArgs] = [...prefix, sandbox.bwrap];
   const child = spawn(
-    sandbox.bwrap,
+    launcher,
     [
+      ...launcherArgs,
       ...sandboxArgs(
         sandbox,
         workDir,
@@ -182,7 +186,7 @@ export const spawnSandboxed = (
     {
       cwd: workDir,
       env: { ...env, ...NIXOS_ENVIRONMENT_MARKER, HOME: sandbox.home },
-      stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe', broker?.role === 'tools' ? 'ignore' : 'pipe'],
     },
   );
   return {
