@@ -32,6 +32,10 @@ export interface Grading {
   grades: readonly RiskGrade[];
 }
 
+export interface BoardGrading extends Grading {
+  costUsd: number | null;
+}
+
 const riskOf = ({ level, unsettled, probabilities, confidence }: RiskGrade): Risk => ({
   state: 'graded',
   level,

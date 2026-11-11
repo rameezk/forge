@@ -1,9 +1,9 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, type ConflictResolutionRecord, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { isGithubRepository, type RiskLevel, isGithubUrl, ticketKey, type ConflictResolutionRecord, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
 import { formatCost, formatElapsed } from '../format.ts';
-import { buildLanes, COLUMNS, type Grading, type Risk, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
+import { buildLanes, COLUMNS, type BoardGrading, type Risk, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
@@ -67,7 +67,7 @@ const renderPullRequestFailedStart = (
   return html`<p ${raw(attribute)} class="${FAILURE_LINE}" title="${label} did not start${text}">${label} did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${text}</p>`;
 };
 
-const RISK_TONES: Record<string, string> = {
+const RISK_TONES: Record<RiskLevel, string> = {
   trivial: 'bg-success-soft text-success',
   low: 'bg-raised text-fg',
   moderate: 'bg-warning-soft text-warning',
@@ -387,7 +387,7 @@ export const renderBoard = (
   display: Display,
   grouping: Grouping = 'none',
   deploy: DeployStatus | null = null,
-  grading: Grading & { costUsd: number | null } = { repositories: new Set(), grades: [], costUsd: null },
+  grading: BoardGrading = { repositories: new Set(), grades: [], costUsd: null },
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, grading);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
