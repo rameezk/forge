@@ -188,6 +188,14 @@ _Avoid_: result, run result
 A workload of the diagnosis worker that explains why a failed dispatch, revision or conflict resolution failed: one cause category, the evidence for it in the failed run's transcript, and one suggested fix. It is shown only on the dashboard, never on GitHub (ADR-0102).
 _Avoid_: post-mortem, failure analysis, triage
 
+**Risk grade**:
+Jev's judgement of how much careful review one head commit of a forge pull request needs, as a probability for each of four levels (`trivial`, `low`, `moderate`, `high`), its most likely level and a confidence. Below the confidence threshold it is unsettled. A new head makes it stale. It is advice to the reviewer and never changes a dispatch's outcome (ADR-0103).
+_Avoid_: risk score, PR score, rating
+
+**Grading fingerprint**:
+What a risk grade was produced under: the configured Jev model and a hash of the question and its level descriptions. Grades sharing one form a grading cohort, compared like workload cohorts but never mixed with them.
+_Avoid_: grader version
+
 **Display time zone**:
 The time zone the dashboard shows times and days in, set by `forge.runtime.dashboard.timeZone`. Only presentation uses it; the box and everything forge stores stay UTC (ADR-0067).
 _Avoid_: timezone, box timezone, local time
