@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { renderChartLegend, renderCostChart as renderChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
+import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
 import { cohortHref, INSIGHT_KIND_FILTERS, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
@@ -128,8 +128,10 @@ interface Column {
 const metricCell = (metric: string, text: (cohort: CohortInsight) => string, extra = ''): Column['render'] => (cohort) =>
   html`<td class="${COHORT_TD}${extra}" data-metric="${metric}">${text(cohort)}</td>`;
 
-const costCell = (metric: string, valueOf: (cohort: CohortInsight) => number | null, extra = ''): Column['render'] => (cohort) =>
-  html`<td class="${COHORT_TD}${extra}" data-metric="${metric}"${cohort.listPrice ? COST_TITLE : ''}>${valueOf(cohort) === null ? 'n/a' : formatCost(valueOf(cohort)!)}</td>`;
+const costCell = (metric: string, valueOf: (cohort: CohortInsight) => number | null, extra = ''): Column['render'] => (cohort) => {
+  const value = valueOf(cohort);
+  return html`<td class="${COHORT_TD}${extra}" data-metric="${metric}"${cohort.listPrice ? COST_TITLE : ''}>${value === null ? 'n/a' : formatCost(value)}</td>`;
+};
 
 const WORKLOADS: Column = { header: 'Workloads', render: metricCell('workloads', ({ workloads }) => String(workloads)) };
 
@@ -158,8 +160,8 @@ const TAB_COLUMNS: Record<InsightsTab, Column[]> = {
 const PINNED = 'sticky left-0 z-10 border-r border-line';
 
 const renderCohort = (cohort: CohortInsight, columns: Column[], timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
-    <td class="${PINNED} bg-surface border-t px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${renderOwners(cohort)}</td>
+  html`<tr class="${ROW} group" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
+    <td class="${PINNED} border-t bg-surface group-hover:bg-bg px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${renderOwners(cohort)}</td>
     ${columns.map(({ render }) => render(cohort, timeZone))}
   </tr>`;
 
@@ -184,7 +186,7 @@ const renderGroup = (
   </tbody>`;
 };
 
-const renderCostChart = (
+const renderCostSection = (
   cohorts: CohortInsight[],
   points: InsightPoint[],
   timeZone: string,
@@ -193,7 +195,7 @@ const renderCostChart = (
   return html`<section class="${CARD} p-4" data-cost-chart aria-label="Cost over time">
     <h2 class="mb-2 text-sm font-semibold text-fg">Cost over time</h2>
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
-      <div class="w-full max-w-[30rem] shrink-0">${points.length === 0 ? html`<p class="m-0 text-[0.8rem] text-muted" data-chart-empty>No workload has a cost to plot.</p>` : renderChart(points, series, timeZone)}</div>
+      <div class="w-full max-w-[30rem] shrink-0">${points.length === 0 ? html`<p class="m-0 text-[0.8rem] text-muted" data-chart-empty>No workload has a cost to plot.</p>` : renderCostChart(points, series, timeZone)}</div>
       ${renderChartLegend(cohorts, points, series)}
     </div>
   </section>`;
@@ -223,16 +225,16 @@ export const renderInsights = (
   options: InsightsOptions,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const table = renderCohortTable(cohorts, filter.tab, display.timeZone);
+  const table = (): HtmlEscapedString | Promise<HtmlEscapedString> => renderCohortTable(cohorts, filter.tab, display.timeZone);
   const content =
     cohorts.length === 0
       ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`
       : filter.tab === 'cost'
-        ? html`${renderCostChart(cohorts, points, display.timeZone)}
-          <div class="mt-4">${table}</div>
+        ? html`${renderCostSection(cohorts, points, display.timeZone)}
+          <div class="mt-4">${table()}</div>
           ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}
           ${renderProviderShares(cohorts, shares)}`
-        : table;
+        : table();
   const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
     ${renderTabs(filter)}
     ${renderInsightsFilters(filter, options)}
