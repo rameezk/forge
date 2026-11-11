@@ -68,7 +68,7 @@ test('given a cohort on openrouter and one on anthropic otherwise identical, whe
 
 const CLAUDE_CODE: ConfigFingerprint = { ...SONNET, harness: 'claude-code', provider: 'anthropic', settings: 'h1' };
 
-const HOOKED: ConfigFingerprint = { ...CLAUDE_CODE, settings: 'h2' };
+const RESETTINGS: ConfigFingerprint = { ...CLAUDE_CODE, settings: 'h2' };
 
 test('given a pi cohort and a Claude Code cohort, when one is requested with the other chosen, then each page names its harness and the diff marks the harness among the changed fields', async () => {
   const { app } = dashboard([
@@ -87,10 +87,10 @@ test('given a pi cohort and a Claude Code cohort, when one is requested with the
 test('given two Claude Code cohorts differing only in their forge settings hash, when one is requested with the other chosen, then the diff marks only the settings as changed', async () => {
   const { app } = dashboard([
     { id: 'c1', fingerprint: CLAUDE_CODE, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
-    { id: 'c2', fingerprint: HOOKED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+    { id: 'c2', fingerprint: RESETTINGS, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
   ]);
 
-  const page = await (await app.request(`/cohorts/${fingerprintHash(CLAUDE_CODE)}?against=${fingerprintHash(HOOKED)}`)).text();
+  const page = await (await app.request(`/cohorts/${fingerprintHash(CLAUDE_CODE)}?against=${fingerprintHash(RESETTINGS)}`)).text();
 
   assert.deepEqual(changedFieldsOf(page), ['settings']);
 });

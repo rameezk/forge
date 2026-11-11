@@ -57,7 +57,7 @@ const content = {
 test('given checkouts with and without skills, agents and commands, when their plugin directory is hashed, then none is null, each change to one of them changes the hash, and an identical checkout hashes alike', () => {
   const hash = claudeCodePluginHash(checkout(content));
 
-  assert.match(claudeCodePluginHash(checkout({})) ?? '', /^[0-9a-f]{64}$/);
+  assert.match(claudeCodePluginHash(checkout({})), /^[0-9a-f]{64}$/);
   assert.notEqual(claudeCodePluginHash(checkout({})), hash);
   assert.equal(claudeCodePluginHash(checkout(content)), hash);
   for (const file of Object.keys(content)) {
