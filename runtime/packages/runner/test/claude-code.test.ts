@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   parseTranscript,
   rawEventsRef,
@@ -22,10 +22,14 @@ import {
   commandPath,
   skillCheckout,
   writeFakeBwrap,
+  writeFakeBroker,
   writeFakeClaude,
   type BwrapCall,
   isAlive,
   brokerEnv,
+  FAKE_BROKER_BASH,
+  FAKE_BROKER_CLIENT,
+  FAKE_GIT_SHIM_DIR,
 } from './helpers.ts';
 import { CLAUDE_SKILL_FILES, CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
 
@@ -65,6 +69,8 @@ interface Scenario {
   pause?: { after: string; ms: number };
   rewrite?: (stream: string) => string;
   requests?: Record<string, unknown>;
+  toolsDie?: boolean;
+  toolsFailToStart?: boolean;
 }
 
 interface Outcome {
@@ -82,8 +88,16 @@ interface Outcome {
     env: Record<string, string>;
     pid: number;
     modes: { run: number; config: number; bodies: number };
+    stdin: string;
+    owned: {
+      settings: string | null;
+      instructions: string | null;
+      manifest: string | null;
+      links: Record<string, string | null> | null;
+    };
   };
   bwrap: BwrapCall;
+  tools: BwrapCall;
 }
 
 const parseRecord = (path: string): Record<string, unknown>[] =>
@@ -104,8 +118,12 @@ const runClaude = async ({
   pause,
   rewrite,
   requests = {},
+  toolsDie,
+  toolsFailToStart,
 }: Scenario): Promise<Outcome> => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-claude-'));
+  if (toolsDie === true) writeFileSync(join(stateDir, 'broker-dies'), '');
+  if (toolsFailToStart === true) writeFileSync(join(stateDir, 'broker-fails-to-start'), '');
   const fakeClaude = writeFakeClaude(stateDir);
   const claudeRecord = join(stateDir, 'claude-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
@@ -187,6 +205,9 @@ const runClaude = async ({
       },
       get bwrap() {
         return JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall;
+      },
+      get tools() {
+        return JSON.parse(readFileSync(`${bwrapRecord}.tools`, 'utf8')) as BwrapCall;
       },
     };
   } finally {
@@ -308,7 +329,8 @@ test('given two claude-code runs of one worker whose per-run values differ - wor
   assert.notEqual(first.claude.env.CLAUDE_CONFIG_DIR, second.claude.env.CLAUDE_CONFIG_DIR);
   assert.notEqual(first.claude.cwd, second.claude.cwd);
   assert.equal(one.fingerprint.harness, 'claude-code');
-  assert.equal(one.fingerprint.settings, undefined);
+  assert.match(one.fingerprint.settings ?? '', /^[0-9a-f]{64}$/);
+  assert.equal(one.fingerprint.settings, two.fingerprint.settings);
   assert.equal(one.fingerprint.systemPrompt, two.fingerprint.systemPrompt);
   assert.equal(one.hash, two.hash);
 });
@@ -675,8 +697,10 @@ const replayedSkillLoads = async (
       }),
       home: dir,
     },
+    tools: { ...writeFakeBroker(dir), bash: FAKE_BROKER_BASH, gitShimDir: FAKE_GIT_SHIM_DIR },
     system: { PATH: process.env.PATH ?? '' },
     env: {},
+    commandEnv: {},
   });
   const loads: SkillLoadEvent[] = [];
   for await (const event of harness
@@ -955,7 +979,7 @@ test('given a claude-code worker with a budget the first generation\'s list-pric
   assert.equal(run.exceededLimit, 'budget');
   assert.equal(run.maxCostUsd, 0.005);
   assert.equal(isAlive(claude.pid), false);
-  assert.deepEqual(claude.argv.slice(claude.argv.indexOf('--max-budget-usd'), -2).slice(0, 2), [
+  assert.deepEqual(claude.argv.slice(claude.argv.indexOf('--max-budget-usd')), [
     '--max-budget-usd',
     '0.005',
   ]);
@@ -1114,7 +1138,8 @@ test('given a claude-code worker with an effort and a budget, when its workload 
   assert.equal(after('--append-subagent-system-prompt'), after('--append-system-prompt'));
   assert.equal(argv.includes('--system-prompt'), false);
   assert.equal(argv.includes('--bare'), false);
-  assert.deepEqual(argv.slice(-2), ['--', 'refine the spec']);
+  assert.equal(argv.includes('refine the spec'), false);
+  assert.equal(claude.stdin, 'refine the spec');
 });
 
 test('given a claude-code workload, when it runs, then the per-run dirs are private to the runner user and claude exports telemetry to no collector', async () => {
@@ -1125,29 +1150,184 @@ test('given a claude-code workload, when it runs, then the per-run dirs are priv
   assert.equal(claude.env.OTEL_TRACES_EXPORTER, 'none');
 });
 
-test('given a claude-code workload, when it runs, then claude is told through its command-line settings, which a checkout\'s own settings cannot override, to allow subagents one level deep and four at once and to run them to completion before reporting back, with their text forwarded', async () => {
-  const { claude } = await runClaude({ fixture: 'success' });
+const settingsOf = (claude: Outcome['claude']): Record<string, unknown> =>
+  JSON.parse(claude.owned.settings ?? 'null') as Record<string, unknown>;
+
+test('given a claude-code workload, when it runs, then claude reads only user settings and forge\'s own file is its command-line settings', async () => {
+  const { claude, stateDir, run } = await runClaude({ fixture: 'success' });
 
   const { argv } = claude;
-  const settings = JSON.parse(argv[argv.indexOf('--settings') + 1] ?? '') as {
-    env: Record<string, string>;
-  };
+  const owned = join(stateDir, 'agent', run.id, 'owned');
+  assert.equal(argv[argv.indexOf('--setting-sources') + 1], 'user');
+  assert.equal(argv[argv.indexOf('--settings') + 1], join(owned, 'settings.json'));
+  assert.equal(argv[argv.indexOf('--plugin-dir') + 1], join(owned, 'plugin'));
+  assert.ok(argv.includes('--forward-subagent-text'));
+});
+
+test('given a claude-code workload, when it runs, then forge\'s settings allow subagents one level deep and four at once, add no attribution, switch hooks and every credential and telemetry helper off, and pin the shell, the shell prefix, the telemetry exporters and the Bedrock and Vertex switches', async () => {
+  const { claude } = await runClaude({ fixture: 'success' });
+
+  const settings = settingsOf(claude);
   assert.deepEqual(settings.env, {
     CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
     CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1',
     CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '4',
+    CLAUDE_CODE_SHELL: FAKE_BROKER_BASH,
+    CLAUDE_CODE_SHELL_PREFIX: FAKE_BROKER_CLIENT,
+    CLAUDE_CODE_USE_BEDROCK: '0',
+    CLAUDE_CODE_USE_VERTEX: '0',
+    CLAUDE_CODE_ENABLE_TELEMETRY: '1',
+    OTEL_LOGS_EXPORTER: 'none',
+    OTEL_METRICS_EXPORTER: 'none',
+    OTEL_TRACES_EXPORTER: 'none',
   });
-  assert.ok(argv.includes('--forward-subagent-text'));
+  assert.deepEqual(settings.attribution, { commit: '', pr: '' });
+  assert.equal(settings.disableAllHooks, true);
+  for (const helper of ['apiKeyHelper', 'awsAuthRefresh', 'awsCredentialExport', 'gcpAuthRefresh', 'otelHeadersHelper']) {
+    assert.equal(settings[helper], '', helper);
+  }
 });
 
-test('given a claude-code workload, when it runs, then claude is told through its command-line settings to add no commit or pull request attribution', async () => {
-  const { claude } = await runClaude({ fixture: 'success' });
-
-  const { argv } = claude;
-  const settings = JSON.parse(argv[argv.indexOf('--settings') + 1] ?? '') as {
-    attribution: unknown;
+const runInCheckout = async (
+  files: Record<string, string>,
+  devShell?: Record<string, string>,
+): Promise<{ claude: Outcome['claude']; tools: BwrapCall; workDir: string }> => {
+  const dir = mkdtempSync(join(tmpdir(), 'forge-claude-checkout-'));
+  const workDir = join(dir, 'repo');
+  for (const [path, contents] of Object.entries(files)) {
+    mkdirSync(dirname(join(workDir, path)), { recursive: true });
+    writeFileSync(join(workDir, path), contents);
+  }
+  mkdirSync(workDir, { recursive: true });
+  const record = join(dir, 'claude-call.json');
+  const harness = new ClaudeCodeHarness({
+    command: writeFakeClaude(dir),
+    runsDir: join(dir, 'runs'),
+    maxCostUsd: null,
+    sandbox: {
+      bwrap: writeFakeBwrap(dir, {
+        record: join(dir, 'bwrap-call.json'),
+        harnessEnv: claudeReplay('success', record),
+      }),
+      home: dir,
+    },
+    tools: { ...writeFakeBroker(dir), bash: FAKE_BROKER_BASH, gitShimDir: FAKE_GIT_SHIM_DIR },
+    system: { PATH: process.env.PATH ?? '' },
+    env: {},
+    commandEnv: {},
+  });
+  for await (const event of harness
+    .open({ runId: 'run-1', model: MODEL, listedModel: null })
+    .run(
+      { model: MODEL, prompt: 'go', workDir, ...(devShell === undefined ? {} : { devShell }) },
+      { stop: new AbortController().signal, rawEvent: () => {}, requestRecord: () => {} },
+    )) {
+    void event;
+  }
+  return {
+    claude: JSON.parse(readFileSync(record, 'utf8')) as Outcome['claude'],
+    tools: JSON.parse(readFileSync(join(dir, 'bwrap-call.json.tools'), 'utf8')) as BwrapCall,
+    workDir,
   };
-  assert.deepEqual(settings.attribution, { commit: '', pr: '' });
+};
+
+test('given a checkout with CLAUDE.md, AGENTS.md and .claude skills, agents and commands, when a claude-code workload runs, then forge\'s CLAUDE.md imports both instruction files and its plugin links the three directories', async () => {
+  const { claude, workDir } = await runInCheckout({
+    'CLAUDE.md': 'claude\n',
+    'AGENTS.md': 'agents\n',
+    '.claude/skills/first/SKILL.md': 'skill\n',
+    '.claude/agents/helper.md': 'agent\n',
+    '.claude/commands/hello.md': 'command\n',
+    '.claude/settings.json': '{"env":{"LD_PRELOAD":"/tmp/x.so"}}',
+  });
+
+  assert.equal(claude.owned.instructions, `@${workDir}/CLAUDE.md\n@${workDir}/AGENTS.md\n`);
+  assert.deepEqual(claude.owned.links, {
+    skills: join(workDir, '.claude/skills'),
+    agents: join(workDir, '.claude/agents'),
+    commands: join(workDir, '.claude/commands'),
+  });
+  assert.equal(JSON.parse(claude.owned.manifest ?? 'null').name, 'repository');
+});
+
+test('given a repository whose devShell sets a marker variable and a tool directory, when a claude-code workload runs, then the commands\' environment holds both and claude\'s own holds neither', async () => {
+  const { claude, tools } = await runInCheckout({}, { DEVSHELL_MARKER: 'from-the-devshell', PATH: '/devshell/bin' });
+
+  assert.equal(tools.env.DEVSHELL_MARKER, 'from-the-devshell');
+  assert.ok((tools.env.PATH ?? '').split(':').includes('/devshell/bin'));
+  assert.equal(claude.env.DEVSHELL_MARKER, undefined);
+  assert.ok(!(claude.env.PATH ?? '').split(':').includes('/devshell/bin'));
+});
+
+test('given a checkout with no instructions, skills, agents or commands, when a claude-code workload runs, then forge\'s CLAUDE.md imports nothing and its plugin links nothing', async () => {
+  const { claude } = await runInCheckout({});
+
+  assert.equal(claude.owned.instructions?.trim(), '');
+  assert.deepEqual(claude.owned.links, {});
+});
+
+test('given a claude-code workload, when it runs, then forge\'s settings, instructions and plugin are read-only mounts over the writable config dir, and the harness HOME is read-only', async () => {
+  const { claude, bwrap, stateDir, run } = await runClaude({ fixture: 'success' });
+
+  const owned = join(stateDir, 'agent', run.id, 'owned');
+  const configDir = join(stateDir, 'agent', run.id, 'config');
+  const at = (...tail: string[]): number => {
+    for (let i = 0; i < bwrap.argv.length; i += 1) {
+      if (tail.every((arg, offset) => bwrap.argv[i + offset] === arg)) return i;
+    }
+    return -1;
+  };
+  const writable = at('--bind', configDir, configDir);
+  assert.notEqual(writable, -1);
+  for (const file of ['settings.json', 'CLAUDE.md']) {
+    assert.ok(at('--ro-bind', join(owned, file), join(configDir, file)) > writable, file);
+  }
+  assert.notEqual(at('--ro-bind', owned, owned), -1);
+  assert.notEqual(at('--remount-ro', claude.env.HOME ?? ''), -1);
+  assert.ok(at('--remount-ro', claude.env.HOME ?? '') > at('--tmpfs', claude.env.HOME ?? ''));
+});
+
+test('given a claude-code workload, when it runs, then a tools sandbox starts first, claude finds the git shim before anything else on its PATH and shares a tmp dir with the tools sandbox, and the commands get neither the shim nor claude\'s own variables nor the OAuth token', async () => {
+  const { claude, tools, bwrap, stateDir, run } = await runClaude({ fixture: 'success' });
+
+  const shared = join(stateDir, 'agent', run.id, 'shared');
+  assert.ok(tools.argv.includes('--as-pid-1'));
+  assert.equal(claude.env.CLAUDE_CODE_TMPDIR, shared);
+  assert.equal((claude.env.PATH ?? '').split(':')[0], FAKE_GIT_SHIM_DIR);
+  for (const argv of [tools.argv, bwrap.argv]) {
+    const index = argv.indexOf('--bind');
+    assert.ok(argv.some((arg, i) => arg === shared && argv[i - 1] === '--bind' && argv[i + 1] === shared), String(index));
+  }
+  assert.ok(!(tools.env.PATH ?? '').split(':').includes(FAKE_GIT_SHIM_DIR));
+  assert.equal(tools.env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+  const withheld = tools.argv.flatMap((arg, i) => (tools.argv[i - 1] === '--withhold' ? [arg] : []));
+  for (const name of ['CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_TMPDIR', 'CLAUDE_CODE_SHELL', 'CLAUDE_CODE_SHELL_PREFIX', 'CLAUDE_CODE_OAUTH_TOKEN', 'OTEL_LOG_RAW_API_BODIES']) {
+    assert.ok(withheld.includes(name), name);
+  }
+});
+
+test('given a tools sandbox that ends while claude is still running, when a claude-code worker runs, then claude is stopped and the run is an error naming the tools sandbox', async () => {
+  const { run } = await runClaude({ fixture: 'success', toolsDie: true, lingerMs: 60_000 });
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /^the tools sandbox ended while the run was still going: .*137/);
+});
+
+test('given a tools sandbox whose broker ends before it is ready, when a claude-code worker runs, then claude never starts and the run is an error naming the tools sandbox', async () => {
+  const { run, claudeStarted } = await runClaude({ fixture: 'success', toolsFailToStart: true });
+
+  assert.equal(run.status, 'error');
+  assert.match(run.error ?? '', /^the tools sandbox ended before its command broker was ready: .*137/);
+  assert.equal(claudeStarted, false);
+});
+
+test('given a claude-code prompt larger than a command-line argument allows, when the workload runs, then claude receives all of it on stdin', async () => {
+  const prompt = `${'wrangler dev '.repeat(40_000)}end`;
+
+  const { claude } = await runClaude({ fixture: 'success', worker: { prompt } });
+
+  assert.ok(prompt.length > 400_000);
+  assert.equal(claude.stdin, prompt);
 });
 
 test('given a claude-code workload, when it runs, then claude gets an empty per-run config dir inside the sandbox state, telemetry on and auto-update off, and the dir is gone after the run', async () => {

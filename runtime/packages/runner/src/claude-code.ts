@@ -22,6 +22,7 @@ import {
 } from '@forge/shared';
 import { recordOf } from '@forge/pi-request-record';
 import { claudeCodeInstructionsHash, claudeCodeNormalizer, claudeCodeSettingsHash } from './claude-code-fingerprint.ts';
+import { writeClaudeCodeConfig } from './claude-code-config.ts';
 import { underDevShell } from './devshell.ts';
 import {
   NARRATION_INSTRUCTION,
@@ -40,35 +41,26 @@ import {
   realCommand,
   versionOutput,
 } from './harness-process.ts';
+import type { ClaudeToolsConfig } from './environment.ts';
 import { spawnSandboxed, type Sandbox } from './sandbox.ts';
+import { startToolsSandbox } from './tools-sandbox.ts';
 import { tokenCount } from './token-count.ts';
 
 const FORBIDDEN_TOOLS = ['AskUserQuestion'];
 
 const WITHHELD_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
 
-const MAX_SUBAGENT_DEPTH = 1;
-
-const MAX_CONCURRENT_SUBAGENTS = 4;
-
-const RUN_SETTINGS = JSON.stringify({
-  env: {
-    CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
-    CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: String(MAX_SUBAGENT_DEPTH),
-    CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: String(MAX_CONCURRENT_SUBAGENTS),
-  },
-  attribution: { commit: '', pr: '' },
-});
+const withoutCredentials = (env: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(env).filter(([name]) => !WITHHELD_ENV.includes(name)));
 
 export function claudeCodeEnv(
   env: Record<string, string>,
   configDir: string,
   bodiesDir: string,
+  extra: Record<string, string> = {},
 ): Record<string, string> {
   return {
-    ...Object.fromEntries(
-      Object.entries(env).filter(([name]) => !WITHHELD_ENV.includes(name)),
-    ),
+    ...withoutCredentials(env),
     CLAUDE_CONFIG_DIR: configDir,
     DISABLE_AUTOUPDATER: '1',
     CLAUDE_CODE_ENABLE_TELEMETRY: '1',
@@ -76,6 +68,7 @@ export function claudeCodeEnv(
     OTEL_METRICS_EXPORTER: 'none',
     OTEL_TRACES_EXPORTER: 'none',
     OTEL_LOG_RAW_API_BODIES: `file:${bodiesDir}`,
+    ...extra,
   };
 }
 
@@ -100,6 +93,8 @@ const COMPACTION_HANDOFF = 'This session is being continued from a previous conv
 export interface ClaudeCodeArgsOptions {
   maxCostUsd: number | null;
   extraArgs: string[];
+  settings: string;
+  plugin: string;
 }
 
 const forgeInstructions = (invocation: HarnessInvocation): string =>
@@ -107,7 +102,7 @@ const forgeInstructions = (invocation: HarnessInvocation): string =>
 
 export const claudeCodeArgs = (
   invocation: HarnessInvocation,
-  { maxCostUsd, extraArgs }: ClaudeCodeArgsOptions,
+  { maxCostUsd, extraArgs, settings, plugin }: ClaudeCodeArgsOptions,
 ): string[] => [
   '-p',
   '--output-format',
@@ -115,12 +110,16 @@ export const claudeCodeArgs = (
   '--verbose',
   '--no-session-persistence',
   '--dangerously-skip-permissions',
+  '--setting-sources',
+  'user',
+  '--settings',
+  settings,
+  '--plugin-dir',
+  plugin,
   '--append-system-prompt',
   forgeInstructions(invocation),
   '--append-subagent-system-prompt',
   forgeInstructions(invocation),
-  '--settings',
-  RUN_SETTINGS,
   '--forward-subagent-text',
   '--disallowedTools',
   ...FORBIDDEN_TOOLS,
@@ -131,8 +130,6 @@ export const claudeCodeArgs = (
     : ['--effort', invocation.reasoningEffort]),
   ...(maxCostUsd === null ? [] : ['--max-budget-usd', String(maxCostUsd)]),
   ...extraArgs,
-  '--',
-  invocation.prompt,
 ];
 
 interface ClaudeContent {
@@ -758,8 +755,10 @@ export interface ClaudeCodeHarnessOptions {
   runsDir: string;
   maxCostUsd: number | null;
   sandbox: Sandbox;
+  tools: ClaudeToolsConfig;
   system: Record<string, string>;
   env: Record<string, string>;
+  commandEnv: Record<string, string>;
   extraArgs?: string[];
 }
 
@@ -808,11 +807,28 @@ class ClaudeCodeRun implements HarnessRun {
     invocation: HarnessInvocation,
     sinks: HarnessSinks,
   ): AsyncIterable<HarnessOutput> {
-    const { command, sandbox, system, env, maxCostUsd, extraArgs = [] } = this.#options;
+    const {
+      command,
+      sandbox,
+      tools,
+      system,
+      env,
+      commandEnv,
+      maxCostUsd,
+      extraArgs = [],
+    } = this.#options;
     const configDir = this.#configDir;
     const bodiesDir = join(this.#dir, 'bodies');
-    mkdirSync(configDir, { recursive: true, mode: PRIVATE_DIR });
-    mkdirSync(bodiesDir, { recursive: true, mode: PRIVATE_DIR });
+    const ownedDir = join(this.#dir, 'owned');
+    const sharedDir = join(this.#dir, 'shared');
+    for (const dir of [configDir, bodiesDir, ownedDir, sharedDir]) {
+      mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR });
+    }
+    const owned = writeClaudeCodeConfig({
+      dir: ownedDir,
+      workDir: invocation.workDir,
+      shell: { bash: tools.bash, client: tools.client },
+    });
     const skillLoads =
       invocation.checkout === undefined
         ? null
@@ -820,61 +836,120 @@ class ClaudeCodeRun implements HarnessRun {
     const promptLoad = skillLoads?.observePrompt(invocation.prompt) ?? null;
     if (promptLoad !== null) yield { type: 'skill_load', ...promptLoad };
     const stream = new ClaudeCodeStream(sinks, new RecordedBodies(bodiesDir));
-    const { child, stdout, exited: exit } = spawnSandboxed(
+    const harnessOnly = claudeCodeEnv({}, configDir, bodiesDir, {
+      CLAUDE_CODE_TMPDIR: sharedDir,
+      CLAUDE_CODE_SHELL: tools.bash,
+      CLAUDE_CODE_SHELL_PREFIX: tools.client,
+      CLAUDE_CODE_USE_BEDROCK: '0',
+      CLAUDE_CODE_USE_VERTEX: '0',
+    });
+    const toolsSandbox = startToolsSandbox({
       sandbox,
-      realCommand(command),
-      claudeCodeArgs(invocation, { maxCostUsd, extraArgs }),
-      {
-        name: 'claude',
-        workDir: invocation.workDir,
-        writableDirs: [configDir, bodiesDir],
-        env: underDevShell(
-          invocation.devShell,
-          system,
-          claudeCodeEnv(env, configDir, bodiesDir),
-        ),
-      },
-    );
-    stdout.on('error', () => undefined);
-    const killOnStop = (): void => {
-      child.kill('SIGKILL');
-    };
-    if (sinks.stop.aborted) killOnStop();
-    sinks.stop.addEventListener('abort', killOnStop, { once: true });
+      tools,
+      workDir: invocation.workDir,
+      writableDirs: [sharedDir],
+      env: underDevShell(invocation.devShell, system, withoutCredentials(commandEnv)),
+      withheld: [
+        ...Object.keys(harnessOnly),
+        ...Object.keys(env).filter((name) => !(name in commandEnv)),
+      ],
+    });
+    let exitFailure: Error | null = null;
     let drained = false;
     try {
-      const lines = createInterface({ input: stdout, crlfDelay: Infinity })[
-        Symbol.asyncIterator
-      ]();
-      const arm = (): Promise<IteratorResult<string>> => {
-        const pending = lines.next();
-        pending.catch(() => undefined);
-        return pending;
+      try {
+        await toolsSandbox.ready;
+      } catch (cause) {
+        yield stream.result(cause instanceof Error ? cause : new Error(String(cause)));
+        return;
+      }
+      const harnessEnv = underDevShell(
+        undefined,
+        system,
+        claudeCodeEnv(env, configDir, bodiesDir, harnessOnly),
+      );
+      const { child, stdout, exited: exit } = spawnSandboxed(
+        sandbox,
+        realCommand(command),
+        claudeCodeArgs(invocation, {
+          maxCostUsd,
+          extraArgs,
+          settings: owned.settings,
+          plugin: owned.plugin,
+        }),
+        {
+          name: 'claude',
+          workDir: invocation.workDir,
+          writableDirs: [configDir, bodiesDir, sharedDir],
+          readOnlyDirs: [ownedDir],
+          env: {
+            ...harnessEnv,
+            PATH: [tools.gitShimDir, harnessEnv.PATH].filter((entry) => entry !== undefined).join(':'),
+          },
+          broker: { dir: toolsSandbox.dir, role: 'workload' },
+          input: invocation.prompt,
+          layout: {
+            readOnlyHome: true,
+            lockedFiles: [
+              { source: owned.settings, at: join(configDir, 'settings.json') },
+              { source: owned.instructions, at: join(configDir, 'CLAUDE.md') },
+            ],
+          },
+        },
+      );
+      stdout.on('error', () => undefined);
+      let toolsFailure: Error | null = null;
+      let running = true;
+      void toolsSandbox.exited.then((failure) => {
+        if (!running) return;
+        toolsFailure = new Error(
+          `the tools sandbox ended while the run was still going: ${failure?.message ?? 'its command broker exited'}`,
+        );
+        child.kill('SIGKILL');
+      });
+      const killOnStop = (): void => {
+        child.kill('SIGKILL');
       };
-      let next = arm();
-      for (;;) {
-        const read = stream.pending
-          ? await Promise.race([next, sleep(BODIES_POLL_MS).then(() => null)])
-          : await next;
-        if (read === null) {
-          yield* withSkillLoads(skillLoads, stream.advance());
-          continue;
+      if (sinks.stop.aborted) killOnStop();
+      sinks.stop.addEventListener('abort', killOnStop, { once: true });
+      try {
+        const lines = createInterface({ input: stdout, crlfDelay: Infinity })[
+          Symbol.asyncIterator
+        ]();
+        const arm = (): Promise<IteratorResult<string>> => {
+          const pending = lines.next();
+          pending.catch(() => undefined);
+          return pending;
+        };
+        let next = arm();
+        for (;;) {
+          const read = stream.pending
+            ? await Promise.race([next, sleep(BODIES_POLL_MS).then(() => null)])
+            : await next;
+          if (read === null) {
+            yield* withSkillLoads(skillLoads, stream.advance());
+            continue;
+          }
+          if (read.done === true) break;
+          next = arm();
+          yield* withSkillLoads(skillLoads, stream.translate(read.value));
+          if (stream.malformed !== null) break;
         }
-        if (read.done === true) break;
-        next = arm();
-        yield* withSkillLoads(skillLoads, stream.translate(read.value));
-        if (stream.malformed !== null) break;
+        if (stream.malformed === null) {
+          yield* withSkillLoads(skillLoads, stream.finish());
+        }
+        drained = stream.malformed === null;
+      } finally {
+        sinks.stop.removeEventListener('abort', killOnStop);
+        if (!drained) child.kill('SIGKILL');
+        const harnessExit = await exit;
+        running = false;
+        exitFailure = toolsFailure ?? harnessExit;
       }
-      if (stream.malformed === null) {
-        yield* withSkillLoads(skillLoads, stream.finish());
-      }
-      drained = stream.malformed === null;
     } finally {
-      sinks.stop.removeEventListener('abort', killOnStop);
-      if (!drained) child.kill('SIGKILL');
-      await exit;
+      await toolsSandbox.stop();
       rmSync(this.#dir, { recursive: true, force: true });
     }
-    yield stream.result(await exit);
+    yield stream.result(exitFailure);
   }
 }

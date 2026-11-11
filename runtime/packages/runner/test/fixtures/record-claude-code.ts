@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { claudeCodeArgs, claudeCodeEnv } from '../../src/claude-code.ts';
+import { prepareClaudeConfig } from './stand-in-shell.ts';
 import {
   CLAUDE_TOKEN,
   claudeScenarios,
@@ -37,9 +38,10 @@ const record = async (
     mkdirSync(dirname(join(work, path)), { recursive: true });
     writeFileSync(join(work, path), contents);
   }
+  const owned = prepareClaudeConfig({ dir: mkdtempSync(join(tmpdir(), 'forge-record-owned-')), workDir: work, configDir: config });
   const args = claudeCodeArgs(
     { workDir: work, model: 'claude-opus-4-5', prompt },
-    { maxCostUsd: null, extraArgs },
+    { maxCostUsd: null, extraArgs, settings: owned.settings, plugin: owned.plugin },
   );
   const child = spawn(claude, args, {
     cwd: work,
@@ -53,8 +55,9 @@ const record = async (
       config,
       bodies,
     ),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
+  child.stdin.end(prompt);
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (data: Buffer) => (stdout += data.toString()));

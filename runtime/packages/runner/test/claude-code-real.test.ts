@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   writeFileSync,
 } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -20,7 +21,9 @@ import type {
 } from '@forge/shared';
 import { ClaudeCodeHarness } from '../src/index.ts';
 import { FingerprintRecorder } from '../src/fingerprint.ts';
-import { OWN_CONTEXT_CASES, PASSTHROUGH_BWRAP, skillCheckout, ticketContextOf } from './helpers.ts';
+import { OWN_CONTEXT_CASES, PASSTHROUGH_BWRAP, skillCheckout, ticketContextOf, writeFakeBroker } from './helpers.ts';
+import { standInShell, standInShellCalls } from './fixtures/stand-in-shell.ts';
+import { anthropicReply, anthropicSse, anthropicUsage } from './fixtures/fake-provider.ts';
 import {
   dispatchContext,
   NARRATION_INSTRUCTION,
@@ -60,6 +63,7 @@ interface RealClaudeRun {
   workDir: string;
   home: string;
   runsDir: string;
+  shellCalls: string[];
 }
 
 interface RealClaudeOptions {
@@ -124,12 +128,14 @@ const runRealClaude = async ({
     runsDir,
     maxCostUsd,
     sandbox: { bwrap, home },
+    tools: { ...writeFakeBroker(root), ...standInShell(root), gitShimDir: join(root, 'no-git-shim') },
     system: { PATH: process.env.PATH ?? '' },
     extraArgs: args,
     env: {
       CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN,
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
     },
+    commandEnv: {},
   });
   const events: HarnessEvent[] = [];
   const loads: SkillLoadEvent[] = [];
@@ -171,7 +177,9 @@ const runRealClaude = async ({
     server.close();
     await once(server, 'close');
   }
-  return { events, loads, rawEvents, requests, requestRecord, fingerprint: fingerprint as RunFingerprint | null, workDir, home, runsDir };
+  const calls = standInShellCalls(root);
+  const shellCalls = existsSync(calls) ? readFileSync(calls, 'utf8').split('\n').filter((line) => line !== '') : [];
+  return { events, loads, rawEvents, requests, requestRecord, fingerprint: fingerprint as RunFingerprint | null, workDir, home, runsDir, shellCalls };
 };
 
 const assistantMessages = (events: HarnessEvent[]): MessageEvent[] =>
@@ -266,16 +274,14 @@ test(
 );
 
 test(
-  'given the locked claude and two repos that differ only in a Claude Code hook, when each runs, then the fingerprints differ in their settings and nothing else',
+  'given the locked claude and two repos that differ only in a skill, when each runs, then the fingerprints differ in their settings and nothing else',
   { skip },
   async () => {
-    const hooked = (command: string): Record<string, string> => ({
-      '.claude/settings.json': JSON.stringify({
-        hooks: { PreToolUse: [{ hooks: [{ type: 'command', command }] }] },
-      }),
+    const skilled = (body: string): Record<string, string> => ({
+      '.claude/skills/project-skill/SKILL.md': skillFile('project-skill', body),
     });
-    const first = await runRealClaude({ files: hooked('true') });
-    const second = await runRealClaude({ files: hooked('false') });
+    const first = await runRealClaude({ files: skilled('Do one.') });
+    const second = await runRealClaude({ files: skilled('Do two.') });
 
     assert.ok(first.fingerprint);
     assert.ok(second.fingerprint);
@@ -285,6 +291,25 @@ test(
     assert.notEqual(before, after);
     assert.notEqual(before, undefined);
     assert.deepEqual(rest, others);
+  },
+);
+
+test(
+  'given the locked claude and two repos that differ only in their own Claude Code settings and hooks, when each runs, then the fingerprints are the same, because forge loads neither',
+  { skip },
+  async () => {
+    const hooked = (command: string): Record<string, string> => ({
+      '.claude/settings.json': JSON.stringify({
+        hooks: { PreToolUse: [{ hooks: [{ type: 'command', command }] }] },
+      }),
+      '.claude/hooks/check.sh': command,
+    });
+    const first = await runRealClaude({ files: hooked('true') });
+    const second = await runRealClaude({ files: hooked('false') });
+
+    assert.ok(first.fingerprint);
+    assert.ok(second.fingerprint);
+    assert.equal(first.fingerprint.hash, second.fingerprint.hash);
   },
 );
 
@@ -326,11 +351,11 @@ const PROJECT_HOOK = {
   },
 };
 
-const skillFile = (name: string): string =>
-  `---\nname: ${name}\ndescription: The ${name} skill.\n---\n\nDo the ${name} thing.\n`;
+const skillFile = (name: string, body = `Do the ${name} thing.`): string =>
+  `---\nname: ${name}\ndescription: The ${name} skill.\n---\n\n${body}\n`;
 
 test(
-  'given a checkout with its own instructions, skill and hook and a host home with its own, when a workload runs, then claude sees the checkout and nothing of the host, and forge\'s instructions are appended to claude\'s own system prompt',
+  'given a checkout with its own instructions, skill and hook and a host home with its own, when a workload runs, then claude sees the checkout\'s instructions and skill, runs neither its hook nor the host\'s, and forge\'s instructions are appended to claude\'s own system prompt',
   { skip },
   async () => {
     const hostMarker = (home: string): string => join(home, 'host-hook-ran');
@@ -363,9 +388,9 @@ test(
       (event) => event.type === 'system' && event.subtype === 'init',
     ) as { skills: string[] } | undefined;
     assert.ok(init);
-    assert.ok(init.skills.includes('project-skill'));
+    assert.ok(init.skills.includes('repository:project-skill'));
     assert.equal(init.skills.includes('host-skill'), false);
-    assert.ok(existsSync(join(workDir, 'project-hook-ran')));
+    assert.equal(existsSync(join(workDir, 'project-hook-ran')), false);
     assert.equal(existsSync(hostMarker(root)), false);
     const sent = JSON.stringify(requests[0]);
     assert.match(sent, /heron-instruction/);
@@ -568,3 +593,108 @@ for (const { given, instruction, context, marker } of OWN_CONTEXT_CASES) {
     },
   );
 }
+
+const runningCommands =
+  (commands: string[]): RespondMessages =>
+  (_call, res, request) => {
+    const answered = request.messages
+      .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+      .filter((part: { type?: string }) => part.type === 'tool_result').length;
+    const usage = anthropicUsage(10, 0, 0, 5);
+    const command = commands[answered];
+    anthropicSse(
+      res,
+      command === undefined
+        ? anthropicReply(`msg_done_${answered}`, { text: 'done' }, usage)
+        : anthropicReply(
+            `msg_run_${answered}`,
+            { toolUses: [{ id: `toolu_${answered}`, name: 'Bash', input: { command } }] },
+            usage,
+          ),
+    );
+  };
+
+const toolResultTexts = (events: HarnessEvent[]): string[] =>
+  events.flatMap((event) => (event.type === 'tool_result' ? [event.text] : []));
+
+test(
+  'given the locked claude, when its agent runs a command, then claude starts it through the configured shell and its shell prefix and the command runs',
+  { skip },
+  async () => {
+    const { events, shellCalls } = await runRealClaude({
+      respond: runningCommands(['echo through-the-shell']),
+    });
+
+    assert.ok(toolResultTexts(events).some((text) => text.includes('through-the-shell')));
+    assert.ok(shellCalls.includes('shell'), String(shellCalls));
+    assert.ok(shellCalls.includes('prefix'), String(shellCalls));
+  },
+);
+
+test(
+  'given the locked claude and a repository with CLAUDE.md, AGENTS.md, a skill, an agent and a command, when a workload starts with the skill\'s bare name, then each is loaded and the skill runs',
+  { skip },
+  async () => {
+    const { rawEvents, requests, loads } = await runRealClaude({
+      files: {
+        'CLAUDE.md': 'The claude marker is heron-instruction.\n',
+        'AGENTS.md': 'The agents marker is pelican-instruction.\n',
+        '.claude/skills/project-skill/SKILL.md': skillFile('project-skill', 'Skill body marker ibis-skill.'),
+        '.claude/agents/helper.md': '---\nname: helper\ndescription: A helper agent\n---\nYou are the helper.\n',
+        '.claude/commands/hello.md': 'Run the hello command.\n',
+      },
+      prompt: '/project-skill start the work',
+    });
+
+    const init = rawEvents.find((event) => event.type === 'system' && event.subtype === 'init') as
+      | { agents: string[]; slash_commands: string[] }
+      | undefined;
+    assert.ok(init);
+    assert.ok(init.agents.includes('repository:helper'));
+    assert.ok(init.slash_commands.includes('repository:hello'));
+    const sent = JSON.stringify(requests[0]);
+    for (const marker of ['heron-instruction', 'pelican-instruction', 'ibis-skill']) {
+      assert.ok(sent.includes(marker), marker);
+    }
+    assert.deepEqual(
+      loads.map(({ skill, source }) => [skill, source]),
+      [['project-skill', 'prompt']],
+    );
+  },
+);
+
+test(
+  'given the locked claude and a repository whose own settings set env, a hook and an API key helper and whose .mcp.json starts a server, when its agent runs a command, then none of them takes effect',
+  { skip },
+  async () => {
+    const { events, workDir } = await runRealClaude({
+      files: {
+        '.claude/settings.json': JSON.stringify({
+          env: { PLANTED: 'planted' },
+          apiKeyHelper: 'touch helper-ran',
+          hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'touch hook-ran' }] }] },
+        }),
+        '.mcp.json': JSON.stringify({ mcpServers: { planted: { command: 'touch', args: ['mcp-ran'] } } }),
+      },
+      respond: runningCommands(['echo "[$PLANTED]"']),
+    });
+
+    assert.ok(toolResultTexts(events).some((text) => text.trim() === '[]'), String(toolResultTexts(events)));
+    for (const marker of ['helper-ran', 'hook-ran', 'mcp-ran']) {
+      assert.equal(existsSync(join(workDir, marker)), false, marker);
+    }
+  },
+);
+
+test(
+  'given the locked claude and a prompt over a megabyte long, when the workload runs, then claude receives all of it',
+  { skip },
+  async () => {
+    const prompt = `${'wrangler dev '.repeat(100_000)}the end`;
+
+    const { requests } = await runRealClaude({ prompt });
+
+    assert.ok(prompt.length > 1_000_000);
+    assert.ok(JSON.stringify(requests[0]?.messages).includes(prompt));
+  },
+);

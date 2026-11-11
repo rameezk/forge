@@ -2102,6 +2102,7 @@
           tools-sandbox = pkgs.callPackage ./infra/nix/tools-sandbox.nix {
             forge-runner = self.packages.${system}.forge-runner;
             pi-coding-agent = self.packages.${system}.pi-coding-agent;
+            claude-code = self.packages.${system}.claude-code;
             sopsModule = sops-nix.nixosModules.sops;
             secretsFile = exampleSecretsFile;
             secretsHostKey = ./tests/fixtures/ssh_host_ed25519_key;

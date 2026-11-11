@@ -1,15 +1,12 @@
 import { lstatSync, readdirSync, readlinkSync, realpathSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { canonicalHash, sha256 } from '@forge/shared';
+import { canonicalHash } from '@forge/shared';
+import { claudeCodeSettings, INSTRUCTION_FILES, PLUGIN_CONTENT } from './claude-code-config.ts';
 import {
   contentHash,
   realpathOrSelf,
   replacingPaths,
 } from './fingerprint.ts';
-
-const SETTINGS_FILES = ['.claude/settings.json', '.claude/settings.local.json'];
-
-const HOOKS_DIR = '.claude/hooks';
 
 const insideCheckout = (workDir: string, path: string): boolean => {
   try {
@@ -55,33 +52,38 @@ const childrenOf = (dir: string): string[] => {
 const entriesUnder = (path: string): string[] =>
   kindOf(path) === 'directory' ? childrenOf(path).flatMap(entriesUnder) : [path];
 
-const hookEntries = (dir: string): string[] => {
+const contentEntries = (dir: string): string[] => {
   const kind = kindOf(dir);
   if (kind === 'symlink') return [dir];
   return kind === 'directory' ? entriesUnder(dir) : [];
 };
 
-export const claudeCodeSettingsHash = (workDir: string): string | null => {
+const hashedEntries = (workDir: string, paths: string[]): string[][] =>
+  paths.flatMap((path) => {
+    const hash = entryHash(workDir, path);
+    return hash === null ? [] : [[relative(workDir, path), hash]];
+  });
+
+const PLACEHOLDER_SHELL = { bash: '<shell>', client: '<shell prefix>' };
+
+export const claudeCodeSettingsHash = (workDir: string): string => {
   const claudeDir = join(workDir, '.claude');
   const paths =
     kindOf(claudeDir) === 'symlink'
       ? [claudeDir]
-      : [...SETTINGS_FILES.map((file) => join(workDir, file)), ...hookEntries(join(workDir, HOOKS_DIR))];
-  const entries = paths.flatMap((path) => {
-    const hash = entryHash(workDir, path);
-    return hash === null ? [] : [[relative(workDir, path), hash]];
-  });
-  return entries.length === 0 ? null : canonicalHash(entries);
+      : PLUGIN_CONTENT.flatMap((name) => contentEntries(join(claudeDir, name)));
+  return canonicalHash([
+    JSON.stringify(claudeCodeSettings(PLACEHOLDER_SHELL)),
+    hashedEntries(workDir, paths),
+  ]);
 };
 
-const INSTRUCTIONS_FILES = ['AGENTS.md', 'CLAUDE.md'];
-
 export const claudeCodeInstructionsHash = (workDir: string): string | null => {
-  for (const file of INSTRUCTIONS_FILES) {
-    const hash = entryHash(workDir, join(workDir, file));
-    if (hash !== null) return sha256(hash);
-  }
-  return null;
+  const entries = hashedEntries(
+    workDir,
+    INSTRUCTION_FILES.map((file) => join(workDir, file)),
+  );
+  return entries.length === 0 ? null : canonicalHash(entries);
 };
 
 const slugOf = (path: string): string => path.replace(/[^a-zA-Z0-9]/g, '-');

@@ -17,12 +17,14 @@ export const startToolsSandbox = ({
   workDir,
   env,
   withheld,
+  writableDirs,
 }: {
   sandbox: Sandbox;
   tools: ToolsConfig;
   workDir: string;
   env: Record<string, string>;
   withheld: string[];
+  writableDirs?: string[];
 }): ToolsSandbox => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-tools-'));
   const { child, stdout, exited } = spawnSandboxed(
@@ -32,6 +34,7 @@ export const startToolsSandbox = ({
     {
       name: 'the command broker',
       workDir,
+      ...(writableDirs === undefined ? {} : { writableDirs }),
       env,
       broker: { dir, role: 'tools' },
       prefix: [tools.broker, '--prelisten', join(dir, 'broker.sock'), '--'],
