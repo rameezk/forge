@@ -2376,29 +2376,33 @@ test('given an installed repository, when forge-dispatch runs, then every GitHub
   );
 });
 
-for (const [declared, workflows] of [
-  ['without workflows', {}],
-  ['with workflows', { workflows: true }],
-] as const) {
-  test(`given a repository ${declared}, when a workload is dispatched, then its token is scoped to its own repository alone ${'workflows' in workflows ? 'with' : 'without'} Workflows: write`, async () => {
-    const { app } = await dispatch(workflows);
+const WORKLOAD_PERMISSIONS = {
+  contents: 'write',
+  issues: 'write',
+  pull_requests: 'write',
+  checks: 'read',
+  actions: 'write',
+  statuses: 'read',
+};
 
-    const [workload, ...others] = app.mints.filter((mint) => mint.kind === 'workload');
-    assert.deepEqual(others, []);
-    assert.deepEqual(workload?.body, {
-      repositories: ['forge'],
-      permissions: {
-        contents: 'write',
-        issues: 'write',
-        pull_requests: 'write',
-        ...('workflows' in workflows ? { workflows: 'write' } : {}),
-        checks: 'read',
-        actions: 'write',
-        statuses: 'read',
-      },
-    });
+test('given a repository without workflows, when a workload is dispatched, then its token is scoped to its own repository alone without Workflows: write', async () => {
+  const { app } = await dispatch();
+
+  const [workload, ...others] = app.mints.filter((mint) => mint.kind === 'workload');
+  assert.deepEqual(others, []);
+  assert.deepEqual(workload?.body, { repositories: ['forge'], permissions: WORKLOAD_PERMISSIONS });
+});
+
+test('given a repository with workflows, when a workload is dispatched, then its token carries Workflows: write', async () => {
+  const { app } = await dispatch({ workflows: true });
+
+  const [workload, ...others] = app.mints.filter((mint) => mint.kind === 'workload');
+  assert.deepEqual(others, []);
+  assert.deepEqual(workload?.body, {
+    repositories: ['forge'],
+    permissions: { ...WORKLOAD_PERMISSIONS, workflows: 'write' },
   });
-}
+});
 
 test('given an installation that has not accepted Actions: write, when forge-dispatch runs, then minting the workload token fails naming the permissions forge requested, no workload starts, and the dispatch fails', async () => {
   const { failure, pi, dispatches } = await dispatch({
