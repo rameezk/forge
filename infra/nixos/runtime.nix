@@ -193,6 +193,9 @@ let
   }
   // lib.optionalAttrs hasRevision {
     feedback.quietPeriodSeconds = timeSpanSeconds cfg.feedback.quietPeriod;
+  }
+  // lib.optionalAttrs hasDiagnosis {
+    diagnosis.worker = cfg.diagnosis.worker;
   };
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
@@ -206,6 +209,7 @@ let
   hasRevision = revisedRepositories != { };
   resolvedRepositories = lib.filterAttrs (_: r: r.on.conflict != null) cfg.repositories;
   hasConflictResolution = resolvedRepositories != { };
+  hasDiagnosis = cfg.diagnosis.worker != null;
 
   backstopMarginSeconds = 15 * 60;
   backstopSeconds =
@@ -243,6 +247,13 @@ let
       backstops = map (r: backstopSeconds cfg.workers.${r.on.conflict}) (lib.attrValues resolvedRepositories);
     in
     if lib.elem null backstops || backstops == [ ] then null else lib.foldl' lib.max 0 backstops;
+
+  diagnosisBackstop = if hasDiagnosis then backstopSeconds cfg.workers.${cfg.diagnosis.worker} else null;
+
+  diagnosisWorkerAssertion = {
+    assertion = !hasDiagnosis || cfg.workers ? ${cfg.diagnosis.worker};
+    message = "forge.runtime.diagnosis.worker names '${toString cfg.diagnosis.worker}', which is not declared in forge.runtime.workers";
+  };
 
   hasPullRequestPlaceholder = prompt: lib.hasInfix "{pr}" prompt || lib.hasInfix "{url}" prompt;
 
@@ -414,13 +425,29 @@ let
     message = "${cfg.user} must never be a trusted nix user, by name, by group or through a wildcard in nix.settings.trusted-users or nix.settings.extra-trusted-users, and nix.extraOptions must not set either, since evaluation cannot check it there: a trusted user can add unsigned paths and change substituters, so one workload could plant a tool for a later one through the store";
   };
 
-  startableUnits =
+  pullRequestUnits =
     lib.optional hasDispatch "forge-dispatch@(?:${lib.concatStringsSep "|" (lib.attrNames dispatchedRepositories)})"
     ++ lib.optional hasRevision "forge-revise@(?:${lib.concatStringsSep "|" (lib.attrNames revisedRepositories)})"
     ++ lib.optional hasConflictResolution "forge-resolve-conflicts@(?:${lib.concatStringsSep "|" (lib.attrNames resolvedRepositories)})";
-  startableUnitPattern = "^${
-    if lib.length startableUnits == 1 then lib.head startableUnits else "(?:${lib.concatStringsSep "|" startableUnits})"
-  }:[1-9][0-9]*\\.service$";
+  pullRequestUnitPattern = "${
+    if lib.length pullRequestUnits == 1 then
+      lib.head pullRequestUnits
+    else
+      "(?:${lib.concatStringsSep "|" pullRequestUnits})"
+  }:[1-9][0-9]*";
+  diagnosisUnitPattern = "forge-diagnose@[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+  startableUnitPattern =
+    let
+      alternatives =
+        lib.optional (pullRequestUnits != [ ]) pullRequestUnitPattern ++ lib.optional hasDiagnosis diagnosisUnitPattern;
+    in
+    "^${
+      if lib.length alternatives == 1 then lib.head alternatives else "(?:${lib.concatStringsSep "|" alternatives})"
+    }\\.service$";
+
+  diagnoseInstance = pkgs.writeShellScript "forge-diagnose-instance" ''
+    exec ${cfg.package}/bin/forge-diagnose "$1"
+  '';
 
   reviseInstance = pkgs.writeShellScript "forge-revise-instance" ''
     exec ${cfg.package}/bin/forge-revise "''${1%:*}" "''${1##*:}"
@@ -576,6 +603,13 @@ in
       description = "The review limit: the most dispatches forge may have in flight or awaiting review across every managed repository, counting its running dispatches plus the open pull requests it opened for dispatches. At the limit the dispatch pass starts no new dispatch, logging each ticket that waits, and `forge-dispatch` refuses to start one, while revisions and conflict resolutions keep running. A pull request stops counting once the frontier sync records it as merged or closed. `null` turns the limit off.";
     };
 
+    diagnosis.worker = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "diagnoser";
+      description = "Worker that diagnoses failed workloads, or null to run no diagnoses. When a dispatch, revision or conflict resolution fails with `errored`, `no-pull-request`, `draft`, `check-failed`, `check-pending`, `exceeded`, `unanswered`, `not-merged` or `still-conflicting`, the dispatch pass starts a workload of this worker on its own unit, which reads the failed run's transcript, request record and run directory read-only, reads GitHub through a read-only token, and writes one cause category, its evidence in the transcript and one suggested fix to `diagnosis.json`. Failures that explain themselves (`interrupted`, `crashed`, `devshell-failed`, `skill-not-found`, failed starts), manual workloads and failed diagnoses are never diagnosed, and failures from before the option was set are not. The diagnosis does not count toward `dispatch.maxConcurrent` or the review limit. Forge supplies the standing instruction, so the worker's prompt only shapes how it investigates; budget and timeout come from the worker. Diagnoses show on the dashboard only.";
+    };
+
     feedback.quietPeriod = lib.mkOption {
       type = timeSpan;
       default = "10min";
@@ -722,7 +756,8 @@ in
       ++ removedWorkerAssertions
       ++ dispatchAssertions
       ++ revisionAssertions
-      ++ conflictResolutionAssertions;
+      ++ conflictResolutionAssertions
+      ++ [ diagnosisWorkerAssertion ];
 
       security.allowUserNamespaces = true;
 
@@ -919,6 +954,39 @@ in
           OnBootSec = "1min";
           OnUnitActiveSec = cfg.frontier.pollInterval;
         };
+      };
+    })
+
+    (lib.mkIf (hasWorkers && hasDiagnosis) {
+      systemd.services."forge-diagnose@" = {
+        description = "Forge diagnosis %i";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        restartIfChanged = false;
+        stopIfChanged = false;
+        path = lib.mkForce cfg.toolset;
+        serviceConfig = {
+          Type = "oneshot";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          EnvironmentFile = [
+            (envFile "forge-runner.env")
+            (envFile "forge-github-app.env")
+          ];
+          Environment = [
+            "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
+            "FORGE_STATE_DIR=${cfg.stateDir}"
+            credentialToolsVariable
+            appKeyFileVariable
+          ]
+          ++ forgeGitShaVariable;
+          ExecStart = "${diagnoseInstance} %i";
+        }
+        // startTimeout diagnosisBackstop
+        // workloadMemory
+        // appKeyCredential
+        // workloadHardening;
       };
     })
 
