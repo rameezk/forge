@@ -852,7 +852,7 @@ a diagnosis of each failed dispatch, revision or conflict resolution whose
 failure does not explain itself. The diagnosis shows on the dashboard only.
 
 To diagnose a run by hand, including one that failed before diagnoses existed,
-run:
+run, on a box that declares workers and a managed repository:
 
 ```bash
 just ssh sudo forge-diagnose <run>
