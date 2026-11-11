@@ -62,8 +62,12 @@ let
       (writeShellScriptBin "forge-dispatch" ''
         echo "$@" > "/var/lib/forge/dispatched-$1-$2"
       '')
-      (writeShellScriptBin "forge-diagnose" ''
-        echo "$@" > "/var/lib/forge/diagnosed-$1"
+      (writeShellScriptBin "forge-diagnose-run" ''
+        if [ "$1" = "--rerun" ]; then
+          echo "$@" > "/var/lib/forge/rediagnosed-$2"
+        else
+          echo "$@" > "/var/lib/forge/diagnosed-$1"
+        fi
       '')
       (writeShellScriptBin "forge-frontend" ''
         exec sleep infinity
@@ -179,5 +183,15 @@ testers.runNixOSTest {
         box.succeed(f"{as_runtime} start forge-diagnose@11111111-2222-3333-4444-555555555555.service")
         assert box.succeed("cat /var/lib/forge/diagnosed-11111111-2222-3333-4444-555555555555").strip() == "11111111-2222-3333-4444-555555555555"
         box.fail(f"{as_runtime} start forge-diagnose@not-a-run.service")
+
+    with subtest("forge-diagnose re-runs a diagnosis with the configured worker, or the one named by --worker, and refuses a malformed run or worker"):
+        box.succeed("forge-diagnose old-run")
+        assert box.succeed("cat /var/lib/forge/rediagnosed-old-run").strip() == "--rerun old-run diagnoser"
+        box.succeed("forge-diagnose other-run --worker builder")
+        assert box.succeed("cat /var/lib/forge/rediagnosed-other-run").strip() == "--rerun other-run builder"
+        box.fail("forge-diagnose 'bad;run'")
+        box.fail("forge-diagnose old-run --worker 'bad;worker'")
+        box.fail("forge-diagnose old-run --model builder")
+        box.fail(f"{as_runtime} start forge-diagnose@old-run:builder.service")
   '';
 }

@@ -103,3 +103,27 @@ test('given a diagnosis run, when /workloads is requested, then its row and card
     assert.match(textOf(html.match(/<div[^>]*\sdata-workload-kind[^>]*>[\s\S]*?<\/div>/)?.[0] ?? ''), /^diagnosis$/);
   }
 });
+
+test('given a failed run diagnosed twice, when its page opens, then it shows the newer diagnosis and lists the older one', async () => {
+  const store = Store.open(':memory:');
+  store.insertRun(aRun('failed', 'builder'));
+  const dispatch = store.startDispatch({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/issues/7' }, 'failed', '2026-11-01T10:00:00.000Z', 10, null);
+  assert.ok('started' in dispatch);
+  store.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
+  store.insertRun(aRun('first', 'diagnoser'));
+  store.insertRun(aRun('second', 'other-diagnoser'));
+  store.endDiagnosis(store.startDiagnosis('failed', 'first', AT), 'done', AT, {
+    verdict: { category: 'worker', evidence: [{ turn: 2, note: 'older evidence' }], suggestedFix: 'Older fix' },
+  });
+  const later = '2026-11-02T09:00:00.000Z';
+  store.endDiagnosis(store.startDiagnosis('failed', 'second', later), 'done', later, {
+    verdict: { category: 'ticket-or-spec', evidence: [{ turn: 5, note: 'newer evidence' }], suggestedFix: 'Newer fix' },
+  });
+  const app = createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
+  const diagnosis = section(await (await app.request('/runs/failed')).text());
+  assert.match(diagnosis, /data-diagnosis-category="ticket-or-spec"/);
+  assert.match(textOf(diagnosis), /Newer fix/);
+  assert.doesNotMatch(textOf(diagnosis), /Older fix|older evidence/);
+  const earlier = [...diagnosis.matchAll(/<li data-earlier-diagnosis>[\s\S]*?<a href="([^"]*)"/g)].map((match) => match[1]);
+  assert.deepEqual(earlier, ['/runs/first']);
+});

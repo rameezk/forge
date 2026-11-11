@@ -1953,6 +1953,8 @@
                 lib.recursiveUpdate diagnosisModule { forge.runtime.diagnosis.worker = "diagnoser"; }
               );
               unit = enabled.config.systemd.services."forge-diagnose@";
+              hasCommand =
+                name: host: lib.any (package: lib.getName package == name) host.config.environment.systemPackages;
               undeclared = secretsHost exampleSecretsFile (
                 lib.recursiveUpdate diagnosisModule { forge.runtime.diagnosis.worker = "missing"; }
               );
@@ -1960,7 +1962,9 @@
             assert lib.asserts.assertMsg (
               enabled.config.forge.runtime.settings.diagnosis == { worker = "diagnoser"; }
               && !(dispatchHost.config.forge.runtime.settings ? diagnosis)
-              && !(dispatchHost.config.systemd.services ? "forge-diagnose@")
+              && dispatchHost.config.systemd.services ? "forge-diagnose@"
+              && hasCommand "forge-diagnose" enabled
+              && hasCommand "forge-diagnose" dispatchHost
               && unit.serviceConfig.Type == "oneshot"
               && lib.hasInfix "forge-diagnose-instance" unit.serviceConfig.ExecStart
               && readsAppKeyAsCredential unit
@@ -1968,12 +1972,17 @@
               && unit.serviceConfig.Slice == "forge-workloads.slice"
               && lib.hasInfix "forge-diagnose@[0-9a-f]{8}" enabled.config.security.polkit.extraConfig
               && !(lib.hasInfix "forge-diagnose" dispatchHost.config.security.polkit.extraConfig)
-            ) "naming a diagnosis worker must wire a hardened forge-diagnose@ oneshot in the workload slice and let the dispatch pass start only diagnosis units named by a run id, and a host without one must not";
+            ) "workers must wire a hardened forge-diagnose@ oneshot in the workload slice and the forge-diagnose command, and naming a diagnosis worker must also let the dispatch pass start only diagnosis units named by a run id";
             assert lib.asserts.assertMsg (
               !(evaluates undeclared) && lib.any (lib.hasInfix "'missing'") (failedAssertions undeclared)
             ) "a diagnosis worker that is not declared must fail evaluation";
             pkgs.runCommand "runtime-diagnosis" { } ''
-              echo "a diagnosis worker wires a hardened forge-diagnose@ oneshot in the workload slice and its polkit grant; an undeclared one fails evaluation" > $out
+              if refusal=$(${pkgs.callPackage ./infra/nix/diagnose-command.nix { }}/bin/forge-diagnose some-run 2>&1); then
+                echo "forge-diagnose must refuse without a diagnosis worker" >&2
+                exit 1
+              fi
+              echo "$refusal" | grep -q "no diagnosis worker is configured"
+              echo "workers wire a hardened forge-diagnose@ oneshot in the workload slice and the forge-diagnose command, a diagnosis worker adds the polkit grant, and an undeclared one fails evaluation" > $out
             '';
 
           runtime-resolve-conflicts =
