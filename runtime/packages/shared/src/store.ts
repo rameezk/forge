@@ -914,8 +914,21 @@ const CREATE_RISK_GRADES = `
     cost_usd      REAL NOT NULL,
     graded_at     TEXT NOT NULL,
     check_posted  INTEGER NOT NULL DEFAULT 0,
+    outcome       TEXT NOT NULL DEFAULT 'open',
+    outcome_at    TEXT,
+    revisions     INTEGER,
     PRIMARY KEY (repository, number, head_sha)
   ) STRICT;
+`;
+
+const HAS_RISK_GRADE_OUTCOME = `
+  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'outcome'
+`;
+
+const ADD_RISK_GRADE_OUTCOME = `
+  ALTER TABLE risk_grades ADD COLUMN outcome TEXT NOT NULL DEFAULT 'open';
+  ALTER TABLE risk_grades ADD COLUMN outcome_at TEXT;
+  ALTER TABLE risk_grades ADD COLUMN revisions INTEGER;
 `;
 
 const CREATE_FEEDBACK_WATCHES = `
@@ -949,6 +962,16 @@ export interface RiskGrade {
   gradedAt: string;
 }
 
+export const GRADE_OUTCOMES = ['open', 'merged', 'superseded', 'closed'] as const;
+
+export type GradeOutcome = (typeof GRADE_OUTCOMES)[number];
+
+export interface RecordedRiskGrade extends RiskGrade {
+  outcome: GradeOutcome;
+  outcomeAt: string | null;
+  revisions: number | null;
+}
+
 export interface GradingDue {
   repository: string;
   number: number;
@@ -970,9 +993,12 @@ type RiskGradeRow = {
   unsettled: number;
   cost_usd: number;
   graded_at: string;
+  outcome: string;
+  outcome_at: string | null;
+  revisions: number | null;
 };
 
-const riskGradeFromRow = (row: RiskGradeRow): RiskGrade => ({
+const riskGradeFromRow = (row: RiskGradeRow): RecordedRiskGrade => ({
   repository: row.repository,
   number: row.number,
   headSha: row.head_sha,
@@ -985,6 +1011,9 @@ const riskGradeFromRow = (row: RiskGradeRow): RiskGrade => ({
   unsettled: row.unsettled === 1,
   costUsd: row.cost_usd,
   gradedAt: row.graded_at,
+  outcome: row.outcome as GradeOutcome,
+  outcomeAt: row.outcome_at,
+  revisions: row.revisions,
 });
 
 type FeedbackWatchRow = {
@@ -1388,6 +1417,7 @@ export class Store {
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
     this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
     db.exec(CREATE_RISK_GRADES);
+    this.#addColumnsOnce(HAS_RISK_GRADE_OUTCOME, ADD_RISK_GRADE_OUTCOME);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
     this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
@@ -2796,7 +2826,7 @@ export class Store {
       }));
   }
 
-  gradesAwaitingCheck(repositories: readonly string[]): RiskGrade[] {
+  gradesAwaitingCheck(repositories: readonly string[]): RecordedRiskGrade[] {
     const rows = this.#db
       .prepare(
         `SELECT risk_grades.* FROM risk_grades
@@ -2846,7 +2876,46 @@ export class Store {
       });
   }
 
-  riskGrade(repository: string, number: number, headSha: string): RiskGrade | null {
+  openRiskGrades(repository: string): RecordedRiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM risk_grades
+        WHERE repository = $repository AND outcome = 'open'
+        ORDER BY number, graded_at`,
+      )
+      .all({ repository }) as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
+  }
+
+  settleRiskGrade(
+    grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>,
+    outcome: Exclude<GradeOutcome, 'open'>,
+    at: string,
+  ): void {
+    this.#db
+      .prepare(
+        `UPDATE risk_grades SET
+          outcome = $outcome,
+          outcome_at = $at,
+          revisions = (
+            SELECT COUNT(*) FROM revisions
+            WHERE revisions.repository = risk_grades.repository
+              AND revisions.number = risk_grades.number
+              AND revisions.state = 'done'
+          )
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha
+          AND outcome = 'open'`,
+      )
+      .run({
+        outcome,
+        at,
+        repository: grade.repository,
+        number: grade.number,
+        head_sha: grade.headSha,
+      });
+  }
+
+  riskGrade(repository: string, number: number, headSha: string): RecordedRiskGrade | null {
     const row = this.#db
       .prepare(
         `SELECT * FROM risk_grades
