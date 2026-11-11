@@ -1,4 +1,4 @@
-import type { DispatchState, RunRecord } from '@forge/shared';
+import { isDiagnosisCategory, type DiagnosisCategory, type DispatchState, type RunRecord } from '@forge/shared';
 import { addDays, dayOf, dayRange, parseDay } from './days.ts';
 
 export const STATUSES: readonly DispatchState[] = ['running', 'done', 'failed'];
@@ -26,6 +26,7 @@ export interface WorkloadFilter {
   worker?: string;
   repository?: string;
   model?: string;
+  category?: DiagnosisCategory;
   from?: string;
   to?: string;
 }
@@ -35,6 +36,7 @@ export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilt
   const range = RANGE_PRESETS.find((candidate) => candidate.key === query['range'])?.key;
   const from = range === undefined ? parseDay(query['from']) : undefined;
   const to = range === undefined ? parseDay(query['to']) : undefined;
+  const category = isDiagnosisCategory(query['category']) ? query['category'] : undefined;
   const search = (query['search'] ?? '').trim().replace(/^#/, '');
   return {
     ...(status === undefined ? {} : { status }),
@@ -42,6 +44,7 @@ export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilt
     ...(query['worker'] ? { worker: query['worker'] } : {}),
     ...(query['repository'] ? { repository: query['repository'] } : {}),
     ...(query['model'] ? { model: query['model'] } : {}),
+    ...(category === undefined ? {} : { category }),
     ...(range === undefined ? {} : { range }),
     ...(from === undefined ? {} : { from }),
     ...(to === undefined ? {} : { to }),
@@ -59,6 +62,7 @@ export const filterWorkloads = (
   timeZone: string,
   now: number,
   stateOf: (run: RunRecord) => DispatchState,
+  categories: ReadonlyMap<string, DiagnosisCategory>,
   ignoreStatus = false,
 ): RunRecord[] => {
   const preset = RANGE_PRESETS.find(({ key }) => key === filter.range);
@@ -71,6 +75,7 @@ export const filterWorkloads = (
       (filter.worker === undefined || run.worker === filter.worker) &&
       (filter.repository === undefined || run.ticket?.repository === filter.repository) &&
       (filter.model === undefined || run.model === filter.model) &&
+      (filter.category === undefined || categories.get(run.id) === filter.category) &&
       (startedFrom === undefined || Date.parse(run.startTime) >= startedFrom) &&
       (startedBefore === undefined || Date.parse(run.startTime) < startedBefore),
   );

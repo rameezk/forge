@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { INSIGHT_KIND_FILTERS, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
+import { INSIGHT_KIND_FILTERS, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type DiagnosisCategory, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
@@ -141,7 +141,9 @@ export const createApp = ({
         workload.runId === null ? [] : [[workload.runId, { kind: 'conflict-resolution', workload }]],
       ),
     ]);
-    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(store.listDiagnoses(now).map(({ runId }) => runId)), shown, clock().getTime()));
+    const diagnoses = store.listDiagnoses(now);
+    const categories = new Map(diagnoses.flatMap(({ failedRunId, verdict }): [string, DiagnosisCategory][] => (verdict === null ? [] : [[failedRunId, verdict.category]])));
+    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, shown, clock().getTime()));
   });
 
   const queryOf = (query: Record<string, string>): InsightsQuery => {

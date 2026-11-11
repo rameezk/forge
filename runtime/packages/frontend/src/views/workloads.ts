@@ -1,5 +1,5 @@
 import { html } from 'hono/html';
-import { isGithubUrl, type ListPriceEquivalent, type RunRecord, type DispatchState, type PullRequestWorkloadRecord, type RunPullRequestWorkload, type DispatchRecord } from '@forge/shared';
+import { DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, isGithubUrl, type DiagnosisCategory, type ListPriceEquivalent, type RunRecord, type DispatchState, type PullRequestWorkloadRecord, type RunPullRequestWorkload, type DispatchRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
@@ -91,13 +91,21 @@ const renderSelect = (label: string, name: string, values: string[], selected: s
     </select>
   </label>`;
 
+const renderCategorySelect = (selected: DiagnosisCategory | undefined): Rendered =>
+  html`<label class="${FIELD}">Diagnosis
+    <select name="category" class="${CONTROL} w-full sm:max-w-36" data-category-filter>
+      <option value="">All</option>
+      ${DIAGNOSIS_CATEGORIES.map((category) => html`<option value="${category}"${category === selected ? html` selected` : ''}>${DIAGNOSIS_CATEGORY_LABELS[category]}</option>`)}
+    </select>
+  </label>`;
+
 const unique = (values: (string | undefined)[]): string[] =>
   [...new Set(values.filter((value): value is string => value !== undefined))].sort();
 
 type StateOf = (run: RunRecord) => DispatchState;
 
-const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string, now: number, stateOf: StateOf): Rendered => {
-  const scoped = filterWorkloads(all, filter, timeZone, now, stateOf, true);
+const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string, now: number, stateOf: StateOf, categories: ReadonlyMap<string, DiagnosisCategory>): Rendered => {
+  const scoped = filterWorkloads(all, filter, timeZone, now, stateOf, categories, true);
   const chips: { key: string; label: string; status: DispatchState | undefined; count: number }[] = [
     { key: 'all', label: 'All', status: undefined, count: scoped.length },
     ...STATUSES.map((status) => ({
@@ -139,11 +147,12 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
   <form method="get" action="/workloads" class="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
     ${filter.status === undefined ? '' : html`<input type="hidden" name="status" value="${filter.status}" />`}
     <label class="${FIELD}">Search
-      <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-full sm:w-60" />
+      <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-full sm:w-52" />
     </label>
     ${renderSelect('Worker', 'worker', unique(all.map((run) => run.worker)), filter.worker)}
     ${renderSelect('Repository', 'repository', unique(all.map((run) => run.ticket?.repository)), filter.repository)}
     ${renderSelect('Model', 'model', unique(all.map((run) => run.model)), filter.model)}
+    ${renderCategorySelect(filter.category)}
     <label class="${FIELD}">Started from
       <input type="date" name="from" value="${filter.from ?? ''}" class="${CONTROL}" />
     </label>
@@ -207,11 +216,12 @@ export const renderList = (
   pullRequestWorkloads: ReadonlyMap<string, RunPullRequestWorkload>,
   dispatches: ReadonlyMap<string, DispatchRecord>,
   diagnoses: ReadonlySet<string>,
+  categories: ReadonlyMap<string, DiagnosisCategory>,
   display: Display,
   now: number,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const stateOf: StateOf = (run) => runStateOf(run.status, runOutcomeOf(pullRequestWorkloads.get(run.id)?.workload, dispatches.get(run.id)));
-  const runs = filterWorkloads(all, filter, display.timeZone, now, stateOf);
+  const runs = filterWorkloads(all, filter, display.timeZone, now, stateOf, categories);
   const paged = paginate(runs, requestedPage);
   const body =
     all.length === 0
@@ -219,7 +229,7 @@ export const renderList = (
           <p class="${EMPTY}">No workloads have run yet.</p>`
       : html`<h1 class="${PAGE_TITLE}">Workloads</h1>
           ${renderTotals(runs, all, filter, equivalents)}
-          ${renderChips(all, filter, display.timeZone, now, stateOf)}
+          ${renderChips(all, filter, display.timeZone, now, stateOf, categories)}
           ${renderFilters(all, filter)}
           ${runs.length === 0
             ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`
