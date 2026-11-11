@@ -35,16 +35,22 @@ interface Scenario {
   seed?: (store: Store) => void;
   failingUnit?: string;
   failedPolls?: string[];
+  diagnosisWorker?: string;
+  passes?: number;
 }
 
-const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failingUnit, failedPolls = [] }: Scenario) => {
+const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failingUnit, failedPolls = [], diagnosisWorker, passes = 1 }: Scenario) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-pass-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
     configPath,
     JSON.stringify({
       harnesses: { pi: { command: '/bin/false' } },
-      workers: { builder: { harness: 'pi', model: 'z-ai/glm-5', prompt: '/work-on {url}' } },
+      workers: {
+        builder: { harness: 'pi', model: 'z-ai/glm-5', prompt: '/work-on {url}' },
+        diagnoser: { harness: 'pi', model: 'z-ai/glm-5', prompt: 'Find the cause' },
+      },
+      ...(diagnosisWorker === undefined ? {} : { diagnosis: { worker: diagnosisWorker } }),
       repositories: {
         forge: { github: 'rameezk/forge', on: { ticket: 'builder' } },
         dotfiles: { github: 'rameezk/dotfiles', on: { ticket: 'builder' } },
@@ -60,7 +66,7 @@ const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failin
   const systemctl = join(stateDir, 'systemctl');
   writeFileSync(
     systemctl,
-    `#!/bin/sh\necho "$*" >> "${record}"\n[ "$5" != "$FAKE_SYSTEMCTL_FAILING" ]\n`,
+    `#!/bin/sh\necho "$*" >> "${record}"\ncase "$5" in $FAKE_SYSTEMCTL_FAILING) exit 1 ;; esac\n`,
   );
   chmodSync(systemctl, 0o755);
 
@@ -75,14 +81,18 @@ const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failin
     store.close();
   }
 
-  const { result: code, journal } = await journaled(() =>
-    main([], {
-      FORGE_RUNTIME_CONFIG: configPath,
-      FORGE_STATE_DIR: stateDir,
-      FORGE_SYSTEMCTL: systemctl,
-      ...(failingUnit === undefined ? {} : { FAKE_SYSTEMCTL_FAILING: failingUnit }),
-    }),
-  );
+  const { result: code, journal } = await journaled(async () => {
+    let last = 0;
+    for (let index = 0; index < passes; index += 1) {
+      last = await main([], {
+        FORGE_RUNTIME_CONFIG: configPath,
+        FORGE_STATE_DIR: stateDir,
+        FORGE_SYSTEMCTL: systemctl,
+        ...(failingUnit === undefined ? {} : { FAKE_SYSTEMCTL_FAILING: failingUnit }),
+      });
+    }
+    return last;
+  });
   const started = existsSync(record)
     ? readFileSync(record, 'utf8').trim().split('\n')
     : [];
@@ -316,4 +326,53 @@ test('given maxOpenPullRequests 2 and 2 open dispatch pull requests, when the pa
 
   assert.deepEqual(started, []);
   assert.match(journal, /forge#113: waits, 2 of 2 pull requests are open for review/);
+});
+
+const failedWith = (reason: 'check-failed' | 'interrupted' | 'no-pull-request') => (store: Store) => {
+  const at = new Date().toISOString();
+  const id = startedDispatch(store, 'forge', 31, 'failed-run', at);
+  store.endDispatch(id, { state: 'failed', reason, detail: null }, at);
+};
+
+const diagnosisUnits = (started: string[]): string[] =>
+  started.filter((line) => line.includes('forge-diagnose@'));
+
+test('given a diagnosis worker and a dispatch that failed with check-failed, when the pass runs twice, then exactly one forge-diagnose unit starts for it, on its own, whatever the concurrency limit', async () => {
+  const { started, journal } = await pass({
+    frontier: [],
+    maxConcurrent: 1,
+    diagnosisWorker: 'diagnoser',
+    seed: (store) => {
+      failedWith('check-failed')(store);
+      startedDispatch(store, 'dotfiles', 9, 'other-run', new Date().toISOString());
+    },
+    passes: 2,
+  });
+
+  const units = diagnosisUnits(started);
+  assert.equal(units.length, 1);
+  assert.match(units[0] ?? '', /^start --no-block --no-ask-password -- forge-diagnose@[0-9a-f-]{36}\.service$/);
+  assert.match(journal, /forge#31: diagnosing failed-run with forge-diagnose@/);
+});
+
+test('given a diagnosis worker and a dispatch that ended interrupted, when the pass runs, then no diagnosis starts', async () => {
+  const { started } = await pass({ frontier: [], diagnosisWorker: 'diagnoser', seed: failedWith('interrupted') });
+  assert.deepEqual(diagnosisUnits(started), []);
+});
+
+test('given no diagnosis worker and a dispatch that failed with no-pull-request, when the pass runs, then no diagnosis starts', async () => {
+  const { started } = await pass({ frontier: [], seed: failedWith('no-pull-request') });
+  assert.deepEqual(diagnosisUnits(started), []);
+});
+
+test('given a diagnosis unit that cannot be started, when the pass runs again, then the pass tries again', async () => {
+  const { started, code } = await pass({
+    frontier: [],
+    diagnosisWorker: 'diagnoser',
+    seed: failedWith('check-failed'),
+    failingUnit: 'forge-diagnose@*',
+    passes: 2,
+  });
+  assert.equal(diagnosisUnits(started).length, 2);
+  assert.equal(code, 1);
 });

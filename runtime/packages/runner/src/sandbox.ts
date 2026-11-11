@@ -137,12 +137,14 @@ export const spawnSandboxed = (
     workDir,
     agentDir,
     writableDirs,
+    readOnlyPaths = [],
     env,
   }: {
     name: string;
     workDir: string;
     agentDir?: string;
     writableDirs?: string[];
+    readOnlyPaths?: string[];
     env: NodeJS.ProcessEnv;
   },
 ): SandboxedProcess => {
@@ -155,7 +157,7 @@ export const spawnSandboxed = (
         workDir,
         agentDir,
         writableDirs,
-        tokenFile === undefined ? [] : [dirname(tokenFile)],
+        tokenFile === undefined ? readOnlyPaths : [...readOnlyPaths, dirname(tokenFile)],
       ),
       '--',
       command,
