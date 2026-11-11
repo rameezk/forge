@@ -139,11 +139,10 @@ const startRerun = (
   if (failed.transcriptRef === null || !existsSync(join(stateDir, 'transcripts', failed.transcriptRef))) {
     throw new Error(`${failedRunId} has no transcript left to diagnose`);
   }
-  if (store.diagnosesOf(failedRunId, at).some(({ state }) => state === 'running')) {
+  const runId = randomUUID();
+  if (store.startDiagnosisUnlessRunning(failedRunId, runId, at) === null) {
     throw new Error(`${failedRunId} is already being diagnosed`);
   }
-  const runId = randomUUID();
-  store.startDiagnosis(failedRunId, runId, at);
   return { diagnosis: store.diagnosisOfRun(runId, at) as DiagnosisRecord, workerName };
 };
 

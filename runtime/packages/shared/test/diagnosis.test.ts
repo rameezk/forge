@@ -170,3 +170,16 @@ test('given a verdict with more evidence than the contract allows, when it is pa
   const evidence = Array.from({ length: 21 }, (_, index) => ({ turn: index + 1, note: 'x' }));
   assert.throws(() => parseVerdict(JSON.stringify({ category: 'skill', evidence, suggestedFix: 'y' })), /at most 20/);
 });
+
+test('given a diagnosis of a run is running, when another is started by hand, then it is refused, and once the first ends or goes stale it is accepted', () => {
+  const store = Store.open(':memory:');
+  const at = '2026-11-01T10:00:00.000Z';
+  const first = store.startDiagnosisUnlessRunning('checks', 'diagnosis-1', at);
+  assert.equal(typeof first, 'number');
+  assert.equal(store.startDiagnosisUnlessRunning('checks', 'diagnosis-2', at), null);
+  assert.ok(store.startDiagnosisUnlessRunning('other', 'diagnosis-3', at) !== null);
+  store.endDiagnosis(first as number, 'done', at, { detail: null });
+  assert.ok(store.startDiagnosisUnlessRunning('checks', 'diagnosis-4', at) !== null);
+  assert.equal(store.startDiagnosisUnlessRunning('checks', 'diagnosis-5', at), null);
+  assert.ok(store.startDiagnosisUnlessRunning('checks', 'diagnosis-6', '2026-11-01T11:00:00.000Z') !== null);
+});
