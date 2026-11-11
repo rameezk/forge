@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type DiagnosisCategory, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
+import { INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
@@ -142,11 +142,7 @@ export const createApp = ({
       ),
     ]);
     const diagnoses = store.listDiagnoses(now);
-    const categories = new Map<string, DiagnosisCategory>();
-    for (const { failedRunId, verdict } of diagnoses) {
-      if (verdict === null) categories.delete(failedRunId);
-      else categories.set(failedRunId, verdict.category);
-    }
+    const categories = store.latestDiagnosisCategories(now);
     return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runCohorts(), shown, clock().getTime()));
   });
 

@@ -132,3 +132,16 @@ test('given a cohort with diagnosed failures, when its cohort page opens, then i
   assert.equal(metrics['cause-skill'], '2');
   assert.equal(metrics['cause-worker'], '1');
 });
+
+test('given no active cohort under the chosen filters, when the Failures tab opens, then no Causes count links to an unrestricted Workloads list', async () => {
+  const page = await dashboard([
+    { id: 'p1', fingerprint: GLM, start: PREVIOUS, diagnoses: ['skill'], ...quick },
+    { id: 'p2', fingerprint: SONNET, kind: 'revision', failed: true, ...quick },
+  ]).page('?tab=failures&kind=dispatch');
+  const section = page.match(/<section[^>]*data-causes[^>]*>([\s\S]*?)<\/section>/)?.[1] ?? '';
+
+  assert.ok(section.length > 0);
+  const links = [...section.matchAll(/href="(\/workloads[^"]*)"/g)].map(([, href]) => href!);
+
+  assert.deepEqual(links, []);
+});

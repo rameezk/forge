@@ -130,6 +130,17 @@ interface Column {
   render: (cohort: CohortInsight, timeZone: string) => HtmlEscapedString | Promise<HtmlEscapedString>;
 }
 
+type FailureSubject = Pick<CohortInsight, 'hash' | 'failures'>;
+
+interface FailureColumn extends Column {
+  render: (subject: FailureSubject) => HtmlEscapedString | Promise<HtmlEscapedString>;
+}
+
+const DIVIDER = ' border-l border-l-line';
+
+const renderHeaders = (columns: Column[]): Rendered =>
+  html`${columns.map(({ header, divider }) => html`<th class="${COHORT_TH} text-right${divider === true ? DIVIDER : ''}">${header}</th>`)}`;
+
 const metricCell = (metric: string, text: (cohort: CohortInsight) => string, extra = ''): Column['render'] => (cohort) =>
   html`<td class="${COHORT_TD}${extra}" data-metric="${metric}">${text(cohort)}</td>`;
 
@@ -147,22 +158,20 @@ const cohortKey = (hash: string | null): string => hash ?? UNKNOWN_COHORT;
 const countLink = (href: string, count: number): Rendered =>
   html`<a href="${href}" class="${LINK}${count === 0 ? DIM : ''}">${count}</a>`;
 
-type FailureSubject = Pick<CohortInsight, 'hash' | 'failures'>;
-
-const failedCell: Column['render'] = ({ hash, failures }: FailureSubject) =>
+const failedCell: FailureColumn['render'] = ({ hash, failures }: FailureSubject) =>
   html`<td class="${COHORT_TD}" data-metric="failed">${countLink(workloadsHref({ cohort: cohortKey(hash), status: 'failed' }), failures.failed)}</td>`;
 
-const diagnosedCell: Column['render'] = ({ failures: { diagnosed, failed } }: FailureSubject) =>
+const diagnosedCell: FailureColumn['render'] = ({ failures: { diagnosed, failed } }: FailureSubject) =>
   html`<td class="${COHORT_TD}${failed === 0 ? DIM : ''}" data-metric="diagnosed">${diagnosed} of ${failed}</td>`;
 
-const categoryColumn = (category: DiagnosisCategory, divider: boolean): Column => ({
+const categoryColumn = (category: DiagnosisCategory, divider: boolean): FailureColumn => ({
   header: DIAGNOSIS_CATEGORY_LABELS[category],
   divider,
   render: ({ hash, failures }: FailureSubject) =>
-    html`<td class="${COHORT_TD}${divider ? ' border-l border-l-line' : ''}" data-metric="cause-${category}">${countLink(workloadsHref({ cohort: cohortKey(hash), category }), failures.categories[category])}</td>`,
+    html`<td class="${COHORT_TD}${divider ? DIVIDER : ''}" data-metric="cause-${category}">${countLink(workloadsHref({ cohort: cohortKey(hash), category }), failures.categories[category])}</td>`,
 });
 
-const FAILURE_COLUMNS: Column[] = [
+const FAILURE_COLUMNS: FailureColumn[] = [
   { header: 'Failed', render: failedCell },
   { header: 'Diagnosed', render: diagnosedCell },
   ...DIAGNOSIS_CATEGORIES.map((category, index) => categoryColumn(category, index === 0)),
@@ -254,7 +263,7 @@ const renderCauses = (cohorts: CohortInsight[]): HtmlEscapedString | Promise<Htm
       ${DIAGNOSIS_CATEGORIES.map((category) => html`<li data-cause="${category}" class="grid grid-cols-[11rem_1fr_3rem] items-center gap-3 text-[0.9rem]">
         <span class="text-fg">${DIAGNOSIS_CATEGORY_LABELS[category]}</span>
         <span aria-hidden="true" class="block h-2 rounded-sm bg-raised"><span class="block h-2 rounded-sm bg-fg" style="width: ${(categories[category] / widest) * 100}%"></span></span>
-        <a href="${workloadsHref({ cohort, category })}" class="${LINK} text-right tabular-nums${categories[category] === 0 ? DIM : ''}">${categories[category]}</a>
+        ${active.length === 0 ? html`<span class="text-right tabular-nums${DIM}">${categories[category]}</span>` : html`<a href="${workloadsHref({ cohort, category })}" class="${LINK} text-right tabular-nums${categories[category] === 0 ? DIM : ''}">${categories[category]}</a>`}
       </li>`)}
     </ul>
   </section>`;
@@ -267,7 +276,7 @@ const renderCohortTable = (cohorts: CohortInsight[], tab: InsightsTab, timeZone:
       <thead>
         <tr>
           <th class="${COHORT_TH} ${PINNED} text-left">Cohort</th>
-          ${columns.map(({ header, divider }) => html`<th class="${COHORT_TH} text-right${divider === true ? ' border-l border-l-line' : ''}">${header}</th>`)}
+          ${renderHeaders(columns)}
         </tr>
       </thead>
       ${renderGroup('active', 'Active cohorts', cohorts.filter(({ activeFor }) => activeFor.length > 0), columns, timeZone)}
@@ -360,8 +369,8 @@ const renderCompareForm = (current: CohortConfig, against: CohortConfig | null, 
 const renderCohortFailures = (subject: FailureSubject): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<section class="${CARD} mb-4" data-failures role="region" aria-label="Failures" tabindex="0">
     <table class="${TABLE}">
-      <thead><tr>${FAILURE_COLUMNS.map(({ header, divider }) => html`<th class="${COHORT_TH} text-right${divider === true ? ' border-l border-l-line' : ''}">${header}</th>`)}</tr></thead>
-      <tbody><tr class="${ROW}">${FAILURE_COLUMNS.map(({ render }) => render(subject as CohortInsight, ''))}</tr></tbody>
+      <thead><tr>${renderHeaders(FAILURE_COLUMNS)}</tr></thead>
+      <tbody><tr class="${ROW}">${FAILURE_COLUMNS.map(({ render }) => render(subject))}</tr></tbody>
     </table>
   </section>`;
 

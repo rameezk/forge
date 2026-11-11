@@ -3292,6 +3292,15 @@ export class Store {
     return row === undefined ? null : diagnosisFromRow(row);
   }
 
+  latestDiagnosisCategories(now: string): Map<string, DiagnosisCategory> {
+    const categories = new Map<string, DiagnosisCategory>();
+    for (const { failedRunId, verdict } of this.listDiagnoses(now)) {
+      if (verdict === null) categories.delete(failedRunId);
+      else categories.set(failedRunId, verdict.category);
+    }
+    return categories;
+  }
+
   listDiagnoses(now: string): DiagnosisRecord[] {
     return (
       this.#db.prepare(`${SELECT_DIAGNOSES} ORDER BY id`).all({ live_since: liveSince(now) }) as DiagnosisRow[]
