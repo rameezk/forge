@@ -240,7 +240,7 @@ const renderForgeStatus = (deploy: DeployStatus | null): Rendered => {
     : href === null
       ? html`<code class="font-mono text-fg">${shortCommit(deploy.forge)}</code>`
       : html`<a href="${href}" data-forge-commit target="_blank" rel="noopener noreferrer" class="${LINK} font-mono">${shortCommit(deploy.forge)}</a>`;
-  return html`<div data-forge-status class="flex items-center gap-2" title="The forge commit the box runs"><span class="font-semibold uppercase tracking-[0.05em]">Forge</span>${commit}${forgeStatusPill(deploy)}</div>`;
+  return html`<div data-forge-status class="-my-0.5 flex items-center gap-2" title="The forge commit the box runs"><span class="font-semibold uppercase tracking-[0.05em]">Forge</span>${commit}${forgeStatusPill(deploy)}</div>`;
 };
 
 export const layout = (
