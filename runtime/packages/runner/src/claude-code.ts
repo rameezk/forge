@@ -743,6 +743,13 @@ class ClaudeCodeStream {
   }
 }
 
+const KILLED_COMMAND_EXIT = /^Exit code (\d+)\b/;
+
+const killedWithItsCommand = ({ isError, text }: ToolResultEvent): boolean => {
+  const code = isError ? Number(KILLED_COMMAND_EXIT.exec(text)?.[1]) : Number.NaN;
+  return code > 128;
+};
+
 async function* withSkillLoads(
   skillLoads: SkillLoadTracker | null,
   calls: InFlightCalls,
@@ -842,7 +849,7 @@ class ClaudeCodeRun implements HarnessRun {
     const promptLoad = skillLoads?.observePrompt(invocation.prompt) ?? null;
     if (promptLoad !== null) yield { type: 'skill_load', ...promptLoad };
     const stream = new ClaudeCodeStream(sinks, new RecordedBodies(bodiesDir));
-    const inFlight = new InFlightCalls();
+    const inFlight = new InFlightCalls(killedWithItsCommand);
     const harnessOnly = claudeCodeEnv({}, configDir, bodiesDir, {
       CLAUDE_CODE_TMPDIR: sharedDir,
       CLAUDE_CODE_SHELL: tools.bash,
