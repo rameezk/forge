@@ -25,6 +25,7 @@ import {
   writeFakeClaude,
   type BwrapCall,
   isAlive,
+  brokerEnv,
 } from './helpers.ts';
 import { CLAUDE_SKILL_FILES, CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
 
@@ -159,6 +160,7 @@ const runClaude = async ({
       HOME: '/var/empty',
       FORGE_RUNTIME_CONFIG: configPath,
       FORGE_STATE_DIR: stateDir,
+      ...brokerEnv(stateDir),
       FORGE_BWRAP: fakeBwrap,
       ...env,
     });

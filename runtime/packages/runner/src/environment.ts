@@ -44,3 +44,13 @@ export const sandboxOf = (env: NodeJS.ProcessEnv): Sandbox => ({
   bwrap: absolutePath(env, 'FORGE_BWRAP'),
   home: absolutePath(env, 'HOME'),
 });
+
+export interface ToolsConfig {
+  broker: string;
+  client: string;
+}
+
+export const toolsOf = (env: NodeJS.ProcessEnv): ToolsConfig => ({
+  broker: absolutePath(env, 'FORGE_BROKER'),
+  client: absolutePath(env, 'FORGE_BROKER_CLIENT'),
+});

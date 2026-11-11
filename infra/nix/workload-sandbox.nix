@@ -352,10 +352,10 @@ testers.runNixOSTest {
 
     unconfinable.wait_for_unit("multi-user.target")
 
-    with subtest("a sandbox that cannot start fails the workload, and the harness never runs"):
+    with subtest("a sandbox that cannot start fails the workload, and the harness never runs, the tools sandbox being the first to start"):
         unconfinable.fail("systemctl start forge-runner@probe")
         unconfinable.fail("ls /var/lib/forge/work/*/sandbox.out")
         error = unconfinable.succeed("sqlite3 /var/lib/forge/forge.db 'select error from runs'").strip()
-        assert error.startswith("the workload sandbox could not start: bwrap:"), error
+        assert error.startswith("the tools sandbox could not start: bwrap:"), error
   '';
 }
