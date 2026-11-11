@@ -1119,13 +1119,14 @@
             in
             lib.asserts.assertMsg (
               lib.sort lib.lessThan keyHolders == [
+                "forge-diagnose@"
                 "forge-dispatch@"
                 "forge-frontier-sync"
               ]
               && !(lib.any (lib.hasInfix dispatchAppKey.path) (
                 lib.concatMap environmentFiles (lib.attrValues (forgeServices dispatchHost))
               ))
-            ) "only the frontier sync and forge-dispatch may be given the App private key, and no unit may load it as an EnvironmentFile: it is read only as data";
+            ) "only the frontier sync, forge-dispatch and forge-diagnose may be given the App private key, and no unit may load it as an EnvironmentFile: it is read only as data";
           noHandPlacedTokens =
             let
               mentionsHandPlacedPath =
