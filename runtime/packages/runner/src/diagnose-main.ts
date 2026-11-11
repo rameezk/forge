@@ -69,13 +69,18 @@ const readVerdictFile = (file: string): string => {
   try {
     fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`the agent wrote no ${DIAGNOSIS_FILE}`);
-    throw new Error(`${DIAGNOSIS_FILE} must be a regular file`);
+    const { code } = error as NodeJS.ErrnoException;
+    if (code === 'ENOENT') throw new Error(`the agent wrote no ${DIAGNOSIS_FILE}`);
+    if (code === 'ELOOP') throw new Error(`${DIAGNOSIS_FILE} must be a regular file`);
+    throw error;
   }
   try {
     if (!fstatSync(fd).isFile()) throw new Error(`${DIAGNOSIS_FILE} must be a regular file`);
     const buffer = Buffer.alloc(MAX_VERDICT_BYTES + 1);
-    const length = readSync(fd, buffer, 0, buffer.length, 0);
+    let length = 0;
+    for (let read = 1; read > 0 && length < buffer.length; length += read) {
+      read = readSync(fd, buffer, length, buffer.length - length, length);
+    }
     if (length > MAX_VERDICT_BYTES) throw new Error(`${DIAGNOSIS_FILE} must be at most ${MAX_VERDICT_BYTES} bytes`);
     return buffer.toString('utf8', 0, length);
   } finally {
