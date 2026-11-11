@@ -193,13 +193,13 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
       const redactions: string[] = [];
       const minted = await app.mint(github, 'read');
       const revoke = revokingQuietly((token) => app.revoke(token), 'diagnosis');
-      let tokenFile: GithubTokenFile;
-      try {
-        tokenFile = GithubTokenFile.create(join(stateDir, 'credentials'), runId, minted.token, redactions);
-      } catch (error) {
-        await revoke(minted.token);
-        throw error;
-      }
+      const tokenFile = await GithubTokenFile.createOrRevoke(
+        join(stateDir, 'credentials'),
+        runId,
+        minted.token,
+        redactions,
+        revoke,
+      );
       const stopRefreshing = keepFresh(
         tokenFile,
         minted,

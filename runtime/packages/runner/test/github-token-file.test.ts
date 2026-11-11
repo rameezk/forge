@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { gitEnvironment } from '../src/git.ts';
@@ -222,4 +222,17 @@ test('given a refresh that is still minting, when the refresher is stopped, then
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.deepEqual(revoked.sort(), ['first', 'second']);
   assert.equal(readFileSync(file.path, 'utf8'), 'first');
+});
+
+test('given a token whose file cannot be created, when the file is created or the token revoked, then the token is revoked and the failure is thrown', async () => {
+  const root = join(mkdtempSync(join(tmpdir(), 'forge-credentials-')), 'blocked');
+  writeFileSync(root, 'a file where the directory should go');
+  const revoked: string[] = [];
+
+  await assert.rejects(
+    GithubTokenFile.createOrRevoke(root, 'run-1', 'first', [], async (token) => {
+      revoked.push(token);
+    }),
+  );
+  assert.deepEqual(revoked, ['first']);
 });

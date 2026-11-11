@@ -57,20 +57,15 @@ export const launchInCheckout = async ({
   const nixSystem = nixSystemOf(env);
   const hostEnv = withoutCredentials(env);
   const redactions: string[] = [];
-  const revoke = revokingQuietly((token) => app.revoke(token), "workload");
+  const revoke = revokingQuietly((token) => app.revoke(token), 'workload');
   const minted = await app.mint(github, 'workload');
-  let tokenFile: GithubTokenFile;
-  try {
-    tokenFile = GithubTokenFile.create(
-      join(stateDirOf(env), 'credentials'),
-      runId,
-      minted.token,
-      redactions,
-    );
-  } catch (error) {
-    await revoke(minted.token);
-    throw error;
-  }
+  const tokenFile = await GithubTokenFile.createOrRevoke(
+    join(stateDirOf(env), 'credentials'),
+    runId,
+    minted.token,
+    redactions,
+    revoke,
+  );
   const stopRefreshing = keepFresh(
     tokenFile,
     minted,
@@ -143,13 +138,13 @@ export const inspectCheckout = async <Result>({
 }): Promise<Result> => {
   const revoke = revokingQuietly((token) => app.revoke(token), 'inspection');
   const { token } = await app.mint(github, 'workload');
-  let tokenFile: GithubTokenFile;
-  try {
-    tokenFile = GithubTokenFile.create(join(stateDirOf(env), 'credentials'), id, token, []);
-  } catch (error) {
-    await revoke(token);
-    throw error;
-  }
+  const tokenFile = await GithubTokenFile.createOrRevoke(
+    join(stateDirOf(env), 'credentials'),
+    id,
+    token,
+    [],
+    revoke,
+  );
   const dir = join(stateDirOf(env), 'inspections', id);
   const gitEnvWithCredentials = { ...withoutCredentials(env), ...tokenFile.environment, ...gitEnv };
   const inspectIn = async (setup?: Setup): Promise<Result> => {
@@ -170,8 +165,11 @@ export const inspectCheckout = async <Result>({
           inspectIn,
         );
   } finally {
-    rmSync(dir, { recursive: true, force: true });
-    tokenFile.remove();
-    await revoke(token);
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      tokenFile.remove();
+    } finally {
+      await revoke(token);
+    }
   }
 };

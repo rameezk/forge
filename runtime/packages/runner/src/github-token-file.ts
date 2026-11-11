@@ -34,6 +34,21 @@ export class GithubTokenFile {
     return file;
   }
 
+  static async createOrRevoke(
+    root: string,
+    runId: string,
+    token: string,
+    redactions: string[],
+    revoke: (token: string) => Promise<void>,
+  ): Promise<GithubTokenFile> {
+    try {
+      return GithubTokenFile.create(root, runId, token, redactions);
+    } catch (error) {
+      await revoke(token);
+      throw error;
+    }
+  }
+
   get path(): string {
     return join(this.#dir, TOKEN_FILE);
   }
