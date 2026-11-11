@@ -107,7 +107,6 @@ const diagnose = async ({ action, configured = true }: Scenario = {}) => {
   const privateKeyFile = join(stateDir, 'github-app-private-key');
   writeFileSync(privateKeyFile, app.privateKey);
   const openRouter = await fakeOpenRouter(billedAt({}), null);
-  const minted: string[] = [];
   const fetch = routedThrough(app, async () => new Response('{}'));
   const complain = console.error;
   console.error = () => undefined;
@@ -148,7 +147,6 @@ const diagnose = async ({ action, configured = true }: Scenario = {}) => {
       console.error = complain;
       return openRouter.close();
     });
-  void minted;
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     const now = new Date().toISOString();
