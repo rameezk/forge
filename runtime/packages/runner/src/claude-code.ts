@@ -42,6 +42,7 @@ import {
   versionOutput,
 } from './harness-process.ts';
 import type { ClaudeToolsConfig } from './environment.ts';
+import { InFlightCalls, signalDeathField, signalDeathReport } from './in-flight.ts';
 import { spawnSandboxed, type Sandbox } from './sandbox.ts';
 import { startToolsSandbox } from './tools-sandbox.ts';
 import { tokenCount } from './token-count.ts';
@@ -450,10 +451,12 @@ class ClaudeCodeStream {
     this.#audit();
   }
 
-  result(exitFailure: Error | null): HarnessEvent {
+  result(exitFailure: Error | null, calls: InFlightCalls): HarnessEvent {
+    const death = signalDeathReport(exitFailure, calls);
     const error =
       this.#malformed ??
       this.#outcome?.error ??
+      death?.error ??
       exitFailure?.message ??
       (this.#outcome === null ? 'claude stream ended without a final result' : null);
     return {
@@ -461,6 +464,7 @@ class ClaudeCodeStream {
       status: error === null ? 'success' : 'error',
       sessionId: this.#sessionId,
       error,
+      ...signalDeathField(death, error),
     };
   }
 
@@ -739,11 +743,20 @@ class ClaudeCodeStream {
   }
 }
 
+const KILLED_COMMAND_EXIT = /^Exit code (\d+)\b/;
+
+const killedWithItsCommand = ({ isError, text }: ToolResultEvent): boolean => {
+  const code = isError ? Number(KILLED_COMMAND_EXIT.exec(text)?.[1]) : Number.NaN;
+  return code > 128;
+};
+
 async function* withSkillLoads(
   skillLoads: SkillLoadTracker | null,
+  calls: InFlightCalls,
   events: AsyncIterable<HarnessEvent>,
 ): AsyncGenerator<HarnessOutput> {
   for await (const event of events) {
+    calls.observe(event);
     const load = skillLoads?.observe(event) ?? null;
     if (load !== null) yield { type: 'skill_load', ...load };
     yield event;
@@ -837,6 +850,7 @@ class ClaudeCodeRun implements HarnessRun {
     const promptLoad = skillLoads?.observePrompt(invocation.prompt) ?? null;
     if (promptLoad !== null) yield { type: 'skill_load', ...promptLoad };
     const stream = new ClaudeCodeStream(sinks, new RecordedBodies(bodiesDir));
+    const inFlight = new InFlightCalls(killedWithItsCommand);
     const harnessOnly = claudeCodeEnv({}, configDir, bodiesDir, {
       CLAUDE_CODE_TMPDIR: sharedDir,
       CLAUDE_CODE_SHELL: tools.bash,
@@ -862,7 +876,7 @@ class ClaudeCodeRun implements HarnessRun {
       try {
         await toolsSandbox.ready;
       } catch (cause) {
-        yield stream.result(cause instanceof Error ? cause : new Error(String(cause)));
+        yield stream.result(cause instanceof Error ? cause : new Error(String(cause)), inFlight);
         return;
       }
       const harnessEnv = underDevShell(
@@ -929,16 +943,16 @@ class ClaudeCodeRun implements HarnessRun {
             ? await Promise.race([next, sleep(BODIES_POLL_MS).then(() => null)])
             : await next;
           if (read === null) {
-            yield* withSkillLoads(skillLoads, stream.advance());
+            yield* withSkillLoads(skillLoads, inFlight, stream.advance());
             continue;
           }
           if (read.done === true) break;
           next = arm();
-          yield* withSkillLoads(skillLoads, stream.translate(read.value));
+          yield* withSkillLoads(skillLoads, inFlight, stream.translate(read.value));
           if (stream.malformed !== null) break;
         }
         if (stream.malformed === null) {
-          yield* withSkillLoads(skillLoads, stream.finish());
+          yield* withSkillLoads(skillLoads, inFlight, stream.finish());
         }
         drained = stream.malformed === null;
       } finally {
@@ -952,6 +966,6 @@ class ClaudeCodeRun implements HarnessRun {
       await toolsSandbox.stop();
       rmSync(this.#dir, { recursive: true, force: true });
     }
-    yield stream.result(exitFailure);
+    yield stream.result(exitFailure, inFlight);
   }
 }

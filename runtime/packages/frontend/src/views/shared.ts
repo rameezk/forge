@@ -91,8 +91,14 @@ export const runOutcomeOf = (workload: PullRequestWorkloadRecord | undefined, di
   return { state: dispatch.state, tone: WORKLOAD_TONE[dispatch.state], reason: dispatchFailureReason(dispatch) };
 };
 
+export interface InFlightToolCall {
+  href: string;
+  label: string;
+}
+
 export interface RunReason extends FailureReason {
   tone: string;
+  toolCall?: InFlightToolCall;
 }
 
 export const runReasonOf = (run: Pick<RunRecord, 'status' | 'error'>, outcome: RunOutcome | null): RunReason | null => {
@@ -424,7 +430,7 @@ const MARKDOWN = [
 export const renderMarkdownBody = (text: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<div class="${MARKDOWN}" data-markdown>${raw(renderMarkdown(text))}</div>`;
 
-export const renderReasonBlock = ({ label, detail, tone }: RunReason): Rendered => {
+export const renderReasonBlock = ({ label, detail, tone, toolCall }: RunReason): Rendered => {
   const named = label === null ? '' : html`<span class="font-semibold">${label}</span>`;
   if (detail === null) {
     return html`<div class="mb-4 rounded-lg px-4 py-2.5 ${tone}" data-reason><span data-reason-summary>${named}</span></div>`;
@@ -432,7 +438,7 @@ export const renderReasonBlock = ({ label, detail, tone }: RunReason): Rendered 
   const line = firstLine(detail);
   return html`<details class="group mb-4 rounded-lg ${tone}" data-reason>
     <summary data-reason-summary class="block cursor-pointer truncate px-4 py-2.5 before:mr-2.5 before:inline-block before:w-3 before:text-center before:text-[0.65rem] before:transition-transform before:content-['▶'] group-open:before:rotate-90">${named}${label === null ? line : html`<span class="group-open:hidden">: ${line}</span>`}</summary>
-    <div class="px-4 pb-3 pl-[2.375rem]">${renderMarkdownBody(detail)}</div>
+    <div class="px-4 pb-3 pl-[2.375rem]">${renderMarkdownBody(detail)}${toolCall === undefined ? '' : html`<p class="m-0 mt-2 text-[0.9rem]"><span class="text-muted">In flight</span> <a href="${toolCall.href}" class="${LINK}" data-signal-tool-call>${toolCall.label}</a></p>`}</div>
   </details>`;
 };
 

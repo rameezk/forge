@@ -356,6 +356,24 @@ test('given a diagnosis worker and a dispatch that failed with check-failed, whe
   assert.match(journal, /forge#31: diagnosing failed-run with forge-diagnose@/);
 });
 
+test('given a dispatch whose harness died from a signal and a ticket that is now forge:failed, when the pass runs twice, then no new attempt of that ticket starts', async () => {
+  const { started } = await pass({
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 31, { forgeReady: false })])],
+    seed: (store) => {
+      const at = new Date().toISOString();
+      const id = startedDispatch(store, 'forge', 31, 'killed-run', at);
+      store.endDispatch(
+        id,
+        { state: 'failed', reason: 'errored', detail: 'claude was killed by SIGTERM while tool call toolu_1 (Bash) was in flight' },
+        at,
+      );
+    },
+    passes: 2,
+  });
+
+  assert.deepEqual(started, []);
+});
+
 test('given a diagnosis worker and a dispatch that ended interrupted, when the pass runs, then no diagnosis starts', async () => {
   const { started } = await pass({ frontier: [], diagnosisWorker: 'diagnoser', seed: failedWith('interrupted') });
   assert.deepEqual(diagnosisUnits(started), []);

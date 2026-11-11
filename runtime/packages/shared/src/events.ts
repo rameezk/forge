@@ -66,11 +66,17 @@ export interface CacheWarmEvent {
   subagent?: string;
 }
 
+export interface SignalDeath {
+  signal: string;
+  toolCallId: string | null;
+}
+
 export interface ResultEvent {
   type: 'result';
   status: 'success' | 'error';
   sessionId: string | null;
   error: string | null;
+  signalDeath?: SignalDeath;
 }
 
 export type SkillSource = 'prompt' | 'read';
