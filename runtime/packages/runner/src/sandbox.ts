@@ -160,7 +160,7 @@ export const spawnSandboxed = (
     workDir,
     agentDir,
     writableDirs,
-    readOnlyDirs = [],
+    readOnlyPaths = [],
     env,
     broker,
     prefix = [],
@@ -171,7 +171,7 @@ export const spawnSandboxed = (
     workDir: string;
     agentDir?: string;
     writableDirs?: string[];
-    readOnlyDirs?: string[];
+    readOnlyPaths?: string[];
     env: NodeJS.ProcessEnv;
     broker?: BrokerMount;
     prefix?: string[];
@@ -190,7 +190,7 @@ export const spawnSandboxed = (
         workDir,
         agentDir,
         writableDirs,
-        [...(tokenFile === undefined ? [] : [dirname(tokenFile)]), ...readOnlyDirs],
+        tokenFile === undefined ? readOnlyPaths : [...readOnlyPaths, dirname(tokenFile)],
         broker,
         layout,
       ),

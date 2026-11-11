@@ -62,6 +62,13 @@ export const DEFAULT_SETUP_TIMEOUT_SECONDS = 1800;
 export const setupTimeoutOf = (config: RuntimeConfig): number =>
   config.workload?.setupTimeoutSeconds ?? DEFAULT_SETUP_TIMEOUT_SECONDS;
 
+export interface DiagnosisConfig {
+  worker?: string | null;
+}
+
+export const diagnosisWorkerOf = (config: RuntimeConfig): string | null =>
+  config.diagnosis?.worker ?? null;
+
 export interface RuntimeConfig {
   harnesses: Record<string, HarnessConfig>;
   workers: Record<string, WorkerConfig>;
@@ -69,6 +76,7 @@ export interface RuntimeConfig {
   dispatch?: DispatchConfig;
   feedback?: FeedbackConfig;
   workload?: WorkloadConfig;
+  diagnosis?: DiagnosisConfig;
 }
 
 const effortsOf = (harness: string): readonly string[] | undefined =>

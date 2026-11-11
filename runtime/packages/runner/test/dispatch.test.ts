@@ -2485,7 +2485,10 @@ test('given a workload that outlives its token, when forge-dispatch runs, then t
   assert.equal(pi?.githubTokenFileContents, first);
   assert.ok(piLater);
   assert.notEqual(piLater.githubTokenFileContents, first);
-  assert.match(piLater.credential, new RegExp(`^password=${piLater.githubTokenFileContents}$`, 'm'));
+  const nth = (token: string | null): number => Number(/_(\d+)$/.exec(token ?? '')?.[1]);
+  const authenticated = /^password=(\S+)$/m.exec(piLater.credential)?.[1] ?? null;
+  assert.ok(nth(authenticated) >= nth(piLater.githubTokenFileContents), 'git authenticates with the token file or one refreshed since');
+  assert.ok(nth(authenticated) > 1);
   assert.ok(app.mints.filter((mint) => mint.kind === 'workload').length >= 2);
   assert.match(transcript, /token \[redacted\]/);
   assert.ok(!transcript.includes(first) && !transcript.includes(second));

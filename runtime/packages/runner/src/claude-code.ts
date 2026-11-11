@@ -848,6 +848,7 @@ class ClaudeCodeRun implements HarnessRun {
       tools,
       workDir: invocation.workDir,
       writableDirs: [sharedDir],
+      ...(invocation.readOnlyPaths === undefined ? {} : { readOnlyPaths: invocation.readOnlyPaths }),
       env: underDevShell(invocation.devShell, system, withoutCredentials(commandEnv)),
       withheld: [
         ...Object.keys(harnessOnly),
@@ -881,7 +882,7 @@ class ClaudeCodeRun implements HarnessRun {
           name: 'claude',
           workDir: invocation.workDir,
           writableDirs: [configDir, bodiesDir, sharedDir],
-          readOnlyDirs: [ownedDir],
+          readOnlyPaths: [ownedDir, ...(invocation.readOnlyPaths ?? [])],
           env: {
             ...harnessEnv,
             PATH: [tools.gitShimDir, harnessEnv.PATH].filter((entry) => entry !== undefined).join(':'),
