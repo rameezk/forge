@@ -459,3 +459,15 @@ test('given a dispatch and a revision in one date range, when the insights page 
   assert.deepEqual(plotted(await page('?kind=dispatch')), ['k1']);
   assert.deepEqual(plotted(await page('?kind=conflict-resolution')), ['k3']);
 });
+
+test('given a conflict resolution cohort, when the insights page is requested with Kind Conflict resolution or an unknown Kind, then the cohort is active for its resolver and an unknown Kind falls back to Dispatch', async () => {
+  const { page } = dashboard(KINDS);
+
+  const resolutions = await page('?kind=conflict-resolution');
+  assert.equal(ownerLine(resolutions, fingerprintHash(THIRD)), 'Active for resolver on forge');
+  assert.equal(rowsOf(resolutions).get(fingerprintHash(THIRD))!['done'], '100.0%');
+
+  const unknown = await page('?kind=bogus');
+  assert.equal(selectedKind(unknown), 'dispatch');
+  assert.deepEqual([...rowsOf(unknown).keys()], [HASH.sonnet]);
+});
