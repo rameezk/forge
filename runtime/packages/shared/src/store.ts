@@ -2852,17 +2852,21 @@ export class Store {
     grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>,
     applied: boolean,
   ): void {
-    this.#db
-      .prepare(
-        `UPDATE risk_grades SET labels_applied = $applied
-        WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
-      )
-      .run({
-        applied: applied ? 1 : 0,
-        repository: grade.repository,
-        number: grade.number,
-        head_sha: grade.headSha,
-      });
+    this.#transaction(() => {
+      this.#db
+        .prepare(
+          `UPDATE risk_grades SET labels_applied = 0
+          WHERE repository = $repository AND number = $number`,
+        )
+        .run({ repository: grade.repository, number: grade.number });
+      if (!applied) return;
+      this.#db
+        .prepare(
+          `UPDATE risk_grades SET labels_applied = 1
+          WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
+        )
+        .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
+    });
   }
 
   recordRiskGrade(grade: RiskGrade): void {

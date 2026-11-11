@@ -107,6 +107,7 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
   let pulls: FakePull[] = [];
   let files = FILES;
   let checkRunsAccepted = true;
+  let labelDeletesRefused = 0;
   const labels = new Map<number, Set<string>>([[7, new Set(['bug'])]]);
   const checkRuns: { authorization: string; body: Record<string, unknown> }[] = [];
   const github: typeof globalThis.fetch = async (input, init) => {
@@ -131,6 +132,10 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
       if (init?.method === 'POST') {
         for (const name of (JSON.parse(String(init.body)) as { labels: string[] }).labels) labelled.add(name);
       } else if (init?.method === 'DELETE') {
+        if (labelDeletesRefused > 0) {
+          labelDeletesRefused -= 1;
+          return new Response('{}', { status: 500 });
+        }
         if (!labelled.delete(decodeURIComponent(labelsOf[2] ?? ''))) return new Response('{}', { status: 404 });
         return json([...labelled].map((name) => ({ name })));
       }
@@ -241,6 +246,9 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
     labelsOf: (number: number): string[] => [...(labels.get(number) ?? [])].sort(),
     withStore,
     syncAndGrade,
+    refuseLabelDeletes: (count: number): void => {
+      labelDeletesRefused = count;
+    },
     acceptCheckRuns: (accepted: boolean): void => {
       checkRunsAccepted = accepted;
     },
@@ -452,4 +460,20 @@ test('given a graded forge pull request, when a revision pushes a new head, then
   assert.equal(f.checkRuns.length, 2);
   assert.equal((f.checkRuns[1]?.body as { head_sha: string }).head_sha, 'head-7-revised');
   assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-trivial']);
+});
+
+test('given removing the stale labels failed once, when the new head is graded and forge-grading runs again, then the new grade keeps its labels', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.refuseLabelDeletes(1);
+  f.setPulls([{ ...READY, head: 'head-7-revised' }]);
+  const synced = await journaled(() => sync(['sync'], f.env, f.fetch));
+  assert.equal(synced.result, 0, synced.journal);
+  assert.equal(await f.grade(), 1);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low']);
+  assert.equal(await f.grade(), 0);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low']);
+  assert.equal(f.jevRequests.length, 2);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7-revised')?.level), 'low');
 });
