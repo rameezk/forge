@@ -1,6 +1,6 @@
 import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
-import { cohortHref, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
+import { cohortHref, INSIGHT_KIND_FILTERS, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
 import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
@@ -25,6 +25,13 @@ const renderOptions = (values: string[], selected: string | undefined): Rendered
 
 const LIST_PRICE_NOTE = html`<p class="m-0 mt-2 text-[0.8rem] text-muted" data-cost-note>Cohorts marked subscription show their list-price equivalent, what they would have cost at list price, not billed spend.</p>`;
 
+const KIND_LABELS: Record<InsightKindFilter, string> = {
+  dispatch: 'Dispatch',
+  revision: 'Revision',
+  'conflict-resolution': 'Conflict resolution',
+  all: 'All',
+};
+
 const renderInsightsFilters = (
   filter: InsightsQuery,
   options: InsightsOptions,
@@ -40,6 +47,11 @@ const renderInsightsFilters = (
       <select name="repository" class="${INPUT}">
         <option value="">All</option>
         ${renderOptions(options.repositories, filter.repository)}
+      </select>
+    </label>
+    <label class="${FIELD}">Kind
+      <select name="kind" class="${INPUT}">
+        ${INSIGHT_KIND_FILTERS.map((kind) => html`<option value="${kind}"${kind === filter.kind ? html` selected` : ''}>${KIND_LABELS[kind]}</option>`)}
       </select>
     </label>
     <label class="${FIELD}">From
@@ -72,7 +84,7 @@ const ownersOf = (pairs: RanPair[]): string => {
   return [...repositories].map(([worker, names]) => (names.length === 0 ? worker : `${worker} on ${joinNames(names)}`)).join('; ');
 };
 
-const COLUMNS = 14;
+const COLUMNS = 15;
 
 const renderOwners = ({ activeFor, ranFor }: CohortInsight): Rendered =>
   html`<p class="m-0 mt-0.5 text-[0.8rem] font-normal text-muted" data-owner>${activeFor.length === 0 ? `Ran for ${ownersOf(ranFor)}` : `Active for ${ownersOf(activeFor)}`}</p>`;
@@ -83,6 +95,7 @@ const renderCohort = (cohort: CohortInsight, timeZone: string): HtmlEscapedStrin
     ${renderRunTime('first-run', cohort.firstRun, timeZone)}
     ${renderRunTime('last-run', cohort.lastRun, timeZone)}
     <td class="${COHORT_TD}" data-metric="workloads">${cohort.workloads}</td>
+    <td class="${COHORT_TD}" data-metric="done">${formatRate(cohort.doneRate)}</td>
     <td class="${COHORT_TD}" data-metric="opened">${formatRate(cohort.openedRate)}</td>
     <td class="${COHORT_TD}" data-metric="merged">${formatRate(cohort.mergedRate)}</td>
     <td class="${COHORT_TD}" data-metric="cost-median"${cohort.listPrice ? COST_TITLE : ''}>${cohort.costMedian === null ? 'n/a' : formatCost(cohort.costMedian)}</td>
@@ -152,6 +165,7 @@ export const renderInsights = (
                 <th class="${COHORT_TH} text-right">First run</th>
                 <th class="${COHORT_TH} text-right">Last run</th>
                 <th class="${COHORT_TH} text-right">Workloads</th>
+                <th class="${COHORT_TH} text-right">Done</th>
                 <th class="${COHORT_TH} text-right">Opened</th>
                 <th class="${COHORT_TH} text-right">Merged</th>
                 <th class="${COHORT_TH} text-right">Median cost</th>

@@ -30,6 +30,8 @@ export interface Seed {
   worker?: string;
   repository?: string;
   dispatched?: boolean;
+  kind?: 'dispatch' | 'revision' | 'conflict-resolution';
+  failed?: boolean;
   running?: boolean;
   start?: string;
   seconds: number;
@@ -146,6 +148,23 @@ export const seedStore = (store: Store, seeds: Seed[]): void => {
     }
     seedGenerations(store, seed);
     if (run.ticket === null) continue;
+    const failure = { reason: 'unanswered' as const, detail: null };
+    if (seed.kind === 'revision') {
+      const started = store.startRevision(run.ticket, [], seed.id, run.startTime, 100);
+      assert.ok('started' in started);
+      if (seed.running !== true) {
+        store.endRevision(started.started, seed.failed === true ? 'failed' : 'done', run.endTime!, seed.failed === true ? failure : undefined);
+      }
+      continue;
+    }
+    if (seed.kind === 'conflict-resolution') {
+      const started = store.startConflictResolution(run.ticket, [], seed.id, run.startTime, 100, { headSha: 'head', defaultSha: 'default' });
+      assert.ok('started' in started);
+      if (seed.running !== true) {
+        store.endConflictResolution(started.started, seed.failed === true ? 'failed' : 'done', run.endTime!, seed.failed === true ? { reason: 'still-conflicting', detail: null } : undefined);
+      }
+      continue;
+    }
     const started = store.startDispatch(run.ticket, seed.id, run.startTime, 100, null);
     assert.ok('started' in started);
     if (seed.running === true) continue;
