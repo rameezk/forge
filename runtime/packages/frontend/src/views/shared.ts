@@ -215,15 +215,19 @@ const FIT_MAIN = {
 
 export const shortCommit = (commit: string): string => commit.slice(0, 7);
 
-const forgeCommitHref = ({ forge, upstream, upstreamHead, behind }: DeployStatus): string | null => {
+const isLatest = ({ forge, upstreamHead, behind }: DeployStatus): boolean => behind === 0 || (forge !== null && forge === upstreamHead);
+
+const forgeCommitHref = (deploy: DeployStatus): string | null => {
+  const { forge, upstream, upstreamHead, behind } = deploy;
   if (forge === null || upstream === null) return null;
-  if (behind === 0 || forge === upstreamHead) return `https://github.com/${upstream}/commit/${forge}`;
+  if (isLatest(deploy)) return `https://github.com/${upstream}/commit/${forge}`;
   return upstreamHead === null || behind === null ? null : `https://github.com/${upstream}/compare/${forge}...${upstreamHead}`;
 };
 
-const forgeStatusPill = ({ forge, upstreamHead, behind }: DeployStatus): Rendered => {
+const forgeStatusPill = (deploy: DeployStatus): Rendered => {
+  const { forge, upstreamHead, behind } = deploy;
   if (forge === null || upstreamHead === null || behind === null) return '';
-  return behind === 0 || forge === upstreamHead
+  return isLatest(deploy)
     ? html`<span data-forge-pill class="${PILL} bg-success-soft text-success">latest</span>`
     : html`<span data-forge-pill class="${PILL} bg-line text-fg">${behind} behind</span>`;
 };

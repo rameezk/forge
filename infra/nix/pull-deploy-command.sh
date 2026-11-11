@@ -45,7 +45,7 @@ github() {
   local token="$1" method="$2" path="$3"
   shift 3
   printf 'header = "Authorization: Bearer %s"\n' "$token" |
-    curl -fsS --config - -X "$method" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$@" "$FORGE_PULL_DEPLOY_API$path"
+    curl -fsS --max-time 30 --config - -X "$method" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$@" "$FORGE_PULL_DEPLOY_API$path"
 }
 
 mint_token() {
@@ -102,7 +102,8 @@ look_up_upstream() {
   ref="$(jq -r '.ref // empty' <<< "$forge_info")"
   [ "$kind" = github ] || return 0
   [[ $owner =~ ^[A-Za-z0-9_.-]+$ && $repo =~ ^[A-Za-z0-9_.-]+$ ]] || return 0
-  [[ -z $ref || $ref =~ ^[A-Za-z0-9_./-]+$ ]] || return 0
+  [[ $owner != . && $owner != .. && $repo != . && $repo != .. ]] || return 0
+  [[ -z $ref || ( $ref =~ ^[A-Za-z0-9_./-]+$ && $ref != /* && $ref != */ && $ref != *//* && $ref != *..* ) ]] || return 0
   api="/repos/$owner/$repo"
   sha="$(github "$current_token" GET "$api/commits/${ref:-HEAD}" | jq -er '.sha')" || return 0
   [[ $sha =~ ^[0-9a-f]{40}$ ]] || return 0
