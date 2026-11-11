@@ -1,5 +1,6 @@
 import type { ConfigFingerprint } from './fingerprint.ts';
 import type { PullRequestState } from './dispatch.ts';
+import { DIAGNOSIS_CATEGORIES, type DiagnosisCategory } from './diagnosis.ts';
 
 export type InsightKind = 'dispatch' | 'revision' | 'conflict-resolution';
 
@@ -34,6 +35,13 @@ export interface InsightWorkload {
   toolCalls: number | null;
   retries: number | null;
   pullRequest: { state: PullRequestState; rework: number | null } | null;
+  diagnosis: DiagnosisCategory | null;
+}
+
+export interface CohortFailures {
+  failed: number;
+  diagnosed: number;
+  categories: Record<DiagnosisCategory, number>;
 }
 
 export interface ActivePair {
@@ -73,6 +81,7 @@ export interface CohortInsight {
   toolCallsMedian: number | null;
   retriesPerWorkload: number | null;
   reworkPerMerged: number | null;
+  failures: CohortFailures;
 }
 
 export type WorkloadOutcome = 'merged' | 'opened' | 'failed';
@@ -139,6 +148,33 @@ const ranFor = (members: InsightWorkload[]): RanPair[] => {
   );
 };
 
+const noCategories = (): Record<DiagnosisCategory, number> =>
+  Object.fromEntries(DIAGNOSIS_CATEGORIES.map((category) => [category, 0])) as Record<DiagnosisCategory, number>;
+
+export const sumFailures = (all: CohortFailures[]): CohortFailures => {
+  const total = noFailures();
+  for (const { failed, diagnosed, categories } of all) {
+    total.failed += failed;
+    total.diagnosed += diagnosed;
+    for (const category of DIAGNOSIS_CATEGORIES) total.categories[category] += categories[category];
+  }
+  return total;
+};
+
+export const noFailures = (): CohortFailures => ({ failed: 0, diagnosed: 0, categories: noCategories() });
+
+const failuresOf = (members: InsightWorkload[]): CohortFailures => {
+  const failures = noFailures();
+  for (const { outcome, diagnosis } of members) {
+    if (outcome !== 'failed') continue;
+    failures.failed += 1;
+    if (diagnosis === null) continue;
+    failures.diagnosed += 1;
+    failures.categories[diagnosis] += 1;
+  }
+  return failures;
+};
+
 const summarize = (members: InsightWorkload[], activity: CohortActivity | undefined): CohortInsight => {
   const dispatched = members.filter(({ kind }) => kind === 'dispatch');
   const settled = members.filter(({ outcome }) => outcome !== null);
@@ -171,6 +207,7 @@ const summarize = (members: InsightWorkload[], activity: CohortActivity | undefi
     toolCallsMedian: toolCalls.length === 0 ? null : quantile(toolCalls, 0.5),
     retriesPerWorkload: ratio(sum(retries), retries.length),
     reworkPerMerged: ratio(sum(rework), rework.length),
+    failures: failuresOf(members),
   };
 };
 

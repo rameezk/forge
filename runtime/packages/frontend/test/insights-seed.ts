@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fingerprintHash, Store } from '@forge/shared';
-import type { ConfigFingerprint, PullRequestState, RunRecord } from '@forge/shared';
+import type { ConfigFingerprint, DiagnosisCategory, PullRequestState, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 
 export const onCostTab = (query: string): string => `${query === '' ? '?' : `${query}&`}tab=cost`;
@@ -48,6 +48,7 @@ export interface Seed {
   providers?: Record<string, number>;
   listPrice?: number | null;
   unpricedGeneration?: boolean;
+  diagnoses?: (DiagnosisCategory | 'failed')[];
 }
 
 const GITHUB = 'https://github.com/rameezk/';
@@ -136,6 +137,22 @@ const seedGenerations = (store: Store, seed: Seed): void => {
   );
 };
 
+const seedDiagnoses = (store: Store, seed: Seed): void => {
+  (seed.diagnoses ?? []).forEach((result, index) => {
+    const id = `${seed.id}-diagnosis-${index}`;
+    const { fingerprint: _fingerprint, ...rest } = seed;
+    const at = new Date(Date.parse(seed.start ?? '2026-09-21T10:00:00.000Z') + (seed.seconds + 60 * (index + 1)) * 1000).toISOString();
+    store.insertRun({ ...runOf({ ...rest, id, worker: 'diagnoser', dispatched: false }), startTime: at, endTime: at });
+    const started = store.startDiagnosis(seed.id, id, at);
+    store.endDiagnosis(
+      started,
+      result === 'failed' ? 'failed' : 'done',
+      at,
+      result === 'failed' ? { detail: 'no diagnosis.json' } : { verdict: { category: result, evidence: [{ turn: 1, note: 'seen' }], suggestedFix: 'fix it' } },
+    );
+  });
+};
+
 export const seedStore = (store: Store, seeds: Seed[]): void => {
   for (const seed of seeds) {
     const run = runOf(seed);
@@ -185,6 +202,7 @@ export const seedStore = (store: Store, seeds: Seed[]): void => {
       });
     }
   }
+  for (const seed of seeds) seedDiagnoses(store, seed);
 };
 
 export const dashboard = (seeds: Seed[], timeZone?: string) => {

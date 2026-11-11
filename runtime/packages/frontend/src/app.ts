@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { INSIGHT_KIND_FILTERS, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type DiagnosisCategory, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
+import { INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type DiagnosisCategory, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
 import { renderTicketAttempts } from './views/attempts.ts';
 import { renderBoard } from './views/board.ts';
 import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
-import { DEFAULT_INSIGHTS_TAB, INSIGHTS_TABS, renderCohortPage, renderInsights, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
+import { DEFAULT_INSIGHTS_TAB, defaultKindOf, INSIGHTS_TABS, renderCohortPage, renderInsights, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs, type Display } from './views/shared.ts';
 import type { DeployStatus } from './deploy-status.ts';
@@ -142,17 +142,22 @@ export const createApp = ({
       ),
     ]);
     const diagnoses = store.listDiagnoses(now);
-    const categories = new Map(diagnoses.flatMap(({ failedRunId, verdict }): [string, DiagnosisCategory][] => (verdict === null ? [] : [[failedRunId, verdict.category]])));
-    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, shown, clock().getTime()));
+    const categories = new Map<string, DiagnosisCategory>();
+    for (const { failedRunId, verdict } of diagnoses) {
+      if (verdict === null) categories.delete(failedRunId);
+      else categories.set(failedRunId, verdict.category);
+    }
+    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runCohorts(), shown, clock().getTime()));
   });
 
   const queryOf = (query: Record<string, string>): InsightsQuery => {
     const from = parseDay(query['from']);
     const to = parseDay(query['to']);
+    const tab = INSIGHTS_TABS.find((candidate) => candidate === query['tab']) ?? DEFAULT_INSIGHTS_TAB;
     return {
-      tab: INSIGHTS_TABS.find((tab) => tab === query['tab']) ?? DEFAULT_INSIGHTS_TAB,
-      kind: INSIGHT_KIND_FILTERS.find((kind) => kind === query['kind']) ?? 'dispatch',
-      includeManual: query['manual'] === '1',
+      tab,
+      kind: INSIGHT_KIND_FILTERS.find((kind) => kind === query['kind']) ?? defaultKindOf(tab),
+      includeManual: tab !== 'failures' && query['manual'] === '1',
       ...(query['worker'] ? { worker: query['worker'] } : {}),
       ...(query['repository'] ? { repository: query['repository'] } : {}),
       ...(from === undefined ? {} : { from }),
@@ -188,7 +193,7 @@ export const createApp = ({
     if (fingerprint === null) return c.notFound();
     const againstHash = c.req.query('against') ?? '';
     const against = againstHash === hash ? null : store.getCohortFingerprint(againstHash);
-    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.listCohortFingerprints(), shown));
+    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.listCohortFingerprints(), store.listCohorts({ kind: 'all', includeManual: false }).find((cohort) => cohort.hash === hash)?.failures ?? noFailures(), shown));
   });
 
   app.get('/tickets/:repository/:number', (c) => {

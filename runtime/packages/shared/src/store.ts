@@ -47,10 +47,11 @@ import type {
 } from './generation.ts';
 import type { WatchedPullRequest } from './feedback.ts';
 import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from './attempts.ts';
+import { UNKNOWN_COHORT } from './fingerprint.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import { DIAGNOSED_FAILURES } from './diagnosis.ts';
-import type { DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from './diagnosis.ts';
+import type { DiagnosisCategory, DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from './diagnosis.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
 import type { ActivePair, CohortActivity, CohortInsight, InsightKind, InsightOutcome, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
 import type { RunSkillLoad } from './skill-loads.ts';
@@ -583,6 +584,7 @@ type InsightRow = {
   pr_number: number | null;
   pr_state: string | null;
   pr_rework: number | null;
+  diagnosis: string | null;
 };
 
 const pullRequestOfRow = (row: InsightRow): { state: PullRequestState; rework: number | null } | null =>
@@ -1610,6 +1612,11 @@ export class Store {
     return rows.map(({ hash, fingerprint }) => ({ hash, fingerprint: JSON.parse(fingerprint) as ConfigFingerprint }));
   }
 
+  runCohorts(): Map<string, string> {
+    const rows = this.#db.prepare('SELECT id, fingerprint_hash FROM runs').all() as { id: string; fingerprint_hash: string | null }[];
+    return new Map(rows.map(({ id, fingerprint_hash }) => [id, fingerprint_hash ?? UNKNOWN_COHORT]));
+  }
+
   hasUnknownConfigRuns(): boolean {
     return this.#db.prepare('SELECT 1 FROM runs WHERE fingerprint IS NULL LIMIT 1').get() !== undefined;
   }
@@ -1947,7 +1954,8 @@ export class Store {
           r.cost_status = 'subscription' AS list_price,
           r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
           ${INSIGHT_KIND} AS kind, COALESCE(d.state, v.state, c.state) AS outcome,
-          d.pr_number, d.pr_state, d.pr_rework
+          d.pr_number, d.pr_state, d.pr_rework,
+          (SELECT CASE WHEN state = 'done' THEN category END FROM diagnoses WHERE failed_run_id = r.id ORDER BY id DESC LIMIT 1) AS diagnosis
         ${INSIGHT_FROM}${INSIGHT_WHERE}`,
       )
       .all(insightParameters(filter)) as InsightRow[];
@@ -2005,6 +2013,7 @@ export class Store {
         toolCalls: row.tool_calls,
         retries: row.retries,
         pullRequest: pullRequestOfRow(row),
+        diagnosis: row.diagnosis as DiagnosisCategory | null,
       })),
       this.#cohortActivity(),
     );

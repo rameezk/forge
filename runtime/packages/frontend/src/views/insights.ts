@@ -1,15 +1,18 @@
 import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
-import { cohortHref, INSIGHT_KIND_FILTERS, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
+import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
+import { workloadsHref } from '../workload-filter.ts';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
 import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
 
-export const INSIGHTS_TABS = ['delivery', 'cost'] as const;
+export const INSIGHTS_TABS = ['delivery', 'cost', 'failures'] as const;
 
 export type InsightsTab = (typeof INSIGHTS_TABS)[number];
 
 export const DEFAULT_INSIGHTS_TAB: InsightsTab = 'delivery';
+
+export const defaultKindOf = (tab: InsightsTab): InsightKindFilter => (tab === 'failures' ? 'all' : 'dispatch');
 
 export interface InsightsQuery extends InsightsFilter {
   tab: InsightsTab;
@@ -20,6 +23,7 @@ export interface InsightsQuery extends InsightsFilter {
 const TAB_LABELS: Record<InsightsTab, string> = {
   delivery: 'Delivery',
   cost: 'Cost',
+  failures: 'Failures',
 };
 
 const FIELD = 'flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
@@ -47,7 +51,7 @@ const KIND_LABELS: Record<InsightKindFilter, string> = {
 const tabHref = (filter: InsightsQuery, tab: InsightsTab): string => {
   const params = new URLSearchParams();
   if (tab !== DEFAULT_INSIGHTS_TAB) params.set('tab', tab);
-  params.set('kind', filter.kind);
+  if (filter.kind !== defaultKindOf(filter.tab)) params.set('kind', filter.kind);
   if (filter.worker) params.set('worker', filter.worker);
   if (filter.repository) params.set('repository', filter.repository);
   if (filter.from) params.set('from', filter.from);
@@ -93,9 +97,9 @@ const renderInsightsFilters = (
     <label class="${FIELD}">To
       <input type="date" name="to" value="${filter.to ?? ''}" class="${INPUT}" />
     </label>
-    <label class="flex items-center gap-2 py-2 text-[0.9rem] text-fg">
+    ${filter.tab === 'failures' ? '' : html`<label class="flex items-center gap-2 py-2 text-[0.9rem] text-fg">
       <input type="checkbox" name="manual" value="1"${filter.includeManual ? html` checked` : ''} />Include manual workloads
-    </label>
+    </label>`}
     <button type="submit" class="rounded-md border border-line bg-raised px-3 py-1.5 text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
   </form>`;
 
@@ -122,6 +126,7 @@ const renderOwners = ({ activeFor, ranFor }: CohortInsight): Rendered =>
 
 interface Column {
   header: string;
+  divider?: boolean;
   render: (cohort: CohortInsight, timeZone: string) => HtmlEscapedString | Promise<HtmlEscapedString>;
 }
 
@@ -134,6 +139,34 @@ const costCell = (metric: string, valueOf: (cohort: CohortInsight) => number | n
 };
 
 const WORKLOADS: Column = { header: 'Workloads', render: metricCell('workloads', ({ workloads }) => String(workloads)) };
+
+const DIM = ' text-muted opacity-60';
+
+const cohortKey = (hash: string | null): string => hash ?? UNKNOWN_COHORT;
+
+const countLink = (href: string, count: number): Rendered =>
+  html`<a href="${href}" class="${LINK}${count === 0 ? DIM : ''}">${count}</a>`;
+
+type FailureSubject = Pick<CohortInsight, 'hash' | 'failures'>;
+
+const failedCell: Column['render'] = ({ hash, failures }: FailureSubject) =>
+  html`<td class="${COHORT_TD}" data-metric="failed">${countLink(workloadsHref({ cohort: cohortKey(hash), status: 'failed' }), failures.failed)}</td>`;
+
+const diagnosedCell: Column['render'] = ({ failures: { diagnosed, failed } }: FailureSubject) =>
+  html`<td class="${COHORT_TD}${failed === 0 ? DIM : ''}" data-metric="diagnosed">${diagnosed} of ${failed}</td>`;
+
+const categoryColumn = (category: DiagnosisCategory, divider: boolean): Column => ({
+  header: DIAGNOSIS_CATEGORY_LABELS[category],
+  divider,
+  render: ({ hash, failures }: FailureSubject) =>
+    html`<td class="${COHORT_TD}${divider ? ' border-l border-l-line' : ''}" data-metric="cause-${category}">${countLink(workloadsHref({ cohort: cohortKey(hash), category }), failures.categories[category])}</td>`,
+});
+
+const FAILURE_COLUMNS: Column[] = [
+  { header: 'Failed', render: failedCell },
+  { header: 'Diagnosed', render: diagnosedCell },
+  ...DIAGNOSIS_CATEGORIES.map((category, index) => categoryColumn(category, index === 0)),
+];
 
 const TAB_COLUMNS: Record<InsightsTab, Column[]> = {
   delivery: [
@@ -155,6 +188,7 @@ const TAB_COLUMNS: Record<InsightsTab, Column[]> = {
     { header: 'Cost per merged PR', render: costCell('cost-per-merged', ({ costPerMerged }) => costPerMerged, ' font-semibold') },
     { header: 'Cache hit', render: metricCell('cache-hit', ({ cacheHitRate: rate }) => formatRate(rate)) },
   ],
+  failures: FAILURE_COLUMNS,
 };
 
 const PINNED = 'sticky left-0 z-10 shadow-[1px_0_0_var(--color-line)]';
@@ -202,6 +236,30 @@ const renderCostSection = (
   </section>`;
 };
 
+const renderCauses = (cohorts: CohortInsight[]): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const active = cohorts.filter(({ activeFor }) => activeFor.length > 0);
+  const cohort = active.map(({ hash }) => cohortKey(hash)).join(',');
+  const { failed, diagnosed, categories } = sumFailures(active.map(({ failures }) => failures));
+  const tile = (key: string, label: string, count: number, href: string | null): Rendered =>
+    html`<li data-cause="${key}" class="flex min-w-28 flex-col rounded-md border border-line bg-surface px-3 py-2"><span class="text-xs font-semibold uppercase tracking-[0.05em] text-muted">${label}</span>${href === null ? html`<span class="text-xl font-semibold tabular-nums${count === 0 ? DIM : ''}">${count}</span>` : html`<a href="${href}" class="text-xl font-semibold tabular-nums no-underline hover:underline${count === 0 ? DIM : ''}">${count}</a>`}</li>`;
+  const widest = Math.max(1, ...DIAGNOSIS_CATEGORIES.map((category) => categories[category]));
+  return html`<section class="${CARD} mb-4 p-4" data-causes aria-label="Causes">
+    <h2 class="mb-2 text-sm font-semibold text-fg">Causes</h2>
+    <ul class="m-0 mb-4 flex list-none flex-wrap gap-3 p-0">
+      ${tile('failed', 'Failed', failed, active.length === 0 ? null : workloadsHref({ cohort, status: 'failed' }))}
+      ${tile('diagnosed', 'Diagnosed', diagnosed, null)}
+      ${tile('undiagnosed', 'Not diagnosed', failed - diagnosed, null)}
+    </ul>
+    <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
+      ${DIAGNOSIS_CATEGORIES.map((category) => html`<li data-cause="${category}" class="grid grid-cols-[11rem_1fr_3rem] items-center gap-3 text-[0.9rem]">
+        <span class="text-fg">${DIAGNOSIS_CATEGORY_LABELS[category]}</span>
+        <span aria-hidden="true" class="block h-2 rounded-sm bg-raised"><span class="block h-2 rounded-sm bg-fg" style="width: ${(categories[category] / widest) * 100}%"></span></span>
+        <a href="${workloadsHref({ cohort, category })}" class="${LINK} text-right tabular-nums${categories[category] === 0 ? DIM : ''}">${categories[category]}</a>
+      </li>`)}
+    </ul>
+  </section>`;
+};
+
 const renderCohortTable = (cohorts: CohortInsight[], tab: InsightsTab, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const columns = TAB_COLUMNS[tab];
   return html`<div class="${CARD}" data-cohorts role="region" aria-label="Cohort comparison" tabindex="0">
@@ -209,7 +267,7 @@ const renderCohortTable = (cohorts: CohortInsight[], tab: InsightsTab, timeZone:
       <thead>
         <tr>
           <th class="${COHORT_TH} ${PINNED} text-left">Cohort</th>
-          ${columns.map(({ header }) => html`<th class="${COHORT_TH} text-right">${header}</th>`)}
+          ${columns.map(({ header, divider }) => html`<th class="${COHORT_TH} text-right${divider === true ? ' border-l border-l-line' : ''}">${header}</th>`)}
         </tr>
       </thead>
       ${renderGroup('active', 'Active cohorts', cohorts.filter(({ activeFor }) => activeFor.length > 0), columns, timeZone)}
@@ -235,7 +293,9 @@ export const renderInsights = (
           <div class="mt-4">${table()}</div>
           ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}
           ${renderProviderShares(cohorts, shares)}`
-        : table();
+        : filter.tab === 'failures'
+          ? html`${renderCauses(cohorts)}${table()}`
+          : table();
   const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
     ${renderTabs(filter)}
     ${renderInsightsFilters(filter, options)}
@@ -297,15 +357,25 @@ const renderCompareForm = (current: CohortConfig, against: CohortConfig | null, 
     <button type="submit" class="rounded-md border border-line bg-raised px-3 py-1.5 text-[0.9rem] font-semibold text-fg hover:bg-line">Compare</button>
   </form>`;
 
+const renderCohortFailures = (subject: FailureSubject): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<section class="${CARD} mb-4" data-failures role="region" aria-label="Failures" tabindex="0">
+    <table class="${TABLE}">
+      <thead><tr>${FAILURE_COLUMNS.map(({ header, divider }) => html`<th class="${COHORT_TH} text-right${divider === true ? ' border-l border-l-line' : ''}">${header}</th>`)}</tr></thead>
+      <tbody><tr class="${ROW}">${FAILURE_COLUMNS.map(({ render }) => render(subject as CohortInsight, ''))}</tr></tbody>
+    </table>
+  </section>`;
+
 export const renderCohortPage = (
   { hash, fingerprint }: CohortConfig,
   against: CohortConfig | null,
   cohorts: CohortConfig[],
+  failures: CohortFailures,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const body = html`<p class="m-0 mb-4 text-[0.9rem]"><a href="/insights" class="${LINK}">&larr; Insights</a></p>
     <h1 class="${PAGE_TITLE} break-words" data-cohort-label>${cohortLabel(fingerprint, hash)}</h1>
     <p class="m-0 mb-4 break-all text-[0.9rem] text-muted tabular-nums" data-cohort-hash>${hash}</p>
+    ${renderCohortFailures({ hash, failures })}
     ${renderCompareForm({ hash, fingerprint }, against, cohorts)}
     <div class="${CARD}" data-fingerprint role="region" aria-label="Config fingerprint" tabindex="0">
       <table class="${TABLE}">
