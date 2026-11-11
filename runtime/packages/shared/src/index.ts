@@ -198,7 +198,15 @@ export {
   type InstallationToken,
   type TokenAccess,
 } from './github-app.ts';
-export { Store, type ListPriceEquivalent, type WorkloadSpend } from './store.ts';
+export {
+  RISK_LEVELS,
+  Store,
+  type GradingDue,
+  type ListPriceEquivalent,
+  type RiskGrade,
+  type RiskLevel,
+  type WorkloadSpend,
+} from './store.ts';
 export {
   parseTranscript,
   parseTranscriptLines,

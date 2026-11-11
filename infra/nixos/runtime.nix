@@ -161,6 +161,11 @@ let
         example = "resolver";
         description = "Worker that resolves merge conflicts on this repository's pull requests in a fresh clone of the pull request's head branch, or null to turn conflict resolutions off for the repository. `forge-resolve-conflicts` starts it by hand. Its prompt is a template filled in for each pull request as for `on.feedback`, and it must hold `{pr}` or `{url}`. A leading `/<name>` runs the branch's skill of that name, and the conflict resolution fails before the harness starts if the branch has none. Forge first trial-merges the default branch into the branch: a clean merge ends the conflict resolution ok without starting the worker. Otherwise the prompt ends with the pull request, the default branch, the sha it must merge and the files that conflicted. The conflict resolution is ok only once GitHub reports the pull request's head as containing that sha and not conflicting with it. Any other outcome leaves the pull request open and untouched. Budget and timeout come from the worker.";
       };
+      grading = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Whether forge grades the risk of every pull request its App opens in this repository, with Jev through OpenRouter (ADR-0103). Each settled head commit, one with no forge workload running on its pull request and not a draft, gets a `forge/risk` check run from forge's App that always concludes neutral, so it never gates a dispatch or a merge. Needs `forge.runtime.grading.model`, and the GitHub App needs the Checks: write permission. Turning it on grades the repository's open forge pull requests on the next pass. Human pull requests are never graded.";
+      };
     };
   };
 
@@ -178,6 +183,7 @@ let
     repositories = lib.mapAttrs (
       _: r:
       { inherit (r) github; }
+      // lib.optionalAttrs r.grading { grading = true; }
       // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null || r.on.conflict != null) {
         on = lib.filterAttrs (_: worker: worker != null) { inherit (r.on) ticket feedback conflict; };
       }
@@ -196,6 +202,11 @@ let
   }
   // lib.optionalAttrs hasDiagnosis {
     diagnosis.worker = cfg.diagnosis.worker;
+  }
+  // lib.optionalAttrs hasGrading {
+    grading = {
+      inherit (cfg.grading) model confidenceThreshold;
+    };
   };
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
@@ -210,6 +221,23 @@ let
   resolvedRepositories = lib.filterAttrs (_: r: r.on.conflict != null) cfg.repositories;
   hasConflictResolution = resolvedRepositories != { };
   hasDiagnosis = cfg.diagnosis.worker != null;
+  gradedRepositories = lib.filterAttrs (_: r: r.grading) cfg.repositories;
+  hasGrading = gradedRepositories != { };
+
+  gradingAssertions = [
+    {
+      assertion = !hasGrading || cfg.grading.model != null;
+      message = "forge.runtime.grading.model must be set when any repository turns on grading";
+    }
+    {
+      assertion = cfg.grading.model == null || builtins.match "typesafe/jev-[0-9]+(\\.[0-9]+)*" cfg.grading.model != null;
+      message = "forge.runtime.grading.model must be a Jev version id such as `typesafe/jev-1.13`, never `jev-latest` and never a dated snapshot";
+    }
+    {
+      assertion = cfg.grading.confidenceThreshold > 0 && cfg.grading.confidenceThreshold <= 1;
+      message = "forge.runtime.grading.confidenceThreshold must be above 0 and at most 1";
+    }
+  ];
 
   backstopMarginSeconds = 15 * 60;
   backstopSeconds =
@@ -574,7 +602,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-resolve-conflicts, forge-dispatch-pass, forge-billing, forge-migrate, forge-frontier and forge-frontend entry points.";
+      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-resolve-conflicts, forge-dispatch-pass, forge-billing, forge-grading, forge-migrate, forge-frontier and forge-frontend entry points.";
     };
 
     dashboard.timeZone = lib.mkOption {
@@ -615,6 +643,20 @@ in
       default = null;
       example = "diagnoser";
       description = "Worker that diagnoses failed workloads, or null to run no diagnoses. When a dispatch, revision or conflict resolution fails with `errored`, `no-pull-request`, `draft`, `check-failed`, `check-pending`, `exceeded`, `unanswered`, `not-merged` or `still-conflicting`, the dispatch pass starts a workload of this worker on its own unit, which reads the failed run's transcript, request record and run directory read-only, reads GitHub through a read-only token, and writes one cause category, its evidence in the transcript and one suggested fix to `diagnosis.json`. Failures that explain themselves (`interrupted`, `crashed`, `devshell-failed`, `skill-not-found`, failed starts), manual workloads and failed diagnoses are never diagnosed, and failures from before the option was set are not. The diagnosis does not count toward `dispatch.maxConcurrent` or the review limit. Forge supplies the standing instruction, so the worker's prompt only shapes how it investigates; budget and timeout come from the worker. Diagnoses show on the dashboard only.";
+    };
+
+    grading = {
+      model = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "typesafe/jev-1.13";
+        description = "The Jev model that grades pull requests' risk, a version id such as `typesafe/jev-1.13`, never `jev-latest` and never a dated snapshot, so that a grade says what produced it. It is global, like a worker's model, and changing it starts a new grading cohort. Required when any repository sets `grading`.";
+      };
+      confidenceThreshold = lib.mkOption {
+        type = lib.types.float;
+        default = 0.6;
+        description = "Confidence below which a risk grade is unsettled, above 0 and at most 1. A grade below it still names its most likely level, and its check run also names the runner-up level.";
+      };
     };
 
     feedback.quietPeriod = lib.mkOption {
@@ -764,6 +806,7 @@ in
       ++ dispatchAssertions
       ++ revisionAssertions
       ++ conflictResolutionAssertions
+      ++ gradingAssertions
       ++ [ diagnosisWorkerAssertion ];
 
       security.allowUserNamespaces = true;
@@ -960,6 +1003,47 @@ in
         timerConfig = {
           OnBootSec = "1min";
           OnUnitActiveSec = cfg.frontier.pollInterval;
+        };
+      };
+    })
+
+    (lib.mkIf hasGrading {
+      sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
+      sops.templates."forge-grading.env" = envTemplateOf [
+        openRouterKey
+        {
+          variable = "FORGE_GITHUB_APP_ID";
+          secret = "github_app_id";
+        }
+      ];
+
+      systemd.services.forge-grading = {
+        description = "Forge grading: grade the risk of settled forge pull requests with Jev";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          EnvironmentFile = envFile "forge-grading.env";
+          Environment = [
+            "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
+            "FORGE_STATE_DIR=${cfg.stateDir}"
+            appKeyFileVariable
+          ];
+          ExecStart = "${cfg.package}/bin/forge-grading";
+        }
+        // appKeyCredential
+        // hardening;
+      };
+
+      systemd.timers.forge-grading = {
+        description = "Grade the risk of settled forge pull requests";
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "1min";
+          OnUnitActiveSec = "1min";
         };
       };
     })

@@ -25,7 +25,7 @@ import {
   type Ticket,
   type WatchedPullRequest,
 } from '@forge/shared';
-import type { FrontierConfig } from './config.ts';
+import type { FrontierConfig, RepositoryConfig } from './config.ts';
 
 type Poll = (github: string) => Promise<Ticket[]>;
 
@@ -177,6 +177,9 @@ const githubWrites = (
           }),
       };
 
+const watches = ({ on, grading }: RepositoryConfig): boolean =>
+  on?.feedback !== undefined || on?.conflict !== undefined || grading === true;
+
 const sync = async (
   config: FrontierConfig,
   env: NodeJS.ProcessEnv,
@@ -198,7 +201,8 @@ const sync = async (
   try {
     store.pruneFrontier(Object.keys(config.repositories));
     let failed = false;
-    for (const [name, { github, on }] of Object.entries(config.repositories)) {
+    for (const [name, repository] of Object.entries(config.repositories)) {
+      const { github, on } = repository;
       try {
         const tickets = await poll(github);
         const closed = await pollClosed(github);
@@ -233,7 +237,7 @@ const sync = async (
       ) {
         failed = true;
       }
-      if (on?.feedback !== undefined || on?.conflict !== undefined) {
+      if (watches(repository)) {
         let pulls: WatchedPullRequest[] = [];
         try {
           pulls = await watched(github);

@@ -4,7 +4,7 @@ import { requireGithubRepository, type Fetch } from './frontier.ts';
 import { GITHUB_REST_API } from './github-api.ts';
 import { isHeaderValue } from './http.ts';
 
-export type TokenAccess = 'read' | 'write' | 'reactions' | 'workload';
+export type TokenAccess = 'read' | 'write' | 'reactions' | 'grading' | 'workload';
 
 const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
   read: {
@@ -24,6 +24,12 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
   reactions: {
     issues: 'write',
     pull_requests: 'write',
+  },
+  grading: {
+    issues: 'read',
+    pull_requests: 'read',
+    contents: 'read',
+    checks: 'write',
   },
   workload: {
     contents: 'write',
@@ -194,7 +200,7 @@ export const githubAppFromEnv = (env: NodeJS.ProcessEnv, fetch: Fetch): GithubAp
 
 export type InstallationTokens = (
   github: string,
-  access: 'read' | 'write' | 'reactions',
+  access: 'read' | 'write' | 'reactions' | 'grading',
 ) => Promise<string>;
 
 export const cachedTokens = (app: GithubApp): InstallationTokens => {

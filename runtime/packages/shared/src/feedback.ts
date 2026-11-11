@@ -33,6 +33,7 @@ export const WATCHED_PULL_REQUESTS_QUERY = `
           url
           mergeable
           headRefOid
+          isDraft
           author {
             __typename
             login
@@ -78,6 +79,7 @@ interface WatchedNode {
   url: string;
   mergeable: Mergeable;
   headRefOid: string;
+  isDraft: boolean;
   author: Actor | null;
   closingIssuesReferences: {
     nodes: { number: number; repository: { nameWithOwner: string } }[];
@@ -112,6 +114,7 @@ export interface WatchedPullRequest {
   newestFeedbackAt: string | null;
   mergeable: Mergeable;
   headSha: string;
+  draft: boolean;
   defaultSha: string;
 }
 
@@ -148,6 +151,7 @@ const toWatched = async (
   newestFeedbackAt: await newestFeedback(node, isMaintainer),
   mergeable: node.mergeable,
   headSha: node.headRefOid,
+  draft: node.isDraft,
   defaultSha,
 });
 

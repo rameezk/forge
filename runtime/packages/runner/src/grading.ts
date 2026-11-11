@@ -1,0 +1,316 @@
+import { createHash } from 'node:crypto';
+import {
+  errorMessage,
+  queryTicketContext,
+  RISK_LEVELS,
+  type ContextIssue,
+  type Fetch,
+  type GradingDue,
+  type InstallationTokens,
+  type RiskGrade,
+  type RiskLevel,
+  type Store,
+} from '@forge/shared';
+
+export const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
+
+export const CHECK_NAME = 'forge/risk';
+
+export const QUESTION_NAME = 'risk';
+
+export const QUESTION =
+  'How much careful human review does this pull request need before it ships? Judge by risk and blast radius against what the ticket and its parent spec asked for.';
+
+export const LEVEL_DESCRIPTIONS: Record<RiskLevel, string> = {
+  trivial:
+    'docs, comments, config values or tests only; nothing a user or operator could notice breaking',
+  low: 'small, contained code change with tests; failure would be obvious and easy to revert',
+  moderate:
+    'changes behaviour across several components, touches persistence, CI or security-adjacent code, or is hard to verify from tests alone',
+  high: 'changes data formats or migrations, sandboxing, credentials, billing, concurrency or anything hard to roll back; failure could be silent or costly',
+};
+
+const CRITERIA = RISK_LEVELS.map((level) => `${level}: ${LEVEL_DESCRIPTIONS[level]}`);
+
+export const gradingFingerprint = (model: string): string =>
+  `${model}:${createHash('sha256')
+    .update(JSON.stringify({ question: QUESTION, criteria: CRITERIA }))
+    .digest('hex')}`;
+
+const GITHUB_REST_API = 'https://api.github.com';
+
+const FILES_PAGE_SIZE = 100;
+
+const MAX_FILES_PAGES = 30;
+
+const DECISION_TIMEOUT_MS = 300_000;
+
+const LEFT_OUT =
+  /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|go\.sum|[^/]*\.lock)$|\.min\.(js|css)$|\.generated\.|(^|\/)generated\/|\.pb\.go$|_pb2\.py$/;
+
+export interface ChangedFile {
+  filename: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+}
+
+export const gradingInput = (
+  ticket: ContextIssue,
+  spec: ContextIssue | null,
+  files: readonly ChangedFile[],
+): string => {
+  const issue = (label: string, { number, title, body }: ContextIssue): string =>
+    `# ${label} #${number}: ${title}\n\n${body}`;
+  return [
+    issue('Ticket', ticket),
+    ...(spec === null ? [] : [issue('Parent spec', spec)]),
+    `# Changed files\n\n${files
+      .map(
+        ({ filename, additions, deletions }) =>
+          `${filename} +${additions} -${deletions}${LEFT_OUT.test(filename) ? ' (diff left out)' : ''}`,
+      )
+      .join('\n')}`,
+    `# Diff\n\n${files
+      .filter(({ filename, patch }) => !LEFT_OUT.test(filename) && patch !== undefined)
+      .map(({ filename, patch }) => `--- ${filename}\n${patch}`)
+      .join('\n\n')}`,
+  ].join('\n\n');
+};
+
+export interface Decision {
+  probabilities: Record<RiskLevel, number>;
+  score: number;
+  confidence: number;
+  costUsd: number;
+}
+
+export type Decide = (input: string) => Promise<Decision>;
+
+const isNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const probabilitiesOf = (raw: unknown): Record<RiskLevel, number> => {
+  const entries = Object.entries((raw ?? {}) as Record<string, unknown>);
+  const byLevel = RISK_LEVELS.map((level, index) => {
+    const found = entries.find(([key]) => key === level || key === String(index));
+    return found?.[1];
+  });
+  if (!byLevel.every(isNumber)) {
+    throw new Error('Jev answered without a probability for every level');
+  }
+  return Object.fromEntries(RISK_LEVELS.map((level, index) => [level, byLevel[index]])) as Record<
+    RiskLevel,
+    number
+  >;
+};
+
+export const decisionsUrl = (baseUrl: URL): URL =>
+  new URL('../alpha/decisions', `${baseUrl.href.replace(/\/$/, '')}/`);
+
+export const jevDecides =
+  (url: URL, apiKey: string, model: string, fetch: Fetch): Decide =>
+  async (input) => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        state: input,
+        questions: {
+          [QUESTION_NAME]: { type: 'score', criteria: CRITERIA, instructions: QUESTION },
+        },
+      }),
+      signal: AbortSignal.timeout(DECISION_TIMEOUT_MS),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      answers?: Record<string, { type?: string; score?: unknown; confidence?: unknown; probabilities?: unknown }>;
+      usage?: { cost?: unknown };
+      error?: { message?: unknown };
+    };
+    if (!response.ok) {
+      const message = typeof body.error?.message === 'string' ? `: ${body.error.message}` : '';
+      throw new Error(`OpenRouter answered ${response.status}${message}`);
+    }
+    const answer = body.answers?.[QUESTION_NAME];
+    if (answer?.type === 'refusal') throw new Error('Jev declined to answer');
+    if (answer?.type !== 'score' || !isNumber(answer.score) || !isNumber(answer.confidence)) {
+      throw new Error('Jev answered with something other than a score');
+    }
+    return {
+      probabilities: probabilitiesOf(answer.probabilities),
+      score: answer.score,
+      confidence: answer.confidence,
+      costUsd: isNumber(body.usage?.cost) ? body.usage.cost : 0,
+    };
+  };
+
+export const levelsByProbability = (
+  probabilities: Record<RiskLevel, number>,
+): RiskLevel[] =>
+  RISK_LEVELS.toSorted((a, b) => probabilities[b] - probabilities[a]);
+
+const fixed = (value: number): string => value.toFixed(2);
+
+export const checkRunOutput = (grade: RiskGrade): { title: string; summary: string } => {
+  const [level, runnerUp] = levelsByProbability(grade.probabilities);
+  const title = `Risk: ${grade.level}${grade.unsettled ? ' (unsettled)' : ''}, confidence ${fixed(grade.confidence)}`;
+  return {
+    title,
+    summary: [
+      `Most likely level: ${level}`,
+      `Confidence: ${fixed(grade.confidence)}`,
+      ...(grade.unsettled ? [`Runner-up: ${runnerUp}`] : []),
+      '',
+      'Probability per level:',
+      ...RISK_LEVELS.map((name) => `- ${name}: ${fixed(grade.probabilities[name])}`),
+      '',
+      `Model: ${grade.model}`,
+    ].join('\n'),
+  };
+};
+
+export const decideGrade = (
+  decision: Decision,
+  due: GradingDue,
+  model: string,
+  threshold: number,
+  gradedAt: string,
+): RiskGrade => ({
+  repository: due.repository,
+  number: due.number,
+  headSha: due.headSha,
+  fingerprint: gradingFingerprint(model),
+  model,
+  probabilities: decision.probabilities,
+  score: decision.score,
+  confidence: decision.confidence,
+  level: levelsByProbability(decision.probabilities)[0] as RiskLevel,
+  unsettled: decision.confidence < threshold,
+  costUsd: decision.costUsd,
+  gradedAt,
+});
+
+export interface GradePullRequestsOptions {
+  store: Store;
+  fetch: Fetch;
+  tokens: InstallationTokens;
+  decide: Decide;
+  repositories: Record<string, string>;
+  model: string;
+  threshold: number;
+  now: () => string;
+  log: (line: string) => void;
+}
+
+const github = async (
+  fetch: Fetch,
+  token: string,
+  path: string,
+  init: { method?: string; body?: unknown } = {},
+): Promise<unknown> => {
+  const response = await fetch(`${GITHUB_REST_API}${path}`, {
+    method: init.method ?? 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: 'application/vnd.github+json',
+      'x-github-api-version': '2022-11-28',
+      ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for ${init.method ?? 'GET'} ${path}`);
+  }
+  return response.json();
+};
+
+const changedFiles = async (
+  fetch: Fetch,
+  token: string,
+  repository: string,
+  number: number,
+): Promise<ChangedFile[]> => {
+  const files: ChangedFile[] = [];
+  for (let page = 1; page <= MAX_FILES_PAGES; page += 1) {
+    const batch = (await github(
+      fetch,
+      token,
+      `/repos/${repository}/pulls/${number}/files?per_page=${FILES_PAGE_SIZE}&page=${page}`,
+    )) as ChangedFile[];
+    files.push(...batch);
+    if (batch.length < FILES_PAGE_SIZE) break;
+  }
+  return files;
+};
+
+const gradeOne = async (
+  options: GradePullRequestsOptions,
+  due: GradingDue,
+  repository: string,
+): Promise<void> => {
+  const { store, fetch, tokens, decide, model, threshold, now } = options;
+  const token = await tokens(repository, 'grading');
+  const pull = (await github(fetch, token, `/repos/${repository}/pulls/${due.number}`)) as {
+    state: string;
+    draft: boolean;
+    head: { sha: string };
+  };
+  if (pull.state !== 'open' || pull.draft || pull.head.sha !== due.headSha) return;
+  const [closed] = due.closes;
+  if (closed === undefined) {
+    options.log(`${due.repository}#${due.number}: closes no ticket, so there is nothing to grade it against`);
+    return;
+  }
+  const { ticket, spec } = await queryTicketContext(fetch, token, repository, closed);
+  const files = await changedFiles(fetch, token, repository, due.number);
+  const grade = decideGrade(
+    await decide(gradingInput(ticket, spec, files)),
+    due,
+    model,
+    threshold,
+    now(),
+  );
+  store.recordRiskGrade(grade);
+  await postCheck(options, grade, repository);
+};
+
+const postCheck = async (
+  { store, fetch, tokens }: GradePullRequestsOptions,
+  grade: RiskGrade,
+  repository: string,
+): Promise<void> => {
+  const { title, summary } = checkRunOutput(grade);
+  await github(fetch, await tokens(repository, 'grading'), `/repos/${repository}/check-runs`, {
+    method: 'POST',
+    body: {
+      name: CHECK_NAME,
+      head_sha: grade.headSha,
+      status: 'completed',
+      conclusion: 'neutral',
+      output: { title, summary },
+    },
+  });
+  store.markCheckPosted(grade);
+};
+
+export const gradePullRequests = async (options: GradePullRequestsOptions): Promise<boolean> => {
+  let graded = true;
+  for (const grade of options.store.gradesAwaitingCheck(Object.keys(options.repositories))) {
+    try {
+      await postCheck(options, grade, options.repositories[grade.repository] as string);
+    } catch (error) {
+      options.log(`${grade.repository}#${grade.number}: could not post the check run: ${errorMessage(error)}`);
+      graded = false;
+    }
+  }
+  for (const due of options.store.gradingDue(Object.keys(options.repositories), options.now())) {
+    try {
+      await gradeOne(options, due, options.repositories[due.repository] as string);
+    } catch (error) {
+      options.log(`${due.repository}#${due.number}: could not grade: ${errorMessage(error)}`);
+      graded = false;
+    }
+  }
+  return graded;
+};

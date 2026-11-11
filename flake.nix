@@ -1325,6 +1325,62 @@
             && !(repositoryHost.config.systemd.timers ? forge-billing)
           ) "a host with no workers must have neither the billing timer nor the billing service";
 
+          gradingModuleWith =
+            { model ? "typesafe/jev-1.13" }:
+            lib.recursiveUpdate (dispatchModuleWith { }) {
+              forge.runtime.repositories.forge.grading = true;
+              forge.runtime.grading = { inherit model; };
+            };
+          gradingHost = secretsHost exampleSecretsFile (gradingModuleWith { });
+          gradingService = gradingHost.config.systemd.services.forge-grading;
+          gradingTimer = gradingHost.config.systemd.timers.forge-grading;
+          gradingEnvTemplate = gradingHost.config.sops.templates."forge-grading.env";
+          gradingWired =
+            lib.asserts.assertMsg
+              (
+                gradingService.serviceConfig.Type == "oneshot"
+                && gradingService.serviceConfig.ExecStart == "${gradingHost.config.forge.runtime.package}/bin/forge-grading"
+                && gradingService.serviceConfig.User == "forge-runtime"
+                && gradingService.serviceConfig.EnvironmentFile == gradingEnvTemplate.path
+                && isHardened gradingService
+                && gradingService.serviceConfig.LoadCredential == [
+                  "github-app-private-key:${gradingHost.config.sops.secrets.github_app_private_key.path}"
+                ]
+                && gradingEnvTemplate.owner == "forge-runtime"
+                && gradingEnvTemplate.mode == "0400"
+                && gradingEnvTemplate.content
+                == "OPENROUTER_API_KEY=${gradingHost.config.sops.placeholder.openrouter_api_key}\nFORGE_GITHUB_APP_ID=${gradingHost.config.sops.placeholder.github_app_id}\n"
+                && gradingTimer.wantedBy == [ "timers.target" ]
+                && gradingTimer.timerConfig.OnUnitActiveSec == "1min"
+              )
+              "grading must run forge-grading as a sandboxed oneshot on a one-minute timer, loading only the OpenRouter key and the App id from its own sops template and the App private key as a credential";
+          gradingConfigReflectsOptions =
+            lib.asserts.assertMsg
+              (
+                gradingHost.config.forge.runtime.settings.repositories.forge.grading == true
+                && gradingHost.config.forge.runtime.settings.grading == {
+                  model = "typesafe/jev-1.13";
+                  confidenceThreshold = 0.6;
+                }
+                && !(dispatchHost.config.forge.runtime.settings ? grading)
+                && !(dispatchHost.config.forge.runtime.settings.repositories.forge ? grading)
+              )
+              "the generated runtime config must carry grading only for a repository that turns it on, with the model and the default threshold";
+          gradingOffByDefault = lib.asserts.assertMsg (
+            !(dispatchHost.config.systemd.services ? forge-grading)
+            && !(dispatchHost.config.systemd.timers ? forge-grading)
+          ) "a host that turns grading on for no repository must have neither the grading timer nor the grading service";
+          gradingNeedsAJevVersion = lib.asserts.assertMsg (
+            evaluates (secretsHost exampleSecretsFile (gradingModuleWith { }))
+            && !(evaluates (secretsHost exampleSecretsFile (gradingModuleWith { model = "typesafe/jev-latest"; })))
+            && !(evaluates (secretsHost exampleSecretsFile (gradingModuleWith { model = "typesafe/jev-1.13-20260101"; })))
+            && !(evaluates (
+              secretsHost exampleSecretsFile (
+                lib.recursiveUpdate (dispatchModuleWith { }) { forge.runtime.repositories.forge.grading = true; }
+              )
+            ))
+          ) "grading must name a Jev version id, never jev-latest and never a dated snapshot, and a repository that turns it on needs one";
+
           hasSqlite = host: lib.elem host.pkgs.sqlite host.config.environment.systemPackages;
           sqliteWithWorkers = lib.asserts.assertMsg (hasSqlite workerHost) "a host with workers must ship sqlite so the store can be inspected";
           sqliteWithRepositories = lib.asserts.assertMsg (hasSqlite repositoryHost) "a host with repositories must ship sqlite so the store can be inspected";
@@ -2046,6 +2102,15 @@
             assert noWorkersNoBilling;
             pkgs.runCommand "runtime-billing" { } ''
               echo "declaring a worker wires a forge-billing oneshot on a one-minute timer that settles billed cost with the OpenRouter key from its own sops template" > $out
+            '';
+
+          runtime-grading =
+            assert gradingWired;
+            assert gradingConfigReflectsOptions;
+            assert gradingOffByDefault;
+            assert gradingNeedsAJevVersion;
+            pkgs.runCommand "runtime-grading" { } ''
+              echo "turning grading on wires a forge-grading oneshot on a one-minute timer holding only the OpenRouter key and the App, off by default, and the model must be a Jev version id" > $out
             '';
 
           runtime-sqlite =

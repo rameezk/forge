@@ -889,6 +889,33 @@ const ADD_WATCH_HELD = `
   ALTER TABLE feedback_watches ADD COLUMN held TEXT;
 `;
 
+const HAS_WATCH_DRAFT = `
+  SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'draft'
+`;
+
+const ADD_WATCH_DRAFT = `
+  ALTER TABLE feedback_watches ADD COLUMN draft INTEGER;
+`;
+
+const CREATE_RISK_GRADES = `
+  CREATE TABLE IF NOT EXISTS risk_grades (
+    repository    TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    head_sha      TEXT NOT NULL,
+    fingerprint   TEXT NOT NULL,
+    model         TEXT NOT NULL,
+    probabilities TEXT NOT NULL,
+    score         REAL NOT NULL,
+    confidence    REAL NOT NULL,
+    level         TEXT NOT NULL,
+    unsettled     INTEGER NOT NULL,
+    cost_usd      REAL NOT NULL,
+    graded_at     TEXT NOT NULL,
+    check_posted  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (repository, number, head_sha)
+  ) STRICT;
+`;
+
 const CREATE_FEEDBACK_WATCHES = `
   CREATE TABLE IF NOT EXISTS feedback_watches (
     repository TEXT NOT NULL,
@@ -900,6 +927,63 @@ const CREATE_FEEDBACK_WATCHES = `
     PRIMARY KEY (repository, number)
   ) STRICT;
 `;
+
+export const RISK_LEVELS = ['trivial', 'low', 'moderate', 'high'] as const;
+
+export type RiskLevel = (typeof RISK_LEVELS)[number];
+
+export interface RiskGrade {
+  repository: string;
+  number: number;
+  headSha: string;
+  fingerprint: string;
+  model: string;
+  probabilities: Record<RiskLevel, number>;
+  score: number;
+  confidence: number;
+  level: RiskLevel;
+  unsettled: boolean;
+  costUsd: number;
+  gradedAt: string;
+}
+
+export interface GradingDue {
+  repository: string;
+  number: number;
+  url: string;
+  closes: number[];
+  headSha: string;
+}
+
+type RiskGradeRow = {
+  repository: string;
+  number: number;
+  head_sha: string;
+  fingerprint: string;
+  model: string;
+  probabilities: string;
+  score: number;
+  confidence: number;
+  level: string;
+  unsettled: number;
+  cost_usd: number;
+  graded_at: string;
+};
+
+const riskGradeFromRow = (row: RiskGradeRow): RiskGrade => ({
+  repository: row.repository,
+  number: row.number,
+  headSha: row.head_sha,
+  fingerprint: row.fingerprint,
+  model: row.model,
+  probabilities: JSON.parse(row.probabilities) as Record<RiskLevel, number>,
+  score: row.score,
+  confidence: row.confidence,
+  level: row.level as RiskLevel,
+  unsettled: row.unsettled === 1,
+  costUsd: row.cost_usd,
+  gradedAt: row.graded_at,
+});
 
 type FeedbackWatchRow = {
   repository: string;
@@ -1300,6 +1384,8 @@ export class Store {
     db.exec(CREATE_FEEDBACK_WATCHES);
     this.#addColumnsOnce(HAS_DIAGNOSIS_START, `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}`);
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
+    this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
+    db.exec(CREATE_RISK_GRADES);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
     this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
@@ -2632,14 +2718,15 @@ export class Store {
         )
         .run({ repository, numbers: JSON.stringify(watched.map(({ number }) => number)) });
       const upsert = this.#db.prepare(
-        `INSERT INTO feedback_watches (repository, number, url, closes, newest, mergeable, head_sha, default_sha)
-        VALUES ($repository, $number, $url, $closes, $newest, $mergeable, $head_sha, $default_sha)
+        `INSERT INTO feedback_watches (repository, number, url, closes, newest, mergeable, head_sha, default_sha, draft)
+        VALUES ($repository, $number, $url, $closes, $newest, $mergeable, $head_sha, $default_sha, $draft)
         ON CONFLICT (repository, number) DO UPDATE SET
           url = excluded.url,
           closes = excluded.closes,
           mergeable = excluded.mergeable,
           head_sha = excluded.head_sha,
           default_sha = excluded.default_sha,
+          draft = excluded.draft,
           newest = CASE
             WHEN excluded.newest IS NOT NULL
               AND (
@@ -2659,9 +2746,105 @@ export class Store {
           mergeable: pull.mergeable,
           head_sha: pull.headSha,
           default_sha: pull.defaultSha,
+          draft: pull.draft ? 1 : 0,
         });
       }
     });
+  }
+
+  gradingDue(repositories: readonly string[], now: string): GradingDue[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT repository, number, url, closes, head_sha FROM feedback_watches
+        WHERE mergeable IS NOT NULL
+          AND head_sha IS NOT NULL
+          AND draft = 0
+          AND repository IN (SELECT value FROM json_each($repositories))
+          AND NOT EXISTS (
+            SELECT 1 FROM risk_grades
+            WHERE risk_grades.repository = feedback_watches.repository
+              AND risk_grades.number = feedback_watches.number
+              AND risk_grades.head_sha = feedback_watches.head_sha
+          )
+        ORDER BY repository, number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as (FeedbackWatchRow & {
+      head_sha: string;
+    })[];
+    return rows
+      .filter(
+        (row) =>
+          !this.#revisionLive(row, now) &&
+          !this.#conflictResolutionLive(row, now) &&
+          !this.#openingDispatchLive(row, JSON.parse(row.closes) as number[], now),
+      )
+      .map((row) => ({
+        repository: row.repository,
+        number: row.number,
+        url: row.url,
+        closes: JSON.parse(row.closes) as number[],
+        headSha: row.head_sha,
+      }));
+  }
+
+  gradesAwaitingCheck(repositories: readonly string[]): RiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT risk_grades.* FROM risk_grades
+        JOIN feedback_watches USING (repository, number, head_sha)
+        WHERE risk_grades.check_posted = 0
+          AND feedback_watches.mergeable IS NOT NULL
+          AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY risk_grades.repository, risk_grades.number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
+  }
+
+  markCheckPosted(grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>): void {
+    this.#db
+      .prepare(
+        `UPDATE risk_grades SET check_posted = 1
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
+      )
+      .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
+  }
+
+  recordRiskGrade(grade: RiskGrade): void {
+    this.#db
+      .prepare(
+        `INSERT OR IGNORE INTO risk_grades (
+          repository, number, head_sha, fingerprint, model, probabilities,
+          score, confidence, level, unsettled, cost_usd, graded_at
+        ) VALUES (
+          $repository, $number, $head_sha, $fingerprint, $model, $probabilities,
+          $score, $confidence, $level, $unsettled, $cost_usd, $graded_at
+        )`,
+      )
+      .run({
+        repository: grade.repository,
+        number: grade.number,
+        head_sha: grade.headSha,
+        fingerprint: grade.fingerprint,
+        model: grade.model,
+        probabilities: JSON.stringify(grade.probabilities),
+        score: grade.score,
+        confidence: grade.confidence,
+        level: grade.level,
+        unsettled: grade.unsettled ? 1 : 0,
+        cost_usd: grade.costUsd,
+        graded_at: grade.gradedAt,
+      });
+  }
+
+  riskGrade(repository: string, number: number, headSha: string): RiskGrade | null {
+    const row = this.#db
+      .prepare(
+        `SELECT * FROM risk_grades
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
+      )
+      .get({ repository, number, head_sha: headSha }) as RiskGradeRow | undefined;
+    return row === undefined ? null : riskGradeFromRow(row);
   }
 
   feedbackCursors(repository: string): Map<number, string | null> {

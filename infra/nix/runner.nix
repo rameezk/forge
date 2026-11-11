@@ -101,6 +101,8 @@ buildNpmPackage {
       --add-flags "$out/lib/forge-runtime/packages/runner/src/pass-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-billing" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/billing-main.ts"
+    makeWrapper ${nodejs}/bin/node "$out/bin/forge-grading" \
+      --add-flags "$out/lib/forge-runtime/packages/runner/src/grading-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-migrate" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/migrate-main.ts"
     makeWrapper ${nodejs}/bin/node "$out/bin/forge-frontier" \
@@ -121,7 +123,7 @@ buildNpmPackage {
   };
 
   meta = {
-    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), revises one pull request of a managed repository on its own branch (forge-revise), resolves merge conflicts on one pull request of a managed repository by merging its default branch in (forge-resolve-conflicts), diagnoses one failed workload with the diagnosis worker (forge-diagnose-run, behind the box's forge-diagnose command), starts a dispatch for each forge:ready frontier ticket up to the concurrency limit (forge-dispatch-pass), settles runs' billed cost from OpenRouter (forge-billing), migrates the store's schema (forge-migrate), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
+    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), revises one pull request of a managed repository on its own branch (forge-revise), resolves merge conflicts on one pull request of a managed repository by merging its default branch in (forge-resolve-conflicts), diagnoses one failed workload with the diagnosis worker (forge-diagnose-run, behind the box's forge-diagnose command), starts a dispatch for each forge:ready frontier ticket up to the concurrency limit (forge-dispatch-pass), settles runs' billed cost from OpenRouter (forge-billing), grades the risk of settled forge pull requests with Jev (forge-grading), migrates the store's schema (forge-migrate), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
     mainProgram = "forge-run";
     platforms = nodejs.meta.platforms;
   };

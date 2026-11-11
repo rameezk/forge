@@ -1133,6 +1133,7 @@ const watched = (newestFeedbackAt: string | null) => ({
   newestFeedbackAt,
   mergeable: 'MERGEABLE' as const,
   headSha: 'head-a',
+  draft: false,
   defaultSha: 'default-a',
 });
 
