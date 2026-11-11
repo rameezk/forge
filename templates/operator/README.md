@@ -845,6 +845,31 @@ that limit and holds off a revision of the same pull request, whether started
 by the dispatch pass or by `forge-revise`. Its run appears on the Runs page
 beside its repository and pull request.
 
+### Diagnosing a failed workload
+
+Name a worker in `forge.runtime.diagnosis.worker` and the dispatch pass starts
+a diagnosis of each failed dispatch, revision or conflict resolution whose
+failure does not explain itself. The diagnosis shows on the dashboard only.
+
+To diagnose a run by hand, including one that failed before diagnoses existed,
+run, on a box that declares workers and a managed repository:
+
+```bash
+just ssh sudo forge-diagnose <run>
+just ssh sudo forge-diagnose <run> --worker <name>
+```
+
+`--worker` picks a worker other than the diagnosis worker, for example one on a
+different model. Without `--worker` and without a diagnosis worker, the command
+refuses and starts nothing. It needs the run's transcript to still exist and is
+refused for a run that is itself a diagnosis, for a run that is not a dispatch,
+revision or conflict resolution, and while another diagnosis of the run is
+running.
+
+Each re-run adds a diagnosis and keeps the earlier ones. The failed run's page
+shows the latest and lists the earlier ones, and counts drawn from diagnoses
+use only the latest per failed run. A failed re-run is never diagnosed itself.
+
 ## The workload sandbox
 
 Every workload's harness, and every subagent it spawns, runs in a bubblewrap

@@ -69,9 +69,22 @@ const failedRun = (id: string): RunRecord => ({
 interface Scenario {
   action?: string;
   configured?: boolean;
+  argv?: string[];
+  earlier?: 'running' | 'done' | 'none';
+  transcript?: boolean;
+  dispatch?: boolean;
 }
 
-const diagnose = async ({ action, configured = true }: Scenario = {}) => {
+const EARLIER_VERDICT = { category: 'worker' as const, evidence: [{ turn: 1, note: 'first' }], suggestedFix: 'Earlier fix' };
+
+const diagnose = async ({
+  action,
+  configured = true,
+  argv = ['diagnosis-run'],
+  earlier = 'running',
+  transcript = true,
+  dispatch = true,
+}: Scenario = {}) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-diagnose-'));
   const record = join(stateDir, 'pi-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
@@ -83,6 +96,7 @@ const diagnose = async ({ action, configured = true }: Scenario = {}) => {
       workers: {
         builder: { harness: 'pi', model: 'z-ai/glm-5', prompt: '/work-on {url}' },
         diagnoser: { harness: 'pi', model: 'z-ai/glm-5', prompt: 'Look for the first wrong turn.' },
+        second: { harness: 'pi', model: 'moonshotai/kimi-k2', prompt: 'Read it again.' },
       },
       repositories: { forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } },
       ...(configured ? { diagnosis: { worker: 'diagnoser' } } : {}),
@@ -90,16 +104,21 @@ const diagnose = async ({ action, configured = true }: Scenario = {}) => {
   );
   mkdirSync(join(stateDir, 'transcripts'), { recursive: true });
   mkdirSync(join(stateDir, 'work', 'failed-run'), { recursive: true });
-  writeFileSync(join(stateDir, 'transcripts', 'failed-run.jsonl'), '{"type":"message"}\n');
+  if (transcript) writeFileSync(join(stateDir, 'transcripts', 'failed-run.jsonl'), '{"type":"message"}\n');
   writeFileSync(join(stateDir, 'transcripts', 'failed-run.requests.jsonl'), '{}\n');
   writeFileSync(join(stateDir, 'work', 'failed-run', 'notes.txt'), 'left behind\n');
   const at = new Date().toISOString();
   const seeded = Store.open(join(stateDir, 'forge.db'));
   try {
     seeded.insertRun(failedRun('failed-run'));
-    const id = startedDispatch(seeded, 'forge', 31, 'failed-run', at);
-    seeded.endDispatch(id, { state: 'failed', reason: 'check-failed', detail: 'build, lint' }, at);
-    seeded.startDiagnosis('failed-run', 'diagnosis-run', at);
+    if (dispatch) {
+      const id = startedDispatch(seeded, 'forge', 31, 'failed-run', at);
+      seeded.endDispatch(id, { state: 'failed', reason: 'check-failed', detail: 'build, lint' }, at);
+    }
+    if (earlier !== 'none') {
+      const diagnosisId = seeded.startDiagnosis('failed-run', 'diagnosis-run', at);
+      if (earlier === 'done') seeded.endDiagnosis(diagnosisId, 'done', at, { verdict: EARLIER_VERDICT });
+    }
   } finally {
     seeded.close();
   }
@@ -112,7 +131,7 @@ const diagnose = async ({ action, configured = true }: Scenario = {}) => {
   console.error = () => undefined;
   let thrown: string | null = null;
   const code = await main(
-    ['diagnosis-run'],
+    argv,
     {
       PATH: process.env.PATH,
       HOME: stateDir,
@@ -155,6 +174,7 @@ const diagnose = async ({ action, configured = true }: Scenario = {}) => {
       thrown,
       stateDir,
       diagnosis: store.diagnosisOfRun('diagnosis-run', now) as DiagnosisRecord,
+      diagnoses: store.diagnosesOf('failed-run', now),
       undiagnosed: store.undiagnosedFailures(),
       run: store.getRun('diagnosis-run'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
@@ -250,3 +270,75 @@ test('given a diagnosis.json that is a symlink, or larger than the contract allo
   assert.equal(large.diagnosis.state, 'failed');
   assert.match(large.diagnosis.detail ?? '', /diagnosis\.json/);
 });
+
+const RERUN = ['--rerun', 'failed-run', 'second'];
+
+test('given a failed run with one diagnosis, when it is re-run with another worker, then the run has two diagnoses, the newer one first, and the earlier one is kept', async () => {
+  const { code, diagnoses, undiagnosed } = await diagnose({ argv: RERUN, earlier: 'done', action: writing(VERDICT) });
+  assert.equal(code, 0);
+  assert.equal(diagnoses.length, 2);
+  const [latest, earlier] = diagnoses as [DiagnosisRecord, DiagnosisRecord];
+  assert.equal(latest.state, 'done');
+  assert.deepEqual(latest.verdict, JSON.parse(VERDICT));
+  assert.notEqual(latest.runId, 'diagnosis-run');
+  assert.equal(earlier.runId, 'diagnosis-run');
+  assert.deepEqual(earlier.verdict, EARLIER_VERDICT);
+  assert.deepEqual(undiagnosed, []);
+});
+
+test('given a re-run names another worker, when it runs, then the diagnosis is a workload of that worker', async () => {
+  const { diagnoses, stateDir } = await diagnose({ argv: RERUN, earlier: 'done', action: writing(VERDICT) });
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    assert.equal(store.getRun((diagnoses[0] as DiagnosisRecord).runId)?.worker, 'second');
+  } finally {
+    store.close();
+  }
+});
+
+test('given a run that failed before diagnoses existed and still has its transcript, when it is re-run, then it gets a diagnosis', async () => {
+  const { code, diagnoses } = await diagnose({ argv: RERUN, earlier: 'none', action: writing(VERDICT) });
+  assert.equal(code, 0);
+  assert.equal(diagnoses.length, 1);
+  assert.equal(diagnoses[0]?.state, 'done');
+});
+
+test('given a re-run whose agent writes no diagnosis.json, when it ends, then it fails, the earlier diagnosis stands and no diagnosis starts for the failed one', async () => {
+  const { code, diagnoses, undiagnosed } = await diagnose({ argv: RERUN, earlier: 'done' });
+  assert.equal(code, 1);
+  assert.deepEqual(diagnoses.map(({ state }) => state), ['failed', 'done']);
+  assert.deepEqual(undiagnosed, []);
+});
+
+test('given no diagnosis worker is configured, when a run is re-run without a worker, then it refuses saying so and nothing starts', async () => {
+  const { thrown, diagnoses } = await diagnose({ argv: ['--rerun', 'failed-run'], configured: false, earlier: 'none' });
+  assert.match(thrown ?? '', /no diagnosis worker is configured/);
+  assert.deepEqual(diagnoses, []);
+});
+
+test('given a diagnosis worker is configured, when a run is re-run without a worker, then the configured one diagnoses it', async () => {
+  const { code, diagnoses, stateDir } = await diagnose({ argv: ['--rerun', 'failed-run'], earlier: 'none', action: writing(VERDICT) });
+  assert.equal(code, 0);
+  const store = Store.open(join(stateDir, 'forge.db'));
+  try {
+    assert.equal(store.getRun((diagnoses[0] as DiagnosisRecord).runId)?.worker, 'diagnoser');
+  } finally {
+    store.close();
+  }
+});
+
+for (const [name, scenario, message] of [
+  ['names a worker that is not declared', { argv: ['--rerun', 'failed-run', 'ghost'] }, /ghost/],
+  ['has no transcript left', { transcript: false, argv: RERUN }, /transcript/],
+  ['is not a dispatch, revision or conflict resolution', { dispatch: false, argv: RERUN }, /not a dispatch, revision or conflict resolution/],
+  ['is already being diagnosed', { earlier: 'running', argv: RERUN }, /already being diagnosed/],
+  ['is itself a diagnosis', { argv: ['--rerun', 'diagnosis-run', 'second'], earlier: 'done' }, /is a diagnosis/],
+  ['is not recorded', { argv: ['--rerun', 'nowhere', 'second'], earlier: 'none' }, /nowhere is not recorded/],
+] as [string, Scenario, RegExp][]) {
+  test(`given a re-run of a run that ${name}, when it starts, then it refuses and records no diagnosis`, async () => {
+    const seeded: Scenario = { earlier: 'done', ...scenario };
+    const { thrown, diagnoses } = await diagnose(seeded);
+    assert.match(thrown ?? '', message);
+    assert.equal(diagnoses.length, seeded.earlier === 'none' ? 0 : 1);
+  });
+}

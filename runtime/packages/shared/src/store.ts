@@ -3038,6 +3038,21 @@ export class Store {
     return row.id;
   }
 
+  startDiagnosisUnlessRunning(failedRunId: string, runId: string, at: string): number | null {
+    const row = this.#db
+      .prepare(
+        `INSERT INTO diagnoses (run_id, failed_run_id, state, started_at, alive_at)
+        SELECT $run_id, $failed_run_id, 'running', $at, $at
+        WHERE NOT EXISTS (
+          SELECT 1 FROM diagnoses
+          WHERE failed_run_id = $failed_run_id AND state = 'running' AND alive_at >= $live_since
+        )
+        RETURNING id`,
+      )
+      .get({ run_id: runId, failed_run_id: failedRunId, at, live_since: liveSince(at) }) as { id: number } | undefined;
+    return row?.id ?? null;
+  }
+
   discardDiagnosis(id: number): void {
     this.#db.prepare(`DELETE FROM diagnoses WHERE id = $id AND state = 'running'`).run({ id });
   }

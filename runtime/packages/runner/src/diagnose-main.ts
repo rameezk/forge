@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -15,14 +16,14 @@ import {
   type Fetch,
   type RunRecord,
 } from '@forge/shared';
-import { diagnosisWorkerOf, resolveWorker } from './config.ts';
+import { diagnosisWorkerOf, resolveWorker, type RuntimeConfig } from './config.ts';
 import { DIAGNOSIS_INSTRUCTION, diagnosisContext, withContext, type DiagnosisBrief } from './harness.ts';
 import { GithubTokenFile, keepFresh } from './github-token-file.ts';
 import { launchWorkload, readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
 
-const USAGE = 'usage: forge-diagnose <diagnosis-run>';
+const USAGE = 'usage: forge-diagnose-run <diagnosis-run> | forge-diagnose-run --rerun <run> [worker]';
 
 const briefOf = (
   store: Store,
@@ -102,9 +103,51 @@ const endOf = (launched: LaunchResult, stateDir: string): { verdict: DiagnosisVe
   }
 };
 
+type Invocation =
+  | { kind: 'unit'; runId: string }
+  | { kind: 'rerun'; failedRunId: string; workerName: string | null };
+
+const invocationOf = (argv: string[]): Invocation => {
+  const [first, failedRunId, workerName, ...rest] = argv;
+  if (first === '--rerun') {
+    if (failedRunId === undefined || rest.length > 0) throw new Error(USAGE);
+    return { kind: 'rerun', failedRunId, workerName: workerName ?? null };
+  }
+  if (first === undefined || failedRunId !== undefined) throw new Error(USAGE);
+  return { kind: 'unit', runId: first };
+};
+
+const NO_WORKER = 'no diagnosis worker is configured: set forge.runtime.diagnosis.worker';
+
+const startRerun = (
+  store: Store,
+  config: RuntimeConfig,
+  stateDir: string,
+  failedRunId: string,
+  requested: string | null,
+): { diagnosis: DiagnosisRecord; workerName: string } => {
+  const workerName = requested ?? diagnosisWorkerOf(config);
+  if (workerName === null) throw new Error(NO_WORKER);
+  resolveWorker(config, workerName);
+  const at = now();
+  if (store.diagnosisOfRun(failedRunId, at) !== null) throw new Error(`${failedRunId} is a diagnosis, which is never diagnosed`);
+  const failed = store.getRun(failedRunId);
+  if (failed === undefined) throw new Error(`${failedRunId} is not recorded`);
+  if (briefOf(store, failed, stateDir) === null) {
+    throw new Error(`${failedRunId} is not a dispatch, revision or conflict resolution`);
+  }
+  if (failed.transcriptRef === null || !existsSync(join(stateDir, 'transcripts', failed.transcriptRef))) {
+    throw new Error(`${failedRunId} has no transcript left to diagnose`);
+  }
+  const runId = randomUUID();
+  if (store.startDiagnosisUnlessRunning(failedRunId, runId, at) === null) {
+    throw new Error(`${failedRunId} is already being diagnosed`);
+  }
+  return { diagnosis: store.diagnosisOfRun(runId, at) as DiagnosisRecord, workerName };
+};
+
 export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch): Promise<number> => {
-  const [runId, ...rest] = argv;
-  if (runId === undefined || rest.length > 0) throw new Error(USAGE);
+  const invocation = invocationOf(argv);
   const stateDir = stateDirOf(env);
   const store = Store.open(join(stateDir, 'forge.db'));
   let diagnosis: DiagnosisRecord | null = null;
@@ -112,19 +155,32 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
     if (diagnosis !== null) store.endDiagnosis(diagnosis.id, 'failed', now(), { detail });
   };
   try {
-    diagnosis = store.diagnosisOfRun(runId, now());
-    if (diagnosis === null || diagnosis.state !== 'running') {
-      throw new Error(`${runId} is not a running diagnosis`);
+    let config: RuntimeConfig;
+    let workerName: string;
+    if (invocation.kind === 'rerun') {
+      config = readRuntimeConfig(env);
+      ({ diagnosis, workerName } = startRerun(store, config, stateDir, invocation.failedRunId, invocation.workerName));
+    } else {
+      diagnosis = store.diagnosisOfRun(invocation.runId, now());
+      if (diagnosis === null || diagnosis.state !== 'running') {
+        throw new Error(`${invocation.runId} is not a running diagnosis`);
+      }
+      try {
+        config = readRuntimeConfig(env);
+        const configured = diagnosisWorkerOf(config);
+        if (configured === null) throw new Error(NO_WORKER);
+        workerName = configured;
+      } catch (error) {
+        fail(errorMessage(error));
+        throw error;
+      }
     }
-    const { id } = diagnosis;
+    const { id, runId } = diagnosis;
     const stopHeartbeat = startHeartbeat(
       () => store.touchDiagnosis(id, now()),
       (error) => console.error(`${runId}: could not refresh its diagnosis heartbeat: ${errorMessage(error)}`),
     );
     try {
-      const config = readRuntimeConfig(env);
-      const workerName = diagnosisWorkerOf(config);
-      if (workerName === null) throw new Error('no diagnosis worker is configured: set forge.runtime.diagnosis.worker');
       const worker = resolveWorker(config, workerName);
       const failed = store.getRun(diagnosis.failedRunId);
       if (failed === undefined) throw new Error(`the failed run ${diagnosis.failedRunId} is not recorded`);

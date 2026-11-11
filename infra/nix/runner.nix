@@ -90,7 +90,7 @@ buildNpmPackage {
       ${sandboxFlags} \
       --set FORGE_PI_PACKAGE "${piPackage}" \
       --set FORGE_NIX_SYSTEM "${stdenv.hostPlatform.system}"
-    makeWrapper ${nodejs}/bin/node "$out/bin/forge-diagnose" \
+    makeWrapper ${nodejs}/bin/node "$out/bin/forge-diagnose-run" \
       --add-flags "$out/lib/forge-runtime/packages/runner/src/diagnose-main.ts" \
       --set FORGE_PI_SUBAGENT_EXTENSION "$out/${subagentExtension}" \
       --set FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION "$out/${modelDefaultReasoningExtension}" \
@@ -121,7 +121,7 @@ buildNpmPackage {
   };
 
   meta = {
-    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), revises one pull request of a managed repository on its own branch (forge-revise), resolves merge conflicts on one pull request of a managed repository by merging its default branch in (forge-resolve-conflicts), diagnoses one failed workload with the diagnosis worker (forge-diagnose), starts a dispatch for each forge:ready frontier ticket up to the concurrency limit (forge-dispatch-pass), settles runs' billed cost from OpenRouter (forge-billing), migrates the store's schema (forge-migrate), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
+    description = "Forge runtime: runs one worker headlessly (forge-run), dispatches one ticket of a managed repository into a fresh clone (forge-dispatch), revises one pull request of a managed repository on its own branch (forge-revise), resolves merge conflicts on one pull request of a managed repository by merging its default branch in (forge-resolve-conflicts), diagnoses one failed workload with the diagnosis worker (forge-diagnose-run, behind the box's forge-diagnose command), starts a dispatch for each forge:ready frontier ticket up to the concurrency limit (forge-dispatch-pass), settles runs' billed cost from OpenRouter (forge-billing), migrates the store's schema (forge-migrate), syncs the managed repositories' frontier (forge-frontier), and serves the read-only dashboard (forge-frontend).";
     mainProgram = "forge-run";
     platforms = nodejs.meta.platforms;
   };

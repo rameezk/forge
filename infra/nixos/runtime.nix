@@ -248,7 +248,11 @@ let
     in
     if lib.elem null backstops || backstops == [ ] then null else lib.foldl' lib.max 0 backstops;
 
-  diagnosisBackstop = if hasDiagnosis then backstopSeconds cfg.workers.${cfg.diagnosis.worker} else null;
+  diagnosisBackstop =
+    let
+      backstops = map backstopSeconds (lib.attrValues cfg.workers);
+    in
+    if lib.elem null backstops || backstops == [ ] then null else lib.foldl' lib.max 0 backstops;
 
   diagnosisWorkerAssertion = {
     assertion = !hasDiagnosis || cfg.workers ? ${cfg.diagnosis.worker};
@@ -446,7 +450,10 @@ let
     }\\.service$";
 
   diagnoseInstance = pkgs.writeShellScript "forge-diagnose-instance" ''
-    exec ${cfg.package}/bin/forge-diagnose "$1"
+    case "$1" in
+      *:*) exec ${cfg.package}/bin/forge-diagnose-run --rerun "''${1%:*}" "''${1##*:}" ;;
+      *) exec ${cfg.package}/bin/forge-diagnose-run "$1" ;;
+    esac
   '';
 
   reviseInstance = pkgs.writeShellScript "forge-revise-instance" ''
@@ -957,7 +964,11 @@ in
       };
     })
 
-    (lib.mkIf (hasWorkers && hasDiagnosis) {
+    (lib.mkIf (hasWorkers && hasRepositories) {
+      environment.systemPackages = [
+        (pkgs.callPackage ../nix/diagnose-command.nix { diagnosisWorker = if hasDiagnosis then cfg.diagnosis.worker else null; })
+      ];
+
       systemd.services."forge-diagnose@" = {
         description = "Forge diagnosis %i";
         after = [ "network-online.target" ];
