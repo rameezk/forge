@@ -291,7 +291,6 @@ let
 
   trustingClaude = writeShellScriptBin "claude" ''
     export ANTHROPIC_BASE_URL=http://127.0.0.1:${anthropicPort}
-    export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
     if [ "''${1-}" = --version ]; then
       exec ${lib.getExe claude-code} "$@"
     fi
