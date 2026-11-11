@@ -828,6 +828,7 @@ class ClaudeCodeRun implements HarnessRun {
         name: 'claude',
         workDir: invocation.workDir,
         writableDirs: [configDir, bodiesDir],
+        ...(invocation.readOnlyPaths === undefined ? {} : { readOnlyPaths: invocation.readOnlyPaths }),
         env: underDevShell(
           invocation.devShell,
           system,

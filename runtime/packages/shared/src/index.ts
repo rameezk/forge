@@ -216,3 +216,21 @@ export {
   relabel,
   settleTicket,
 } from './labels.ts';
+export {
+  DIAGNOSED_FAILURES,
+  DIAGNOSIS_CATEGORIES,
+  DIAGNOSIS_CATEGORY_LABELS,
+  DIAGNOSIS_FILE,
+  isDiagnosedFailure,
+  MAX_VERDICT_BYTES,
+  isDiagnosisCategory,
+  parseVerdict,
+  UNDIAGNOSED_FAILURES,
+} from './diagnosis.ts';
+export type {
+  DiagnosisCategory,
+  DiagnosisEvidence,
+  DiagnosisRecord,
+  DiagnosisState,
+  DiagnosisVerdict,
+} from './diagnosis.ts';

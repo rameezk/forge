@@ -1930,6 +1930,52 @@
               echo "a repository's feedback worker wires a forge-revise@ oneshot and the forge-revise command; a feedback worker without a pull request placeholder fails evaluation" > $out
             '';
 
+          runtime-diagnosis =
+            let
+              diagnosisModule = {
+                forge.runtime.harnesses.pi.command = "/run/current-system/sw/bin/pi";
+                forge.runtime.workers.builder = {
+                  harness = "pi";
+                  model = "anthropic/claude-sonnet-4";
+                  prompt = "/work-on {url}";
+                };
+                forge.runtime.workers.diagnoser = {
+                  harness = "pi";
+                  model = "anthropic/claude-sonnet-4";
+                  prompt = "Look for the first wrong turn.";
+                };
+                forge.runtime.repositories.forge = {
+                  github = "rameezk/forge";
+                  on.ticket = "builder";
+                };
+              };
+              enabled = secretsHost exampleSecretsFile (
+                lib.recursiveUpdate diagnosisModule { forge.runtime.diagnosis.worker = "diagnoser"; }
+              );
+              unit = enabled.config.systemd.services."forge-diagnose@";
+              undeclared = secretsHost exampleSecretsFile (
+                lib.recursiveUpdate diagnosisModule { forge.runtime.diagnosis.worker = "missing"; }
+              );
+            in
+            assert lib.asserts.assertMsg (
+              enabled.config.forge.runtime.settings.diagnosis == { worker = "diagnoser"; }
+              && !(dispatchHost.config.forge.runtime.settings ? diagnosis)
+              && !(dispatchHost.config.systemd.services ? "forge-diagnose@")
+              && unit.serviceConfig.Type == "oneshot"
+              && lib.hasInfix "forge-diagnose-instance" unit.serviceConfig.ExecStart
+              && readsAppKeyAsCredential unit
+              && isWorkloadHardened unit
+              && unit.serviceConfig.Slice == "forge-workloads.slice"
+              && lib.hasInfix "forge-diagnose@[0-9a-f]{8}" enabled.config.security.polkit.extraConfig
+              && !(lib.hasInfix "forge-diagnose" dispatchHost.config.security.polkit.extraConfig)
+            ) "naming a diagnosis worker must wire a hardened forge-diagnose@ oneshot in the workload slice and let the dispatch pass start only diagnosis units named by a run id, and a host without one must not";
+            assert lib.asserts.assertMsg (
+              !(evaluates undeclared) && lib.any (lib.hasInfix "'missing'") (failedAssertions undeclared)
+            ) "a diagnosis worker that is not declared must fail evaluation";
+            pkgs.runCommand "runtime-diagnosis" { } ''
+              echo "a diagnosis worker wires a hardened forge-diagnose@ oneshot in the workload slice and its polkit grant; an undeclared one fails evaluation" > $out
+            '';
+
           runtime-resolve-conflicts =
             assert resolveConfigReflectsConflictWorker;
             assert resolveHostEvaluates;

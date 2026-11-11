@@ -15,12 +15,14 @@ export const startToolsSandbox = ({
   sandbox,
   tools,
   workDir,
+  readOnlyPaths,
   env,
   withheld,
 }: {
   sandbox: Sandbox;
   tools: ToolsConfig;
   workDir: string;
+  readOnlyPaths?: string[];
   env: Record<string, string>;
   withheld: string[];
 }): ToolsSandbox => {
@@ -32,6 +34,7 @@ export const startToolsSandbox = ({
     {
       name: 'the command broker',
       workDir,
+      ...(readOnlyPaths === undefined ? {} : { readOnlyPaths }),
       env,
       broker: { dir, role: 'tools' },
       prefix: [tools.broker, '--prelisten', join(dir, 'broker.sock'), '--'],

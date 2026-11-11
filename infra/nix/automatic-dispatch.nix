@@ -38,6 +38,18 @@ let
         ];
       }
     });
+    store.armDiagnosis('2000-01-01T00:00:00.000Z');
+    const failedAt = new Date().toISOString();
+    if (store.dispatchOfRun('failed-run', failedAt) === null) {
+      const failed = store.startDispatch(
+        { repository: 'forge', number: 99, url: 'https://github.com/rameezk/forge/issues/99' },
+        'failed-run',
+        failedAt,
+        Number.POSITIVE_INFINITY,
+        null,
+      );
+      store.endDispatch(failed.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, failedAt);
+    }
     store.close();
   '';
 
@@ -49,6 +61,9 @@ let
       '')
       (writeShellScriptBin "forge-dispatch" ''
         echo "$@" > "/var/lib/forge/dispatched-$1-$2"
+      '')
+      (writeShellScriptBin "forge-diagnose" ''
+        echo "$@" > "/var/lib/forge/diagnosed-$1"
       '')
       (writeShellScriptBin "forge-frontend" ''
         exec sleep infinity
@@ -88,6 +103,12 @@ testers.runNixOSTest {
       model = "stub/dispatch";
       prompt = "/work-on {url}";
     };
+    forge.runtime.workers.diagnoser = {
+      harness = "pi";
+      model = "stub/diagnosis";
+      prompt = "Look for the first wrong turn.";
+    };
+    forge.runtime.diagnosis.worker = "diagnoser";
     forge.runtime.repositories.forge = {
       github = "rameezk/forge";
       on.ticket = "builder";
@@ -131,6 +152,14 @@ testers.runNixOSTest {
         box.fail("test -e /var/lib/forge/dispatched-forge-14")
         box.fail("test -e /var/lib/forge/dispatched-forge-15")
 
+    with subtest("the same pass starts one forge-diagnose unit for the failed dispatch and no other, and a later pass starts none"):
+        box.wait_until_succeeds("ls /var/lib/forge | grep -q '^diagnosed-'")
+        assert box.succeed("ls /var/lib/forge | grep -c '^diagnosed-'").strip() == "1"
+        before_second_sync = cursor(box)
+        box.succeed("systemctl start forge-frontier-sync.service")
+        wait_until_oneshot_succeeded(box, "forge-dispatch-pass.service", before_second_sync)
+        assert box.succeed("ls /var/lib/forge | grep -c '^diagnosed-'").strip() == "1"
+
     with subtest("billing runs without failing in a box that declares a worker"):
         before_billing = cursor(box)
         box.succeed("systemctl start --no-block forge-billing.service")
@@ -145,5 +174,10 @@ testers.runNixOSTest {
         box.fail(f"{as_runtime} stop forge-frontend.service")
         box.fail(f"{as_runtime} restart forge-dispatch@forge:7.service")
         box.fail("runuser -u nobody -- systemctl --no-ask-password start forge-dispatch@forge:8.service")
+
+    with subtest("forge-runtime may start a forge-diagnose unit named by a run id, and nothing else"):
+        box.succeed(f"{as_runtime} start forge-diagnose@11111111-2222-3333-4444-555555555555.service")
+        assert box.succeed("cat /var/lib/forge/diagnosed-11111111-2222-3333-4444-555555555555").strip() == "11111111-2222-3333-4444-555555555555"
+        box.fail(f"{as_runtime} start forge-diagnose@not-a-run.service")
   '';
 }

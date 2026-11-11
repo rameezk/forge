@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { hasUnbillableId, isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type DispatchRecord, type PullRequestRecord, type RunPullRequestWorkload, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
+import { hasUnbillableId, isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type DispatchRecord, type DiagnosisRecord, DIAGNOSIS_CATEGORY_LABELS, type PullRequestRecord, type RunPullRequestWorkload, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTokens } from '../format.ts';
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
@@ -371,6 +371,39 @@ const renderRunDetails = (
     </dl>
   </details>`;
 
+const transcriptTurnHref = (runId: string, turn: number): string =>
+  `/runs/${encodeURIComponent(runId)}/transcript#event-${turn - 1}`;
+
+const renderEarlierDiagnosis = (diagnosis: DiagnosisRecord, timeZone: string): Rendered =>
+  html`<li data-earlier-diagnosis><a href="/runs/${encodeURIComponent(diagnosis.runId)}" class="${LINK}">${renderClock(diagnosis.startedAt, timeZone)}</a> <span class="text-muted">${diagnosis.verdict === null ? diagnosis.state : DIAGNOSIS_CATEGORY_LABELS[diagnosis.verdict.category]}</span></li>`;
+
+const renderDiagnosis = (run: RunRecord, diagnoses: DiagnosisRecord[], timeZone: string): Rendered => {
+  const [latest, ...earlier] = diagnoses;
+  if (latest === undefined) return '';
+  const verdict = latest.verdict;
+  const body =
+    latest.state === 'running'
+      ? html`<p class="m-0 text-muted" data-diagnosis-running>Diagnosing this run.</p>`
+      : verdict === null
+        ? html`<p class="m-0 text-error" data-diagnosis-failure>Its diagnosis failed${latest.detail === null ? '' : html`: ${latest.detail}`}</p>`
+        : html`<p class="m-0"><span class="${PILL} bg-raised text-fg" data-diagnosis-category="${verdict.category}">${DIAGNOSIS_CATEGORY_LABELS[verdict.category]}</span></p>
+          <ul class="m-0 flex list-none flex-col gap-1 p-0" data-diagnosis-evidence-list>${verdict.evidence.map(
+            ({ turn, note }) =>
+              html`<li><a href="${transcriptTurnHref(run.id, turn)}" class="${LINK}" data-diagnosis-evidence>Turn ${turn}</a> <span>${note}</span></li>`,
+          )}</ul>
+          <p class="m-0"><span class="${LABEL}">Suggested fix</span> <span data-diagnosis-fix>${verdict.suggestedFix}</span></p>`;
+  return html`<section class="${CARD} mt-3 flex flex-col gap-2 px-4 py-3" data-diagnosis data-diagnosis-state="${latest.state}">
+    <h2 class="${SECTION_TITLE} m-0">Diagnosis <a href="/runs/${encodeURIComponent(latest.runId)}" class="${LINK} text-[0.85rem] font-normal">workload</a></h2>
+    ${body}
+    ${earlier.length === 0 ? '' : html`<details class="text-[0.85rem]"><summary class="${DISCLOSURE} text-muted">Earlier diagnoses</summary><ul class="m-0 mt-2 flex list-none flex-col gap-1 p-0">${earlier.map((diagnosis) => renderEarlierDiagnosis(diagnosis, timeZone))}</ul></details>`}
+  </section>`;
+};
+
+const renderDiagnosisOf = (diagnosisOf: DiagnosisRecord | null): Rendered =>
+  diagnosisOf === null
+    ? ''
+    : html`<p class="m-0 mt-2 text-[0.9rem]">Diagnosis of <a href="/runs/${encodeURIComponent(diagnosisOf.failedRunId)}" class="${LINK}" data-diagnosis-of>${diagnosisOf.failedRunId}</a></p>`;
+
 export const renderDetail = (
   run: RunRecord,
   events: HarnessEvent[],
@@ -382,6 +415,8 @@ export const renderDetail = (
   skillLoads: RunSkillLoad[],
   downloads: Downloads,
   config: RunFingerprint | null,
+  diagnoses: DiagnosisRecord[],
+  diagnosisOf: DiagnosisRecord | null,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
@@ -396,6 +431,8 @@ export const renderDetail = (
         <h1 class="${PAGE_TITLE} break-words">${run.worker}</h1>
         ${renderSummary(run, summaryEffort(run, efforts), outcome, workload, display.timeZone)}
         ${reason === null ? '' : renderReasonBlock(reason)}
+        ${renderDiagnosisOf(diagnosisOf)}
+        ${renderDiagnosis(run, diagnoses, display.timeZone)}
       </header>
       <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
         ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}

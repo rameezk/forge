@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -9,7 +10,7 @@ import {
   type RevisedPullRequest,
   type Ticket,
 } from '@forge/shared';
-import { maxConcurrentOf, maxOpenPullRequestsOf, quietPeriodOf, type RuntimeConfig } from './config.ts';
+import { diagnosisWorkerOf, maxConcurrentOf, maxOpenPullRequestsOf, quietPeriodOf, type RuntimeConfig } from './config.ts';
 import { absolutePath, readRuntimeConfig, stateDirOf } from './workload.ts';
 
 const run = promisify(execFile);
@@ -63,6 +64,30 @@ const UNIT_PREFIXES: Record<Pending['kind'], string> = {
 
 const unitOf = (pending: Pending): string =>
   `${UNIT_PREFIXES[pending.kind]}@${pending.repository}:${pending.number}.service`;
+
+const startDiagnoses = async (env: NodeJS.ProcessEnv, systemctl: string): Promise<boolean> => {
+  const store = Store.open(join(stateDirOf(env), 'forge.db'));
+  let failed = false;
+  try {
+    store.armDiagnosis(new Date().toISOString());
+    for (const { runId, repository, number } of store.undiagnosedFailures()) {
+      const diagnosisRunId = randomUUID();
+      const unit = `forge-diagnose@${diagnosisRunId}.service`;
+      const id = store.startDiagnosis(runId, diagnosisRunId, new Date().toISOString());
+      try {
+        await run(systemctl, ['start', '--no-block', '--no-ask-password', '--', unit], { env });
+        console.error(`${repository}#${number}: diagnosing ${runId} with ${unit}`);
+      } catch (error) {
+        store.discardDiagnosis(id);
+        console.error(`${repository}#${number}: could not start ${unit}: ${errorMessage(error)}`);
+        failed = true;
+      }
+    }
+  } finally {
+    store.close();
+  }
+  return failed;
+};
 
 export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<number> => {
   if (argv.length > 0) throw new Error(USAGE);
@@ -127,6 +152,9 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   }
 
   let failed = false;
+  if (diagnosisWorkerOf(config) !== null) {
+    failed = (await startDiagnoses(env, systemctl)) || failed;
+  }
   for (const pending of starting) {
     const unit = unitOf(pending);
     try {

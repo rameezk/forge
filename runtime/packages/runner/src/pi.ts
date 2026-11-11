@@ -117,7 +117,9 @@ const contractArgs = (
   '-e',
   extensions.requestRecord,
   ...(invocation.checkout === undefined
-    ? []
+    ? invocation.instruction === undefined
+      ? []
+      : appended(invocation.instruction)
     : checkoutArgs(invocation.checkout, invocation.instruction ?? UNATTENDED_INSTRUCTION)),
   ...appended(NARRATION_INSTRUCTION),
 ];
@@ -662,6 +664,7 @@ class PiRun implements HarnessRun {
       sandbox: this.#sandbox,
       tools: this.#tools,
       workDir: invocation.workDir,
+      ...(invocation.readOnlyPaths === undefined ? {} : { readOnlyPaths: invocation.readOnlyPaths }),
       env: underDevShell(invocation.devShell, this.#system, this.#commandEnv),
       withheld: [
         ...Object.keys(harnessOnly),
@@ -681,6 +684,7 @@ class PiRun implements HarnessRun {
         name: 'pi',
         workDir: invocation.workDir,
         agentDir: this.#agentDir,
+        ...(invocation.readOnlyPaths === undefined ? {} : { readOnlyPaths: invocation.readOnlyPaths }),
         env: underDevShell(undefined, this.#system, {
           ...this.#env,
           ...harnessOnly,
