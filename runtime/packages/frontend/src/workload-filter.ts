@@ -1,4 +1,4 @@
-import { isDiagnosisCategory, type DiagnosisCategory, type DispatchState, type RunRecord } from '@forge/shared';
+import { isDiagnosisCategory, UNKNOWN_COHORT, type DiagnosisCategory, type DispatchState, type RunRecord } from '@forge/shared';
 import { addDays, dayOf, dayRange, parseDay } from './days.ts';
 
 export const STATUSES: readonly DispatchState[] = ['running', 'done', 'failed'];
@@ -27,9 +27,12 @@ export interface WorkloadFilter {
   repository?: string;
   model?: string;
   category?: DiagnosisCategory;
+  cohort?: string;
   from?: string;
   to?: string;
 }
+
+const COHORT_HASH = new RegExp(`^(?:${UNKNOWN_COHORT}|[0-9a-f]{64})$`);
 
 export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilter => {
   const status = STATUSES.find((candidate) => candidate === query['status']);
@@ -37,6 +40,7 @@ export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilt
   const from = range === undefined ? parseDay(query['from']) : undefined;
   const to = range === undefined ? parseDay(query['to']) : undefined;
   const category = isDiagnosisCategory(query['category']) ? query['category'] : undefined;
+  const cohort = (query['cohort'] ?? '').split(',').filter((hash) => COHORT_HASH.test(hash)).join(',') || undefined;
   const search = (query['search'] ?? '').trim().replace(/^#/, '');
   return {
     ...(status === undefined ? {} : { status }),
@@ -45,6 +49,7 @@ export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilt
     ...(query['repository'] ? { repository: query['repository'] } : {}),
     ...(query['model'] ? { model: query['model'] } : {}),
     ...(category === undefined ? {} : { category }),
+    ...(cohort === undefined ? {} : { cohort }),
     ...(range === undefined ? {} : { range }),
     ...(from === undefined ? {} : { from }),
     ...(to === undefined ? {} : { to }),
@@ -63,11 +68,13 @@ export const filterWorkloads = (
   now: number,
   stateOf: (run: RunRecord) => DispatchState,
   categories: ReadonlyMap<string, DiagnosisCategory>,
+  cohorts: ReadonlyMap<string, string>,
   ignoreStatus = false,
 ): RunRecord[] => {
   const preset = RANGE_PRESETS.find(({ key }) => key === filter.range);
   const days = preset === undefined ? filter : preset.resolve(dayOf(now, timeZone));
   const { startedFrom, startedBefore } = dayRange(days.from, days.to, timeZone);
+  const inCohorts = filter.cohort === undefined ? undefined : new Set(filter.cohort.split(','));
   return runs.filter(
     (run) =>
       (ignoreStatus || filter.status === undefined || stateOf(run) === filter.status) &&
@@ -76,6 +83,7 @@ export const filterWorkloads = (
       (filter.repository === undefined || run.ticket?.repository === filter.repository) &&
       (filter.model === undefined || run.model === filter.model) &&
       (filter.category === undefined || categories.get(run.id) === filter.category) &&
+      (inCohorts === undefined || inCohorts.has(cohorts.get(run.id) ?? '')) &&
       (startedFrom === undefined || Date.parse(run.startTime) >= startedFrom) &&
       (startedBefore === undefined || Date.parse(run.startTime) < startedBefore),
   );
