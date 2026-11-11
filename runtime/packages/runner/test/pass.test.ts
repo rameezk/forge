@@ -329,6 +329,7 @@ test('given maxOpenPullRequests 2 and 2 open dispatch pull requests, when the pa
 });
 
 const failedWith = (reason: 'check-failed' | 'interrupted' | 'no-pull-request') => (store: Store) => {
+  store.armDiagnosis('2000-01-01T00:00:00.000Z');
   const at = new Date().toISOString();
   const id = startedDispatch(store, 'forge', 31, 'failed-run', at);
   store.endDispatch(id, { state: 'failed', reason, detail: null }, at);

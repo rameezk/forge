@@ -42,8 +42,7 @@ const aRun = (id: string, overrides: Partial<RunRecord> = {}): RunRecord => ({
   ...overrides,
 });
 
-const failedDispatch = (store: Store, runId: string, reason: DispatchFailure, number = 1): void => {
-  const at = new Date().toISOString();
+const failedDispatch = (store: Store, runId: string, reason: DispatchFailure, number = 1, at = new Date().toISOString()): void => {
   const start = store.startDispatch(
     { repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` },
     runId,
@@ -62,6 +61,7 @@ test('every failure reason sits in exactly one of the diagnosed and undiagnosed 
 
 test('given failed workloads of each kind and reason, when the undiagnosed failures are listed, then only those in scope appear, each once its diagnosis starts', () => {
   const store = Store.open(':memory:');
+  store.armDiagnosis('2000-01-01T00:00:00.000Z');
   failedDispatch(store, 'checks', 'check-failed', 1);
   failedDispatch(store, 'stopped', 'interrupted', 2);
   failedDispatch(store, 'noshell', 'devshell-failed', 3);
@@ -94,6 +94,7 @@ test('given failed workloads of each kind and reason, when the undiagnosed failu
 
 test('given a failed diagnosis, when the undiagnosed failures are listed, then the failed run is not offered again and the diagnosis is not itself a failure to diagnose', () => {
   const store = Store.open(':memory:');
+  store.armDiagnosis('2000-01-01T00:00:00.000Z');
   failedDispatch(store, 'checks', 'check-failed');
   const at = new Date().toISOString();
   const id = store.startDiagnosis('checks', 'diagnosis-1', at);
@@ -152,4 +153,19 @@ test('given a verdict file, when it is parsed, then a valid one yields the verdi
   ]) {
     assert.throws(() => parseVerdict(broken), /diagnosis\.json/);
   }
+});
+
+test('given failures from before a diagnosis worker was first configured and one after, when the undiagnosed failures are listed, then only the later one is offered, and arming again moves nothing', () => {
+  const store = Store.open(':memory:');
+  failedDispatch(store, 'before', 'check-failed', 1, '2026-11-01T10:00:00.000Z');
+  assert.deepEqual(store.undiagnosedFailures(), []);
+  store.armDiagnosis('2026-11-02T00:00:00.000Z');
+  failedDispatch(store, 'after', 'check-failed', 2, '2026-11-03T10:00:00.000Z');
+  store.armDiagnosis('2026-11-01T00:00:00.000Z');
+  assert.deepEqual(store.undiagnosedFailures().map(({ runId }) => runId), ['after']);
+});
+
+test('given a verdict with more evidence than the contract allows, when it is parsed, then it is refused', () => {
+  const evidence = Array.from({ length: 21 }, (_, index) => ({ turn: index + 1, note: 'x' }));
+  assert.throws(() => parseVerdict(JSON.stringify({ category: 'skill', evidence, suggestedFix: 'y' })), /at most 20/);
 });

@@ -238,3 +238,12 @@ test('given a failure to diagnose, when the agent starts, then the standing inst
   assert.match(message, /check-failed/);
   assert.match(message, /build, lint/);
 });
+
+test('given a diagnosis.json that is a symlink, or larger than the contract allows, when the diagnosis ends, then it fails without reading it', async () => {
+  const linked = await diagnose({ action: `printf '%s' '${VERDICT}' > elsewhere.json && ln -s elsewhere.json diagnosis.json` });
+  assert.equal(linked.diagnosis.state, 'failed');
+  assert.match(linked.diagnosis.detail ?? '', /diagnosis\.json/);
+  const large = await diagnose({ action: `head -c 100000 /dev/zero | tr '\\0' 'a' > diagnosis.json` });
+  assert.equal(large.diagnosis.state, 'failed');
+  assert.match(large.diagnosis.detail ?? '', /diagnosis\.json/);
+});

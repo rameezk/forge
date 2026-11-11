@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DIAGNOSIS_FILE,
+  MAX_VERDICT_BYTES,
   errorMessage,
   githubAppFromEnv,
   parseVerdict,
@@ -66,6 +67,10 @@ const briefOf = (
 const verdictOf = (stateDir: string, runId: string): DiagnosisVerdict => {
   const file = join(stateDir, 'work', runId, DIAGNOSIS_FILE);
   if (!existsSync(file)) throw new Error(`the agent wrote no ${DIAGNOSIS_FILE}`);
+  const stat = lstatSync(file);
+  if (!stat.isFile() || stat.size > MAX_VERDICT_BYTES) {
+    throw new Error(`${DIAGNOSIS_FILE} must be a regular file of at most ${MAX_VERDICT_BYTES} bytes`);
+  }
   return parseVerdict(readFileSync(file, 'utf8'));
 };
 

@@ -69,6 +69,7 @@ const startDiagnoses = async (env: NodeJS.ProcessEnv, systemctl: string): Promis
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   let failed = false;
   try {
+    store.armDiagnosis(new Date().toISOString());
     for (const { runId, repository, number } of store.undiagnosedFailures()) {
       const diagnosisRunId = randomUUID();
       const unit = `forge-diagnose@${diagnosisRunId}.service`;

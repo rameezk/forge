@@ -218,6 +218,7 @@ export {
   DIAGNOSIS_CATEGORY_LABELS,
   DIAGNOSIS_FILE,
   isDiagnosedFailure,
+  MAX_VERDICT_BYTES,
   isDiagnosisCategory,
   parseVerdict,
   UNDIAGNOSED_FAILURES,

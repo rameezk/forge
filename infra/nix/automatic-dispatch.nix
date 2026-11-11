@@ -38,6 +38,7 @@ let
         ];
       }
     });
+    store.armDiagnosis('2000-01-01T00:00:00.000Z');
     const failedAt = new Date().toISOString();
     if (store.dispatchOfRun('failed-run', failedAt) === null) {
       const failed = store.startDispatch(

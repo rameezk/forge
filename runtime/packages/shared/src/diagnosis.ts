@@ -85,6 +85,10 @@ export const isDiagnosedFailure = (reason: string | null): boolean =>
 
 const TEXT_LIMIT = 4000;
 
+export const MAX_EVIDENCE = 20;
+
+export const MAX_VERDICT_BYTES = 65_536;
+
 const textOf = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() !== '' ? value.slice(0, TEXT_LIMIT) : null;
 
@@ -105,10 +109,13 @@ export const parseVerdict = (contents: string): DiagnosisVerdict => {
   if (!Array.isArray(evidence) || evidence.length === 0) {
     throw new Error(`${DIAGNOSIS_FILE} evidence must list at least one entry`);
   }
+  if (evidence.length > MAX_EVIDENCE) {
+    throw new Error(`${DIAGNOSIS_FILE} evidence must list at most ${MAX_EVIDENCE} entries`);
+  }
   const entries = evidence.map((entry: unknown, index): DiagnosisEvidence => {
     const { turn, note } = (typeof entry === 'object' && entry !== null ? entry : {}) as Record<string, unknown>;
     const text = textOf(note);
-    if (typeof turn !== 'number' || !Number.isInteger(turn) || turn < 1 || text === null) {
+    if (typeof turn !== 'number' || !Number.isSafeInteger(turn) || turn < 1 || text === null) {
       throw new Error(`${DIAGNOSIS_FILE} evidence entry ${index + 1} must hold a positive integer turn and a note`);
     }
     return { turn, note: text };

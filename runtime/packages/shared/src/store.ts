@@ -1005,6 +1005,13 @@ const SELECT_DIAGNOSES = `
   FROM diagnoses
 `;
 
+export interface UndiagnosedFailure {
+  runId: string;
+  kind: 'dispatch' | 'revision' | 'conflict-resolution';
+  repository: string;
+  number: number;
+}
+
 const DIAGNOSABLE_FAILURES = `
   SELECT run_id, 'dispatch' AS kind, repository, number, reason, ended_at FROM dispatches
   UNION ALL
@@ -1291,8 +1298,13 @@ export class Store {
   }
 
   #createDiagnoses(): string {
-    return `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}
-      INSERT INTO diagnosis_start (started_at) VALUES ('${new Date().toISOString()}');`;
+    return `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}`;
+  }
+
+  armDiagnosis(at: string): void {
+    this.#db
+      .prepare(`INSERT INTO diagnosis_start (started_at) SELECT $at WHERE NOT EXISTS (SELECT 1 FROM diagnosis_start)`)
+      .run({ at });
   }
 
   #useWriteAheadLog(): void {
@@ -2990,7 +3002,7 @@ export class Store {
     return this.#selectDispatches('WHERE d.run_id = $run_id', { run_id: runId }, now).at(-1) ?? null;
   }
 
-  undiagnosedFailures(): { runId: string; kind: 'dispatch' | 'revision' | 'conflict-resolution'; repository: string; number: number }[] {
+  undiagnosedFailures(): UndiagnosedFailure[] {
     const reasons = DIAGNOSED_FAILURES.map((reason) => `'${reason}'`).join(', ');
     const rows = this.#db
       .prepare(
@@ -3000,7 +3012,7 @@ export class Store {
           AND NOT EXISTS (SELECT 1 FROM diagnoses d WHERE d.failed_run_id = f.run_id)
         ORDER BY f.ended_at, f.run_id`,
       )
-      .all() as { run_id: string; kind: 'dispatch' | 'revision' | 'conflict-resolution'; repository: string; number: number }[];
+      .all() as { run_id: string; kind: UndiagnosedFailure['kind']; repository: string; number: number }[];
     return rows.map(({ run_id, kind, repository, number }) => ({ runId: run_id, kind, repository, number }));
   }
 
