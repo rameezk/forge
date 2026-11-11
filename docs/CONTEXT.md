@@ -234,7 +234,7 @@ The non-destructive application of a changed NixOS configuration to an already s
 _Avoid_: re-standup, update
 
 **Forge bump**:
-The operator repository's scheduled CI job moving its locked `forge` input to forge's latest commit, landing as one commit on its `main` (ADR-0090).
+The operator repository's CI job, started by the pull deploy when forge moves, moving its locked `forge` input to forge's latest commit, landing as one commit on its `main` (ADR-0090, ADR-0104).
 _Avoid_: forge upgrade, auto-update
 
 **Pull deploy**:
