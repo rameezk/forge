@@ -137,6 +137,7 @@ test('given diagnosis runs in the store, when insights load with manual workload
   assert.deepEqual(store.listCohorts(filter), []);
   assert.deepEqual(store.listPoints(filter), []);
   assert.deepEqual(store.listProviderShares(filter), []);
+  assert.deepEqual(store.insightsOptions(), { workers: [], repositories: [] });
 });
 
 test('given a verdict file, when it is parsed, then a valid one yields the verdict and each contract breach is refused', () => {

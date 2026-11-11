@@ -981,7 +981,7 @@ const CREATE_DIAGNOSES = `
   CREATE INDEX IF NOT EXISTS diagnoses_failed_run ON diagnoses (failed_run_id, id);
 `;
 
-const HAS_DIAGNOSES = `
+const HAS_DIAGNOSIS_START = `
   SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'diagnosis_start'
 `;
 
@@ -1298,7 +1298,7 @@ export class Store {
     this.#addColumnsOnce(HAS_REVISION_FAILED_STARTS, ADD_REVISION_FAILED_STARTS);
     this.#addColumnsOnce(HAS_REVISION_OPTIONAL_RUN, MIGRATE_REVISION_RUN);
     db.exec(CREATE_FEEDBACK_WATCHES);
-    this.#addColumnsOnce(HAS_DIAGNOSES, this.#createDiagnoses());
+    this.#addColumnsOnce(HAS_DIAGNOSIS_START, `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}`);
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
     this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
@@ -1309,10 +1309,6 @@ export class Store {
     if (this.#hasOldWorkloadStates()) {
       this.#migrateWorkloadStates();
     }
-  }
-
-  #createDiagnoses(): string {
-    return `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}`;
   }
 
   armDiagnosis(at: string): void {
@@ -1974,7 +1970,7 @@ export class Store {
     const column = (name: string): string[] =>
       (
         this.#db
-          .prepare(`SELECT DISTINCT ${name} AS value FROM runs WHERE ${name} IS NOT NULL ORDER BY ${name}`)
+          .prepare(`SELECT DISTINCT ${name} AS value FROM runs r WHERE ${name} IS NOT NULL ${NOT_A_DIAGNOSIS} ORDER BY ${name}`)
           .all() as { value: string }[]
       ).map(({ value }) => value);
     return { workers: column('worker'), repositories: column('repository') };
