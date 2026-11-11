@@ -911,6 +911,7 @@ const CREATE_RISK_GRADES = `
     unsettled     INTEGER NOT NULL,
     cost_usd      REAL NOT NULL,
     graded_at     TEXT NOT NULL,
+    check_posted  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (repository, number, head_sha)
   ) STRICT;
 `;
@@ -968,6 +969,21 @@ type RiskGradeRow = {
   cost_usd: number;
   graded_at: string;
 };
+
+const riskGradeFromRow = (row: RiskGradeRow): RiskGrade => ({
+  repository: row.repository,
+  number: row.number,
+  headSha: row.head_sha,
+  fingerprint: row.fingerprint,
+  model: row.model,
+  probabilities: JSON.parse(row.probabilities) as Record<RiskLevel, number>,
+  score: row.score,
+  confidence: row.confidence,
+  level: row.level as RiskLevel,
+  unsettled: row.unsettled === 1,
+  costUsd: row.cost_usd,
+  gradedAt: row.graded_at,
+});
 
 type FeedbackWatchRow = {
   repository: string;
@@ -2771,6 +2787,29 @@ export class Store {
       }));
   }
 
+  gradesAwaitingCheck(repositories: readonly string[]): RiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT risk_grades.* FROM risk_grades
+        JOIN feedback_watches USING (repository, number, head_sha)
+        WHERE risk_grades.check_posted = 0
+          AND feedback_watches.mergeable IS NOT NULL
+          AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY risk_grades.repository, risk_grades.number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
+  }
+
+  markCheckPosted(grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>): void {
+    this.#db
+      .prepare(
+        `UPDATE risk_grades SET check_posted = 1
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
+      )
+      .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
+  }
+
   recordRiskGrade(grade: RiskGrade): void {
     this.#db
       .prepare(
@@ -2805,22 +2844,7 @@ export class Store {
         WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
       )
       .get({ repository, number, head_sha: headSha }) as RiskGradeRow | undefined;
-    return row === undefined
-      ? null
-      : {
-          repository: row.repository,
-          number: row.number,
-          headSha: row.head_sha,
-          fingerprint: row.fingerprint,
-          model: row.model,
-          probabilities: JSON.parse(row.probabilities) as Record<RiskLevel, number>,
-          score: row.score,
-          confidence: row.confidence,
-          level: row.level as RiskLevel,
-          unsettled: row.unsettled === 1,
-          costUsd: row.cost_usd,
-          gradedAt: row.graded_at,
-        };
+    return row === undefined ? null : riskGradeFromRow(row);
   }
 
   feedbackCursors(repository: string): Map<number, string | null> {

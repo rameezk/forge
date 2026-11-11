@@ -272,8 +272,16 @@ const gradeOne = async (
     now(),
   );
   store.recordRiskGrade(grade);
+  await postCheck(options, grade, repository);
+};
+
+const postCheck = async (
+  { store, fetch, tokens }: GradePullRequestsOptions,
+  grade: RiskGrade,
+  repository: string,
+): Promise<void> => {
   const { title, summary } = checkRunOutput(grade);
-  await github(fetch, token, `/repos/${repository}/check-runs`, {
+  await github(fetch, await tokens(repository, 'grading'), `/repos/${repository}/check-runs`, {
     method: 'POST',
     body: {
       name: CHECK_NAME,
@@ -283,10 +291,19 @@ const gradeOne = async (
       output: { title, summary },
     },
   });
+  store.markCheckPosted(grade);
 };
 
 export const gradePullRequests = async (options: GradePullRequestsOptions): Promise<boolean> => {
   let graded = true;
+  for (const grade of options.store.gradesAwaitingCheck(Object.keys(options.repositories))) {
+    try {
+      await postCheck(options, grade, options.repositories[grade.repository] as string);
+    } catch (error) {
+      options.log(`${grade.repository}#${grade.number}: could not post the check run: ${errorMessage(error)}`);
+      graded = false;
+    }
+  }
   for (const due of options.store.gradingDue(Object.keys(options.repositories), options.now())) {
     try {
       await gradeOne(options, due, options.repositories[due.repository] as string);

@@ -105,12 +105,14 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
 
   let pulls: FakePull[] = [];
   let files = FILES;
+  let checkRunsAccepted = true;
   const checkRuns: { authorization: string; body: Record<string, unknown> }[] = [];
   const github: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const json = (data: unknown): Response =>
       new Response(JSON.stringify(data), { headers: { 'content-type': 'application/json' } });
     if (url.pathname === '/repos/rameezk/forge/check-runs' && init?.method === 'POST') {
+      if (!checkRunsAccepted) return new Response('{}', { status: 403 });
       const authorization = new Headers(init.headers).get('authorization') ?? '';
       assert.match(authorization, /^Bearer ghs_grading_/);
       checkRuns.push({
@@ -215,10 +217,18 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
 
   return {
     env,
+    fetch,
+    setPulls: (next: FakePull[]): void => {
+      pulls = next;
+    },
     jevRequests,
     checkRuns,
     withStore,
     syncAndGrade,
+    acceptCheckRuns: (accepted: boolean): void => {
+      checkRunsAccepted = accepted;
+    },
+    grade: async (): Promise<number> => (await journaled(() => grade(env, fetch))).result,
     answerWith: (next: Answer): void => {
       answer = next;
     },
@@ -357,4 +367,25 @@ test('given grades under one model, when the configured model changes, then new 
     store.riskGrade('forge', 11, 'head-11')?.fingerprint,
   ]);
   assert.ok(first !== undefined && second !== undefined && first !== second);
+});
+
+test('given the check run is refused after Jev graded the head, when forge-grading runs again once it is accepted, then the check run is posted without asking Jev again', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.acceptCheckRuns(false);
+  f.setPulls([READY]);
+  const synced = await journaled(() => sync(['sync'], f.env, f.fetch));
+  assert.equal(synced.result, 0, synced.journal);
+  assert.equal(await f.grade(), 1);
+  assert.equal(f.jevRequests.length, 1);
+  assert.equal(f.checkRuns.length, 0);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.level), 'low');
+
+  f.acceptCheckRuns(true);
+  assert.equal(await f.grade(), 0);
+  assert.equal(f.jevRequests.length, 1);
+  assert.equal(f.checkRuns.length, 1);
+
+  assert.equal(await f.grade(), 0);
+  assert.equal(f.checkRuns.length, 1);
 });
