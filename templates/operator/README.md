@@ -466,7 +466,9 @@ repositories forge manages, and give the box its id and private key.
    - Workflows: read and write. GitHub rejects any push that adds or changes a
      file under `.github/workflows/` without it, so a run that sets up CI
      cannot push.
-   - Checks: read, so the agent can watch a pull request's required checks.
+   - Checks: read and write, so the agent can watch a pull request's required
+     checks and forge can post the `forge/risk` check run of a graded pull
+     request.
    - Actions: read and write, so the agent can read the logs of the checks
      that fail and re-run a run that failed for infrastructure reasons.
    - Commit statuses: read, so forge can read the status of a pull request's
@@ -508,6 +510,12 @@ installation, which GitHub emails to the account owner and shows on the
 installation's page. Until you do, GitHub refuses to mint tokens and the
 frontier error and the dispatch failure name the permissions forge requested.
 
+Upgrading an existing App for risk grading: change **Checks** from read to
+**read and write** in the App's repository permissions, then accept the new
+permission on the installation. Until you do, `forge-grading` fails to mint its
+token and logs the permissions forge requested. Nothing else is affected, since
+only the grading token asks for Checks: write.
+
 Upgrading an existing App for re-runs: change **Actions** from read to **read
 and write** in the App's repository permissions, then accept the new permission
 on the installation. Until you do, every dispatch fails to mint its workload
@@ -521,8 +529,8 @@ that workload's repository alone. It renews a workload's token while the run
 lasts, so a long run can still push, and it redacts every token it mints from
 the transcript.
 
-Only the frontier sync and a dispatch can read the private key, as a systemd
-credential. The workload, the dashboard and billing cannot. A workload holds
+Only the frontier sync, a dispatch and grading can read the private key, as a
+systemd credential. The workload, the dashboard and billing cannot. A workload holds
 only its own repository's token, so a compromised run reaches that repository
 alone, for at most an hour after it ends. Still protect each default branch,
 since a run can change CI workflows in its repository.
@@ -869,6 +877,39 @@ running.
 Each re-run adds a diagnosis and keeps the earlier ones. The failed run's page
 shows the latest and lists the earlier ones, and counts drawn from diagnoses
 use only the latest per failed run. A failed re-run is never diagnosed itself.
+
+### Grading a pull request's risk
+
+Forge can grade how much careful review each pull request it opens needs.
+Jev, TypeSafe's classification model, judges the pull request's head commit on
+four levels (`trivial`, `low`, `moderate`, `high`), with a probability per level
+and a confidence, and forge's App posts the result as a `forge/risk` check run
+on that commit. The check run always concludes neutral and is never required, so
+it advises the reviewer and cannot gate a dispatch or a merge.
+
+```nix
+forge.runtime.grading.model = "typesafe/jev-1.13";
+forge.runtime.repositories.forge.grading = true;
+```
+
+Grading is off for a repository until you set `grading`, and
+`forge.runtime.grading.model` must then name a Jev version id, never
+`jev-latest` and never a dated snapshot. Changing the model, or forge changing
+the question it asks, starts a new grading cohort: each grade is stored with its
+grading fingerprint. A grade below `forge.runtime.grading.confidenceThreshold`,
+0.6 by default, is unsettled, and its check run names the runner-up level beside
+the most likely one.
+
+The `forge-grading` service runs every minute on its own timer and holds only
+the OpenRouter key and forge's App. It grades each forge pull request that is
+ready and has no dispatch, revision or conflict resolution running on it, once
+per head commit, and turning grading on grades the repository's open forge
+pull requests on the next pass. Human pull requests are never graded. Jev sees
+the ticket, its parent spec, the changed files with their line counts and the
+diff with lockfile and generated-file content left out, and never the pull
+request's title, body or commit messages. A grade's cost is billed to your
+OpenRouter account and counts against no workload's budget. The App needs the
+**Checks: read and write** permission; see [the GitHub App](#the-github-app).
 
 ## The workload sandbox
 

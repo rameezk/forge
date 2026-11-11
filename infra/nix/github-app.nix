@@ -16,6 +16,7 @@ let
     writeShellScriptBin name ''
       probe() {
         echo "env=''${FORGE_GITHUB_APP_ID-unset}"
+        if [ -n "''${OPENROUTER_API_KEY-}" ]; then echo "openrouter=set"; else echo "openrouter=unset"; fi
         for file in ${appIdFile} ${appKeyFile}; do
           if contents="$(cat "$file" 2>/dev/null)"; then
             echo "read $(basename "$file") $contents"
@@ -43,6 +44,7 @@ let
       "forge-dispatch"
       "forge-dispatch-pass"
       "forge-billing"
+      "forge-grading"
       "forge-migrate"
       "forge-frontier"
       "forge-frontend"
@@ -71,16 +73,21 @@ testers.runNixOSTest {
       model = "stub/tokens";
       prompt = "/work-on {url}";
     };
+    forge.runtime.grading.model = "typesafe/jev-1.13";
     forge.runtime.repositories.forge = {
       github = "rameezk/forge";
       on.ticket = "builder";
+      grading = true;
     };
   };
 
   testScript = builtins.readFile ./oneshot.py + ''
     app = "env=123456"
     key_credential = "credential github_app_private_key_fixture_not_a_real_key"
-    denied = ["env=unset", "denied forge-github-app.env", "denied github_app_private_key"]
+    no_key = "openrouter=unset"
+    with_key = "openrouter=set"
+    denied = ["env=unset", no_key, "denied forge-github-app.env", "denied github_app_private_key"]
+    denied_with_key = ["env=unset", with_key, "denied forge-github-app.env", "denied github_app_private_key"]
 
     def probe(name):
         return box.succeed(f"cat /var/lib/forge/{name}.out").splitlines()
@@ -93,7 +100,7 @@ testers.runNixOSTest {
 
     with subtest("frontier sync loads the App id and reads the private key as data from its credential"):
         box.succeed("systemctl start forge-frontier-sync.service")
-        assert probe("forge-frontier-sync") == [app, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-frontier-sync")
+        assert probe("forge-frontier-sync") == [app, no_key, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-frontier-sync")
 
     with subtest("forge-frontier list reads the App id from its rendered file and the private key from its secret"):
         box.succeed("sudo -u forge-runtime forge-frontier list")
@@ -103,13 +110,17 @@ testers.runNixOSTest {
 
     with subtest("dispatch loads the App id and reads the private key only as data from its credential"):
         box.succeed("forge-dispatch forge 148")
-        assert probe("forge-dispatch-forge") == [app, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-dispatch-forge")
+        assert probe("forge-dispatch-forge") == [app, with_key, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-dispatch-forge")
+
+    with subtest("grading loads the App id and the OpenRouter key and reads the private key only as data from its credential, and no other secret"):
+        box.succeed("systemctl start forge-grading.service")
+        assert probe("forge-grading") == [app, with_key, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-grading")
 
     with subtest("the units that do not use the App cannot read either"):
         box.succeed("systemctl start forge-runner@builder.service forge-billing.service")
         box.wait_for_file("/var/lib/forge/forge-dispatch-pass.out")
-        for name in ["forge-run-builder", "forge-billing", "forge-frontend", "forge-dispatch-pass"]:
-            assert probe(name) == denied, (name, probe(name))
+        for name, expected in [("forge-run-builder", denied_with_key), ("forge-billing", denied_with_key), ("forge-frontend", denied), ("forge-dispatch-pass", denied)]:
+            assert probe(name) == expected, (name, probe(name))
 
     with subtest("a scheduled workload running across a redeploy cannot read the new secrets generation"):
         before_lingering = cursor(box)
@@ -120,6 +131,6 @@ testers.runNixOSTest {
         assert box.succeed("readlink /run/secrets").strip() != generation, "the redeploy did not render a new secrets generation"
         box.succeed("touch /var/lib/forge/redeployed")
         wait_until_oneshot_succeeded(box, "forge-runner@lingering.service", before_lingering)
-        assert probe("forge-run-lingering-after") == denied, probe("forge-run-lingering-after")
+        assert probe("forge-run-lingering-after") == denied_with_key, probe("forge-run-lingering-after")
   '';
 }

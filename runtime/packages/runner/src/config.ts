@@ -25,6 +25,7 @@ export interface WorkerConfig {
 export interface RepositoryConfig {
   github: string;
   on?: { ticket?: string; feedback?: string; conflict?: string };
+  grading?: boolean;
 }
 
 export interface DispatchConfig {
@@ -69,6 +70,11 @@ export interface DiagnosisConfig {
 export const diagnosisWorkerOf = (config: RuntimeConfig): string | null =>
   config.diagnosis?.worker ?? null;
 
+export interface GradingConfig {
+  model?: string;
+  confidenceThreshold?: number;
+}
+
 export interface RuntimeConfig {
   harnesses: Record<string, HarnessConfig>;
   workers: Record<string, WorkerConfig>;
@@ -77,6 +83,7 @@ export interface RuntimeConfig {
   feedback?: FeedbackConfig;
   workload?: WorkloadConfig;
   diagnosis?: DiagnosisConfig;
+  grading?: GradingConfig;
 }
 
 const effortsOf = (harness: string): readonly string[] | undefined =>
