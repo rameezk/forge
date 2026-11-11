@@ -2427,6 +2427,7 @@ test('given a dispatched workload, when its token is minted, then it is scoped t
       pull_requests: 'write',
       workflows: 'write',
       checks: 'read',
+      actions: 'read',
       statuses: 'read',
     },
   });

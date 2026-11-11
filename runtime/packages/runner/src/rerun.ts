@@ -160,9 +160,11 @@ export class RerunChannel {
         reply(response, 404, { rerun: false, message: 'refused: only POST /rerun is served' });
         return;
       }
-      void readBody(request).then(async (body) => {
-        reply(response, 200, await decider.ask(parsedRun(body)));
-      });
+      readBody(request)
+        .then(async (body) => {
+          reply(response, 200, await decider.ask(parsedRun(body)));
+        })
+        .catch(() => response.destroy());
     });
     const path = join(dir, SOCKET_FILE);
     await new Promise<void>((resolve, reject) => {

@@ -58,6 +58,7 @@ for (const [access, permissions] of [
       pull_requests: 'write',
       workflows: 'write',
       checks: 'read',
+      actions: 'read',
       statuses: 'read',
     },
   ],
