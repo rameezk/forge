@@ -464,8 +464,9 @@ repositories forge manages, and give the box its id and private key.
    - Issues: read and write
    - Pull requests: read and write
    - Workflows: read and write. GitHub rejects any push that adds or changes a
-     file under `.github/workflows/` without it, so a run that sets up CI
-     cannot push.
+     file under `.github/workflows/` without it. Forge asks for it on a
+     workload's token only in a repository that sets `workflows`; see
+     [Changing workflows from a workload](#changing-workflows-from-a-workload).
    - Checks: read and write, so the agent can watch a pull request's required
      checks and forge can post the `forge/risk` check run of a graded pull
      request.
@@ -532,8 +533,8 @@ the transcript.
 Only the frontier sync, a dispatch and grading can read the private key, as a
 systemd credential. The workload, the dashboard and billing cannot. A workload holds
 only its own repository's token, so a compromised run reaches that repository
-alone, for at most an hour after it ends. Still protect each default branch,
-since a run can change CI workflows in its repository.
+alone, for at most an hour after it ends. Still protect each default branch.
+A run can change CI workflows only in a repository that sets `workflows`.
 
 #### Moving off the two personal tokens
 
@@ -877,6 +878,27 @@ running.
 Each re-run adds a diagnosis and keeps the earlier ones. The failed run's page
 shows the latest and lists the earlier ones, and counts drawn from diagnoses
 use only the latest per failed run. A failed re-run is never diagnosed itself.
+
+### Changing workflows from a workload
+
+A workload's token carries Workflows: write only in a repository that sets
+`workflows`, which is off by default:
+
+```nix
+forge.runtime.repositories.forge.workflows = true;
+```
+
+Without it, GitHub refuses a workload's push that adds or changes a file under
+`.github/workflows/`, and a ticket that needs a workflow change fails at push.
+Either opt the repository in or make that change by hand. The App installation
+keeps Workflows: write, so opting in needs no change on GitHub.
+
+Opting in lets a workload, and anyone holding its leaked token, push a workflow
+that runs at once on its branch with every repository-level Actions secret.
+Opt in only a repository whose default branch meets the branch rules of
+ADR-0105: it requires at least one approving review and approval of the most
+recent push, forge's App cannot bypass it, and GitHub Actions cannot approve
+pull requests in the repository.
 
 ### Grading a pull request's risk
 

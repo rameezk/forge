@@ -35,12 +35,15 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
     contents: 'write',
     issues: 'write',
     pull_requests: 'write',
-    workflows: 'write',
     checks: 'read',
     actions: 'write',
     statuses: 'read',
   },
 };
+
+export interface MintOptions {
+  workflows?: boolean;
+}
 
 export interface InstallationToken {
   token: string;
@@ -141,7 +144,11 @@ export class GithubApp {
     return { name: login, email: `${bot.id}+${login}@users.noreply.github.com` };
   }
 
-  async mint(github: string, access: TokenAccess): Promise<InstallationToken> {
+  async mint(
+    github: string,
+    access: TokenAccess,
+    { workflows = false }: MintOptions = {},
+  ): Promise<InstallationToken> {
     requireGithubRepository(github);
     const [, name = ''] = github.split('/');
     const lookup = await this.#request('GET', `/repos/${github}/installation`);
@@ -149,7 +156,10 @@ export class GithubApp {
       throw new Error(`the GitHub App is not installed on ${github}`);
     }
     const installation = (await ok(lookup)) as { id: number };
-    const permissions = PERMISSIONS[access];
+    const permissions: Record<string, 'read' | 'write'> = {
+      ...PERMISSIONS[access],
+      ...(access === 'workload' && workflows ? { workflows: 'write' } : {}),
+    };
     const response = await this.#request(
       'POST',
       `/app/installations/${installation.id}/access_tokens`,

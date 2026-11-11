@@ -282,6 +282,7 @@ export const main = async (
             promptTemplate: worker.prompt,
           },
           github: repository.github,
+          workflows: repository.workflows,
           app,
           gitEnv,
           identity,
