@@ -84,7 +84,7 @@ else
 fi
 
 vm_tests="$(nix eval --json ".#vmTests.x86_64-linux" --apply builtins.attrNames 2>/dev/null | jq -r 'sort | join(" ")' || true)"
-expected_vm_tests="automatic-dispatch dashboard-reach deploy-keeps-workloads github-app pull-deploy run-directories runtime-toolset workload-devshell workload-sandbox"
+expected_vm_tests="automatic-dispatch dashboard-reach deploy-keeps-workloads github-app pull-deploy run-directories runtime-toolset tools-sandbox workload-devshell workload-sandbox"
 if [ "$vm_tests" = "$expected_vm_tests" ]; then
 	echo "ok: vmTests lists the 9 VM tests by name"
 else
