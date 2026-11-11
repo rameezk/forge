@@ -84,19 +84,19 @@ test('given runs at 21:30Z and 22:30Z and no display time zone, when the workloa
 });
 
 test('given runs at 21:30Z and 22:30Z and Africa/Johannesburg, when the insights page is filtered to the 15th, then only the 22:30Z run counts', async () => {
-  const { page } = dashboard([seed('before', BEFORE_MIDNIGHT), seed('after', AFTER_MIDNIGHT)], JOHANNESBURG);
+  const { costPage: page } = dashboard([seed('before', BEFORE_MIDNIGHT), seed('after', AFTER_MIDNIGHT)], JOHANNESBURG);
 
   assert.deepEqual(plotted(await page('?from=2026-10-15&to=2026-10-15')), ['after']);
 });
 
 test('given runs at 21:30Z and 22:30Z and no display time zone, when the insights page is filtered to the 14th, then both runs count', async () => {
-  const { page } = dashboard([seed('before', BEFORE_MIDNIGHT), seed('after', AFTER_MIDNIGHT)]);
+  const { costPage: page } = dashboard([seed('before', BEFORE_MIDNIGHT), seed('after', AFTER_MIDNIGHT)]);
 
   assert.deepEqual(plotted(await page('?from=2026-10-14&to=2026-10-14')), ['after', 'before']);
 });
 
 test('given costs either side of local midnight and Africa/Johannesburg, when the insights page is requested, then ticks and labels fall on local midnights', async () => {
-  const { page } = dashboard(
+  const { costPage: page } = dashboard(
     [seed('a', '2026-10-13T22:30:00.000Z'), seed('b', '2026-10-15T22:30:00.000Z'), seed('c', '2026-10-17T10:00:00.000Z')],
     JOHANNESBURG,
   );
@@ -109,7 +109,7 @@ test('given costs either side of local midnight and Africa/Johannesburg, when th
 });
 
 test('given no display time zone, when the insights page is requested, then ticks fall on UTC midnights', async () => {
-  const { page } = dashboard([seed('a', '2026-10-13T21:30:00.000Z'), seed('b', '2026-10-17T10:00:00.000Z')]);
+  const { costPage: page } = dashboard([seed('a', '2026-10-13T21:30:00.000Z'), seed('b', '2026-10-17T10:00:00.000Z')]);
 
   const ticks = ticksOf(await page());
 
@@ -118,7 +118,7 @@ test('given no display time zone, when the insights page is requested, then tick
 });
 
 test('given Europe/London and a range crossing the clocks going back, when the insights page is requested, then each local day has one tick and one label', async () => {
-  const { page } = dashboard([seed('a', '2026-10-22T10:00:00.000Z'), seed('b', '2026-11-05T10:00:00.000Z')], LONDON);
+  const { costPage: page } = dashboard([seed('a', '2026-10-22T10:00:00.000Z'), seed('b', '2026-11-05T10:00:00.000Z')], LONDON);
 
   const ticks = ticksOf(await page());
   const labels = ticks.map(({ label }) => label);
@@ -129,7 +129,7 @@ test('given Europe/London and a range crossing the clocks going back, when the i
 });
 
 test('given Europe/London and a range crossing the clocks going forward, when the insights page is requested, then no local day is skipped or repeated', async () => {
-  const { page } = dashboard([seed('a', '2027-03-24T10:00:00.000Z'), seed('b', '2027-04-03T10:00:00.000Z')], LONDON);
+  const { costPage: page } = dashboard([seed('a', '2027-03-24T10:00:00.000Z'), seed('b', '2027-04-03T10:00:00.000Z')], LONDON);
 
   const ticks = ticksOf(await page());
   const labels = ticks.map(({ label }) => label);
@@ -145,7 +145,7 @@ test('given a well-formed but impossible date, when the workloads list is reques
 });
 
 test('given a well-formed but impossible date, when the insights page is requested, then the date is ignored', async () => {
-  const { app, page } = dashboard([seed('before', BEFORE_MIDNIGHT), seed('after', AFTER_MIDNIGHT)], JOHANNESBURG);
+  const { app, costPage: page } = dashboard([seed('before', BEFORE_MIDNIGHT), seed('after', AFTER_MIDNIGHT)], JOHANNESBURG);
 
   assert.equal((await app.request('/insights?from=2026-13-45&to=2026-02-30')).status, 200);
   assert.deepEqual(plotted(await page('?from=2026-13-45&to=9999-12-31')), ['after', 'before']);

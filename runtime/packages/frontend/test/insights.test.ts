@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fingerprintHash } from '@forge/shared';
 import type { ConfigFingerprint } from '@forge/shared';
 import { textOf } from './html.ts';
-import { dashboard, GLM, SONNET, type Seed } from './insights-seed.ts';
+import { dashboard, GLM, onCostTab, SONNET, type Seed } from './insights-seed.ts';
 
 type Row = Record<string, string>;
 
@@ -42,6 +42,14 @@ const groupHeader = (page: string, group: string): string | undefined => {
 const cellTitle = (page: string, hash: string, metric: string): string | undefined =>
   rowHtml(page, hash).match(new RegExp(`<td[^>]*\\sdata-metric="${metric}"[^>]*\\stitle="([^"]*)"`))?.[1];
 
+type PageOf = (query?: string) => Promise<string>;
+
+const acrossTabs = async (page: PageOf, query = ''): Promise<Map<string, Row>> => {
+  const delivery = rowsOf(await page(query));
+  const cost = rowsOf(await page(onCostTab(query)));
+  return new Map([...delivery].map(([hash, row]) => [hash, { ...row, ...cost.get(hash) }]));
+};
+
 const COHORT_SEEDS: Seed[] = [
   { id: 'a1', fingerprint: SONNET, seconds: 60, cost: 0.1, cacheReadTokens: 300, toolCalls: 10, retries: 0, pullRequest: { state: 'merged', rework: 1 } },
   { id: 'a2', fingerprint: SONNET, seconds: 120, cost: 0.2, cacheReadTokens: 300, toolCalls: 20, retries: 1, pullRequest: { state: 'merged', rework: 3 } },
@@ -52,7 +60,7 @@ const COHORT_SEEDS: Seed[] = [
 ];
 
 test('given two cohorts of dispatched workloads, when the insights page is requested, then each cohort row shows its figures', async () => {
-  const rows = rowsOf(await dashboard(COHORT_SEEDS).page());
+  const rows = await acrossTabs(dashboard(COHORT_SEEDS).page);
 
   assert.deepEqual(rows.get(fingerprintHash(SONNET)), {
     'first-run': '2026-09-21 10:00',
@@ -124,12 +132,12 @@ test('given a manual workload in a cohort, when the insights page is requested w
   const { page } = dashboard(MANUAL_SEEDS);
   const hash = fingerprintHash(SONNET);
 
-  const without = rowsOf(await page()).get(hash)!;
+  const without = (await acrossTabs(page)).get(hash)!;
   assert.equal(without['workloads'], '2');
   assert.equal(without['cost-median'], '$0.150000');
   assert.equal(without['tool-calls'], '15');
 
-  const withManual = rowsOf(await page('?manual=1')).get(hash)!;
+  const withManual = (await acrossTabs(page, '?manual=1')).get(hash)!;
   assert.equal(withManual['workloads'], '3');
   assert.equal(withManual['cost-median'], '$0.200000');
   assert.equal(withManual['tool-calls'], '20');
@@ -172,9 +180,10 @@ test('given workloads across workers, repositories and weeks, when the insights 
   const everything = await page();
   assert.equal(rowsOf(everything).get(hash)!['workloads'], '4');
 
-  const filtered = await page('?worker=builder&repository=forge&from=2026-09-20&to=2026-09-27');
+  const query = '?worker=builder&repository=forge&from=2026-09-20&to=2026-09-27';
+  const filtered = await page(query);
   assert.equal(rowsOf(filtered).get(hash)!['workloads'], '1');
-  assert.equal(rowsOf(filtered).get(hash)!['cost-median'], '$0.200000');
+  assert.equal(rowsOf(await page(onCostTab(query))).get(hash)!['cost-median'], '$0.200000');
   assert.equal(selected(filtered, 'worker'), 'builder');
   assert.equal(selected(filtered, 'repository'), 'forge');
   assert.equal(selected(filtered, 'from'), '2026-09-20');
@@ -191,7 +200,7 @@ const MIXED_SEEDS: Seed[] = [
 ];
 
 test('given an OpenRouter cohort and a subscription cohort of the same worker, when the insights page is requested, then the subscription cohort\'s costs are its list-price equivalents, marked as such, and the OpenRouter cohort\'s are its billed costs alone', async () => {
-  const page = await dashboard(MIXED_SEEDS).page();
+  const page = await dashboard(MIXED_SEEDS).page('?tab=cost');
   const rows = rowsOf(page);
   const basis = (hash: string): string =>
     page.match(new RegExp(`<tr[^>]*\\sdata-cohort="${hash}"[^>]*\\sdata-cost-basis="([^"]*)"`))?.[1] ?? 'missing';
@@ -215,7 +224,7 @@ test('given an OpenRouter cohort and a subscription cohort of the same worker, w
 });
 
 test('given only OpenRouter cohorts, when the insights page is requested, then the page carries no list-price note', async () => {
-  const page = await dashboard(COHORT_SEEDS).page();
+  const page = await dashboard(COHORT_SEEDS).page('?tab=cost');
 
   assert.doesNotMatch(page, /data-cost-note|data-cost-basis="list-price"/);
 });
@@ -226,7 +235,7 @@ test('given a subscription cohort with one priced and one unpriced workload, and
     ...MIXED_SEEDS,
     { id: 'u1', fingerprint: unpriced, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
     { id: 'p1', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
-  ]).page();
+  ]).page('?tab=cost');
   const rows = rowsOf(page);
 
   const partly = rows.get(fingerprintHash(SUBSCRIBED))!;
@@ -239,7 +248,7 @@ test('given a subscription cohort where one merged workload has a generation the
   const page = await dashboard([
     { id: 'a1', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: 3, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
     { id: 'a2', fingerprint: SUBSCRIBED, seconds: 60, cost: 0, listPrice: 5, unpricedGeneration: true, toolCalls: 1, retries: 0, pullRequest: { state: 'merged', rework: 0 } },
-  ]).page();
+  ]).page('?tab=cost');
 
   const row = rowsOf(page).get(fingerprintHash(SUBSCRIBED))!;
   assert.deepEqual([row['cost-median'], row['cost-per-merged']], ['$3.000000', 'n/a']);
@@ -251,7 +260,7 @@ const UNCONFIRMED_SEEDS: Seed[] = [
 ];
 
 test('given a cohort with a workload billing could not confirm, when the insights page is requested, then the cohort counts that workload\'s unconfirmed estimate', async () => {
-  const rows = rowsOf(await dashboard(UNCONFIRMED_SEEDS).page());
+  const rows = rowsOf(await dashboard(UNCONFIRMED_SEEDS).page('?tab=cost'));
 
   assert.equal(rows.get(fingerprintHash(SONNET))?.['cost-median'], '$0.230000');
   assert.equal(rows.get(fingerprintHash(SONNET))?.['cost-per-merged'], '$0.460000');
@@ -407,14 +416,15 @@ test('given an active cohort for one worker on two repositories and a previous c
 const REVISER = { worker: 'reviser' };
 
 test('given a worker that finished one revision and failed another on a repository and never dispatched there, when the insights page is requested with Kind Revision, then its revision cohort is active for it with Done at 50% and the dispatch-only figures n/a', async () => {
-  const page = await dashboard([
+  const { page } = dashboard([
     { id: 'v1', fingerprint: GLM, kind: 'revision', start: '2026-09-10T10:00:00.000Z', ...REVISER, ...quick },
     { id: 'v2', fingerprint: GLM, kind: 'revision', failed: true, start: '2026-09-11T10:00:00.000Z', ...REVISER, ...quick },
-  ]).page('?kind=revision');
-  const row = rowsOf(page).get(HASH.glm)!;
+  ]);
+  const delivery = await page('?kind=revision');
+  const row = (await acrossTabs(page, '?kind=revision')).get(HASH.glm)!;
 
-  assert.equal(groupOf(page, HASH.glm), 'active');
-  assert.equal(ownerLine(page, HASH.glm), 'Active for reviser on forge');
+  assert.equal(groupOf(delivery, HASH.glm), 'active');
+  assert.equal(ownerLine(delivery, HASH.glm), 'Active for reviser on forge');
   assert.equal(row['workloads'], '2');
   assert.equal(row['done'], '50.0%');
   assert.equal(row['opened'], 'n/a');
@@ -455,9 +465,9 @@ test('given a dispatch and a revision in one date range, when the insights page 
   const { page } = dashboard(KINDS);
   const plotted = (html: string): string[] => [...html.matchAll(/data-point data-run="([^"]*)"/g)].map(([, run]) => run!);
 
-  assert.deepEqual(plotted(await page('?kind=all')), ['k1', 'k2', 'k3']);
-  assert.deepEqual(plotted(await page('?kind=dispatch')), ['k1']);
-  assert.deepEqual(plotted(await page('?kind=conflict-resolution')), ['k3']);
+  assert.deepEqual(plotted(await page('?kind=all&tab=cost')), ['k1', 'k2', 'k3']);
+  assert.deepEqual(plotted(await page('?kind=dispatch&tab=cost')), ['k1']);
+  assert.deepEqual(plotted(await page('?kind=conflict-resolution&tab=cost')), ['k3']);
 });
 
 test('given a conflict resolution cohort, when the insights page is requested with Kind Conflict resolution or an unknown Kind, then the cohort is active for its resolver and an unknown Kind falls back to Dispatch', async () => {
@@ -470,4 +480,81 @@ test('given a conflict resolution cohort, when the insights page is requested wi
   const unknown = await page('?kind=bogus');
   assert.equal(selectedKind(unknown), 'dispatch');
   assert.deepEqual([...rowsOf(unknown).keys()], [HASH.sonnet]);
+});
+
+const DELIVERY_METRICS = ['label', 'first-run', 'last-run', 'workloads', 'done', 'opened', 'merged', 'retries', 'rework', 'duration', 'tool-calls'];
+const COST_METRICS = ['label', 'workloads', 'cost-median', 'cost-p90', 'cost-per-merged', 'cache-hit'];
+
+const tabsOf = (page: string): { label: string; selected: boolean; href: string }[] =>
+  [...page.matchAll(/<a\s[^>]*data-tab="([^"]+)"[^>]*>/g)].map(([tag, name]) => ({
+    label: name!,
+    selected: /aria-current="page"/.test(tag!),
+    href: (tag!.match(/href="([^"]*)"/)?.[1] ?? '').replaceAll('&amp;', '&'),
+  }));
+
+const metricsOf = (page: string, hash: string): string[] => Object.keys(rowsOf(page).get(hash) ?? {});
+
+test('given cohorts with dispatches and costs, when the insights page is requested with no tab, then Delivery is selected, Kind is Dispatch and the table shows only the Delivery columns', async () => {
+  const page = await dashboard(COHORT_SEEDS).page();
+
+  assert.deepEqual(tabsOf(page).map(({ label, selected }) => [label, selected]), [['delivery', true], ['cost', false]]);
+  assert.deepEqual(
+    [...page.matchAll(/<a\s[^>]*data-tab="[^"]+"[^>]*>([\s\S]*?)<\/a>/g)].map(([, text]) => textOf(text!)),
+    ['Delivery', 'Cost'],
+  );
+  assert.match(page, /<option value="dispatch" selected>/);
+  assert.deepEqual(metricsOf(page, fingerprintHash(SONNET)), DELIVERY_METRICS);
+  assert.deepEqual(
+    [...page.matchAll(/<th class="[^"]*">([^<]+)<\/th>/g)].map(([, text]) => text),
+    ['Cohort', 'First run', 'Last run', 'Workloads', 'Done', 'Opened', 'Merged', 'Retries per workload', 'Rework per merged PR', 'Median duration', 'Median tool calls'],
+  );
+  assert.doesNotMatch(page, /data-cost-chart|data-provider-shares|data-cost-note/);
+});
+
+test('given the same cohorts, when the Cost tab is requested, then the chart comes first, the table shows only the Cost columns and Provider share follows', async () => {
+  const page = await dashboard(COHORT_SEEDS).page('?tab=cost');
+
+  assert.deepEqual(tabsOf(page).map(({ label, selected }) => [label, selected]), [['delivery', false], ['cost', true]]);
+  assert.deepEqual(metricsOf(page, fingerprintHash(SONNET)), COST_METRICS);
+  assert.deepEqual(
+    [...page.matchAll(/<th class="[^"]*">([^<]+)<\/th>/g)].map(([, text]) => text),
+    ['Cohort', 'Workloads', 'Median cost', 'p90 cost', 'Cost per merged PR', 'Cache hit'],
+  );
+  const at = (marker: string): number => page.indexOf(marker);
+  assert.ok(at('data-cost-chart') > 0 && at('data-cost-chart') < at('data-cohorts'), 'chart before table');
+  assert.ok(at('data-cohorts') < at('data-provider-shares'), 'provider share after table');
+});
+
+test('given a subscription cohort, when the Cost tab and then the Delivery tab are requested, then the list-price note shows only on Cost', async () => {
+  const cost = await dashboard(MIXED_SEEDS).page('?tab=cost');
+  const delivery = await dashboard(MIXED_SEEDS).page('?tab=delivery');
+
+  assert.match(cost, /data-cost-note/);
+  assert.doesNotMatch(delivery, /data-cost-note/);
+});
+
+test('given the Cost tab and filters, when the page renders, then the tab links and the filter form carry the filters and the open tab', async () => {
+  const page = await dashboard(COHORT_SEEDS).page('?tab=cost&worker=builder&kind=all');
+
+  const [delivery, cost] = tabsOf(page);
+  assert.equal(new URL(delivery!.href, 'http://x').searchParams.get('tab'), null);
+  assert.equal(new URL(delivery!.href, 'http://x').searchParams.get('worker'), 'builder');
+  assert.equal(new URL(cost!.href, 'http://x').searchParams.get('tab'), 'cost');
+  assert.equal(new URL(cost!.href, 'http://x').searchParams.get('kind'), 'all');
+  assert.match(page, /<input type="hidden" name="tab" value="cost"/);
+});
+
+test('given an unknown tab, when the insights page is requested, then Delivery is selected', async () => {
+  const page = await dashboard(COHORT_SEEDS).page('?tab=bogus');
+
+  assert.deepEqual(tabsOf(page).map(({ selected }) => selected), [true, false]);
+});
+
+test('given a table wider than the viewport, when the insights page is requested on either tab, then the Cohort column header and cells are pinned to the left edge', async () => {
+  for (const query of ['', '?tab=cost']) {
+    const page = await dashboard(COHORT_SEEDS).page(query);
+
+    assert.match(page, /<th class="[^"]*\bsticky\b[^"]*\bleft-0\b[^"]*">Cohort<\/th>/);
+    assert.match(rowHtml(page, fingerprintHash(SONNET)), /<td[^>]*class="[^"]*\bsticky\b[^"]*\bleft-0\b[^"]*"[^>]*data-metric="label"/);
+  }
 });
