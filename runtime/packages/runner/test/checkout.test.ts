@@ -89,5 +89,9 @@ test('given a clone stopped at the setup timeout while a child process git start
 
   assert.ok(existsSync(pidFile));
   const child = Number(readFileSync(pidFile, 'utf8'));
+  const deadline = Date.now() + 5_000;
+  while (alive(child) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
   assert.equal(alive(child), false);
 });
