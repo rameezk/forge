@@ -175,6 +175,7 @@ export interface HarnessIdentity {
 
 export interface FingerprintBasis {
   settings: string | null;
+  plugin?: string;
   instructions?: { hash: string | null };
   normalize(text: string): string;
 }

@@ -155,6 +155,7 @@ export class FingerprintRecorder {
       tools,
       skills,
       ...(basis.settings === null ? {} : { settings: basis.settings }),
+      ...(basis.plugin === undefined ? {} : { plugin: basis.plugin }),
       ...(basis.instructions === undefined ? {} : { instructions: basis.instructions.hash }),
     };
     try {

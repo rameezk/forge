@@ -274,7 +274,7 @@ test(
 );
 
 test(
-  'given the locked claude and two repos that differ only in a skill, when each runs, then the fingerprints differ in their settings and nothing else',
+  'given the locked claude and two repos that differ only in a skill, when each runs, then the fingerprints differ in their plugin directory and nothing else',
   { skip },
   async () => {
     const skilled = (body: string): Record<string, string> => ({
@@ -286,8 +286,8 @@ test(
     assert.ok(first.fingerprint);
     assert.ok(second.fingerprint);
     assert.notEqual(first.fingerprint.hash, second.fingerprint.hash);
-    const { settings: before, ...rest } = first.fingerprint.fingerprint;
-    const { settings: after, ...others } = second.fingerprint.fingerprint;
+    const { plugin: before, ...rest } = first.fingerprint.fingerprint;
+    const { plugin: after, ...others } = second.fingerprint.fingerprint;
     assert.notEqual(before, after);
     assert.notEqual(before, undefined);
     assert.deepEqual(rest, others);

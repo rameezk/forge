@@ -331,6 +331,8 @@ test('given two claude-code runs of one worker whose per-run values differ - wor
   assert.equal(one.fingerprint.harness, 'claude-code');
   assert.match(one.fingerprint.settings ?? '', /^[0-9a-f]{64}$/);
   assert.equal(one.fingerprint.settings, two.fingerprint.settings);
+  assert.match(one.fingerprint.plugin ?? '', /^[0-9a-f]{64}$/);
+  assert.equal(one.fingerprint.plugin, two.fingerprint.plugin);
   assert.equal(one.fingerprint.systemPrompt, two.fingerprint.systemPrompt);
   assert.equal(one.hash, two.hash);
 });
