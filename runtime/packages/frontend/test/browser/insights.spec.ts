@@ -85,7 +85,7 @@ test('given the insights page, when it is opened at phone width, then the naviga
 test('given the insights page open on the chart, when a workload ends, then its point appears without a reload', async ({ dashboard, page }) => {
   record(dashboard.store, workload('done'));
   record(dashboard.store, workload('running', { status: 'running', endTime: null, costStatus: 'pending', costUsd: 0 }));
-  await page.goto('/insights?manual=1');
+  await page.goto('/insights?manual=1&tab=cost');
   await expect(page.locator('[data-point]')).toHaveCount(1);
   await expect(page.locator('#live')).toHaveText('Live');
 
@@ -98,7 +98,7 @@ test('given workloads on the insights page, when it is opened at phone width, th
   record(dashboard.store, workload('one'));
   record(dashboard.store, workload('two', { startTime: '2026-09-23T10:00:00.000Z', endTime: '2026-09-23T10:02:00.000Z', costUsd: 2 }));
   await page.setViewportSize({ width: 375, height: 800 });
-  await page.goto('/insights?manual=1');
+  await page.goto('/insights?manual=1&tab=cost');
   await expect(page.locator('[data-chart="cost"]')).toBeVisible();
 
   const box = await page.locator('[data-chart="cost"]').boundingBox();
@@ -124,7 +124,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     dispatched('new2', '2026-09-21T10:00:00.000Z', '2026-09-21T10:03:00.000Z', fingerprint);
     await page.emulateMedia({ colorScheme });
 
-    await page.goto('/insights');
+    await page.goto('/insights?tab=cost');
 
     const styleOf = (selector: string, property: 'stroke' | 'backgroundColor'): Promise<string> =>
       page.locator(selector).evaluate((element, name) => element.ownerDocument.defaultView!.getComputedStyle(element)[name], property);
@@ -207,3 +207,55 @@ test('given expanded previous cohorts, when the page is opened at phone width, t
   await expect(page.locator('[data-cohort-group="previous"] [data-owner]').first()).toBeVisible();
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
+
+test('given the Cost tab open, when the page reloads or its link is opened in a fresh browser, then the Cost tab is open', async ({ dashboard, page, browser }) => {
+  seedStore(dashboard.store, COHORTS);
+  await page.goto('/insights');
+  await expect(page.getByRole('link', { name: 'Delivery' })).toHaveAttribute('aria-current', 'page');
+
+  await page.getByRole('link', { name: 'Cost' }).click();
+
+  await expect(page).toHaveURL(/tab=cost/);
+  await expect(page.getByRole('link', { name: 'Cost' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('[data-cost-chart]')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('link', { name: 'Cost' })).toHaveAttribute('aria-current', 'page');
+  const fresh = await browser.newPage();
+  await fresh.goto(page.url());
+  await expect(fresh.getByRole('link', { name: 'Cost' })).toHaveAttribute('aria-current', 'page');
+  await expect(fresh.locator('[data-cost-chart]')).toBeVisible();
+  await fresh.close();
+});
+
+test('given a filter chosen on Delivery, when the Cost tab is opened and the filters are applied there, then the filter and the tab both stay', async ({ dashboard, page }) => {
+  seedStore(dashboard.store, COHORTS);
+  await page.goto('/insights?worker=builder');
+
+  await page.getByRole('link', { name: 'Cost' }).click();
+  await page.getByLabel('Kind').selectOption('all');
+  await page.getByRole('button', { name: 'Apply' }).click();
+
+  await expect(page).toHaveURL(/tab=cost/);
+  await expect(page).toHaveURL(/worker=builder/);
+  await expect(page).toHaveURL(/kind=all/);
+  await expect(page.getByRole('link', { name: 'Cost' })).toHaveAttribute('aria-current', 'page');
+});
+
+for (const tab of ['', '&tab=cost']) {
+  test(`given a table wider than the viewport on ${tab === '' ? 'Delivery' : 'Cost'}, when it is scrolled sideways, then the Cohort column stays pinned to the left edge`, async ({ dashboard, page }) => {
+    seedStore(dashboard.store, COHORTS);
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(`/insights?kind=dispatch${tab}`);
+    const region = page.locator('[data-cohorts]');
+    const cell = page.locator('[data-cohort-group="active"] [data-cohort]').first().locator('[data-metric="label"]');
+    const heading = page.getByRole('columnheader', { name: 'Cohort', exact: true });
+    await expect(cell).toBeVisible();
+    const before = await region.evaluate((element) => element.getBoundingClientRect().left);
+
+    await region.evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
+
+    expect(await region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+    expect(Math.abs((await cell.boundingBox())!.x - before)).toBeLessThan(2);
+    expect(Math.abs((await heading.boundingBox())!.x - before)).toBeLessThan(2);
+  });
+}

@@ -38,7 +38,7 @@ const CHART_SEEDS: Seed[] = [
 ];
 
 test('given workloads in two cohorts with merged, opened and failed outcomes, when the insights page is requested, then the chart has one point per workload, coloured by cohort and shaped by outcome, each titled with its workload, cost and outcome', async () => {
-  const points = pointsOf(await dashboard(CHART_SEEDS).page());
+  const points = pointsOf(await dashboard(CHART_SEEDS).costPage());
 
   assert.deepEqual([...points.keys()].sort(), ['a1', 'a2', 'a3', 'b1', 'b2']);
   const sonnet = fingerprintHash(SONNET);
@@ -68,7 +68,7 @@ const SPAN_SEEDS: Seed[] = [
 ];
 
 test('given workloads spanning two weeks and costs between $0.30 and $4.10, when the insights page is requested, then the cost ticks are round amounts covering the range and the time ticks fall on day boundaries covering the span', async () => {
-  const page = await dashboard(SPAN_SEEDS).page();
+  const page = await dashboard(SPAN_SEEDS).costPage();
 
   const costs = ticksOf(page, 'cost').map(Number);
   assert.ok(costs.length >= 3);
@@ -104,7 +104,7 @@ test('given a cohort whose generations were served by two providers in a 3 to 1 
     await dashboard([
       { id: 'p1', fingerprint: SONNET, seconds: 60, cost: 1, toolCalls: 1, retries: 0, providers: { Anthropic: 2000, 'Amazon Bedrock': 500 } },
       { id: 'p2', fingerprint: SONNET, seconds: 60, cost: 1, toolCalls: 1, retries: 0, providers: { Anthropic: 1000, 'Amazon Bedrock': 500 } },
-    ]).page(),
+    ]).costPage(),
   );
 
   assert.deepEqual(bars.get(fingerprintHash(SONNET)), [
@@ -115,7 +115,7 @@ test('given a cohort whose generations were served by two providers in a 3 to 1 
 
 test('given workloads across two workers, when the insights page is requested filtered to one worker, then the chart and the provider bars show only that worker', async () => {
   const quick = { fingerprint: SONNET, seconds: 60, cost: 1, toolCalls: 1, retries: 0 };
-  const { page } = dashboard([
+  const { costPage: page } = dashboard([
     { id: 'x1', worker: 'builder', providers: { Anthropic: 100 }, ...quick },
     { id: 'x2', worker: 'builder', providers: { Anthropic: 100 }, ...quick },
     { id: 'y1', worker: 'refiner', providers: { 'Amazon Bedrock': 100 }, ...quick },
@@ -133,7 +133,7 @@ test('given a manual workload, when the insights page is requested with the manu
     await dashboard([
       { id: 'm1', fingerprint: SONNET, dispatched: false, seconds: 60, cost: 0.6, toolCalls: 1, retries: 0 },
       { id: 'd1', fingerprint: SONNET, seconds: 60, cost: 0.1, toolCalls: 1, retries: 0 },
-    ]).page('?manual=1'),
+    ]).costPage('?manual=1'),
   );
 
   assert.deepEqual(
@@ -145,14 +145,14 @@ test('given a manual workload, when the insights page is requested with the manu
 test('given a pull request closed without merging and a cohort with no provider data, when the insights page is requested, then the point is an opened diamond and the cohort says it has no provider data', async () => {
   const page = await dashboard([
     { id: 'c1', fingerprint: SONNET, seconds: 60, cost: 0.1, toolCalls: 1, retries: 0, pullRequest: { state: 'closed', rework: 0 } },
-  ]).page();
+  ]).costPage();
 
   assert.deepEqual([...pointsOf(page)].map(([id, { outcome, shape }]) => [id, outcome, shape]), [['c1', 'opened', 'diamond']]);
   assert.match(textOf(page), /No provider data/);
 });
 
 test('given workloads on the insights page, when the chart is requested, then it is a labelled group so the point titles stay reachable', async () => {
-  const page = await dashboard(CHART_SEEDS).page();
+  const page = await dashboard(CHART_SEEDS).costPage();
 
   assert.match(page, /<svg[^>]*role="group"[^>]*data-chart="cost"|<svg[^>]*data-chart="cost"[^>]*role="group"/);
   assert.doesNotMatch(page, /<svg[^>]*role="img"[^>]*data-chart="cost"/);
@@ -163,7 +163,7 @@ test('given an OpenRouter cohort and a subscription cohort, when the insights pa
   const page = await dashboard([
     { id: 'o1', fingerprint: SONNET, seconds: 60, cost: 0.5, toolCalls: 1, retries: 0 },
     { id: 's1', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: 2.5, toolCalls: 1, retries: 0 },
-  ]).page();
+  ]).costPage();
   const points = pointsOf(page);
   const basisOf = (id: string): string =>
     page.match(new RegExp(`<g\\s[^>]*data-run="${id}"[^>]*data-cost-basis="([^"]*)"`))?.[1] ?? 'missing';
@@ -185,7 +185,7 @@ test('given a subscription workload whose generations the catalog could not pric
     await dashboard([
       { id: 's1', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: 1.5, toolCalls: 1, retries: 0 },
       { id: 's2', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
-    ]).page(),
+    ]).costPage(),
   );
 
   assert.deepEqual([...points.keys()], ['s1']);
@@ -195,7 +195,7 @@ test('given only subscription workloads the catalog could not price, when the in
   const subscribed: ConfigFingerprint = { ...SONNET, provider: 'anthropic' };
   const page = await dashboard([
     { id: 's1', fingerprint: subscribed, seconds: 60, cost: 0, listPrice: null, toolCalls: 1, retries: 0 },
-  ]).page();
+  ]).costPage();
 
   assert.equal(pointsOf(page).size, 0);
   assert.doesNotMatch(page, /NaN/);
@@ -211,7 +211,7 @@ const PREVIOUS_SEEDS: Seed[] = [
 const slice = (page: string, pattern: RegExp): string => page.match(pattern)?.[0] ?? '';
 
 test('given an active cohort and a previous cohort, when the insights page is requested, then the chart plots both, the active points in a series colour and the previous points in muted grey', async () => {
-  const points = pointsOf(await dashboard(PREVIOUS_SEEDS).page());
+  const points = pointsOf(await dashboard(PREVIOUS_SEEDS).costPage());
 
   assert.deepEqual([...points.keys()].sort(), ['new1', 'old1']);
   assert.match(points.get('new1')!.color, /fill-series-\d/);
@@ -220,7 +220,7 @@ test('given an active cohort and a previous cohort, when the insights page is re
 });
 
 test('given an active cohort and a previous cohort, when the insights page is requested, then the legend shows the active cohort in its series colour and the previous one in muted grey', async () => {
-  const page = await dashboard(PREVIOUS_SEEDS).page();
+  const page = await dashboard(PREVIOUS_SEEDS).costPage();
   const legend = (hash: string): string => slice(page, new RegExp(`<li[^>]*data-legend-cohort="${hash}"[^>]*>[\\s\\S]*?</li>`));
 
   assert.match(legend(fingerprintHash(SONNET)), /bg-series-\d/);
@@ -229,7 +229,7 @@ test('given an active cohort and a previous cohort, when the insights page is re
 });
 
 test('given an active cohort and a previous cohort with provider shares, when the insights page is requested, then both are listed and the previous cohort bar is muted grey', async () => {
-  const page = await dashboard(PREVIOUS_SEEDS).page();
+  const page = await dashboard(PREVIOUS_SEEDS).costPage();
   const bar = (hash: string): string =>
     slice(page, new RegExp(`<div[^>]*data-provider-bar="${hash}"[^>]*>[\\s\\S]*?</div>\\s*</div>`));
 

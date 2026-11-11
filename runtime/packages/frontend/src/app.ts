@@ -8,7 +8,7 @@ import type { TranscriptSource } from './transcript.ts';
 import { renderTicketAttempts } from './views/attempts.ts';
 import { renderBoard } from './views/board.ts';
 import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
-import { renderCohortPage, renderInsights, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
+import { DEFAULT_INSIGHTS_TAB, INSIGHTS_TABS, renderCohortPage, renderInsights, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs, type Display } from './views/shared.ts';
 import type { DeployStatus } from './deploy-status.ts';
@@ -148,6 +148,7 @@ export const createApp = ({
     const from = parseDay(query['from']);
     const to = parseDay(query['to']);
     return {
+      tab: INSIGHTS_TABS.find((tab) => tab === query['tab']) ?? DEFAULT_INSIGHTS_TAB,
       kind: INSIGHT_KIND_FILTERS.find((kind) => kind === query['kind']) ?? 'dispatch',
       includeManual: query['manual'] === '1',
       ...(query['worker'] ? { worker: query['worker'] } : {}),
@@ -157,7 +158,7 @@ export const createApp = ({
     };
   };
 
-  const filterOf = ({ from, to, ...rest }: InsightsQuery): InsightsFilter => {
+  const filterOf = ({ from, to, tab: _tab, ...rest }: InsightsQuery): InsightsFilter => {
     const { startedFrom, startedBefore } = dayRange(from, to, timeZone);
     return {
       ...rest,

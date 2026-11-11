@@ -6,6 +6,8 @@ import { fingerprintHash, Store } from '@forge/shared';
 import type { ConfigFingerprint, PullRequestState, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 
+export const onCostTab = (query: string): string => `${query === '' ? '?' : `${query}&`}tab=cost`;
+
 export const SONNET: ConfigFingerprint = {
   model: 'anthropic/claude-sonnet-5.5',
   reasoningEffort: 'high',
@@ -197,6 +199,7 @@ export const dashboard = (seeds: Seed[], timeZone?: string) => {
     client: '',
     ...(timeZone === undefined ? {} : { timeZone }),
   });
-  return { store, app, page: async (query = ''): Promise<string> => (await app.request(`/insights${query}`)).text() };
+  const page = async (query = ''): Promise<string> => (await app.request(`/insights${query}`)).text();
+  return { store, app, page, costPage: (query = ''): Promise<string> => page(onCostTab(query)) };
 };
 

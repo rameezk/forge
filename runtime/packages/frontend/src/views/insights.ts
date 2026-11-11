@@ -5,10 +5,22 @@ import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
 import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
 
+export const INSIGHTS_TABS = ['delivery', 'cost'] as const;
+
+export type InsightsTab = (typeof INSIGHTS_TABS)[number];
+
+export const DEFAULT_INSIGHTS_TAB: InsightsTab = 'delivery';
+
 export interface InsightsQuery extends InsightsFilter {
+  tab: InsightsTab;
   from?: string;
   to?: string;
 }
+
+const TAB_LABELS: Record<InsightsTab, string> = {
+  delivery: 'Delivery',
+  cost: 'Cost',
+};
 
 const FIELD = 'flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
 
@@ -32,11 +44,32 @@ const KIND_LABELS: Record<InsightKindFilter, string> = {
   all: 'All',
 };
 
+const tabHref = (filter: InsightsQuery, tab: InsightsTab): string => {
+  const params = new URLSearchParams();
+  if (tab !== DEFAULT_INSIGHTS_TAB) params.set('tab', tab);
+  params.set('kind', filter.kind);
+  if (filter.worker) params.set('worker', filter.worker);
+  if (filter.repository) params.set('repository', filter.repository);
+  if (filter.from) params.set('from', filter.from);
+  if (filter.to) params.set('to', filter.to);
+  if (filter.includeManual) params.set('manual', '1');
+  return `/insights?${params.toString()}`;
+};
+
+const renderTabs = (filter: InsightsQuery): Rendered =>
+  html`<nav class="mb-4 flex gap-1 border-b border-line" aria-label="Insights views" data-tabs>
+    ${INSIGHTS_TABS.map(
+      (tab) =>
+        html`<a href="${tabHref(filter, tab)}" data-tab="${tab}"${tab === filter.tab ? html` aria-current="page"` : ''} class="-mb-px border-b-2 px-3 py-2 text-[0.9rem] font-semibold no-underline ${tab === filter.tab ? 'border-fg text-fg' : 'border-transparent text-muted hover:text-fg'}">${TAB_LABELS[tab]}</a>`,
+    )}
+  </nav>`;
+
 const renderInsightsFilters = (
   filter: InsightsQuery,
   options: InsightsOptions,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<form method="get" action="/insights" class="mb-4 flex flex-wrap items-end gap-3" data-filters>
+    <input type="hidden" name="tab" value="${filter.tab}" />
     <label class="${FIELD}">Worker
       <select name="worker" class="${INPUT}">
         <option value="">All</option>
@@ -84,28 +117,52 @@ const ownersOf = (pairs: RanPair[]): string => {
   return [...repositories].map(([worker, names]) => (names.length === 0 ? worker : `${worker} on ${joinNames(names)}`)).join('; ');
 };
 
-const COLUMNS = 15;
-
 const renderOwners = ({ activeFor, ranFor }: CohortInsight): Rendered =>
   html`<p class="m-0 mt-0.5 text-[0.8rem] font-normal text-muted" data-owner>${activeFor.length === 0 ? `Ran for ${ownersOf(ranFor)}` : `Active for ${ownersOf(activeFor)}`}</p>`;
 
-const renderCohort = (cohort: CohortInsight, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<tr class="${ROW}" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
-    <td class="border-t border-line px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${renderOwners(cohort)}</td>
-    ${renderRunTime('first-run', cohort.firstRun, timeZone)}
-    ${renderRunTime('last-run', cohort.lastRun, timeZone)}
-    <td class="${COHORT_TD}" data-metric="workloads">${cohort.workloads}</td>
-    <td class="${COHORT_TD}" data-metric="done">${formatRate(cohort.doneRate)}</td>
-    <td class="${COHORT_TD}" data-metric="opened">${formatRate(cohort.openedRate)}</td>
-    <td class="${COHORT_TD}" data-metric="merged">${formatRate(cohort.mergedRate)}</td>
-    <td class="${COHORT_TD}" data-metric="cost-median"${cohort.listPrice ? COST_TITLE : ''}>${cohort.costMedian === null ? 'n/a' : formatCost(cohort.costMedian)}</td>
-    <td class="${COHORT_TD}" data-metric="cost-p90"${cohort.listPrice ? COST_TITLE : ''}>${cohort.costP90 === null ? 'n/a' : formatCost(cohort.costP90)}</td>
-    <td class="${COHORT_TD} font-semibold" data-metric="cost-per-merged"${cohort.listPrice ? COST_TITLE : ''}>${cohort.costPerMerged === null ? 'n/a' : formatCost(cohort.costPerMerged)}</td>
-    <td class="${COHORT_TD}" data-metric="duration">${formatElapsed(cohort.durationMedianMs)}</td>
-    <td class="${COHORT_TD}" data-metric="cache-hit">${formatRate(cohort.cacheHitRate)}</td>
-    <td class="${COHORT_TD}" data-metric="tool-calls">${formatMeasure(cohort.toolCallsMedian)}</td>
-    <td class="${COHORT_TD}" data-metric="retries">${formatMeasure(cohort.retriesPerWorkload)}</td>
-    <td class="${COHORT_TD}" data-metric="rework">${formatMeasure(cohort.reworkPerMerged)}</td>
+interface Column {
+  header: string;
+  render: (cohort: CohortInsight, timeZone: string) => HtmlEscapedString | Promise<HtmlEscapedString>;
+}
+
+const metricCell = (metric: string, text: (cohort: CohortInsight) => string, extra = ''): Column['render'] => (cohort) =>
+  html`<td class="${COHORT_TD}${extra}" data-metric="${metric}">${text(cohort)}</td>`;
+
+const costCell = (metric: string, valueOf: (cohort: CohortInsight) => number | null, extra = ''): Column['render'] => (cohort) => {
+  const value = valueOf(cohort);
+  return html`<td class="${COHORT_TD}${extra}" data-metric="${metric}"${cohort.listPrice ? COST_TITLE : ''}>${value === null ? 'n/a' : formatCost(value)}</td>`;
+};
+
+const WORKLOADS: Column = { header: 'Workloads', render: metricCell('workloads', ({ workloads }) => String(workloads)) };
+
+const TAB_COLUMNS: Record<InsightsTab, Column[]> = {
+  delivery: [
+    { header: 'First run', render: ({ firstRun }, timeZone) => renderRunTime('first-run', firstRun, timeZone) },
+    { header: 'Last run', render: ({ lastRun }, timeZone) => renderRunTime('last-run', lastRun, timeZone) },
+    WORKLOADS,
+    { header: 'Done', render: metricCell('done', ({ doneRate }) => formatRate(doneRate)) },
+    { header: 'Opened', render: metricCell('opened', ({ openedRate }) => formatRate(openedRate)) },
+    { header: 'Merged', render: metricCell('merged', ({ mergedRate }) => formatRate(mergedRate)) },
+    { header: 'Retries per workload', render: metricCell('retries', ({ retriesPerWorkload }) => formatMeasure(retriesPerWorkload)) },
+    { header: 'Rework per merged PR', render: metricCell('rework', ({ reworkPerMerged }) => formatMeasure(reworkPerMerged)) },
+    { header: 'Median duration', render: metricCell('duration', ({ durationMedianMs }) => formatElapsed(durationMedianMs)) },
+    { header: 'Median tool calls', render: metricCell('tool-calls', ({ toolCallsMedian }) => formatMeasure(toolCallsMedian)) },
+  ],
+  cost: [
+    WORKLOADS,
+    { header: 'Median cost', render: costCell('cost-median', ({ costMedian }) => costMedian) },
+    { header: 'p90 cost', render: costCell('cost-p90', ({ costP90 }) => costP90) },
+    { header: 'Cost per merged PR', render: costCell('cost-per-merged', ({ costPerMerged }) => costPerMerged, ' font-semibold') },
+    { header: 'Cache hit', render: metricCell('cache-hit', ({ cacheHitRate: rate }) => formatRate(rate)) },
+  ],
+};
+
+const PINNED = 'sticky left-0 z-10 shadow-[1px_0_0_var(--color-line)]';
+
+const renderCohort = (cohort: CohortInsight, columns: Column[], timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
+  html`<tr class="${ROW} group" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
+    <td class="${PINNED} border-t border-line bg-surface group-hover:bg-bg px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${renderOwners(cohort)}</td>
+    ${columns.map(({ render }) => render(cohort, timeZone))}
   </tr>`;
 
 const GROUP_HEADER = 'border-t border-line bg-raised px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-[0.05em] text-fg';
@@ -114,35 +171,51 @@ const renderGroup = (
   group: 'active' | 'previous',
   title: string,
   cohorts: CohortInsight[],
+  columns: Column[],
   timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   if (cohorts.length === 0) return html``;
+  const span = columns.length + 1;
   const lastRun = cohorts.map((cohort) => cohort.lastRun).filter((iso): iso is string => iso !== null).sort().at(-1) ?? null;
   const header =
     group === 'active'
-      ? html`<th scope="colgroup" colspan="${COLUMNS}" class="${GROUP_HEADER}"><span class="sticky left-2.5">${title}</span></th>`
-      : html`<th scope="colgroup" colspan="${COLUMNS}" class="${GROUP_HEADER}"><button type="button" data-group-toggle aria-expanded="false" class="group flex w-full cursor-pointer items-baseline gap-2 border-0 bg-transparent p-0 text-left font-[inherit] text-[inherit] uppercase tracking-[inherit] text-fg"><span class="sticky left-2.5 flex items-baseline gap-2"><span aria-hidden="true" class="inline-block w-3 text-center text-[0.65rem] text-muted transition-transform group-aria-expanded:rotate-90">▶</span>${title}<span class="tabular-nums" data-group-count>${cohorts.length}</span>${lastRun === null ? '' : html`<span class="font-normal normal-case tracking-normal text-muted" data-group-last-run>last run ${formatMinute(lastRun, timeZone)}</span>`}</span></button></th>`;
+      ? html`<th scope="colgroup" colspan="${span}" class="${GROUP_HEADER}"><span class="sticky left-2.5">${title}</span></th>`
+      : html`<th scope="colgroup" colspan="${span}" class="${GROUP_HEADER}"><button type="button" data-group-toggle aria-expanded="false" class="group flex w-full cursor-pointer items-baseline gap-2 border-0 bg-transparent p-0 text-left font-[inherit] text-[inherit] uppercase tracking-[inherit] text-fg"><span class="sticky left-2.5 flex items-baseline gap-2"><span aria-hidden="true" class="inline-block w-3 text-center text-[0.65rem] text-muted transition-transform group-aria-expanded:rotate-90">▶</span>${title}<span class="tabular-nums" data-group-count>${cohorts.length}</span>${lastRun === null ? '' : html`<span class="font-normal normal-case tracking-normal text-muted" data-group-last-run>last run ${formatMinute(lastRun, timeZone)}</span>`}</span></button></th>`;
   return html`<tbody data-cohort-group="${group}"${group === 'active' ? '' : html` data-collapsed`} class="data-[collapsed]:[&>tr:not([data-group-header])]:hidden">
     <tr data-group-header>${header}</tr>
-    ${cohorts.map((cohort) => renderCohort(cohort, timeZone))}
+    ${cohorts.map((cohort) => renderCohort(cohort, columns, timeZone))}
   </tbody>`;
 };
 
-const renderCostOverTime = (
+const renderCostSection = (
   cohorts: CohortInsight[],
   points: InsightPoint[],
-  shares: ProviderShare[],
   timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const series = cohortSeriesOf(cohorts);
-  return html`<section class="${CARD} mt-4 p-4" data-cost-chart aria-label="Cost over time">
+  return html`<section class="${CARD} p-4" data-cost-chart aria-label="Cost over time">
     <h2 class="mb-2 text-sm font-semibold text-fg">Cost over time</h2>
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-8">
       <div class="w-full max-w-[30rem] shrink-0">${points.length === 0 ? html`<p class="m-0 text-[0.8rem] text-muted" data-chart-empty>No workload has a cost to plot.</p>` : renderCostChart(points, series, timeZone)}</div>
       ${renderChartLegend(cohorts, points, series)}
     </div>
-  </section>
-  ${renderProviderShares(cohorts, shares)}`;
+  </section>`;
+};
+
+const renderCohortTable = (cohorts: CohortInsight[], tab: InsightsTab, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const columns = TAB_COLUMNS[tab];
+  return html`<div class="${CARD}" data-cohorts role="region" aria-label="Cohort comparison" tabindex="0">
+    <table class="${TABLE}">
+      <thead>
+        <tr>
+          <th class="${COHORT_TH} ${PINNED} text-left">Cohort</th>
+          ${columns.map(({ header }) => html`<th class="${COHORT_TH} text-right">${header}</th>`)}
+        </tr>
+      </thead>
+      ${renderGroup('active', 'Active cohorts', cohorts.filter(({ activeFor }) => activeFor.length > 0), columns, timeZone)}
+      ${renderGroup('previous', 'Previous cohorts', cohorts.filter(({ activeFor }) => activeFor.length === 0), columns, timeZone)}
+    </table>
+  </div>`;
 };
 
 export const renderInsights = (
@@ -153,37 +226,20 @@ export const renderInsights = (
   options: InsightsOptions,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
-    ${renderInsightsFilters(filter, options)}
-    ${cohorts.length === 0
+  const table = (): HtmlEscapedString | Promise<HtmlEscapedString> => renderCohortTable(cohorts, filter.tab, display.timeZone);
+  const content =
+    cohorts.length === 0
       ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`
-      : html`<div class="${CARD}" data-cohorts role="region" aria-label="Cohort comparison" tabindex="0">
-          <table class="${TABLE}">
-            <thead>
-              <tr>
-                <th class="${COHORT_TH} text-left">Cohort</th>
-                <th class="${COHORT_TH} text-right">First run</th>
-                <th class="${COHORT_TH} text-right">Last run</th>
-                <th class="${COHORT_TH} text-right">Workloads</th>
-                <th class="${COHORT_TH} text-right">Done</th>
-                <th class="${COHORT_TH} text-right">Opened</th>
-                <th class="${COHORT_TH} text-right">Merged</th>
-                <th class="${COHORT_TH} text-right">Median cost</th>
-                <th class="${COHORT_TH} text-right">p90 cost</th>
-                <th class="${COHORT_TH} text-right">Cost per merged PR</th>
-                <th class="${COHORT_TH} text-right">Median duration</th>
-                <th class="${COHORT_TH} text-right">Cache hit</th>
-                <th class="${COHORT_TH} text-right">Median tool calls</th>
-                <th class="${COHORT_TH} text-right">Retries per workload</th>
-                <th class="${COHORT_TH} text-right">Rework per merged PR</th>
-              </tr>
-            </thead>
-            ${renderGroup('active', 'Active cohorts', cohorts.filter(({ activeFor }) => activeFor.length > 0), display.timeZone)}
-            ${renderGroup('previous', 'Previous cohorts', cohorts.filter(({ activeFor }) => activeFor.length === 0), display.timeZone)}
-          </table>
-        </div>
-        ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}
-        ${renderCostOverTime(cohorts, points, shares, display.timeZone)}`}`;
+      : filter.tab === 'cost'
+        ? html`${renderCostSection(cohorts, points, display.timeZone)}
+          <div class="mt-4">${table()}</div>
+          ${cohorts.some(({ listPrice }) => listPrice) ? LIST_PRICE_NOTE : ''}
+          ${renderProviderShares(cohorts, shares)}`
+        : table();
+  const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
+    ${renderTabs(filter)}
+    ${renderInsightsFilters(filter, options)}
+    ${content}`;
   return layout('Insights', 'insights', true, display, body);
 };
 
