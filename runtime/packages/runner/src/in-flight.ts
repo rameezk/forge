@@ -41,3 +41,9 @@ export const signalDeathReport = (
     signalDeath: { signal: failure.signal, toolCallId: call?.id ?? null },
   };
 };
+
+export const signalDeathField = (
+  death: SignalDeathReport | null,
+  error: string | null,
+): { signalDeath?: SignalDeathRecord } =>
+  death !== null && error === death.error ? { signalDeath: death.signalDeath } : {};

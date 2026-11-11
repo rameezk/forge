@@ -223,7 +223,7 @@ let
           if (answered < steps.length) {
             const step = steps[answered];
             if (step.hold) {
-              writeFileSync('/tmp/held-' + name, ''');
+              writeFileSync('/tmp/held-pi-' + name, ''');
               return;
             }
             const args = typeof step === 'string' ? { command: step } : step;
@@ -292,7 +292,7 @@ let
         }
         const step = steps[answered];
         if (step.hold) {
-          writeFileSync('/tmp/held-' + name, ''');
+          writeFileSync('/tmp/held-claude-' + name, ''');
           return;
         }
         const call = typeof step === 'string' ? { name: 'Bash', input: { command: step } } : step.tool !== undefined ? { name: step.tool, input: step.input } : { name: 'Bash', input: step };
@@ -494,7 +494,7 @@ testers.runNixOSTest {
         box.wait_until_succeeds(f"test -n \"$(sqlite3 /var/lib/forge/forge.db \"select id from runs where worker = '{worker}'\")\"")
         box.wait_until_succeeds(f"test -e {run_dir_of(worker)}/{ready}", timeout=120)
         if not in_flight:
-            box.wait_until_succeeds(f"test -e /tmp/held-{scenario}", timeout=120)
+            box.wait_until_succeeds(f"test -e /tmp/held-{'claude' if prefix else 'pi'}-{scenario}", timeout=120)
         box.succeed(f"kill -{signal} $(pgrep -n -f '${markerPattern}')")
         wait_for_finish(worker, timeout=90)
         status, error = database(f"select status, error from runs where worker = '{worker}'").split("|", 1)

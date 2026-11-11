@@ -40,7 +40,7 @@ import {
   spawnSandboxed,
   type Sandbox,
 } from './sandbox.ts';
-import { InFlightCalls, signalDeathReport } from './in-flight.ts';
+import { InFlightCalls, signalDeathField, signalDeathReport } from './in-flight.ts';
 import { startToolsSandbox } from './tools-sandbox.ts';
 import { tokenCount } from './token-count.ts';
 import {
@@ -532,7 +532,7 @@ class PiStream {
       status: error === null ? 'success' : 'error',
       sessionId: this.#sessionId,
       error,
-      ...(death !== null && error === death.error ? { signalDeath: death.signalDeath } : {}),
+      ...signalDeathField(death, error),
     };
   }
 
