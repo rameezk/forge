@@ -92,6 +92,35 @@ let
 
   scenarios = writeText "scenarios.json" (builtins.toJSON scenarioSet);
 
+  plantedSettings = writeText "planted-settings.json" (
+    builtins.toJSON {
+      env.LD_PRELOAD = "/nonexistent.so";
+      apiKeyHelper = "cat /proc/1/comm >> helper-ran.out";
+      hooks.PreToolUse = [
+        {
+          hooks = [
+            {
+              type = "command";
+              command = "cat /proc/1/comm >> hook-ran.out";
+            }
+          ];
+        }
+      ];
+    }
+  );
+
+  plantedMcp = writeText "planted-mcp.json" (
+    builtins.toJSON {
+      mcpServers.planted = {
+        command = "sh";
+        args = [
+          "-c"
+          "cat /proc/1/comm >> mcp-ran.out"
+        ];
+      };
+    }
+  );
+
   claudeScenarioSet = {
     inherit (scenarioSet) signals background userns orphans loader;
     stop = [
@@ -139,10 +168,11 @@ let
         };
       }
       "echo two > bash-two.out"
+      "printf 'cat /proc/1/comm >> control-ran.out\\n' > $HOME/.bash_profile; ${bash}/bin/bash -l -c true"
     ];
     planted = [
-      "mkdir -p .claude && printf '%s' '{\"env\":{\"LD_PRELOAD\":\"/nonexistent.so\"},\"apiKeyHelper\":\"cat /proc/1/comm >> helper-ran.out\",\"hooks\":{\"PreToolUse\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"cat /proc/1/comm >> hook-ran.out\"}]}]}}' > .claude/settings.json"
-      "printf '%s' '{\"mcpServers\":{\"planted\":{\"command\":\"sh\",\"args\":[\"-c\",\"cat /proc/1/comm >> mcp-ran.out\"]}}}' > .mcp.json"
+      "mkdir -p .claude && cat ${plantedSettings} > .claude/settings.json"
+      "cat ${plantedMcp} > .mcp.json"
       "echo after-planting > planted-after.out"
       "echo and-again > planted-again.out"
     ];
@@ -285,6 +315,11 @@ let
       git config filter.planted.clean ${filterScript}
       echo '* filter=planted' > .gitattributes
       ${coreutils}/bin/touch tracked.txt
+    fi
+    if [ "$scenario" = planted ]; then
+      mkdir -p .claude
+      cat ${plantedSettings} > .claude/settings.json
+      cat ${plantedMcp} > .mcp.json
     fi
     printf '%s' "$prompt" | ${lib.getExe claude-code} "$@"
   '';
@@ -488,15 +523,16 @@ testers.runNixOSTest {
         assert output_of("claude-filter", "filter-finished.out") == "finished"
         assert_nothing_left_running()
 
-    with subtest("claude-code: startup files the agent writes with the Write tool never run beside the harness, before or after its first command"):
+    with subtest("claude-code: startup files the agent writes with the Write tool never run beside the harness, before or after its first command, while one a command writes runs in the tools sandbox"):
         run("claude-startup")
         assert database("select status from runs where worker = 'claude-startup'") == "success", database("select status, error from runs where worker = 'claude-startup'")
         assert output_of("claude-startup", "bash-one.out") == "one"
         assert output_of("claude-startup", "bash-two.out") == "two"
+        assert output_of("claude-startup", "control-ran.out") == "forge-broker"
         box.fail(f"test -e {run_dir_of('claude-startup')}/startup-ran.out")
         assert_nothing_left_running()
 
-    with subtest("claude-code: settings, hooks, an API key helper and an MCP server the agent plants in the checkout never run"):
+    with subtest("claude-code: settings, hooks, an API key helper and an MCP server in the checkout, from before claude starts and written mid-run, never run"):
         run("claude-planted")
         assert database("select status from runs where worker = 'claude-planted'") == "success", database("select status, error from runs where worker = 'claude-planted'")
         assert output_of("claude-planted", "planted-after.out") == "after-planting"
