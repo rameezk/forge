@@ -964,7 +964,7 @@ in
       };
     })
 
-    (lib.mkIf hasWorkers {
+    (lib.mkIf (hasWorkers && hasRepositories) {
       environment.systemPackages = [
         (pkgs.callPackage ../nix/diagnose-command.nix { diagnosisWorker = if hasDiagnosis then cfg.diagnosis.worker else null; })
       ];
