@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DIAGNOSIS_FILE,
@@ -64,15 +64,27 @@ const briefOf = (
   };
 };
 
-const verdictOf = (stateDir: string, runId: string): DiagnosisVerdict => {
-  const file = join(stateDir, 'work', runId, DIAGNOSIS_FILE);
-  if (!existsSync(file)) throw new Error(`the agent wrote no ${DIAGNOSIS_FILE}`);
-  const stat = lstatSync(file);
-  if (!stat.isFile() || stat.size > MAX_VERDICT_BYTES) {
-    throw new Error(`${DIAGNOSIS_FILE} must be a regular file of at most ${MAX_VERDICT_BYTES} bytes`);
+const readVerdictFile = (file: string): string => {
+  let fd: number;
+  try {
+    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`the agent wrote no ${DIAGNOSIS_FILE}`);
+    throw new Error(`${DIAGNOSIS_FILE} must be a regular file`);
   }
-  return parseVerdict(readFileSync(file, 'utf8'));
+  try {
+    if (!fstatSync(fd).isFile()) throw new Error(`${DIAGNOSIS_FILE} must be a regular file`);
+    const buffer = Buffer.alloc(MAX_VERDICT_BYTES + 1);
+    const length = readSync(fd, buffer, 0, buffer.length, 0);
+    if (length > MAX_VERDICT_BYTES) throw new Error(`${DIAGNOSIS_FILE} must be at most ${MAX_VERDICT_BYTES} bytes`);
+    return buffer.toString('utf8', 0, length);
+  } finally {
+    closeSync(fd);
+  }
 };
+
+const verdictOf = (stateDir: string, runId: string): DiagnosisVerdict =>
+  parseVerdict(readVerdictFile(join(stateDir, 'work', runId, DIAGNOSIS_FILE)));
 
 const endOf = (launched: LaunchResult, stateDir: string): { verdict: DiagnosisVerdict } | { detail: string } => {
   const { run } = launched;
