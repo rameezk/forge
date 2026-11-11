@@ -203,6 +203,7 @@ export {
   Store,
   type GradingDue,
   type ListPriceEquivalent,
+  type DisplayedGrade,
   type RiskGrade,
   type RiskLevel,
   type WorkloadSpend,

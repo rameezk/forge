@@ -26,7 +26,7 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
     pull_requests: 'write',
   },
   grading: {
-    issues: 'read',
+    issues: 'write',
     pull_requests: 'read',
     contents: 'read',
     checks: 'write',
