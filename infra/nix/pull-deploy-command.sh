@@ -71,9 +71,12 @@ read_forge() {
   forge="$(jq -r '.rev // empty' <<< "$forge_info")"
 }
 
+lock_of() {
+  jq -c '(.nodes.forge // {}) as $forge | {rev: $forge.locked.rev, type: $forge.locked.type, owner: $forge.locked.owner, repo: $forge.locked.repo, ref: $forge.original.ref}' "$1/flake.lock" 2>/dev/null || echo null
+}
+
 write_forge() {
-  local checkout="$1" commit="$2" lock
-  lock="$(jq -c '(.nodes.forge // {}) as $forge | {rev: $forge.locked.rev, type: $forge.locked.type, owner: $forge.locked.owner, repo: $forge.locked.repo, ref: $forge.original.ref}' "$checkout/flake.lock" 2>/dev/null)" || lock="null"
+  local lock="$1" commit="$2"
   printf '%s\n' "$lock" | jq -c --arg running "$commit" '(. // {}) + {running: $running}' > "$forge_file"
 }
 
@@ -85,7 +88,7 @@ backfill_forge() {
   checkout="$(mktemp -d "$STATE_DIRECTORY/checkout.XXXXXX")" || return 0
   if authed_git "$token" clone --quiet --depth 1 --branch main "$FORGE_PULL_DEPLOY_REMOTE" "$checkout" &&
     [ "$(git -C "$checkout" rev-parse HEAD)" = "$running" ]; then
-    write_forge "$checkout" "$running" || true
+    write_forge "$(lock_of "$checkout")" "$running" || true
   fi
   rm -rf "$checkout"
 }
@@ -132,7 +135,7 @@ running_commit() {
 }
 
 poll() {
-  local token checkout output listing
+  local token checkout output listing lock
   running="$(running_commit)" || return 1
   token="$(mint_token)" || return 1
   current_token="$token"
@@ -166,9 +169,10 @@ poll() {
     record_status
     return
   fi
+  lock="$(lock_of "$checkout")"
   echo "forge-pull-deploy: switching to $head"
   if output="$(nixos-rebuild switch --no-reexec --flake "$checkout#$FORGE_PULL_DEPLOY_HOSTNAME" 2>&1)"; then
-    write_forge "$checkout" "$head" || true
+    write_forge "$lock" "$head" || true
     rm -rf "$checkout"
     { printf '%s\n' "$head" > "$running_file" && readlink -f /run/current-system > "$system_file"; } || return 1
     running="$head"
