@@ -198,7 +198,8 @@ const FINGERPRINT_FIELDS: { key: string; label: string; valueOf: (fingerprint: C
   { key: 'system-prompt', label: 'System prompt', valueOf: ({ systemPrompt }) => systemPrompt ?? 'not recorded' },
   { key: 'tools', label: 'Tool definitions', valueOf: ({ tools }) => tools ?? 'not recorded' },
   { key: 'skills', label: 'Skill files', valueOf: ({ skills }) => skills ?? 'not recorded' },
-  { key: 'settings', label: 'Settings and hooks', valueOf: ({ settings }) => settings ?? 'none' },
+  { key: 'settings', label: 'Forge settings', valueOf: ({ settings }) => settings ?? 'none' },
+  { key: 'plugin', label: 'Plugin directory', valueOf: ({ plugin }) => plugin ?? 'none' },
   { key: 'instructions', label: 'Repository instructions', valueOf: ({ instructions }) => (instructions === undefined ? 'not recorded' : (instructions ?? 'no instructions file')) },
 ];
 

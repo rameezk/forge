@@ -66,16 +66,16 @@ const hashedEntries = (workDir: string, paths: string[]): string[][] =>
 
 const PLACEHOLDER_SHELL = { bash: '<shell>', client: '<shell prefix>' };
 
-export const claudeCodeSettingsHash = (workDir: string): string => {
+export const claudeCodeSettingsHash = (): string =>
+  canonicalHash(JSON.stringify(claudeCodeSettings(PLACEHOLDER_SHELL)));
+
+export const claudeCodePluginHash = (workDir: string): string => {
   const claudeDir = join(workDir, '.claude');
   const paths =
     kindOf(claudeDir) === 'symlink'
       ? [claudeDir]
       : PLUGIN_CONTENT.flatMap((name) => contentEntries(join(claudeDir, name)));
-  return canonicalHash([
-    JSON.stringify(claudeCodeSettings(PLACEHOLDER_SHELL)),
-    hashedEntries(workDir, paths),
-  ]);
+  return canonicalHash(hashedEntries(workDir, paths));
 };
 
 export const claudeCodeInstructionsHash = (workDir: string): string | null => {

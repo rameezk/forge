@@ -31,7 +31,8 @@ test('given a cohort, when its page is requested, then it shows the label and ev
     ['system-prompt', 'System prompt s'],
     ['tools', 'Tool definitions t'],
     ['skills', 'Skill files k'],
-    ['settings', 'Settings and hooks none'],
+    ['settings', 'Forge settings none'],
+    ['plugin', 'Plugin directory none'],
     ['instructions', 'Repository instructions not recorded'],
   ]));
 });
@@ -79,11 +80,11 @@ test('given a pi cohort and a Claude Code cohort, when one is requested with the
 
   assert.deepEqual(changedFieldsOf(page), ['harness', 'provider', 'settings']);
   assert.equal(fieldsOf(page).get('harness'), 'Harness changed claude-code pi');
-  assert.equal(fieldsOf(page).get('settings'), 'Settings and hooks changed h1 none');
+  assert.equal(fieldsOf(page).get('settings'), 'Forge settings changed h1 none');
   assert.equal(fieldsOf(await (await app.request(`/cohorts/${fingerprintHash(CLAUDE_CODE)}`)).text()).get('harness'), 'Harness claude-code');
 });
 
-test('given two Claude Code cohorts differing only in their settings and hooks hash, when one is requested with the other chosen, then the diff marks only the settings as changed', async () => {
+test('given two Claude Code cohorts differing only in their forge settings hash, when one is requested with the other chosen, then the diff marks only the settings as changed', async () => {
   const { app } = dashboard([
     { id: 'c1', fingerprint: CLAUDE_CODE, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
     { id: 'c2', fingerprint: HOOKED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
@@ -92,6 +93,22 @@ test('given two Claude Code cohorts differing only in their settings and hooks h
   const page = await (await app.request(`/cohorts/${fingerprintHash(CLAUDE_CODE)}?against=${fingerprintHash(HOOKED)}`)).text();
 
   assert.deepEqual(changedFieldsOf(page), ['settings']);
+});
+
+const PLUGGED: ConfigFingerprint = { ...CLAUDE_CODE, plugin: 'p1' };
+
+const REPLUGGED: ConfigFingerprint = { ...PLUGGED, plugin: 'p2' };
+
+test('given two Claude Code cohorts differing only in their plugin directory hash, when one is requested with the other chosen, then the diff marks only the plugin directory as changed', async () => {
+  const { app } = dashboard([
+    { id: 'c1', fingerprint: PLUGGED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+    { id: 'c2', fingerprint: REPLUGGED, seconds: 60, cost: 0, toolCalls: 1, retries: 0 },
+  ]);
+
+  const page = await (await app.request(`/cohorts/${fingerprintHash(PLUGGED)}?against=${fingerprintHash(REPLUGGED)}`)).text();
+
+  assert.deepEqual(changedFieldsOf(page), ['plugin']);
+  assert.equal(fieldsOf(page).get('plugin'), 'Plugin directory changed p1 p2');
 });
 
 const INSTRUCTED: ConfigFingerprint = { ...CLAUDE_CODE, instructions: 'i1' };

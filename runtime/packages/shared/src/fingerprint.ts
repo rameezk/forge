@@ -14,6 +14,7 @@ export interface ConfigFingerprint {
   tools: string | null;
   skills: string | null;
   settings?: string;
+  plugin?: string;
   instructions?: string | null;
 }
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { claudeCodeInstructionsHash, claudeCodeNormalizer, claudeCodeSettingsHash } from '../src/claude-code-fingerprint.ts';
+import { claudeCodeInstructionsHash, claudeCodeNormalizer, claudeCodePluginHash, claudeCodeSettingsHash } from '../src/claude-code-fingerprint.ts';
 
 const GIT_STATUS = (branch: string, status: string, commits: string): string =>
   `Intro.\n# gitStatus\nThis is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.\n\nCurrent branch: ${branch}\n\nMain branch (you will usually use this for PRs): main\n\nGit user: n\n\nStatus:\n${status}\n\nRecent commits:\n${commits}\n\nTrailing text that is part of the prompt.`;
@@ -43,29 +43,34 @@ const checkout = (files: Record<string, string>): string => {
   return root;
 };
 
+test('given forge\'s settings, when they are hashed, then the hash is a digest that does not depend on any checkout', () => {
+  assert.match(claudeCodeSettingsHash(), /^[0-9a-f]{64}$/);
+  assert.equal(claudeCodeSettingsHash(), claudeCodeSettingsHash());
+});
+
 const content = {
   '.claude/skills/first/SKILL.md': 'one\n',
   '.claude/agents/helper.md': 'one\n',
   '.claude/commands/hello.md': 'one\n',
 };
 
-test('given checkouts with and without skills, agents and commands, when their settings are hashed, then none is null, each change to one of them changes the hash, and an identical checkout hashes alike', () => {
-  const hash = claudeCodeSettingsHash(checkout(content));
+test('given checkouts with and without skills, agents and commands, when their plugin directory is hashed, then none is null, each change to one of them changes the hash, and an identical checkout hashes alike', () => {
+  const hash = claudeCodePluginHash(checkout(content));
 
-  assert.match(claudeCodeSettingsHash(checkout({})) ?? '', /^[0-9a-f]{64}$/);
-  assert.notEqual(claudeCodeSettingsHash(checkout({})), hash);
-  assert.equal(claudeCodeSettingsHash(checkout(content)), hash);
+  assert.match(claudeCodePluginHash(checkout({})) ?? '', /^[0-9a-f]{64}$/);
+  assert.notEqual(claudeCodePluginHash(checkout({})), hash);
+  assert.equal(claudeCodePluginHash(checkout(content)), hash);
   for (const file of Object.keys(content)) {
-    assert.notEqual(claudeCodeSettingsHash(checkout({ ...content, [file]: 'two\n' })), hash, file);
+    assert.notEqual(claudeCodePluginHash(checkout({ ...content, [file]: 'two\n' })), hash, file);
   }
-  assert.notEqual(claudeCodeSettingsHash(checkout({ ...content, '.claude/skills/second/SKILL.md': 'x' })), hash);
+  assert.notEqual(claudeCodePluginHash(checkout({ ...content, '.claude/skills/second/SKILL.md': 'x' })), hash);
 });
 
-test('given a checkout with Claude Code settings and hook scripts, when its settings are hashed, then they do not change the hash, because forge loads neither', () => {
-  const hash = claudeCodeSettingsHash(checkout(content));
+test('given a checkout with Claude Code settings and hook scripts, when its plugin directory is hashed, then they do not change the hash, because forge loads neither', () => {
+  const hash = claudeCodePluginHash(checkout(content));
 
   assert.equal(
-    claudeCodeSettingsHash(
+    claudeCodePluginHash(
       checkout({
         ...content,
         '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [] }, env: { LD_PRELOAD: 'x' } }),
@@ -77,20 +82,20 @@ test('given a checkout with Claude Code settings and hook scripts, when its sett
   );
 });
 
-test('given a checkout whose skills, agents or commands directory is a symlink, when its settings are hashed, then the target is not read, a loop terminates, and retargeting a link changes the hash', () => {
+test('given a checkout whose skills, agents or commands directory is a symlink, when its plugin directory is hashed, then the target is not read, a loop terminates, and retargeting a link changes the hash', () => {
   const outside = checkout({ 'skills/first/SKILL.md': 'one\n' });
   const linked = checkout({});
   mkdirSync(join(linked, '.claude'));
   symlinkSync(join(outside, 'skills'), join(linked, '.claude/skills'));
   symlinkSync('.', join(linked, '.claude/agents'));
-  const before = claudeCodeSettingsHash(linked);
+  const before = claudeCodePluginHash(linked);
 
   writeFileSync(join(outside, 'skills/first/SKILL.md'), 'two\n');
-  assert.equal(claudeCodeSettingsHash(linked), before);
+  assert.equal(claudeCodePluginHash(linked), before);
 
   rmSync(join(linked, '.claude/agents'));
   symlinkSync('..', join(linked, '.claude/agents'));
-  assert.notEqual(claudeCodeSettingsHash(linked), before);
+  assert.notEqual(claudeCodePluginHash(linked), before);
 });
 
 test('given a skill that is a symlink to a file inside the checkout, when that file changes, then the hash changes, but a link to a file outside the checkout is hashed by its target path alone', () => {
@@ -100,13 +105,13 @@ test('given a skill that is a symlink to a file inside the checkout, when that f
   mkdirSync(join(root, '.claude/skills/outside'), { recursive: true });
   symlinkSync('../../../shared/SKILL.md', join(root, '.claude/skills/inside/SKILL.md'));
   symlinkSync(join(outside, 'secret.md'), join(root, '.claude/skills/outside/SKILL.md'));
-  const before = claudeCodeSettingsHash(root);
+  const before = claudeCodePluginHash(root);
 
   writeFileSync(join(outside, 'secret.md'), 'two\n');
-  assert.equal(claudeCodeSettingsHash(root), before);
+  assert.equal(claudeCodePluginHash(root), before);
 
   writeFileSync(join(root, 'shared/SKILL.md'), 'two\n');
-  assert.notEqual(claudeCodeSettingsHash(root), before);
+  assert.notEqual(claudeCodePluginHash(root), before);
 });
 
 test('given checkouts with and without AGENTS.md and CLAUDE.md, when their instructions are hashed, then none is null, both files are covered because forge imports both, and each change to either changes the hash', () => {
