@@ -303,9 +303,15 @@ just ssh sudo systemctl restart forge-pull-deploy
 
 The box records its deploy status in `/var/lib/forge-pull-deploy/status.json`: the
 operator commit it runs (`running`), the commit at the head of `main` (`head`)
-and the last switch error, if any (`error`). Read it with
+and the last switch error, if any (`error`). It also records the forge commit
+locked in the operator commit the box runs (`forge`), the repository that locked
+`forge` input follows (`upstream`, a fork included), that repository's head
+commit (`upstreamHead`) and how many commits the box's forge is behind it
+(`behind`). The upstream fields are `null` when GitHub could not be asked, which
+is never a switch error. Read the file with
 `just ssh sudo cat /var/lib/forge-pull-deploy/status.json`, or see it on the
-dashboard's Board, which shows the running commit, the head commit, or "up to date" when
+dashboard: every page's footer shows the forge commit with a "latest" or "N behind"
+pill, and the Board shows the running commit, the head commit, or "up to date" when
 they match, and the last switch error. A box that has never pulled shows `running` as
 `null` until its first switch.
 

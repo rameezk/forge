@@ -705,7 +705,7 @@ in
         type = lib.types.path;
         default = "/var/lib/forge-pull-deploy/status.json";
         readOnly = true;
-        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`) and `error` (the last switch error, or null), each null while unknown. The root-owned unit writes it into a root-owned directory and the dashboard only reads it.";
+        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`) and `error` (the last switch error, or null), `forge` (the forge commit locked in the operator commit the box runs), `upstream` (the `owner/repo` the locked `forge` input follows), `upstreamHead` (that repository's head commit) and `behind` (how many commits `forge` is behind `upstreamHead`), each null while unknown. A failed upstream lookup leaves `upstream`, `upstreamHead` and `behind` null and is not an error. The root-owned unit writes it into a root-owned directory and the dashboard only reads it.";
       };
     };
 

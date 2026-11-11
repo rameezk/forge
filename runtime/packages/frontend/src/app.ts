@@ -97,7 +97,8 @@ export const createApp = ({
   const displayOf = (c: Context): Display => {
     const { pathname, search } = new URL(c.req.url);
     const version = watch(pathname + search)?.().version;
-    return version === undefined ? display : { ...display, version };
+    const deploy = deployStatus();
+    return version === undefined ? { ...display, deploy } : { ...display, version, deploy };
   };
 
   const serveImmutable = (href: string, body: string, contentType: string): void => {

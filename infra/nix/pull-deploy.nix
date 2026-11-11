@@ -132,9 +132,29 @@ testers.runNixOSTest {
 
     status_file = "/var/lib/forge-pull-deploy/status.json"
     requests_file = "/var/lib/fake-github/requests.jsonl"
+    upstream_file = "/var/lib/fake-github/upstream.json"
+    forge_state_file = "/var/lib/forge-pull-deploy/forge.json"
     commit_options = "-c user.name=operator -c user.email=operator@example.com"
 
-    def push(flake, message):
+    forge_a = "a" * 40
+    forge_b = "b" * 40
+    forge_c = "c" * 40
+    upstream_head = "d" * 40
+    fork_head = "e" * 40
+
+    def lock(owner, repo, rev, ref=None):
+        original = {"type": "github", "owner": owner, "repo": repo}
+        if ref is not None:
+            original["ref"] = ref
+        locked = {"type": "github", "owner": owner, "repo": repo, "rev": rev}
+        return json.dumps({"version": 7, "root": "root", "nodes": {"root": {"inputs": {"forge": "forge"}}, "forge": {"original": original, "locked": locked}}})
+
+    def upstream(repos, fail=False):
+        box.succeed(f"cat > {upstream_file} <<'EOF'\n" + json.dumps({"fail": fail, "repos": repos}) + "\nEOF")
+
+    def push(flake, message, forge_lock=None):
+        if forge_lock is not None:
+            box.succeed(f"cat > /srv/work/flake.lock <<'EOF'\n{forge_lock}\nEOF")
         return box.succeed(
             f"install -m 0644 {flake} /srv/work/flake.nix && cd /srv/work && git add -A && "
             f"git {commit_options} commit -q --allow-empty -m '{message}' && git push -q origin HEAD:main && git rev-parse HEAD"
@@ -151,7 +171,7 @@ testers.runNixOSTest {
         assert actual == expected, (name, actual, expected)
 
     def polls():
-        return len([r for r in requests() if r["method"] == "GET"])
+        return len([r for r in requests() if r["method"] == "GET" and r["path"].endswith("/installation")])
 
     def status():
         return json.loads(box.succeed(f"cat {status_file}"))
@@ -173,9 +193,11 @@ testers.runNixOSTest {
     box.wait_for_unit("fake-github.service")
     box.succeed("git init -q --bare -b main /srv/operator.git && git clone -q /srv/operator.git /srv/work")
 
-    with subtest("the box switches to the head of main and records it as both running and head"):
-        a = push("${operatorFlake false}", "operator commit A")
-        wait_for_status(running=a, head=a, error=None)
+    upstream({"rameezk/forge": {"head": upstream_head, "ahead": {forge_a: 3}}})
+
+    with subtest("the box switches to the head of main and records it as both running and head, with the forge commit its lock names and how far upstream is ahead"):
+        a = push("${operatorFlake false}", "operator commit A", lock("rameezk", "forge", forge_a))
+        wait_for_status(running=a, head=a, error=None, forge=forge_a, upstream="rameezk/forge", upstreamHead=upstream_head, behind=3)
         assert_log("switched", [a])
 
     with subtest("the box asks for an installation token narrowed to the operator repository with read access to contents"):
@@ -191,19 +213,44 @@ testers.runNixOSTest {
         wait_for_polls(3)
         assert_log("built", [a])
         assert_log("switched", [a])
-        wait_for_status(running=a, head=a, error=None)
+        wait_for_status(running=a, head=a, error=None, forge=forge_a, upstream="rameezk/forge", upstreamHead=upstream_head, behind=3)
 
-    with subtest("the box switches when main moves to a commit that builds"):
-        b = push("${operatorFlake false}", "operator commit B")
-        wait_for_status(running=b, head=b, error=None)
+    with subtest("the box keeps the forge commit while main is unchanged and refreshes upstream on every poll"):
+        upstream({"rameezk/forge": {"head": forge_b, "ahead": {forge_a: 4}}})
+        wait_for_status(running=a, head=a, error=None, forge=forge_a, upstream="rameezk/forge", upstreamHead=forge_b, behind=4)
+        assert_log("built", [a])
+
+    with subtest("a box that predates the forge state file learns its forge commit again without switching"):
+        box.succeed(f"rm {forge_state_file}")
+        box.succeed("systemctl restart forge-pull-deploy.service")
+        wait_for_status(running=a, head=a, error=None, forge=forge_a, behind=4)
+        box.succeed(f"test -f {forge_state_file}")
+        assert_log("switched", [a])
+
+    with subtest("a failed upstream lookup leaves the upstream fields empty and records no deploy error"):
+        upstream({"rameezk/forge": {"head": forge_b, "ahead": {forge_a: 4}}}, fail=True)
+        wait_for_status(running=a, head=a, error=None, forge=forge_a, upstream=None, upstreamHead=None, behind=None)
+        upstream({"rameezk/forge": {"head": forge_b, "ahead": {forge_a: 4}}})
+        wait_for_status(running=a, head=a, error=None, forge=forge_a, upstream="rameezk/forge", upstreamHead=forge_b, behind=4)
+
+    with subtest("the box looks upstream up on the source the locked forge input follows, a fork included"):
+        upstream({"rameezk/forge": {"head": forge_b, "ahead": {}}, "fork-org/forge": {"head": fork_head, "ahead": {forge_b: 1}}})
+        b = push("${operatorFlake false}", "operator commit B", lock("fork-org", "forge", forge_b, "main"))
+        wait_for_status(running=b, head=b, error=None, forge=forge_b, upstream="fork-org/forge", upstreamHead=fork_head, behind=1)
         assert_log("switched", [a, b])
+        seen = len(requests())
+        wait_for_polls(2)
+        paths = [r["path"] for r in requests()[seen:] if r["path"].startswith("/repos/") and not r["path"].endswith("/installation")]
+        assert "/repos/fork-org/forge/commits/main" in paths, paths
+        assert not [p for p in paths if p.startswith("/repos/rameezk/forge")], paths
 
     with subtest("a commit that fails to build is remembered and not tried again"):
         box.wait_for_unit("forge-pull-deploy.service")
-        c = push("${operatorFlake true}", "operator commit C")
+        c = push("${operatorFlake true}", "operator commit C", lock("fork-org", "forge", forge_c, "main"))
         wait_for_status(running=b, head=c)
         failed = status()
         assert failed["error"] is not None and "operator build failed for " + c in failed["error"], failed
+        assert failed["forge"] == forge_b and failed["upstream"] == "fork-org/forge", failed
         wait_for_polls(3)
         assert lines("${record}/built").count(c) == 1, lines("${record}/built")
         assert_log("switched", [a, b])
@@ -214,8 +261,9 @@ testers.runNixOSTest {
         retry(lambda _: lines("${record}/built").count(c) == 2, 120)
 
     with subtest("the box recovers when main moves past the failed commit"):
+        upstream({"fork-org/forge": {"head": fork_head, "ahead": {forge_c: 0}}})
         d = push("${operatorFlake false}", "operator commit D")
-        wait_for_status(running=d, head=d, error=None)
+        wait_for_status(running=d, head=d, error=None, forge=forge_c, upstream="fork-org/forge", upstreamHead=fork_head, behind=0)
         assert_log("switched", [a, b, d])
 
     with subtest("a hand deploy is reverted at the next pull"):
