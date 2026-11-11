@@ -45,7 +45,7 @@ github() {
   local token="$1" method="$2" path="$3"
   shift 3
   printf 'header = "Authorization: Bearer %s"\n' "$token" |
-    curl -fsS --max-time 30 --config - -X "$method" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$@" "$FORGE_PULL_DEPLOY_API$path"
+    curl -fsS --max-time 30 --path-as-is --config - -X "$method" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' "$@" "$FORGE_PULL_DEPLOY_API$path"
 }
 
 mint_token() {

@@ -48,12 +48,10 @@ const forgeOf = (footer: string): string => {
   return forge;
 };
 
-const words = (fragment: string): string => textOf(fragment);
-
 const commitLink = (footer: string): { href: string; text: string } => {
   const link = footer.match(/<a\s[^>]*\bdata-forge-commit\b[^>]*>[\s\S]*?<\/a>/)?.[0];
   assert.ok(link, 'the forge commit is a link');
-  return { href: /href="([^"]*)"/.exec(link)![1]!, text: words(link) };
+  return { href: /href="([^"]*)"/.exec(link)![1]!, text: textOf(link) };
 };
 
 const pillOf = (footer: string): string | undefined => footer.match(/<[^>]*\sdata-forge-pill[^>]*>[\s\S]*?<\/span>/)?.[0];
@@ -62,8 +60,8 @@ test('given the running forge commit is upstream head, when the Board and the Wo
   for (const page of ['/', '/workloads']) {
     const footer = footerOf(await pageWith(page, () => status()));
 
-    assert.match(words(footer), /Times in UTC/, page);
-    assert.match(words(forgeOf(footer)), /^Forge 3a822d0 latest$/, page);
+    assert.match(textOf(footer), /Times in UTC/, page);
+    assert.match(textOf(forgeOf(footer)), /^Forge 3a822d0 latest$/, page);
     assert.deepEqual(commitLink(footer), { href: `https://github.com/rameezk/forge/commit/${FORGE}`, text: '3a822d0' }, page);
     assert.match(pillOf(footer) ?? '', /bg-success-soft/, page);
   }
@@ -72,7 +70,7 @@ test('given the running forge commit is upstream head, when the Board and the Wo
 test('given the box is 3 commits behind upstream, when a page is requested, then the footer shows a neutral 3 behind pill and the commit links to the compare view', async () => {
   const footer = footerOf(await pageWith('/workloads', () => status({ upstreamHead: UPSTREAM_HEAD, behind: 3 })));
 
-  assert.match(words(forgeOf(footer)), /^Forge 3a822d0 3 behind$/);
+  assert.match(textOf(forgeOf(footer)), /^Forge 3a822d0 3 behind$/);
   assert.equal(commitLink(footer).href, `https://github.com/rameezk/forge/compare/${FORGE}...${UPSTREAM_HEAD}`);
   assert.match(pillOf(footer) ?? '', /bg-line/);
   assert.doesNotMatch(pillOf(footer) ?? '', /bg-(success|warning|error)-soft/);
@@ -87,10 +85,10 @@ test('given a fork as the upstream source, when a page is requested, then the li
 test('given a running forge commit and no upstream fields, when a page is requested, then the footer shows the commit with no pill and no error', async () => {
   const footer = footerOf(await pageWith('/workloads', () => status({ upstream: null, upstreamHead: null, behind: null })));
 
-  assert.match(words(forgeOf(footer)), /^Forge 3a822d0$/);
+  assert.match(textOf(forgeOf(footer)), /^Forge 3a822d0$/);
   assert.equal(pillOf(footer), undefined);
   assert.doesNotMatch(footer, /<a\s[^>]*data-forge-commit/);
-  assert.doesNotMatch(words(footer), /error|failed/i);
+  assert.doesNotMatch(textOf(footer), /error|failed/i);
 });
 
 test('given a status written before the forge fields existed, when it is read, then the forge fields are unknown', () => {
@@ -115,13 +113,14 @@ test('given forge fields of the wrong shape, when the status is read, then each 
   const text = JSON.stringify({ forge: 'not a commit', upstream: 'javascript:alert(1)', upstreamHead: 7, behind: -2 });
 
   assert.deepEqual(parseDeployStatus(text), { running: null, head: null, error: null, forge: null, upstream: null, upstreamHead: null, behind: null });
+  for (const upstream of ['../forge', 'owner/..', './forge']) assert.equal(parseDeployStatus(JSON.stringify({ upstream }))?.upstream, null, upstream);
 });
 
 test('given no deploy status, when a page is requested, then the footer shows only the time zone', async () => {
   for (const deployStatus of [undefined, () => null]) {
     const footer = footerOf(await pageWith('/workloads', deployStatus));
 
-    assert.equal(words(footer), 'Times in UTC');
+    assert.equal(textOf(footer), 'Times in UTC');
     assert.doesNotMatch(footer, /data-forge-status/);
   }
 });

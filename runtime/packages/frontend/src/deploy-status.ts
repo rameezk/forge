@@ -14,7 +14,7 @@ const textOrNull = (value: unknown): string | null => (typeof value === 'string'
 
 const COMMIT = /^[0-9a-f]{7,64}$/;
 
-const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const REPOSITORY = /^(?!\.{1,2}\/)(?!.*\/\.{1,2}$)[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 const matching = (value: unknown, pattern: RegExp): string | null => (typeof value === 'string' && pattern.test(value) ? value : null);
 
