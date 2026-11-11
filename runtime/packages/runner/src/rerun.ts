@@ -66,7 +66,7 @@ export class RerunDecider {
   }
 
   ask(run: unknown): Promise<RerunAnswer> {
-    const answer = this.#queue.then(() => this.#decide(run));
+    const answer = this.#queue.then(() => this.#bounded(this.#decide(run)));
     this.#queue = answer.catch(() => undefined);
     return answer.catch(
       (error: unknown): RerunAnswer => ({
@@ -74,6 +74,16 @@ export class RerunDecider {
         message: `could not re-run the run: ${errorMessage(error)}`,
       }),
     );
+  }
+
+  #bounded(decision: Promise<RerunAnswer>): Promise<RerunAnswer> {
+    const limit = (this.#policy.timeoutMs ?? GITHUB_TIMEOUT_MS) * 2;
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('the ask took too long')), limit);
+    });
+    decision.catch(() => undefined);
+    return Promise.race([decision, late]).finally(() => clearTimeout(timer));
   }
 
   async #decide(run: unknown): Promise<RerunAnswer> {
@@ -116,11 +126,14 @@ export class RerunDecider {
     ) {
       return refusal(`run ${run} has not failed`);
     }
+    if (this.#rerun >= RERUN_LIMIT) {
+      return refusal(`this workload has already re-run ${RERUN_LIMIT} runs, the limit of ${RERUN_LIMIT}`);
+    }
+    this.#rerun += 1;
     const response = await githubRequest(this.#policy, token, 'POST', `/actions/runs/${run}/rerun`);
     if (!response.ok) {
       return { rerun: false, message: `GitHub answered ${response.status} when re-running run ${run}` };
     }
-    this.#rerun += 1;
     return { rerun: true, message: `re-ran run ${run}` };
   }
 }

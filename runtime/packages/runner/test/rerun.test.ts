@@ -66,3 +66,56 @@ test('given GitHub that never answers, when a workload asks, then the ask is ans
 
   for (const answer of [first, second]) assert.match(answer, /"rerun":false.*timed out/);
 });
+
+test('given a token mint that never answers, when a workload asks twice, then each ask is answered as not re-run', async (t) => {
+  const channel = await RerunChannel.open(mkdtempSync(join(tmpdir(), 'forge-rerun-')), {
+    github: 'rameezk/forge',
+    fetch: async () => new Response('{}'),
+    token: () => new Promise<string>(() => undefined),
+    pullRequest: async () => 1,
+    timeoutMs: 50,
+  });
+  t.after(() => channel.close());
+
+  const ask = 'POST /rerun HTTP/1.1\r\nhost: forge\r\nconnection: close\r\ncontent-length: 10\r\n\r\n{"run":12}';
+
+  for (const answer of [await send(channel.path, ask, false), await send(channel.path, ask, false)]) {
+    assert.match(answer, /"rerun":false.*took too long/);
+  }
+});
+
+test('given a re-run that GitHub accepts after the runner stopped waiting, when a workload asks three times, then at most two re-runs are sent', async (t) => {
+  const posts: string[] = [];
+  const channel = await RerunChannel.open(mkdtempSync(join(tmpdir(), 'forge-rerun-')), {
+    github: 'rameezk/forge',
+    fetch: (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (init?.method === 'POST') {
+        posts.push(path);
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(new Error('timed out')));
+        });
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(
+            path.includes('/pulls/')
+              ? { head: { sha: 'a', ref: 'b' } }
+              : { head_sha: 'a', head_branch: 'b', status: 'completed', conclusion: 'failure' },
+          ),
+        ),
+      );
+    },
+    token: async () => 'token',
+    pullRequest: async () => 1,
+    timeoutMs: 50,
+  });
+  t.after(() => channel.close());
+
+  const ask = 'POST /rerun HTTP/1.1\r\nhost: forge\r\nconnection: close\r\ncontent-length: 10\r\n\r\n{"run":12}';
+  const answers = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) answers.push(await send(channel.path, ask, false));
+
+  assert.equal(posts.length, 2);
+  assert.match(answers[2] ?? '', /limit of 2/);
+});
