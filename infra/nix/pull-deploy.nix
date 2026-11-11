@@ -223,8 +223,8 @@ testers.runNixOSTest {
     with subtest("a box that predates the forge state file learns its forge commit again without switching"):
         box.succeed(f"rm {forge_state_file}")
         box.succeed("systemctl restart forge-pull-deploy.service")
+        box.wait_until_succeeds(f"test -f {forge_state_file}")
         wait_for_status(running=a, head=a, error=None, forge=forge_a, behind=4)
-        box.succeed(f"test -f {forge_state_file}")
         assert_log("switched", [a])
 
     with subtest("a failed upstream lookup leaves the upstream fields empty and records no deploy error"):
