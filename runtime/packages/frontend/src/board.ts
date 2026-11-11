@@ -1,4 +1,4 @@
-import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { newestClosedFirst, RISK_LEVELS, type RiskGrade, type RiskLevel, type ConflictResolutionRecord, oldestFirst, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -23,11 +23,28 @@ export interface LiveWorkload {
   pullRequest: { number: number; url: string } | null;
 }
 
+export type Risk =
+  | { state: 'grading' }
+  | { state: 'graded'; level: RiskLevel; confidence: number; runnerUp: RiskLevel | null };
+
+export interface Grading {
+  repositories: ReadonlySet<string>;
+  grades: readonly RiskGrade[];
+}
+
+const riskOf = ({ level, unsettled, probabilities, confidence }: RiskGrade): Risk => ({
+  state: 'graded',
+  level,
+  confidence,
+  runnerUp: unsettled ? RISK_LEVELS.filter((other) => other !== level).reduce((best, other) => (probabilities[other] > probabilities[best] ? other : best)) : null,
+});
+
 interface CardState {
   dispatch: DispatchRecord | undefined;
   workload: LiveWorkload | undefined;
   conflictFailedStart: ConflictResolutionRecord | undefined;
   revisionFailedStart: RevisionRecord | undefined;
+  risk?: Risk;
 }
 
 export type BoardCard =
@@ -116,7 +133,9 @@ export const buildLanes = (
   dispatches: ReadonlyMap<string, DispatchRecord>,
   revisions: readonly RevisionRecord[],
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
+  grading: Grading = { repositories: new Set(), grades: [] },
 ): BoardLane[] => {
+  const grades = new Map(grading.grades.map((grade) => [ticketKey(grade.repository, grade.number), grade]));
   const liveRevisions = liveByPullRequest(revisions, 'revision');
   const liveResolutions = liveByPullRequest(conflictResolutions, 'conflict resolution');
   const latestResolution = latestSettledOf(conflictResolutions);
@@ -143,6 +162,8 @@ export const buildLanes = (
       }
       const column = columnOf(ticket, dispatch);
       const pullRequest = dispatch?.pullRequest;
+      const grade = pullRequest == null ? undefined : grades.get(ticketKey(repository.repository, pullRequest.number));
+      const graded = column === 'in-review' && pullRequest != null && grading.repositories.has(repository.repository);
       columns[column].push({
         column,
         ticket,
@@ -150,6 +171,7 @@ export const buildLanes = (
         workload: undefined,
         conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        ...(graded ? { risk: grade === undefined ? { state: 'grading' as const } : riskOf(grade) } : {}),
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {

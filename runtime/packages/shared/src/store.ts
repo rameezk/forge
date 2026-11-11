@@ -2846,6 +2846,24 @@ export class Store {
       });
   }
 
+  currentRiskGrades(): RiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT risk_grades.* FROM risk_grades
+        JOIN feedback_watches
+          ON feedback_watches.repository = risk_grades.repository
+          AND feedback_watches.number = risk_grades.number
+          AND feedback_watches.head_sha = risk_grades.head_sha`,
+      )
+      .all() as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
+  }
+
+  gradingCostUsd(): number | null {
+    const row = this.#db.prepare('SELECT SUM(cost_usd) AS total FROM risk_grades').get() as { total: number | null };
+    return row.total;
+  }
+
   riskGrade(repository: string, number: number, headSha: string): RiskGrade | null {
     const row = this.#db
       .prepare(

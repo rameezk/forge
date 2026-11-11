@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { ClosedTicket, PolledFrontier, PollFailure, RefinementRequest, RunRecord, Ticket } from '@forge/shared';
+import type { ClosedTicket, RiskGrade, PolledFrontier, PollFailure, RefinementRequest, RunRecord, Ticket } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
@@ -25,7 +25,7 @@ type Seed =
   | (PolledFrontier & { lastError?: PollFailure })
   | { repository: string; github: string; polledAt: null; lastError: PollFailure };
 
-const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number, maxOpenPullRequests?: number | null) => {
+const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number, maxOpenPullRequests?: number | null, gradedRepositories?: string[]) => {
   const store = Store.open(':memory:');
   dispatch(store);
   for (const seed of frontier) {
@@ -43,6 +43,7 @@ const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, 
     client: '',
     ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
     ...(maxOpenPullRequests === undefined ? {} : { maxOpenPullRequests }),
+    ...(gradedRepositories === undefined ? {} : { gradedRepositories }),
   });
 };
 
@@ -1001,4 +1002,123 @@ test('given the review limit is reached and a forge:ready ticket whose earlier d
 
   assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))).failed, ['9']);
   assert.deepEqual(pillsOf(cardOf(body, 9)).filter((pill) => pill === 'held: review limit'), ['held: review limit']);
+});
+
+const watch = (store: Store, number: number, headSha: string): void => {
+  store.recordWatchedPullRequests('forge', [{ ...pullRequest(number), closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha, draft: false, defaultSha: 'default' }]);
+};
+
+const grade = (number: number, headSha: string, overrides: Partial<RiskGrade> = {}): RiskGrade => ({
+  repository: 'forge',
+  number,
+  headSha,
+  fingerprint: 'fingerprint',
+  model: 'typesafe/jev-1.13',
+  probabilities: { trivial: 0.01, low: 0.05, moderate: 0.11, high: 0.83 },
+  score: 0.9,
+  confidence: 0.83,
+  level: 'high',
+  unsettled: false,
+  costUsd: 0.0123,
+  gradedAt: '2026-09-30T10:00:00.000Z',
+  ...overrides,
+});
+
+const riskOf = (card: string): string | null => /<[^>]*\sdata-risk[^>]*>[\s\S]*?<\/p>/.exec(card)?.[0] ?? null;
+
+test('given a forge pull request in review whose current head is graded high at 83%, when the Board is requested, then its card shows a high badge with 83%', async () => {
+  const app = appWith(
+    [frontierOf([ticket({ number: 5, forgeReady: true })])],
+    (store) => {
+      inReview(store, 5);
+      watch(store, 105, 'abc');
+      store.recordRiskGrade(grade(105, 'abc'));
+    },
+    undefined,
+    undefined,
+    ['forge'],
+  );
+
+  const badge = riskOf(cardOf(await (await app.request('/')).text(), 5));
+
+  assert.ok(badge);
+  assert.match(openingTag(badge), /data-risk="high"/);
+  assert.equal(textOf(badge), 'high 83%');
+});
+
+test('given a current grade of low with high as runner-up and confidence below the threshold, when the Board is requested, then the badge shows low with high as the possible alternative', async () => {
+  const app = appWith(
+    [frontierOf([ticket({ number: 5, forgeReady: true })])],
+    (store) => {
+      inReview(store, 5);
+      watch(store, 105, 'abc');
+      store.recordRiskGrade(grade(105, 'abc', { level: 'low', unsettled: true, confidence: 0.42, probabilities: { trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 } }));
+    },
+    undefined,
+    undefined,
+    ['forge'],
+  );
+
+  const badge = riskOf(cardOf(await (await app.request('/')).text(), 5));
+
+  assert.ok(badge);
+  assert.match(openingTag(badge), /data-risk="low"/);
+  assert.match(openingTag(badge), /data-risk-unsettled/);
+  assert.equal(textOf(badge), 'low 42% or high');
+});
+
+test('given a forge pull request in review whose current head has no grade but whose previous head had one, when the Board is requested, then its card shows grading and no level', async () => {
+  const app = appWith(
+    [frontierOf([ticket({ number: 5, forgeReady: true })])],
+    (store) => {
+      inReview(store, 5);
+      watch(store, 105, 'old');
+      store.recordRiskGrade(grade(105, 'old'));
+      watch(store, 105, 'new');
+    },
+    undefined,
+    undefined,
+    ['forge'],
+  );
+
+  const badge = riskOf(cardOf(await (await app.request('/')).text(), 5));
+
+  assert.ok(badge);
+  assert.match(openingTag(badge), /data-risk="grading"/);
+  assert.equal(textOf(badge), 'grading');
+});
+
+test('given a repository with grading off, when the Board is requested, then its In review cards show no risk', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watch(store, 105, 'abc');
+    store.recordRiskGrade(grade(105, 'abc'));
+  });
+
+  assert.equal(riskOf(cardOf(await (await app.request('/')).text(), 5)), null);
+});
+
+test('given grades recorded with costs, when the Board is requested, then a grading cost line shows their sum', async () => {
+  const app = appWith(
+    [frontierOf([ticket({ number: 5, forgeReady: true })])],
+    (store) => {
+      store.recordRiskGrade(grade(105, 'a', { costUsd: 0.0123 }));
+      store.recordRiskGrade(grade(106, 'b', { costUsd: 0.0044 }));
+    },
+    undefined,
+    undefined,
+    ['forge'],
+  );
+
+  const body = await (await app.request('/')).text();
+  const line = /<[^>]*\sdata-grading-cost[^>]*>[\s\S]*?<\/p>/.exec(body)?.[0] ?? '';
+
+  assert.match(textOf(line), /Grading cost \$0\.016700/);
+  assert.doesNotMatch(body, /data-grading-cost[\s\S]*data-grading-cost/);
+});
+
+test('given no grades, when the Board is requested, then there is no grading cost line', async () => {
+  const app = appWith([frontierOf([])], () => {}, undefined, undefined, ['forge']);
+
+  assert.doesNotMatch(await (await app.request('/')).text(), /data-grading-cost/);
 });

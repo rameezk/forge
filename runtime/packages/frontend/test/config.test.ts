@@ -9,7 +9,7 @@ test('given state dir and socket, when resolved, then they are used', () => {
       FORGE_FRONTEND_SOCKET: '/run/forge-frontend/dashboard.sock',
       FORGE_MAX_CONCURRENT: '3',
     }),
-    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, timeZone: 'UTC', deployStatusFile: null },
+    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, timeZone: 'UTC', deployStatusFile: null, gradedRepositories: [] },
   );
 });
 
@@ -94,4 +94,9 @@ test('given a deploy status file that is not an absolute path, when resolved, th
     () => resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/run/d.sock', FORGE_PULL_DEPLOY_STATUS_FILE: 'status.json' }),
     /FORGE_PULL_DEPLOY_STATUS_FILE/,
   );
+});
+
+test('given a list of graded repositories, when resolved, then it is split on commas', () => {
+  assert.deepEqual(resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock', FORGE_GRADED_REPOSITORIES: 'forge,other' }).gradedRepositories, ['forge', 'other']);
+  assert.deepEqual(resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock', FORGE_GRADED_REPOSITORIES: '' }).gradedRepositories, []);
 });

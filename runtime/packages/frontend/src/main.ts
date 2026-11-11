@@ -12,7 +12,7 @@ import { FileTranscriptSource } from './transcript.ts';
 export const createDashboard = (
   stateDir: string,
   store: Store,
-  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs' | 'maxConcurrent' | 'maxOpenPullRequests' | 'deployStatus'> = {},
+  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs' | 'maxConcurrent' | 'maxOpenPullRequests' | 'deployStatus' | 'gradedRepositories'> = {},
 ): ReturnType<typeof createApp> =>
   createApp({
     store,
@@ -25,12 +25,13 @@ export const createDashboard = (
   });
 
 export const main = (env: NodeJS.ProcessEnv): void => {
-  const { stateDir, socketPath, maxConcurrent, maxOpenPullRequests, timeZone, deployStatusFile } = resolveServeConfig(env);
+  const { stateDir, socketPath, maxConcurrent, maxOpenPullRequests, timeZone, deployStatusFile, gradedRepositories } = resolveServeConfig(env);
 
   const app = createDashboard(stateDir, Store.openReadOnly(join(stateDir, 'forge.db')), {
     maxConcurrent,
     maxOpenPullRequests,
     timeZone,
+    gradedRepositories,
     ...(deployStatusFile === null ? {} : { deployStatus: () => readDeployStatus(deployStatusFile) }),
   });
 

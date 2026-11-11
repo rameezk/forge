@@ -11,6 +11,7 @@ export interface ServeConfig {
   maxOpenPullRequests: number | null;
   timeZone: string;
   deployStatusFile: string | null;
+  gradedRepositories: string[];
 }
 
 const resolveMaxConcurrent = (value: string | undefined): number => {
@@ -75,5 +76,6 @@ export const resolveServeConfig = (env: NodeJS.ProcessEnv): ServeConfig => {
     maxOpenPullRequests: resolveMaxOpenPullRequests(env.FORGE_MAX_OPEN_PULL_REQUESTS),
     timeZone: resolveTimeZone(env.FORGE_DASHBOARD_TIME_ZONE),
     deployStatusFile,
+    gradedRepositories: (env.FORGE_GRADED_REPOSITORIES ?? '').split(',').filter((repository) => repository !== ''),
   };
 };

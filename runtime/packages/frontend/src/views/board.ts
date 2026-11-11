@@ -2,8 +2,8 @@ import { html, raw } from 'hono/html';
 import { isGithubRepository, isGithubUrl, ticketKey, type ConflictResolutionRecord, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
-import { formatElapsed } from '../format.ts';
-import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
+import { formatCost, formatElapsed } from '../format.ts';
+import { buildLanes, COLUMNS, type Grading, type Risk, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
@@ -67,11 +67,30 @@ const renderPullRequestFailedStart = (
   return html`<p ${raw(attribute)} class="${FAILURE_LINE}" title="${label} did not start${text}">${label} did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${text}</p>`;
 };
 
-const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart }: BoardCard): Rendered => {
+const RISK_TONES: Record<string, string> = {
+  trivial: 'bg-success-soft text-success',
+  low: 'bg-raised text-fg',
+  moderate: 'bg-warning-soft text-warning',
+  high: 'bg-error-soft text-error',
+};
+
+const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`;
+
+const renderRisk = (risk: Risk | undefined): Rendered => {
+  if (risk === undefined) return '';
+  if (risk.state === 'grading') {
+    return html`<p data-risk="grading" title="The current head commit has not been graded yet" class="${MUTED_LINE}"><span class="${PILL} ${KIND_TONE}">grading</span></p>`;
+  }
+  const { level, confidence, runnerUp } = risk;
+  const title = runnerUp === null ? `Risk ${level} at ${percent(confidence)} confidence` : `Risk ${level} at ${percent(confidence)} confidence, unsettled: ${runnerUp} is possible`;
+  return html`<p data-risk="${level}"${runnerUp === null ? '' : raw(' data-risk-unsettled')} title="${title}" class="${MUTED_LINE}"><span class="${PILL} ${RISK_TONES[level]} tabular-nums">${level} ${percent(confidence)}</span>${runnerUp === null ? '' : html` <span data-risk-runner-up class="block">or ${runnerUp}</span>`}</p>`;
+};
+
+const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk }: BoardCard): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${renderRisk(risk)}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
@@ -351,6 +370,11 @@ const renderDeployStatus = (deploy: DeployStatus | null): Rendered => {
   </section>`;
 };
 
+const renderGradingCost = (costUsd: number | null): Rendered =>
+  costUsd === null
+    ? ''
+    : html`<p data-grading-cost title="Spent grading pull requests' risk, counted in no workload's cost or budget" class="mb-3 text-xs text-muted"><span class="font-semibold uppercase tracking-[0.05em]">Grading cost</span> <span class="tabular-nums text-fg">${formatCost(costUsd)}</span></p>`;
+
 export const renderBoard = (
   frontier: RepositoryFrontier[],
   dispatches: DispatchRecord[],
@@ -363,10 +387,12 @@ export const renderBoard = (
   display: Display,
   grouping: Grouping = 'none',
   deploy: DeployStatus | null = null,
+  grading: Grading & { costUsd: number | null } = { repositories: new Set(), grades: [], costUsd: null },
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions);
+  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, grading);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
     ${renderDeployStatus(deploy)}
+    ${renderGradingCost(grading.costUsd)}
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
