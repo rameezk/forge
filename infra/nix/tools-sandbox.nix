@@ -504,6 +504,8 @@ testers.runNixOSTest {
             print(box.execute(f"ps -eo pid,ppid,stat,args | grep -v ' \\[' | cut -c1-200; journalctl -u forge-runner@{worker} --no-pager | tail -40; systemctl stop forge-runner@{worker}; pkill -KILL -x forge-broker")[1])
             raise
         status, error = database(f"select status, error from runs where worker = '{worker}'").split("|", 1)
+        run_id = database(f"select id from runs where worker = '{worker}'")
+        print(box.succeed(f"tail -n 6 /var/lib/forge/transcripts/{run_id}.events.jsonl | cut -c1-500; true"))
         assert status == "error", (label, status, error)
         assert f"was killed by SIG{signal}" in error, (label, error)
         assert ("while tool call" in error and "was in flight" in error) == in_flight, (label, error)
