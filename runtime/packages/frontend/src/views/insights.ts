@@ -367,7 +367,8 @@ const renderCompareForm = (current: CohortConfig, against: CohortConfig | null, 
   </form>`;
 
 const renderCohortFailures = (subject: FailureSubject): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<section class="${CARD} mb-4" data-failures role="region" aria-label="Failures" tabindex="0">
+  html`<h2 class="mb-2 text-sm font-semibold text-fg">Failures</h2>
+  <section class="${CARD} mb-4" data-failures role="region" aria-label="Failures" tabindex="0">
     <table class="${TABLE}">
       <thead><tr>${renderHeaders(FAILURE_COLUMNS)}</tr></thead>
       <tbody><tr class="${ROW}">${FAILURE_COLUMNS.map(({ render }) => render(subject))}</tr></tbody>
