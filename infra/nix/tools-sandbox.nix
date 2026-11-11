@@ -178,7 +178,7 @@ let
       "echo and-again > planted-again.out"
     ];
     longprompt = [
-      "${procps}/bin/pkill -f 'wrangler dev'; echo $? > pkill.out"
+      "${procps}/bin/pkill -f 'wrangl[e]r dev'; echo $? > pkill.out"
       "echo alive > long-alive.out"
     ];
   };
@@ -298,10 +298,10 @@ let
     scenario=$(printf '%s' "$prompt" | ${gnused}/bin/sed -n 's/.*scenario \([a-z]*\).*/\1/p' | ${coreutils}/bin/head -n 1)
     ${util-linux}/bin/unshare -U true 2> harness-userns.err
     echo $? > harness-userns.status
-    LD_PRELOAD=${loaderTraps}/trap.so BASH_ENV=${loaderTraps}/trap.sh ${client} -c 'echo "[$LD_PRELOAD][$BASH_ENV]" > client.out'
-    echo $? > client.status
-    LD_PRELOAD=${loaderTraps}/trap.so BASH_ENV=${loaderTraps}/trap.sh ${gitShim}/git --version > shim.out 2> shim.err
-    echo $? > shim.status
+    LD_PRELOAD=${loaderTraps}/trap.so BASH_ENV=${loaderTraps}/trap.sh ${client} -c 'echo "[$LD_PRELOAD][$BASH_ENV]" > harness-client.out'
+    echo $? > harness-client.status
+    LD_PRELOAD=${loaderTraps}/trap.so BASH_ENV=${loaderTraps}/trap.sh ${gitShim}/git --version > harness-shim.out 2> harness-shim.err
+    echo $? > harness-shim.status
     if [ ! -e /tmp/ld-preload-ran ] && [ ! -e /tmp/bash-env-ran ]; then echo clean > harness-traps.out; fi
     LD_PRELOAD=${loaderTraps}/trap.so ${coreutils}/bin/true
     if [ -e /tmp/ld-preload-ran ]; then rm /tmp/ld-preload-ran; echo preload-works > harness-traps-control.out; fi
@@ -510,10 +510,10 @@ testers.runNixOSTest {
         loader_variables_are_ignored("claude-", "claude-code")
         assert output_of("claude-loader", "harness-traps-control.out") == "preload-works\nbash-env-works"
         assert output_of("claude-loader", "harness-traps.out") == "clean"
-        assert output_of("claude-loader", "client.status") == "0"
-        assert output_of("claude-loader", "client.out") == "[][]"
-        assert output_of("claude-loader", "shim.status") == "0"
-        assert output_of("claude-loader", "shim.out").startswith("git version")
+        assert output_of("claude-loader", "harness-client.status") == "0"
+        assert output_of("claude-loader", "harness-client.out") == "[][]"
+        assert output_of("claude-loader", "harness-shim.status") == "0"
+        assert output_of("claude-loader", "harness-shim.out").startswith("git version")
 
     with subtest("claude-code: a git filter driver in the checkout runs only inside the tools sandbox, and the harness survives a filter that signals every process it can"):
         run("claude-filter")
@@ -545,6 +545,7 @@ testers.runNixOSTest {
         run("claude-longprompt")
         assert database("select status from runs where worker = 'claude-longprompt'") == "success", database("select status, error from runs where worker = 'claude-longprompt'")
         assert int(box.succeed("cat /tmp/anthropic-prompt-longprompt").strip()) >= ${toString (builtins.stringLength longPrompt)}
+        assert output_of("claude-longprompt", "pkill.out") == "1"
         assert output_of("claude-longprompt", "long-alive.out") == "alive"
         assert_nothing_left_running()
 
