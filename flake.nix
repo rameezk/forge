@@ -1370,6 +1370,10 @@
             !(dispatchHost.config.systemd.services ? forge-grading)
             && !(dispatchHost.config.systemd.timers ? forge-grading)
           ) "a host that turns grading on for no repository must have neither the grading timer nor the grading service";
+          dashboardCarriesGradedRepositories = lib.asserts.assertMsg (
+            lib.elem "FORGE_GRADED_REPOSITORIES=forge" gradingHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+            && !(lib.any (lib.hasPrefix "FORGE_GRADED_REPOSITORIES=") dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment)
+          ) "the dashboard must be told which repositories turn grading on, and nothing when none does";
           gradingNeedsAJevVersion = lib.asserts.assertMsg (
             evaluates (secretsHost exampleSecretsFile (gradingModuleWith { }))
             && !(evaluates (secretsHost exampleSecretsFile (gradingModuleWith { model = "typesafe/jev-latest"; })))
@@ -2108,6 +2112,7 @@
             assert gradingWired;
             assert gradingConfigReflectsOptions;
             assert gradingOffByDefault;
+            assert dashboardCarriesGradedRepositories;
             assert gradingNeedsAJevVersion;
             pkgs.runCommand "runtime-grading" { } ''
               echo "turning grading on wires a forge-grading oneshot on a one-minute timer holding only the OpenRouter key and the App, off by default, and the model must be a Jev version id" > $out
