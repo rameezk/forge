@@ -157,7 +157,7 @@ const TAB_COLUMNS: Record<InsightsTab, Column[]> = {
   ],
 };
 
-const PINNED = 'sticky left-0 z-10 border-r border-line';
+const PINNED = 'sticky left-0 z-10 shadow-[1px_0_0_var(--color-line)]';
 
 const renderCohort = (cohort: CohortInsight, columns: Column[], timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW} group" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">

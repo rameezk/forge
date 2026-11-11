@@ -485,9 +485,9 @@ test('given a conflict resolution cohort, when the insights page is requested wi
 const DELIVERY_METRICS = ['label', 'first-run', 'last-run', 'workloads', 'done', 'opened', 'merged', 'retries', 'rework', 'duration', 'tool-calls'];
 const COST_METRICS = ['label', 'workloads', 'cost-median', 'cost-p90', 'cost-per-merged', 'cache-hit'];
 
-const tabsOf = (page: string): { label: string; selected: boolean; href: string }[] =>
+const tabsOf = (page: string): { tab: string; selected: boolean; href: string }[] =>
   [...page.matchAll(/<a\s[^>]*data-tab="([^"]+)"[^>]*>/g)].map(([tag, name]) => ({
-    label: name!,
+    tab: name!,
     selected: /aria-current="page"/.test(tag!),
     href: (tag!.match(/href="([^"]*)"/)?.[1] ?? '').replaceAll('&amp;', '&'),
   }));
@@ -497,7 +497,7 @@ const metricsOf = (page: string, hash: string): string[] => Object.keys(rowsOf(p
 test('given cohorts with dispatches and costs, when the insights page is requested with no tab, then Delivery is selected, Kind is Dispatch and the table shows only the Delivery columns', async () => {
   const page = await dashboard(COHORT_SEEDS).page();
 
-  assert.deepEqual(tabsOf(page).map(({ label, selected }) => [label, selected]), [['delivery', true], ['cost', false]]);
+  assert.deepEqual(tabsOf(page).map(({ tab, selected }) => [tab, selected]), [['delivery', true], ['cost', false]]);
   assert.deepEqual(
     [...page.matchAll(/<a\s[^>]*data-tab="[^"]+"[^>]*>([\s\S]*?)<\/a>/g)].map(([, text]) => textOf(text!)),
     ['Delivery', 'Cost'],
@@ -514,7 +514,7 @@ test('given cohorts with dispatches and costs, when the insights page is request
 test('given the same cohorts, when the Cost tab is requested, then the chart comes first, the table shows only the Cost columns and Provider share follows', async () => {
   const page = await dashboard(COHORT_SEEDS).page('?tab=cost');
 
-  assert.deepEqual(tabsOf(page).map(({ label, selected }) => [label, selected]), [['delivery', false], ['cost', true]]);
+  assert.deepEqual(tabsOf(page).map(({ tab, selected }) => [tab, selected]), [['delivery', false], ['cost', true]]);
   assert.deepEqual(metricsOf(page, fingerprintHash(SONNET)), COST_METRICS);
   assert.deepEqual(
     [...page.matchAll(/<th class="[^"]*">([^<]+)<\/th>/g)].map(([, text]) => text),

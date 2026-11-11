@@ -257,6 +257,5 @@ for (const tab of ['', '&tab=cost']) {
     expect(await region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
     expect(Math.abs((await cell.boundingBox())!.x - before)).toBeLessThan(2);
     expect(Math.abs((await heading.boundingBox())!.x - before)).toBeLessThan(2);
-    await page.screenshot({ path: `test-results/insights-pinned${tab === '' ? '-delivery' : '-cost'}.png` });
   });
 }
