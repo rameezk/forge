@@ -145,12 +145,16 @@ export type {
   RanPair,
   CohortActivity,
   CohortInsight,
+  InsightKind,
+  InsightKindFilter,
+  InsightOutcome,
   InsightPoint,
   InsightsFilter,
   InsightsOptions,
   ProviderShare,
   WorkloadOutcome,
 } from './insights.ts';
+export { INSIGHT_KIND_FILTERS } from './insights.ts';
 export { countEvent, countEvents, noCounters } from './counters.ts';
 export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';
 export {

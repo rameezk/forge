@@ -52,7 +52,7 @@ import { STALE_AFTER_MS } from './heartbeat.ts';
 import { DIAGNOSED_FAILURES } from './diagnosis.ts';
 import type { DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from './diagnosis.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
-import type { ActivePair, CohortActivity, CohortInsight, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
+import type { ActivePair, CohortActivity, CohortInsight, InsightKind, InsightOutcome, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
 import type { RunSkillLoad } from './skill-loads.ts';
 import type {
   CostStatus,
@@ -572,6 +572,8 @@ type InsightRow = {
   end_time: string;
   cost_usd: number | null;
   list_price: number;
+  kind: string | null;
+  outcome: string | null;
   input_tokens: number;
   cache_read_tokens: number | null;
   cache_write_tokens: number | null;
@@ -591,6 +593,14 @@ const pullRequestOfRow = (row: InsightRow): { state: PullRequestState; rework: n
 const INSIGHT_FROM = `
   FROM runs r
   LEFT JOIN dispatches d ON d.run_id = r.id
+  LEFT JOIN revisions v ON v.run_id = r.id
+  LEFT JOIN conflict_resolutions c ON c.run_id = r.id
+`;
+
+const INSIGHT_KIND = `
+  CASE WHEN d.id IS NOT NULL THEN 'dispatch'
+    WHEN v.id IS NOT NULL THEN 'revision'
+    WHEN c.id IS NOT NULL THEN 'conflict-resolution' END
 `;
 
 const NOT_A_DIAGNOSIS = `AND NOT EXISTS (SELECT 1 FROM diagnoses WHERE run_id = r.id)`;
@@ -598,7 +608,10 @@ const NOT_A_DIAGNOSIS = `AND NOT EXISTS (SELECT 1 FROM diagnoses WHERE run_id = 
 const INSIGHT_WHERE = `
   WHERE r.end_time IS NOT NULL
     ${NOT_A_DIAGNOSIS}
-    AND ($include_manual = 1 OR d.id IS NOT NULL)
+    AND (
+      ($include_manual = 1 AND (${INSIGHT_KIND}) IS NULL)
+      OR (${INSIGHT_KIND}) = COALESCE($kind, ${INSIGHT_KIND})
+    )
     AND ($worker IS NULL OR r.worker = $worker)
     AND ($repository IS NULL OR r.repository = $repository)
     AND ($started_from IS NULL OR substr(r.start_time, 1, 19) >= substr($started_from, 1, 19))
@@ -607,6 +620,7 @@ const INSIGHT_WHERE = `
 
 const insightParameters = (filter: InsightsFilter) => ({
   include_manual: filter.includeManual ? 1 : 0,
+  kind: filter.kind === 'all' ? null : filter.kind,
   worker: filter.worker ?? null,
   repository: filter.repository ?? null,
   started_from: filter.startedFrom ?? null,
@@ -1850,7 +1864,8 @@ export class Store {
             ELSE r.cost_usd + r.unconfirmed_estimate_usd END AS cost_usd,
           r.cost_status = 'subscription' AS list_price,
           r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
-          d.id IS NOT NULL AS dispatched, d.pr_number, d.pr_state, d.pr_rework
+          ${INSIGHT_KIND} AS kind, COALESCE(d.state, v.state, c.state) AS outcome,
+          d.pr_number, d.pr_state, d.pr_rework
         ${INSIGHT_FROM}${INSIGHT_WHERE}`,
       )
       .all(insightParameters(filter)) as InsightRow[];
@@ -1858,9 +1873,8 @@ export class Store {
 
   #cohortActivity(): CohortActivity[] {
     const finished = `
-      FROM runs r
-      JOIN dispatches d ON d.run_id = r.id
-      WHERE r.end_time IS NOT NULL`;
+      ${INSIGHT_FROM}
+      WHERE r.end_time IS NOT NULL AND (${INSIGHT_KIND}) IS NOT NULL`;
     const spans = this.#db
       .prepare(
         `SELECT r.fingerprint_hash AS hash, MIN(r.start_time) AS first_run, MAX(r.start_time) AS last_run
@@ -1898,7 +1912,8 @@ export class Store {
         repository: row.repository,
         fingerprintHash: row.fingerprint_hash,
         fingerprint: row.fingerprint === null ? null : (JSON.parse(row.fingerprint) as ConfigFingerprint),
-        dispatched: row.dispatched === 1,
+        kind: row.kind as InsightKind | null,
+        outcome: row.outcome as InsightOutcome | null,
         listPrice: row.list_price === 1,
         costUsd: row.cost_usd,
         durationMs: Date.parse(row.end_time) - Date.parse(row.start_time),
@@ -1925,7 +1940,7 @@ export class Store {
                 startTime: row.start_time,
                 costUsd: row.cost_usd,
                 listPrice: row.list_price === 1,
-                outcome: outcomeOf(row.dispatched === 1, pullRequestOfRow(row)),
+                outcome: outcomeOf(row.kind === 'dispatch', pullRequestOfRow(row)),
               },
             ],
       )

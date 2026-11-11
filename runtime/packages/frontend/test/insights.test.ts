@@ -59,6 +59,7 @@ test('given two cohorts of dispatched workloads, when the insights page is reque
     'last-run': '2026-09-21 10:00',
     label: `pi · sonnet-5.5 · high · prompt#3fa2 · ${fingerprintHash(SONNET).slice(0, 8)}`,
     workloads: '4',
+    done: '75.0%',
     opened: '75.0%',
     merged: '50.0%',
     'cost-median': '$0.250000',
@@ -75,6 +76,7 @@ test('given two cohorts of dispatched workloads, when the insights page is reque
     'last-run': '2026-09-21 10:00',
     label: `pi · glm-5 · default · prompt#9b1e · ${fingerprintHash(GLM).slice(0, 8)}`,
     workloads: '2',
+    done: '100.0%',
     opened: '100.0%',
     merged: '50.0%',
     'cost-median': '$0.400000',
@@ -400,4 +402,72 @@ test('given an active cohort for one worker on two repositories and a previous c
   assert.equal(ownerLine(page, HASH.sonnet), 'Active for builder on forge and site');
   assert.equal(ownerLine(page, HASH.glm), 'Ran for refiner on forge');
   assert.doesNotMatch(page, /data-badge="active"/);
+});
+
+const REVISER = { worker: 'reviser' };
+
+test('given a worker that finished one revision and failed another on a repository and never dispatched there, when the insights page is requested with Kind Revision, then its revision cohort is active for it with Done at 50% and the dispatch-only figures n/a', async () => {
+  const page = await dashboard([
+    { id: 'v1', fingerprint: GLM, kind: 'revision', start: '2026-09-10T10:00:00.000Z', ...REVISER, ...quick },
+    { id: 'v2', fingerprint: GLM, kind: 'revision', failed: true, start: '2026-09-11T10:00:00.000Z', ...REVISER, ...quick },
+  ]).page('?kind=revision');
+  const row = rowsOf(page).get(HASH.glm)!;
+
+  assert.equal(groupOf(page, HASH.glm), 'active');
+  assert.equal(ownerLine(page, HASH.glm), 'Active for reviser on forge');
+  assert.equal(row['workloads'], '2');
+  assert.equal(row['done'], '50.0%');
+  assert.equal(row['opened'], 'n/a');
+  assert.equal(row['merged'], 'n/a');
+  assert.equal(row['rework'], 'n/a');
+  assert.equal(row['cost-per-merged'], 'n/a');
+});
+
+const KINDS: Seed[] = [
+  { id: 'k1', fingerprint: SONNET, start: '2026-09-10T10:00:00.000Z', ...quick },
+  { id: 'k2', fingerprint: GLM, kind: 'revision', worker: 'reviser', start: '2026-09-11T10:00:00.000Z', ...quick },
+  { id: 'k3', fingerprint: THIRD, kind: 'conflict-resolution', worker: 'resolver', start: '2026-09-12T10:00:00.000Z', ...quick },
+  { id: 'k4', fingerprint: FOURTH, dispatched: false, worker: 'manual', start: '2026-09-13T10:00:00.000Z', ...quick },
+];
+
+const selectedKind = (page: string): string | undefined =>
+  page.match(/<select name="kind"[\s\S]*?<option value="([^"]*)" selected/)?.[1];
+
+test('given dispatches, revisions and conflict resolutions, when the insights page is requested with no Kind, then Kind is Dispatch and only dispatch cohorts are listed', async () => {
+  const page = await dashboard(KINDS).page();
+
+  assert.equal(selectedKind(page), 'dispatch');
+  assert.deepEqual([...rowsOf(page).keys()], [HASH.sonnet]);
+});
+
+test('given a dispatch, a revision, a conflict resolution and a manual workload, when the insights page is requested with Kind All, then manual workloads count only when ticked', async () => {
+  const { page } = dashboard(KINDS);
+
+  const without = await page('?kind=all');
+  assert.equal(selectedKind(without), 'all');
+  assert.deepEqual(new Set(rowsOf(without).keys()), new Set([HASH.sonnet, HASH.glm, fingerprintHash(THIRD)]));
+
+  const withManual = await page('?kind=all&manual=1');
+  assert.deepEqual(new Set(rowsOf(withManual).keys()), new Set([HASH.sonnet, HASH.glm, fingerprintHash(THIRD), fingerprintHash(FOURTH)]));
+});
+
+test('given a dispatch and a revision in one date range, when the insights page is requested with Kind All and then Kind Dispatch, then the cost chart plots both and then only the dispatch', async () => {
+  const { page } = dashboard(KINDS);
+  const plotted = (html: string): string[] => [...html.matchAll(/data-point data-run="([^"]*)"/g)].map(([, run]) => run!);
+
+  assert.deepEqual(plotted(await page('?kind=all')), ['k1', 'k2', 'k3']);
+  assert.deepEqual(plotted(await page('?kind=dispatch')), ['k1']);
+  assert.deepEqual(plotted(await page('?kind=conflict-resolution')), ['k3']);
+});
+
+test('given a conflict resolution cohort, when the insights page is requested with Kind Conflict resolution or an unknown Kind, then the cohort is active for its resolver and an unknown Kind falls back to Dispatch', async () => {
+  const { page } = dashboard(KINDS);
+
+  const resolutions = await page('?kind=conflict-resolution');
+  assert.equal(ownerLine(resolutions, fingerprintHash(THIRD)), 'Active for resolver on forge');
+  assert.equal(rowsOf(resolutions).get(fingerprintHash(THIRD))!['done'], '100.0%');
+
+  const unknown = await page('?kind=bogus');
+  assert.equal(selectedKind(unknown), 'dispatch');
+  assert.deepEqual([...rowsOf(unknown).keys()], [HASH.sonnet]);
 });

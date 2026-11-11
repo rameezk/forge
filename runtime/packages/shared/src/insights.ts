@@ -1,7 +1,16 @@
 import type { ConfigFingerprint } from './fingerprint.ts';
 import type { PullRequestState } from './dispatch.ts';
 
+export type InsightKind = 'dispatch' | 'revision' | 'conflict-resolution';
+
+export type InsightKindFilter = InsightKind | 'all';
+
+export const INSIGHT_KIND_FILTERS: readonly InsightKindFilter[] = ['dispatch', 'revision', 'conflict-resolution', 'all'];
+
+export type InsightOutcome = 'running' | 'done' | 'failed';
+
 export interface InsightsFilter {
+  kind: InsightKindFilter;
   includeManual: boolean;
   worker?: string;
   repository?: string;
@@ -14,7 +23,8 @@ export interface InsightWorkload {
   repository: string | null;
   fingerprintHash: string | null;
   fingerprint: ConfigFingerprint | null;
-  dispatched: boolean;
+  kind: InsightKind | null;
+  outcome: InsightOutcome | null;
   listPrice: boolean;
   costUsd: number | null;
   durationMs: number;
@@ -52,6 +62,7 @@ export interface CohortInsight {
   fingerprint: ConfigFingerprint | null;
   workloads: number;
   listPrice: boolean;
+  doneRate: number | null;
   openedRate: number | null;
   mergedRate: number | null;
   costMedian: number | null;
@@ -129,7 +140,8 @@ const ranFor = (members: InsightWorkload[]): RanPair[] => {
 };
 
 const summarize = (members: InsightWorkload[], activity: CohortActivity | undefined): CohortInsight => {
-  const dispatched = members.filter(({ dispatched: isDispatched }) => isDispatched);
+  const dispatched = members.filter(({ kind }) => kind === 'dispatch');
+  const settled = members.filter(({ outcome }) => outcome !== null);
   const merged = dispatched.filter(({ pullRequest }) => pullRequest?.state === 'merged');
   const toolCalls = present(members.map(({ toolCalls: count }) => count));
   const retries = present(members.map(({ retries: count }) => count));
@@ -137,7 +149,7 @@ const summarize = (members: InsightWorkload[], activity: CohortActivity | undefi
   const billed = members.filter(({ listPrice }) => !listPrice);
   const basis = billed.length === 0 ? members : billed;
   const costs = present(basis.map(({ costUsd }) => costUsd));
-  const dispatchedCosts = basis.filter(({ dispatched: isDispatched }) => isDispatched).map(({ costUsd }) => costUsd);
+  const dispatchedCosts = basis.filter(({ kind }) => kind === 'dispatch').map(({ costUsd }) => costUsd);
   const unpriced = dispatchedCosts.some((cost) => cost === null);
   return {
     hash: members[0]!.fingerprintHash,
@@ -148,6 +160,7 @@ const summarize = (members: InsightWorkload[], activity: CohortActivity | undefi
     fingerprint: members[0]!.fingerprint,
     workloads: members.length,
     listPrice: billed.length === 0,
+    doneRate: ratio(settled.filter(({ outcome }) => outcome === 'done').length, settled.length),
     openedRate: ratio(dispatched.filter(({ pullRequest }) => pullRequest !== null).length, dispatched.length),
     mergedRate: ratio(merged.length, dispatched.length),
     costMedian: costs.length === 0 ? null : quantile(costs, 0.5),

@@ -133,7 +133,7 @@ test('given diagnosis runs in the store, when insights load with manual workload
   const at = new Date().toISOString();
   failedDispatch(store, 'checks', 'check-failed');
   store.startDiagnosis('checks', 'diagnosis-1', at);
-  const filter = { includeManual: true };
+  const filter = { includeManual: true, kind: 'all' as const };
   assert.deepEqual(store.listCohorts(filter), []);
   assert.deepEqual(store.listPoints(filter), []);
   assert.deepEqual(store.listProviderShares(filter), []);
