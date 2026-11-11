@@ -73,8 +73,12 @@ The workloads sharing one config fingerprint, compared as a group against other 
 _Avoid_: variant, experiment, arm
 
 **Active cohort**:
-For a worker and repository pair, the cohort of that pair's most recent finished dispatched workload, so several cohorts can be active at once. It reflects the latest workload, not the config deployed now, because part of the fingerprint is known only once a run starts.
+For a worker and repository pair, the cohort of that pair's most recent finished dispatch, revision or conflict resolution, never a manual workload or a diagnosis, so several cohorts can be active at once. It reflects the latest workload, not the config deployed now, because part of the fingerprint is known only once a run starts.
 _Avoid_: current cohort, live cohort
+
+**Manual workload**:
+A workload an operator started by hand with `forge-run`, as opposed to a dispatch, revision, conflict resolution or diagnosis forge started itself.
+_Avoid_: ad hoc run, one-off run
 
 **Previous cohort**:
 A cohort that is not active for any worker and repository pair.
@@ -179,6 +183,10 @@ The point in time a pull request's feedback has been consumed up to, set when a 
 **Outcome**:
 Whether a dispatch, revision or conflict resolution landed: `running`, `done` or `failed`, with the reason when it failed (ADR-0080), as opposed to its run's status, which says only whether the harness finished cleanly. The dashboard leads with it, and shows the run's status beside it only when that is not `success` (ADR-0081).
 _Avoid_: result, run result
+
+**Diagnosis**:
+A workload of the diagnosis worker that explains why a failed dispatch, revision or conflict resolution failed: one cause category, the evidence for it in the failed run's transcript, and one suggested fix. It is shown only on the dashboard, never on GitHub (ADR-0102).
+_Avoid_: post-mortem, failure analysis, triage
 
 **Display time zone**:
 The time zone the dashboard shows times and days in, set by `forge.runtime.dashboard.timeZone`. Only presentation uses it; the box and everything forge stores stay UTC (ADR-0067).
