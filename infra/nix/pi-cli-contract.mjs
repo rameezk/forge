@@ -53,7 +53,7 @@ const { PI_PROVIDER, providerSpec } = await import(
 const { credentialEnv } = providerSpec(PI_PROVIDER);
 
 const agentRoot = mkdtempSync(join(process.env.HOME, 'agents-'));
-const agentDirs = agentDirsIn(agentRoot);
+const agentDirs = agentDirsIn(agentRoot, process.execPath);
 
 const readOnlyAgentDir = (name, model, listed) =>
   agentDirs(name, model, listed);

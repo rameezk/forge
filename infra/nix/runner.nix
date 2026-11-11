@@ -8,13 +8,15 @@
   makeWrapper,
   nodejs,
   pi-coding-agent,
+  pkgsStatic,
   stdenv,
 }:
 let
   subagentExtension = "lib/forge-runtime/packages/pi-subagent/src";
   modelDefaultReasoningExtension = "lib/forge-runtime/packages/pi-model-default-reasoning/src";
   requestRecordExtension = "lib/forge-runtime/packages/pi-request-record/src";
-  sandboxFlags = lib.optionalString stdenv.hostPlatform.isLinux "--set FORGE_BWRAP ${lib.getExe bubblewrap}";
+  commandBroker = pkgsStatic.callPackage ./command-broker.nix { };
+  sandboxFlags = lib.optionalString stdenv.hostPlatform.isLinux "--set FORGE_BWRAP ${lib.getExe bubblewrap} --set FORGE_BROKER ${commandBroker}/bin/forge-broker --set FORGE_BROKER_CLIENT ${commandBroker}/bin/forge-shell";
   piPackage = "${pi-coding-agent}/lib/node_modules/pi-monorepo";
 in
 buildNpmPackage {

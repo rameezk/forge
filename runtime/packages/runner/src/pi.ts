@@ -26,6 +26,7 @@ import { REQUEST_RECORD_FD_ENV } from '@forge/pi-request-record';
 import { requireSkill } from './checkout.ts';
 import { replacingPaths } from './fingerprint.ts';
 import { underDevShell } from './devshell.ts';
+import type { ToolsConfig } from './environment.ts';
 import {
   NON_JSON_EXCERPT_CHARS,
   nonEmpty,
@@ -39,6 +40,7 @@ import {
   spawnSandboxed,
   type Sandbox,
 } from './sandbox.ts';
+import { startToolsSandbox } from './tools-sandbox.ts';
 import { tokenCount } from './token-count.ts';
 import {
   NARRATION_INSTRUCTION,
@@ -578,8 +580,10 @@ export interface PiHarnessOptions {
   openAgentDir: OpenAgentDir;
   extensions: PiExtensions;
   sandbox: Sandbox;
+  tools: ToolsConfig;
   system: Record<string, string>;
   env: Record<string, string>;
+  commandEnv: Record<string, string>;
   extraArgs?: string[];
 }
 
@@ -605,18 +609,22 @@ class PiRun implements HarnessRun {
   readonly #command: string;
   readonly #extensions: PiExtensions;
   readonly #sandbox: Sandbox;
+  readonly #tools: ToolsConfig;
   readonly #extraArgs: string[];
   readonly #system: Record<string, string>;
   readonly #env: Record<string, string>;
+  readonly #commandEnv: Record<string, string>;
   readonly #agentDir: string;
 
   constructor(options: PiHarnessOptions, agentDir: string) {
     this.#command = options.command;
     this.#extensions = options.extensions;
     this.#sandbox = options.sandbox;
+    this.#tools = options.tools;
     this.#extraArgs = options.extraArgs ?? [];
     this.#system = options.system;
     this.#env = options.env;
+    this.#commandEnv = options.commandEnv;
     this.#agentDir = agentDir;
   }
 
@@ -646,24 +654,57 @@ class PiRun implements HarnessRun {
     const command = realCommand(this.#command);
     warnUnloadedProjectConfig(invocation.checkout);
     const args = piArgs(invocation, this.#extensions, this.#extraArgs);
-    const { child, stdout, requestRecord, exited: exit } = spawnSandboxed(
-      this.#sandbox,
-      command,
-      args,
-      {
+    const harnessOnly = {
+      ...piEnv(this.#agentDir),
+      [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
+        subagentInvocation(command, invocation, this.#extensions),
+      ),
+    };
+    const tools = startToolsSandbox({
+      sandbox: this.#sandbox,
+      tools: this.#tools,
+      workDir: invocation.workDir,
+      ...(invocation.readOnlyPaths === undefined ? {} : { readOnlyPaths: invocation.readOnlyPaths }),
+      env: underDevShell(invocation.devShell, this.#system, this.#commandEnv),
+      withheld: [
+        ...Object.keys(harnessOnly),
+        ...Object.keys(this.#env).filter((name) => !(name in this.#commandEnv)),
+      ],
+    });
+    try {
+      await tools.ready;
+    } catch (cause) {
+      await tools.stop();
+      yield stream.result(cause instanceof Error ? cause : new Error(String(cause)));
+      return;
+    }
+    let spawned: ReturnType<typeof spawnSandboxed>;
+    try {
+      spawned = spawnSandboxed(this.#sandbox, command, args, {
         name: 'pi',
         workDir: invocation.workDir,
         agentDir: this.#agentDir,
         ...(invocation.readOnlyPaths === undefined ? {} : { readOnlyPaths: invocation.readOnlyPaths }),
-        env: underDevShell(invocation.devShell, this.#system, {
+        env: underDevShell(undefined, this.#system, {
           ...this.#env,
-          ...piEnv(this.#agentDir),
-          [SUBAGENT_INVOCATION_ENV]: JSON.stringify(
-            subagentInvocation(command, invocation, this.#extensions),
-          ),
+          ...harnessOnly,
         }),
-      },
-    );
+        broker: { dir: tools.dir, role: 'workload' },
+      });
+    } catch (cause) {
+      await tools.stop();
+      throw cause;
+    }
+    const { child, stdout, requestRecord, exited: exit } = spawned;
+    let toolsFailure: Error | null = null;
+    let running = true;
+    void tools.exited.then((failure) => {
+      if (!running) return;
+      toolsFailure = new Error(
+        `the tools sandbox ended while the run was still going: ${failure?.message ?? 'its command broker exited'}`,
+      );
+      child.kill('SIGKILL');
+    });
 
     const recordFailure = recordLines(requestRecord, sinks.requestRecord).then(
       () => null,
@@ -678,6 +719,7 @@ class PiRun implements HarnessRun {
     if (sinks.stop.aborted) killOnStop();
     sinks.stop.addEventListener('abort', killOnStop, { once: true });
     let drained = false;
+    let exitFailure: Error | null = null;
     try {
       const lines = createInterface({
         input: stdout,
@@ -699,8 +741,11 @@ class PiRun implements HarnessRun {
       sinks.stop.removeEventListener('abort', killOnStop);
       if (!drained) {
         child.kill('SIGKILL');
-        await exit;
       }
+      const harnessExit = await exit;
+      running = false;
+      await tools.stop();
+      exitFailure = toolsFailure ?? harnessExit;
       await recordFailure;
     }
 
@@ -708,6 +753,6 @@ class PiRun implements HarnessRun {
     if (failure !== null) {
       throw failure.error;
     }
-    yield stream.result(await exit);
+    yield stream.result(exitFailure);
   }
 }

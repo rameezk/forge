@@ -135,6 +135,8 @@ test('given a pi worker on the anthropic provider that got past config resolutio
           prompt: 'go',
         },
         env: {
+          FORGE_BROKER: '/not/used',
+          FORGE_BROKER_CLIENT: '/not/used',
           FORGE_BWRAP: '/not/used',
           HOME: stateDir,
           FORGE_PI_SUBAGENT_EXTENSION: '/not/used',

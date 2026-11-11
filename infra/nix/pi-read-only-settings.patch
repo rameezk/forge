@@ -1,0 +1,15 @@
+diff --git a/packages/coding-agent/src/core/settings-manager.ts b/packages/coding-agent/src/core/settings-manager.ts
+--- a/packages/coding-agent/src/core/settings-manager.ts
++++ b/packages/coding-agent/src/core/settings-manager.ts
+@@ -334,11 +334,7 @@
+ 
+ 		let release: (() => void) | undefined;
+ 		try {
+-			// Only create directory and lock if file exists or we need to write
+ 			const fileExists = existsSync(path);
+-			if (fileExists) {
+-				release = this.acquireLockSyncWithRetry(path);
+-			}
+ 			const current = fileExists ? readFileSync(path, "utf-8") : undefined;
+ 			const next = fn(current);
+ 			if (next !== undefined) {

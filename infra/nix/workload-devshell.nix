@@ -7,6 +7,7 @@
   runCommand,
   bash,
   git,
+  jq,
   nodejs,
   openssl,
   forge-runner,
@@ -104,8 +105,11 @@ let
 
   stubHarness = writeShellScriptBin "stub-harness" ''
     set -u
-    echo "$PATH" > path.out
-    devshell-stub > devshell.out 2>&1
+    shell=$(${lib.getExe jq} -r .shellPath "$PI_CODING_AGENT_DIR/settings.json")
+    echo "$PATH" > harness-path.out
+    "$shell" -c 'echo "$PATH"' > path.out
+    "$shell" -c 'devshell-stub' > devshell.out 2>&1
+    if devshell-stub > /dev/null 2>&1; then echo reached > harness-devshell.out; else echo unreached > harness-devshell.out; fi
     {
       echo "environment ''${GITHUB_TOKEN-unset}"
       echo "file $(cat "$FORGE_GITHUB_TOKEN_FILE")"
@@ -184,6 +188,11 @@ testers.runNixOSTest {
         assert first.startswith("/nix/store/") and first.endswith("-gh/bin"), first
         assert second.startswith("/nix/store/") and second.endswith("-source/bin"), second
         assert "-git-" in rest, rest
+
+    with subtest("the repository's devShell reaches the workload's commands and not its harness"):
+        assert box.succeed("cat /var/lib/forge/work/*/harness-devshell.out").strip() == "unreached"
+        harness_path = box.succeed("cat /var/lib/forge/work/*/harness-path.out").strip().split(":")
+        assert not any(entry.endswith("-source/bin") for entry in harness_path), harness_path
 
     with subtest("a dispatched workload authenticates git and gh from a token file it cannot write or replace, with no GITHUB_TOKEN in its environment"):
         seen = dict(line.split(" ", 1) for line in box.succeed("cat /var/lib/forge/work/*/token.out").splitlines())

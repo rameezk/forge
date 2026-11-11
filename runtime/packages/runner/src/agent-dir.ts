@@ -52,12 +52,18 @@ export type OpenAgentDir = (
   listed: ListedModel | null,
 ) => string;
 
+export const piSettingsJson = (shellPath: string): string =>
+  JSON.stringify({ shellPath });
+
 export const agentDirsIn =
-  (root: string): OpenAgentDir =>
+  (root: string, shellPath: string): OpenAgentDir =>
   (runId, model, listed) => {
     const agentDir = join(root, runId);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, 'models.json'), piModelsJson(model, listed), {
+      mode: 0o444,
+    });
+    writeFileSync(join(agentDir, 'settings.json'), piSettingsJson(shellPath), {
       mode: 0o444,
     });
     chmodSync(agentDir, 0o555);

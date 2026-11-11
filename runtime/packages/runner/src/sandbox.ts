@@ -14,7 +14,18 @@ const NIXOS_ENVIRONMENT_MARKER = { __NIXOS_SET_ENVIRONMENT_DONE: '1' };
 
 export const REQUEST_RECORD_FD = 4;
 
-const readOnly = (path: string): string[] => ['--ro-bind', path, path];
+export const BROKER_DIR = '/run/forge-tools';
+
+export type SandboxRole = 'workload' | 'tools';
+
+export interface BrokerMount {
+  dir: string;
+  role: SandboxRole;
+}
+
+const readOnlyAt = (path: string, at: string): string[] => ['--ro-bind', path, at];
+
+const readOnly = (path: string): string[] => readOnlyAt(path, path);
 
 export const sandboxArgs = (
   { home }: Sandbox,
@@ -22,10 +33,12 @@ export const sandboxArgs = (
   agentDir?: string,
   writableDirs: string[] = [],
   readOnlyDirs: string[] = [],
+  { dir: brokerDir, role }: BrokerMount = { dir: '', role: 'workload' },
 ): string[] => [
   '--unshare-user',
   '--disable-userns',
   '--unshare-pid',
+  ...(role === 'tools' ? ['--as-pid-1'] : []),
   '--unshare-ipc',
   '--unshare-uts',
   '--die-with-parent',
@@ -46,6 +59,7 @@ export const sandboxArgs = (
   ...(agentDir === undefined ? [] : readOnly(agentDir)),
   ...readOnlyDirs.flatMap(readOnly),
   ...writableDirs.flatMap((dir) => ['--bind', dir, dir]),
+  ...(brokerDir === '' ? [] : readOnlyAt(brokerDir, BROKER_DIR)),
   '--bind',
   workDir,
   workDir,
@@ -99,6 +113,7 @@ const stderrTail = (stderr: Readable): Promise<string> =>
   });
 
 const exitOf = async (
+  role: SandboxRole,
   name: string,
   child: ChildProcess,
   ran: Promise<boolean>,
@@ -112,7 +127,7 @@ const exitOf = async (
   });
   if (!(await ran)) {
     const why = closing instanceof Error ? closing.message : await tail;
-    return new SandboxUnavailable(`the workload sandbox could not start: ${why}`);
+    return new SandboxUnavailable(`the ${role} sandbox could not start: ${why}`);
   }
   if (closing instanceof Error) {
     return closing;
@@ -139,6 +154,8 @@ export const spawnSandboxed = (
     writableDirs,
     readOnlyPaths = [],
     env,
+    broker,
+    prefix = [],
   }: {
     name: string;
     workDir: string;
@@ -146,18 +163,23 @@ export const spawnSandboxed = (
     writableDirs?: string[];
     readOnlyPaths?: string[];
     env: NodeJS.ProcessEnv;
+    broker?: BrokerMount;
+    prefix?: string[];
   },
 ): SandboxedProcess => {
   const tokenFile = env[GITHUB_TOKEN_FILE_ENV];
+  const [launcher = sandbox.bwrap, ...launcherArgs] = [...prefix, sandbox.bwrap];
   const child = spawn(
-    sandbox.bwrap,
+    launcher,
     [
+      ...launcherArgs,
       ...sandboxArgs(
         sandbox,
         workDir,
         agentDir,
         writableDirs,
         tokenFile === undefined ? readOnlyPaths : [...readOnlyPaths, dirname(tokenFile)],
+        broker,
       ),
       '--',
       command,
@@ -166,7 +188,7 @@ export const spawnSandboxed = (
     {
       cwd: workDir,
       env: { ...env, ...NIXOS_ENVIRONMENT_MARKER, HOME: sandbox.home },
-      stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe', broker?.role === 'tools' ? 'ignore' : 'pipe'],
     },
   );
   return {
@@ -174,6 +196,7 @@ export const spawnSandboxed = (
     stdout: child.stdout as Readable,
     requestRecord: child.stdio[REQUEST_RECORD_FD] as Readable,
     exited: exitOf(
+      broker?.role ?? 'workload',
       name,
       child,
       reportsExit(child.stdio[STATUS_FD] as Readable),

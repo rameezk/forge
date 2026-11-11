@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   writeFileSync,
 } from 'node:fs';
 import type { ServerResponse } from 'node:http';
@@ -58,6 +59,7 @@ import {
   PASSTHROUGH_BWRAP,
   OWN_CONTEXT_CASES,
   ticketContextOf,
+  writeFakeBroker,
 } from './helpers.ts';
 
 const piPackage = process.env.FORGE_PI_PACKAGE;
@@ -161,6 +163,7 @@ interface RealPiOptions {
   effort?: Pick<HarnessInvocation, 'reasoningEffort'>;
   model?: string;
   settings?: Record<string, unknown>;
+  readOnlySettings?: Record<string, unknown>;
   messages?: string[];
   warming?: boolean;
 }
@@ -176,6 +179,7 @@ const runRealPi = async (
     model = 'z-ai/glm-5',
     listed = LISTED_REASONING_MODEL,
     settings,
+    readOnlySettings,
     messages = [],
     warming: warms = false,
   }: RealPiOptions = {},
@@ -205,6 +209,11 @@ const runRealPi = async (
     }),
   );
   if (settings === undefined) {
+    if (readOnlySettings !== undefined) {
+      writeFileSync(join(agentDir, 'settings.json'), JSON.stringify(readOnlySettings), {
+        mode: 0o444,
+      });
+    }
     chmodSync(agentDir, 0o555);
   } else {
     writeFileSync(join(agentDir, 'settings.json'), JSON.stringify(settings));
@@ -216,9 +225,11 @@ const runRealPi = async (
     command: join(piPackage as string, '..', '..', '..', 'bin', 'pi'),
     openAgentDir: () => agentDir,
     extensions: PI_EXTENSIONS,
+    tools: writeFakeBroker(root),
     sandbox: { bwrap, home },
     system: { PATH: process.env.PATH ?? '' },
     env: { OPENROUTER_API_KEY: 'sk-fake' },
+    commandEnv: {},
     extraArgs: [...(warms ? ['-e', FORCE_CACHE_WARM_EXTENSION] : []), ...messages],
   });
   const events: HarnessEvent[] = [];
@@ -322,6 +333,25 @@ test(
     const end = events.at(-1);
     assert.equal(end?.type, 'result');
     assert.deepEqual(end, { ...end, status: 'success', error: null });
+  },
+);
+
+test(
+  'given the locked pi and a read-only agent dir whose settings name a shellPath, when the model calls the bash tool, then the command runs through that shell',
+  { skip },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'forge-shell-path-'));
+    const marker = join(root, 'invoked');
+    const shell = join(root, 'shell');
+    writeFileSync(
+      shell,
+      `#!/bin/sh\necho "$@" >> ${JSON.stringify(marker)}\nexec /bin/sh "$@"\n`,
+    );
+    chmodSync(shell, 0o755);
+    const { events } = await runRealPi(replies, { readOnlySettings: { shellPath: shell } });
+
+    assert.match(readFileSync(marker, 'utf8'), /^-c /);
+    assert.ok(events.some((event) => event.type === 'tool_result' && event.text.includes('forge')));
   },
 );
 

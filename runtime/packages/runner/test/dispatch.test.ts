@@ -62,6 +62,7 @@ import {
   writeFakeClaude,
   writeFakePi,
   type BwrapCall,
+  brokerEnv,
 } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
@@ -635,6 +636,7 @@ interface Outcome {
   piLater: { githubTokenFileContents: string; credential: string } | null;
   app: FakeGithubApp;
   bwrap: BwrapCall | null;
+  tools: BwrapCall | null;
   nix: NixCall[];
   requests: GraphqlRequest[];
   labelWrites: LabelWrite[];
@@ -761,6 +763,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: REASONING_EXTENSION,
       FORGE_PI_REQUEST_RECORD_EXTENSION: REQUEST_RECORD_EXTENSION,
       FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
+      ...brokerEnv(stateDir),
       FORGE_BWRAP: writeFakeBwrap(stateDir, {
         record: bwrapRecord,
         harnessEnv: {
@@ -821,6 +824,9 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         : null,
       bwrap: existsSync(bwrapRecord)
         ? (JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall)
+        : null,
+      tools: existsSync(`${bwrapRecord}.tools`)
+        ? (JSON.parse(readFileSync(`${bwrapRecord}.tools`, 'utf8')) as BwrapCall)
         : null,
       nix: existsSync(nixRecord)
         ? readFileSync(nixRecord, 'utf8')
@@ -1244,7 +1250,7 @@ test('given more edits after the approval than one page holds, when forge dispat
 const FLAKE = '{ outputs = { self }: { }; }\n';
 
 test('given a checkout whose flake\'s default devShell provides a tool, when the ticket is dispatched, then the runner asks nix for that devShell inside the workload sandbox, from the checkout root and without forge\'s credentials, and pi starts with the devShell\'s variables and its path ahead of the workload toolset', async () => {
-  const { pi, nix } = await dispatch({
+  const { pi, nix, tools } = await dispatch({
     origin: originWith({
       '.claude/skills/work-on/SKILL.md': SKILL,
       'flake.nix': FLAKE,
@@ -1252,6 +1258,7 @@ test('given a checkout whose flake\'s default devShell provides a tool, when the
   });
 
   assert.ok(pi);
+  assert.ok(tools);
   const [call, ...others] = nix;
   assert.deepEqual(others, []);
   assert.ok(call);
@@ -1266,15 +1273,17 @@ test('given a checkout whose flake\'s default devShell provides a tool, when the
   for (const name of ['FORGE_GITHUB_TOKEN_FILE', 'GITHUB_TOKEN', 'OPENROUTER_API_KEY', 'GIT_CONFIG_COUNT', 'GIT_AUTHOR_NAME']) {
     assert.equal(call.env[name], undefined, name);
   }
-  assert.equal(pi.env.DEVSHELL_TOOL, 'devshell-stub');
+  assert.equal(tools.env.DEVSHELL_TOOL, 'devshell-stub');
   const toolset = call.env.PATH;
   assert.ok(toolset);
-  assert.equal(pi.env.PATH, `${DEVSHELL_PATH}:${toolset}`);
+  assert.equal(tools.env.PATH, `${DEVSHELL_PATH}:${toolset}`);
+  assert.equal(pi.env.DEVSHELL_TOOL, undefined);
+  assert.equal(pi.env.PATH, toolset);
 });
 
-test('given a devShell that sets OPENROUTER_API_KEY, a git author, pi\'s agent dir, its own locale, and the build-only variables nix develop leaves out, when the workload starts, then pi sees forge\'s deliberate values, the devShell\'s locale over the box\'s, its sandbox HOME, and none of the build-only or unexported variables', async () => {
+test('given a devShell that sets OPENROUTER_API_KEY, a git author, pi\'s agent dir, its own locale, and the build-only variables nix develop leaves out, when the workload starts, then pi sees forge\'s deliberate values, the box\'s locale and its sandbox HOME, and commands see the same deliberate values, the devShell\'s locale over the box\'s and none of the build-only or unexported variables', async () => {
   const exported = (value: string) => ({ type: 'exported', value });
-  const { pi } = await dispatch({
+  const { pi, tools } = await dispatch({
     origin: originWith({
       '.claude/skills/work-on/SKILL.md': SKILL,
       'flake.nix': FLAKE,
@@ -1301,19 +1310,27 @@ test('given a devShell that sets OPENROUTER_API_KEY, a git author, pi\'s agent d
   });
 
   assert.ok(pi);
+  assert.ok(tools);
   assert.match(pi.env.FORGE_GITHUB_TOKEN_FILE ?? '', /\/credentials\/[0-9a-f-]{36}\/github-token$/);
+  assert.equal(tools.env.FORGE_GITHUB_TOKEN_FILE, pi.env.FORGE_GITHUB_TOKEN_FILE);
+  assert.equal(tools.env.OPENROUTER_API_KEY, 'sk-or-from-the-devshell');
+  assert.equal(tools.env.GIT_AUTHOR_NAME, GIT_IDENTITY.name);
   assert.equal(pi.env.OPENROUTER_API_KEY, 'sk-or-test');
   assert.equal(pi.env.GIT_AUTHOR_NAME, GIT_IDENTITY.name);
   assert.equal(pi.env.GIT_AUTHOR_EMAIL, GIT_IDENTITY.email);
   assert.match(pi.env.PI_CODING_AGENT_DIR ?? '', /\/agent\/[0-9a-f-]{36}$/);
   assert.notEqual(pi.env.HOME, '/homeless-shelter');
-  assert.equal(pi.env.LANG, 'en_GB.UTF-8');
+  assert.equal(pi.env.LANG, 'C.UTF-8');
+  assert.equal(pi.env.LOCALE_ARCHIVE, '/run/current-system/sw/lib/locale/locale-archive');
+  assert.equal(tools.env.HOME, pi.env.HOME);
+  assert.equal(tools.env.LANG, 'en_GB.UTF-8');
   assert.equal(
-    pi.env.LOCALE_ARCHIVE,
+    tools.env.LOCALE_ARCHIVE,
     '/nix/store/00000000000000000000000000000000-glibc-locales/lib/locale/locale-archive',
   );
   for (const name of ['TMPDIR', 'SSL_CERT_FILE', 'NIX_BUILD_TOP', 'SHELL_ONLY', 'ARRAY_ONLY']) {
     assert.equal(pi.env[name], undefined, name);
+    assert.equal(tools.env[name], undefined, name);
   }
 });
 
@@ -1328,8 +1345,8 @@ test('given a checkout with no flake, when the ticket is dispatched, then nix is
 
 const CREDENTIAL_TOOLS = '/nix/store/00000000000000000000000000000000-forge-gh/bin';
 
-test('given forge\'s credential tools directory and a devShell whose path has its own tools, when the ticket is dispatched, then pi\'s path starts with that directory, ahead of the devShell and the toolset, and its variable does not reach pi', async () => {
-  const { pi, nix } = await dispatch({
+test('given forge\'s credential tools directory and a devShell whose path has its own tools, when the ticket is dispatched, then the commands\' path starts with that directory, ahead of the devShell and the toolset, pi\'s path starts with it ahead of the toolset, and its variable reaches neither', async () => {
+  const { pi, nix, tools } = await dispatch({
     origin: originWith({
       '.claude/skills/work-on/SKILL.md': SKILL,
       'flake.nix': FLAKE,
@@ -1338,10 +1355,13 @@ test('given forge\'s credential tools directory and a devShell whose path has it
   });
 
   assert.ok(pi);
+  assert.ok(tools);
   const toolset = nix[0]?.env.PATH;
   assert.ok(toolset);
-  assert.equal(pi.env.PATH, `${CREDENTIAL_TOOLS}:${DEVSHELL_PATH}:${toolset}`);
+  assert.equal(tools.env.PATH, `${CREDENTIAL_TOOLS}:${DEVSHELL_PATH}:${toolset}`);
+  assert.equal(pi.env.PATH, `${CREDENTIAL_TOOLS}:${toolset}`);
   assert.equal(pi.env.FORGE_CREDENTIAL_TOOLS, undefined);
+  assert.equal(tools.env.FORGE_CREDENTIAL_TOOLS, undefined);
 });
 
 test('given forge\'s credential tools directory and a checkout with no flake, when the ticket is dispatched, then pi\'s path starts with that directory, ahead of the toolset', async () => {

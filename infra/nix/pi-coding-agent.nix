@@ -23,6 +23,7 @@ buildNpmPackage (finalAttrs: {
 
   patches = [
     ./pi-read-only-agent-dir.patch
+    ./pi-read-only-settings.patch
     ./pi-compaction-generations.patch
     ./pi-cache-warm-generations.patch
   ];

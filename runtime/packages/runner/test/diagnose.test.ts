@@ -8,6 +8,7 @@ import { main } from '../src/diagnose-main.ts';
 import { APP_ID, fakeGithubApp, routedThrough, tokenFor } from '../../shared/test/fixtures/fake-github-app.ts';
 import {
   billedAt,
+  brokerEnv,
   fakeOpenRouter,
   lockedPiPackage,
   PI_EXTENSIONS,
@@ -123,6 +124,7 @@ const diagnose = async ({ action, configured = true }: Scenario = {}) => {
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: PI_EXTENSIONS.modelDefaultReasoning,
       FORGE_PI_REQUEST_RECORD_EXTENSION: PI_EXTENSIONS.requestRecord,
       FORGE_PI_PACKAGE: lockedPiPackage(),
+      ...brokerEnv(stateDir),
       FORGE_BWRAP: writeFakeBwrap(stateDir, {
         record: bwrapRecord,
         harnessEnv: {
@@ -158,6 +160,7 @@ const diagnose = async ({ action, configured = true }: Scenario = {}) => {
       undiagnosed: store.undiagnosedFailures(),
       run: store.getRun('diagnosis-run'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
+      tools: existsSync(`${bwrapRecord}.tools`) ? (JSON.parse(readFileSync(`${bwrapRecord}.tools`, 'utf8')) as BwrapCall) : null,
       bwrap: existsSync(bwrapRecord) ? (JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall) : null,
     };
   } finally {
@@ -198,21 +201,23 @@ test('given no diagnosis worker is configured, when a diagnosis unit runs, then 
 });
 
 test('given a failed dispatch whose run directory still exists, when its diagnosis runs, then the agent reads the failed run read-only, holds a read-only token and no write token, and gets only the base toolset', async () => {
-  const { pi, bwrap, stateDir } = await diagnose({ action: writing(VERDICT) });
-  assert.ok(pi !== null && bwrap !== null);
-  const roBinds = bwrap.argv.flatMap((arg, index) =>
-    arg === '--ro-bind' ? [bwrap.argv[index + 1] as string] : [],
-  );
-  const binds = bwrap.argv.flatMap((arg, index) => (arg === '--bind' ? [bwrap.argv[index + 1] as string] : []));
-  for (const path of [
-    join(stateDir, 'transcripts', 'failed-run.jsonl'),
-    join(stateDir, 'transcripts', 'failed-run.requests.jsonl'),
-    join(stateDir, 'work', 'failed-run'),
-  ]) {
-    assert.ok(roBinds.includes(path), `${path} is mounted read-only`);
-    assert.ok(!binds.includes(path), `${path} is not mounted writable`);
+  const { pi, bwrap, tools, stateDir } = await diagnose({ action: writing(VERDICT) });
+  assert.ok(pi !== null && bwrap !== null && tools !== null);
+  for (const sandbox of [bwrap, tools]) {
+    const roBinds = sandbox.argv.flatMap((arg, index) =>
+      arg === '--ro-bind' ? [sandbox.argv[index + 1] as string] : [],
+    );
+    const binds = sandbox.argv.flatMap((arg, index) => (arg === '--bind' ? [sandbox.argv[index + 1] as string] : []));
+    for (const path of [
+      join(stateDir, 'transcripts', 'failed-run.jsonl'),
+      join(stateDir, 'transcripts', 'failed-run.requests.jsonl'),
+      join(stateDir, 'work', 'failed-run'),
+    ]) {
+      assert.ok(roBinds.includes(path), `${path} is mounted read-only`);
+      assert.ok(!binds.includes(path), `${path} is not mounted writable`);
+    }
+    assert.deepEqual(binds, [join(stateDir, 'work', 'diagnosis-run')]);
   }
-  assert.deepEqual(binds, [join(stateDir, 'work', 'diagnosis-run')]);
   assert.equal(pi.cwd, join(stateDir, 'work', 'diagnosis-run'));
   assert.equal(pi.githubTokenFileContents, tokenFor('read', 'rameezk/forge'));
   assert.ok(!JSON.stringify(pi.env).includes('ghs_workload'));

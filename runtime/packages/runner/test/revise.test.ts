@@ -36,6 +36,7 @@ import {
   PI_EXTENSIONS,
   writeFakeBwrap,
   writeFakePi,
+  brokerEnv,
 } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
@@ -411,6 +412,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       FORGE_PI_MODEL_DEFAULT_REASONING_EXTENSION: PI_EXTENSIONS.modelDefaultReasoning,
       FORGE_PI_REQUEST_RECORD_EXTENSION: PI_EXTENSIONS.requestRecord,
       FORGE_PI_PACKAGE: scenario.piPackage ?? lockedPiPackage(),
+      ...brokerEnv(stateDir),
       FORGE_BWRAP: writeFakeBwrap(stateDir, {
         record: join(stateDir, 'bwrap-call.json'),
         harnessEnv: {
