@@ -119,3 +119,34 @@ test('given a re-run that GitHub accepts after the runner stopped waiting, when 
   assert.equal(posts.length, 2);
   assert.match(answers[2] ?? '', /limit of 2/);
 });
+
+test('given a pull request lookup that answers after the runner stopped waiting, when it finally resolves, then no re-run is sent', async (t) => {
+  const posts: string[] = [];
+  let release: (number: number) => void = () => undefined;
+  const channel = await RerunChannel.open(mkdtempSync(join(tmpdir(), 'forge-rerun-')), {
+    github: 'rameezk/forge',
+    fetch: async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (init?.method === 'POST') posts.push(path);
+      return new Response(
+        JSON.stringify(
+          path.includes('/pulls/')
+            ? { head: { sha: 'a', ref: 'b' } }
+            : { head_sha: 'a', head_branch: 'b', status: 'completed', conclusion: 'failure' },
+        ),
+      );
+    },
+    token: async () => 'token',
+    pullRequest: () => new Promise<number>((resolve) => (release = resolve)),
+    timeoutMs: 50,
+  });
+  t.after(() => channel.close());
+
+  const ask = 'POST /rerun HTTP/1.1\r\nhost: forge\r\nconnection: close\r\ncontent-length: 10\r\n\r\n{"run":12}';
+  const answer = await send(channel.path, ask, false);
+  release(1);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.match(answer, /took too long/);
+  assert.deepEqual(posts, []);
+});

@@ -12,6 +12,8 @@ const MAX_BODY_BYTES = 256;
 
 const GITHUB_TIMEOUT_MS = 30_000;
 
+const ASK_TIMEOUT_FACTOR = 2;
+
 const FAILED_CONCLUSIONS = ['failure', 'startup_failure', 'timed_out', 'cancelled'];
 
 export interface RerunAnswer {
@@ -40,15 +42,19 @@ interface RunResponse {
 
 const refusal = (message: string): RerunAnswer => ({ rerun: false, message: `refused: ${message}` });
 
+const limitReached = (): RerunAnswer =>
+  refusal(`this workload has already re-run ${RERUN_LIMIT} runs, the limit of ${RERUN_LIMIT}`);
+
 const githubRequest = async (
   policy: RerunPolicy,
   token: string,
   method: string,
   path: string,
+  abandoned: AbortSignal,
 ): Promise<Response> =>
   policy.fetch(`${GITHUB_REST_API}/repos/${policy.github}${path}`, {
     method,
-    signal: AbortSignal.timeout(policy.timeoutMs ?? GITHUB_TIMEOUT_MS),
+    signal: AbortSignal.any([abandoned, AbortSignal.timeout(policy.timeoutMs ?? GITHUB_TIMEOUT_MS)]),
     headers: {
       authorization: `Bearer ${token}`,
       accept: 'application/vnd.github+json',
@@ -66,7 +72,7 @@ export class RerunDecider {
   }
 
   ask(run: unknown): Promise<RerunAnswer> {
-    const answer = this.#queue.then(() => this.#bounded(this.#decide(run)));
+    const answer = this.#queue.then(() => this.#bounded((abandoned) => this.#decide(run, abandoned)));
     this.#queue = answer.catch(() => undefined);
     return answer.catch(
       (error: unknown): RerunAnswer => ({
@@ -76,34 +82,41 @@ export class RerunDecider {
     );
   }
 
-  #bounded(decision: Promise<RerunAnswer>): Promise<RerunAnswer> {
-    const limit = (this.#policy.timeoutMs ?? GITHUB_TIMEOUT_MS) * 2;
+  #bounded(decide: (abandoned: AbortSignal) => Promise<RerunAnswer>): Promise<RerunAnswer> {
+    const limit = (this.#policy.timeoutMs ?? GITHUB_TIMEOUT_MS) * ASK_TIMEOUT_FACTOR;
+    const controller = new AbortController();
     let timer: NodeJS.Timeout | undefined;
     const late = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error('the ask took too long')), limit);
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error('the ask took too long'));
+      }, limit);
     });
+    const decision = decide(controller.signal);
     decision.catch(() => undefined);
     return Promise.race([decision, late]).finally(() => clearTimeout(timer));
   }
 
-  async #decide(run: unknown): Promise<RerunAnswer> {
+  async #decide(run: unknown, abandoned: AbortSignal): Promise<RerunAnswer> {
     if (typeof run !== 'number' || !Number.isSafeInteger(run) || run < 1) {
       return refusal('ask for one run by its number');
     }
     if (this.#rerun >= RERUN_LIMIT) {
-      return refusal(`this workload has already re-run ${RERUN_LIMIT} runs, the limit of ${RERUN_LIMIT}`);
+      return limitReached();
     }
     const number = await this.#policy.pullRequest();
+    abandoned.throwIfAborted();
     if (number === null) {
       return refusal('this workload has no open pull request yet, so no run is on its head');
     }
     const token = await this.#policy.token();
-    const pullRequestResponse = await githubRequest(this.#policy, token, 'GET', `/pulls/${number}`);
+    abandoned.throwIfAborted();
+    const pullRequestResponse = await githubRequest(this.#policy, token, 'GET', `/pulls/${number}`, abandoned);
     if (!pullRequestResponse.ok) {
       return refusal(`GitHub answered ${pullRequestResponse.status} for pull request #${number}`);
     }
     const { head } = (await pullRequestResponse.json()) as PullRequestResponse;
-    const runResponse = await githubRequest(this.#policy, token, 'GET', `/actions/runs/${run}`);
+    const runResponse = await githubRequest(this.#policy, token, 'GET', `/actions/runs/${run}`, abandoned);
     if (runResponse.status === 404) {
       return refusal(`${this.#policy.github} has no run ${run}`);
     }
@@ -126,11 +139,12 @@ export class RerunDecider {
     ) {
       return refusal(`run ${run} has not failed`);
     }
+    abandoned.throwIfAborted();
     if (this.#rerun >= RERUN_LIMIT) {
-      return refusal(`this workload has already re-run ${RERUN_LIMIT} runs, the limit of ${RERUN_LIMIT}`);
+      return limitReached();
     }
     this.#rerun += 1;
-    const response = await githubRequest(this.#policy, token, 'POST', `/actions/runs/${run}/rerun`);
+    const response = await githubRequest(this.#policy, token, 'POST', `/actions/runs/${run}/rerun`, abandoned);
     if (!response.ok) {
       return { rerun: false, message: `GitHub answered ${response.status} when re-running run ${run}` };
     }
