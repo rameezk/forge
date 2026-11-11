@@ -519,12 +519,12 @@ permission on the installation. Until you do, `forge-grading` fails to mint its
 token and logs the permissions forge requested. Nothing else is affected, since
 only the grading token asks for Checks: write.
 
-Upgrading an existing App for re-runs: keep **Actions** at **read and write**
-in the App's repository permissions, and on a new App set it so and accept it
-on the installation. Workload tokens no longer carry Actions: write; the runner
-mints its own token with it when it re-runs a run for a workload. Until the
-permission is on the installation, an ask to re-run a run is refused with
-GitHub's answer, and nothing else is affected.
+Upgrading an existing App for re-runs: an App that already has **Actions** at
+**read and write** needs no change. One that has only read needs write, then
+accept it on the installation. Workload tokens no longer carry Actions: write;
+the runner mints its own token with it when it re-runs a run for a workload.
+Until the permission is on the installation, an ask to re-run a run is answered
+that it could not be re-run, and nothing else is affected.
 
 Forge signs a short-lived JWT with the private key and exchanges it for an
 installation token that expires after an hour. It mints a read-only token for

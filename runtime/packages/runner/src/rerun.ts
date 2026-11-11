@@ -10,6 +10,8 @@ const SOCKET_FILE = 'rerun.sock';
 
 const MAX_BODY_BYTES = 256;
 
+const GITHUB_TIMEOUT_MS = 30_000;
+
 const FAILED_CONCLUSIONS = ['failure', 'startup_failure', 'timed_out', 'cancelled'];
 
 export interface RerunAnswer {
@@ -22,6 +24,7 @@ export interface RerunPolicy {
   fetch: Fetch;
   token: () => Promise<string>;
   pullRequest: () => Promise<number | null>;
+  timeoutMs?: number;
 }
 
 interface PullRequestResponse {
@@ -37,7 +40,7 @@ interface RunResponse {
 
 const refusal = (message: string): RerunAnswer => ({ rerun: false, message: `refused: ${message}` });
 
-const github = async (
+const githubRequest = async (
   policy: RerunPolicy,
   token: string,
   method: string,
@@ -45,6 +48,7 @@ const github = async (
 ): Promise<Response> =>
   policy.fetch(`${GITHUB_REST_API}/repos/${policy.github}${path}`, {
     method,
+    signal: AbortSignal.timeout(policy.timeoutMs ?? GITHUB_TIMEOUT_MS),
     headers: {
       authorization: `Bearer ${token}`,
       accept: 'application/vnd.github+json',
@@ -84,12 +88,12 @@ export class RerunDecider {
       return refusal('this workload has no open pull request yet, so no run is on its head');
     }
     const token = await this.#policy.token();
-    const pullRequestResponse = await github(this.#policy, token, 'GET', `/pulls/${number}`);
+    const pullRequestResponse = await githubRequest(this.#policy, token, 'GET', `/pulls/${number}`);
     if (!pullRequestResponse.ok) {
       return refusal(`GitHub answered ${pullRequestResponse.status} for pull request #${number}`);
     }
     const { head } = (await pullRequestResponse.json()) as PullRequestResponse;
-    const runResponse = await github(this.#policy, token, 'GET', `/actions/runs/${run}`);
+    const runResponse = await githubRequest(this.#policy, token, 'GET', `/actions/runs/${run}`);
     if (runResponse.status === 404) {
       return refusal(`${this.#policy.github} has no run ${run}`);
     }
@@ -112,7 +116,7 @@ export class RerunDecider {
     ) {
       return refusal(`run ${run} has not failed`);
     }
-    const response = await github(this.#policy, token, 'POST', `/actions/runs/${run}/rerun`);
+    const response = await githubRequest(this.#policy, token, 'POST', `/actions/runs/${run}/rerun`);
     if (!response.ok) {
       return { rerun: false, message: `GitHub answered ${response.status} when re-running run ${run}` };
     }
