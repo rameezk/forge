@@ -17,7 +17,7 @@
 
 #include "protocol.h"
 
-#define MAX_CONNECTIONS 1024
+#define MAX_CONNECTIONS 256
 #define MAX_SIGNAL 64
 
 enum stage { HEAD, BODY, RUNNING };
@@ -35,6 +35,7 @@ struct connection {
 };
 
 static struct connection connections[MAX_CONNECTIONS];
+static struct rlimit original_files;
 static const char **withheld;
 static int withheld_count;
 extern char **environ;
@@ -170,6 +171,7 @@ static void start(struct connection *c) {
     return refuse(c, "fork failed");
   }
   if (pid == 0) {
+    setrlimit(RLIMIT_NOFILE, &original_files);
     sigset_t none;
     sigemptyset(&none);
     sigprocmask(SIG_SETMASK, &none, NULL);
@@ -210,7 +212,7 @@ static void take_head(struct connection *c) {
   union {
     struct cmsghdr align;
     char space[CMSG_SPACE(sizeof(int) * FORGE_REQUEST_FDS)];
-  } control;
+  } control = {0};
   struct iovec iov = {data, sizeof data};
   struct msghdr msg = {0};
   msg.msg_iov = &iov;
@@ -219,6 +221,7 @@ static void take_head(struct connection *c) {
   msg.msg_controllen = sizeof control.space;
   ssize_t got = recvmsg(c->fd, &msg, MSG_CMSG_CLOEXEC);
   if (got < 0 && (errno == EAGAIN || errno == EINTR)) return;
+  if (got < 0) return release(c);
   for (struct cmsghdr *h = CMSG_FIRSTHDR(&msg); h != NULL; h = CMSG_NXTHDR(&msg, h)) {
     if (h->cmsg_level != SOL_SOCKET || h->cmsg_type != SCM_RIGHTS) continue;
     int count = (int)((h->cmsg_len - CMSG_LEN(0)) / sizeof(int));
@@ -310,18 +313,18 @@ static void prelisten(const char *path, char **command) {
 }
 
 int main(int argc, char **argv) {
-  const char *socket_path = NULL;
   withheld = calloc((size_t)argc, sizeof *withheld);
   for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) socket_path = argv[++i];
-    else if (strcmp(argv[i], "--prelisten") == 0 && i + 3 < argc && strcmp(argv[i + 2], "--") == 0)
+    if (strcmp(argv[i], "--prelisten") == 0 && i + 3 < argc && strcmp(argv[i + 2], "--") == 0)
       prelisten(argv[i + 1], argv + i + 3);
     else if (strcmp(argv[i], "--withhold") == 0 && i + 1 < argc) withheld[withheld_count++] = argv[++i];
     else {
-      fprintf(stderr, "usage: forge-broker [--socket PATH] [--withhold NAME]... | --prelisten PATH -- COMMAND...\n");
+      fprintf(stderr, "usage: forge-broker [--withhold NAME]... | --prelisten PATH -- COMMAND...\n");
       return 2;
     }
   }
+  for (int fd = 3; fd < 256; fd++)
+    if (fd != FORGE_LISTEN_FD) close(fd);
   for (int i = 0; i < MAX_CONNECTIONS; i++) connections[i].fd = -1;
   sigset_t chld;
   sigemptyset(&chld);
@@ -333,13 +336,19 @@ int main(int argc, char **argv) {
     return 2;
   }
   struct rlimit files;
-  if (getrlimit(RLIMIT_NOFILE, &files) == 0) {
+  if (getrlimit(RLIMIT_NOFILE, &original_files) == 0) {
+    files = original_files;
     files.rlim_cur = files.rlim_max;
     setrlimit(RLIMIT_NOFILE, &files);
   }
   int listener = FORGE_LISTEN_FD;
-  if (socket_path != NULL) listener = listen_on(socket_path);
-  else fcntl(listener, F_SETFD, FD_CLOEXEC);
+  int listening = 0;
+  socklen_t size = sizeof listening;
+  if (getsockopt(listener, SOL_SOCKET, SO_ACCEPTCONN, &listening, &size) < 0 || !listening) {
+    fprintf(stderr, "forge-broker: descriptor %d is not a listening socket\n", FORGE_LISTEN_FD);
+    return 2;
+  }
+  fcntl(listener, F_SETFD, FD_CLOEXEC);
   if (write(1, "ready\n", 6) != 6) return 2;
   static struct pollfd polled[MAX_CONNECTIONS + 2];
   for (;;) {

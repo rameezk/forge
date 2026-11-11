@@ -31,6 +31,7 @@ test('given a request record sink that fails to write, when pi records a request
     },
     system: { PATH: process.env.PATH ?? '' },
     env: {},
+    commandEnv: {},
   });
 
   await assert.rejects(async () => {
@@ -73,6 +74,7 @@ test('given a read of a skill file, when pi reports its result, then each skill 
     },
     system: { PATH: process.env.PATH ?? '' },
     env: {},
+    commandEnv: {},
   });
 
   const types: string[] = [];

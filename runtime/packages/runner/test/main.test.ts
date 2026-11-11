@@ -2067,7 +2067,10 @@ test('given a workload about to start, when the runner launches its harness, the
     'FORGE_PI_REQUEST_RECORD_FD',
     '--withhold',
     'FORGE_PI_SUBAGENT_INVOCATION',
+    '--withhold',
+    'OPENROUTER_API_KEY',
   ]);
+  assert.equal(tools.env.OPENROUTER_API_KEY, undefined);
   assert.equal(tools.env.HOME, RUNNER_HOME);
   assert.equal(tools.env.PI_CODING_AGENT_DIR, undefined);
   assert.equal(tools.env.FORGE_PI_SUBAGENT_INVOCATION, undefined);

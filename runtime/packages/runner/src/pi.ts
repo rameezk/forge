@@ -581,6 +581,7 @@ export interface PiHarnessOptions {
   tools: ToolsConfig;
   system: Record<string, string>;
   env: Record<string, string>;
+  commandEnv: Record<string, string>;
   extraArgs?: string[];
 }
 
@@ -610,6 +611,7 @@ class PiRun implements HarnessRun {
   readonly #extraArgs: string[];
   readonly #system: Record<string, string>;
   readonly #env: Record<string, string>;
+  readonly #commandEnv: Record<string, string>;
   readonly #agentDir: string;
 
   constructor(options: PiHarnessOptions, agentDir: string) {
@@ -620,6 +622,7 @@ class PiRun implements HarnessRun {
     this.#extraArgs = options.extraArgs ?? [];
     this.#system = options.system;
     this.#env = options.env;
+    this.#commandEnv = options.commandEnv;
     this.#agentDir = agentDir;
   }
 
@@ -659,8 +662,11 @@ class PiRun implements HarnessRun {
       sandbox: this.#sandbox,
       tools: this.#tools,
       workDir: invocation.workDir,
-      env: underDevShell(invocation.devShell, this.#system, this.#env),
-      withheld: Object.keys(harnessOnly),
+      env: underDevShell(invocation.devShell, this.#system, this.#commandEnv),
+      withheld: [
+        ...Object.keys(harnessOnly),
+        ...Object.keys(this.#env).filter((name) => !(name in this.#commandEnv)),
+      ],
     });
     try {
       await tools.ready;

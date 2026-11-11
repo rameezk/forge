@@ -1313,7 +1313,7 @@ test('given a devShell that sets OPENROUTER_API_KEY, a git author, pi\'s agent d
   assert.ok(tools);
   assert.match(pi.env.FORGE_GITHUB_TOKEN_FILE ?? '', /\/credentials\/[0-9a-f-]{36}\/github-token$/);
   assert.equal(tools.env.FORGE_GITHUB_TOKEN_FILE, pi.env.FORGE_GITHUB_TOKEN_FILE);
-  assert.equal(tools.env.OPENROUTER_API_KEY, 'sk-or-test');
+  assert.equal(tools.env.OPENROUTER_API_KEY, 'sk-or-from-the-devshell');
   assert.equal(tools.env.GIT_AUTHOR_NAME, GIT_IDENTITY.name);
   assert.equal(pi.env.OPENROUTER_API_KEY, 'sk-or-test');
   assert.equal(pi.env.GIT_AUTHOR_NAME, GIT_IDENTITY.name);

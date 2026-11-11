@@ -58,6 +58,7 @@ const piFactory: HarnessFactory = ({
       ...picked(env, [providerSpec(PI_PROVIDER).credentialEnv]),
       ...harnessEnv,
     },
+    commandEnv: harnessEnv,
   });
 };
 

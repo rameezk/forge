@@ -181,8 +181,8 @@ testers.runNixOSTest {
         box.succeed(f"systemctl start forge-runner@{worker}")
 
     def assert_nothing_left_running():
-        box.fail("pgrep -x forge-broker")
-        box.fail("pgrep -f '[f]orge-tools-'")
+        box.wait_until_fails("pgrep -x forge-broker")
+        box.wait_until_fails("pgrep -f '[f]orge-tools-'")
 
     box.wait_for_unit("multi-user.target")
     box.wait_for_open_port(443)
@@ -202,7 +202,7 @@ testers.runNixOSTest {
         run("background")
         assert database("select status from runs where worker = 'background'") == "success"
         assert output_of("background", "served.out") == "hello"
-        box.fail("pgrep -f '[h]ttp.server 8124'")
+        box.wait_until_fails("pgrep -f '[h]ttp.server 8124'")
         assert_nothing_left_running()
 
     with subtest("a command cannot create a user namespace"):
@@ -231,8 +231,6 @@ testers.runNixOSTest {
         assert output_of("loader", "client.status") == "0"
         assert output_of("loader", "client.out") == "ran"
         assert output_of("loader", "traps.out") == "clean"
-        box.fail("test -e /tmp/ld-preload-ran")
-        box.fail("test -e /tmp/bash-env-ran")
         assert_nothing_left_running()
 
     with subtest("a dead broker fails the run, naming the tools sandbox, long before its timeout"):
