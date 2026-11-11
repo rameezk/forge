@@ -8,6 +8,8 @@
   writeText,
   util-linux,
   curl,
+  bubblewrap,
+  nodejs,
   forge-runner,
   sopsModule,
   secretsFile,
@@ -128,6 +130,49 @@ let
     echo '{"type":"agent_end","willRetry":false}'
   '';
 
+  askDriver = writeText "ask-driver.ts" ''
+    import { mkdirSync } from 'node:fs';
+    import { RerunChannel } from '${forge-runner}/lib/forge-runtime/packages/runner/src/rerun.ts';
+    import { spawnSandboxed } from '${forge-runner}/lib/forge-runtime/packages/runner/src/sandbox.ts';
+
+    const [tools, bwrap] = process.argv.slice(2);
+    const dir = '/var/lib/forge/credentials/rerun-ask';
+    const workDir = '/var/lib/forge/work/rerun-ask';
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    mkdirSync(workDir, { recursive: true });
+    const posts: string[] = [];
+    const json = (body: unknown, status = 200): Response =>
+      new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    const channel = await RerunChannel.open(dir, {
+      github: 'rameezk/forge',
+      token: async () => 'rerun-token',
+      pullRequest: async () => 7,
+      fetch: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (init?.method === 'POST') {
+          posts.push(path);
+          return json({});
+        }
+        if (path.endsWith('/pulls/7')) return json({ head: { sha: 'abc', ref: 'forge/7' } });
+        return json({ head_sha: 'abc', head_branch: 'forge/7', status: 'completed', conclusion: 'startup_failure' });
+      },
+    });
+    const { stdout, exited } = spawnSandboxed({ bwrap, home: '/var/empty' }, 'forge-rerun-ci', ['901'], {
+      name: 'the ask',
+      workDir,
+      env: {
+        PATH: tools,
+        FORGE_GITHUB_TOKEN_FILE: dir + '/github-token',
+        ...channel.environment,
+      },
+    });
+    let answer = "";
+    stdout.on('data', (chunk) => { answer += chunk; });
+    const failure = await exited;
+    await channel.close();
+    console.log(JSON.stringify({ answer: answer.trim(), failure: failure?.message ?? null, posts }));
+  '';
+
   box = extra: {
     imports = [
       sopsModule
@@ -176,6 +221,8 @@ testers.runNixOSTest {
   };
 
   testScript = ''
+    import json
+
     def run_dir_of(machine, report):
         return machine.succeed(f"dirname /var/lib/forge/work/*/{report}").strip()
 
@@ -347,6 +394,13 @@ testers.runNixOSTest {
         store_info = out.split("ran through the nix daemon", 1)[1]
         assert "Store URL: daemon" in store_info, out
         assert "Trusted: 0" in store_info, out
+
+    with subtest("a workload asks the runner to re-run a run from inside the real sandbox, and the runner receives the ask"):
+        tools = box.succeed("systemctl show -p Environment --value forge-runner@probe").split("FORGE_CREDENTIAL_TOOLS=")[1].split()[0]
+        box.succeed("install -d -o forge-runtime -g forge-runtime /var/lib/forge/credentials")
+        asked = box.succeed(f"runuser -u forge-runtime -- ${nodejs}/bin/node ${askDriver} {tools} ${lib.getExe bubblewrap}")
+        result = json.loads(asked.strip().splitlines()[-1])
+        assert result == {"answer": "re-ran run 901", "failure": None, "posts": ["/repos/rameezk/forge/actions/runs/901/rerun"]}, result
 
     box.shutdown()
 

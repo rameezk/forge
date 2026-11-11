@@ -469,8 +469,11 @@ repositories forge manages, and give the box its id and private key.
    - Checks: read and write, so the agent can watch a pull request's required
      checks and forge can post the `forge/risk` check run of a graded pull
      request.
-   - Actions: read and write, so the agent can read the logs of the checks
-     that fail and re-run a run that failed for infrastructure reasons.
+   - Actions: read and write. The agent's own token holds only read, so it can
+     read the logs of the checks that fail. Write is for the runner, which
+     re-runs a run that failed for infrastructure reasons when the agent asks
+     through `forge-rerun-ci`, and only a failed run on the head of the
+     workload's own pull request, at most twice per workload.
    - Commit statuses: read, so forge can read the status of a pull request's
      head commit.
    - Metadata: read, which GitHub always grants.
@@ -516,10 +519,12 @@ permission on the installation. Until you do, `forge-grading` fails to mint its
 token and logs the permissions forge requested. Nothing else is affected, since
 only the grading token asks for Checks: write.
 
-Upgrading an existing App for re-runs: change **Actions** from read to **read
-and write** in the App's repository permissions, then accept the new permission
-on the installation. Until you do, every dispatch fails to mint its workload
-token and the dispatch failure names the permissions forge requested.
+Upgrading an existing App for re-runs: keep **Actions** at **read and write**
+in the App's repository permissions, and on a new App set it so and accept it
+on the installation. Workload tokens no longer carry Actions: write; the runner
+mints its own token with it when it re-runs a run for a workload. Until the
+permission is on the installation, an ask to re-run a run is refused with
+GitHub's answer, and nothing else is affected.
 
 Forge signs a short-lived JWT with the private key and exchanges it for an
 installation token that expires after an hour. It mints a read-only token for
