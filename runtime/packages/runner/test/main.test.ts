@@ -412,6 +412,13 @@ const cutBefore = (name: string, eventType: string): string => {
   return outputFile(`${lines.slice(0, cut).join('\n')}\n`);
 };
 
+const cutBeforeLine = (name: string, needle: string): string => {
+  const lines = readFileSync(fixture(name), 'utf8').split('\n');
+  const cut = lines.findIndex((line) => line.includes(needle));
+  assert.ok(cut > 0);
+  return outputFile(`${lines.slice(0, cut).join('\n')}\n`);
+};
+
 const withoutGenerationId = (name: string, id: string): string =>
   outputFile(
     readFileSync(fixture(name), 'utf8')
@@ -2662,6 +2669,27 @@ test('given a finished run whose generation OpenRouter bills with native counts 
       openRouter.close();
     }
   }
+});
+
+test('given a pi that dies from SIGTERM while its bash call is running, when the worker runs, then the run ends error naming SIGTERM and that tool call, and the result event carries both', async () => {
+  const { run, transcript } = await runWorker({
+    output: cutBeforeLine('tool-calls.jsonl', '"type":"tool_execution_end","toolCallId":"call_2"'),
+    exit: 143,
+  });
+
+  assert.equal(run.status, 'error');
+  assert.equal(run.error, 'pi was killed by SIGTERM while tool call call_2 (bash) was in flight');
+  const last = parseTranscript(transcript).at(-1);
+  assert.deepEqual(last?.type === 'result' ? last.signalDeath : null, { signal: 'SIGTERM', toolCallId: 'call_2' });
+});
+
+test('given a pi that dies from SIGKILL between tool calls, when the worker runs, then the run ends error naming SIGKILL and no tool call', async () => {
+  const { run, transcript } = await runWorker({ output: cutBefore('tool-calls.jsonl', 'agent_end'), exit: 137 });
+
+  assert.equal(run.status, 'error');
+  assert.equal(run.error, 'pi was killed by SIGKILL');
+  const last = parseTranscript(transcript).at(-1);
+  assert.deepEqual(last?.type === 'result' ? last.signalDeath : null, { signal: 'SIGKILL', toolCallId: null });
 });
 
 test('given recorded pi output of three generations followed by pi dying without a result, when the worker runs and the billing service then fires, then the run is error, its token totals are the sum of those three generations, and each is billed and counted in its cost', async () => {

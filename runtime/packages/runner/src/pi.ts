@@ -40,6 +40,7 @@ import {
   spawnSandboxed,
   type Sandbox,
 } from './sandbox.ts';
+import { InFlightCalls, signalDeathReport } from './in-flight.ts';
 import { startToolsSandbox } from './tools-sandbox.ts';
 import { tokenCount } from './token-count.ts';
 import {
@@ -523,13 +524,15 @@ class PiStream {
     }
   }
 
-  result(exitFailure: Error | null): HarnessEvent {
-    const error = this.#malformed ?? exitFailure?.message ?? this.#error();
+  result(exitFailure: Error | null, calls: InFlightCalls): HarnessEvent {
+    const death = signalDeathReport(exitFailure, calls);
+    const error = this.#malformed ?? death?.error ?? exitFailure?.message ?? this.#error();
     return {
       type: 'result',
       status: error === null ? 'success' : 'error',
       sessionId: this.#sessionId,
       error,
+      ...(death !== null && error === death.error ? { signalDeath: death.signalDeath } : {}),
     };
   }
 
@@ -651,6 +654,7 @@ class PiRun implements HarnessRun {
     const promptLoad = skillLoads?.observePrompt(invocation.prompt) ?? null;
     if (promptLoad !== null) yield { type: 'skill_load', ...promptLoad };
     const stream = new PiStream(sinks.rawEvent);
+    const inFlight = new InFlightCalls();
     const command = realCommand(this.#command);
     warnUnloadedProjectConfig(invocation.checkout);
     const args = piArgs(invocation, this.#extensions, this.#extraArgs);
@@ -675,7 +679,7 @@ class PiRun implements HarnessRun {
       await tools.ready;
     } catch (cause) {
       await tools.stop();
-      yield stream.result(cause instanceof Error ? cause : new Error(String(cause)));
+      yield stream.result(cause instanceof Error ? cause : new Error(String(cause)), inFlight);
       return;
     }
     let spawned: ReturnType<typeof spawnSandboxed>;
@@ -731,6 +735,7 @@ class PiRun implements HarnessRun {
           break;
         }
         for (const event of events) {
+          inFlight.observe(event);
           const load = skillLoads?.observe(event) ?? null;
           if (load !== null) yield { type: 'skill_load', ...load };
           yield event;
@@ -753,6 +758,6 @@ class PiRun implements HarnessRun {
     if (failure !== null) {
       throw failure.error;
     }
-    yield stream.result(exitFailure);
+    yield stream.result(exitFailure, inFlight);
   }
 }

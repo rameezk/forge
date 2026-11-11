@@ -1321,6 +1321,30 @@ test('given a tools sandbox whose broker ends before it is ready, when a claude-
   assert.equal(claudeStarted, false);
 });
 
+test('given a claude that dies from SIGTERM while its Bash call is running, when the workload runs, then the run ends error naming SIGTERM and that tool call, and the result event carries both', async () => {
+  const { run, transcript } = await runClaude({ fixture: 'signal-in-flight' });
+
+  assert.equal(run.status, 'error');
+  assert.equal(run.error, 'claude was killed by SIGTERM while tool call toolu_1 (Bash) was in flight');
+  const last = parseTranscript(transcript).at(-1);
+  assert.deepEqual(last, {
+    type: 'result',
+    status: 'error',
+    sessionId: last?.type === 'result' ? last.sessionId : null,
+    error: run.error,
+    signalDeath: { signal: 'SIGTERM', toolCallId: 'toolu_1' },
+  });
+});
+
+test('given a claude that dies from SIGKILL between tool calls, when the workload runs, then the run ends error naming SIGKILL and no tool call', async () => {
+  const { run, transcript } = await runClaude({ fixture: 'signal-between-calls' });
+
+  assert.equal(run.status, 'error');
+  assert.equal(run.error, 'claude was killed by SIGKILL');
+  const last = parseTranscript(transcript).at(-1);
+  assert.deepEqual(last?.type === 'result' ? last.signalDeath : null, { signal: 'SIGKILL', toolCallId: null });
+});
+
 test('given a claude-code prompt larger than a command-line argument allows, when the workload runs, then claude receives all of it on stdin', async () => {
   const prompt = `${'wrangler dev '.repeat(40_000)}end`;
 

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { constants } from 'node:os';
 import { dirname } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { GITHUB_TOKEN_FILE_ENV } from './github-token-file.ts';
@@ -83,6 +84,28 @@ const STDERR_TAIL_CHARS = 4000;
 
 export class SandboxUnavailable extends Error {}
 
+export class SignalDeath extends Error {
+  readonly harness: string;
+  readonly signal: string;
+  readonly reason: string;
+
+  constructor(harness: string, signal: string, reason: string) {
+    super(reason === '' ? `${harness} was killed by ${signal}` : `${harness} was killed by ${signal}: ${reason}`);
+    this.harness = harness;
+    this.signal = signal;
+    this.reason = reason;
+  }
+}
+
+const SIGNAL_EXIT_BASE = 128;
+
+const SIGNAL_NAMES = new Map(Object.entries(constants.signals).map(([name, number]) => [number, name]));
+
+const signalOfExit = (code: number | null, signal: NodeJS.Signals | null): string | null => {
+  if (code === null) return signal;
+  return code > SIGNAL_EXIT_BASE ? (SIGNAL_NAMES.get(code - SIGNAL_EXIT_BASE) ?? null) : null;
+};
+
 export interface SandboxedProcess {
   child: ChildProcess;
   stdout: Readable;
@@ -145,6 +168,10 @@ const exitOf = async (
     return null;
   }
   const reason = await tail;
+  const killedBy = role === 'workload' ? signalOfExit(code, signal) : null;
+  if (killedBy !== null) {
+    return new SignalDeath(name, killedBy, reason);
+  }
   const how = code === null ? `on signal ${String(signal)}` : `with code ${code}`;
   return new Error(
     reason.length === 0 ? `${name} exited ${how}` : `${name} exited ${how}: ${reason}`,

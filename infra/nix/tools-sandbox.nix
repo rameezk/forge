@@ -88,6 +88,11 @@ let
       "if [ ! -e /tmp/ld-preload-ran ] && [ ! -e /tmp/bash-env-ran ]; then echo clean > traps.out; fi"
     ];
     dead = [ "echo started > started.out; sleep 600" ];
+    inflight = [ "echo started > started.out; sleep 600" ];
+    between = [
+      "echo ready > ready.out"
+      { hold = true; }
+    ];
   };
 
   scenarios = writeText "scenarios.json" (builtins.toJSON scenarioSet);
@@ -123,7 +128,7 @@ let
   );
 
   claudeScenarioSet = {
-    inherit (scenarioSet) signals background userns orphans loader;
+    inherit (scenarioSet) signals background userns orphans loader between;
     stop = [
       {
         command = "sleep 300 & sleep 301 & wait";
@@ -132,6 +137,12 @@ let
       "sleep 1; ${procps}/bin/pgrep -f 'sleep 30[01]' > leftover.out; echo done > stopped.out; true"
     ];
     dead = [
+      {
+        command = "echo started > started.out; sleep 600";
+        timeout = 600000;
+      }
+    ];
+    inflight = [
       {
         command = "echo started > started.out; sleep 600";
         timeout = 600000;
@@ -187,7 +198,7 @@ let
 
   fakeOpenRouter = writeText "fake-openrouter.mjs" ''
     import { createServer } from 'node:https';
-    import { readFileSync } from 'node:fs';
+    import { readFileSync, writeFileSync } from 'node:fs';
     const scenarios = JSON.parse(readFileSync('${scenarios}', 'utf8'));
     const frame = (response, data) => response.write('data: ' + JSON.stringify(data) + '\n\n');
     createServer(
@@ -211,6 +222,10 @@ let
           const base = { id: 'gen-' + name + '-' + answered, object: 'chat.completion.chunk', created: 0, model: chat.model };
           if (answered < steps.length) {
             const step = steps[answered];
+            if (step.hold) {
+              writeFileSync('/tmp/held-' + name, ''');
+              return;
+            }
             const args = typeof step === 'string' ? { command: step } : step;
             frame(response, { ...base, choices: [{ index: 0, delta: { role: 'assistant', content: ''', tool_calls: [{ index: 0, id: 'call_' + answered, type: 'function', function: { name: 'bash', arguments: JSON.stringify(args) } }] }, finish_reason: null }] });
             frame(response, { ...base, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] });
@@ -276,6 +291,10 @@ let
           return;
         }
         const step = steps[answered];
+        if (step.hold) {
+          writeFileSync('/tmp/held-' + name, ''');
+          return;
+        }
         const call = typeof step === 'string' ? { name: 'Bash', input: { command: step } } : step.tool !== undefined ? { name: step.tool, input: step.input } : { name: 'Bash', input: step };
         send(response, id, reply(id, [toolBlock('toolu_' + answered, call.name, call.input)], 'tool_use'));
       });
@@ -468,6 +487,23 @@ testers.runNixOSTest {
         assert "tools sandbox" in database(f"select error from runs where worker = '{worker}'"), database(f"select error from runs where worker = '{worker}'")
         assert_nothing_left_running()
 
+    def killed_by_signal(prefix, label, scenario, signal, ready, in_flight):
+        worker = prefix + scenario
+        box.succeed(f"systemctl start --no-block forge-runner@{worker}")
+        box.wait_until_succeeds("pgrep -f '${markerPattern}'", timeout=120)
+        box.wait_until_succeeds(f"test -n \"$(sqlite3 /var/lib/forge/forge.db \"select id from runs where worker = '{worker}'\")\"")
+        box.wait_until_succeeds(f"test -e {run_dir_of(worker)}/{ready}", timeout=120)
+        if not in_flight:
+            box.wait_until_succeeds(f"test -e /tmp/held-{scenario}", timeout=120)
+        box.succeed(f"kill -{signal} $(pgrep -n -f '${markerPattern}')")
+        wait_for_finish(worker, timeout=90)
+        status, error = database(f"select status, error from runs where worker = '{worker}'").split("|", 1)
+        assert status == "error", (label, status, error)
+        assert f"was killed by SIG{signal}" in error, (label, error)
+        assert ("while tool call" in error and "was in flight" in error) == in_flight, (label, error)
+        assert database(f"select count(*) from runs where worker = '{worker}'") == "1", label
+        assert_nothing_left_running()
+
     with subtest("pi: a command's signals cannot reach the harness, the broker or later commands"):
         signals_do_not_reach("", "pi")
 
@@ -551,5 +587,17 @@ testers.runNixOSTest {
 
     with subtest("claude-code: a dead broker fails the run, naming the tools sandbox, long before its timeout"):
         a_dead_broker_fails_the_run("claude-", "claude-code")
+
+    with subtest("pi: SIGTERM from outside the sandboxes while a command runs fails the run naming SIGTERM and that tool call"):
+        killed_by_signal("", "pi", "inflight", "TERM", "started.out", True)
+
+    with subtest("pi: SIGKILL from outside the sandboxes between commands fails the run naming SIGKILL and no tool call"):
+        killed_by_signal("", "pi", "between", "KILL", "ready.out", False)
+
+    with subtest("claude-code: SIGTERM from outside the sandboxes while a command runs fails the run naming SIGTERM and that tool call"):
+        killed_by_signal("claude-", "claude-code", "inflight", "TERM", "started.out", True)
+
+    with subtest("claude-code: SIGKILL from outside the sandboxes between commands fails the run naming SIGKILL and no tool call"):
+        killed_by_signal("claude-", "claude-code", "between", "KILL", "ready.out", False)
   '';
 }

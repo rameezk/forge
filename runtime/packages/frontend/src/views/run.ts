@@ -5,8 +5,9 @@ import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, format
 import { cacheMisses, isCall, promptTokens } from '../calls.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
-import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderRunLead, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, type RunOutcome, runReasonOf, renderReasonBlock, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout, renderTile, SUMMARY_FIGURE } from './shared.ts';
+import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderRunLead, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, type RunOutcome, runReasonOf, type RunReason, renderReasonBlock, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout, renderTile, SUMMARY_FIGURE } from './shared.ts';
 import { renderWidget } from './widget.ts';
+import { anchorId, toolCallAnchor } from './transcript.ts';
 
 export const isSettled = (run: Pick<RunRecord, 'endTime' | 'costStatus'>): boolean =>
   run.endTime !== null && run.costStatus !== 'pending';
@@ -371,6 +372,21 @@ const renderRunDetails = (
     </dl>
   </details>`;
 
+const withInFlightCall = (runId: string, reason: RunReason | null, events: HarnessEvent[]): RunReason | null => {
+  const death = events.findLast((event) => event.type === 'result')?.signalDeath;
+  if (reason === null || death?.toolCallId == null) return reason;
+  const anchor = toolCallAnchor(events, death.toolCallId);
+  if (anchor === null) return reason;
+  const name = events.find((event) => event.type === 'tool_call' && event.id === death.toolCallId);
+  return {
+    ...reason,
+    toolCall: {
+      href: `/runs/${encodeURIComponent(runId)}/transcript#${anchorId(anchor)}`,
+      label: name?.type === 'tool_call' ? `${name.name} ${death.toolCallId}` : death.toolCallId,
+    },
+  };
+};
+
 const transcriptTurnHref = (runId: string, turn: number): string =>
   `/runs/${encodeURIComponent(runId)}/transcript#event-${turn - 1}`;
 
@@ -422,7 +438,7 @@ export const renderDetail = (
   const live = !isSettled(run);
   const stopped = renderExceeded(run);
   const outcome = runOutcomeOf(workload?.workload, dispatch ?? undefined);
-  const reason = runReasonOf(run, outcome);
+  const reason = withInFlightCall(run.id, runReasonOf(run, outcome), events);
   const calls = generations.filter(isCall);
   const efforts = sentEfforts(calls, recordedEfforts);
   const body = html`<div class="flex flex-col gap-2 lg:grid lg:gap-x-6 lg:h-full lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[auto_minmax(0,1fr)]">

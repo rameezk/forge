@@ -548,6 +548,16 @@ const anchorOf = (entry: TranscriptEntry, positions: Map<HarnessEvent, number>):
   return (origin === undefined ? undefined : positions.get(origin)) ?? 0;
 };
 
+export const toolCallAnchor = (events: HarnessEvent[], id: string): number | null => {
+  const { entries, positions } = listedEntries(events);
+  const holds = (entry: TranscriptEntry): boolean =>
+    entry.type === 'subagent'
+      ? entry.events.some((inner) => inner.type === 'tool_call' && inner.id === id) || entry.call?.id === id
+      : entry.type === 'tool_call' && entry.id === id;
+  const holder = entries.find(holds);
+  return holder === undefined ? null : anchorOf(holder, positions);
+};
+
 export const anchorId = (anchor: number): string => `event-${anchor}`;
 
 const renderAnchored = (anchor: number, rendered: Rendered): Rendered =>

@@ -55,6 +55,7 @@ export type {
   HarnessOutput,
   MessageEvent,
   ResultEvent,
+  SignalDeath,
   RetryEvent,
   SkillLoadEvent,
   TokenUsage,

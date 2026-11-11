@@ -44,6 +44,10 @@ _Avoid_: inner sandbox, nested sandbox
 The process in the tools sandbox that runs each command the harness hands it and reports its output and exit back. The harness reaches the tools sandbox only through it (ADR-0098).
 _Avoid_: executor, proxy
 
+**Signal death**:
+A harness that ends because a signal killed it, whoever sent it. The run keeps its `error` status and its failed outcome, and its error names the signal and links the tool call in flight when the harness died, if there was one. Forge does not guess the sender, and does not retry the run automatically (ADR-0098).
+_Avoid_: crash, killed run
+
 **Generation**:
 One billed model call within a workload, its subagents' included, identified by OpenRouter's generation id; billed cost is looked up and settled one generation at a time. Its kind is a `message` from the harness's agent loop, a `compaction` summary, or a `cache_warm` request (ADR-0052). The store also keeps a given-up row with no id where a response used tokens without one, or where a workload never ended and later generations may be unrecorded.
 _Avoid_: response, completion, call
