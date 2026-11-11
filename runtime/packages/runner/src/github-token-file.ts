@@ -122,6 +122,7 @@ export const keepFresh = (
     await revoke(replaced);
   };
   const schedule = (expiresAt: string, failures: number): void => {
+    if (stopped) return;
     const delay =
       failures === 0
         ? Math.max(MIN_REFRESH_DELAY_MS, (Date.parse(expiresAt) - now()) / 2)

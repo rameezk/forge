@@ -236,3 +236,24 @@ test('given a token whose file cannot be created, when the file is created or th
   );
   assert.deepEqual(revoked, ['first']);
 });
+
+test('given a refresh that cannot write the token file, when the next token arrives, then that token is revoked and the one the file holds is revoked at the end', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  const file = open('first');
+  file.remove();
+  const revoked: string[] = [];
+  const stop = keepFresh(
+    file,
+    { token: 'first', expiresAt: expiringIn(HOUR, 0) },
+    async () => ({ token: 'second', expiresAt: expiringIn(HOUR, Date.now()) }),
+    () => undefined,
+    async (token) => {
+      revoked.push(token);
+    },
+  );
+  context.mock.timers.tick(HOUR / 2);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(revoked, ['second']);
+  await stop();
+  assert.deepEqual(revoked, ['second', 'first']);
+});
