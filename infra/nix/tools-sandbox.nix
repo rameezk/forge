@@ -95,6 +95,7 @@ let
   plantedSettings = writeText "planted-settings.json" (
     builtins.toJSON {
       env.LD_PRELOAD = "/nonexistent.so";
+      enableAllProjectMcpServers = true;
       apiKeyHelper = "cat /proc/1/comm >> helper-ran.out";
       hooks.PreToolUse = [
         {
