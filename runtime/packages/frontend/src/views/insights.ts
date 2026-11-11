@@ -161,7 +161,7 @@ const PINNED = 'sticky left-0 z-10 shadow-[1px_0_0_var(--color-line)]';
 
 const renderCohort = (cohort: CohortInsight, columns: Column[], timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> =>
   html`<tr class="${ROW} group" data-cohort="${cohort.hash ?? ''}" data-cost-basis="${cohort.listPrice ? 'list-price' : 'billed'}">
-    <td class="${PINNED} border-t bg-surface group-hover:bg-bg px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${renderOwners(cohort)}</td>
+    <td class="${PINNED} border-t border-line bg-surface group-hover:bg-bg px-2.5 py-2.5 align-baseline font-medium" data-metric="label"${cohort.hash === null ? '' : html` title="${cohort.hash}"`}>${renderCohortLink(cohort.hash, cohort.fingerprint)}${cohort.listPrice ? html` ${SUBSCRIPTION_BADGE}` : ''}${renderOwners(cohort)}</td>
     ${columns.map(({ render }) => render(cohort, timeZone))}
   </tr>`;
 
@@ -175,11 +175,12 @@ const renderGroup = (
   timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   if (cohorts.length === 0) return html``;
+  const span = columns.length + 1;
   const lastRun = cohorts.map((cohort) => cohort.lastRun).filter((iso): iso is string => iso !== null).sort().at(-1) ?? null;
   const header =
     group === 'active'
-      ? html`<th scope="colgroup" colspan="${columns.length + 1}" class="${GROUP_HEADER}"><span class="sticky left-2.5">${title}</span></th>`
-      : html`<th scope="colgroup" colspan="${columns.length + 1}" class="${GROUP_HEADER}"><button type="button" data-group-toggle aria-expanded="false" class="group flex w-full cursor-pointer items-baseline gap-2 border-0 bg-transparent p-0 text-left font-[inherit] text-[inherit] uppercase tracking-[inherit] text-fg"><span class="sticky left-2.5 flex items-baseline gap-2"><span aria-hidden="true" class="inline-block w-3 text-center text-[0.65rem] text-muted transition-transform group-aria-expanded:rotate-90">▶</span>${title}<span class="tabular-nums" data-group-count>${cohorts.length}</span>${lastRun === null ? '' : html`<span class="font-normal normal-case tracking-normal text-muted" data-group-last-run>last run ${formatMinute(lastRun, timeZone)}</span>`}</span></button></th>`;
+      ? html`<th scope="colgroup" colspan="${span}" class="${GROUP_HEADER}"><span class="sticky left-2.5">${title}</span></th>`
+      : html`<th scope="colgroup" colspan="${span}" class="${GROUP_HEADER}"><button type="button" data-group-toggle aria-expanded="false" class="group flex w-full cursor-pointer items-baseline gap-2 border-0 bg-transparent p-0 text-left font-[inherit] text-[inherit] uppercase tracking-[inherit] text-fg"><span class="sticky left-2.5 flex items-baseline gap-2"><span aria-hidden="true" class="inline-block w-3 text-center text-[0.65rem] text-muted transition-transform group-aria-expanded:rotate-90">▶</span>${title}<span class="tabular-nums" data-group-count>${cohorts.length}</span>${lastRun === null ? '' : html`<span class="font-normal normal-case tracking-normal text-muted" data-group-last-run>last run ${formatMinute(lastRun, timeZone)}</span>`}</span></button></th>`;
   return html`<tbody data-cohort-group="${group}"${group === 'active' ? '' : html` data-collapsed`} class="data-[collapsed]:[&>tr:not([data-group-header])]:hidden">
     <tr data-group-header>${header}</tr>
     ${cohorts.map((cohort) => renderCohort(cohort, columns, timeZone))}
