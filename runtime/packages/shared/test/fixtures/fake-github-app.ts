@@ -47,6 +47,8 @@ export interface FakeGithubApp {
   authenticate: (input: string | URL | Request, init?: RequestInit) => Response | null;
   privateKey: string;
   mints: Mint[];
+  revocations: string[];
+  refuseRevocations: { value: boolean };
   now: { value: number | null };
 }
 
@@ -81,6 +83,9 @@ export const fakeGithubApp = (
 ): FakeGithubApp => {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const mints: Mint[] = [];
+  const revocations: string[] = [];
+  const refuseRevocations = { value: false };
+  const revoked = new Set<string>();
   const now: { value: number | null } = { value: null };
   const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), {
@@ -96,7 +101,7 @@ export const fakeGithubApp = (
   ): Response | null => {
     const bearer = bearerOf(init);
     if (!isAppRoute(new URL(String(input)).pathname)) {
-      return issued.has(bearer) ? null : json({ message: 'Bad credentials' }, 401);
+      return issued.has(bearer) && !revoked.has(bearer) ? null : json({ message: 'Bad credentials' }, 401);
     }
     if (issued.has(bearer)) return json({ message: 'Bad credentials' }, 401);
     const claims = jwtClaims(bearer, publicKey);
@@ -118,6 +123,12 @@ export const fakeGithubApp = (
     if (rejected !== null) return rejected;
     const jwt = bearerOf(init);
     const current = now.value ?? Date.now();
+    if (url.pathname === '/installation/token' && init?.method === 'DELETE') {
+      if (refuseRevocations.value) return json({ message: 'Forbidden' }, 403);
+      revocations.push(jwt);
+      revoked.add(jwt);
+      return new Response(null, { status: 204 });
+    }
     if (url.pathname === '/app') {
       return json({ id: Number(APP_ID), slug: APP_SLUG, name: 'Forge Test' });
     }
@@ -164,6 +175,8 @@ export const fakeGithubApp = (
     authenticate,
     privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     mints,
+    revocations,
+    refuseRevocations,
     now,
   };
 };
@@ -173,7 +186,7 @@ export const routedThrough = (app: FakeGithubApp, other: typeof globalThis.fetch
     const { pathname } = new URL(String(input));
     const rejected = app.authenticate(input, init);
     if (rejected !== null) return rejected;
-    return /^\/(app(\/|$)|users\/[^/]+(\[bot\]|%5Bbot%5D)$|repos\/[^/]+\/[^/]+\/installation$)/.test(pathname)
+    return /^\/(app(\/|$)|installation\/token$|users\/[^/]+(\[bot\]|%5Bbot%5D)$|repos\/[^/]+\/[^/]+\/installation$)/.test(pathname)
       ? app.fetch(input, init)
       : other(input, init);
   };

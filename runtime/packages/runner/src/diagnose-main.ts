@@ -18,7 +18,7 @@ import {
 } from '@forge/shared';
 import { diagnosisWorkerOf, resolveWorker, type RuntimeConfig } from './config.ts';
 import { DIAGNOSIS_INSTRUCTION, diagnosisContext, withContext, type DiagnosisBrief } from './harness.ts';
-import { GithubTokenFile, keepFresh } from './github-token-file.ts';
+import { GithubTokenFile, keepFresh, revokingQuietly } from './github-token-file.ts';
 import { launchWorkload, readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
@@ -192,9 +192,20 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
       const app = githubAppFromEnv(env, fetch);
       const redactions: string[] = [];
       const minted = await app.mint(github, 'read');
-      const tokenFile = GithubTokenFile.create(join(stateDir, 'credentials'), runId, minted.token, redactions);
-      const stopRefreshing = keepFresh(tokenFile, minted, () => app.mint(github, 'read'), (error) =>
-        console.error(`could not refresh the diagnosis's GitHub token: ${errorMessage(error)}`),
+      const revoke = revokingQuietly((token) => app.revoke(token), 'diagnosis');
+      let tokenFile: GithubTokenFile;
+      try {
+        tokenFile = GithubTokenFile.create(join(stateDir, 'credentials'), runId, minted.token, redactions);
+      } catch (error) {
+        await revoke(minted.token);
+        throw error;
+      }
+      const stopRefreshing = keepFresh(
+        tokenFile,
+        minted,
+        () => app.mint(github, 'read'),
+        (error) => console.error(`could not refresh the diagnosis's GitHub token: ${errorMessage(error)}`),
+        revoke,
       );
       let launched: LaunchResult;
       try {
@@ -216,7 +227,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
           },
         });
       } finally {
-        stopRefreshing();
+        await stopRefreshing();
         tokenFile.remove();
       }
       const ended = endOf(launched, stateDir);

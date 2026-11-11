@@ -567,6 +567,7 @@ interface Scenario {
   contexts?: Record<number, RawContextResponse>;
   permissions?: Record<string, string>;
   unaccepted?: Record<string, string>;
+  refuseRevocations?: boolean;
   edits?: Partial<Edits>;
 }
 
@@ -715,6 +716,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
     scenario.lifetimeSeconds,
     scenario.unaccepted,
   );
+  app.refuseRevocations.value = scenario.refuseRevocations === true;
   const privateKeyFile = join(stateDir, 'github-app-private-key.pem');
   const privateKey = scenario.privateKey === undefined ? app.privateKey : scenario.privateKey;
   if (privateKey !== null) {
@@ -3077,4 +3079,73 @@ test('given a ticket that is no longer dispatchable when forge-dispatch checks i
   assert.equal(code, 1);
   assert.deepEqual(dispatches, []);
   assert.doesNotMatch(card.text, /Did not start/);
+});
+
+const workloadTokensMinted = (app: Awaited<ReturnType<typeof dispatch>>["app"]): string[] =>
+  app.mints
+    .filter((mint) => mint.kind === 'workload')
+    .map((mint, index) => tokenFor('workload', mint.repository, index + 1));
+
+test('given workloads that end normally, run past their timeout, run past their budget and fail to start their sandbox, when each ends, then every workload token minted for it has been revoked', async () => {
+  const scenarios: Scenario[] = [
+    {},
+    {
+      piOutput: piOutputEnding('still working'),
+      piLingerMs: 10_000,
+      timeoutSeconds: 1,
+      pullRequests: closing('no-pull-request'),
+    },
+    {
+      piOutput: piOutputEnding('still working'),
+      piLingerMs: 10_000,
+      maxCostUsd: 0.002,
+      models: LISTED_MODELS,
+      pullRequests: closing('no-pull-request'),
+    },
+    {
+      origin: originWith({ '.claude/skills/work-on/SKILL.md': SKILL, 'flake.nix': FLAKE }),
+      bwrapFailure: 'bwrap: setting up uid map: Permission denied',
+      pullRequests: closing('no-pull-request'),
+    },
+  ];
+  for (const scenario of scenarios) {
+    const { app } = await dispatch(scenario);
+
+    const minted = workloadTokensMinted(app);
+    assert.equal(minted.length, 1);
+    assert.deepEqual(
+      app.revocations.filter((token) => token.startsWith('ghs_workload_')),
+      minted,
+    );
+  }
+});
+
+test('given a workload that outlives its token, when it ends, then every token minted for it was revoked, the replaced ones while it ran', async () => {
+  const { app } = await dispatch({ lifetimeSeconds: 2, piLingerMs: 3500 });
+
+  const minted = workloadTokensMinted(app);
+  assert.ok(minted.length >= 2);
+  assert.deepEqual(
+    app.revocations.filter((token) => token.startsWith('ghs_workload_')).sort(),
+    [...minted].sort(),
+  );
+});
+
+test('given GitHub refuses every revocation, when a workload ends, then the failure is logged and the run and dispatch end as they would have', async () => {
+  const complaints: string[] = [];
+  const complain = console.error;
+  console.error = (...args: unknown[]) => void complaints.push(args.join(' '));
+  try {
+    const { code, runs, dispatches } = await dispatch({ refuseRevocations: true });
+
+    assert.equal(code, 0);
+    assert.equal(runs[0]?.status, 'success');
+    assert.deepEqual(dispatches.map(({ state }) => state), ['done']);
+  } finally {
+    console.error = complain;
+  }
+  assert.ok(
+    complaints.some((line) => /could not revoke the workload's GitHub token: GitHub answered 403/.test(line)),
+    complaints.join('\n'),
+  );
 });
