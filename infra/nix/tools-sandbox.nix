@@ -495,12 +495,12 @@ testers.runNixOSTest {
         box.wait_until_succeeds(f"test -e {run_dir_of(worker)}/{ready}", timeout=120)
         if not in_flight:
             box.wait_until_succeeds(f"test -e /tmp/held-{'claude' if prefix else 'pi'}-{scenario}", timeout=120)
-        box.succeed(f"ps -eo pid,ppid,stat,args | grep '${markerPattern}' >&2; true")
+        print(box.succeed("ps -eo pid,ppid,stat,args | grep '${markerPattern}'; true"))
         box.succeed(f"kill -{signal} $(pgrep -n -f '${markerPattern}')")
         try:
             wait_for_finish(worker, timeout=90)
         except Exception:
-            box.execute(f"ps -eo pid,ppid,stat,args >&2; journalctl -u forge-runner@{worker} --no-pager | tail -40 >&2; systemctl stop forge-runner@{worker}; pkill -KILL -x forge-broker")
+            print(box.execute(f"ps -eo pid,ppid,stat,args; journalctl -u forge-runner@{worker} --no-pager | tail -40; systemctl stop forge-runner@{worker}; pkill -KILL -x forge-broker")[1])
             raise
         status, error = database(f"select status, error from runs where worker = '{worker}'").split("|", 1)
         assert status == "error", (label, status, error)
