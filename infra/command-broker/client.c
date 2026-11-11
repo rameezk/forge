@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -42,23 +43,53 @@ static size_t count_of(char **list) {
   return n;
 }
 
-static char *encode(int argc, char **argv, size_t *length) {
+static char *encode(int count, char **arguments, size_t *length) {
   size_t size = 4096;
   size_t used = 0;
   char *buffer = malloc(size);
   char cwd[4096];
-  char count[24];
+  char number[24];
   if (buffer == NULL) fail("out of memory");
   if (getcwd(cwd, sizeof cwd) == NULL) fail("cannot read the working directory");
   append(&buffer, &size, &used, cwd);
-  snprintf(count, sizeof count, "%d", argc - 1);
-  append(&buffer, &size, &used, count);
-  for (int i = 1; i < argc; i++) append(&buffer, &size, &used, argv[i]);
-  snprintf(count, sizeof count, "%zu", count_of(environ));
-  append(&buffer, &size, &used, count);
+  snprintf(number, sizeof number, "%d", count);
+  append(&buffer, &size, &used, number);
+  for (int i = 0; i < count; i++) append(&buffer, &size, &used, arguments[i]);
+  snprintf(number, sizeof number, "%zu", count_of(environ));
+  append(&buffer, &size, &used, number);
   for (char **e = environ; *e != NULL; e++) append(&buffer, &size, &used, *e);
   *length = used;
   return buffer;
+}
+
+#ifndef FORGE_GIT_SHIM
+static char **shell_arguments(int argc, char **argv, int *count) {
+  int extra = argc >= 2 && argv[1][0] != '-' ? 1 : 0;
+  char **arguments = calloc((size_t)argc + 1, sizeof *arguments);
+  if (arguments == NULL) fail("out of memory");
+  int n = 0;
+  if (extra) arguments[n++] = "-c";
+  for (int i = 1; i < argc; i++) arguments[n++] = argv[i];
+  *count = n;
+  return arguments;
+}
+#else
+static char **git_arguments(int argc, char **argv, int *count) {
+  char **arguments = calloc((size_t)argc + 3, sizeof *arguments);
+  if (arguments == NULL) fail("out of memory");
+  int n = 0;
+  arguments[n++] = "-c";
+  arguments[n++] = "exec git \"$@\"";
+  arguments[n++] = "git";
+  for (int i = 1; i < argc; i++) arguments[n++] = argv[i];
+  *count = n;
+  return arguments;
+}
+#endif
+
+static void keep_stdio_open(void) {
+  for (int fd = 0; fd < FORGE_REQUEST_FDS; fd++)
+    if (fcntl(fd, F_GETFD) < 0 && errno == EBADF && open("/dev/null", O_RDWR) != fd) fail("cannot open standard descriptors");
 }
 
 static int connect_broker(void) {
@@ -109,9 +140,18 @@ static void send_request(int fd, const char *body, size_t length) {
 }
 
 int main(int argc, char **argv) {
+  keep_stdio_open();
+#ifdef FORGE_GIT_SHIM
+  int count;
+  char **arguments = git_arguments(argc, argv, &count);
+#else
   if (argc < 2) fail("usage: forge-shell -c COMMAND");
+  int count;
+  char **arguments = shell_arguments(argc, argv, &count);
+#endif
   size_t length;
-  char *body = encode(argc, argv, &length);
+  char *body = encode(count, arguments, &length);
+  free(arguments);
   int broker = connect_broker();
   sigset_t forwarded;
   sigemptyset(&forwarded);

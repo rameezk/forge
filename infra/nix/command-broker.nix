@@ -16,6 +16,7 @@ stdenv.mkDerivation {
     runHook preBuild
     $CC -Wall -Wextra -Werror -O2 -o forge-broker broker.c
     $CC -Wall -Wextra -Werror -O2 -o forge-shell client.c
+    $CC -Wall -Wextra -Werror -O2 -DFORGE_GIT_SHIM -o forge-git client.c
     runHook postBuild
   '';
 
@@ -23,6 +24,8 @@ stdenv.mkDerivation {
     runHook preInstall
     install -D -m 0555 forge-broker $out/bin/forge-broker
     install -D -m 0555 forge-shell $out/bin/forge-shell
+    install -D -m 0555 forge-shell $out/libexec/forge-bash/bash
+    install -D -m 0555 forge-git $out/libexec/forge-git/git
     runHook postInstall
   '';
 
@@ -30,8 +33,8 @@ stdenv.mkDerivation {
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
-    for binary in forge-broker forge-shell; do
-      if readelf -lW $out/bin/$binary | grep -q 'INTERP\|DYNAMIC'; then
+    for binary in bin/forge-broker bin/forge-shell libexec/forge-bash/bash libexec/forge-git/git; do
+      if readelf -lW $out/$binary | grep -q 'INTERP\|DYNAMIC'; then
         echo "$binary is not statically linked" >&2
         exit 1
       fi
@@ -40,7 +43,7 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "The tools sandbox's command broker and the static client that hands it a harness's commands";
+    description = "The tools sandbox's command broker, the static client that hands it a harness's commands, the same client installed as bash for Claude Code, and the static git shim that hands it the harness's own git calls";
     mainProgram = "forge-shell";
     platforms = lib.platforms.linux;
   };

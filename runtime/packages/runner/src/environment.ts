@@ -54,3 +54,14 @@ export const toolsOf = (env: NodeJS.ProcessEnv): ToolsConfig => ({
   broker: absolutePath(env, 'FORGE_BROKER'),
   client: absolutePath(env, 'FORGE_BROKER_CLIENT'),
 });
+
+export interface ClaudeToolsConfig extends ToolsConfig {
+  bash: string;
+  gitShimDir: string;
+}
+
+export const claudeToolsOf = (env: NodeJS.ProcessEnv): ClaudeToolsConfig => ({
+  ...toolsOf(env),
+  bash: absolutePath(env, 'FORGE_BROKER_BASH'),
+  gitShimDir: absolutePath(env, 'FORGE_BROKER_GIT_SHIM_DIR'),
+});

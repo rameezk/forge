@@ -213,14 +213,20 @@ export const commandPath = (name: string): string => {
 
 const fakeClaudeSource = (version: string | null): string => `#!${process.execPath}
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 const env = process.env;
 if (process.argv[2] === '--version') { process.stdout.write(${JSON.stringify(version === null ? '' : `${version} (Claude Code)\n`)}); process.exit(${version === null ? 1 : 0}); }
 const bodies = (env.OTEL_LOG_RAW_API_BODIES ?? '').replace(/^file:/, '');
 const modeOf = (path) => (path ? statSync(path).mode & 0o777 : null);
 const modes = { run: modeOf(dirname(env.CLAUDE_CONFIG_DIR ?? '')), config: modeOf(env.CLAUDE_CONFIG_DIR), bodies: modeOf(bodies) };
-writeFileSync(env.FAKE_CLAUDE_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, env, modes }));
+const readIf = (path) => (path && existsSync(path) ? readFileSync(path, 'utf8') : null);
+const pluginDir = process.argv[process.argv.indexOf('--plugin-dir') + 1];
+const settingsFile = process.argv[process.argv.indexOf('--settings') + 1];
+const linksOf = (dir) => (dir && existsSync(dir) ? Object.fromEntries(readdirSync(dir).filter((name) => !name.startsWith('.')).map((name) => [name, readlinkOrNull(dir + '/' + name)])) : null);
+const readlinkOrNull = (path) => { try { return readlinkSync(path); } catch { return null; } };
+const owned = { settings: readIf(settingsFile), instructions: readIf(dirname(settingsFile) + '/CLAUDE.md'), manifest: readIf(pluginDir + '/.claude-plugin/plugin.json'), links: linksOf(pluginDir) };
+writeFileSync(env.FAKE_CLAUDE_RECORD, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), pid: process.pid, env, modes, stdin: readFileSync(0, 'utf8'), owned }));
 const perRun = (text) => text.replaceAll('{{WORK_DIR}}', realpathSync(process.cwd())).replaceAll('{{CONFIG_DIR}}', env.CLAUDE_CONFIG_DIR ?? '').replaceAll('{{WORK_DIR_SLUG}}', realpathSync(process.cwd()).replace(/[^a-zA-Z0-9]/g, '-'));
 const copyBodies = () => {
 if (bodies && env.FAKE_CLAUDE_BODIES && existsSync(env.FAKE_CLAUDE_BODIES)) { mkdirSync(bodies, { recursive: true }); for (const file of readdirSync(env.FAKE_CLAUDE_BODIES)) { cpSync(env.FAKE_CLAUDE_BODIES + '/' + file, bodies + '/' + file); if (file.endsWith('.request.json')) writeFileSync(bodies + '/' + file, perRun(readFileSync(bodies + '/' + file, 'utf8'))); } }
@@ -346,9 +352,18 @@ exec ${quoted(process.execPath)} ${quoted(script)} "$@"
   return { broker, client: FAKE_BROKER_CLIENT };
 };
 
+export const FAKE_BROKER_BASH = '/nix/store/00000000000000000000000000000000-forge-command-broker/libexec/forge-bash/bash';
+
+export const FAKE_GIT_SHIM_DIR = '/nix/store/00000000000000000000000000000000-forge-command-broker/libexec/forge-git';
+
 export const brokerEnv = (dir: string): Record<string, string> => {
   const { broker, client } = writeFakeBroker(dir);
-  return { FORGE_BROKER: broker, FORGE_BROKER_CLIENT: client };
+  return {
+    FORGE_BROKER: broker,
+    FORGE_BROKER_CLIENT: client,
+    FORGE_BROKER_BASH: FAKE_BROKER_BASH,
+    FORGE_BROKER_GIT_SHIM_DIR: FAKE_GIT_SHIM_DIR,
+  };
 };
 
 export const LOCKDOWN = [
@@ -560,6 +575,7 @@ tools=no
 while [ "$1" != -- ]; do
   if [ "$1" = --chdir ]; then dir=$2; fi
   if [ "$1" = --as-pid-1 ]; then tools=yes; fi
+  if [ "$1" = --ro-bind ] && [ -f "$2" ] && [ ! -e "$3" ]; then ln -s "$2" "$3"; fi
   shift
 done
 shift

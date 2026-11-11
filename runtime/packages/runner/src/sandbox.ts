@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
-import type { Readable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 import { GITHUB_TOKEN_FILE_ENV } from './github-token-file.ts';
 
 export interface Sandbox {
@@ -23,6 +23,11 @@ export interface BrokerMount {
   role: SandboxRole;
 }
 
+export interface SandboxLayout {
+  readOnlyHome?: boolean;
+  lockedFiles?: { source: string; at: string }[];
+}
+
 const readOnlyAt = (path: string, at: string): string[] => ['--ro-bind', path, at];
 
 const readOnly = (path: string): string[] => readOnlyAt(path, path);
@@ -34,6 +39,7 @@ export const sandboxArgs = (
   writableDirs: string[] = [],
   readOnlyDirs: string[] = [],
   { dir: brokerDir, role }: BrokerMount = { dir: '', role: 'workload' },
+  { readOnlyHome = false, lockedFiles = [] }: SandboxLayout = {},
 ): string[] => [
   '--unshare-user',
   '--disable-userns',
@@ -56,9 +62,11 @@ export const sandboxArgs = (
   '/tmp',
   '--tmpfs',
   home,
+  ...(readOnlyHome ? ['--remount-ro', home] : []),
   ...(agentDir === undefined ? [] : readOnly(agentDir)),
   ...readOnlyDirs.flatMap(readOnly),
   ...writableDirs.flatMap((dir) => ['--bind', dir, dir]),
+  ...lockedFiles.flatMap(({ source, at }) => readOnlyAt(source, at)),
   ...(brokerDir === '' ? [] : readOnlyAt(brokerDir, BROKER_DIR)),
   '--bind',
   workDir,
@@ -156,6 +164,8 @@ export const spawnSandboxed = (
     env,
     broker,
     prefix = [],
+    input,
+    layout,
   }: {
     name: string;
     workDir: string;
@@ -165,6 +175,8 @@ export const spawnSandboxed = (
     env: NodeJS.ProcessEnv;
     broker?: BrokerMount;
     prefix?: string[];
+    input?: string;
+    layout?: SandboxLayout;
   },
 ): SandboxedProcess => {
   const tokenFile = env[GITHUB_TOKEN_FILE_ENV];
@@ -180,6 +192,7 @@ export const spawnSandboxed = (
         writableDirs,
         tokenFile === undefined ? readOnlyPaths : [...readOnlyPaths, dirname(tokenFile)],
         broker,
+        layout,
       ),
       '--',
       command,
@@ -188,9 +201,20 @@ export const spawnSandboxed = (
     {
       cwd: workDir,
       env: { ...env, ...NIXOS_ENVIRONMENT_MARKER, HOME: sandbox.home },
-      stdio: ['ignore', 'pipe', 'pipe', 'pipe', broker?.role === 'tools' ? 'ignore' : 'pipe'],
+      stdio: [
+        input === undefined ? 'ignore' : 'pipe',
+        'pipe',
+        'pipe',
+        'pipe',
+        broker?.role === 'tools' ? 'ignore' : 'pipe',
+      ],
     },
   );
+  if (input !== undefined) {
+    const stdin = child.stdin as Writable;
+    stdin.on('error', () => undefined);
+    stdin.end(input);
+  }
   return {
     child,
     stdout: child.stdout as Readable,

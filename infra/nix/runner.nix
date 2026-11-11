@@ -16,7 +16,7 @@ let
   modelDefaultReasoningExtension = "lib/forge-runtime/packages/pi-model-default-reasoning/src";
   requestRecordExtension = "lib/forge-runtime/packages/pi-request-record/src";
   commandBroker = pkgsStatic.callPackage ./command-broker.nix { };
-  sandboxFlags = lib.optionalString stdenv.hostPlatform.isLinux "--set FORGE_BWRAP ${lib.getExe bubblewrap} --set FORGE_BROKER ${commandBroker}/bin/forge-broker --set FORGE_BROKER_CLIENT ${commandBroker}/bin/forge-shell";
+  sandboxFlags = lib.optionalString stdenv.hostPlatform.isLinux "--set FORGE_BWRAP ${lib.getExe bubblewrap} --set FORGE_BROKER ${commandBroker}/bin/forge-broker --set FORGE_BROKER_CLIENT ${commandBroker}/bin/forge-shell --set FORGE_BROKER_BASH ${commandBroker}/libexec/forge-bash/bash --set FORGE_BROKER_GIT_SHIM_DIR ${commandBroker}/libexec/forge-git";
   piPackage = "${pi-coding-agent}/lib/node_modules/pi-monorepo";
 in
 buildNpmPackage {

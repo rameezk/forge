@@ -1,9 +1,13 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +15,7 @@ import { dirname, join } from 'node:path';
 
 const [adapter, claude, fixtures] = process.argv.slice(2);
 const { claudeCodeArgs, claudeCodeEnv } = await import(adapter);
+const { writeClaudeCodeConfig } = await import(join(dirname(adapter), 'claude-code-config.ts'));
 const { UNATTENDED_INSTRUCTION, NARRATION_INSTRUCTION } = await import(
   join(dirname(adapter), 'harness.ts')
 );
@@ -80,6 +85,29 @@ const expect = (condition, message) => {
   if (!condition) failures.push(message);
 };
 
+const bash = execFileSync('sh', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim();
+const shellDir = join(scratch, 'stand-in-shell');
+mkdirSync(shellDir);
+const shellCalls = join(shellDir, 'calls.log');
+const standIn = { bash: join(shellDir, 'bash'), client: join(shellDir, 'prefix') };
+writeFileSync(standIn.bash, `#!${bash}\necho shell >> ${shellCalls}\nexec ${bash} "$@"\n`);
+writeFileSync(standIn.client, `#!${bash}\necho prefix >> ${shellCalls}\nexec ${bash} -c "$1"\n`);
+chmodSync(standIn.bash, 0o755);
+chmodSync(standIn.client, 0o755);
+
+const prepareConfig = (work, configDir) => {
+  const owned = `${configDir}-owned`;
+  rmSync(owned, { recursive: true, force: true });
+  mkdirSync(owned, { recursive: true });
+  mkdirSync(configDir, { recursive: true });
+  const config = writeClaudeCodeConfig({ dir: owned, workDir: work, shell: standIn });
+  for (const [from, name] of [[config.settings, 'settings.json'], [config.instructions, 'CLAUDE.md']]) {
+    rmSync(join(configDir, name), { force: true });
+    copyFileSync(from, join(configDir, name));
+  }
+  return config;
+};
+
 const runClaude = async (
   label,
   reasoningEffort,
@@ -87,7 +115,7 @@ const runClaude = async (
   { work = workDir, prompt = 'contract check', endpoint = port, args: extraArgs = [] } = {},
 ) => {
   const bodiesDir = mkdtempSync(join(scratch, 'bodies-'));
-  mkdirSync(configDir, { recursive: true });
+  const config = prepareConfig(work, configDir);
   const args = claudeCodeArgs(
     {
       provider: 'anthropic',
@@ -96,11 +124,11 @@ const runClaude = async (
       workDir: work,
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     },
-    { maxCostUsd: 1, extraArgs },
+    { maxCostUsd: 1, extraArgs, settings: config.settings, plugin: config.plugin },
   );
   const child = spawn(claude, args, {
     cwd: work,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       PATH: process.env.PATH,
       HOME: home,
@@ -108,6 +136,7 @@ const runClaude = async (
       ...claudeCodeEnv({ CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN }, configDir, bodiesDir),
     },
   });
+  child.stdin.end(prompt);
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (data) => (stdout += data));
@@ -414,6 +443,38 @@ expect(
 expect(
   subagentCompacted.index.filter((entry) => entry.query_source === 'compact').length === 1,
   'subagent compaction: the raw API bodies index no longer marks the summarizing request with query_source compact',
+);
+
+const shelled = await runScenario('shell and prefix', {
+  respond: (_call, res, request) => {
+    const answered = request.messages
+      .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+      .some((part) => part.type === 'tool_result');
+    anthropicSse(
+      res,
+      answered
+        ? anthropicReply('msg_shell_2', { text: 'done' }, anthropicUsage(10, 0, 0, 5))
+        : anthropicReply(
+            'msg_shell_1',
+            { toolUses: [{ id: 'toolu_shell', name: 'Bash', input: { command: 'echo contract-through-the-shell' } }] },
+            anthropicUsage(10, 0, 0, 5),
+          ),
+    );
+  },
+  prompt: 'run the command',
+});
+expect(
+  shelled.stream.some(
+    (line) =>
+      line.type === 'user' &&
+      JSON.stringify(line.message.content).includes('contract-through-the-shell'),
+  ),
+  'shell and prefix: the Bash tool call did not run through the configured shell',
+);
+const calls = existsSync(shellCalls) ? readFileSync(shellCalls, 'utf8').split('\n') : [];
+expect(
+  calls.includes('shell') && calls.includes('prefix'),
+  `shell and prefix: claude did not start the command through both CLAUDE_CODE_SHELL and CLAUDE_CODE_SHELL_PREFIX from forge's settings: ${JSON.stringify(calls)}`,
 );
 
 if (failures.length > 0) {

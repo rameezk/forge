@@ -122,6 +122,21 @@ let
     echo '{"type":"agent_start"}'
     echo '{"type":"agent_end","willRetry":false}'
   '';
+
+  stubClaude = writeShellScriptBin "stub-claude" ''
+    set -u
+    if [ "''${1-}" = --version ]; then
+      echo "2.1.296 (Claude Code)"
+      exit 0
+    fi
+    cat > /dev/null
+    echo "$PATH" > claude-harness-path.out
+    "$CLAUDE_CODE_SHELL" -c 'echo "$PATH"' > claude-path.out
+    "$CLAUDE_CODE_SHELL" -c 'devshell-stub' > claude-devshell.out 2>&1
+    if devshell-stub > /dev/null 2>&1; then echo reached > claude-harness-devshell.out; else echo unreached > claude-harness-devshell.out; fi
+    echo '{"type":"system","subtype":"init","session_id":"stub"}'
+    echo '{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"stub"}'
+  '';
 in
 testers.runNixOSTest {
   name = "workload-devshell";
@@ -151,15 +166,25 @@ testers.runNixOSTest {
     forge.runtime.secretsFile = secretsFile;
     forge.runtime.package = forge-runner;
     forge.runtime.harnesses.pi.command = lib.getExe stubHarness;
+    forge.runtime.harnesses.claude-code.command = lib.getExe stubClaude;
     forge.runtime.workload.maxCost = null;
     forge.runtime.workers.builder = {
       harness = "pi";
       model = "stub/devshell";
       prompt = "build {url}";
     };
+    forge.runtime.workers.builderClaude = {
+      harness = "claude-code";
+      model = "claude-opus-4-5";
+      prompt = "build {url}";
+    };
     forge.runtime.repositories.forge = {
       github = "rameezk/forge";
       on.ticket = "builder";
+    };
+    forge.runtime.repositories.forgeClaude = {
+      github = "rameezk/forge";
+      on.ticket = "builderClaude";
     };
   };
 
@@ -201,5 +226,16 @@ testers.runNixOSTest {
         assert seen["environment"] == "unset", seen
         assert seen["gh"] == token and seen["git"] == token and seen["after"] == token, seen
         assert seen["write"] == "denied" and seen["replace"] == "denied", seen
+
+    with subtest("the repository's devShell reaches a claude-code workload's commands and not its harness, which finds the git shim first on its path while its commands never see it"):
+        box.succeed("systemctl start forge-dispatch@forgeClaude:113.service")
+        assert box.succeed("cat /var/lib/forge/work/*/claude-devshell.out").strip() == "devshell stub ran"
+        assert box.succeed("cat /var/lib/forge/work/*/claude-harness-devshell.out").strip() == "unreached"
+        harness_path = box.succeed("cat /var/lib/forge/work/*/claude-harness-path.out").strip().split(":")
+        command_path = box.succeed("cat /var/lib/forge/work/*/claude-path.out").strip().split(":")
+        assert harness_path[0].endswith("/libexec/forge-git"), harness_path
+        assert not any(entry.endswith("-source/bin") for entry in harness_path), harness_path
+        assert any(entry.endswith("-source/bin") for entry in command_path), command_path
+        assert not any(entry.endswith("/libexec/forge-git") for entry in command_path), command_path
   '';
 }

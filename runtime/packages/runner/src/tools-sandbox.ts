@@ -18,6 +18,7 @@ export const startToolsSandbox = ({
   readOnlyPaths,
   env,
   withheld,
+  writableDirs,
 }: {
   sandbox: Sandbox;
   tools: ToolsConfig;
@@ -25,6 +26,7 @@ export const startToolsSandbox = ({
   readOnlyPaths?: string[];
   env: Record<string, string>;
   withheld: string[];
+  writableDirs?: string[];
 }): ToolsSandbox => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-tools-'));
   const { child, stdout, exited } = spawnSandboxed(
@@ -34,6 +36,7 @@ export const startToolsSandbox = ({
     {
       name: 'the command broker',
       workDir,
+      ...(writableDirs === undefined ? {} : { writableDirs }),
       ...(readOnlyPaths === undefined ? {} : { readOnlyPaths }),
       env,
       broker: { dir, role: 'tools' },

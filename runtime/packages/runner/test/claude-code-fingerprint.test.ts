@@ -43,85 +43,84 @@ const checkout = (files: Record<string, string>): string => {
   return root;
 };
 
-test('given checkouts with Claude Code settings and hook scripts, when their settings are hashed, then none is null, each change to settings or a hook script changes the hash, and an identical checkout hashes alike', () => {
-  const settings = JSON.stringify({ hooks: { PreToolUse: [] } });
-  const base = { '.claude/settings.json': settings, '.claude/hooks/check.sh': 'echo one\n' };
+const content = {
+  '.claude/skills/first/SKILL.md': 'one\n',
+  '.claude/agents/helper.md': 'one\n',
+  '.claude/commands/hello.md': 'one\n',
+};
 
-  const hash = claudeCodeSettingsHash(checkout(base));
+test('given checkouts with and without skills, agents and commands, when their settings are hashed, then none is null, each change to one of them changes the hash, and an identical checkout hashes alike', () => {
+  const hash = claudeCodeSettingsHash(checkout(content));
 
-  assert.equal(claudeCodeSettingsHash(checkout({})), null);
-  assert.equal(claudeCodeSettingsHash(checkout({ 'README.md': 'x' })), null);
-  assert.equal(claudeCodeSettingsHash(checkout(base)), hash);
-  assert.notEqual(claudeCodeSettingsHash(checkout({ ...base, '.claude/hooks/check.sh': 'echo two\n' })), hash);
-  assert.notEqual(claudeCodeSettingsHash(checkout({ ...base, '.claude/settings.json': '{}' })), hash);
-  assert.notEqual(claudeCodeSettingsHash(checkout({ ...base, '.claude/settings.local.json': '{}' })), hash);
+  assert.match(claudeCodeSettingsHash(checkout({})) ?? '', /^[0-9a-f]{64}$/);
+  assert.notEqual(claudeCodeSettingsHash(checkout({})), hash);
+  assert.equal(claudeCodeSettingsHash(checkout(content)), hash);
+  for (const file of Object.keys(content)) {
+    assert.notEqual(claudeCodeSettingsHash(checkout({ ...content, [file]: 'two\n' })), hash, file);
+  }
+  assert.notEqual(claudeCodeSettingsHash(checkout({ ...content, '.claude/skills/second/SKILL.md': 'x' })), hash);
 });
 
-test('given a checkout whose settings file and hook directories are symlinks, when its settings are hashed, then no link is followed, a loop terminates, and retargeting a link changes the hash', () => {
-  const root = checkout({ '.claude/hooks/check.sh': 'echo one\n' });
-  symlinkSync('/dev/zero', join(root, '.claude/settings.json'));
-  symlinkSync('.', join(root, '.claude/hooks/a'));
-  symlinkSync('.', join(root, '.claude/hooks/b'));
-  const before = claudeCodeSettingsHash(root);
+test('given a checkout with Claude Code settings and hook scripts, when its settings are hashed, then they do not change the hash, because forge loads neither', () => {
+  const hash = claudeCodeSettingsHash(checkout(content));
 
-  rmSync(join(root, '.claude/settings.json'));
-  symlinkSync('/dev/null', join(root, '.claude/settings.json'));
-
-  assert.notEqual(before, null);
-  assert.notEqual(claudeCodeSettingsHash(root), before);
-});
-
-test('given a checkout whose hooks path is a regular file, when its settings are hashed, then the settings are hashed without it', () => {
-  const settings = { '.claude/settings.json': '{}' };
-
-  assert.equal(claudeCodeSettingsHash(checkout({ '.claude/hooks': 'not a directory' })), null);
   assert.equal(
-    claudeCodeSettingsHash(checkout({ ...settings, '.claude/hooks': 'not a directory' })),
-    claudeCodeSettingsHash(checkout(settings)),
+    claudeCodeSettingsHash(
+      checkout({
+        ...content,
+        '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [] }, env: { LD_PRELOAD: 'x' } }),
+        '.claude/settings.local.json': '{}',
+        '.claude/hooks/check.sh': 'echo one\n',
+      }),
+    ),
+    hash,
   );
 });
 
-test('given a checkout whose .claude directory or hooks directory is itself a symlink, when its settings are hashed, then the target is not read, and a .claude link hashes by its target path alone', () => {
-  const outside = checkout({ 'hooks/check.sh': 'echo one\n', 'settings.json': '{}' });
-  const hooksLinked = checkout({});
-  mkdirSync(join(hooksLinked, '.claude'));
-  symlinkSync(join(outside, 'hooks'), join(hooksLinked, '.claude/hooks'));
-  const claudeLinked = checkout({});
-  symlinkSync(outside, join(claudeLinked, '.claude'));
+test('given a checkout whose skills, agents or commands directory is a symlink, when its settings are hashed, then the target is not read, a loop terminates, and retargeting a link changes the hash', () => {
+  const outside = checkout({ 'skills/first/SKILL.md': 'one\n' });
+  const linked = checkout({});
+  mkdirSync(join(linked, '.claude'));
+  symlinkSync(join(outside, 'skills'), join(linked, '.claude/skills'));
+  symlinkSync('.', join(linked, '.claude/agents'));
+  const before = claudeCodeSettingsHash(linked);
 
-  const hooksHash = claudeCodeSettingsHash(hooksLinked);
-  writeFileSync(join(outside, 'hooks/check.sh'), 'echo two\n');
+  writeFileSync(join(outside, 'skills/first/SKILL.md'), 'two\n');
+  assert.equal(claudeCodeSettingsHash(linked), before);
 
-  assert.notEqual(hooksHash, null);
-  assert.equal(claudeCodeSettingsHash(hooksLinked), hooksHash);
-  assert.notEqual(claudeCodeSettingsHash(claudeLinked), null);
-  assert.notEqual(claudeCodeSettingsHash(claudeLinked), hooksHash);
+  rmSync(join(linked, '.claude/agents'));
+  symlinkSync('..', join(linked, '.claude/agents'));
+  assert.notEqual(claudeCodeSettingsHash(linked), before);
 });
 
-test('given a hook that is a symlink to a file inside the checkout, when that file changes, then the hash changes, but a link to a file outside the checkout is hashed by its target path alone', () => {
-  const outside = checkout({ 'secret.sh': 'echo one\n' });
-  const root = checkout({ 'scripts/check.sh': 'echo one\n' });
-  mkdirSync(join(root, '.claude/hooks'), { recursive: true });
-  symlinkSync('../../scripts/check.sh', join(root, '.claude/hooks/check.sh'));
-  symlinkSync(join(outside, 'secret.sh'), join(root, '.claude/hooks/secret.sh'));
+test('given a skill that is a symlink to a file inside the checkout, when that file changes, then the hash changes, but a link to a file outside the checkout is hashed by its target path alone', () => {
+  const outside = checkout({ 'secret.md': 'one\n' });
+  const root = checkout({ 'shared/SKILL.md': 'one\n' });
+  mkdirSync(join(root, '.claude/skills/inside'), { recursive: true });
+  mkdirSync(join(root, '.claude/skills/outside'), { recursive: true });
+  symlinkSync('../../../shared/SKILL.md', join(root, '.claude/skills/inside/SKILL.md'));
+  symlinkSync(join(outside, 'secret.md'), join(root, '.claude/skills/outside/SKILL.md'));
   const before = claudeCodeSettingsHash(root);
 
-  writeFileSync(join(outside, 'secret.sh'), 'echo two\n');
+  writeFileSync(join(outside, 'secret.md'), 'two\n');
   assert.equal(claudeCodeSettingsHash(root), before);
 
-  writeFileSync(join(root, 'scripts/check.sh'), 'echo two\n');
+  writeFileSync(join(root, 'shared/SKILL.md'), 'two\n');
   assert.notEqual(claudeCodeSettingsHash(root), before);
 });
 
-test('given checkouts with and without AGENTS.md and CLAUDE.md, when their instructions are hashed, then none is null, AGENTS.md wins over CLAUDE.md as in pi, and each change to the chosen file changes the hash', () => {
-  const hash = claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'one\n' }));
+test('given checkouts with and without AGENTS.md and CLAUDE.md, when their instructions are hashed, then none is null, both files are covered because forge imports both, and each change to either changes the hash', () => {
+  const both = { 'AGENTS.md': 'one\n', 'CLAUDE.md': 'two\n' };
+  const hash = claudeCodeInstructionsHash(checkout(both));
 
   assert.equal(claudeCodeInstructionsHash(checkout({})), null);
   assert.equal(claudeCodeInstructionsHash(checkout({ 'README.md': 'x' })), null);
-  assert.equal(claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'one\n' })), hash);
-  assert.notEqual(claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'two\n' })), hash);
-  assert.notEqual(claudeCodeInstructionsHash(checkout({ 'CLAUDE.md': 'one\n' })), null);
-  assert.equal(claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'one\n', 'CLAUDE.md': 'two\n' })), hash);
+  assert.equal(claudeCodeInstructionsHash(checkout(both)), hash);
+  assert.notEqual(claudeCodeInstructionsHash(checkout({ ...both, 'AGENTS.md': 'three\n' })), hash);
+  assert.notEqual(claudeCodeInstructionsHash(checkout({ ...both, 'CLAUDE.md': 'three\n' })), hash);
+  assert.notEqual(claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'one\n' })), hash);
+  assert.notEqual(claudeCodeInstructionsHash(checkout({ 'CLAUDE.md': 'two\n' })), hash);
+  assert.notEqual(claudeCodeInstructionsHash(checkout({ 'AGENTS.md': 'one\n' })), null);
 });
 
 test('given a checkout whose AGENTS.md is a symlink to a file outside it, when its instructions are hashed, then the outside file is not read', () => {

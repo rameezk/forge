@@ -4,6 +4,7 @@ import { ClaudeCodeHarness } from './claude-code.ts';
 import type { HarnessConfig } from './config.ts';
 import {
   absolutePath,
+  claudeToolsOf,
   picked,
   sandboxOf,
   systemEnvironment,
@@ -74,12 +75,14 @@ const claudeCodeFactory: HarnessFactory = ({
     runsDir: join(stateDir, 'agent'),
     maxCostUsd: worker.maxCostUsd ?? null,
     sandbox: sandboxOf(env),
+    tools: claudeToolsOf(env),
     ...(config.args === undefined ? {} : { extraArgs: config.args }),
     system: systemEnvironment(env),
     env: {
       ...picked(env, [providerSpec(worker.provider).credentialEnv]),
       ...harnessEnv,
     },
+    commandEnv: harnessEnv,
   });
 
 export const builtInHarnesses: HarnessRegistry = {
