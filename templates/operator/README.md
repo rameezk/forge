@@ -885,7 +885,11 @@ Jev, TypeSafe's classification model, judges the pull request's head commit on
 four levels (`trivial`, `low`, `moderate`, `high`), with a probability per level
 and a confidence, and forge's App posts the result as a `forge/risk` check run
 on that commit. The check run always concludes neutral and is never required, so
-it advises the reviewer and cannot gate a dispatch or a merge.
+it advises the reviewer and cannot gate a dispatch or a merge. The pull request
+also carries a `forge:risk-<level>` label, plus `forge:risk-unsettled` when the
+grade is unsettled, so you can filter pull requests by risk. The labels come off
+as soon as the pull request gets a new head and return once that head is graded;
+they only display the grade, which forge keeps in its own store.
 
 ```nix
 forge.runtime.grading.model = "typesafe/jev-1.13";
