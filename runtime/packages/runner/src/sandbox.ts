@@ -99,7 +99,10 @@ export class SignalDeath extends Error {
 
 const SIGNAL_EXIT_BASE = 128;
 
-const SIGNAL_NAMES = new Map(Object.entries(constants.signals).map(([name, number]) => [number, name]));
+const SIGNAL_NAMES = new Map<number, string>();
+for (const [name, number] of Object.entries(constants.signals)) {
+  if (!SIGNAL_NAMES.has(number)) SIGNAL_NAMES.set(number, name);
+}
 
 const signalOfExit = (code: number | null, signal: NodeJS.Signals | null): string | null => {
   if (code === null) return signal;

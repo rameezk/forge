@@ -2692,6 +2692,14 @@ test('given a pi that dies from SIGKILL between tool calls, when the worker runs
   assert.deepEqual(last?.type === 'result' ? last.signalDeath : null, { signal: 'SIGKILL', toolCallId: null });
 });
 
+test('given a pi that aborts with exit 134 and another that exits 200, when the worker runs, then the first run names SIGABRT, its canonical name, and the second names no signal', async () => {
+  const aborted = await runWorker({ output: cutBefore('tool-calls.jsonl', 'agent_end'), exit: 134 });
+  const unknown = await runWorker({ output: cutBefore('tool-calls.jsonl', 'agent_end'), exit: 200 });
+
+  assert.equal(aborted.run.error, 'pi was killed by SIGABRT');
+  assert.equal(unknown.run.error, 'pi exited with code 200');
+});
+
 test('given recorded pi output of three generations followed by pi dying without a result, when the worker runs and the billing service then fires, then the run is error, its token totals are the sum of those three generations, and each is billed and counted in its cost', async () => {
   const openRouter = await fakeOpenRouter(billed);
   try {
