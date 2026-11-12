@@ -303,9 +303,15 @@ just ssh sudo systemctl restart forge-pull-deploy
 
 The box records its deploy status in `/var/lib/forge-pull-deploy/status.json`: the
 operator commit it runs (`running`), the commit at the head of `main` (`head`)
-and the last switch error, if any (`error`). Read it with
+and the last switch error, if any (`error`). It also records the forge commit
+locked in the operator commit the box runs (`forge`), the repository that locked
+`forge` input follows (`upstream`, a fork included), that repository's head
+commit (`upstreamHead`) and how many commits the box's forge is behind it
+(`behind`). The upstream fields are `null` when GitHub could not be asked, which
+is never a switch error. Read the file with
 `just ssh sudo cat /var/lib/forge-pull-deploy/status.json`, or see it on the
-dashboard's Board, which shows the running commit, the head commit, or "up to date" when
+dashboard: every page's footer shows the forge commit with a "latest" or "N behind"
+pill, and the Board shows the running commit, the head commit, or "up to date" when
 they match, and the last switch error. A box that has never pulled shows `running` as
 `null` until its first switch.
 
@@ -470,11 +476,19 @@ repositories forge manages, and give the box its id and private key.
    - Checks: read and write, so the agent can watch a pull request's required
      checks and forge can post the `forge/risk` check run of a graded pull
      request.
-   - Actions: read and write, so the agent can read the logs of the checks
-     that fail and re-run a run that failed for infrastructure reasons.
+   - Actions: read and write. The agent's own token holds only read, so it can
+     read the logs of the checks that fail. Write is for the runner, which
+     re-runs a run that failed for infrastructure reasons when the agent asks
+     through `forge-rerun-ci`, and only a failed run on the head of the
+     workload's own pull request, at most twice per workload.
    - Commit statuses: read, so forge can read the status of a pull request's
      head commit.
-   - Metadata: read, which GitHub always grants.
+   - Administration: read, so the frontier sync can read whether GitHub Actions
+     may approve pull requests in a managed repository. Only the frontier
+     sync's token requests it, narrowed to the one repository, and no workload
+     token does.
+   - Metadata: read, which GitHub always grants. Forge reads each managed
+     repository's default-branch rules with it.
 2. Create the App, note its **App ID**, and generate a private key. GitHub
    downloads a `.pem` file once.
 3. Install the App on your account or organisation and select **only** the
@@ -517,10 +531,19 @@ permission on the installation. Until you do, `forge-grading` fails to mint its
 token and logs the permissions forge requested. Nothing else is affected, since
 only the grading token asks for Checks: write.
 
-Upgrading an existing App for re-runs: change **Actions** from read to **read
-and write** in the App's repository permissions, then accept the new permission
-on the installation. Until you do, every dispatch fails to mint its workload
-token and the dispatch failure names the permissions forge requested.
+Upgrading an existing App for re-runs: an App that already has **Actions** at
+**read and write** needs no change. One that has only read needs write, then
+accept it on the installation. Workload tokens no longer carry Actions: write;
+the runner mints its own token with it when it re-runs a run for a workload.
+Until the permission is on the installation, an ask to re-run a run is answered
+that it could not be re-run, and nothing else is affected.
+
+Upgrading an existing App for branch rules: add **Administration: read** to the
+App's repository permissions, then accept the new permission on the
+installation. Until you do, the frontier sync cannot read whether Actions may
+approve pull requests, so forge refuses every managed repository and the
+dashboard says its rules could not be read. Dispatch also stops for any
+repository that does not yet meet [the branch rules](#branch-rules-a-managed-repository-must-have).
 
 Forge signs a short-lived JWT with the private key and exchanges it for an
 installation token that expires after an hour. It mints a read-only token for
@@ -533,8 +556,39 @@ the transcript.
 Only the frontier sync, a dispatch and grading can read the private key, as a
 systemd credential. The workload, the dashboard and billing cannot. A workload holds
 only its own repository's token, so a compromised run reaches that repository
-alone, for at most an hour after it ends. Still protect each default branch.
-A run can change CI workflows only in a repository that sets `workflows`.
+alone, for at most an hour after it ends. Forge checks that the repository's
+default branch is protected before it dispatches there, as the next section
+describes. A run can change CI workflows only in a repository that sets
+`workflows`.
+
+#### Branch rules a managed repository must have
+
+A leaked workload token must not be able to land code on a default branch, and
+GitHub cannot narrow an App token to branches, so the repository's own rules
+must stop it. On every frontier sync forge reads each managed repository's
+default-branch rules and whether GitHub Actions may approve pull requests, and
+dispatches to the repository only when all of these hold:
+
+- The default branch requires at least one approving review.
+- It requires approval of the most recent push.
+- No ruleset that applies to it can be bypassed by forge's App.
+- GitHub Actions cannot approve pull requests (Settings, Actions, General,
+  Workflow permissions).
+
+Set the first three in a ruleset on the default branch. A repository that fails
+any rule, or whose rules forge cannot read, gets no new dispatches, revisions
+or conflict resolutions until a later sync finds it passing. It stays
+declared, and work already running is not stopped. The sync log and the
+dashboard name the repository and each failing rule.
+
+A private repository needs GitHub Pro on a personal account, or Team on an
+organisation, for its rules to exist and be readable. On GitHub Free, GitHub
+answers 403 and forge refuses the repository, so upgrade, make it public, or
+stop managing it.
+
+Keep a managed repository's Actions secrets only in environments limited to its
+default branch (ADR-0108). Forge does not check this: a secret available to every branch
+is available to a workflow that a leaked token pushes on another branch.
 
 #### Moving off the two personal tokens
 

@@ -580,7 +580,39 @@ let
     exec ${lib.getExe pkgs.gh} "$@"
   '';
 
-  credentialToolsVariable = "FORGE_CREDENTIAL_TOOLS=${githubCli}/bin";
+  rerunCi = pkgs.writeShellApplication {
+    name = "forge-rerun-ci";
+    runtimeInputs = [
+      pkgs.curl
+      pkgs.jq
+    ];
+    text = ''
+      run="''${1-}"
+      case "$run" in
+        "" | *[!0-9]*)
+          echo "usage: forge-rerun-ci <run-id>" >&2
+          exit 2
+          ;;
+      esac
+      if [ -z "''${FORGE_RERUN_SOCKET-}" ]; then
+        echo "forge-rerun-ci: this workload cannot ask the runner to re-run a run" >&2
+        exit 1
+      fi
+      answer="$(curl --silent --show-error --unix-socket "$FORGE_RERUN_SOCKET" --header 'content-type: application/json' --data "{\"run\":$((10#$run))}" http://forge/rerun)"
+      jq -r .message <<< "$answer"
+      jq -e .rerun <<< "$answer" > /dev/null
+    '';
+  };
+
+  credentialTools = pkgs.symlinkJoin {
+    name = "forge-credential-tools";
+    paths = [
+      githubCli
+      rerunCi
+    ];
+  };
+
+  credentialToolsVariable = "FORGE_CREDENTIAL_TOOLS=${credentialTools}/bin";
 in
 {
   options.forge.runtime = {
@@ -711,7 +743,7 @@ in
         type = lib.types.path;
         default = "/var/lib/forge-pull-deploy/status.json";
         readOnly = true;
-        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`) and `error` (the last switch error, or null), each null while unknown. The root-owned unit writes it into a root-owned directory and the dashboard only reads it.";
+        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`), `error` (the last switch error, or null), `forge` (the forge commit locked in the operator commit the box runs), `upstream` (the `owner/repo` the locked `forge` input follows), `upstreamHead` (that repository's head commit) and `behind` (how many commits `forge` is behind `upstreamHead`), each null while unknown. A failed upstream lookup leaves `upstream`, `upstreamHead` and `behind` null and is not an error. The root-owned unit writes it into a root-owned directory and the dashboard only reads it.";
       };
     };
 

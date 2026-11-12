@@ -148,6 +148,8 @@ export const main = async (
           gitEnv,
           identity,
           runId,
+          fetch,
+          pullRequest: async () => pullRequest.number,
         });
         if (launched.run.harnessStartTime == null && launched.cause instanceof SetupTimedOut) {
           store.endRevision(revisionId, 'failed', now(), {

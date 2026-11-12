@@ -224,6 +224,8 @@ export const main = async (
             gitEnv,
             identity,
             runId,
+            fetch,
+            pullRequest: async () => pullRequest.number,
             conflictResolution: true,
           });
           if (launched.run.harnessStartTime == null && launched.cause instanceof SetupTimedOut) {

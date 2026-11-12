@@ -199,12 +199,15 @@ export {
   type InstallationToken,
   type TokenAccess,
 } from './github-app.ts';
+export { checkBranchRules, type BranchRulesTokens } from './branch-rules.ts';
 export {
   RISK_LEVELS,
   Store,
   type GradingDue,
   type ListPriceEquivalent,
+  type RecordedRiskGrade,
   type RiskGrade,
+  type GradeOutcome,
   type RiskLevel,
   type WorkloadSpend,
 } from './store.ts';

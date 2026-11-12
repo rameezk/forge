@@ -4,6 +4,7 @@ import {
   errorMessage,
   addEyes,
   appIdentity,
+  checkBranchRules,
   ensureLabels,
   installationTokens,
   oldestFirst,
@@ -26,6 +27,8 @@ import {
   type WatchedPullRequest,
 } from '@forge/shared';
 import type { FrontierConfig, RepositoryConfig } from './config.ts';
+
+type RulesCheck = (github: string) => Promise<string[]>;
 
 type Poll = (github: string) => Promise<Ticket[]>;
 
@@ -71,6 +74,14 @@ const pullRequestPolling =
   (tokens: InstallationTokens, fetch: Fetch): PullRequestPoll =>
   async (github, number) =>
     queryPullRequest(fetch, await tokens(github, 'read'), github, number);
+
+const rulesChecking =
+  (tokens: InstallationTokens, fetch: Fetch): RulesCheck =>
+  (github) =>
+    checkBranchRules(fetch, github, {
+      read: () => tokens(github, 'read'),
+      administration: () => tokens(github, 'administration'),
+    });
 
 const BOT_SUFFIX = '[bot]';
 
@@ -151,6 +162,42 @@ const refreshPullRequests = async (
   return refreshed;
 };
 
+const settleGradeOutcomes = async (
+  store: Store,
+  name: string,
+  github: string,
+  watched: readonly WatchedPullRequest[],
+  pullRequest: PullRequestPoll,
+  at: string,
+): Promise<boolean> => {
+  const snapshots = new Map<number, PullRequestSnapshot>();
+  let settled = true;
+  for (const grade of store.openRiskGrades(name)) {
+    const head = watched.find(({ number }) => number === grade.number)?.headSha;
+    if (head === grade.headSha) continue;
+    if (head !== undefined) {
+      store.settleRiskGrade(grade, 'superseded', at);
+      continue;
+    }
+    try {
+      let snapshot = snapshots.get(grade.number);
+      if (snapshot === undefined) {
+        snapshot = await pullRequest(github, grade.number);
+        snapshots.set(grade.number, snapshot);
+      }
+      if (snapshot.headSha !== grade.headSha) {
+        store.settleRiskGrade(grade, 'superseded', at);
+      } else if (snapshot.state !== 'open') {
+        store.settleRiskGrade(grade, snapshot.state, at);
+      }
+    } catch (error) {
+      console.error(`${name}#${grade.number}: could not settle the grade's outcome: ${errorMessage(error)}`);
+      settled = false;
+    }
+  }
+  return settled;
+};
+
 interface GithubWrites {
   ensure: (github: string) => Promise<void>;
   settle: (store: Store, repository: string, github: string) => Promise<boolean>;
@@ -191,6 +238,7 @@ const sync = async (
   watched: WatchedPoll,
   acknowledge: Acknowledge,
   writes: GithubWrites | null,
+  checkRules: RulesCheck,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
   if (stateDir === undefined) {
@@ -226,6 +274,11 @@ const sync = async (
         });
         failed = true;
       }
+      const failures = await checkRules(github);
+      store.recordBranchRules({ repository: name, github, failures });
+      if (failures.length > 0) {
+        console.error(`${name}: no new work, ${failures.join('; ')}`);
+      }
       if (
         !(await refreshPullRequests(
           store,
@@ -237,8 +290,8 @@ const sync = async (
       ) {
         failed = true;
       }
+      let pulls: WatchedPullRequest[] = [];
       if (watches(repository)) {
-        let pulls: WatchedPullRequest[] = [];
         try {
           pulls = await watched(github);
           store.recordWatchedPullRequests(name, pulls);
@@ -252,6 +305,18 @@ const sync = async (
         ) {
           failed = true;
         }
+      }
+      if (
+        !(await settleGradeOutcomes(
+          store,
+          name,
+          github,
+          pulls,
+          pullRequest,
+          new Date().toISOString(),
+        ))
+      ) {
+        failed = true;
       }
       if (writes === null) continue;
       try {
@@ -342,6 +407,7 @@ export const main = async (
         watchedPolling(tokens, fetch, identity),
         acknowledging(tokens, fetch),
         githubWrites(config, tokens, fetch),
+        rulesChecking(tokens, fetch),
       )
     : list(config, poll);
 };
