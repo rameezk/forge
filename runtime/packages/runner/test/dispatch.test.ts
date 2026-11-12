@@ -2192,8 +2192,9 @@ test('given a dispatch and a revision, when each starts its harness, then each i
     assert.match(instruction, /Never run `gh run rerun`: your token cannot touch Actions/);
     assert.match(instruction, /Re-run only a failed run on the head of the pull request you work on/);
     assert.match(instruction, /no jobs created, a startup failure, a lost runner, or a cancellation you did not cause/);
+    assert.match(instruction, /A run queued with no jobs for 15 minutes is an infrastructure stall: ask `forge-rerun-ci` to re-run it/);
     assert.match(instruction, /Re-run the same run at most twice/);
-    assert.match(instruction, /leave the pull request a draft and name the run, the failure and the attempts in your report/);
+    assert.match(instruction, /leave the pull request a draft and name the run, the failure or stall and the attempts in your report/);
     assert.match(instruction, /Never re-run a failing test or step, flaky or not: fix it/);
     assert.match(instruction, /Never dispatch, disable, enable or delete anything in Actions/);
     assert.match(instruction, /Never re-trigger CI with an empty commit or by closing and reopening the pull request/);

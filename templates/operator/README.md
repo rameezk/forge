@@ -512,7 +512,10 @@ repositories forge manages, and give the box its id and private key.
      read the logs of the checks that fail. Write is for the runner, which
      re-runs a run that failed for infrastructure reasons when the agent asks
      through `forge-rerun-ci`, and only a failed run on the head of the
-     workload's own pull request, at most twice per workload.
+     workload's own pull request, at most twice per workload. It also re-runs
+     a run that GitHub has left queued with no jobs for 15 minutes, checked
+     against the run's `created_at`: it force-cancels the run, waits for it to
+     complete, then re-runs it. A stalled run counts toward the same limit.
    - Commit statuses: read, so forge can read the status of a pull request's
      head commit.
    - Administration: read, so the frontier sync can read whether GitHub Actions
