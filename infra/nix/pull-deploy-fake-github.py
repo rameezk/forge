@@ -18,7 +18,7 @@ def upstream_state():
         with open(UPSTREAM) as state:
             return json.load(state)
     except FileNotFoundError:
-        return {"fail": False, "repos": {}}
+        return {"fail": False, "dispatchFail": False, "repos": {}}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -29,6 +29,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def reply_dispatch(self):
+        if upstream_state().get("dispatchFail"):
+            self.reply(500, {"message": "Server Error"})
+        else:
+            self.send_response(204)
+            self.send_header("content-length", "0")
+            self.end_headers()
 
     def reply_upstream(self):
         state = upstream_state()
@@ -65,6 +73,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(401, {"message": "Bad credentials"})
         elif upstream and self.command == "GET":
             self.reply_upstream()
+        elif self.command == "POST" and self.path == "/repos/operator-org/operator/actions/workflows/forge-bump.yml/dispatches":
+            self.reply_dispatch()
         elif self.command == "GET" and self.path == "/repos/operator-org/operator/installation":
             self.reply(200, {"id": 42})
         elif self.command == "POST" and self.path == "/app/installations/42/access_tokens":

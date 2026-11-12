@@ -89,6 +89,16 @@ else
 	fail=1
 fi
 
+echo "==> case: the scaffolded forge bump workflow triggers only on workflow_dispatch"
+triggers="$(sed -n '/^on:/,/^permissions:/p' "$work/.github/workflows/forge-bump.yml" | sed '$d' | grep -v '^[[:space:]]*$')"
+if [ "$triggers" = "$(printf 'on:\n  workflow_dispatch:')" ]; then
+	echo "ok: the forge bump workflow has no schedule and runs on workflow_dispatch alone"
+else
+	echo "FAIL: expected the forge bump workflow to trigger only on workflow_dispatch, got:"
+	echo "$triggers"
+	fail=1
+fi
+
 echo "==> case: the divergence guard passes on a stood-up box without contacting Hetzner"
 scaffold
 fill_operator_repo

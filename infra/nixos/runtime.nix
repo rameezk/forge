@@ -713,7 +713,7 @@ in
     };
 
     pullDeploy = {
-      enable = lib.mkEnableOption "the pull deploy: every `pullDeploy.intervalSeconds` seconds the box compares the commit at the head of its operator repository's `main` with the operator commit it runs and builds and switches to `main` when they differ, recording the commit it runs, the head and the last switch error in `pullDeploy.statusFile`. A commit that fails to build or switch is not tried again until `main` moves or the `forge-pull-deploy` unit is restarted by hand. The box reads the operator repository as the operator's box App (`github_box_app_id` and `github_box_app_private_key`), a second GitHub App you own, through an installation token narrowed to that repository with read access to contents. Create the box App with Contents: read and Actions: write and install it on the operator repository alone; forge's own App is not installed there. The pull deploy is the only unit given the box App's key and cannot read forge's App key";
+      enable = lib.mkEnableOption "the pull deploy: every `pullDeploy.intervalSeconds` seconds the box compares the commit at the head of its operator repository's `main` with the operator commit it runs and builds and switches to `main` when they differ, recording the commit it runs, the head and the last switch error in `pullDeploy.statusFile`. A commit that fails to build or switch is not tried again until `main` moves or the `forge-pull-deploy` unit is restarted by hand. On the same pass the box checks the upstream of the operator repository's `forge` input with `git ls-remote`, reading the upstream and its branch from the forge input in the lock file on `main`, and when the upstream head differs from the forge commit locked on `main` it starts the operator repository's `forge-bump` workflow with `workflow_dispatch`. It starts the bump once for each new upstream commit, and again for the same commit only if the dispatch call itself failed; a failed dispatch never blocks the deploy of `main`, and the last dispatched upstream commit and the last bump error are recorded in `pullDeploy.statusFile` and the unit's journal. The box reads the operator repository and starts its workflow as the operator's box App (`github_box_app_id` and `github_box_app_private_key`), a second GitHub App you own, through an installation token narrowed to that repository with read access to contents and write access to actions. Create the box App with Contents: read and Actions: write and install it on the operator repository alone; forge's own App is not installed there. The pull deploy is the only unit given the box App's key and cannot read forge's App key";
 
       repository = lib.mkOption {
         type = lib.types.strMatching "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+";
@@ -734,17 +734,23 @@ in
         description = "The GitHub API base the box mints its installation token from. Only a test points it elsewhere.";
       };
 
+      upstreamBase = lib.mkOption {
+        type = lib.types.str;
+        default = "https://github.com";
+        description = "The git host the box looks the `forge` input's upstream up on, as `<upstreamBase>/<owner>/<repo>.git`. Only a test points it elsewhere.";
+      };
+
       intervalSeconds = lib.mkOption {
         type = lib.types.ints.positive;
-        default = 300;
-        description = "Seconds between two looks at the head of the operator repository's `main`. Only a test shortens it.";
+        default = 60;
+        description = "Seconds between two looks at the head of the operator repository's `main` and at the head of the `forge` input's upstream. Only a test shortens it.";
       };
 
       statusFile = lib.mkOption {
         type = lib.types.path;
         default = "/var/lib/forge-pull-deploy/status.json";
         readOnly = true;
-        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`), `error` (the last switch error, or null), `forge` (the forge commit locked in the operator commit the box runs), `upstream` (the `owner/repo` the locked `forge` input follows), `upstreamHead` (that repository's head commit) and `behind` (how many commits `forge` is behind `upstreamHead`), each null while unknown. A failed upstream lookup leaves `upstream`, `upstreamHead` and `behind` null and is not an error. The root-owned unit writes it into a root-owned directory and the dashboard only reads it.";
+        description = "The deploy status the box records, a JSON object with `running` (the operator commit the box runs), `head` (the commit at the head of `main`), `error` (the last switch error, or null), `dispatched` (the last upstream commit the box started the forge bump for, or null) and `bumpError` (the last error looking the upstream up or starting the forge bump, or null, cleared by the next pass that succeeds), `forge` (the forge commit locked in the operator commit the box runs), `upstream` (the `owner/repo` the locked `forge` input follows), `upstreamHead` (that repository's head commit) and `behind` (how many commits `forge` is behind `upstreamHead`), each null while unknown. A failed upstream lookup leaves `upstream`, `upstreamHead` and `behind` null and is not an error. The root-owned unit writes it into a root-owned directory and the dashboard only reads it.";
       };
     };
 
@@ -994,6 +1000,7 @@ in
             "FORGE_PULL_DEPLOY_REPOSITORY=${cfg.pullDeploy.repository}"
             "FORGE_PULL_DEPLOY_REMOTE=${cfg.pullDeploy.remote}"
             "FORGE_PULL_DEPLOY_API=${cfg.pullDeploy.apiBase}"
+            "FORGE_PULL_DEPLOY_UPSTREAM=${cfg.pullDeploy.upstreamBase}"
             "FORGE_PULL_DEPLOY_HOSTNAME=${config.networking.hostName}"
             "FORGE_PULL_DEPLOY_INTERVAL=${toString cfg.pullDeploy.intervalSeconds}"
             "FORGE_PULL_DEPLOY_STATUS_FILE=${cfg.pullDeploy.statusFile}"

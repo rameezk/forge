@@ -1437,8 +1437,10 @@
               (
                 lib.elem "FORGE_PULL_DEPLOY_REMOTE=https://github.com/operator-org/operator.git" pullDeployService.serviceConfig.Environment
                 && lib.elem "FORGE_PULL_DEPLOY_API=https://api.github.com" pullDeployService.serviceConfig.Environment
+                && lib.elem "FORGE_PULL_DEPLOY_UPSTREAM=https://github.com" pullDeployService.serviceConfig.Environment
+                && lib.elem "FORGE_PULL_DEPLOY_INTERVAL=60" pullDeployService.serviceConfig.Environment
               )
-              "the pull deploy must default to the operator repository on github.com and the GitHub API";
+              "the pull deploy must default to the operator repository on github.com, the GitHub API, forge's upstream on github.com and a 60 second poll";
           pullDeployWithDashboardHost = secretsHost exampleSecretsFile {
             forge.runtime.pullDeploy = pullDeployModule.forge.runtime.pullDeploy;
             forge.runtime.repositories.forge.github = "rameezk/forge";

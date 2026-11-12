@@ -253,9 +253,11 @@ tailnet.
 ## Following main
 
 With the pull deploy on, the box follows this repository's `main` on its own:
-`main` is what the box runs. Every 5 minutes it compares the commit at the head
+`main` is what the box runs. Every minute it compares the commit at the head
 of `main` with the commit it runs, and only when they differ does it build that
-commit on the box and switch to it. A hand `just deploy` of changes you have not
+commit on the box and switch to it. On the same pass it checks where the `forge`
+input's upstream is, and when forge has moved it starts the
+[forge bump](#pinning-forge) itself. A hand `just deploy` of changes you have not
 pushed is reverted at the next pull, so use `just deploy` to try a change before
 you push it, and push it to keep it.
 
@@ -282,7 +284,7 @@ root, so forge's App, which reaches your managed repositories, is not installed
 here. The box App is installed on this repository alone, and the pull deploy is
 the only unit given its key. It reads this repository, which is usually
 private, through an installation token narrowed to it with read access to
-contents. So:
+contents and write access to actions. So:
 
 1. Create the box App at <https://github.com/settings/apps/new> (or under your
    organisation's settings). Give it any name, set the homepage URL to this
@@ -334,7 +336,11 @@ locked in the operator commit the box runs (`forge`), the repository that locked
 `forge` input follows (`upstream`, a fork included), that repository's head
 commit (`upstreamHead`) and how many commits the box's forge is behind it
 (`behind`). The upstream fields are `null` when GitHub could not be asked, which
-is never a switch error. Read the file with
+is never a switch error. It also records the last upstream commit it started the
+forge bump for (`dispatched`) and the last error looking the upstream up or
+starting the bump (`bumpError`), which is `null` once a pass succeeds and is also
+written to the unit's journal. A bump error never stops the deploy of `main`.
+Read the file with
 `just ssh sudo cat /var/lib/forge-pull-deploy/status.json`, or see it on the
 dashboard: every page's footer shows the forge commit with a "latest" or "N behind"
 pill, plus a red "deploy failed" pill while the last switch failed, which links to
@@ -1212,8 +1218,23 @@ just ssh sudo -u forge-runtime sqlite3 -readonly /var/lib/forge/forge.db \
 
 ## Pinning forge
 
-`.github/workflows/forge-bump.yml` runs `scripts/forge-bump.sh` every hour. The
-script moves the locked `forge` input to forge's latest commit, runs the
+`.github/workflows/forge-bump.yml` runs `scripts/forge-bump.sh`. It has no
+schedule, because GitHub runs scheduled workflows only on a best-effort basis.
+Instead the box starts it with `workflow_dispatch` when forge moves.
+
+With the [pull deploy](#following-main) on, every pass of the box looks up the
+head of the branch the locked `forge` input follows with `git ls-remote`, and when
+that head differs from the forge commit locked on `main` it starts the workflow.
+It starts it once for each new upstream commit, and again for the same commit only
+if the call to GitHub failed, in which case it tries again at the next pass. A
+forge commit the divergence guard rejects is not tried again until forge moves or
+you run the workflow by hand from the Actions tab. A forge change should be
+running on the box within about ten minutes. The lookup is unauthenticated, so it
+needs the upstream to be public and the `forge` input to follow a branch. Without
+the pull deploy nothing starts the workflow, so run it by hand or upgrade with
+`upgrade-forge`.
+
+The script moves the locked `forge` input to forge's latest commit, runs the
 divergence guard on the bumped lock, and only if the guard passes pushes one
 commit, `chore: update forge to <short-rev>`, straight to `main`. The commit body
 lists the subjects of the upstream commits it pulls in. It makes no commit when
@@ -1254,11 +1275,6 @@ The bump leaves a `forge` input pinned to a rev alone. Do not pin with
 `nix flake lock --override-input forge ...`: the lock it writes does not match
 `flake.nix`, and the next bump replaces it with forge's latest commit. To follow
 forge again, set the URL back to `github:rameezk/forge`.
-
-GitHub disables scheduled workflows in a repository after 60 days without
-repository activity. A long quiet spell in forge, with no bump landing here, stops
-the bump silently until you re-enable the workflow under the repository's Actions
-tab.
 
 For co-developing forge and this repository together, override the input with a
 local path for a single command, which leaves the lock alone:
