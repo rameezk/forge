@@ -1516,8 +1516,13 @@
           sliceMemoryMax = host: host.config.systemd.slices.forge-workloads.sliceConfig.MemoryMax;
           sharedMemoryConfigurable =
             lib.asserts.assertMsg
-              (sliceMemoryMax dispatchHost == "80%" && sliceMemoryMax (memoryHost "6G") == "6G")
-              "forge.runtime.workload.sharedMemoryMax must set the shared slice's MemoryMax, 80% of the box's memory by default";
+              (
+                sliceMemoryMax dispatchHost == "80%"
+                && sliceMemoryMax (memoryHost "6G") == "6G"
+                && dispatchHost.config.forge.runtime.settings.workload.sharedMemoryMax == "80%"
+                && (memoryHost "6G").config.forge.runtime.settings.workload.sharedMemoryMax == "6G"
+              )
+              "forge.runtime.workload.sharedMemoryMax must set the shared slice's MemoryMax, 80% of the box's memory by default, and reach the runner's configuration as the same value";
           daemonContinuesPastOom = lib.asserts.assertMsg (
             dispatchHost.config.systemd.services.nix-daemon.serviceConfig.OOMPolicy == "continue"
           ) "the nix daemon must carry on past a kernel OOM kill, so only the killed build fails";

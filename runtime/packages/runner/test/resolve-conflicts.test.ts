@@ -40,6 +40,7 @@ import {
   writeFakeBwrap,
   writeFakePi,
   brokerEnv,
+  DEFAULT_RESOURCE_NOTE,
 } from './helpers.ts';
 
 const PI_OUTPUT = join(import.meta.dirname, 'fixtures', 'pi', 'success.jsonl');
@@ -761,4 +762,12 @@ test('given a conflict resolution that inspects the trial merge, runs the worker
     app.revocations.filter((token) => token.startsWith('ghs_workload_')).sort(),
     [...minted].sort(),
   );
+});
+
+test('given a branch that conflicts with the default branch, when forge-resolve-conflicts runs, then the prompt ends with the resource note, which states the shared memory limit and CPU count and never says budget', async () => {
+  const { pi } = await resolve({ origin: originWhere('conflicts'), worker: mergeAndPush });
+
+  const prompt = pi?.argv.at(-1) ?? '';
+  assert.ok(prompt.endsWith(`\n\n${DEFAULT_RESOURCE_NOTE}`));
+  assert.doesNotMatch(DEFAULT_RESOURCE_NOTE, /budget/i);
 });

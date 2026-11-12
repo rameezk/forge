@@ -37,6 +37,7 @@ import {
   writeFakeBwrap,
   writeFakePi,
   brokerEnv,
+  DEFAULT_RESOURCE_NOTE,
 } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
@@ -1086,4 +1087,12 @@ test('given a revision whose pi keeps running past the worker\'s timeout, when f
     revisions.map(({ state, reason, detail }) => ({ state, reason, detail })),
     [{ state: 'failed', reason: 'exceeded', detail: 'timeout' }],
   );
+});
+
+test('given a pull request with feedback, when forge-revise runs, then the prompt ends with the resource note, which states the shared memory limit and CPU count and never says budget', async () => {
+  const { pi } = await revise();
+
+  const prompt = userMessageOf(pi);
+  assert.ok(prompt.endsWith(`\n\n${DEFAULT_RESOURCE_NOTE}`));
+  assert.doesNotMatch(DEFAULT_RESOURCE_NOTE, /budget/i);
 });

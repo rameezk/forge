@@ -15,6 +15,7 @@ import {
   startedDispatch,
   writeFakeBwrap,
   writeFakePi,
+  DEFAULT_RESOURCE_NOTE,
 } from './helpers.ts';
 
 const PI_OUTPUT = join(import.meta.dirname, 'fixtures', 'pi', 'success.jsonl');
@@ -348,4 +349,11 @@ test('given a diagnosis, when it ends, then the read token minted for it has bee
   const { app } = await diagnose({ action: writing(VERDICT) });
 
   assert.deepEqual(app.revocations, [tokenFor('read', 'rameezk/forge')]);
+});
+
+test('given a failed run, when forge-diagnose runs, then the prompt ends with the resource note, which states the shared memory limit and CPU count and never says budget', async () => {
+  const { pi } = await diagnose({ action: writing(VERDICT) });
+
+  const prompt = pi?.argv.at(-1) ?? '';
+  assert.ok(prompt.endsWith(`\n\n${DEFAULT_RESOURCE_NOTE}`));
 });
