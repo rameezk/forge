@@ -336,7 +336,7 @@ const renderGroupControl = (grouping: Grouping): Rendered =>
   )}</div></div>`;
 
 const renderDeployError = (deploy: DeployStatus | null): Rendered =>
-  deploy === null || deploy.error === null ? '' : html`<p id="deploy-error" data-deploy-error class="${ERROR_CALLOUT} mb-3 scroll-mt-4 whitespace-pre-line">${deploy.error}</p>`;
+  deploy === null || deploy.error === null ? '' : html`<p id="deploy-error" data-deploy-error class="${ERROR_CALLOUT} mb-3 scroll-mt-4 whitespace-pre-line text-xs">${deploy.error}</p>`;
 
 export const renderBoard = (
   frontier: RepositoryFrontier[],
