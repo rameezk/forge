@@ -204,7 +204,9 @@ export {
   Store,
   type GradingDue,
   type ListPriceEquivalent,
+  type RecordedRiskGrade,
   type RiskGrade,
+  type GradeOutcome,
   type RiskLevel,
   type WorkloadSpend,
 } from './store.ts';

@@ -22,6 +22,7 @@ interface FakePull {
   author: 'Bot' | 'User';
   draft?: boolean;
   closes?: number[];
+  head?: string;
   title?: string;
   body?: string;
 }
@@ -104,6 +105,7 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
   };
 
   let pulls: FakePull[] = [];
+  const ended = new Map<number, { state: 'OPEN' | 'MERGED' | 'CLOSED'; head: string }>();
   let files = FILES;
   let checkRunsAccepted = true;
   const checkRuns: { authorization: string; body: Record<string, unknown> }[] = [];
@@ -132,12 +134,13 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
             draft: pull.draft ?? false,
             title: pull.title,
             body: pull.body,
-            head: { sha: `head-${pull.number}` },
+            head: { sha: pull.head ?? `head-${pull.number}` },
           })
         : json(files);
     }
     if (url.pathname === '/repos/rameezk/forge/pulls/7/commits') return json([]);
-    const body = JSON.parse(String(init?.body)) as { query: string };
+    const body = JSON.parse(String(init?.body)) as { query: string; variables: { number: number } };
+    const { variables } = body;
     const operation = /query (\w+)/.exec(body.query)?.[1];
     const empty = { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] };
     const data =
@@ -153,7 +156,7 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
                     number: pull.number,
                     url: `https://github.com/rameezk/forge/pull/${pull.number}`,
                     mergeable: 'MERGEABLE',
-                    headRefOid: `head-${pull.number}`,
+                    headRefOid: pull.head ?? `head-${pull.number}`,
                     isDraft: pull.draft ?? false,
                     author: {
                       __typename: pull.author,
@@ -191,7 +194,17 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
                 },
               }
             : operation === 'PullRequest'
-              ? { repository: { pullRequest: { state: 'OPEN', mergedAt: null, closedAt: null, commits: empty } } }
+              ? {
+                  repository: {
+                    pullRequest: {
+                      state: ended.get(variables.number)?.state ?? 'OPEN',
+                      headRefOid: ended.get(variables.number)?.head ?? `head-${variables.number}`,
+                      mergedAt: null,
+                      closedAt: null,
+                      commits: empty,
+                    },
+                  },
+                }
               : undefined;
     if (data === undefined) throw new Error(`unexpected GitHub request ${String(operation)}`);
     return json({ data });
@@ -220,6 +233,9 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
     fetch,
     setPulls: (next: FakePull[]): void => {
       pulls = next;
+    },
+    end: (number: number, state: 'MERGED' | 'CLOSED', head: string): void => {
+      ended.set(number, { state, head });
     },
     jevRequests,
     checkRuns,
@@ -388,4 +404,64 @@ test('given the check run is refused after Jev graded the head, when forge-gradi
 
   assert.equal(await f.grade(), 0);
   assert.equal(f.checkRuns.length, 1);
+});
+
+const revise = (store: Store, number: number): void => {
+  const start = store.startRevision(
+    { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
+    [],
+    randomUUID(),
+    '2026-01-01T00:00:00.000Z',
+    Number.POSITIVE_INFINITY,
+  );
+  assert.ok('started' in start);
+  store.endRevision(start.started, 'done', '2026-01-01T00:01:00.000Z');
+};
+
+test('given a graded commit of a pull request that went through two revisions, when it is merged at that commit, then the grade reads merged with two revisions', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.withStore((store) => {
+    revise(store, 7);
+    revise(store, 7);
+  });
+  await f.syncAndGrade([READY]);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
+
+  f.end(7, 'MERGED', 'head-7');
+  await f.syncAndGrade([]);
+  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(grade?.outcome, 'merged');
+  assert.equal(grade?.revisions, 2);
+});
+
+test('given a graded commit, when the pull request receives a new head, then the earlier grade reads superseded', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  const [earlier, later] = f.withStore((store) => [
+    store.riskGrade('forge', 7, 'head-7'),
+    store.riskGrade('forge', 7, 'head-7b'),
+  ]);
+  assert.equal(earlier?.outcome, 'superseded');
+  assert.equal(later?.outcome, 'open');
+});
+
+test('given a graded commit, when the pull request is closed without merging, then the grade reads closed', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.end(7, 'CLOSED', 'head-7');
+  await f.syncAndGrade([]);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'closed');
+});
+
+test('given a graded commit, when the pull request merges at a newer head, then the earlier grade reads superseded', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.end(7, 'MERGED', 'head-7b');
+  await f.syncAndGrade([]);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'superseded');
 });
