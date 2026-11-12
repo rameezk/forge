@@ -4,7 +4,7 @@ import { requireGithubRepository, type Fetch } from './frontier.ts';
 import { GITHUB_REST_API } from './github-api.ts';
 import { isHeaderValue } from './http.ts';
 
-export type TokenAccess = 'read' | 'write' | 'reactions' | 'grading' | 'administration' | 'workload';
+export type TokenAccess = 'read' | 'write' | 'reactions' | 'grading' | 'administration' | 'workload' | 'rerun';
 
 const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
   read: {
@@ -40,8 +40,12 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
     pull_requests: 'write',
     workflows: 'write',
     checks: 'read',
-    actions: 'write',
+    actions: 'read',
     statuses: 'read',
+  },
+  rerun: {
+    actions: 'write',
+    pull_requests: 'read',
   },
 };
 

@@ -210,7 +210,7 @@ testers.runNixOSTest {
         box.succeed("systemctl start forge-dispatch@forge:113.service")
         assert box.succeed("cat /var/lib/forge/work/*/devshell.out").strip() == "devshell stub ran"
         first, second, rest = box.succeed("cat /var/lib/forge/work/*/path.out").strip().split(":", 2)
-        assert first.startswith("/nix/store/") and first.endswith("-gh/bin"), first
+        assert first.startswith("/nix/store/") and first.endswith("-forge-credential-tools/bin"), first
         assert second.startswith("/nix/store/") and second.endswith("-source/bin"), second
         assert "-git-" in rest, rest
 

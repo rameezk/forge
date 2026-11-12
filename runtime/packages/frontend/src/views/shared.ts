@@ -1,6 +1,7 @@
 import { html, raw } from 'hono/html';
 import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
+import type { DeployStatus } from '../deploy-status.ts';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
 import { renderMarkdown } from '../markdown.ts';
 import { DEFAULT_EFFORT } from '../request-record.ts';
@@ -137,6 +138,7 @@ export interface Display {
   assets: AssetHrefs;
   timeZone: string;
   version?: string;
+  deploy?: DeployStatus | null;
 }
 
 const FOCUS_RINGS = '[&_:where(:focus-visible)]:outline-2 [&_:where(:focus-visible)]:outline-offset-2 [&_:where(:focus-visible)]:outline-accent';
@@ -211,11 +213,41 @@ const FIT_MAIN = {
   always: 'flex min-h-0 flex-1 flex-col overflow-hidden py-8 lg:pt-6 lg:pb-4',
 } as const;
 
+export const shortCommit = (commit: string): string => commit.slice(0, 7);
+
+const isLatest = ({ forge, upstreamHead, behind }: DeployStatus): boolean => behind === 0 || (forge !== null && forge === upstreamHead);
+
+const forgeCommitHref = (deploy: DeployStatus): string | null => {
+  const { forge, upstream, upstreamHead, behind } = deploy;
+  if (forge === null || upstream === null) return null;
+  if (isLatest(deploy)) return `https://github.com/${upstream}/commit/${forge}`;
+  return upstreamHead === null || behind === null ? null : `https://github.com/${upstream}/compare/${forge}...${upstreamHead}`;
+};
+
+const forgeStatusPill = (deploy: DeployStatus): Rendered => {
+  const { forge, upstreamHead, behind } = deploy;
+  if (forge === null || upstreamHead === null || behind === null) return '';
+  return isLatest(deploy)
+    ? html`<span data-forge-pill class="${PILL} bg-success-soft text-success">latest</span>`
+    : html`<span data-forge-pill class="${PILL} bg-line text-fg">${behind} behind</span>`;
+};
+
+const renderForgeStatus = (deploy: DeployStatus | null): Rendered => {
+  if (deploy === null) return '';
+  const href = forgeCommitHref(deploy);
+  const commit = deploy.forge === null
+    ? html`<span>unknown</span>`
+    : href === null
+      ? html`<code class="font-mono text-fg">${shortCommit(deploy.forge)}</code>`
+      : html`<a href="${href}" data-forge-commit target="_blank" rel="noopener noreferrer" class="${LINK} font-mono">${shortCommit(deploy.forge)}</a>`;
+  return html`<div data-forge-status class="-my-0.5 flex items-center gap-2" title="The forge commit the box runs"><span class="font-semibold uppercase tracking-[0.05em]">Forge</span>${commit}${forgeStatusPill(deploy)}</div>`;
+};
+
 export const layout = (
   title: string,
   current: Page | null,
   live: boolean,
-  { assets, timeZone, version }: Display,
+  { assets, timeZone, version, deploy }: Display,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
   fit: Fit = 'scroll',
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -233,7 +265,7 @@ export const layout = (
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${FIT_BODY[fit]}">
         ${renderHeader(current, live, assets, version)}
         <main class="w-full ${FIT_WIDTH[fit]} px-4 ${FIT_MAIN[fit]}">${body}</main>
-        <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="px-4 py-4">Times in ${timeZone}</div></footer>
+        <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-4"><span>Times in ${timeZone}</span>${renderForgeStatus(deploy ?? null)}</div></footer>
       </body>
     </html>`;
 

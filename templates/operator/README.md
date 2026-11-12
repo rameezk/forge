@@ -303,9 +303,15 @@ just ssh sudo systemctl restart forge-pull-deploy
 
 The box records its deploy status in `/var/lib/forge-pull-deploy/status.json`: the
 operator commit it runs (`running`), the commit at the head of `main` (`head`)
-and the last switch error, if any (`error`). Read it with
+and the last switch error, if any (`error`). It also records the forge commit
+locked in the operator commit the box runs (`forge`), the repository that locked
+`forge` input follows (`upstream`, a fork included), that repository's head
+commit (`upstreamHead`) and how many commits the box's forge is behind it
+(`behind`). The upstream fields are `null` when GitHub could not be asked, which
+is never a switch error. Read the file with
 `just ssh sudo cat /var/lib/forge-pull-deploy/status.json`, or see it on the
-dashboard's Board, which shows the running commit, the head commit, or "up to date" when
+dashboard: every page's footer shows the forge commit with a "latest" or "N behind"
+pill, and the Board shows the running commit, the head commit, or "up to date" when
 they match, and the last switch error. A box that has never pulled shows `running` as
 `null` until its first switch.
 
@@ -469,8 +475,11 @@ repositories forge manages, and give the box its id and private key.
    - Checks: read and write, so the agent can watch a pull request's required
      checks and forge can post the `forge/risk` check run of a graded pull
      request.
-   - Actions: read and write, so the agent can read the logs of the checks
-     that fail and re-run a run that failed for infrastructure reasons.
+   - Actions: read and write. The agent's own token holds only read, so it can
+     read the logs of the checks that fail. Write is for the runner, which
+     re-runs a run that failed for infrastructure reasons when the agent asks
+     through `forge-rerun-ci`, and only a failed run on the head of the
+     workload's own pull request, at most twice per workload.
    - Commit statuses: read, so forge can read the status of a pull request's
      head commit.
    - Administration: read, so the frontier sync can read whether GitHub Actions
@@ -521,10 +530,12 @@ permission on the installation. Until you do, `forge-grading` fails to mint its
 token and logs the permissions forge requested. Nothing else is affected, since
 only the grading token asks for Checks: write.
 
-Upgrading an existing App for re-runs: change **Actions** from read to **read
-and write** in the App's repository permissions, then accept the new permission
-on the installation. Until you do, every dispatch fails to mint its workload
-token and the dispatch failure names the permissions forge requested.
+Upgrading an existing App for re-runs: an App that already has **Actions** at
+**read and write** needs no change. One that has only read needs write, then
+accept it on the installation. Workload tokens no longer carry Actions: write;
+the runner mints its own token with it when it re-runs a run for a workload.
+Until the permission is on the installation, an ask to re-run a run is answered
+that it could not be re-run, and nothing else is affected.
 
 Upgrading an existing App for branch rules: add **Administration: read** to the
 App's repository permissions, then accept the new permission on the
