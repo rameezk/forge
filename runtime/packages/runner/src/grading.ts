@@ -2,10 +2,13 @@ import { createHash } from 'node:crypto';
 import {
   errorMessage,
   queryTicketContext,
+  RETRIED_GRADING_FAILURES,
   RISK_LEVELS,
   type ContextIssue,
   type Fetch,
+  type GradingAttempt,
   type GradingDue,
+  type GradingFailure,
   type InstallationTokens,
   type RiskGrade,
   type RiskLevel,
@@ -117,6 +120,56 @@ const probabilitiesOf = (raw: unknown): Record<RiskLevel, number> => {
 export const decisionsUrl = (baseUrl: URL): URL =>
   new URL('../alpha/decisions', `${baseUrl.href.replace(/\/$/, '')}/`);
 
+export class GradingFailed extends Error {
+  readonly category: GradingFailure;
+
+  constructor(category: GradingFailure, message: string) {
+    super(message);
+    this.name = 'GradingFailed';
+    this.category = category;
+  }
+}
+
+const MAX_DETAIL_LENGTH = 300;
+
+const CONTEXT_EXCEEDED = /context[ _-]?(length|window)|too (large|long)|exceeds? .*(limit|tokens)/i;
+
+const detailOf = (error: { message?: unknown } | undefined): string => {
+  const message = typeof error?.message === 'string' ? error.message.trim() : '';
+  return message === '' ? '' : ` (${message.slice(0, MAX_DETAIL_LENGTH)})`;
+};
+
+const failureOfResponse = (
+  status: number,
+  error: { message?: unknown; metadata?: { error_type?: unknown } } | undefined,
+  model: string,
+): GradingFailed => {
+  const detail = detailOf(error);
+  const exceeded =
+    status === 413 ||
+    ((status === 400 || status === 422) &&
+      (error?.metadata?.error_type === 'context_length_exceeded' ||
+        CONTEXT_EXCEEDED.test(String(error?.message ?? ''))));
+  if (exceeded) return new GradingFailed('too-large', "the input does not fit Jev's context window");
+  if (status === 401) return new GradingFailed('setup', `OpenRouter rejected the key${detail}`);
+  if (status === 402) return new GradingFailed('setup', `OpenRouter reports no credits${detail}`);
+  if (status === 403) return new GradingFailed('setup', `OpenRouter refused the key's access${detail}`);
+  if (status === 404) {
+    return new GradingFailed('setup', `the model ${model} is not available on OpenRouter${detail}`);
+  }
+  if (status === 408 || status === 429 || status >= 500) {
+    return new GradingFailed('temporary', `OpenRouter answered ${status}${detail}`);
+  }
+  return new GradingFailed('bug', `OpenRouter rejected the request with ${status}${detail}`);
+};
+
+const failureOfTransport = (error: unknown): GradingFailed => {
+  const name = error instanceof Error ? error.name : '';
+  return name === 'TimeoutError' || name === 'AbortError'
+    ? new GradingFailed('temporary', 'Jev timed out')
+    : new GradingFailed('temporary', `could not reach OpenRouter: ${errorMessage(error)}`);
+};
+
 export const jevDecides =
   (url: URL, apiKey: string, model: string, fetch: Fetch): Decide =>
   async (input) => {
@@ -131,23 +184,37 @@ export const jevDecides =
         },
       }),
       signal: AbortSignal.timeout(DECISION_TIMEOUT_MS),
+    }).catch((error: unknown) => {
+      throw failureOfTransport(error);
     });
-    const body = (await response.json().catch(() => ({}))) as {
-      answers?: Record<string, { type?: string; score?: unknown; confidence?: unknown; probabilities?: unknown }>;
-      usage?: { cost?: unknown };
-      error?: { message?: unknown };
-    };
-    if (!response.ok) {
-      const message = typeof body.error?.message === 'string' ? `: ${body.error.message}` : '';
-      throw new Error(`OpenRouter answered ${response.status}${message}`);
+    const body = (await response.json().catch(() => (response.ok ? undefined : {}))) as
+      | {
+          answers?: Record<
+            string,
+            { type?: string; score?: unknown; confidence?: unknown; probabilities?: unknown }
+          >;
+          usage?: { cost?: unknown };
+          error?: { code?: unknown; message?: unknown; metadata?: { error_type?: unknown } };
+        }
+      | undefined;
+    if (body === undefined) throw new GradingFailed('bug', 'OpenRouter answered with something that is not JSON');
+    if (!response.ok || body.error !== undefined) {
+      const status = isNumber(body.error?.code) && response.ok ? body.error.code : response.status;
+      throw failureOfResponse(status, body.error, model);
     }
     const answer = body.answers?.[QUESTION_NAME];
-    if (answer?.type === 'refusal') throw new Error('Jev declined to answer');
+    if (answer?.type === 'refusal') throw new GradingFailed('declined', 'Jev declined to answer');
     if (answer?.type !== 'score' || !isNumber(answer.score) || !isNumber(answer.confidence)) {
-      throw new Error('Jev answered with something other than a score');
+      throw new GradingFailed('bug', 'Jev answered with something other than a score');
+    }
+    let probabilities: Record<RiskLevel, number>;
+    try {
+      probabilities = probabilitiesOf(answer.probabilities);
+    } catch (error) {
+      throw new GradingFailed('bug', errorMessage(error));
     }
     return {
-      probabilities: probabilitiesOf(answer.probabilities),
+      probabilities,
       score: answer.score,
       confidence: answer.confidence,
       costUsd: isNumber(body.usage?.cost) ? body.usage.cost : 0,
@@ -273,13 +340,25 @@ const gradeOne = async (
   }
   const { ticket, spec } = await queryTicketContext(fetch, token, repository, closed);
   const files = await changedFiles(fetch, token, repository, due.number);
-  const grade = decideGrade(
-    await decide(gradingInput(ticket, spec, files)),
-    due,
-    model,
-    threshold,
-    now(),
-  );
+  let decision: Decision;
+  try {
+    decision = await decide(gradingInput(ticket, spec, files));
+  } catch (error) {
+    if (!(error instanceof GradingFailed)) throw error;
+    const failed: GradingAttempt = {
+      repository: due.repository,
+      number: due.number,
+      headSha: due.headSha,
+      attemptedAt: now(),
+      category: error.category,
+      message: error.message,
+    };
+    store.recordGradingAttempt(failed);
+    options.log(`${due.repository}#${due.number}: not graded (${failed.category}): ${failed.message}`);
+    await postAttemptCheck(options, failed, repository);
+    return;
+  }
+  const grade = decideGrade(decision, due, model, threshold, now());
   store.recordRiskGrade(grade);
   await postCheck(options, grade, repository);
   await applyLabels(options, grade, repository);
@@ -325,23 +404,56 @@ const removeLabels = async (
   options.store.markLabelsApplied(grade, false);
 };
 
-const postCheck = async (
-  { store, fetch, tokens }: GradePullRequestsOptions,
-  grade: RiskGrade,
+const postCheckRun = async (
+  { fetch, tokens }: GradePullRequestsOptions,
   repository: string,
+  headSha: string,
+  output: { title: string; summary: string },
 ): Promise<void> => {
-  const { title, summary } = checkRunOutput(grade);
   await github(fetch, await tokens(repository, 'grading'), `/repos/${repository}/check-runs`, {
     method: 'POST',
     body: {
       name: CHECK_NAME,
-      head_sha: grade.headSha,
+      head_sha: headSha,
       status: 'completed',
       conclusion: 'neutral',
-      output: { title, summary },
+      output,
     },
   });
-  store.markCheckPosted(grade);
+};
+
+const postCheck = async (
+  options: GradePullRequestsOptions,
+  grade: RiskGrade,
+  repository: string,
+): Promise<void> => {
+  await postCheckRun(options, repository, grade.headSha, checkRunOutput(grade));
+  options.store.markCheckPosted(grade);
+};
+
+export const attemptCheckOutput = (
+  attempt: Pick<GradingAttempt, 'category' | 'message'>,
+): { title: string; summary: string } => {
+  const retried = RETRIED_GRADING_FAILURES.includes(attempt.category);
+  return {
+    title: `Not graded: ${attempt.message}${retried ? ', retrying' : ''}`,
+    summary: [
+      `This head commit has no risk grade: ${attempt.message}.`,
+      '',
+      retried
+        ? 'Forge keeps asking Jev, further apart each time, until it answers.'
+        : 'Forge does not ask Jev about this head commit again.',
+    ].join('\n'),
+  };
+};
+
+const postAttemptCheck = async (
+  options: GradePullRequestsOptions,
+  attempt: GradingAttempt,
+  repository: string,
+): Promise<void> => {
+  await postCheckRun(options, repository, attempt.headSha, attemptCheckOutput(attempt));
+  options.store.markAttemptCheckPosted(attempt);
 };
 
 const attempt = async (
@@ -386,6 +498,13 @@ export const gradePullRequests = async (options: GradePullRequestsOptions): Prom
         ),
       );
     }
+  }
+  for (const failed of store.attemptsAwaitingCheck(names)) {
+    outcomes.push(
+      await attempt(options, 'post the check run', failed, () =>
+        postAttemptCheck(options, failed, repositoryOf(failed)),
+      ),
+    );
   }
   for (const due of store.gradingDue(names, options.now())) {
     outcomes.push(

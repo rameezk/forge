@@ -1,4 +1,4 @@
-import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -23,11 +23,12 @@ export interface LiveWorkload {
   pullRequest: { number: number; url: string } | null;
 }
 
-export type CardRisk = RecordedRiskGrade | 'grading' | null;
+export type CardRisk = RecordedRiskGrade | GradingAttempt | 'grading' | null;
 
 export interface RiskInputs {
   repositories: ReadonlySet<string>;
   grades: ReadonlyMap<string, RecordedRiskGrade>;
+  attempts: ReadonlyMap<string, GradingAttempt>;
 }
 
 interface CardState {
@@ -125,7 +126,7 @@ export const buildLanes = (
   dispatches: ReadonlyMap<string, DispatchRecord>,
   revisions: readonly RevisionRecord[],
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
-  risks: RiskInputs = { repositories: new Set(), grades: new Map() },
+  risks: RiskInputs = { repositories: new Set(), grades: new Map(), attempts: new Map() },
 ): BoardLane[] => {
   const liveRevisions = liveByPullRequest(revisions, 'revision');
   const liveResolutions = liveByPullRequest(conflictResolutions, 'conflict resolution');
@@ -160,7 +161,7 @@ export const buildLanes = (
         workload: undefined,
         conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
-        risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
+        risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? risks.attempts.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {

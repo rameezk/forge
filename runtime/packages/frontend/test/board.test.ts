@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { ClosedTicket, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket } from '@forge/shared';
+import type { ClosedTicket, GradingAttempt, GradingFailure, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
@@ -1118,4 +1118,107 @@ test('given grades recorded with costs, when the Board is requested, then a grad
 
   assert.equal(readable(line), 'Grading cost $0.375000');
   assert.doesNotMatch(readable(cardOf(body, 5)), /\$/);
+});
+
+const attemptOf = (number: number, headSha: string, category: GradingFailure, message: string, attemptedAt = '2026-10-01T10:00:00.000Z'): GradingAttempt => ({
+  repository: 'forge',
+  number,
+  headSha,
+  attemptedAt,
+  category,
+  message,
+});
+
+test('given heads whose grading produced no level, when the Board is requested, then each card says why there is no grade', async () => {
+  const cases: [GradingFailure, string, string, string][] = [
+    ['temporary', 'OpenRouter answered 503 (Service unavailable)', 'temporary', 'not graded, retrying'],
+    ['setup', 'OpenRouter rejected the key (No auth credentials found)', 'setup', 'not graded, retrying'],
+    ['bug', 'OpenRouter rejected the request with 400', 'bug', 'not graded, retrying'],
+    ['declined', 'Jev declined to answer', 'declined', 'declined'],
+    ['too-large', "the input does not fit Jev's context window", 'too-large', 'too large'],
+  ];
+  for (const [category, message, state, text] of cases) {
+    const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+      inReview(store, 5);
+      watchHead(store, 105, 'head1');
+      store.recordGradingAttempt(attemptOf(105, 'head1', category, message));
+    }, undefined, undefined, GRADING);
+
+    const risk = riskOf(cardOf(await (await app.request('/')).text(), 5));
+
+    assert.match(risk, new RegExp(`data-risk="${state}"`), category);
+    assert.equal(readable(risk), text, category);
+    assert.match(risk, new RegExp(`title="Not graded: ${message.replace(/[()]/g, '\\$&').replace(/'/g, '&#39;')}`), category);
+  }
+});
+
+test('given a failure on an earlier head only, when the Board is requested, then the card of the new head shows grading', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head2');
+    store.recordGradingAttempt(attemptOf(105, 'head1', 'declined', 'Jev declined to answer'));
+  }, undefined, undefined, GRADING);
+
+  assert.match(riskOf(cardOf(await (await app.request('/')).text(), 5)), /data-risk="grading"/);
+});
+
+const statusLine = (body: string): string => /<[^>]*\sdata-grading-status[^>]*>[\s\S]*?<\/p>/.exec(body)?.[0] ?? '';
+
+test('given grading has succeeded and nothing is failing, when the Board is requested, then the status line says when it last succeeded and is not flagged', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordRiskGrade(gradeOf(105, 'head1', { gradedAt: '2026-10-01T09:30:00.000Z' }));
+  }, undefined, undefined, GRADING);
+
+  const line = statusLine(await (await app.request('/')).text());
+
+  assert.match(readable(line), /^Grading last succeeded .* ago$/);
+  assert.doesNotMatch(line, /data-grading-failing/);
+});
+
+test('given grading has never succeeded, when the Board is requested, then the status line says so', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+  }, undefined, undefined, GRADING);
+
+  assert.equal(readable(statusLine(await (await app.request('/')).text())), 'Grading has not succeeded yet');
+});
+
+test('given grading is failing temporarily, when the Board is requested, then the status line shows the category and latest message without the setup flag', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordRiskGrade(gradeOf(105, 'head0', { gradedAt: '2026-10-01T09:30:00.000Z' }));
+    store.recordGradingAttempt(attemptOf(105, 'head1', 'temporary', 'Jev timed out', '2026-10-01T10:00:00.000Z'));
+  }, undefined, undefined, GRADING);
+
+  const line = statusLine(await (await app.request('/')).text());
+
+  assert.match(readable(line), /^Grading last succeeded .* ago - failing: temporary - Jev timed out$/);
+  assert.match(line, /data-grading-failing="temporary"/);
+  assert.doesNotMatch(line, /data-grading-setup/);
+});
+
+test('given OpenRouter rejects the key, when the Board is requested, then the status line is flagged as a setup problem with the latest message', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordGradingAttempt(attemptOf(105, 'head1', 'setup', 'OpenRouter rejected the key (No auth credentials found)'));
+  }, undefined, undefined, GRADING);
+
+  const line = statusLine(await (await app.request('/')).text());
+
+  assert.match(line, /data-grading-setup/);
+  assert.match(line, /bg-error-soft/);
+  assert.match(readable(line), /Grading needs attention - setup: OpenRouter rejected the key \(No auth credentials found\)/);
+});
+
+test('given a repository with grading off, when the Board is requested, then there is no grading status line', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+  });
+
+  assert.equal(statusLine(await (await app.request('/')).text()), '');
 });

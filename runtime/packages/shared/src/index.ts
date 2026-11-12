@@ -201,8 +201,14 @@ export {
 } from './github-app.ts';
 export { checkBranchRules, type BranchRulesTokens } from './branch-rules.ts';
 export {
+  GRADING_FAILURES,
+  gradingRetryDelayMs,
+  RETRIED_GRADING_FAILURES,
   RISK_LEVELS,
   Store,
+  type GradingAttempt,
+  type GradingFailure,
+  type GradingStatus,
   type GradingDue,
   type ListPriceEquivalent,
   type DisplayedGrade,
