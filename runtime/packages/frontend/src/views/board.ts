@@ -80,9 +80,9 @@ const runnerUpOf = ({ level, probabilities }: RecordedRiskGrade): RiskLevel =>
   RISK_LEVELS.filter((other) => other !== level).reduce((best, other) => (probabilities[other] > probabilities[best] ? other : best));
 
 const NOT_GRADED_TEXT: Record<GradingAttempt['category'], string> = {
-  temporary: 'not graded, retrying',
-  setup: 'not graded, retrying',
-  bug: 'not graded, retrying',
+  temporary: 'not graded',
+  setup: 'not graded',
+  bug: 'not graded',
   declined: 'declined',
   'too-large': 'too large',
 };
@@ -90,7 +90,7 @@ const NOT_GRADED_TEXT: Record<GradingAttempt['category'], string> = {
 const renderNotGraded = ({ category, message }: GradingAttempt): Rendered => {
   const retried = RETRIED_GRADING_FAILURES.includes(category);
   const tone = category === 'setup' || category === 'bug' ? 'bg-error-soft text-error' : QUEUED_TONE;
-  return html`<p class="${MUTED_LINE}"><span data-risk="${category}" title="Not graded: ${message}${retried ? ', retrying' : ''}" class="${PILL} ${tone} whitespace-nowrap">${NOT_GRADED_TEXT[category]}</span></p>`;
+  return html`<p class="${MUTED_LINE}"><span data-risk="${category}" title="Not graded: ${message}${retried ? ', retrying' : ''}" class="${PILL} ${tone} whitespace-nowrap">${NOT_GRADED_TEXT[category]}</span>${retried ? html` <span data-risk-retrying class="text-xs whitespace-nowrap text-muted">retrying</span>` : ''}</p>`;
 };
 
 const renderRisk = (risk: CardRisk): Rendered => {

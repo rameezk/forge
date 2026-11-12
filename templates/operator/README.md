@@ -1024,6 +1024,19 @@ request's title, body or commit messages. A grade's cost is billed to your
 OpenRouter account and counts against no workload's budget. The App needs the
 **Checks: read and write** permission; see [the GitHub App](#the-github-app).
 
+When grading produces no level, the head's `forge/risk` check run and its Board
+badge say why, and the Board's grading status line shows when grading last
+succeeded and, while it is failing, the category and latest message, flagged in
+red for a setup problem. A temporary failure (a network error, a timeout, a
+rate limit or a server error), a setup failure (OpenRouter rejects the key,
+reports no credits or no longer has the model) and a bug (any other rejected
+request) are retried on a backoff that doubles from 30 seconds up to an hour. A
+refusal from Jev and input that does not fit its context window are never
+retried for that head commit. Text over about 32,000 bytes runs in Jev's
+long-context mode with no extra request header. A failure never blocks or
+changes a dispatch, a revision or a conflict resolution, and never counts
+against the review limit.
+
 ## The workload sandbox
 
 Every workload's harness, and every subagent it spawns, runs in a bubblewrap

@@ -1131,9 +1131,9 @@ const attemptOf = (number: number, headSha: string, category: GradingFailure, me
 
 test('given heads whose grading produced no level, when the Board is requested, then each card says why there is no grade', async () => {
   const cases: [GradingFailure, string, string, string][] = [
-    ['temporary', 'OpenRouter answered 503 (Service unavailable)', 'temporary', 'not graded, retrying'],
-    ['setup', 'OpenRouter rejected the key (No auth credentials found)', 'setup', 'not graded, retrying'],
-    ['bug', 'OpenRouter rejected the request with 400', 'bug', 'not graded, retrying'],
+    ['temporary', 'OpenRouter answered 503 (Service unavailable)', 'temporary', 'not graded'],
+    ['setup', 'OpenRouter rejected the key (No auth credentials found)', 'setup', 'not graded'],
+    ['bug', 'OpenRouter rejected the request with 400', 'bug', 'not graded'],
     ['declined', 'Jev declined to answer', 'declined', 'declined'],
     ['too-large', "the input does not fit Jev's context window", 'too-large', 'too large'],
   ];
@@ -1148,6 +1148,7 @@ test('given heads whose grading produced no level, when the Board is requested, 
 
     assert.match(risk, new RegExp(`data-risk="${state}"`), category);
     assert.equal(readable(risk), text, category);
+    assert.equal(/data-risk-retrying/.test(cardOf(await (await app.request('/')).text(), 5)), text === 'not graded', category);
     assert.match(risk, new RegExp(`title="Not graded: ${message.replace(/[()]/g, '\\$&').replace(/'/g, '&#39;')}`), category);
   }
 });
