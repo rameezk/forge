@@ -1366,6 +1366,13 @@
                 && !(dispatchHost.config.forge.runtime.settings.repositories.forge ? grading)
               )
               "the generated runtime config must carry grading only for a repository that turns it on, with the model and the default threshold";
+          dashboardCarriesGradingRepositories =
+            lib.asserts.assertMsg
+              (
+                lib.elem "FORGE_GRADING_REPOSITORIES=forge" gradingHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+                && !(lib.any (lib.hasPrefix "FORGE_GRADING_REPOSITORIES=") dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment)
+              )
+              "the dashboard must be told which repositories have grading on, and only when one does";
           gradingOffByDefault = lib.asserts.assertMsg (
             !(dispatchHost.config.systemd.services ? forge-grading)
             && !(dispatchHost.config.systemd.timers ? forge-grading)
@@ -1972,6 +1979,7 @@
             assert dispatchConfigReflectsReviewLimit;
             assert dashboardCarriesMaxConcurrent;
             assert dashboardCarriesReviewLimit;
+            assert dashboardCarriesGradingRepositories;
             assert dispatchPassFollowsSync;
             assert dispatchPassStartsUnits;
             assert dispatchPassMayStartOnlyDispatchUnits;
