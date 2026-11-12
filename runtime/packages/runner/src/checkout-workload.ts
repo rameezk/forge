@@ -90,7 +90,7 @@ export const launchInCheckout = async ({
     fetch,
     token: async () => (await app.mint(github, 'rerun')).token,
     pullRequest,
-  }).catch((error: unknown) => {
+  }).catch(async (error: unknown) => {
     await stopRefreshing();
     tokenFile.remove();
     throw error;
