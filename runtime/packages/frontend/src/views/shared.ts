@@ -232,6 +232,9 @@ const forgeStatusPill = (deploy: DeployStatus): Rendered => {
     : html`<span data-forge-pill class="${PILL} bg-line text-fg">${behind} behind</span>`;
 };
 
+const deployFailedPill = (deploy: DeployStatus): Rendered =>
+  deploy.error === null ? '' : html`<a href="/#deploy-error" data-deploy-failed title="The box could not switch to the head of its main; the Board shows the error" class="${PILL} ${FAILED_TONE} no-underline">deploy failed</a>`;
+
 const renderForgeStatus = (deploy: DeployStatus | null): Rendered => {
   if (deploy === null) return '';
   const href = forgeCommitHref(deploy);
@@ -240,7 +243,7 @@ const renderForgeStatus = (deploy: DeployStatus | null): Rendered => {
     : href === null
       ? html`<code class="font-mono text-fg">${shortCommit(deploy.forge)}</code>`
       : html`<a href="${href}" data-forge-commit target="_blank" rel="noopener noreferrer" class="${LINK} font-mono">${shortCommit(deploy.forge)}</a>`;
-  return html`<div data-forge-status class="-my-0.5 flex items-center gap-2" title="The forge commit the box runs"><span class="font-semibold uppercase tracking-[0.05em]">Forge</span>${commit}${forgeStatusPill(deploy)}</div>`;
+  return html`<div data-forge-status class="-my-0.5 flex items-center gap-2" title="The forge commit the box runs"><span class="font-semibold uppercase tracking-[0.05em]">Forge</span>${commit}${forgeStatusPill(deploy)}${deployFailedPill(deploy)}</div>`;
 };
 
 export const layout = (
