@@ -162,6 +162,10 @@ interface StalledScenario {
   runBranch?: string;
   completesAfterCancel?: boolean;
   rerunsBefore?: number;
+  startedMinutesAgo?: number;
+  cancelStatus?: number;
+  withoutTimestamps?: boolean;
+  withoutStart?: boolean;
 }
 
 const openStalledChannel = async (
@@ -182,16 +186,27 @@ const openStalledChannel = async (
         const total = scenario.jobs ?? 0;
         return new Response(JSON.stringify({ total_count: total, jobs: Array.from({ length: total }, () => ({})) }));
       }
+      if (path.endsWith('/force-cancel') && scenario.cancelStatus !== undefined) {
+        return new Response('{}', { status: scenario.cancelStatus });
+      }
       if (path.endsWith('/force-cancel')) cancelled = true;
       if (method === 'POST') return new Response('{}', { status: path.endsWith('/rerun') ? 201 : 202 });
       const done = cancelled && scenario.completesAfterCancel !== false;
+      const timestamps = scenario.withoutTimestamps
+        ? {}
+        : {
+            created_at: minutesAgo(scenario.createdMinutesAgo),
+            ...(scenario.withoutStart
+              ? {}
+              : { run_started_at: minutesAgo(scenario.startedMinutesAgo ?? scenario.createdMinutesAgo) }),
+          };
       return new Response(
         JSON.stringify({
+          ...timestamps,
           head_sha: 'a',
           head_branch: scenario.runBranch ?? 'b',
           status: done ? 'completed' : 'queued',
           conclusion: done ? 'cancelled' : null,
-          created_at: minutesAgo(scenario.createdMinutesAgo),
         }),
       );
     },
@@ -277,4 +292,41 @@ test('given a stalled run that GitHub still reports as not completed after force
 
   for (const answer of [first, second]) assert.match(answer, /"rerun":false.*took too long/);
   assert.equal(mutations(calls).filter((call) => call.endsWith('/rerun')).length, 0);
+});
+
+test('given a run created long ago but re-run 2 minutes ago and still queued with no jobs, when a workload asks, then the runner refuses it and changes nothing on GitHub', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 60, startedMinutesAgo: 2 });
+  t.after(() => channel.close());
+
+  const answer = await send(channel.path, askFor(12), false);
+
+  assert.match(answer, /"rerun":false.*refused/);
+  assert.deepEqual(mutations(calls), []);
+});
+
+test('given a stalled run whose force-cancel GitHub refuses, when a workload asks and then asks again, then the refused cancel did not use up a re-run', async (t) => {
+  const { channel } = await openStalledChannel({ createdMinutesAgo: 16, cancelStatus: 502, rerunsBefore: 0 });
+  t.after(() => channel.close());
+
+  const answers = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) answers.push(await send(channel.path, askFor(12), false));
+
+  for (const answer of answers) assert.match(answer, /"rerun":false.*502 when cancelling/);
+});
+
+test('given a queued run with no jobs that GitHub gives no timestamps, when a workload asks, then the runner refuses it and changes nothing on GitHub', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 60, withoutTimestamps: true });
+  t.after(() => channel.close());
+
+  const answer = await send(channel.path, askFor(12), false);
+
+  assert.match(answer, /"rerun":false.*refused/);
+  assert.deepEqual(mutations(calls), []);
+});
+
+test('given a run queued with no jobs for 16 minutes that GitHub gives no start time, when a workload asks, then the runner measures from its creation and re-runs it', async (t) => {
+  const { channel } = await openStalledChannel({ createdMinutesAgo: 16, withoutStart: true });
+  t.after(() => channel.close());
+
+  assert.match(await send(channel.path, askFor(12), false), /"rerun":true/);
 });

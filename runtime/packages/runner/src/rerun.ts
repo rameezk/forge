@@ -45,6 +45,7 @@ interface RunResponse {
   status?: unknown;
   conclusion?: unknown;
   created_at?: unknown;
+  run_started_at?: unknown;
 }
 
 interface JobsResponse {
@@ -73,8 +74,11 @@ const githubRequest = async (
     },
   });
 
+const timestamp = (value: unknown): number => (typeof value === 'string' ? Date.parse(value) : Number.NaN);
+
 const pause = (ms: number, abandoned: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
+    abandoned.throwIfAborted();
     const timer = setTimeout(() => {
       abandoned.removeEventListener('abort', onAbort);
       resolve();
@@ -181,8 +185,11 @@ export class RerunDecider {
   }
 
   async #stalled(run: number, found: RunResponse, token: string, abandoned: AbortSignal): Promise<boolean> {
-    const created = typeof found.created_at === 'string' ? Date.parse(found.created_at) : Number.NaN;
-    if (!((this.#policy.now ?? Date.now)() - created >= STALL_MS)) return false;
+    const created = timestamp(found.created_at);
+    if (!Number.isFinite(created)) return false;
+    const started = timestamp(found.run_started_at);
+    const queuedSince = Number.isFinite(started) ? Math.max(created, started) : created;
+    if (!((this.#policy.now ?? Date.now)() - queuedSince >= STALL_MS)) return false;
     const response = await githubRequest(this.#policy, token, 'GET', `/actions/runs/${run}/jobs`, abandoned);
     if (!response.ok) return false;
     const { jobs } = (await response.json()) as JobsResponse;
@@ -192,6 +199,7 @@ export class RerunDecider {
   async #forceCancel(run: number, token: string, abandoned: AbortSignal): Promise<RerunAnswer | null> {
     const response = await githubRequest(this.#policy, token, 'POST', `/actions/runs/${run}/force-cancel`, abandoned);
     if (!response.ok) {
+      this.#rerun -= 1;
       return { rerun: false, message: `GitHub answered ${response.status} when cancelling run ${run}` };
     }
     for (;;) {

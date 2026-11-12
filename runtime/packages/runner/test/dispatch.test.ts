@@ -3255,7 +3255,7 @@ test('given a workload and a failed run on another commit, or another branch, or
   assert.deepEqual(answers.map(({ rerun }) => rerun), [false, false, false, false]);
   assert.match(answers[0]?.message ?? '', /not on the head/);
   assert.match(answers[1]?.message ?? '', /not on the head/);
-  assert.match(answers[2]?.message ?? '', /has not failed/);
+  assert.match(answers[2]?.message ?? '', /has not failed or stalled in the queue/);
   assert.match(answers[3]?.message ?? '', /no run 4/);
 });
 
