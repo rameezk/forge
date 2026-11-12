@@ -1089,9 +1089,9 @@ whatever their size: the command broker gives every command it starts, and
 everything that command starts, the highest OOM score, so the harness, the
 runner and the broker outlive them. The agent sees its command exit with 137.
 A build the nix daemon runs is not a command, so the kernel kills the largest
-process among the builds and the workloads' other processes. The agent is told to stop and report a required command that is
-killed rather than substitute another check. The nix daemon and the workload
-carry on.
+process among the builds and the workloads' other processes. The agent is told
+to stop and report a required command that is killed rather than substitute
+another check. The nix daemon and the workload carry on.
 
 Because the budget is shared, a workload can lose a command to another
 workload or to a build. A deploy that builds while workloads are busy can fail,
