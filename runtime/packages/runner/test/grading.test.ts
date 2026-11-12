@@ -608,6 +608,9 @@ test('given each error OpenRouter documents, when Jev is asked, then the failure
     ['a non-score answer', () => new Response(JSON.stringify({ answers: { risk: { type: 'choice' } } })), 'bug'],
     ['a body read that times out', () => ({ ok: true, status: 200, json: () => Promise.reject(new DOMException('timed out', 'TimeoutError')) }) as unknown as Response, 'temporary'],
     ['a null body', () => new Response('null'), 'bug'],
+    ['a 401 with a null body', () => new Response('null', { status: 401 }), 'setup'],
+    ['a 503 with a null body', () => new Response('"down"', { status: 503 }), 'temporary'],
+    ['a coded 401 behind a 200', () => new Response(JSON.stringify({ error: { code: 401, message: 'x' } })), 'setup'],
     ['an error body behind a 200 with no code', () => new Response(JSON.stringify({ error: { message: 'Upstream failed' } })), 'temporary'],
     ['an error body behind a 200 with an absurd code', () => new Response(JSON.stringify({ error: { code: 1e21, message: 'x' } })), 'temporary'],
     ['a body that is not JSON', () => new Response('<html>', { status: 200 }), 'bug'],
@@ -623,6 +626,12 @@ test('given the key is rejected, out of credits or the model is gone, when Jev i
   assert.match((await failureOf(() => errorResponse(402, 'Insufficient credits'))).message ?? '', /no credits/);
   assert.match((await failureOf(() => errorResponse(404, 'No endpoints found'))).message ?? '', /model .* not available/);
   assert.equal((await failureOf(() => errorResponse(503, 'Service unavailable'))).message, 'OpenRouter answered 503');
+});
+
+test('given an error message with line breaks and escape characters, when Jev is asked, then the detail kept for the log carries none of them', async () => {
+  const failure = await failureOf(() => errorResponse(400, 'first\nforged line \u001b[31mred'));
+  assert.doesNotMatch(failure.detail ?? '', /[\u0000-\u001f\u007f]/);
+  assert.match(failure.detail ?? '', /first forged line/);
 });
 
 test('given OpenRouter explains a failure, when Jev is asked, then its words stay out of the message that is stored and posted and are kept as detail for the log', async () => {

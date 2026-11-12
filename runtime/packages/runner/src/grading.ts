@@ -138,8 +138,14 @@ const MAX_DETAIL_LENGTH = 300;
 
 const CONTEXT_EXCEEDED = /(maximum )?context[ _-]?(length|window)|too (large|long)/i;
 
+const printable = (text: string): string =>
+  text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, MAX_DETAIL_LENGTH);
+
 const detailOf = (error: { message?: unknown } | undefined): string =>
-  typeof error?.message === 'string' ? error.message.trim().slice(0, MAX_DETAIL_LENGTH) : '';
+  typeof error?.message === 'string' ? printable(error.message) : '';
+
+const isHttpError = (code: unknown): code is number =>
+  Number.isInteger(code) && (code as number) >= 400 && (code as number) <= 599;
 
 const failureOfResponse = (
   status: number,
@@ -176,7 +182,7 @@ const failureOfTransport = (error: unknown): GradingFailed => {
     : new GradingFailed(
         'temporary',
         'could not reach OpenRouter',
-        errorMessage(error).slice(0, MAX_DETAIL_LENGTH),
+        printable(errorMessage(error)),
       );
 };
 
@@ -210,15 +216,16 @@ export const jevDecides =
           error?: { code?: unknown; message?: unknown; metadata?: { error_type?: unknown } } | null;
         }
       | undefined;
+    if (!response.ok) {
+      const error = typeof body === 'object' && body !== null ? body.error : undefined;
+      throw failureOfResponse(response.status, error ?? undefined, model);
+    }
     if (typeof body !== 'object' || body === null) {
       throw new GradingFailed('bug', 'OpenRouter answered with something that is not JSON');
     }
-    if (!response.ok) throw failureOfResponse(response.status, body.error ?? undefined, model);
     if (body.error !== undefined && body.error !== null) {
-      const code = body.error.code;
-      if (Number.isInteger(code) && (code as number) >= 400 && (code as number) <= 599) {
-        throw failureOfResponse(code as number, body.error, model);
-      }
+      const code: unknown = body.error.code;
+      if (isHttpError(code)) throw failureOfResponse(code, body.error, model);
       throw new GradingFailed('temporary', 'OpenRouter reported an error', detailOf(body.error));
     }
     const answer = body.answers?.[QUESTION_NAME];
