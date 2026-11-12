@@ -354,8 +354,10 @@ const renderGroupControl = (grouping: Grouping): Rendered =>
     ({ value, label, href }) => html`<a href="${href}"${value === grouping ? html` aria-current="true"` : ''} class="px-3 py-1 no-underline ${value === grouping ? 'bg-raised font-semibold text-fg' : 'text-muted hover:text-fg'}${value === 'none' ? '' : ' border-l border-line'}">${label}</a>`,
   )}</div></div>`;
 
-const renderDeployError = (deploy: DeployStatus | null): Rendered =>
-  deploy === null || deploy.error === null ? '' : html`<p id="deploy-error" data-deploy-error class="${ERROR_CALLOUT} mb-3 scroll-mt-4 whitespace-pre-line text-xs">${deploy.error}</p>`;
+const renderDeployErrors = (deploy: DeployStatus | null): Rendered =>
+  deploy === null
+    ? ''
+    : html`${deploy.error === null ? '' : html`<p id="deploy-error" data-deploy-error class="${ERROR_CALLOUT} mb-3 scroll-mt-4 whitespace-pre-line text-xs">${deploy.error}</p>`}${deploy.bumpError === null ? '' : html`<p id="bump-error" data-bump-error class="${ERROR_CALLOUT} mb-3 scroll-mt-4 whitespace-pre-line text-xs">Forge bump: ${deploy.bumpError}</p>`}`;
 
 export interface GradingView extends RiskInputs {
   costUsd: number;
@@ -382,7 +384,7 @@ export const renderBoard = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, grading);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
-    ${renderDeployError(deploy)}
+    ${renderDeployErrors(deploy)}
     ${renderGradingCost(grading)}
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`

@@ -16,6 +16,7 @@ const status = (overrides: Partial<DeployStatus> = {}): DeployStatus => ({
   running: RUNNING,
   head: RUNNING,
   error: null,
+  bumpError: null,
   forge: FORGE,
   upstream: 'rameezk/forge',
   upstreamHead: FORGE,
@@ -96,6 +97,7 @@ test('given a status written before the forge fields existed, when it is read, t
     running: 'abc',
     head: 'abc',
     error: null,
+    bumpError: null,
     forge: null,
     upstream: null,
     upstreamHead: null,
@@ -112,7 +114,7 @@ test('given a status with every forge field and one it does not know, when it is
 test('given forge fields of the wrong shape, when the status is read, then each reads as unknown', () => {
   const text = JSON.stringify({ forge: 'not a commit', upstream: 'javascript:alert(1)', upstreamHead: 7, behind: -2 });
 
-  assert.deepEqual(parseDeployStatus(text), { running: null, head: null, error: null, forge: null, upstream: null, upstreamHead: null, behind: null });
+  assert.deepEqual(parseDeployStatus(text), { running: null, head: null, error: null, bumpError: null, forge: null, upstream: null, upstreamHead: null, behind: null });
   for (const upstream of ['../forge', 'owner/..', './forge']) assert.equal(parseDeployStatus(JSON.stringify({ upstream }))?.upstream, null, upstream);
 });
 
