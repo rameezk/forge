@@ -923,6 +923,21 @@ const CREATE_RISK_GRADES = `
   ) STRICT;
 `;
 
+const CREATE_GRADING_ATTEMPTS = `
+  CREATE TABLE IF NOT EXISTS grading_attempts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    repository   TEXT NOT NULL,
+    number       INTEGER NOT NULL,
+    head_sha     TEXT NOT NULL,
+    attempted_at TEXT NOT NULL,
+    category     TEXT NOT NULL,
+    message      TEXT NOT NULL,
+    check_posted INTEGER NOT NULL DEFAULT 0
+  ) STRICT;
+  CREATE INDEX IF NOT EXISTS grading_attempts_head
+    ON grading_attempts (repository, number, head_sha);
+`;
+
 const HAS_GRADE_LABELS = `
   SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'labels_applied'
 `;
@@ -986,6 +1001,78 @@ export interface RecordedRiskGrade extends RiskGrade {
   outcomeAt: string | null;
   revisions: number | null;
 }
+
+export const GRADING_FAILURES = ['temporary', 'setup', 'too-large', 'declined', 'bug'] as const;
+
+export type GradingFailure = (typeof GRADING_FAILURES)[number];
+
+export const RETRIED_GRADING_FAILURES: readonly GradingFailure[] = ['temporary', 'setup', 'bug'];
+
+export interface GradingAttempt {
+  repository: string;
+  number: number;
+  headSha: string;
+  attemptedAt: string;
+  category: GradingFailure;
+  message: string;
+}
+
+export interface GradingStatus {
+  lastSucceededAt: string | null;
+  failure: GradingAttempt | null;
+}
+
+const GRADING_RETRY_BASE_MS = 30_000;
+
+const GRADING_RETRY_CAP_MS = 3_600_000;
+
+export const notGradedTitle = ({
+  category,
+  message,
+}: Pick<GradingAttempt, 'category' | 'message'>): string =>
+  `Not graded: ${message}${RETRIED_GRADING_FAILURES.includes(category) ? ', retrying' : ''}`;
+
+export const gradingRetryDelayMs = (failures: number): number =>
+  Math.min(GRADING_RETRY_BASE_MS * 2 ** Math.min(failures - 1, 16), GRADING_RETRY_CAP_MS);
+
+type GradingAttemptRow = {
+  repository: string;
+  number: number;
+  head_sha: string;
+  attempted_at: string;
+  category: string;
+  message: string;
+  check_posted: number;
+};
+
+const gradingAttemptFromRow = (row: GradingAttemptRow): GradingAttempt => ({
+  repository: row.repository,
+  number: row.number,
+  headSha: row.head_sha,
+  attemptedAt: row.attempted_at,
+  category: row.category as GradingFailure,
+  message: row.message,
+});
+
+const LATEST_ATTEMPT_OF_UNGRADED_CURRENT_HEADS = `
+  SELECT grading_attempts.* FROM grading_attempts
+  JOIN feedback_watches
+    ON feedback_watches.repository = grading_attempts.repository
+    AND feedback_watches.number = grading_attempts.number
+    AND feedback_watches.head_sha = grading_attempts.head_sha
+  WHERE grading_attempts.id = (
+      SELECT max(id) FROM grading_attempts AS later
+      WHERE later.repository = grading_attempts.repository
+        AND later.number = grading_attempts.number
+        AND later.head_sha = grading_attempts.head_sha
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM risk_grades
+      WHERE risk_grades.repository = grading_attempts.repository
+        AND risk_grades.number = grading_attempts.number
+        AND risk_grades.head_sha = grading_attempts.head_sha
+    )
+`;
 
 export interface GradingDue {
   repository: string;
@@ -1440,6 +1527,7 @@ export class Store {
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
     this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
     db.exec(CREATE_RISK_GRADES);
+    db.exec(CREATE_GRADING_ATTEMPTS);
     this.#addColumnsOnce(HAS_GRADE_LABELS, ADD_GRADE_LABELS);
     this.#addColumnsOnce(HAS_RISK_GRADE_OUTCOME, ADD_RISK_GRADE_OUTCOME);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
@@ -2856,6 +2944,7 @@ export class Store {
       head_sha: string;
     })[];
     return rows
+      .filter((row) => !this.#gradingHeldOff(row, now))
       .filter(
         (row) =>
           !this.#revisionLive(row, now) &&
@@ -2869,6 +2958,118 @@ export class Store {
         closes: JSON.parse(row.closes) as number[],
         headSha: row.head_sha,
       }));
+  }
+
+  #gradingHeldOff(
+    head: { repository: string; number: number; head_sha: string },
+    now: string,
+  ): boolean {
+    const latest = this.#db
+      .prepare(
+        `SELECT category, attempted_at,
+          (SELECT count(*) FROM grading_attempts AS every
+            WHERE every.repository = latest.repository
+              AND every.number = latest.number
+              AND every.head_sha = latest.head_sha) AS failures
+        FROM grading_attempts AS latest
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({
+        repository: head.repository,
+        number: head.number,
+        head_sha: head.head_sha,
+      }) as { category: string; attempted_at: string; failures: number } | undefined;
+    if (latest === undefined) return false;
+    if (!RETRIED_GRADING_FAILURES.includes(latest.category as GradingFailure)) return true;
+    return Date.parse(now) < Date.parse(latest.attempted_at) + gradingRetryDelayMs(latest.failures);
+  }
+
+  recordGradingAttempt(attempt: GradingAttempt): void {
+    const previous = this.#db
+      .prepare(
+        `SELECT category, message, check_posted FROM grading_attempts
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({
+        repository: attempt.repository,
+        number: attempt.number,
+        head_sha: attempt.headSha,
+      }) as { category: string; message: string; check_posted: number } | undefined;
+    const repeated =
+      previous !== undefined &&
+      previous.check_posted === 1 &&
+      previous.category === attempt.category &&
+      previous.message === attempt.message;
+    this.#db
+      .prepare(
+        `INSERT INTO grading_attempts (
+          repository, number, head_sha, attempted_at, category, message, check_posted
+        ) VALUES (
+          $repository, $number, $head_sha, $attempted_at, $category, $message, $check_posted
+        )`,
+      )
+      .run({
+        repository: attempt.repository,
+        number: attempt.number,
+        head_sha: attempt.headSha,
+        attempted_at: attempt.attemptedAt,
+        category: attempt.category,
+        message: attempt.message,
+        check_posted: repeated ? 1 : 0,
+      });
+  }
+
+  attemptsAwaitingCheck(repositories: readonly string[]): GradingAttempt[] {
+    const rows = this.#db
+      .prepare(
+        `${LATEST_ATTEMPT_OF_UNGRADED_CURRENT_HEADS}
+          AND grading_attempts.check_posted = 0
+          AND grading_attempts.repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY grading_attempts.repository, grading_attempts.number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as GradingAttemptRow[];
+    return rows.map(gradingAttemptFromRow);
+  }
+
+  markAttemptCheckPosted(attempt: GradingAttempt): void {
+    this.#db
+      .prepare(
+        `UPDATE grading_attempts SET check_posted = 1
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha
+          AND attempted_at = $attempted_at`,
+      )
+      .run({
+        repository: attempt.repository,
+        number: attempt.number,
+        head_sha: attempt.headSha,
+        attempted_at: attempt.attemptedAt,
+      });
+  }
+
+  currentGradingAttempts(): GradingAttempt[] {
+    const rows = this.#db
+      .prepare(
+        `${LATEST_ATTEMPT_OF_UNGRADED_CURRENT_HEADS}
+        ORDER BY grading_attempts.repository, grading_attempts.number`,
+      )
+      .all() as GradingAttemptRow[];
+    return rows.map(gradingAttemptFromRow);
+  }
+
+  gradingStatus(): GradingStatus {
+    const succeeded = this.#db
+      .prepare('SELECT max(graded_at) AS at FROM risk_grades')
+      .get() as { at: string | null };
+    const failing = this.currentGradingAttempts()
+      .filter(({ category }) => RETRIED_GRADING_FAILURES.includes(category))
+      .toSorted(
+        (a, b) =>
+          Number(b.category === 'setup') - Number(a.category === 'setup') ||
+          (a.attemptedAt < b.attemptedAt ? 1 : -1),
+      );
+    return { lastSucceededAt: succeeded.at, failure: failing[0] ?? null };
   }
 
   currentRiskGrades(): RecordedRiskGrade[] {

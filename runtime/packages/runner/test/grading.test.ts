@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { Store } from '@forge/shared';
 import { main as sync } from '../../frontier/src/main.ts';
 import { main as grade } from '../src/grading-main.ts';
+import { jevDecides } from '../src/grading.ts';
 import {
   APP_ID,
   APP_SLUG,
@@ -552,4 +553,179 @@ test('given a graded commit, when the pull request merges at a newer head, then 
   f.end(7, 'MERGED', 'head-7b');
   await f.syncAndGrade([]);
   assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'superseded');
+});
+
+const SCORE_BODY = {
+  answers: { risk: { type: 'score', score: 0.4, confidence: 0.9, probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 } } },
+  usage: { cost: 0.001 },
+};
+
+const failureOf = async (respond: () => Response | Promise<Response>): Promise<{ category?: string; message?: string; detail?: string }> => {
+  const decide = jevDecides(
+    new URL('http://openrouter.test/api/alpha/decisions'),
+    'sk-or-test',
+    'typesafe/jev-1.13',
+    (async () => respond()) as typeof globalThis.fetch,
+  );
+  try {
+    await decide('state');
+  } catch (error) {
+    return error as { category?: string; message?: string; detail?: string };
+  }
+  return {};
+};
+
+const errorResponse = (status: number, message: string, metadata?: Record<string, unknown>): Response =>
+  new Response(JSON.stringify({ error: { code: status, message, ...(metadata === undefined ? {} : { metadata }) } }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+
+test('given each error OpenRouter documents, when Jev is asked, then the failure falls in the category that decides whether it is retried', async () => {
+  const cases: [string, () => Response | Promise<Response>, string][] = [
+    ['401 invalid credentials', () => errorResponse(401, 'No auth credentials found'), 'setup'],
+    ['402 insufficient credits', () => errorResponse(402, 'Insufficient credits'), 'setup'],
+    ['403 forbidden', () => errorResponse(403, 'Key limit exceeded'), 'setup'],
+    ['404 model not found', () => errorResponse(404, 'No endpoints found for typesafe/jev-1.13'), 'setup'],
+    ['408 timed out', () => errorResponse(408, 'Request timed out'), 'temporary'],
+    ['429 rate limited', () => errorResponse(429, 'Rate limit exceeded'), 'temporary'],
+    ['500 server error', () => errorResponse(500, 'Internal Server Error'), 'temporary'],
+    ['502 provider down', () => errorResponse(502, 'Provider returned error'), 'temporary'],
+    ['503 unavailable', () => errorResponse(503, 'Service unavailable'), 'temporary'],
+    ['504 timeout', () => errorResponse(504, 'Gateway timeout'), 'temporary'],
+    ['524 edge timeout', () => errorResponse(524, 'Timeout'), 'temporary'],
+    ['529 overloaded', () => errorResponse(529, 'Overloaded'), 'temporary'],
+    ['an error body behind a 200', () => new Response(JSON.stringify({ error: { code: 502, message: 'Upstream failed' } })), 'temporary'],
+    ['a dropped connection', () => Promise.reject(new TypeError('fetch failed')), 'temporary'],
+    ['a client timeout', () => Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError')), 'temporary'],
+    ['413 payload too large', () => errorResponse(413, 'Payload too large'), 'too-large'],
+    ['400 context length exceeded by type', () => errorResponse(400, 'Request rejected', { error_type: 'context_length_exceeded' }), 'too-large'],
+    ['400 context length exceeded by message', () => errorResponse(400, "This model's maximum context length is 262144 tokens"), 'too-large'],
+    ['400 exceeding a rate limit', () => errorResponse(400, 'request exceeds the rate limit of the key'), 'bug'],
+    ['400 bad request', () => errorResponse(400, 'questions.risk.criteria must not be empty'), 'bug'],
+    ['422 validation', () => errorResponse(422, 'Invalid criteria'), 'bug'],
+    ['a refusal', () => new Response(JSON.stringify({ answers: { risk: { type: 'refusal' } } })), 'declined'],
+    ['a non-score answer', () => new Response(JSON.stringify({ answers: { risk: { type: 'choice' } } })), 'bug'],
+    ['a body read that times out', () => ({ ok: true, status: 200, json: () => Promise.reject(new DOMException('timed out', 'TimeoutError')) }) as unknown as Response, 'temporary'],
+    ['a null body', () => new Response('null'), 'bug'],
+    ['a 401 with a null body', () => new Response('null', { status: 401 }), 'setup'],
+    ['a 503 with a non-object body', () => new Response('"down"', { status: 503 }), 'temporary'],
+    ['a coded 401 behind a 200', () => new Response(JSON.stringify({ error: { code: 401, message: 'x' } })), 'setup'],
+    ['an error body behind a 200 with no code', () => new Response(JSON.stringify({ error: { message: 'Upstream failed' } })), 'temporary'],
+    ['an error body behind a 200 with an absurd code', () => new Response(JSON.stringify({ error: { code: 1e21, message: 'x' } })), 'temporary'],
+    ['a body that is not JSON', () => new Response('<html>', { status: 200 }), 'bug'],
+  ];
+  for (const [name, respond, expected] of cases) {
+    assert.equal((await failureOf(respond)).category, expected, name);
+  }
+  assert.equal((await failureOf(() => new Response(JSON.stringify(SCORE_BODY)))).category, undefined);
+});
+
+test('given the key is rejected, out of credits or the model is gone, when Jev is asked, then the message says so in words an operator can act on', async () => {
+  assert.match((await failureOf(() => errorResponse(401, 'No auth credentials found'))).message ?? '', /OpenRouter rejected the key/);
+  assert.match((await failureOf(() => errorResponse(402, 'Insufficient credits'))).message ?? '', /no credits/);
+  assert.match((await failureOf(() => errorResponse(404, 'No endpoints found'))).message ?? '', /model .* not available/);
+  assert.equal((await failureOf(() => errorResponse(503, 'Service unavailable'))).message, 'OpenRouter answered 503');
+});
+
+test('given an error message with line breaks and escape characters, when Jev is asked, then the detail kept for the log carries none of them', async () => {
+  const failure = await failureOf(() => errorResponse(400, 'first\nforged\u0085line\u2028two \u001b[31mred \u009b\u202ereversed'));
+  assert.doesNotMatch(failure.detail ?? '', /[\p{Cc}\p{Cf}\u2028\u2029]/u);
+  assert.match(failure.detail ?? '', /^first forged line two  \[31mred  reversed$/);
+});
+
+test('given OpenRouter explains a failure, when Jev is asked, then its words stay out of the message that is stored and posted and are kept as detail for the log', async () => {
+  const failure = (await failureOf(() => errorResponse(400, 'questions.risk echoed ticket-text'))) as { message?: string; detail?: string };
+  assert.equal(failure.message, 'OpenRouter rejected the request with 400');
+  assert.match(failure.detail ?? '', /echoed ticket-text/);
+});
+
+test('given Jev answers with a server error, when forge-grading runs, then the attempt is recorded as temporary, the check run says it is retrying, and an immediate run sends nothing', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.answerWith({ status: 503, body: { error: { code: 503, message: 'Service unavailable' } } });
+  await f.syncAndGrade([READY]);
+
+  assert.equal(f.jevRequests.length, 1);
+  const attempts = f.withStore((store) => store.currentGradingAttempts());
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0]?.category, 'temporary');
+  assert.equal(attempts[0]?.headSha, 'head-7');
+  assert.equal(attempts[0]?.message, 'OpenRouter answered 503');
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')), null);
+
+  assert.equal(f.checkRuns.length, 1);
+  const check = f.checkRuns[0]?.body as { name: string; conclusion: string; output: { title: string } };
+  assert.equal(check.name, 'forge/risk');
+  assert.equal(check.conclusion, 'neutral');
+  assert.equal(check.output.title, 'Not graded: OpenRouter answered 503, retrying');
+  assert.deepEqual(f.labelsOf(7), ['bug']);
+
+  await f.syncAndGrade([READY]);
+  assert.equal(f.jevRequests.length, 1);
+  assert.equal(f.checkRuns.length, 1);
+});
+
+test('given OpenRouter rejects the key, when forge-grading runs, then the attempt is recorded as setup and the dashboard status carries the message', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.answerWith({ status: 401, body: { error: { code: 401, message: 'No auth credentials found' } } });
+  await f.syncAndGrade([READY]);
+
+  const status = f.withStore((store) => store.gradingStatus());
+  assert.equal(status.failure?.category, 'setup');
+  assert.match(status.failure?.message ?? '', /OpenRouter rejected the key/);
+  const check = f.checkRuns[0]?.body as { output: { title: string } };
+  assert.equal(check.output.title, 'Not graded: OpenRouter rejected the key, retrying');
+});
+
+test('given Jev declines or the input is too large, when forge-grading runs again on the same head, then no request is sent and the check run says declined or too large', async (t) => {
+  for (const [answer, category, title] of [
+    [{ body: { answers: { risk: { type: 'refusal' } } } }, 'declined', 'Not graded: Jev declined to answer'],
+    [{ status: 413, body: { error: { code: 413, message: 'Payload too large' } } }, 'too-large', 'Not graded: the input does not fit Jev\'s context window'],
+  ] as [Answer, string, string][]) {
+    const f = await forge();
+    t.after(f.close);
+    f.answerWith(answer);
+    await f.syncAndGrade([READY]);
+    await f.syncAndGrade([READY]);
+    await f.syncAndGrade([READY]);
+
+    assert.equal(f.jevRequests.length, 1, category);
+    assert.equal(f.withStore((store) => store.currentGradingAttempts()[0]?.category), category);
+    assert.equal(f.checkRuns.length, 1, category);
+    assert.equal((f.checkRuns[0]?.body as { output: { title: string } }).output.title, title);
+    assert.equal(f.withStore((store) => store.gradingStatus().failure), null, category);
+  }
+});
+
+test('given a failure on a head and a new head after a revision, when forge-grading runs, then the new head is asked about at once', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.answerWith({ body: { answers: { risk: { type: 'refusal' } } } });
+  await f.syncAndGrade([READY]);
+  f.answerWith(decision({ trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 }, 0.9));
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+
+  assert.equal(f.jevRequests.length, 2);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7b')?.level), 'low');
+});
+
+test('given the check run for a failure is refused, when forge-grading runs again once it is accepted, then it is posted without asking Jev again', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.answerWith({ body: { answers: { risk: { type: 'refusal' } } } });
+  f.acceptCheckRuns(false);
+  f.setPulls([READY]);
+  const synced = await journaled(() => sync(['sync'], f.env, f.fetch));
+  assert.equal(synced.result, 0, synced.journal);
+  assert.equal(await f.grade(), 1);
+  assert.equal(f.checkRuns.length, 0);
+
+  f.acceptCheckRuns(true);
+  assert.equal(await f.grade(), 0);
+  assert.equal(f.jevRequests.length, 1);
+  assert.equal(f.checkRuns.length, 1);
+  assert.equal(await f.grade(), 0);
+  assert.equal(f.checkRuns.length, 1);
 });

@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, RISK_LEVELS, type ConflictResolutionRecord, type RecordedRiskGrade, type RiskLevel, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type GradingStatus, type RecordedRiskGrade, type RiskLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
 import { formatCost, formatElapsed } from '../format.ts';
@@ -79,9 +79,24 @@ const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`;
 const runnerUpOf = ({ level, probabilities }: RecordedRiskGrade): RiskLevel =>
   RISK_LEVELS.filter((other) => other !== level).reduce((best, other) => (probabilities[other] > probabilities[best] ? other : best));
 
+const NOT_GRADED_TEXT: Record<GradingAttempt['category'], string> = {
+  temporary: 'not graded',
+  setup: 'not graded',
+  bug: 'not graded',
+  declined: 'declined',
+  'too-large': 'too large',
+};
+
+const renderNotGraded = ({ category, message }: GradingAttempt): Rendered => {
+  const retried = RETRIED_GRADING_FAILURES.includes(category);
+  const tone = category === 'setup' || category === 'bug' ? 'bg-error-soft text-error' : QUEUED_TONE;
+  return html`<p class="${MUTED_LINE}"><span data-risk="${category}" title="${notGradedTitle({ category, message })}" class="${PILL} ${tone} whitespace-nowrap">${NOT_GRADED_TEXT[category]}</span>${retried ? html` <span data-risk-retrying class="text-xs whitespace-nowrap text-muted">${category}, retrying</span>` : ''}</p>`;
+};
+
 const renderRisk = (risk: CardRisk): Rendered => {
   if (risk === null) return '';
   if (risk === 'grading') return html`<p class="${MUTED_LINE}"><span data-risk="grading" title="Risk grade pending for the current head commit" class="${PILL} ${QUEUED_TONE}">grading</span></p>`;
+  if ('category' in risk) return renderNotGraded(risk);
   const title = `Risk ${risk.level}, confidence ${percent(risk.confidence)}${risk.unsettled ? `, unsettled, possibly ${runnerUpOf(risk)}` : ''}`;
   return html`<p class="${MUTED_LINE}"><span data-risk="${risk.level}"${risk.unsettled ? raw(' data-risk-unsettled') : ''} title="${title}" class="${PILL} ${RISK_TONE[risk.level]} tabular-nums whitespace-nowrap">${risk.level} ${percent(risk.confidence)}</span>${risk.unsettled ? html` <span data-risk-alternative title="Possible alternative" class="text-xs whitespace-nowrap text-muted">or ${runnerUpOf(risk)}</span>` : ''}</p>`;
 };
@@ -361,7 +376,23 @@ const renderDeployErrors = (deploy: DeployStatus | null): Rendered =>
 
 export interface GradingView extends RiskInputs {
   costUsd: number;
+  status: GradingStatus;
 }
+
+const renderSucceeded = (lastSucceededAt: string | null): Rendered =>
+  lastSucceededAt === null
+    ? html`Grading has not succeeded yet`
+    : html`Grading last succeeded <span data-elapsed-since="${lastSucceededAt}">${formatElapsed(Date.now() - Date.parse(lastSucceededAt))}</span> ago`;
+
+const renderGradingStatus = ({ repositories, status }: GradingView): Rendered => {
+  if (repositories.size === 0) return '';
+  const { failure } = status;
+  if (failure === null) return html`<p data-grading-status class="m-0 mb-3 text-xs text-muted">${renderSucceeded(status.lastSucceededAt)}</p>`;
+  if (failure.category === 'setup') {
+    return html`<p data-grading-status data-grading-failing="setup" data-grading-setup class="${ERROR_CALLOUT} mb-3 text-xs" title="${failure.message}">Grading needs attention - setup: ${failure.message}. ${renderSucceeded(status.lastSucceededAt)}.</p>`;
+  }
+  return html`<p data-grading-status data-grading-failing="${failure.category}" class="m-0 mb-3 text-xs text-warning" title="${failure.message}">${renderSucceeded(status.lastSucceededAt)} - failing: ${failure.category} - ${failure.message}</p>`;
+};
 
 const renderGradingCost = ({ repositories, costUsd }: GradingView): Rendered =>
   repositories.size === 0 && costUsd === 0
@@ -380,11 +411,12 @@ export const renderBoard = (
   display: Display,
   grouping: Grouping = 'none',
   deploy: DeployStatus | null = null,
-  grading: GradingView = { repositories: new Set(), grades: new Map(), costUsd: 0 },
+  grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map(), costUsd: 0, status: { lastSucceededAt: null, failure: null } },
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, grading);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
     ${renderDeployErrors(deploy)}
+    ${renderGradingStatus(grading)}
     ${renderGradingCost(grading)}
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`

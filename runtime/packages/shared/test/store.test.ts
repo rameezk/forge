@@ -8,6 +8,8 @@ import { once } from 'node:events';
 import { Worker } from 'node:worker_threads';
 import { fingerprintHash, Store } from '../src/index.ts';
 import type {
+  GradingAttempt,
+  GradingFailure,
   ConfigFingerprint,
   RunFingerprint,
   RunRecord,
@@ -1476,4 +1478,159 @@ test('given a store file whose frontier predates branch rules, when the store is
   } finally {
     store.close();
   }
+});
+
+const watchedHead = (store: Store, number: number, headSha: string): void => {
+  store.recordWatchedPullRequests('forge', [
+    {
+      number,
+      url: `https://github.com/rameezk/forge/pull/${number}`,
+      closes: [10],
+      newestFeedbackAt: null,
+      mergeable: 'MERGEABLE',
+      headSha,
+      draft: false,
+      defaultSha: 'main0',
+    },
+  ]);
+};
+
+const failure = (
+  category: GradingFailure,
+  attemptedAt: string,
+  overrides: Partial<GradingAttempt> = {},
+): GradingAttempt => ({
+  repository: 'forge',
+  number: 7,
+  headSha: 'head-7',
+  attemptedAt,
+  category,
+  message: `${category} message`,
+  ...overrides,
+});
+
+const dueAt = (store: Store, now: string): number[] =>
+  store.gradingDue(['forge'], now).map(({ number }) => number);
+
+test('given temporary, setup and bug failures, when time passes, then the head is due again on a backoff that doubles up to an hour', () => {
+  for (const category of ['temporary', 'setup', 'bug'] as const) {
+    const store = Store.open(':memory:');
+    watchedHead(store, 7, 'head-7');
+    assert.deepEqual(dueAt(store, '2026-10-01T10:00:00.000Z'), [7]);
+
+    store.recordGradingAttempt(failure(category, '2026-10-01T10:00:00.000Z'));
+    assert.deepEqual(dueAt(store, '2026-10-01T10:00:01.000Z'), [], category);
+    assert.deepEqual(dueAt(store, '2026-10-01T10:00:30.000Z'), [7], category);
+
+    store.recordGradingAttempt(failure(category, '2026-10-01T10:00:30.000Z'));
+    assert.deepEqual(dueAt(store, '2026-10-01T10:01:00.000Z'), [], category);
+    assert.deepEqual(dueAt(store, '2026-10-01T10:01:30.000Z'), [7], category);
+
+    for (let again = 0; again < 10; again += 1) {
+      store.recordGradingAttempt(failure(category, `2026-10-01T11:00:0${again}.000Z`));
+    }
+    assert.deepEqual(dueAt(store, '2026-10-01T11:59:00.000Z'), [], category);
+    assert.deepEqual(dueAt(store, '2026-10-01T12:00:10.000Z'), [7], category);
+    store.close();
+  }
+});
+
+test('given a declined or too large failure, when time passes, then that head is never due again but a new head is', () => {
+  for (const category of ['declined', 'too-large'] as const) {
+    const store = Store.open(':memory:');
+    watchedHead(store, 7, 'head-7');
+    store.recordGradingAttempt(failure(category, '2026-10-01T10:00:00.000Z'));
+    assert.deepEqual(dueAt(store, '2027-10-01T10:00:00.000Z'), [], category);
+
+    watchedHead(store, 7, 'head-8');
+    assert.deepEqual(dueAt(store, '2026-10-01T10:00:01.000Z'), [7], category);
+    store.close();
+  }
+});
+
+test('given a failing attempt on a head, when the dashboard reads the store, then the head shows its latest attempt and the status line the latest failure', () => {
+  const store = Store.open(':memory:');
+  watchedHead(store, 7, 'head-7');
+  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: null, failure: null });
+
+  store.recordGradingAttempt(failure('temporary', '2026-10-01T10:00:00.000Z', { message: 'first' }));
+  store.recordGradingAttempt(failure('setup', '2026-10-01T10:01:00.000Z', { message: 'second' }));
+
+  assert.deepEqual(
+    store.currentGradingAttempts().map(({ number, category, message }) => ({ number, category, message })),
+    [{ number: 7, category: 'setup', message: 'second' }],
+  );
+  assert.deepEqual(store.gradingStatus().failure, failure('setup', '2026-10-01T10:01:00.000Z', { message: 'second' }));
+  store.close();
+});
+
+test('given a failing head and a later grade of another head, when the dashboard reads the store, then grading is still failing until the failing head is graded', () => {
+  const store = Store.open(':memory:');
+  watchedHead(store, 7, 'head-7');
+  watchedHead(store, 8, 'head-8');
+  const grade = (number: number, gradedAt: string) => ({
+    repository: 'forge',
+    number,
+    headSha: `head-${number}`,
+    fingerprint: 'm:abc',
+    model: 'm',
+    probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 },
+    score: 0.4,
+    confidence: 0.9,
+    level: 'low' as const,
+    unsettled: false,
+    costUsd: 0.01,
+    gradedAt,
+  });
+  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: null, failure: null });
+  store.recordGradingAttempt(failure('setup', '2026-10-01T10:00:00.000Z'));
+  store.recordRiskGrade(grade(8, '2026-10-01T10:05:00.000Z'));
+
+  assert.equal(store.gradingStatus().lastSucceededAt, '2026-10-01T10:05:00.000Z');
+  assert.equal(store.gradingStatus().failure?.category, 'setup');
+
+  store.recordRiskGrade(grade(7, '2026-10-01T10:06:00.000Z'));
+  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: '2026-10-01T10:06:00.000Z', failure: null });
+  store.close();
+});
+
+test('given a setup failure and a newer temporary failure on other heads, when the dashboard reads the store, then the status line reports the setup failure', () => {
+  const store = Store.open(':memory:');
+  watchedHead(store, 7, 'head-7');
+  watchedHead(store, 8, 'head-8');
+  store.recordGradingAttempt(failure('setup', '2026-10-01T10:00:00.000Z'));
+  store.recordGradingAttempt(failure('temporary', '2026-10-01T10:05:00.000Z', { number: 8, headSha: 'head-8' }));
+  assert.equal(store.gradingStatus().failure?.category, 'setup');
+  store.close();
+});
+
+test('given a declined or too large head only, when the dashboard reads the store, then grading is not reported as failing', () => {
+  const store = Store.open(':memory:');
+  watchedHead(store, 7, 'head-7');
+  store.recordGradingAttempt(failure('declined', '2026-10-01T10:00:00.000Z'));
+  assert.equal(store.gradingStatus().failure, null);
+  store.close();
+});
+
+test('given grading is failing for every pull request, when a dispatch is counted, then the review slots and live workloads are what they were', () => {
+  const store = Store.open(':memory:');
+  watchedHead(store, 7, 'head-7');
+  const now = '2026-10-01T10:00:00.000Z';
+  const before = JSON.stringify([store.reviewSlotsTaken(now), store.liveWorkloads(now)]);
+  store.recordGradingAttempt(failure('setup', now));
+  assert.equal(JSON.stringify([store.reviewSlotsTaken(now), store.liveWorkloads(now)]), before);
+  store.close();
+});
+
+test('given an attempt that repeats the previous one, when it is recorded, then only the first is awaiting a check run until it is marked posted', () => {
+  const store = Store.open(':memory:');
+  watchedHead(store, 7, 'head-7');
+  store.recordGradingAttempt(failure('temporary', '2026-10-01T10:00:00.000Z'));
+  assert.equal(store.attemptsAwaitingCheck(['forge']).length, 1);
+  store.markAttemptCheckPosted(failure('temporary', '2026-10-01T10:00:00.000Z'));
+  store.recordGradingAttempt(failure('temporary', '2026-10-01T10:00:30.000Z'));
+  assert.equal(store.attemptsAwaitingCheck(['forge']).length, 0);
+  store.recordGradingAttempt(failure('setup', '2026-10-01T10:01:30.000Z'));
+  assert.equal(store.attemptsAwaitingCheck(['forge']).length, 1);
+  store.close();
 });

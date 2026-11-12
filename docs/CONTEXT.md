@@ -200,6 +200,9 @@ _Avoid_: risk score, PR score, rating
 What happened to a risk grade's head commit: open until the pull request is merged at that commit (`merged`), receives a new head (`superseded`) or is closed unmerged (`closed`), recorded with the number of revisions the pull request had completed. It lives in forge's store, the only source a later auto-merge rule reads.
 _Avoid_: grade result, verdict
 
+**Grading attempt**:
+One request to Jev for a head commit that produced no level, recorded with its head commit, time, category and message. The categories are temporary, setup, too large, declined and bug. Temporary, setup and bug attempts are retried on a backoff up to hourly; too large and declined are never retried for that head commit.
+
 **Grading fingerprint**:
 What a risk grade was produced under: the configured Jev model and a hash of the question and its level descriptions. Grades sharing one form a grading cohort, compared like workload cohorts but never mixed with them.
 _Avoid_: grader version
