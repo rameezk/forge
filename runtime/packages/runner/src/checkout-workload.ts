@@ -38,6 +38,7 @@ export const launchInCheckout = async ({
   config,
   worker,
   github,
+  workflows,
   branch,
   instruction,
   app,
@@ -53,6 +54,7 @@ export const launchInCheckout = async ({
   config: RuntimeConfig;
   worker: Worker;
   github: string;
+  workflows: boolean;
   branch?: string;
   instruction?: string;
   app: GithubApp;
@@ -68,7 +70,7 @@ export const launchInCheckout = async ({
   const nixSystem = nixSystemOf(env);
   const hostEnv = withoutCredentials(env);
   const redactions: string[] = [];
-  const minted = await app.mint(github, 'workload');
+  const minted = await app.mint(github, 'workload', { workflows });
   const tokenFile = GithubTokenFile.create(
     join(stateDirOf(env), 'credentials'),
     runId,
@@ -78,7 +80,7 @@ export const launchInCheckout = async ({
   const stopRefreshing = keepFresh(
     tokenFile,
     minted,
-    () => app.mint(github, 'workload'),
+    () => app.mint(github, 'workload', { workflows }),
     (error) =>
       console.error(`could not refresh the workload's GitHub token: ${errorMessage(error)}`),
   );

@@ -4,7 +4,7 @@ import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
 import { formatCost, formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, type BoardGrading, type Risk, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
-import { type Rendered, shortCommit, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
+import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
 
@@ -354,22 +354,8 @@ const renderGroupControl = (grouping: Grouping): Rendered =>
     ({ value, label, href }) => html`<a href="${href}"${value === grouping ? html` aria-current="true"` : ''} class="px-3 py-1 no-underline ${value === grouping ? 'bg-raised font-semibold text-fg' : 'text-muted hover:text-fg'}${value === 'none' ? '' : ' border-l border-line'}">${label}</a>`,
   )}</div></div>`;
 
-const renderDeployStatus = (deploy: DeployStatus | null): Rendered => {
-  if (deploy === null) return '';
-  const current = deploy.running !== null && deploy.running === deploy.head;
-  return html`<section data-deploy-status aria-label="Deploy status" class="mb-3 text-xs text-muted">
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span class="font-semibold uppercase tracking-[0.05em]">Deploy</span>
-      <span title="The operator commit the box runs">Running ${deploy.running === null ? 'unknown' : html`<code class="font-mono text-fg">${shortCommit(deploy.running)}</code>`}</span>
-      ${current
-        ? html`<span data-deploy-current class="${PILL} ${MERGED_TONE}">up to date</span>`
-        : deploy.head === null
-          ? ''
-          : html`<span title="The commit at the head of the operator repository's main">Head <code class="font-mono text-fg">${shortCommit(deploy.head)}</code></span>`}
-    </div>
-    ${deploy.error === null ? '' : html`<p data-deploy-error class="${ERROR_CALLOUT} mt-1.5 whitespace-pre-line">${deploy.error}</p>`}
-  </section>`;
-};
+const renderDeployError = (deploy: DeployStatus | null): Rendered =>
+  deploy === null || deploy.error === null ? '' : html`<p id="deploy-error" data-deploy-error class="${ERROR_CALLOUT} mb-3 scroll-mt-4 whitespace-pre-line text-xs">${deploy.error}</p>`;
 
 const renderGradingCost = (costUsd: number | null): Rendered =>
   costUsd === null
@@ -392,7 +378,7 @@ export const renderBoard = (
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, grading);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
-    ${renderDeployStatus(deploy)}
+    ${renderDeployError(deploy)}
     ${renderGradingCost(grading.costUsd)}
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`

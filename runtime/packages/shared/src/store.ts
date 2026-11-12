@@ -923,6 +923,14 @@ const CREATE_RISK_GRADES = `
   ) STRICT;
 `;
 
+const HAS_GRADE_LABELS = `
+  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'labels_applied'
+`;
+
+const ADD_GRADE_LABELS = `
+  ALTER TABLE risk_grades ADD COLUMN labels_applied INTEGER NOT NULL DEFAULT 0;
+`;
+
 const HAS_RISK_GRADE_OUTCOME = `
   SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'outcome'
 `;
@@ -964,6 +972,11 @@ export interface RiskGrade {
   gradedAt: string;
 }
 
+export interface DisplayedGrade extends RecordedRiskGrade {
+  checkPosted: boolean;
+  labelsApplied: boolean;
+}
+
 export const GRADE_OUTCOMES = ['open', 'merged', 'superseded', 'closed'] as const;
 
 export type GradeOutcome = (typeof GRADE_OUTCOMES)[number];
@@ -995,10 +1008,18 @@ type RiskGradeRow = {
   unsettled: number;
   cost_usd: number;
   graded_at: string;
+  check_posted: number;
+  labels_applied: number;
   outcome: string;
   outcome_at: string | null;
   revisions: number | null;
 };
+
+const displayedGradeFromRow = (row: RiskGradeRow): DisplayedGrade => ({
+  ...riskGradeFromRow(row),
+  checkPosted: row.check_posted === 1,
+  labelsApplied: row.labels_applied === 1,
+});
 
 const riskGradeFromRow = (row: RiskGradeRow): RecordedRiskGrade => ({
   repository: row.repository,
@@ -1419,6 +1440,7 @@ export class Store {
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
     this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
     db.exec(CREATE_RISK_GRADES);
+    this.#addColumnsOnce(HAS_GRADE_LABELS, ADD_GRADE_LABELS);
     this.#addColumnsOnce(HAS_RISK_GRADE_OUTCOME, ADD_RISK_GRADE_OUTCOME);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
     this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
@@ -2849,18 +2871,34 @@ export class Store {
       }));
   }
 
-  gradesAwaitingCheck(repositories: readonly string[]): RecordedRiskGrade[] {
+  gradesAwaitingDisplay(repositories: readonly string[]): DisplayedGrade[] {
     const rows = this.#db
       .prepare(
         `SELECT risk_grades.* FROM risk_grades
         JOIN feedback_watches USING (repository, number, head_sha)
-        WHERE risk_grades.check_posted = 0
+        WHERE (risk_grades.check_posted = 0 OR risk_grades.labels_applied = 0)
           AND feedback_watches.mergeable IS NOT NULL
           AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
         ORDER BY risk_grades.repository, risk_grades.number`,
       )
       .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
-    return rows.map(riskGradeFromRow);
+    return rows.map(displayedGradeFromRow);
+  }
+
+  gradesWithStaleLabels(repositories: readonly string[]): DisplayedGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT risk_grades.* FROM risk_grades
+        JOIN feedback_watches USING (repository, number)
+        WHERE risk_grades.labels_applied = 1
+          AND feedback_watches.mergeable IS NOT NULL
+          AND feedback_watches.head_sha IS NOT NULL
+          AND feedback_watches.head_sha <> risk_grades.head_sha
+          AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY risk_grades.repository, risk_grades.number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
+    return rows.map(displayedGradeFromRow);
   }
 
   markCheckPosted(grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>): void {
@@ -2870,6 +2908,27 @@ export class Store {
         WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
       )
       .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
+  }
+
+  markLabelsApplied(
+    grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>,
+    applied: boolean,
+  ): void {
+    this.#transaction(() => {
+      this.#db
+        .prepare(
+          `UPDATE risk_grades SET labels_applied = 0
+          WHERE repository = $repository AND number = $number`,
+        )
+        .run({ repository: grade.repository, number: grade.number });
+      if (!applied) return;
+      this.#db
+        .prepare(
+          `UPDATE risk_grades SET labels_applied = 1
+          WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
+        )
+        .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
+    });
   }
 
   recordRiskGrade(grade: RiskGrade): void {

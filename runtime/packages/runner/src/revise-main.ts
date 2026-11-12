@@ -141,6 +141,7 @@ export const main = async (
             promptTemplate: worker.prompt,
           },
           github: repository.github,
+          workflows: repository.workflows,
           branch: pullRequest.branch,
           instruction: REVISION_INSTRUCTION,
           app,
