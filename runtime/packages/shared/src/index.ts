@@ -145,6 +145,7 @@ export type {
   ActivePair,
   RanPair,
   CohortActivity,
+  CohortFailures,
   CohortInsight,
   InsightKind,
   InsightKindFilter,
@@ -155,7 +156,7 @@ export type {
   ProviderShare,
   WorkloadOutcome,
 } from './insights.ts';
-export { INSIGHT_KIND_FILTERS } from './insights.ts';
+export { INSIGHT_KIND_FILTERS, noFailures, sumFailures } from './insights.ts';
 export { countEvent, countEvents, noCounters } from './counters.ts';
 export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';
 export {
@@ -204,7 +205,9 @@ export {
   type GradingDue,
   type ListPriceEquivalent,
   type DisplayedGrade,
+  type RecordedRiskGrade,
   type RiskGrade,
+  type GradeOutcome,
   type RiskLevel,
   type WorkloadSpend,
 } from './store.ts';

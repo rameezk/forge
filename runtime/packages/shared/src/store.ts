@@ -47,10 +47,11 @@ import type {
 } from './generation.ts';
 import type { WatchedPullRequest } from './feedback.ts';
 import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from './attempts.ts';
+import { UNKNOWN_COHORT } from './fingerprint.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
 import { DIAGNOSED_FAILURES } from './diagnosis.ts';
-import type { DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from './diagnosis.ts';
+import type { DiagnosisCategory, DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from './diagnosis.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
 import type { ActivePair, CohortActivity, CohortInsight, InsightKind, InsightOutcome, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
 import type { RunSkillLoad } from './skill-loads.ts';
@@ -583,6 +584,7 @@ type InsightRow = {
   pr_number: number | null;
   pr_state: string | null;
   pr_rework: number | null;
+  diagnosis: string | null;
 };
 
 const pullRequestOfRow = (row: InsightRow): { state: PullRequestState; rework: number | null } | null =>
@@ -912,6 +914,9 @@ const CREATE_RISK_GRADES = `
     cost_usd      REAL NOT NULL,
     graded_at     TEXT NOT NULL,
     check_posted  INTEGER NOT NULL DEFAULT 0,
+    outcome       TEXT NOT NULL DEFAULT 'open',
+    outcome_at    TEXT,
+    revisions     INTEGER,
     PRIMARY KEY (repository, number, head_sha)
   ) STRICT;
 `;
@@ -922,6 +927,16 @@ const HAS_GRADE_LABELS = `
 
 const ADD_GRADE_LABELS = `
   ALTER TABLE risk_grades ADD COLUMN labels_applied INTEGER NOT NULL DEFAULT 0;
+`;
+
+const HAS_RISK_GRADE_OUTCOME = `
+  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'outcome'
+`;
+
+const ADD_RISK_GRADE_OUTCOME = `
+  ALTER TABLE risk_grades ADD COLUMN outcome TEXT NOT NULL DEFAULT 'open';
+  ALTER TABLE risk_grades ADD COLUMN outcome_at TEXT;
+  ALTER TABLE risk_grades ADD COLUMN revisions INTEGER;
 `;
 
 const CREATE_FEEDBACK_WATCHES = `
@@ -955,9 +970,19 @@ export interface RiskGrade {
   gradedAt: string;
 }
 
-export interface DisplayedGrade extends RiskGrade {
+export interface DisplayedGrade extends RecordedRiskGrade {
   checkPosted: boolean;
   labelsApplied: boolean;
+}
+
+export const GRADE_OUTCOMES = ['open', 'merged', 'superseded', 'closed'] as const;
+
+export type GradeOutcome = (typeof GRADE_OUTCOMES)[number];
+
+export interface RecordedRiskGrade extends RiskGrade {
+  outcome: GradeOutcome;
+  outcomeAt: string | null;
+  revisions: number | null;
 }
 
 export interface GradingDue {
@@ -983,6 +1008,9 @@ type RiskGradeRow = {
   graded_at: string;
   check_posted: number;
   labels_applied: number;
+  outcome: string;
+  outcome_at: string | null;
+  revisions: number | null;
 };
 
 const displayedGradeFromRow = (row: RiskGradeRow): DisplayedGrade => ({
@@ -991,7 +1019,7 @@ const displayedGradeFromRow = (row: RiskGradeRow): DisplayedGrade => ({
   labelsApplied: row.labels_applied === 1,
 });
 
-const riskGradeFromRow = (row: RiskGradeRow): RiskGrade => ({
+const riskGradeFromRow = (row: RiskGradeRow): RecordedRiskGrade => ({
   repository: row.repository,
   number: row.number,
   headSha: row.head_sha,
@@ -1004,6 +1032,9 @@ const riskGradeFromRow = (row: RiskGradeRow): RiskGrade => ({
   unsettled: row.unsettled === 1,
   costUsd: row.cost_usd,
   gradedAt: row.graded_at,
+  outcome: row.outcome as GradeOutcome,
+  outcomeAt: row.outcome_at,
+  revisions: row.revisions,
 });
 
 type FeedbackWatchRow = {
@@ -1408,6 +1439,7 @@ export class Store {
     this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
     db.exec(CREATE_RISK_GRADES);
     this.#addColumnsOnce(HAS_GRADE_LABELS, ADD_GRADE_LABELS);
+    this.#addColumnsOnce(HAS_RISK_GRADE_OUTCOME, ADD_RISK_GRADE_OUTCOME);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
     this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
@@ -1630,6 +1662,11 @@ export class Store {
       )
       .all() as { hash: string; fingerprint: string }[];
     return rows.map(({ hash, fingerprint }) => ({ hash, fingerprint: JSON.parse(fingerprint) as ConfigFingerprint }));
+  }
+
+  runCohorts(): Map<string, string> {
+    const rows = this.#db.prepare('SELECT id, fingerprint_hash FROM runs').all() as { id: string; fingerprint_hash: string | null }[];
+    return new Map(rows.map(({ id, fingerprint_hash }) => [id, fingerprint_hash ?? UNKNOWN_COHORT]));
   }
 
   hasUnknownConfigRuns(): boolean {
@@ -1969,7 +2006,8 @@ export class Store {
           r.cost_status = 'subscription' AS list_price,
           r.input_tokens, r.cache_read_tokens, r.cache_write_tokens, r.tool_calls, r.retries,
           ${INSIGHT_KIND} AS kind, COALESCE(d.state, v.state, c.state) AS outcome,
-          d.pr_number, d.pr_state, d.pr_rework
+          d.pr_number, d.pr_state, d.pr_rework,
+          (SELECT CASE WHEN state = 'done' THEN category END FROM diagnoses WHERE failed_run_id = r.id ORDER BY id DESC LIMIT 1) AS diagnosis
         ${INSIGHT_FROM}${INSIGHT_WHERE}`,
       )
       .all(insightParameters(filter)) as InsightRow[];
@@ -2027,6 +2065,7 @@ export class Store {
         toolCalls: row.tool_calls,
         retries: row.retries,
         pullRequest: pullRequestOfRow(row),
+        diagnosis: row.diagnosis as DiagnosisCategory | null,
       })),
       this.#cohortActivity(),
     );
@@ -2896,7 +2935,46 @@ export class Store {
       });
   }
 
-  riskGrade(repository: string, number: number, headSha: string): RiskGrade | null {
+  openRiskGrades(repository: string): RecordedRiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM risk_grades
+        WHERE repository = $repository AND outcome = 'open'
+        ORDER BY number, graded_at`,
+      )
+      .all({ repository }) as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
+  }
+
+  settleRiskGrade(
+    grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>,
+    outcome: Exclude<GradeOutcome, 'open'>,
+    at: string,
+  ): void {
+    this.#db
+      .prepare(
+        `UPDATE risk_grades SET
+          outcome = $outcome,
+          outcome_at = $at,
+          revisions = (
+            SELECT COUNT(*) FROM revisions
+            WHERE revisions.repository = risk_grades.repository
+              AND revisions.number = risk_grades.number
+              AND revisions.state = 'done'
+          )
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha
+          AND outcome = 'open'`,
+      )
+      .run({
+        outcome,
+        at,
+        repository: grade.repository,
+        number: grade.number,
+        head_sha: grade.headSha,
+      });
+  }
+
+  riskGrade(repository: string, number: number, headSha: string): RecordedRiskGrade | null {
     const row = this.#db
       .prepare(
         `SELECT * FROM risk_grades
@@ -3340,6 +3418,15 @@ export class Store {
       .prepare(`${SELECT_DIAGNOSES} WHERE run_id = $run_id`)
       .get({ run_id: runId, live_since: liveSince(now) }) as DiagnosisRow | undefined;
     return row === undefined ? null : diagnosisFromRow(row);
+  }
+
+  latestDiagnosisCategories(now: string): Map<string, DiagnosisCategory> {
+    const categories = new Map<string, DiagnosisCategory>();
+    for (const { failedRunId, verdict } of this.listDiagnoses(now)) {
+      if (verdict === null) categories.delete(failedRunId);
+      else categories.set(failedRunId, verdict.category);
+    }
+    return categories;
   }
 
   listDiagnoses(now: string): DiagnosisRecord[] {

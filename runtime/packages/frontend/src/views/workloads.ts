@@ -104,8 +104,8 @@ const unique = (values: (string | undefined)[]): string[] =>
 
 type StateOf = (run: RunRecord) => DispatchState;
 
-const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string, now: number, stateOf: StateOf, categories: ReadonlyMap<string, DiagnosisCategory>): Rendered => {
-  const scoped = filterWorkloads(all, filter, timeZone, now, stateOf, categories, true);
+const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string, now: number, stateOf: StateOf, categories: ReadonlyMap<string, DiagnosisCategory>, cohorts: ReadonlyMap<string, string>): Rendered => {
+  const scoped = filterWorkloads(all, filter, timeZone, now, stateOf, categories, cohorts, true);
   const chips: { key: string; label: string; status: DispatchState | undefined; count: number }[] = [
     { key: 'all', label: 'All', status: undefined, count: scoped.length },
     ...STATUSES.map((status) => ({
@@ -146,6 +146,7 @@ const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
   </div>
   <form method="get" action="/workloads" class="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
     ${filter.status === undefined ? '' : html`<input type="hidden" name="status" value="${filter.status}" />`}
+    ${filter.cohort === undefined ? '' : html`<input type="hidden" name="cohort" value="${filter.cohort}" />`}
     <label class="${FIELD}">Search
       <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-full sm:w-52" />
     </label>
@@ -217,11 +218,12 @@ export const renderList = (
   dispatches: ReadonlyMap<string, DispatchRecord>,
   diagnoses: ReadonlySet<string>,
   categories: ReadonlyMap<string, DiagnosisCategory>,
+  cohorts: ReadonlyMap<string, string>,
   display: Display,
   now: number,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const stateOf: StateOf = (run) => runStateOf(run.status, runOutcomeOf(pullRequestWorkloads.get(run.id)?.workload, dispatches.get(run.id)));
-  const runs = filterWorkloads(all, filter, display.timeZone, now, stateOf, categories);
+  const runs = filterWorkloads(all, filter, display.timeZone, now, stateOf, categories, cohorts);
   const paged = paginate(runs, requestedPage);
   const body =
     all.length === 0
@@ -229,7 +231,7 @@ export const renderList = (
           <p class="${EMPTY}">No workloads have run yet.</p>`
       : html`<h1 class="${PAGE_TITLE}">Workloads</h1>
           ${renderTotals(runs, all, filter, equivalents)}
-          ${renderChips(all, filter, display.timeZone, now, stateOf, categories)}
+          ${renderChips(all, filter, display.timeZone, now, stateOf, categories, cohorts)}
           ${renderFilters(all, filter)}
           ${runs.length === 0
             ? html`<p class="${EMPTY}" data-empty>No workloads match.</p>`

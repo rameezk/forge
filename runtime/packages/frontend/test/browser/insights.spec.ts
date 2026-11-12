@@ -241,8 +241,8 @@ test('given a filter chosen on Delivery, when the Cost tab is opened and the fil
   await expect(page.getByRole('link', { name: 'Cost' })).toHaveAttribute('aria-current', 'page');
 });
 
-for (const tab of ['', '&tab=cost']) {
-  test(`given a table wider than the viewport on ${tab === '' ? 'Delivery' : 'Cost'}, when it is scrolled sideways, then the Cohort column stays pinned to the left edge`, async ({ dashboard, page }) => {
+for (const tab of ['', '&tab=cost', '&tab=failures']) {
+  test(`given a table wider than the viewport on ${tab === '' ? 'Delivery' : tab === '&tab=cost' ? 'Cost' : 'Failures'}, when it is scrolled sideways, then the Cohort column stays pinned to the left edge`, async ({ dashboard, page }) => {
     seedStore(dashboard.store, COHORTS);
     await page.setViewportSize({ width: 375, height: 800 });
     await page.goto(`/insights?kind=dispatch${tab}`);

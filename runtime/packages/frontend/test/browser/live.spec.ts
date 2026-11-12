@@ -164,6 +164,7 @@ test('given the runs list open in a browser, when the dashboard starts serving d
   page,
 }) => {
   await openLive(page, '/workloads');
+  const reloaded = page.waitForEvent('load');
   await page.route(
     '/workloads',
     async (route) => {
@@ -175,7 +176,6 @@ test('given the runs list open in a browser, when the dashboard starts serving d
     { times: 1 },
   );
 
-  const reloaded = page.waitForEvent('load');
   dashboard.store.insertRun(runningRun);
   await reloaded;
 

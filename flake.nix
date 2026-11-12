@@ -518,9 +518,9 @@
           ghBeforeDevShell = lib.asserts.assertMsg (
             !(lib.any (package: package.name == "gh") workerHost.config.forge.runtime.toolset)
             && lib.any (
-              e: lib.hasPrefix "FORGE_CREDENTIAL_TOOLS=/nix/store/" e && lib.hasSuffix "-gh/bin" e
+              e: lib.hasPrefix "FORGE_CREDENTIAL_TOOLS=/nix/store/" e && lib.hasSuffix "-forge-credential-tools/bin" e
             ) runnerUnit.serviceConfig.Environment
-          ) "forge's gh, which reads the workload's GitHub token file, must come from the runner unit's credential tools directory and not from the workload toolset, so no devShell or toolset hides it and a dispatched agent can open pull requests";
+          ) "forge's gh, which reads the workload's GitHub token file, and forge-rerun-ci, which asks the runner to re-run a run, must come from the runner unit's credential tools directory and not from the workload toolset, so no devShell or toolset hides it and a dispatched agent can open pull requests";
           runnerDefaultEffortOmitted =
             lib.asserts.assertMsg (!(runnerSettings.workers.builder ? reasoningEffort))
               "a worker with no reasoning effort must omit it from the config so the harness runs at the provider default";

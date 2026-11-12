@@ -287,6 +287,16 @@ export const main = async (
           identity,
           ticket: dispatched,
           runId,
+          fetch,
+          pullRequest: async () =>
+            (
+              await findOpenClosingPullRequest(
+                fetch,
+                await tokens(repository.github, 'write'),
+                repository.github,
+                ticket.number,
+              )
+            )?.number ?? null,
         });
       } catch (error) {
         return failAs('could not start the workload', error);

@@ -497,10 +497,10 @@ const metricsOf = (page: string, hash: string): string[] => Object.keys(rowsOf(p
 test('given cohorts with dispatches and costs, when the insights page is requested with no tab, then Delivery is selected, Kind is Dispatch and the table shows only the Delivery columns', async () => {
   const page = await dashboard(COHORT_SEEDS).page();
 
-  assert.deepEqual(tabsOf(page).map(({ tab, selected }) => [tab, selected]), [['delivery', true], ['cost', false]]);
+  assert.deepEqual(tabsOf(page).map(({ tab, selected }) => [tab, selected]), [['delivery', true], ['cost', false], ['failures', false]]);
   assert.deepEqual(
     [...page.matchAll(/<a\s[^>]*data-tab="[^"]+"[^>]*>([\s\S]*?)<\/a>/g)].map(([, text]) => textOf(text!)),
-    ['Delivery', 'Cost'],
+    ['Delivery', 'Cost', 'Failures'],
   );
   assert.match(page, /<option value="dispatch" selected>/);
   assert.deepEqual(metricsOf(page, fingerprintHash(SONNET)), DELIVERY_METRICS);
@@ -514,7 +514,7 @@ test('given cohorts with dispatches and costs, when the insights page is request
 test('given the same cohorts, when the Cost tab is requested, then the chart comes first, the table shows only the Cost columns and Provider share follows', async () => {
   const page = await dashboard(COHORT_SEEDS).page('?tab=cost');
 
-  assert.deepEqual(tabsOf(page).map(({ tab, selected }) => [tab, selected]), [['delivery', false], ['cost', true]]);
+  assert.deepEqual(tabsOf(page).map(({ tab, selected }) => [tab, selected]), [['delivery', false], ['cost', true], ['failures', false]]);
   assert.deepEqual(metricsOf(page, fingerprintHash(SONNET)), COST_METRICS);
   assert.deepEqual(
     [...page.matchAll(/<th class="[^"]*">([^<]+)<\/th>/g)].map(([, text]) => text),
@@ -547,11 +547,11 @@ test('given the Cost tab and filters, when the page renders, then the tab links 
 test('given an unknown tab, when the insights page is requested, then Delivery is selected', async () => {
   const page = await dashboard(COHORT_SEEDS).page('?tab=bogus');
 
-  assert.deepEqual(tabsOf(page).map(({ selected }) => selected), [true, false]);
+  assert.deepEqual(tabsOf(page).map(({ selected }) => selected), [true, false, false]);
 });
 
 test('given a table wider than the viewport, when the insights page is requested on either tab, then the Cohort column header and cells are pinned to the left edge', async () => {
-  for (const query of ['', '?tab=cost']) {
+  for (const query of ['', '?tab=cost', '?tab=failures']) {
     const page = await dashboard(COHORT_SEEDS).page(query);
 
     assert.match(page, /<th class="[^"]*\bsticky\b[^"]*\bleft-0\b[^"]*">Cohort<\/th>/);
