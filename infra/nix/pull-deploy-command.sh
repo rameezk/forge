@@ -67,7 +67,7 @@ authed_git() {
   local token="$1" credentials
   shift
   credentials="$(printf 'x-access-token:%s' "$token" | openssl base64 -A)"
-  GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: Basic $credentials" git "$@"
+  GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: Basic $credentials" timeout 120 git "$@"
 }
 
 lock_record() {
@@ -169,7 +169,7 @@ start_bump() {
   [[ $owner != . && $owner != .. && $repo != . && $repo != .. ]] || return 0
   [[ -z $ref || ( $ref =~ ^[A-Za-z0-9_./-]+$ && $ref != /* && $ref != */ && $ref != *//* && $ref != *..* ) ]] || return 0
   wanted="${ref:+refs/heads/}${ref:-HEAD}"
-  if ! listing="$(GIT_TERMINAL_PROMPT=0 git ls-remote "$FORGE_PULL_DEPLOY_UPSTREAM/$owner/$repo.git" "$wanted" 2>&1)"; then
+  if ! listing="$(GIT_TERMINAL_PROMPT=0 timeout 30 git ls-remote "$FORGE_PULL_DEPLOY_UPSTREAM/$owner/$repo.git" "$wanted" 2>&1)"; then
     printf 'forge-pull-deploy: git ls-remote said:\n%s\n' "$(tail -n 5 <<< "$listing")" >&2
     bump_failure="could not look up the head of $owner/$repo"
     return
