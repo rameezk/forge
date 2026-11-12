@@ -68,7 +68,7 @@ const readBranchRules = async (
   }
   const rules: PullRequestRule[] = [];
   for (let page = 1; ; page += 1) {
-    if (page > MAX_PAGES) throw new Error(`GitHub listed more than ${MAX_PAGES * PAGE_SIZE} rules`);
+    if (page > MAX_PAGES) throw new Error(`GitHub listed ${MAX_PAGES * PAGE_SIZE} rules or more`);
     const batch = (await get(
       fetch,
       token,

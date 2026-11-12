@@ -254,5 +254,5 @@ test('given GitHub listing rules without end, when sync runs, then the repositor
     },
   });
 
-  assert.deepEqual(branchRules, ['its default branch rules could not be read: GitHub listed more than 3000 rules']);
+  assert.deepEqual(branchRules, ['its default branch rules could not be read: GitHub listed 3000 rules or more']);
 });
