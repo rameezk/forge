@@ -1330,6 +1330,7 @@ in
             "FORGE_MAX_CONCURRENT=${toString cfg.dispatch.maxConcurrent}"
             "FORGE_MAX_OPEN_PULL_REQUESTS=${if cfg.dispatch.maxOpenPullRequests == null then "null" else toString cfg.dispatch.maxOpenPullRequests}"
           ]
+          ++ lib.optional hasGrading "FORGE_GRADING_REPOSITORIES=${lib.concatStringsSep "," (lib.attrNames gradedRepositories)}"
           ++ lib.optional cfg.pullDeploy.enable "FORGE_PULL_DEPLOY_STATUS_FILE=${cfg.pullDeploy.statusFile}";
           ExecStart = "${cfg.package}/bin/forge-frontend";
           Restart = "on-failure";
