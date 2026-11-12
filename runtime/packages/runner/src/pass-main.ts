@@ -30,6 +30,8 @@ const declaresFeedbackWorker = ({ repositories = {} }: RuntimeConfig, name: stri
 const declaresConflictWorker = ({ repositories = {} }: RuntimeConfig, name: string): boolean =>
   Object.hasOwn(repositories, name) && repositories[name]?.on?.conflict !== undefined;
 
+const NOT_CHECKED = 'its default branch rules have not been checked yet';
+
 const dispatchable = (
   config: RuntimeConfig,
   store: Store,
@@ -114,7 +116,10 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
       .conflictsDue(now)
       .filter(({ repository }) => declaresConflictWorker(config, repository));
     const resolving = new Set(conflicts.map(({ repository, number }) => ticketKey(repository, number)));
-    candidates = [
+    const rules = new Map(
+      store.listFrontier().map(({ repository, branchRules }) => [repository, branchRules]),
+    );
+    const everything: Pending[] = [
       ...conflicts.map((pull): Pending => ({ kind: 'conflict-resolution', ...pull })),
       ...store
         .feedbackDue(now, quietPeriodOf(config))
@@ -125,6 +130,14 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
         .map((pull): Pending => ({ kind: 'revision', ...pull })),
       ...dispatchable(config, store, running).map((ticket): Pending => ({ kind: 'dispatch', ...ticket })),
     ];
+    const verified = ({ repository }: Pending): boolean => rules.get(repository)?.length === 0;
+    candidates = everything.filter(verified);
+    const refused = new Set(
+      everything.filter((pending) => !verified(pending)).map(({ repository }) => repository),
+    );
+    for (const repository of refused) {
+      console.error(`${repository}: no new work, ${rules.get(repository)?.join('; ') ?? NOT_CHECKED}`);
+    }
   } finally {
     store.close();
   }

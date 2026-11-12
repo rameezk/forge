@@ -15,6 +15,7 @@ import {
   tokenFor,
   type FakeGithubApp,
 } from '../../shared/test/fixtures/fake-github-app.ts';
+import { withProtectedRepositories } from '../../shared/test/fixtures/branch-rules.ts';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
 
@@ -127,7 +128,7 @@ const run = (
   argv: string[],
   env: Record<string, string | undefined>,
   fetch: typeof globalThis.fetch,
-): Promise<number> => main(argv, env, routedThrough(app, fetch));
+): Promise<number> => main(argv, env, routedThrough(app, withProtectedRepositories(fetch)));
 
 const storedFrontier = (stateDir: string) => {
   const store = Store.open(join(stateDir, 'forge.db'));
@@ -426,6 +427,7 @@ test('given a declared repository missing two forge labels and ready-for-agent a
     app.mints.map(({ kind, body }) => ({ kind, repositories: body.repositories })),
     [
       { kind: 'read', repositories: ['forge'] },
+      { kind: 'administration', repositories: ['forge'] },
       { kind: 'write', repositories: ['forge'] },
     ],
   );
@@ -534,6 +536,7 @@ test('given two declared repositories with stored snapshots where GitHub now fai
         "GitHub rejected the Frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
       failedAt,
     },
+    branchRules: [],
     closed: [], requests: [],
     tickets: [staleTicket('rameezk/forge-does-not-exist', 2)],
   });
@@ -991,6 +994,7 @@ test('given a repository with a worker and no private key, when sync runs, then 
   assert.deepEqual(github.calls, []);
   assert.deepEqual(stderr, [
     'forge: GitHub App private key missing',
+    'forge: no new work, its default branch rules could not be read: GitHub App private key missing; whether GitHub Actions can approve pull requests could not be read: GitHub App private key missing',
     'forge: could not ensure the forge labels: GitHub App private key missing',
     'forge: could not settle tickets labelled forge:running: GitHub App private key missing',
   ]);

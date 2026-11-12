@@ -605,7 +605,7 @@ test('given a store file whose frontier predates last errors, when the store is 
     const failedAt = '2026-09-29T08:20:00.000Z';
     store.recordFrontierError({ repository: 'fresh', github: 'rameezk/fresh', message: 'GitHub token missing', failedAt });
     assert.deepEqual(store.listFrontier(), [
-      { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: { message: 'GitHub token missing', failedAt }, tickets: [], closed: [], requests: [] },
+      { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: { message: 'GitHub token missing', failedAt }, branchRules: null, tickets: [], closed: [], requests: [] },
     ]);
   } finally {
     store.close();
@@ -628,7 +628,7 @@ test('given a store file whose frontier snapshot predates queued tickets, when t
       created_at    TEXT NOT NULL,
       PRIMARY KEY (repository, number)
     ) STRICT;
-    INSERT INTO frontier_repositories VALUES ('forge', 'rameezk/forge', '2026-09-29T08:00:00.000Z', NULL, NULL);
+    INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at) VALUES ('forge', 'rameezk/forge', '2026-09-29T08:00:00.000Z', NULL, NULL);
     INSERT INTO frontier_tickets VALUES ('forge', 56, 'Stale', 'https://github.com/rameezk/forge/issues/56', NULL, NULL, '2026-09-28T10:07:58Z');
   `);
   old.close();
@@ -672,7 +672,7 @@ test('given a store file whose frontier snapshot predates spec URLs, when the st
       blocked       INTEGER NOT NULL,
       PRIMARY KEY (repository, number)
     ) STRICT;
-    INSERT INTO frontier_repositories VALUES ('forge', 'rameezk/forge', '2026-09-29T08:00:00.000Z', NULL, NULL);
+    INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at) VALUES ('forge', 'rameezk/forge', '2026-09-29T08:00:00.000Z', NULL, NULL);
     INSERT INTO frontier_tickets VALUES ('forge', 56, 'Stale', 'https://github.com/rameezk/forge/issues/56', NULL, NULL, '2026-09-28T10:07:58Z', 0, 0);
   `);
   old.close();
@@ -1447,4 +1447,33 @@ test('given a read-only store open alongside a writer, when it attempts an inser
   raw.close();
   store.close();
   writer.close();
+});
+
+test('given a store file whose frontier predates branch rules, when the store is opened, then the stale snapshot is dropped and a repository records whether its rules failed', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  Store.open(path).close();
+  const old = new DatabaseSync(path);
+  old.exec(`
+    DROP TABLE frontier_repositories;
+    CREATE TABLE frontier_repositories (
+      repository TEXT PRIMARY KEY,
+      github     TEXT NOT NULL,
+      polled_at  TEXT,
+      last_error TEXT,
+      failed_at  TEXT
+    ) STRICT;
+    INSERT INTO frontier_repositories VALUES ('forge', 'rameezk/forge', '2026-09-29T08:00:00.000Z', NULL, NULL);
+  `);
+  old.close();
+
+  const store = Store.open(path);
+  try {
+    assert.deepEqual(store.listFrontier(), []);
+    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['GitHub Actions can approve pull requests'] });
+    assert.deepEqual(store.listFrontier()[0]?.branchRules, ['GitHub Actions can approve pull requests']);
+    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
+    assert.deepEqual(store.listFrontier()[0]?.branchRules, []);
+  } finally {
+    store.close();
+  }
 });

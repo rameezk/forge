@@ -14,6 +14,7 @@ import {
   sentWith,
   tokenFor,
 } from '../../shared/test/fixtures/fake-github-app.ts';
+import { withProtectedRepositories } from '../../shared/test/fixtures/branch-rules.ts';
 
 const MINUTE = 60_000;
 
@@ -271,7 +272,7 @@ const quietly = (t: TestContext): string[] => {
 const syncWith = (
   setup: ReturnType<typeof declaring>,
   fake: ReturnType<typeof github>,
-): Promise<number> => main(['sync'], setup.env, routedThrough(setup.app, fake.fetch));
+): Promise<number> => main(['sync'], setup.env, routedThrough(setup.app, withProtectedRepositories(fake.fetch)));
 
 const reactedTo = (fake: ReturnType<typeof github>): string[] =>
   fake.reactions.map(({ subjectId }) => subjectId).sort();

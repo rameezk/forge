@@ -13,6 +13,7 @@ import {
   fakeGithubApp,
   routedThrough,
 } from '../../shared/test/fixtures/fake-github-app.ts';
+import { actionsApproving, withProtectedRepositories, type RepositoryRules } from '../../shared/test/fixtures/branch-rules.ts';
 import { journaled, leaveOpenPullRequests, startedDispatch } from './helpers.ts';
 
 const MINUTE = 60_000;
@@ -71,9 +72,10 @@ interface Setup {
   maxConcurrent?: number;
   conflictWorker?: boolean;
   feedbackWorker?: boolean;
+  rules?: Record<string, RepositoryRules>;
 }
 
-const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true }: Setup = {}) => {
+const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true, rules = {} }: Setup = {}) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-conflict-trigger-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -160,7 +162,7 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true }: 
 
   const syncAndPass = async (pulls: FakePullRequest[]): Promise<string[]> => {
     const before = started().length;
-    const synced = await journaled(() => sync(['sync'], env, routedThrough(app, github(() => pulls))));
+    const synced = await journaled(() => sync(['sync'], env, routedThrough(app, withProtectedRepositories(github(() => pulls), rules))));
     assert.equal(synced.result, 0, synced.journal);
     const passed = await journaled(() => pass([], env));
     assert.equal(passed.result, 0, passed.journal);
@@ -204,6 +206,11 @@ const unit = (number: number): string =>
 test('given a repository declaring on.conflict and an open forge pull request GitHub reports as conflicting, when the frontier syncs and the pass runs, then a conflict resolution starts for it', async () => {
   const setup = forge();
   assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), [unit(143)]);
+});
+
+test('given a conflicting forge pull request in a repository whose Actions can approve pull requests, when the frontier syncs and the pass runs, then no conflict resolution starts', async () => {
+  const setup = forge({ rules: { 'rameezk/forge': actionsApproving } });
+  assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), []);
 });
 
 test('given pull requests that are mergeable, behind but mergeable, or not yet computed, when sync and the pass run, then no conflict resolution starts, and once GitHub computes a conflict the next sync starts one', async () => {
