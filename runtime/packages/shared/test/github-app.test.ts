@@ -50,6 +50,7 @@ for (const [access, permissions] of [
   ['read', { issues: 'read', pull_requests: 'read', contents: 'read', checks: 'read', statuses: 'read' }],
   ['write', { issues: 'write', pull_requests: 'read', contents: 'read', checks: 'read', statuses: 'read' }],
   ['reactions', { issues: 'write', pull_requests: 'write' }],
+  ['grading', { issues: 'read', pull_requests: 'write', contents: 'read', checks: 'write' }],
   [
     'workload',
     {
