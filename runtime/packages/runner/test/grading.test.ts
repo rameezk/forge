@@ -609,7 +609,7 @@ test('given each error OpenRouter documents, when Jev is asked, then the failure
     ['a body read that times out', () => ({ ok: true, status: 200, json: () => Promise.reject(new DOMException('timed out', 'TimeoutError')) }) as unknown as Response, 'temporary'],
     ['a null body', () => new Response('null'), 'bug'],
     ['a 401 with a null body', () => new Response('null', { status: 401 }), 'setup'],
-    ['a 503 with a null body', () => new Response('"down"', { status: 503 }), 'temporary'],
+    ['a 503 with a non-object body', () => new Response('"down"', { status: 503 }), 'temporary'],
     ['a coded 401 behind a 200', () => new Response(JSON.stringify({ error: { code: 401, message: 'x' } })), 'setup'],
     ['an error body behind a 200 with no code', () => new Response(JSON.stringify({ error: { message: 'Upstream failed' } })), 'temporary'],
     ['an error body behind a 200 with an absurd code', () => new Response(JSON.stringify({ error: { code: 1e21, message: 'x' } })), 'temporary'],
@@ -629,9 +629,9 @@ test('given the key is rejected, out of credits or the model is gone, when Jev i
 });
 
 test('given an error message with line breaks and escape characters, when Jev is asked, then the detail kept for the log carries none of them', async () => {
-  const failure = await failureOf(() => errorResponse(400, 'first\nforged line \u001b[31mred'));
-  assert.doesNotMatch(failure.detail ?? '', /[\u0000-\u001f\u007f]/);
-  assert.match(failure.detail ?? '', /first forged line/);
+  const failure = await failureOf(() => errorResponse(400, 'first\nforged\u0085line\u2028two \u001b[31mred \u009b\u202ereversed'));
+  assert.doesNotMatch(failure.detail ?? '', /[\p{Cc}\p{Cf}\u2028\u2029]/u);
+  assert.match(failure.detail ?? '', /^first forged line two  \[31mred  reversed$/);
 });
 
 test('given OpenRouter explains a failure, when Jev is asked, then its words stay out of the message that is stored and posted and are kept as detail for the log', async () => {

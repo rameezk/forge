@@ -139,7 +139,7 @@ const MAX_DETAIL_LENGTH = 300;
 const CONTEXT_EXCEEDED = /(maximum )?context[ _-]?(length|window)|too (large|long)/i;
 
 const printable = (text: string): string =>
-  text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, MAX_DETAIL_LENGTH);
+  text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]+/gu, ' ').trim().slice(0, MAX_DETAIL_LENGTH);
 
 const detailOf = (error: { message?: unknown } | undefined): string =>
   typeof error?.message === 'string' ? printable(error.message) : '';
