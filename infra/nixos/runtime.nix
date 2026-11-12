@@ -521,6 +521,7 @@ let
   appKeyCredential = {
     LoadCredential = [ "${appKeyCredentialId}:${config.sops.secrets.github_app_private_key.path}" ];
   };
+  boxAppKeyCredentialId = "github-box-app-private-key";
   appKeyFileVariable = "FORGE_GITHUB_APP_PRIVATE_KEY_FILE=%d/${appKeyCredentialId}";
 
   hardening = {
@@ -652,7 +653,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, and `github_app_id` and `github_app_private_key` (the id and private key of the operator's GitHub App, installed on every managed repository and on the operator repository) when any repository is declared or `pullDeploy.enable` is set. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for the App private key, a credential only the frontier sync, forge-dispatch and the pull deploy are given.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, and `github_app_id` and `github_app_private_key` (the id and private key of the operator's GitHub App, installed on every managed repository) when any repository is declared, and `github_box_app_id` and `github_box_app_private_key` (the id and private key of the operator's box App, installed on the operator repository alone) when `pullDeploy.enable` is set. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for an App private key, a credential: the frontier sync, forge-dispatch and grading are given the GitHub App's, and only the pull deploy is given the box App's.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -712,7 +713,7 @@ in
     };
 
     pullDeploy = {
-      enable = lib.mkEnableOption "the pull deploy: every `pullDeploy.intervalSeconds` seconds the box compares the commit at the head of its operator repository's `main` with the operator commit it runs and builds and switches to `main` when they differ, recording the commit it runs, the head and the last switch error in `pullDeploy.statusFile`. A commit that fails to build or switch is not tried again until `main` moves or the `forge-pull-deploy` unit is restarted by hand. The box reads the operator repository with the operator's GitHub App (`github_app_id` and `github_app_private_key`), through an installation token narrowed to that repository with read access to contents, so the App must be installed on it";
+      enable = lib.mkEnableOption "the pull deploy: every `pullDeploy.intervalSeconds` seconds the box compares the commit at the head of its operator repository's `main` with the operator commit it runs and builds and switches to `main` when they differ, recording the commit it runs, the head and the last switch error in `pullDeploy.statusFile`. A commit that fails to build or switch is not tried again until `main` moves or the `forge-pull-deploy` unit is restarted by hand. The box reads the operator repository as the operator's box App (`github_box_app_id` and `github_box_app_private_key`), a second GitHub App you own, through an installation token narrowed to that repository with read access to contents. Create the box App with Contents: read and Actions: write and install it on the operator repository alone; forge's own App is not installed there. The pull deploy is the only unit given the box App's key and cannot read forge's App key";
 
       repository = lib.mkOption {
         type = lib.types.strMatching "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+";
@@ -955,7 +956,7 @@ in
       };
     })
 
-    (lib.mkIf (hasRepositories || cfg.pullDeploy.enable) {
+    (lib.mkIf hasRepositories {
       sops.secrets.github_app_id.sopsFile = cfg.secretsFile;
       sops.secrets.github_app_private_key = {
         sopsFile = cfg.secretsFile;
@@ -965,8 +966,11 @@ in
     })
 
     (lib.mkIf cfg.pullDeploy.enable {
+      sops.secrets.github_box_app_id.sopsFile = cfg.secretsFile;
+      sops.secrets.github_box_app_private_key.sopsFile = cfg.secretsFile;
+
       sops.templates."forge-pull-deploy.env" = {
-        content = "FORGE_GITHUB_APP_ID=${config.sops.placeholder.github_app_id}\n";
+        content = "FORGE_GITHUB_BOX_APP_ID=${config.sops.placeholder.github_box_app_id}\n";
         owner = "root";
         mode = "0400";
       };
@@ -994,11 +998,13 @@ in
             "FORGE_PULL_DEPLOY_INTERVAL=${toString cfg.pullDeploy.intervalSeconds}"
             "FORGE_PULL_DEPLOY_STATUS_FILE=${cfg.pullDeploy.statusFile}"
             "HOME=/var/lib/forge-pull-deploy"
-            appKeyFileVariable
+            "FORGE_GITHUB_BOX_APP_PRIVATE_KEY_FILE=%d/${boxAppKeyCredentialId}"
+          ];
+          LoadCredential = [
+            "${boxAppKeyCredentialId}:${config.sops.secrets.github_box_app_private_key.path}"
           ];
           ExecStart = lib.getExe (pkgs.callPackage ../nix/pull-deploy-command.nix { });
-        }
-        // appKeyCredential;
+        };
       };
     })
 

@@ -32,7 +32,7 @@ let
       ''
         recipient="$(ssh-keygen -y -f ${secretsHostKey} | ssh-to-age)"
         key="$(openssl genrsa 2048)"
-        jq -n --arg key "$key" '{tailscale_auth_key: "tailscale_auth_key_fixture_not_a_real_key", github_app_id: "123456", github_app_private_key: $key}' |
+        jq -n --arg key "$key" '{tailscale_auth_key: "tailscale_auth_key_fixture_not_a_real_key", github_box_app_id: "654321", github_box_app_private_key: $key}' |
           sops encrypt --age "$recipient" --input-type json --output-type yaml --filename-override secrets.yaml /dev/stdin > $out
       '';
 

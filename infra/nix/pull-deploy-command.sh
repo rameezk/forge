@@ -4,8 +4,8 @@
 : "${FORGE_PULL_DEPLOY_HOSTNAME:?}"
 : "${FORGE_PULL_DEPLOY_INTERVAL:?}"
 : "${FORGE_PULL_DEPLOY_STATUS_FILE:?}"
-: "${FORGE_GITHUB_APP_ID:?}"
-: "${FORGE_GITHUB_APP_PRIVATE_KEY_FILE:?}"
+: "${FORGE_GITHUB_BOX_APP_ID:?}"
+: "${FORGE_GITHUB_BOX_APP_PRIVATE_KEY_FILE:?}"
 : "${STATE_DIRECTORY:?}"
 
 repository="$FORGE_PULL_DEPLOY_REPOSITORY"
@@ -36,8 +36,8 @@ app_jwt() {
   local now header payload signature
   now="$(date +%s)"
   header="$(printf '{"alg":"RS256","typ":"JWT"}' | base64url)"
-  payload="$(jq -cn --argjson iat "$((now - 60))" --argjson exp "$((now + 540))" --arg iss "$FORGE_GITHUB_APP_ID" '{iat: $iat, exp: $exp, iss: $iss}' | base64url)"
-  signature="$(printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -sign "$FORGE_GITHUB_APP_PRIVATE_KEY_FILE" -binary | base64url)"
+  payload="$(jq -cn --argjson iat "$((now - 60))" --argjson exp "$((now + 540))" --arg iss "$FORGE_GITHUB_BOX_APP_ID" '{iat: $iat, exp: $exp, iss: $iss}' | base64url)"
+  signature="$(printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -sign "$FORGE_GITHUB_BOX_APP_PRIVATE_KEY_FILE" -binary | base64url)"
   printf '%s.%s.%s' "$header" "$payload" "$signature"
 }
 
