@@ -2449,6 +2449,7 @@ test('given a repository with workflows, when a workload is dispatched, then its
 
 test('given an installation that has not accepted Workflows: write, when forge-dispatch runs, then minting the workload token fails naming the permissions forge requested, no workload starts, and the dispatch fails', async () => {
   const { failure, pi, dispatches } = await dispatch({
+    workflows: true,
     unaccepted: { workflows: 'write' },
     failing: true,
   });

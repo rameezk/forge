@@ -83,7 +83,7 @@ test('given an installed repository, when a workload token is minted with workfl
     pull_requests: 'write',
     workflows: 'write',
     checks: 'read',
-    actions: 'write',
+    actions: 'read',
     statuses: 'read',
   });
   assert.deepEqual(github.mints[0]?.body.repositories, ['forge-app-test']);
