@@ -313,6 +313,9 @@ const renderLane = (lane: BoardLane, grouped: boolean, review: ReviewSlots, atte
     ${lane.lastError === null
       ? ''
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-poll-error>Last poll failed ${renderTimestamp(lane.lastError.failedAt, timeZone)}: ${lane.lastError.message}</p>`}
+    ${lane.branchRules === null || lane.branchRules.length === 0
+      ? ''
+      : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-branch-rules>No new work starts here until a sync finds its default branch rules passing: ${lane.branchRules.join('; ')}</p>`}
     </div>
     <div class="group-data-[collapsed]:hidden">${grouped
       ? specBands(lane.columns).map((band) => renderBand(lane, band, review, attempted, timeZone, runs))

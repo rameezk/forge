@@ -15,6 +15,7 @@ import {
   fakeGithubApp,
   routedThrough,
 } from '../../shared/test/fixtures/fake-github-app.ts';
+import { withProtectedRepositories } from '../../shared/test/fixtures/branch-rules.ts';
 import { journaled } from './helpers.ts';
 
 interface FakePull {
@@ -209,7 +210,7 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
     if (data === undefined) throw new Error(`unexpected GitHub request ${String(operation)}`);
     return json({ data });
   };
-  const fetch = routedThrough(app, github);
+  const fetch = routedThrough(app, withProtectedRepositories(github));
 
   const withStore = <T>(use: (store: Store) => T): T => {
     const store = Store.open(join(stateDir, 'forge.db'));
