@@ -153,7 +153,7 @@ main_lock() {
 }
 
 start_bump() {
-  local locked kind owner repo ref listing upstream_rev wanted
+  local locked kind owner repo ref listing upstream_rev wanted sha name
   main_info=""
   if ! main_lock; then
     bump_failure="could not read the forge input in the lock file on main of $FORGE_PULL_DEPLOY_REMOTE"
@@ -174,7 +174,13 @@ start_bump() {
     bump_failure="could not look up the head of $owner/$repo"
     return
   fi
-  upstream_rev="$(awk -v wanted="$wanted" '$1 ~ /^[0-9a-f]{40}$/ && $2 == wanted {print $1; exit}' <<< "$listing")"
+  upstream_rev=""
+  while IFS=$'\t' read -r sha name; do
+    if [[ $sha =~ ^[0-9a-f]{40}$ && $name = "$wanted" ]]; then
+      upstream_rev="$sha"
+      break
+    fi
+  done <<< "$listing"
   if [ -z "$upstream_rev" ]; then
     bump_failure="$owner/$repo has no ${ref:-HEAD} to look up"
     return
