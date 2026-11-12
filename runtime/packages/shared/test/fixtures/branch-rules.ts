@@ -84,26 +84,30 @@ const rulesOf = ({ rulesets }: RepositoryRules): unknown[] =>
 export const answerRules = (
   pathname: string,
   repositories: Record<string, RepositoryRules>,
+  search = '',
 ): Answer | null => {
   const match =
-    /^\/repos\/([^/]+\/[^/]+)(?:\/(rules\/branches\/main|rulesets|actions\/permissions\/workflow))?$/.exec(pathname);
+    /^\/repos\/([^/]+\/[^/]+)(?:\/(rules\/branches\/main|rulesets\/\d+|actions\/permissions\/workflow))?$/.exec(pathname);
   if (match === null) return null;
   const repository = repositories[match[1] ?? ''] ?? PROTECTED;
   switch (match[2]) {
     case undefined:
       return ok({ default_branch: 'main' });
-    case 'rules/branches/main':
-      return repository.rules ?? ok(rulesOf(repository));
-    case 'rulesets':
-      return ok(
-        repository.rulesets.map(({ id, name, bypass }) => ({
-          id,
-          name,
-          current_user_can_bypass: bypass,
-        })),
-      );
-    default:
-      return repository.actions;
+    case 'rules/branches/main': {
+      const page = Number(new URLSearchParams(search).get('page') ?? '1');
+      const rules = repository.rules ?? ok(rulesOf(repository));
+      return Array.isArray(rules.body)
+        ? { ...rules, body: rules.body.slice((page - 1) * 100, page * 100) }
+        : rules;
+    }
+    default: {
+      if (match[2]?.startsWith('rulesets/') !== true) return repository.actions;
+      const id = Number(match[2].slice('rulesets/'.length));
+      const ruleset = repository.rulesets.find((candidate) => candidate.id === id);
+      return ruleset === undefined
+        ? { status: 404, body: { message: 'Not Found' } }
+        : ok({ id, name: ruleset.name, current_user_can_bypass: ruleset.bypass });
+    }
   }
 };
 
@@ -113,7 +117,8 @@ export const withProtectedRepositories =
     repositories: Record<string, RepositoryRules> = {},
   ): typeof globalThis.fetch =>
   async (input, init) => {
-    const answer = answerRules(new URL(String(input)).pathname, repositories);
+    const { pathname, search } = new URL(String(input));
+    const answer = answerRules(pathname, repositories, search);
     return answer === null
       ? other(input, init)
       : new Response(JSON.stringify(answer.body), {

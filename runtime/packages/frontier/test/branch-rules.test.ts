@@ -45,13 +45,13 @@ const syncing = async (rules: Record<string, RepositoryRules>, stateDir?: string
   );
   const requests: { pathname: string; authorization: string | null; init?: RequestInit }[] = [];
   const fetch: typeof globalThis.fetch = async (input, init) => {
-    const { pathname } = new URL(String(input));
+    const { pathname, search } = new URL(String(input));
     requests.push({
       pathname,
       authorization: new Headers(init?.headers).get('authorization'),
       ...(init === undefined ? {} : { init }),
     });
-    const answer = answerRules(pathname, rules);
+    const answer = answerRules(pathname, rules, search);
     return new Response(JSON.stringify(answer === null ? EMPTY_PAGE : answer.body), {
       status: answer?.status ?? 200,
       headers: { 'content-type': 'application/json' },
@@ -178,5 +178,70 @@ test('given a managed repository, when sync reads its Actions setting, then the 
   for (const { pathname, authorization } of requests) {
     if (pathname.endsWith('/actions/permissions/workflow')) continue;
     assert.ok(!(authorization ?? '').startsWith('bearer ghs_administration_'));
+  }
+});
+
+const NEEDS_REVIEW = { approvals: 1, lastPushApproval: true };
+
+const ruleOf = (rulesetId: number | undefined) => ({
+  type: 'pull_request',
+  ...(rulesetId === undefined ? {} : { ruleset_id: rulesetId }),
+  parameters: {
+    required_approving_review_count: NEEDS_REVIEW.approvals,
+    require_last_push_approval: NEEDS_REVIEW.lastPushApproval,
+  },
+});
+
+test('given a rule from a ruleset GitHub will not show, when sync runs, then the repository is refused naming the ruleset', async () => {
+  const { branchRules } = await syncing({
+    'rameezk/forge': { ...PROTECTED, rulesets: [], rules: { status: 200, body: [ruleOf(99)] } },
+  });
+
+  assert.deepEqual(branchRules, ['ruleset 99 could not be read: GitHub answered 404: Not Found']);
+});
+
+test('given a rule that names no ruleset, when sync runs, then the repository is refused', async () => {
+  const { branchRules } = await syncing({
+    'rameezk/forge': { ...PROTECTED, rulesets: [], rules: { status: 200, body: [ruleOf(undefined)] } },
+  });
+
+  assert.deepEqual(branchRules, ['a rule GitHub applies to its default branch names no ruleset to check']);
+});
+
+test('given a repository verified at the last sync whose rules have since regressed, when sync runs, then the regression is recorded', async () => {
+  const first = await syncing({ 'rameezk/forge': PROTECTED });
+  assert.deepEqual(first.branchRules, []);
+
+  const second = await syncing({ 'rameezk/forge': actionsApproving }, first.dir);
+
+  assert.deepEqual(second.branchRules, ['GitHub Actions can approve pull requests']);
+});
+
+test('given more rules than fit a page, when sync runs, then every page is read', async () => {
+  const { requests, branchRules } = await syncing({
+    'rameezk/forge': {
+      ...PROTECTED,
+      rules: { status: 200, body: [...Array.from({ length: 100 }, () => ruleOf(1)), ruleOf(2)] },
+    },
+  });
+
+  assert.deepEqual(branchRules, ['ruleset 2 could not be read: GitHub answered 404: Not Found']);
+  assert.equal(requests.filter(({ pathname }) => pathname.endsWith('/rules/branches/main')).length, 2);
+});
+
+test('given a ruleset name and an error message carrying control characters and a long tail, when sync runs, then they are stripped and capped in the stored reason', async () => {
+  const noisy = `bad\nname${'x'.repeat(500)}`;
+  const { branchRules } = await syncing({
+    'rameezk/forge': {
+      ...PROTECTED,
+      rulesets: [{ id: 1, name: noisy, bypass: 'always', pullRequest: { approvals: 1, lastPushApproval: true } }],
+      actions: { status: 403, body: { message: noisy } },
+    },
+  });
+
+  assert.equal(branchRules?.length, 2);
+  for (const reason of branchRules ?? []) {
+    assert.doesNotMatch(reason, /\n/);
+    assert.ok(reason.length < 400);
   }
 });

@@ -536,7 +536,7 @@ test('given two declared repositories with stored snapshots where GitHub now fai
         "GitHub rejected the Frontier query for rameezk/forge-does-not-exist: Could not resolve to a Repository with the name 'rameezk/forge-does-not-exist'.",
       failedAt,
     },
-    branchRules: null,
+    branchRules: [],
     closed: [], requests: [],
     tickets: [staleTicket('rameezk/forge-does-not-exist', 2)],
   });
@@ -994,6 +994,7 @@ test('given a repository with a worker and no private key, when sync runs, then 
   assert.deepEqual(github.calls, []);
   assert.deepEqual(stderr, [
     'forge: GitHub App private key missing',
+    'forge: no new work, its default branch rules could not be read: GitHub App private key missing; whether GitHub Actions can approve pull requests could not be read: GitHub App private key missing',
     'forge: could not ensure the forge labels: GitHub App private key missing',
     'forge: could not settle tickets labelled forge:running: GitHub App private key missing',
   ]);

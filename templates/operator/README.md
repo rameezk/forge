@@ -574,7 +574,7 @@ answers 403 and forge refuses the repository, so upgrade, make it public, or
 stop managing it.
 
 Keep a managed repository's Actions secrets only in environments limited to its
-default branch. Forge does not check this: a secret available to every branch
+default branch (ADR-0108). Forge does not check this: a secret available to every branch
 is available to a workflow that a leaked token pushes on another branch.
 
 #### Moving off the two personal tokens

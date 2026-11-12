@@ -251,7 +251,6 @@ const sync = async (
     let failed = false;
     for (const [name, repository] of Object.entries(config.repositories)) {
       const { github, on } = repository;
-      let polled = false;
       try {
         const tickets = await poll(github);
         const closed = await pollClosed(github);
@@ -264,7 +263,6 @@ const sync = async (
           closed,
           requests,
         });
-        polled = true;
       } catch (error) {
         const message = errorMessage(error);
         console.error(`${name}: ${message}`);
@@ -276,12 +274,10 @@ const sync = async (
         });
         failed = true;
       }
-      if (polled) {
-        const failures = await checkRules(github);
-        store.recordBranchRules({ repository: name, github, failures });
-        if (failures.length > 0) {
-          console.error(`${name}: no new work, ${failures.join('; ')}`);
-        }
+      const failures = await checkRules(github);
+      store.recordBranchRules({ repository: name, github, failures });
+      if (failures.length > 0) {
+        console.error(`${name}: no new work, ${failures.join('; ')}`);
       }
       if (
         !(await refreshPullRequests(

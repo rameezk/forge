@@ -17,14 +17,20 @@ interface PullRequestRule {
 }
 
 interface Ruleset {
-  id: number;
   name?: unknown;
   current_user_can_bypass?: unknown;
 }
 
+const PAGE_SIZE = 100;
+
 const NO_REVIEW = 'its default branch does not require an approving review';
 const NO_LAST_PUSH_APPROVAL = 'its default branch does not require approval of the most recent push';
 const ACTIONS_APPROVE = 'GitHub Actions can approve pull requests';
+
+const MESSAGE_LIMIT = 200;
+
+const printable = (text: string): string =>
+  text.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').slice(0, MESSAGE_LIMIT);
 
 const get = async (fetch: Fetch, token: string, path: string): Promise<unknown> => {
   const response = await fetch(`${GITHUB_REST_API}${path}`, {
@@ -37,7 +43,7 @@ const get = async (fetch: Fetch, token: string, path: string): Promise<unknown> 
   const body = (await response.json().catch(() => ({}))) as { message?: unknown };
   if (!response.ok) {
     throw new Error(
-      `GitHub answered ${response.status}${typeof body.message === 'string' ? `: ${body.message}` : ''}`,
+      `GitHub answered ${response.status}${typeof body.message === 'string' ? `: ${printable(body.message)}` : ''}`,
     );
   }
   return body;
@@ -46,7 +52,7 @@ const get = async (fetch: Fetch, token: string, path: string): Promise<unknown> 
 const bypassable = ({ name, current_user_can_bypass }: Ruleset): string | null =>
   current_user_can_bypass === 'never'
     ? null
-    : `forge's App can bypass the ruleset "${typeof name === 'string' ? name : 'unnamed'}"`;
+    : `forge's App can bypass the ruleset "${typeof name === 'string' ? printable(name) : 'unnamed'}"`;
 
 const readBranchRules = async (
   fetch: Fetch,
@@ -59,12 +65,17 @@ const readBranchRules = async (
   if (typeof default_branch !== 'string' || default_branch === '') {
     throw new Error('GitHub returned no default branch');
   }
-  const rules = (await get(
-    fetch,
-    token,
-    `/repos/${github}/rules/branches/${encodeURIComponent(default_branch)}`,
-  )) as PullRequestRule[];
-  if (!Array.isArray(rules)) throw new Error('GitHub returned malformed rules');
+  const rules: PullRequestRule[] = [];
+  for (let page = 1; ; page += 1) {
+    const batch = (await get(
+      fetch,
+      token,
+      `/repos/${github}/rules/branches/${encodeURIComponent(default_branch)}?per_page=${PAGE_SIZE}&page=${page}`,
+    )) as PullRequestRule[];
+    if (!Array.isArray(batch)) throw new Error('GitHub returned malformed rules');
+    rules.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
   const failures: string[] = [];
   const pullRequests = rules.filter(({ type }) => type === 'pull_request');
   if (
@@ -78,18 +89,23 @@ const readBranchRules = async (
   if (!pullRequests.some(({ parameters }) => parameters?.require_last_push_approval === true)) {
     failures.push(NO_LAST_PUSH_APPROVAL);
   }
-  const applying = new Set(rules.map(({ ruleset_id }) => ruleset_id));
-  if (applying.size > 0) {
-    const rulesets = (await get(
-      fetch,
-      token,
-      `/repos/${github}/rulesets?includes_parents=true&per_page=100`,
-    )) as Ruleset[];
-    if (!Array.isArray(rulesets)) throw new Error('GitHub returned malformed rulesets');
-    for (const ruleset of rulesets) {
-      if (!applying.has(ruleset.id)) continue;
+  if (rules.some(({ ruleset_id }) => !Number.isSafeInteger(ruleset_id))) {
+    failures.push('a rule GitHub applies to its default branch names no ruleset to check');
+  }
+  const applying = new Set(
+    rules.map(({ ruleset_id }) => ruleset_id).filter((id): id is number => Number.isSafeInteger(id)),
+  );
+  for (const id of applying) {
+    try {
+      const ruleset = (await get(
+        fetch,
+        token,
+        `/repos/${github}/rulesets/${id}?includes_parents=true`,
+      )) as Ruleset;
       const failure = bypassable(ruleset);
       if (failure !== null) failures.push(failure);
+    } catch (error) {
+      failures.push(`ruleset ${id} could not be read: ${errorMessage(error)}`);
     }
   }
   return failures;
@@ -113,9 +129,9 @@ export const checkBranchRules = async (
   github: string,
   tokens: BranchRulesTokens,
 ): Promise<string[]> => {
-  requireGithubRepository(github);
   const failures: string[] = [];
   try {
+    requireGithubRepository(github);
     failures.push(...(await readBranchRules(fetch, await tokens.read(), github)));
   } catch (error) {
     failures.push(`its default branch rules could not be read: ${errorMessage(error)}`);
