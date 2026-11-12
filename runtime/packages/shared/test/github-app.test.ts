@@ -58,10 +58,11 @@ for (const [access, permissions] of [
       pull_requests: 'write',
       workflows: 'write',
       checks: 'read',
-      actions: 'write',
+      actions: 'read',
       statuses: 'read',
     },
   ],
+  ['rerun', { actions: 'write', pull_requests: 'read' }],
 ] as const) {
   test(`given an installed repository, when a ${access} token is minted, then GitHub is asked for exactly its permissions`, async () => {
     const github = fakeGithubApp();

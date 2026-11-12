@@ -13,6 +13,7 @@ import {
   fakeGithubApp,
   routedThrough,
 } from '../../shared/test/fixtures/fake-github-app.ts';
+import { actionsApproving, withProtectedRepositories, type RepositoryRules } from '../../shared/test/fixtures/branch-rules.ts';
 import { journaled, startedDispatch } from './helpers.ts';
 
 const MINUTE = 60_000;
@@ -153,9 +154,10 @@ interface Setup {
   quietPeriodSeconds?: number;
   maxConcurrent?: number;
   feedbackWorker?: boolean;
+  rules?: Record<string, RepositoryRules>;
 }
 
-const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true }: Setup = {}) => {
+const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true, rules = {} }: Setup = {}) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-feedback-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -207,7 +209,7 @@ const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true }: Set
   const syncAndPass = async (pulls: FakePullRequest[]): Promise<string[]> => {
     const before = started().length;
     const synced = await journaled(() =>
-      sync(['sync'], env, routedThrough(app, github(() => pulls, permissionRequests))),
+      sync(['sync'], env, routedThrough(app, withProtectedRepositories(github(() => pulls, permissionRequests), rules))),
     );
     assert.equal(synced.result, 0, synced.journal);
     const passed = await journaled(() => pass([], env));
@@ -245,6 +247,12 @@ test('given an open pull request authored by the App and a person\'s review with
     await after.syncAndPass([pullRequest(143, { reviews: [review(ago(11))] })]),
     [REVISE_UNIT],
   );
+});
+
+test('given a pull request with a review past the quiet period in a repository whose Actions can approve pull requests, when sync and the pass run, then no revision starts', async () => {
+  const refused = forge({ rules: { 'rameezk/forge': actionsApproving } });
+
+  assert.deepEqual(await refused.syncAndPass([pullRequest(143, { reviews: [review(ago(11))] })]), []);
 });
 
 test('given a review and then a conversation comment five minutes later, when the quiet period has not passed since the comment, then no revision starts, and once it has exactly one starts', async () => {

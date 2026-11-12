@@ -37,9 +37,10 @@ interface Scenario {
   failedPolls?: string[];
   diagnosisWorker?: string;
   passes?: number;
+  branchRules?: Record<string, string[] | null>;
 }
 
-const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failingUnit, failedPolls = [], diagnosisWorker, passes = 1 }: Scenario) => {
+const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failingUnit, failedPolls = [], diagnosisWorker, passes = 1, branchRules = {} }: Scenario) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-pass-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -72,7 +73,15 @@ const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failin
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    for (const repository of frontier) store.replaceFrontier(repository);
+    for (const repository of frontier) {
+      store.replaceFrontier(repository);
+      const failures = Object.hasOwn(branchRules, repository.repository)
+        ? branchRules[repository.repository]
+        : [];
+      if (failures !== null && failures !== undefined) {
+        store.recordBranchRules({ repository: repository.repository, github: repository.github, failures });
+      }
+    }
     for (const repository of failedPolls) {
       store.recordFrontierError({ repository, github: `rameezk/${repository}`, message: 'GitHub answered 502', failedAt: '2026-09-29T08:05:00.000Z' });
     }
@@ -114,6 +123,28 @@ test('given a frontier ticket labelled forge:ready, a frontier ticket without it
   assert.equal(code, 0);
   assert.deepEqual(started, ['start --no-block --no-ask-password -- forge-dispatch@forge:113.service']);
   assert.match(journal, /forge#113: started forge-dispatch@forge:113\.service/);
+});
+
+test('given a ticket labelled forge:ready in a repository whose default-branch rules failed at the last sync, beside one in a verified repository, when the pass runs, then only the verified repository is dispatched, and the log names the refusal', async () => {
+  const { started, journal } = await pass({
+    frontier: [
+      polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)]),
+      polled('dotfiles', 'rameezk/dotfiles', [ticket('rameezk/dotfiles', 7)]),
+    ],
+    branchRules: { forge: ['GitHub Actions can approve pull requests'] },
+  });
+
+  assert.deepEqual(started, ['start --no-block --no-ask-password -- forge-dispatch@dotfiles:7.service']);
+  assert.match(journal, /forge: no new work, GitHub Actions can approve pull requests/);
+});
+
+test('given a repository whose default-branch rules were never checked, when the pass runs, then nothing in it is dispatched', async () => {
+  const { started } = await pass({
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)])],
+    branchRules: { forge: null },
+  });
+
+  assert.deepEqual(started, []);
 });
 
 test('given an unblocked ready-for-human ticket labelled forge:ready beside a frontier ticket labelled forge:ready, when the pass runs, then only the agent ticket is dispatched', async () => {

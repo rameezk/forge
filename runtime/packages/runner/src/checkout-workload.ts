@@ -1,12 +1,19 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { errorMessage, type BotIdentity, type GithubApp, type RunTicket } from '@forge/shared';
+import {
+  errorMessage,
+  type BotIdentity,
+  type Fetch,
+  type GithubApp,
+  type RunTicket,
+} from '@forge/shared';
 import type { RuntimeConfig } from './config.ts';
 import { cloneCheckout, headCommit, loadPiSkills, resolveCheckout } from './checkout.ts';
 import { enterDevShell } from './devshell.ts';
 import { gitEnvironment } from './git.ts';
 import { boundedBySetupTimeout, type Setup } from './setup.ts';
 import { GithubTokenFile, keepFresh, revokingQuietly } from './github-token-file.ts';
+import { RerunChannel } from './rerun.ts';
 import type { Worker } from './harness.ts';
 import { withoutCredentials } from './provider.ts';
 import {
@@ -38,6 +45,8 @@ export const launchInCheckout = async ({
   identity,
   ticket,
   runId,
+  fetch,
+  pullRequest,
   conflictResolution = false,
 }: {
   env: NodeJS.ProcessEnv;
@@ -51,6 +60,8 @@ export const launchInCheckout = async ({
   identity: BotIdentity;
   ticket?: RunTicket;
   runId: string;
+  fetch: Fetch;
+  pullRequest: () => Promise<number | null>;
   conflictResolution?: boolean;
 }): Promise<LaunchResult> => {
   const loadSkills = await loadPiSkills(absolutePath(env, 'FORGE_PI_PACKAGE'));
@@ -74,12 +85,26 @@ export const launchInCheckout = async ({
       console.error(`could not refresh the workload's GitHub token: ${errorMessage(error)}`),
     revoke,
   );
+  const rerun = await RerunChannel.open(tokenFile.directory, {
+    github,
+    fetch,
+    token: async () => (await app.mint(github, 'rerun')).token,
+    pullRequest,
+  }).catch((error: unknown) => {
+    await stopRefreshing();
+    tokenFile.remove();
+    throw error;
+  });
   const cloneEnv = { ...hostEnv, ...tokenFile.environment, ...gitEnv };
   return launchWorkload({
     config,
     worker,
     env,
-    harnessEnv: { ...tokenFile.environment, ...gitEnvironment({}, identity, { conflictResolution }) },
+    harnessEnv: {
+      ...tokenFile.environment,
+      ...rerun.environment,
+      ...gitEnvironment({}, identity, { conflictResolution }),
+    },
     secrets: () => redactions,
     ...(ticket === undefined ? {} : { ticket }),
     runId,
@@ -113,6 +138,7 @@ export const launchInCheckout = async ({
     },
   }).finally(async () => {
     await stopRefreshing();
+    await rerun.close();
     tokenFile.remove();
   });
 };
