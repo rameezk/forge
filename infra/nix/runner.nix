@@ -4,6 +4,7 @@
   buildNpmPackage,
   claude-code,
   coreutils,
+  curl,
   git,
   makeWrapper,
   nodejs,
@@ -42,6 +43,7 @@ buildNpmPackage {
   nativeBuildInputs = [ makeWrapper ];
   nativeCheckInputs = [
     coreutils
+    curl
     git
   ];
 

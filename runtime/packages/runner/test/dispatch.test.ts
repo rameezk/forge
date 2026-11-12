@@ -77,6 +77,8 @@ const {
   requestRecord: REQUEST_RECORD_EXTENSION,
 } = PI_EXTENSIONS;
 
+const HEAD_SHA = 'c0ffee0000000000000000000000000000000001';
+
 const WRITE_TOKEN = tokenFor('write', 'rameezk/forge');
 
 const WRITE_TOKEN_AFTER = tokenFor('write', 'rameezk/forge', 2);
@@ -404,6 +406,7 @@ const fakeGithub = (
   contexts: Record<number, RawContextResponse>,
   permissions: Record<string, string>,
   edits: Edits,
+  actionsRuns: ActionsRuns,
 ) => {
   const requests: GraphqlRequest[] = [];
   const permissionChecks: string[] = [];
@@ -473,6 +476,17 @@ const fakeGithub = (
         ? json({ message: 'Not Found' }, 404)
         : json({ permission, user: { login } });
     }
+    const pullRequestOf = /^\/repos\/[^/]+\/[^/]+\/pulls\/(\d+)$/.exec(url.pathname)?.[1];
+    if ((init?.method ?? 'GET') === 'GET' && pullRequestOf !== undefined) {
+      return json({ number: Number(pullRequestOf), head: actionsRuns.head });
+    }
+    const runOf = /^\/repos\/[^/]+\/[^/]+\/actions\/runs\/(\d+)$/.exec(url.pathname)?.[1];
+    if ((init?.method ?? 'GET') === 'GET' && runOf !== undefined) {
+      const found = actionsRuns.runs[Number(runOf)];
+      return found === undefined
+        ? json({ message: 'Not Found' }, 404)
+        : json({ id: Number(runOf), ...found });
+    }
     if ((init?.method ?? 'GET') === 'GET' && url.pathname.includes('/labels/')) {
       return json({ name: 'forge' }, forgeLabels ? 200 : 404);
     }
@@ -528,7 +542,13 @@ const originWith = (
   return { path, tip: git(path, 'rev-parse', 'HEAD') };
 };
 
+interface ActionsRuns {
+  head: { sha: string; ref: string };
+  runs: Record<number, { head_sha: string; head_branch: string; status: string; conclusion: string | null }>;
+}
+
 interface Scenario {
+  rerun?: Partial<ActionsRuns> & { asks: number[] };
   origin?: Origin;
   repository?: string;
   issue?: number;
@@ -641,6 +661,7 @@ interface Outcome {
   requests: GraphqlRequest[];
   labelWrites: LabelWrite[];
   permissionChecks: string[];
+  answers: { rerun: boolean; message: string }[];
 }
 
 const gitConfigOf = (
@@ -738,6 +759,10 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       body: scenario.edits?.body ?? (() => RECORDED_BODY_EDITS),
       renames: scenario.edits?.renames ?? (() => RECORDED_RENAMES),
     },
+    {
+      head: scenario.rerun?.head ?? { sha: HEAD_SHA, ref: 'forge/113' },
+      runs: scenario.rerun?.runs ?? {},
+    },
   );
   if (scenario.seed !== undefined) {
     const seeded = Store.open(join(stateDir, 'forge.db'));
@@ -770,6 +795,16 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
           FAKE_PI_RECORD: record,
           FAKE_PI_OUTPUT: scenario.piOutput ?? PI_OUTPUT,
           ...(scenario.subscription === true ? claudeReplay(scenario.claudeFixture ?? 'success', record) : {}),
+          ...(scenario.rerun === undefined
+            ? {}
+            : {
+                FAKE_PI_ACTION: scenario.rerun.asks
+                  .map(
+                    (run) =>
+                      `curl --silent --unix-socket "$FORGE_RERUN_SOCKET" --data '{"run":${run}}' http://forge/rerun >> ${record}.answers; echo >> ${record}.answers`,
+                  )
+                  .join('; '),
+              }),
           ...(scenario.piLingerMs === undefined
             ? {}
             : { FAKE_PI_LINGER_MS: String(scenario.piLingerMs) }),
@@ -837,6 +872,12 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       requests: github.requests,
       labelWrites: github.labelWrites,
       permissionChecks: github.permissionChecks,
+      answers: existsSync(`${record}.answers`)
+        ? readFileSync(`${record}.answers`, 'utf8')
+            .split('\n')
+            .filter((line) => line.length > 0)
+            .map((line) => JSON.parse(line) as { rerun: boolean; message: string })
+        : [],
       app,
     };
   } finally {
@@ -2140,6 +2181,8 @@ test('given a checkout root with only CLAUDE.md, .agents/skills and .pi/APPEND_S
 test('given a dispatch and a revision, when each starts its harness, then each instruction says to re-run only infrastructure failures on its own pull request\'s head, at most twice, and never to re-run a failing test or step, touch Actions otherwise, or re-trigger CI with an empty commit or by reopening', async () => {
   const { pi } = await dispatch();
   for (const instruction of [instructionOf(pi), REVISION_INSTRUCTION]) {
+    assert.match(instruction, /only through forge's `forge-rerun-ci <run-id>` command/);
+    assert.match(instruction, /Never run `gh run rerun`: your token cannot touch Actions/);
     assert.match(instruction, /Re-run only a failed run on the head of the pull request you work on/);
     assert.match(instruction, /no jobs created, a startup failure, a lost runner, or a cancellation you did not cause/);
     assert.match(instruction, /Re-run the same run at most twice/);
@@ -2384,22 +2427,22 @@ test('given a dispatched workload, when its token is minted, then it is scoped t
       pull_requests: 'write',
       workflows: 'write',
       checks: 'read',
-      actions: 'write',
+      actions: 'read',
       statuses: 'read',
     },
   });
 });
 
-test('given an installation that has not accepted Actions: write, when forge-dispatch runs, then minting the workload token fails naming the permissions forge requested, no workload starts, and the dispatch fails', async () => {
+test('given an installation that has not accepted Workflows: write, when forge-dispatch runs, then minting the workload token fails naming the permissions forge requested, no workload starts, and the dispatch fails', async () => {
   const { failure, pi, dispatches } = await dispatch({
-    unaccepted: { actions: 'write' },
+    unaccepted: { workflows: 'write' },
     failing: true,
   });
 
   assert.ok(failure instanceof Error);
   assert.match(
     failure.message,
-    /GitHub refused a workload token for rameezk\/forge with the permissions forge requested \(.*actions: write.*\)/,
+    /GitHub refused a workload token for rameezk\/forge with the permissions forge requested \(.*workflows: write.*\)/,
   );
   assert.equal(pi, null);
   assert.deepEqual(
@@ -2418,6 +2461,7 @@ test('given a runner whose own environment holds its git config, the write-token
     'FORGE_GITHUB_TOKEN_FILE',
     'FORGE_PI_REQUEST_RECORD_FD',
     'FORGE_PI_SUBAGENT_INVOCATION',
+    'FORGE_RERUN_SOCKET',
     'GIT_AUTHOR_EMAIL',
     'GIT_AUTHOR_NAME',
     'GIT_COMMITTER_EMAIL',
@@ -3077,4 +3121,82 @@ test('given a ticket that is no longer dispatchable when forge-dispatch checks i
   assert.equal(code, 1);
   assert.deepEqual(dispatches, []);
   assert.doesNotMatch(card.text, /Did not start/);
+});
+
+const failedRun = {
+  head_sha: HEAD_SHA,
+  head_branch: 'forge/113',
+  status: 'completed',
+  conclusion: 'startup_failure',
+};
+
+const rerunsOf = (writes: LabelWrite[]): LabelWrite[] =>
+  writes.filter(({ method, path }) => method === 'POST' && /\/actions\/runs\/\d+\/rerun$/.test(path));
+
+test('given a workload whose pull request head has a failed run, when it asks the runner to re-run it, then the runner re-runs it with its own Actions token, answers that it did, and the workload ends ok', async () => {
+  const { code, answers, labelWrites, app, dispatches } = await dispatch({
+    rerun: { asks: [901], runs: { 901: failedRun } },
+  });
+
+  assert.equal(code, 0);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0]?.rerun, true);
+  const [rerun, ...more] = rerunsOf(labelWrites);
+  assert.deepEqual(more, []);
+  assert.equal(rerun?.path, '/repos/rameezk/forge/actions/runs/901/rerun');
+  assert.equal(rerun?.authorization, `Bearer ${tokenFor('rerun', 'rameezk/forge')}`);
+  assert.deepEqual(app.mints.filter((mint) => mint.kind === 'rerun').map((mint) => mint.body), [
+    { repositories: ['forge'], permissions: { actions: 'write', pull_requests: 'read' } },
+  ]);
+  assert.equal(dispatches[0]?.state, 'done');
+});
+
+test('given a workload and a failed run on another commit, or another branch, or one that succeeded, or one GitHub does not know, when it asks the runner to re-run it, then nothing is re-run, each answer says why, and the workload ends ok', async () => {
+  const { code, answers, labelWrites } = await dispatch({
+    rerun: {
+      asks: [1, 2, 3, 4],
+      runs: {
+        1: { ...failedRun, head_sha: 'deadbeef' },
+        2: { ...failedRun, head_branch: 'other' },
+        3: { ...failedRun, conclusion: 'success' },
+      },
+    },
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(rerunsOf(labelWrites), []);
+  assert.deepEqual(answers.map(({ rerun }) => rerun), [false, false, false, false]);
+  assert.match(answers[0]?.message ?? '', /not on the head/);
+  assert.match(answers[1]?.message ?? '', /not on the head/);
+  assert.match(answers[2]?.message ?? '', /has not failed/);
+  assert.match(answers[3]?.message ?? '', /no run 4/);
+});
+
+test('given a workload that has had two runs re-run, when it asks for a third, then nothing more is re-run and the answer says the limit is reached', async () => {
+  const { answers, labelWrites } = await dispatch({
+    rerun: { asks: [1, 2, 3], runs: { 1: failedRun, 2: failedRun, 3: failedRun } },
+  });
+
+  assert.deepEqual(answers.map(({ rerun }) => rerun), [true, true, false]);
+  assert.equal(rerunsOf(labelWrites).length, 2);
+  assert.match(answers[2]?.message ?? '', /limit of 2/);
+});
+
+test('given a workload with no pull request yet, when it asks the runner to re-run a run, then nothing is re-run and the answer says there is no pull request', async () => {
+  const { answers, labelWrites } = await dispatch({
+    rerun: { asks: [1], runs: { 1: failedRun } },
+    pullRequests: closing('no-pull-request'),
+  });
+
+  assert.deepEqual(rerunsOf(labelWrites), []);
+  assert.match(answers[0]?.message ?? '', /no open pull request/);
+});
+
+test('given a workload that sends the runner anything but one run number, when it asks, then the runner answers a refusal and re-runs nothing', async () => {
+  const { answers, labelWrites } = await dispatch({
+    rerun: { asks: [0, -3, 1.5], runs: { 1: failedRun } },
+  });
+
+  assert.deepEqual(rerunsOf(labelWrites), []);
+  assert.deepEqual(answers.map(({ rerun }) => rerun), [false, false, false]);
 });

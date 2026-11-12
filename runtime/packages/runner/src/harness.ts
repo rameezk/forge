@@ -21,7 +21,8 @@ const SCOPED_CHECK_RULE = [
 ];
 
 const CI_RERUN_RULE = [
-  'You may re-run a CI run, and only under these rules.',
+  'You may re-run a CI run, and only through forge\'s `forge-rerun-ci <run-id>` command, which asks the runner to re-run it and prints its answer, and only under these rules.',
+  'Never run `gh run rerun`: your token cannot touch Actions.',
   'Re-run only a failed run on the head of the pull request you work on.',
   'Re-run only when it failed for infrastructure reasons: no jobs created, a startup failure, a lost runner, or a cancellation you did not cause.',
   'Re-run the same run at most twice; if it still fails for infrastructure reasons, leave the pull request a draft and name the run, the failure and the attempts in your report.',
