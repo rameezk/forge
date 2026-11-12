@@ -14,6 +14,10 @@ const GITHUB_TIMEOUT_MS = 30_000;
 
 const ASK_TIMEOUT_FACTOR = 2;
 
+const STALL_MS = 15 * 60_000;
+
+const POLL_MS = 2_000;
+
 const FAILED_CONCLUSIONS = ['failure', 'startup_failure', 'timed_out', 'cancelled'];
 
 export interface RerunAnswer {
@@ -27,6 +31,8 @@ export interface RerunPolicy {
   token: () => Promise<string>;
   pullRequest: () => Promise<number | null>;
   timeoutMs?: number;
+  pollMs?: number;
+  now?: () => number;
 }
 
 interface PullRequestResponse {
@@ -38,6 +44,12 @@ interface RunResponse {
   head_branch?: unknown;
   status?: unknown;
   conclusion?: unknown;
+  created_at?: unknown;
+  run_started_at?: unknown;
+}
+
+interface JobsResponse {
+  jobs?: unknown;
 }
 
 const refusal = (message: string): RerunAnswer => ({ rerun: false, message: `refused: ${message}` });
@@ -60,6 +72,22 @@ const githubRequest = async (
       accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
     },
+  });
+
+const timestamp = (value: unknown): number => (typeof value === 'string' ? Date.parse(value) : Number.NaN);
+
+const pause = (ms: number, abandoned: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    abandoned.throwIfAborted();
+    const timer = setTimeout(() => {
+      abandoned.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(abandoned.reason);
+    };
+    abandoned.addEventListener('abort', onAbort, { once: true });
   });
 
 export class RerunDecider {
@@ -132,23 +160,56 @@ export class RerunDecider {
     ) {
       return refusal(`run ${run} is not on the head of pull request #${number}`);
     }
-    if (
-      found.status !== 'completed' ||
-      typeof found.conclusion !== 'string' ||
-      !FAILED_CONCLUSIONS.includes(found.conclusion)
-    ) {
-      return refusal(`run ${run} has not failed`);
+    const failed =
+      found.status === 'completed' &&
+      typeof found.conclusion === 'string' &&
+      FAILED_CONCLUSIONS.includes(found.conclusion);
+    const stalled = !failed && found.status === 'queued' && (await this.#stalled(run, found, token, abandoned));
+    if (!failed && !stalled) {
+      return refusal(`run ${run} has not failed or stalled in the queue`);
     }
     abandoned.throwIfAborted();
     if (this.#rerun >= RERUN_LIMIT) {
       return limitReached();
     }
     this.#rerun += 1;
+    if (stalled) {
+      const cancelled = await this.#forceCancel(run, token, abandoned);
+      if (cancelled !== null) return cancelled;
+    }
     const response = await githubRequest(this.#policy, token, 'POST', `/actions/runs/${run}/rerun`, abandoned);
     if (!response.ok) {
       return { rerun: false, message: `GitHub answered ${response.status} when re-running run ${run}` };
     }
     return { rerun: true, message: `re-ran run ${run}` };
+  }
+
+  async #stalled(run: number, found: RunResponse, token: string, abandoned: AbortSignal): Promise<boolean> {
+    const created = timestamp(found.created_at);
+    if (!Number.isFinite(created)) return false;
+    const started = timestamp(found.run_started_at);
+    const queuedSince = Number.isFinite(started) ? Math.max(created, started) : created;
+    if (!((this.#policy.now ?? Date.now)() - queuedSince >= STALL_MS)) return false;
+    const response = await githubRequest(this.#policy, token, 'GET', `/actions/runs/${run}/jobs`, abandoned);
+    if (!response.ok) return false;
+    const { jobs } = (await response.json()) as JobsResponse;
+    return Array.isArray(jobs) && jobs.length === 0;
+  }
+
+  async #forceCancel(run: number, token: string, abandoned: AbortSignal): Promise<RerunAnswer | null> {
+    const response = await githubRequest(this.#policy, token, 'POST', `/actions/runs/${run}/force-cancel`, abandoned);
+    if (!response.ok) {
+      this.#rerun -= 1;
+      return { rerun: false, message: `GitHub answered ${response.status} when cancelling run ${run}` };
+    }
+    for (;;) {
+      const state = await githubRequest(this.#policy, token, 'GET', `/actions/runs/${run}`, abandoned);
+      if (!state.ok) {
+        return { rerun: false, message: `GitHub answered ${state.status} for run ${run} while it was cancelling` };
+      }
+      if (((await state.json()) as RunResponse).status === 'completed') return null;
+      await pause(this.#policy.pollMs ?? POLL_MS, abandoned);
+    }
   }
 }
 

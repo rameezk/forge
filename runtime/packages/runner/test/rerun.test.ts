@@ -150,3 +150,183 @@ test('given a pull request lookup that answers after the runner stopped waiting,
   assert.match(answer, /took too long/);
   assert.deepEqual(posts, []);
 });
+
+const NOW = Date.parse('2026-11-12T12:00:00Z');
+
+const minutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString();
+
+interface StalledScenario {
+  createdMinutesAgo: number;
+  jobs?: number;
+  head?: { sha: string; ref: string };
+  runBranch?: string;
+  completesAfterCancel?: boolean;
+  rerunsBefore?: number;
+  startedMinutesAgo?: number;
+  cancelStatus?: number;
+  withoutTimestamps?: boolean;
+  withoutStart?: boolean;
+}
+
+const openStalledChannel = async (
+  scenario: StalledScenario,
+): Promise<{ channel: RerunChannel; calls: string[] }> => {
+  const calls: string[] = [];
+  let cancelled = false;
+  const channel = await RerunChannel.open(mkdtempSync(join(tmpdir(), 'forge-rerun-')), {
+    github: 'rameezk/forge',
+    fetch: async (input, init) => {
+      const path = new URL(String(input)).pathname.replace('/repos/rameezk/forge', '');
+      const method = init?.method ?? 'GET';
+      calls.push(`${method} ${path}`);
+      if (path.startsWith('/pulls/')) {
+        return new Response(JSON.stringify({ head: scenario.head ?? { sha: 'a', ref: 'b' } }));
+      }
+      if (path.endsWith('/jobs')) {
+        const total = scenario.jobs ?? 0;
+        return new Response(JSON.stringify({ total_count: total, jobs: Array.from({ length: total }, () => ({})) }));
+      }
+      if (path.endsWith('/force-cancel') && scenario.cancelStatus !== undefined) {
+        return new Response('{}', { status: scenario.cancelStatus });
+      }
+      if (path.endsWith('/force-cancel')) cancelled = true;
+      if (method === 'POST') return new Response('{}', { status: path.endsWith('/rerun') ? 201 : 202 });
+      const done = cancelled && scenario.completesAfterCancel !== false;
+      const timestamps = scenario.withoutTimestamps
+        ? {}
+        : {
+            created_at: minutesAgo(scenario.createdMinutesAgo),
+            ...(scenario.withoutStart
+              ? {}
+              : { run_started_at: minutesAgo(scenario.startedMinutesAgo ?? scenario.createdMinutesAgo) }),
+          };
+      return new Response(
+        JSON.stringify({
+          ...timestamps,
+          head_sha: 'a',
+          head_branch: scenario.runBranch ?? 'b',
+          status: done ? 'completed' : 'queued',
+          conclusion: done ? 'cancelled' : null,
+        }),
+      );
+    },
+    token: async () => 'token',
+    pullRequest: async () => 1,
+    timeoutMs: 100,
+    pollMs: 5,
+    now: () => NOW,
+  });
+  const asks = scenario.rerunsBefore ?? 0;
+  for (let ask = 0; ask < asks; ask += 1) {
+    await send(channel.path, askFor(12), false);
+  }
+  calls.length = 0;
+  return { channel, calls };
+};
+
+const askFor = (run: number): string => {
+  const body = JSON.stringify({ run });
+  return `POST /rerun HTTP/1.1\r\nhost: forge\r\nconnection: close\r\ncontent-length: ${body.length}\r\n\r\n${body}`;
+};
+
+const mutations = (calls: string[]): string[] => calls.filter((call) => call.startsWith('POST'));
+
+test('given a run on the head queued with no jobs for 16 minutes, when a workload asks, then the runner force-cancels it, waits for it to complete, re-runs it and answers that it did', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 16 });
+  t.after(() => channel.close());
+
+  const answer = await send(channel.path, askFor(12), false);
+
+  assert.match(answer, /"rerun":true/);
+  assert.deepEqual(mutations(calls), ['POST /actions/runs/12/force-cancel', 'POST /actions/runs/12/rerun']);
+});
+
+test('given a run on the head queued with no jobs for 5 minutes, when a workload asks, then the runner refuses it and changes nothing on GitHub', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 5 });
+  t.after(() => channel.close());
+
+  const answer = await send(channel.path, askFor(12), false);
+
+  assert.match(answer, /"rerun":false.*refused/);
+  assert.deepEqual(mutations(calls), []);
+});
+
+test('given a run on the head queued for 20 minutes with jobs, when a workload asks, then the runner refuses it', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 20, jobs: 1 });
+  t.after(() => channel.close());
+
+  const answer = await send(channel.path, askFor(12), false);
+
+  assert.match(answer, /"rerun":false.*refused/);
+  assert.deepEqual(mutations(calls), []);
+});
+
+test('given a stalled run on another branch or commit than the pull request head, when a workload asks, then the runner refuses it as not on the head', async (t) => {
+  for (const scenario of [{ runBranch: 'other' }, { head: { sha: 'z', ref: 'b' } }]) {
+    const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 16, ...scenario });
+    t.after(() => channel.close());
+
+    const answer = await send(channel.path, askFor(12), false);
+
+    assert.match(answer, /"rerun":false.*not on the head/);
+    assert.deepEqual(mutations(calls), []);
+  }
+});
+
+test('given a workload that has had two runs re-run, when it asks about a stalled run, then the runner refuses it as over the limit', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 16, rerunsBefore: 2 });
+  t.after(() => channel.close());
+
+  const answer = await send(channel.path, askFor(12), false);
+
+  assert.match(answer, /"rerun":false.*limit of 2/);
+  assert.deepEqual(mutations(calls), []);
+});
+
+test('given a stalled run that GitHub still reports as not completed after force-cancel, when a workload asks twice, then each ask is answered as not re-run and nothing is re-run', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 16, completesAfterCancel: false });
+  t.after(() => channel.close());
+
+  const first = await send(channel.path, askFor(12), false);
+  const second = await send(channel.path, askFor(12), false);
+
+  for (const answer of [first, second]) assert.match(answer, /"rerun":false.*took too long/);
+  assert.equal(mutations(calls).filter((call) => call.endsWith('/rerun')).length, 0);
+});
+
+test('given a run created long ago but re-run 2 minutes ago and still queued with no jobs, when a workload asks, then the runner refuses it and changes nothing on GitHub', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 60, startedMinutesAgo: 2 });
+  t.after(() => channel.close());
+
+  const answer = await send(channel.path, askFor(12), false);
+
+  assert.match(answer, /"rerun":false.*refused/);
+  assert.deepEqual(mutations(calls), []);
+});
+
+test('given a stalled run whose force-cancel GitHub refuses, when a workload asks and then asks again, then the refused cancel did not use up a re-run', async (t) => {
+  const { channel } = await openStalledChannel({ createdMinutesAgo: 16, cancelStatus: 502, rerunsBefore: 0 });
+  t.after(() => channel.close());
+
+  const answers = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) answers.push(await send(channel.path, askFor(12), false));
+
+  for (const answer of answers) assert.match(answer, /"rerun":false.*502 when cancelling/);
+});
+
+test('given a queued run with no jobs that GitHub gives no timestamps, when a workload asks, then the runner refuses it and changes nothing on GitHub', async (t) => {
+  const { channel, calls } = await openStalledChannel({ createdMinutesAgo: 60, withoutTimestamps: true });
+  t.after(() => channel.close());
+
+  const answer = await send(channel.path, askFor(12), false);
+
+  assert.match(answer, /"rerun":false.*refused/);
+  assert.deepEqual(mutations(calls), []);
+});
+
+test('given a run queued with no jobs for 16 minutes that GitHub gives no start time, when a workload asks, then the runner measures from its creation and re-runs it', async (t) => {
+  const { channel } = await openStalledChannel({ createdMinutesAgo: 16, withoutStart: true });
+  t.after(() => channel.close());
+
+  assert.match(await send(channel.path, askFor(12), false), /"rerun":true/);
+});
