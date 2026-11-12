@@ -4,6 +4,7 @@ export interface DeployStatus {
   running: string | null;
   head: string | null;
   error: string | null;
+  bumpError: string | null;
   forge: string | null;
   upstream: string | null;
   upstreamHead: string | null;
@@ -33,6 +34,7 @@ export const parseDeployStatus = (text: string): DeployStatus | null => {
     running: textOrNull(record.running),
     head: textOrNull(record.head),
     error: textOrNull(record.error),
+    bumpError: textOrNull(record.bumpError),
     forge: matching(record.forge, COMMIT),
     upstream: matching(record.upstream, REPOSITORY),
     upstreamHead: matching(record.upstreamHead, COMMIT),

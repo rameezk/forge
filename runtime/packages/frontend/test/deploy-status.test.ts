@@ -11,7 +11,7 @@ import { openingTag, textOf } from './html.ts';
 const RUNNING = '1111111111111111111111111111111111111111';
 const HEAD = '2222222222222222222222222222222222222222';
 
-const unknownForge = { forge: null, upstream: null, upstreamHead: null, behind: null };
+const unknownForge = { bumpError: null, forge: null, upstream: null, upstreamHead: null, behind: null };
 
 const boardWith = async (deployStatus?: () => DeployStatus | null): Promise<string> => {
   const app = createApp({
@@ -110,4 +110,48 @@ test('given a multi-line switch error, when the Board is requested, then the err
   const tag = openingTag(box.match(/<[^>]*\sdata-deploy-error[^>]*>/)?.[0] ?? '');
   assert.match(tag, /whitespace-pre-line/);
   assert.doesNotMatch(tag, /\struncate\b|line-clamp/);
+});
+
+const bumpBoxOf = (body: string): string => {
+  const box = body.match(/<[^>]*\sdata-bump-error[^>]*>[\s\S]*?<\/[a-z]+>/)?.[0];
+  assert.ok(box, 'the Board shows the bump error box');
+  return box;
+};
+
+const classOf = (tag: string): string | undefined => /\sclass="([^"]*)"/.exec(openingTag(tag))?.[1];
+
+test('given a status with a bump error, when the Board is requested, then it shows the bump error styled like the switch error and no switch error', async () => {
+  const body = await boardWith(() => ({ running: RUNNING, head: RUNNING, error: null, ...unknownForge, bumpError: 'Resource not accessible by integration' }));
+
+  const box = bumpBoxOf(body);
+  assert.match(textOf(box), /Resource not accessible by integration/);
+  assert.match(textOf(box), /bump/i);
+  assert.doesNotMatch(body, /data-deploy-error/);
+  const reference = errorBoxOf(await boardWith(() => failing('x')));
+  assert.equal(classOf(box), classOf(reference));
+});
+
+test('given a status with both a switch error and a bump error, when the Board is requested, then each is shown in its own box', async () => {
+  const body = await boardWith(() => ({ ...failing('building the system failed'), bumpError: 'dispatch refused' }));
+
+  assert.match(textOf(errorBoxOf(body)), /building the system failed/);
+  assert.doesNotMatch(textOf(errorBoxOf(body)), /dispatch refused/);
+  assert.match(textOf(bumpBoxOf(body)), /dispatch refused/);
+  assert.doesNotMatch(textOf(bumpBoxOf(body)), /building the system failed/);
+});
+
+test('given a status with no bump error, when the Board is requested, then there is no bump error box', async () => {
+  assert.doesNotMatch(await boardWith(() => failing('boom')), /data-bump-error/);
+  assert.doesNotMatch(await boardWith(), /data-bump-error/);
+});
+
+test('given a bump error with markup, when the Board is requested, then it is escaped', async () => {
+  const body = await boardWith(() => ({ ...failing('x'), bumpError: '<script>alert(1)</script>' }));
+
+  assert.doesNotMatch(body, /<script>alert/);
+  assert.match(bumpBoxOf(body), /&lt;script&gt;/);
+});
+
+test('given a record with a bump error, when it is read, then bumpError comes through', () => {
+  assert.equal(parseDeployStatus('{"bumpError":"nope"}')?.bumpError, 'nope');
 });
