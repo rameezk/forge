@@ -473,7 +473,12 @@ repositories forge manages, and give the box its id and private key.
      that fail and re-run a run that failed for infrastructure reasons.
    - Commit statuses: read, so forge can read the status of a pull request's
      head commit.
-   - Metadata: read, which GitHub always grants.
+   - Administration: read, so the frontier sync can read whether GitHub Actions
+     may approve pull requests in a managed repository. Only the frontier
+     sync's token requests it, narrowed to the one repository, and no workload
+     token does.
+   - Metadata: read, which GitHub always grants. Forge reads each managed
+     repository's default-branch rules with it.
 2. Create the App, note its **App ID**, and generate a private key. GitHub
    downloads a `.pem` file once.
 3. Install the App on your account or organisation and select **only** the
@@ -521,6 +526,13 @@ and write** in the App's repository permissions, then accept the new permission
 on the installation. Until you do, every dispatch fails to mint its workload
 token and the dispatch failure names the permissions forge requested.
 
+Upgrading an existing App for branch rules: add **Administration: read** to the
+App's repository permissions, then accept the new permission on the
+installation. Until you do, the frontier sync cannot read whether Actions may
+approve pull requests, so forge refuses every managed repository and the
+dashboard says its rules could not be read. Dispatch also stops for any
+repository that does not yet meet [the branch rules](#branch-rules-a-managed-repository-must-have).
+
 Forge signs a short-lived JWT with the private key and exchanges it for an
 installation token that expires after an hour. It mints a read-only token for
 each frontier sync, a token that can write issues, for the labels it creates
@@ -532,8 +544,38 @@ the transcript.
 Only the frontier sync, a dispatch and grading can read the private key, as a
 systemd credential. The workload, the dashboard and billing cannot. A workload holds
 only its own repository's token, so a compromised run reaches that repository
-alone, for at most an hour after it ends. Still protect each default branch,
-since a run can change CI workflows in its repository.
+alone, for at most an hour after it ends. Forge checks that the repository's
+default branch is protected before it dispatches there, as the next section
+describes.
+
+#### Branch rules a managed repository must have
+
+A leaked workload token must not be able to land code on a default branch, and
+GitHub cannot narrow an App token to branches, so the repository's own rules
+must stop it. On every frontier sync forge reads each managed repository's
+default-branch rules and whether GitHub Actions may approve pull requests, and
+dispatches to the repository only when all of these hold:
+
+- The default branch requires at least one approving review.
+- It requires approval of the most recent push.
+- No ruleset that applies to it can be bypassed by forge's App.
+- GitHub Actions cannot approve pull requests (Settings, Actions, General,
+  Workflow permissions).
+
+Set the first three in a ruleset on the default branch. A repository that fails
+any rule, or whose rules forge cannot read, gets no new dispatches, revisions
+or conflict resolutions until a later sync finds it passing. It stays
+declared, and work already running is not stopped. The sync log and the
+dashboard name the repository and each failing rule.
+
+A private repository needs GitHub Pro on a personal account, or Team on an
+organisation, for its rules to exist and be readable. On GitHub Free, GitHub
+answers 403 and forge refuses the repository, so upgrade, make it public, or
+stop managing it.
+
+Keep a managed repository's Actions secrets only in environments limited to its
+default branch. Forge does not check this: a secret available to every branch
+is available to a workflow that a leaked token pushes on another branch.
 
 #### Moving off the two personal tokens
 

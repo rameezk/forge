@@ -4,6 +4,7 @@ import {
   errorMessage,
   addEyes,
   appIdentity,
+  checkBranchRules,
   ensureLabels,
   installationTokens,
   oldestFirst,
@@ -26,6 +27,8 @@ import {
   type WatchedPullRequest,
 } from '@forge/shared';
 import type { FrontierConfig, RepositoryConfig } from './config.ts';
+
+type RulesCheck = (github: string) => Promise<string[]>;
 
 type Poll = (github: string) => Promise<Ticket[]>;
 
@@ -71,6 +74,14 @@ const pullRequestPolling =
   (tokens: InstallationTokens, fetch: Fetch): PullRequestPoll =>
   async (github, number) =>
     queryPullRequest(fetch, await tokens(github, 'read'), github, number);
+
+const rulesChecking =
+  (tokens: InstallationTokens, fetch: Fetch): RulesCheck =>
+  (github) =>
+    checkBranchRules(fetch, github, {
+      read: () => tokens(github, 'read'),
+      administration: () => tokens(github, 'administration'),
+    });
 
 const BOT_SUFFIX = '[bot]';
 
@@ -227,6 +238,7 @@ const sync = async (
   watched: WatchedPoll,
   acknowledge: Acknowledge,
   writes: GithubWrites | null,
+  checkRules: RulesCheck,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
   if (stateDir === undefined) {
@@ -239,6 +251,7 @@ const sync = async (
     let failed = false;
     for (const [name, repository] of Object.entries(config.repositories)) {
       const { github, on } = repository;
+      let polled = false;
       try {
         const tickets = await poll(github);
         const closed = await pollClosed(github);
@@ -251,6 +264,7 @@ const sync = async (
           closed,
           requests,
         });
+        polled = true;
       } catch (error) {
         const message = errorMessage(error);
         console.error(`${name}: ${message}`);
@@ -261,6 +275,13 @@ const sync = async (
           failedAt: new Date().toISOString(),
         });
         failed = true;
+      }
+      if (polled) {
+        const failures = await checkRules(github);
+        store.recordBranchRules({ repository: name, github, failures });
+        if (failures.length > 0) {
+          console.error(`${name}: no new work, ${failures.join('; ')}`);
+        }
       }
       if (
         !(await refreshPullRequests(
@@ -390,6 +411,7 @@ export const main = async (
         watchedPolling(tokens, fetch, identity),
         acknowledging(tokens, fetch),
         githubWrites(config, tokens, fetch),
+        rulesChecking(tokens, fetch),
       )
     : list(config, poll);
 };

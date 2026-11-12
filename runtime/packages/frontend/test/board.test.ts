@@ -22,7 +22,7 @@ const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
 });
 
 type Seed =
-  | (PolledFrontier & { lastError?: PollFailure })
+  | (PolledFrontier & { lastError?: PollFailure; branchRules?: string[] })
   | { repository: string; github: string; polledAt: null; lastError: PollFailure };
 
 const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number, maxOpenPullRequests?: number | null) => {
@@ -30,6 +30,9 @@ const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, 
   dispatch(store);
   for (const seed of frontier) {
     if (seed.polledAt !== null) store.replaceFrontier(seed);
+    if ('branchRules' in seed && seed.branchRules !== undefined) {
+      store.recordBranchRules({ repository: seed.repository, github: seed.github, failures: seed.branchRules });
+    }
     if (seed.lastError !== undefined) {
       store.recordFrontierError({ repository: seed.repository, github: seed.github, ...seed.lastError });
     }
@@ -1001,4 +1004,21 @@ test('given the review limit is reached and a forge:ready ticket whose earlier d
 
   assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))).failed, ['9']);
   assert.deepEqual(pillsOf(cardOf(body, 9)).filter((pill) => pill === 'held: review limit'), ['held: review limit']);
+});
+
+test('given a repository whose default-branch rules failed at the last sync and one that passed, when the Board is requested, then the failing lane names each failing rule and says no new work starts, and the passing lane shows nothing', async () => {
+  const app = appWith([
+    { ...frontierOf([ticket({ number: 1 })]), branchRules: ['GitHub Actions can approve pull requests', 'its default branch does not require an approving review'] },
+    { repository: 'dotfiles', github: 'rameezk/dotfiles', polledAt: '2026-09-29T08:10:00.000Z', closed: [], requests: [], tickets: [ticket({ number: 3, url: 'https://github.com/rameezk/dotfiles/issues/3', parent: null })], branchRules: [] } as Seed,
+  ]);
+
+  const body = await (await app.request('/')).text();
+  const [dotfiles, forge] = sections(body);
+  assert.ok(dotfiles && forge);
+
+  assert.doesNotMatch(dotfiles, /data-branch-rules/);
+  const callout = /<p[^>]*\sdata-branch-rules[^>]*>([\s\S]*?)<\/p>/.exec(forge)?.[1] ?? '';
+  assert.match(callout, /No new work starts here/);
+  assert.match(callout, /GitHub Actions can approve pull requests/);
+  assert.match(callout, /its default branch does not require an approving review/);
 });

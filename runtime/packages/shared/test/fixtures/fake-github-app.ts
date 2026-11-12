@@ -15,7 +15,7 @@ export const BOT_EMAIL = `${BOT_USER_ID}+${BOT_LOGIN}@users.noreply.github.com`;
 export const INSTALLED = 'rameezk/forge-app-test';
 const INSTALLATION_OWNER = 'rameezk';
 
-type TokenKind = 'read' | 'write' | 'reactions' | 'grading' | 'workload';
+type TokenKind = 'read' | 'write' | 'reactions' | 'grading' | 'administration' | 'workload';
 
 export const tokenFor = (kind: TokenKind, github: string, nth = 1): string =>
   `ghs_${kind}_${github.replace('/', '_')}_${nth}`;
@@ -24,7 +24,9 @@ export const sentWith = (init: RequestInit | undefined, kind: TokenKind): boolea
   (new Headers(init?.headers).get('authorization') ?? '').startsWith(`bearer ghs_${kind}_`);
 
 const kindOf = (permissions: Record<string, string> = {}): TokenKind =>
-  permissions.contents === 'write'
+  permissions.administration === 'read'
+    ? 'administration'
+    : permissions.contents === 'write'
     ? 'workload'
     : permissions.checks === 'write'
       ? 'grading'

@@ -318,6 +318,7 @@ export interface PollFailure {
 export interface RepositoryFrontier extends Omit<PolledFrontier, 'polledAt'> {
   polledAt: string | null;
   lastError: PollFailure | null;
+  branchRules: string[] | null;
 }
 
 interface IssueNode {
