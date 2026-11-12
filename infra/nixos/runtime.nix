@@ -166,6 +166,11 @@ let
         default = false;
         description = "Whether forge grades the risk of every pull request its App opens in this repository, with Jev through OpenRouter (ADR-0103). Each settled head commit, one with no forge workload running on its pull request and not a draft, gets a `forge/risk` check run from forge's App that always concludes neutral, so it never gates a dispatch or a merge. Needs `forge.runtime.grading.model`, and the GitHub App needs the Checks: write permission. Turning it on grades the repository's open forge pull requests on the next pass. Human pull requests are never graded.";
       };
+      workflows = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Whether a workload's GitHub token in this repository carries Workflows: write (ADR-0106). Off by default, so a push touching `.github/workflows` is refused by GitHub, and a ticket that needs a workflow change fails at push until you opt the repository in or make the change by hand. Turning it on lets a workload, and anyone holding its leaked token for up to an hour, push a workflow that runs at once on its branch with every repository-level Actions secret, so opt in only a repository whose default branch meets ADR-0105's rules: it requires at least one approving review and approval of the most recent push, forge's App cannot bypass it, and GitHub Actions cannot approve pull requests. The App installation keeps Workflows: write, so opting in needs no change on GitHub.";
+      };
     };
   };
 
@@ -184,6 +189,7 @@ let
       _: r:
       { inherit (r) github; }
       // lib.optionalAttrs r.grading { grading = true; }
+      // lib.optionalAttrs r.workflows { workflows = true; }
       // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null || r.on.conflict != null) {
         on = lib.filterAttrs (_: worker: worker != null) { inherit (r.on) ticket feedback conflict; };
       }
