@@ -311,9 +311,9 @@ commit (`upstreamHead`) and how many commits the box's forge is behind it
 is never a switch error. Read the file with
 `just ssh sudo cat /var/lib/forge-pull-deploy/status.json`, or see it on the
 dashboard: every page's footer shows the forge commit with a "latest" or "N behind"
-pill, and the Board shows the running commit, the head commit, or "up to date" when
-they match, and the last switch error. A box that has never pulled shows `running` as
-`null` until its first switch.
+pill, plus a red "deploy failed" pill while the last switch failed, which links to
+the error box under the Board's title. A box that has never pulled shows `running`
+as `null` until its first switch.
 
 A pull deploy never interrupts a running workload, for the same reason a
 `just deploy` does not: a dispatch or worker run in flight finishes on what it

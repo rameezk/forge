@@ -26,50 +26,40 @@ const boardWith = async (deployStatus?: () => DeployStatus | null): Promise<stri
   return (await app.request('/')).text();
 };
 
-const sectionOf = (body: string): string => {
-  const section = body.match(/<section[^>]*\sdata-deploy-status[^>]*>[\s\S]*?<\/section>/)?.[0];
-  assert.ok(section, 'the Board shows the deploy status');
-  return section;
+const errorBoxOf = (body: string): string => {
+  const box = body.match(/<[^>]*\sdata-deploy-error[^>]*>[\s\S]*?<\/[a-z]+>/)?.[0];
+  assert.ok(box, 'the Board shows the deploy error box');
+  return box;
 };
 
-const words = (fragment: string): string => textOf(fragment).replace(/\s+/g, ' ').trim();
+const failing = (error: string): DeployStatus => ({ running: RUNNING, head: HEAD, error, ...unknownForge });
 
-test('given a deploy status with a running commit, a different head commit and a last switch error, when the Board is requested, then it shows the running commit, the head commit and the error', async () => {
-  const section = sectionOf(await boardWith(() => ({ running: RUNNING, head: HEAD, error: 'building the system failed', ...unknownForge })));
+test('given a deploy status with an error, when the Board is requested, then it shows the error output in a box the footer pill can link to', async () => {
+  const box = errorBoxOf(await boardWith(() => failing('building the system failed')));
 
-  assert.match(words(section), /Running 1111111/);
-  assert.match(words(section), /Head 2222222/);
-  assert.match(section, /<[^>]*\sdata-deploy-error[^>]*>[^<]*building the system failed/);
-  assert.doesNotMatch(section, /data-deploy-current/);
+  assert.match(openingTag(box), /\sid="deploy-error"/);
+  assert.match(textOf(box), /building the system failed/);
 });
 
-test('given a deploy status whose running and head commits match with no error, when the Board is requested, then it shows the running commit as current and no error', async () => {
-  const section = sectionOf(await boardWith(() => ({ running: RUNNING, head: RUNNING, error: null, ...unknownForge })));
+test('given a deploy status with no error, when the Board is requested, then there is no deploy row and no error box', async () => {
+  for (const status of [{ running: RUNNING, head: RUNNING, error: null, ...unknownForge }, { running: null, head: HEAD, error: null, ...unknownForge }]) {
+    const body = await boardWith(() => status);
 
-  assert.match(words(section), /Running 1111111/);
-  assert.match(words(section), /up to date/);
-  assert.match(section, /data-deploy-current/);
-  assert.doesNotMatch(section, /data-deploy-error/);
-  assert.doesNotMatch(words(section), /Head/);
+    assert.doesNotMatch(body, /data-deploy-status|data-deploy-error|data-deploy-current|id="deploy-error"/);
+    assert.doesNotMatch(textOf(body), /Running [0-9a-f]{7}|Running unknown|up to date/);
+  }
 });
 
-test('given a deploy status that has never recorded a running commit, when the Board is requested, then it shows the running commit as unknown', async () => {
-  const section = sectionOf(await boardWith(() => ({ running: null, head: HEAD, error: null, ...unknownForge })));
-
-  assert.match(words(section), /Running unknown/);
-  assert.match(words(section), /Head 2222222/);
-});
-
-test('given no deploy status, when the Board is requested, then it shows no deploy status', async () => {
-  assert.doesNotMatch(await boardWith(), /data-deploy-status/);
-  assert.doesNotMatch(await boardWith(() => null), /data-deploy-status/);
+test('given no deploy status, when the Board is requested, then it shows no deploy error box', async () => {
+  assert.doesNotMatch(await boardWith(), /data-deploy-error/);
+  assert.doesNotMatch(await boardWith(() => null), /data-deploy-error/);
 });
 
 test('given a deploy status error with markup, when the Board is requested, then the error is escaped', async () => {
-  const body = await boardWith(() => ({ running: RUNNING, head: HEAD, error: '<script>alert(1)</script>', ...unknownForge }));
+  const body = await boardWith(() => failing('<script>alert(1)</script>'));
 
   assert.doesNotMatch(body, /<script>alert/);
-  assert.match(sectionOf(body), /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(errorBoxOf(body), /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
 test('given the record the pull deploy writes, when it is read, then running, head and error come through, with null for each that is unknown', () => {
@@ -115,9 +105,9 @@ test('given a deploy status that changes, when the Board is rendered again, then
 
 test('given a multi-line switch error, when the Board is requested, then the error keeps its line breaks and is not cut to one line', async () => {
   const error = 'error: builder for drv failed\nlast 20 lines of the log';
-  const section = sectionOf(await boardWith(() => ({ running: RUNNING, head: HEAD, error, ...unknownForge })));
+  const box = errorBoxOf(await boardWith(() => failing(error)));
 
-  const tag = openingTag(section.match(/<[^>]*\sdata-deploy-error[^>]*>/)?.[0] ?? '');
+  const tag = openingTag(box.match(/<[^>]*\sdata-deploy-error[^>]*>/)?.[0] ?? '');
   assert.match(tag, /whitespace-pre-line/);
   assert.doesNotMatch(tag, /\struncate\b|line-clamp/);
 });
