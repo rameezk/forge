@@ -192,8 +192,10 @@ if [ "$guard_status" != 0 ] &&
 	[ "$(cat "$work/flake.lock")" = "$lock_before" ] &&
 	[ "$(open_issues | jq 'length')" = 1 ] &&
 	[ "$(open_issues | jq -r '.[0].title')" = "The forge bump failed the divergence guard" ] &&
-	open_issues | jq -r '.[0].body' | grep -q "${rejected_commit:0:7}"; then
-	echo "ok: nothing pushed, the lock is untouched, and one open issue names the rejected commit"
+	open_issues | jq -r '.[0].body' | grep -q "${rejected_commit:0:7}" &&
+	open_issues | jq -r '.[0].body' | grep -q "The bump runs again when forge moves or when you run it by hand" &&
+	! open_issues | jq -r '.[0].body' | grep -q "next run"; then
+	echo "ok: nothing pushed, the lock is untouched, and one open issue names the rejected commit and when the bump runs again"
 else
 	echo "FAIL: expected a failing bump, nothing pushed, and one open issue naming ${rejected_commit:0:7}"
 	tail -20 "$scratch/guard-fails.log"

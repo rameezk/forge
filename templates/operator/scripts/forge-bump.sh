@@ -133,7 +133,7 @@ if ! bash -c "$guard" >"$guard_log" 2>&1; then
 		tail -n 40 "$guard_log"
 		echo '```'
 		echo
-		echo "The bump tries again on its next run, and this issue closes once a bump passes."
+		echo "The bump runs again when forge moves or when you run it by hand, and this issue closes once a bump passes."
 	} >"$scratch/failure.md"
 	number="$(open_issue_number "$failure_title")"
 	if [ -n "$number" ]; then

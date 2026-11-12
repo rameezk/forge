@@ -108,6 +108,7 @@ testers.runNixOSTest {
         repository = "operator-org/operator";
         remote = "file:///srv/operator.git";
         apiBase = "http://127.0.0.1:8080";
+        upstreamBase = "file:///srv/upstream";
         intervalSeconds = 2;
       };
 
@@ -136,9 +137,8 @@ testers.runNixOSTest {
     forge_state_file = "/var/lib/forge-pull-deploy/forge.json"
     commit_options = "-c user.name=operator -c user.email=operator@example.com"
 
-    forge_a = "a" * 40
-    forge_b = "b" * 40
-    forge_c = "c" * 40
+    dispatch_path = "/repos/operator-org/operator/actions/workflows/forge-bump.yml/dispatches"
+
     upstream_head = "d" * 40
     fork_head = "e" * 40
 
@@ -149,8 +149,14 @@ testers.runNixOSTest {
         locked = {"type": "github", "owner": owner, "repo": repo, "rev": rev}
         return json.dumps({"version": 7, "root": "root", "nodes": {"root": {"inputs": {"forge": "forge"}}, "forge": {"original": original, "locked": locked}}})
 
-    def upstream(repos, fail=False):
-        box.succeed(f"cat > {upstream_file} <<'EOF'\n" + json.dumps({"fail": fail, "repos": repos}) + "\nEOF")
+    def upstream(repos, fail=False, dispatch_fail=False):
+        box.succeed(f"cat > {upstream_file} <<'EOF'\n" + json.dumps({"fail": fail, "dispatchFail": dispatch_fail, "repos": repos}) + "\nEOF")
+
+    def forge_at(repo, rev):
+        box.succeed(f"git -C /srv/upstream/{repo}.git update-ref refs/heads/main {rev}")
+
+    def dispatches():
+        return [r for r in requests() if r["method"] == "POST" and r["path"] == dispatch_path]
 
     def push(flake, message, forge_lock=None):
         if forge_lock is not None:
@@ -185,6 +191,9 @@ testers.runNixOSTest {
             return all(current[key] == value for key, value in expected.items())
         retry(matches, 120)
 
+    def wait_for_dispatches(count):
+        retry(lambda _: len(dispatches()) >= count, 120)
+
     def wait_for_polls(count):
         start = polls()
         retry(lambda _: polls() >= start + count, 120)
@@ -192,6 +201,13 @@ testers.runNixOSTest {
     box.wait_for_unit("multi-user.target")
     box.wait_for_unit("fake-github.service")
     box.succeed("git init -q --bare -b main /srv/operator.git && git clone -q /srv/operator.git /srv/work")
+    box.succeed(
+        f"git init -q -b main /srv/forge-src && cd /srv/forge-src && "
+        f"for n in a b c d e; do git {commit_options} commit -q --allow-empty -m forge-$n && git tag forge-$n; done && "
+        "for repo in rameezk/forge fork-org/forge; do mkdir -p /srv/upstream/$(dirname $repo) && git clone -q --bare /srv/forge-src /srv/upstream/$repo.git; done"
+    )
+    forge_a, forge_b, forge_c, forge_d, forge_e = [box.succeed(f"git -C /srv/forge-src rev-parse forge-{n}").strip() for n in "abcde"]
+    forge_at("rameezk/forge", forge_a)
 
     upstream({"rameezk/forge": {"head": upstream_head, "ahead": {forge_a: 3}}})
 
@@ -200,12 +216,12 @@ testers.runNixOSTest {
         wait_for_status(running=a, head=a, error=None, forge=forge_a, upstream="rameezk/forge", upstreamHead=upstream_head, behind=3)
         assert_log("switched", [a])
 
-    with subtest("the box asks for an installation token narrowed to the operator repository with read access to contents"):
+    with subtest("the box asks for an installation token narrowed to the operator repository with read access to contents and write access to actions"):
         posts = [r for r in requests() if r["method"] == "POST"]
         assert posts, requests()
         for post in posts:
             assert post["path"] == "/app/installations/42/access_tokens", post
-            assert post["body"] == {"repositories": ["operator"], "permissions": {"contents": "read"}}, post
+            assert post["body"] == {"repositories": ["operator"], "permissions": {"contents": "read", "actions": "write"}}, post
         assert all(r["signed"] for r in requests()), requests()
 
     with subtest("the box does not rebuild or switch while main is unchanged"):
@@ -214,6 +230,10 @@ testers.runNixOSTest {
         assert_log("built", [a])
         assert_log("switched", [a])
         wait_for_status(running=a, head=a, error=None, forge=forge_a, upstream="rameezk/forge", upstreamHead=upstream_head, behind=3)
+
+    with subtest("the box starts no forge bump while the forge upstream is at the locked commit"):
+        assert dispatches() == [], dispatches()
+        assert status()["dispatched"] is None and status()["bumpError"] is None, status()
 
     with subtest("the box keeps the forge commit while main is unchanged and refreshes upstream on every poll"):
         upstream({"rameezk/forge": {"head": forge_b, "ahead": {forge_a: 4}}})
@@ -235,6 +255,7 @@ testers.runNixOSTest {
 
     with subtest("the box looks upstream up on the source the locked forge input follows, a fork included"):
         upstream({"rameezk/forge": {"head": forge_b, "ahead": {}}, "fork-org/forge": {"head": fork_head, "ahead": {forge_b: 1}}})
+        forge_at("fork-org/forge", forge_b)
         b = push("${operatorFlake false}", "operator commit B", lock("fork-org", "forge", forge_b, "main"))
         wait_for_status(running=b, head=b, error=None, forge=forge_b, upstream="fork-org/forge", upstreamHead=fork_head, behind=1)
         assert_log("switched", [a, b])
@@ -246,6 +267,7 @@ testers.runNixOSTest {
 
     with subtest("a commit that fails to build is remembered and not tried again"):
         box.wait_for_unit("forge-pull-deploy.service")
+        forge_at("fork-org/forge", forge_c)
         c = push("${operatorFlake true}", "operator commit C", lock("fork-org", "forge", forge_c, "main"))
         wait_for_status(running=b, head=c)
         failed = status()
@@ -266,21 +288,55 @@ testers.runNixOSTest {
         wait_for_status(running=d, head=d, error=None, forge=forge_c, upstream="fork-org/forge", upstreamHead=fork_head, behind=0)
         assert_log("switched", [a, b, d])
 
+    with subtest("the box starts the forge bump once when the forge upstream moves and records the upstream commit as dispatched"):
+        assert dispatches() == [], dispatches()
+        forge_at("fork-org/forge", forge_d)
+        wait_for_dispatches(1)
+        wait_for_status(running=d, head=d, error=None, dispatched=forge_d, bumpError=None)
+        assert [r["body"] for r in dispatches()] == [{"ref": "main"}], dispatches()
+        assert all(r["signed"] for r in dispatches()), dispatches()
+
+    with subtest("the box starts no second forge bump for the same upstream commit while the lock has not caught up"):
+        wait_for_polls(4)
+        assert len(dispatches()) == 1, dispatches()
+        assert status()["dispatched"] == forge_d, status()
+
+    with subtest("a failed dispatch is logged, recorded, retried at the next poll and does not stop the deploy of main"):
+        upstream({}, dispatch_fail=True)
+        forge_at("fork-org/forge", forge_e)
+        wait_for_dispatches(3)
+        failing = status()
+        assert failing["bumpError"] is not None and failing["dispatched"] == forge_d, failing
+        box.succeed("journalctl -u forge-pull-deploy.service --no-pager | grep -F 'could not start the forge bump for " + forge_e + "'")
+        f = push("${operatorFlake false}", "operator commit F")
+        wait_for_status(running=f, head=f, error=None, dispatched=forge_d)
+        assert status()["bumpError"] is not None, status()
+        assert_log("switched", [a, b, d, f])
+        assert len(dispatches()) >= 3, dispatches()
+
+    with subtest("a dispatch that succeeds clears the bump error"):
+        upstream({})
+        wait_for_status(running=f, head=f, error=None, dispatched=forge_e, bumpError=None)
+        sent = len(dispatches())
+        wait_for_polls(3)
+        assert len(dispatches()) == sent, dispatches()
+
     with subtest("a hand deploy is reverted at the next pull"):
         box.succeed("mkdir -p /run/hand-deployed && ln -sfn $(readlink -f /run/booted-system/sw) /run/hand-deployed/sw && ln -sfn /run/hand-deployed /run/current-system")
-        retry(lambda _: lines("${record}/switched") == [a, b, d, d], 120)
+        retry(lambda _: lines("${record}/switched") == [a, b, d, f, f], 120)
         retry(lambda _: lines("/var/lib/forge-pull-deploy/system") == ["/run/hand-deployed"], 120)
         box.succeed("ln -sfn $(readlink -f /run/booted-system) /run/current-system")
-        retry(lambda _: lines("${record}/switched") == [a, b, d, d, d], 120)
+        retry(lambda _: lines("${record}/switched") == [a, b, d, f, f, f], 120)
 
     with subtest("the box does nothing when the pull deploy is off"):
         box.succeed("/run/booted-system/specialisation/off/bin/switch-to-configuration test")
         box.fail("systemctl cat forge-pull-deploy.service")
         before = len(requests())
-        push("${operatorFlake false}", "operator commit E")
+        forge_at("fork-org/forge", forge_a)
+        push("${operatorFlake false}", "operator commit G")
         box.sleep(10)
         assert len(requests()) == before, requests()[before:]
-        assert_log("switched", [a, b, d, d, d])
-        assert status()["head"] == d, status()
+        assert_log("switched", [a, b, d, f, f, f])
+        assert status()["head"] == f, status()
   '';
 }
