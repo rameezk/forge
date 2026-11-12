@@ -16,6 +16,15 @@ export const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
 
 export const CHECK_NAME = 'forge/risk';
 
+export const RISK_LABEL_PREFIX = 'forge:risk-';
+
+export const UNSETTLED_LABEL = `${RISK_LABEL_PREFIX}unsettled`;
+
+export const riskLabels = (grade: Pick<RiskGrade, 'level' | 'unsettled'>): string[] => [
+  `${RISK_LABEL_PREFIX}${grade.level}`,
+  ...(grade.unsettled ? [UNSETTLED_LABEL] : []),
+];
+
 export const QUESTION_NAME = 'risk';
 
 export const QUESTION =
@@ -273,6 +282,47 @@ const gradeOne = async (
   );
   store.recordRiskGrade(grade);
   await postCheck(options, grade, repository);
+  await applyLabels(options, grade, repository);
+};
+
+const setRiskLabels = async (
+  { fetch, tokens }: GradePullRequestsOptions,
+  grade: RiskGrade,
+  repository: string,
+  wanted: readonly string[],
+): Promise<void> => {
+  const token = await tokens(repository, 'grading');
+  const path = `/repos/${repository}/issues/${grade.number}/labels`;
+  const present = ((await github(fetch, token, `${path}?per_page=100`)) as { name: string }[]).map(
+    ({ name }) => name,
+  );
+  for (const name of present.filter(
+    (name) => name.startsWith(RISK_LABEL_PREFIX) && !wanted.includes(name),
+  )) {
+    await github(fetch, token, `${path}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  }
+  const missing = wanted.filter((name) => !present.includes(name));
+  if (missing.length > 0) {
+    await github(fetch, token, path, { method: 'POST', body: { labels: missing } });
+  }
+};
+
+const applyLabels = async (
+  options: GradePullRequestsOptions,
+  grade: RiskGrade,
+  repository: string,
+): Promise<void> => {
+  await setRiskLabels(options, grade, repository, riskLabels(grade));
+  options.store.markLabelsApplied(grade, true);
+};
+
+const removeLabels = async (
+  options: GradePullRequestsOptions,
+  grade: RiskGrade,
+  repository: string,
+): Promise<void> => {
+  await setRiskLabels(options, grade, repository, []);
+  options.store.markLabelsApplied(grade, false);
 };
 
 const postCheck = async (
@@ -294,23 +344,53 @@ const postCheck = async (
   store.markCheckPosted(grade);
 };
 
+const attempt = async (
+  options: GradePullRequestsOptions,
+  what: string,
+  subject: { repository: string; number: number },
+  work: () => Promise<void>,
+): Promise<boolean> => {
+  try {
+    await work();
+    return true;
+  } catch (error) {
+    options.log(`${subject.repository}#${subject.number}: could not ${what}: ${errorMessage(error)}`);
+    return false;
+  }
+};
+
 export const gradePullRequests = async (options: GradePullRequestsOptions): Promise<boolean> => {
-  let graded = true;
-  for (const grade of options.store.gradesAwaitingCheck(Object.keys(options.repositories))) {
-    try {
-      await postCheck(options, grade, options.repositories[grade.repository] as string);
-    } catch (error) {
-      options.log(`${grade.repository}#${grade.number}: could not post the check run: ${errorMessage(error)}`);
-      graded = false;
+  const { store, repositories } = options;
+  const names = Object.keys(repositories);
+  const repositoryOf = (grade: { repository: string }): string => repositories[grade.repository] as string;
+  const outcomes: boolean[] = [];
+  for (const grade of store.gradesWithStaleLabels(names)) {
+    outcomes.push(
+      await attempt(options, 'take the stale risk labels off', grade, () =>
+        removeLabels(options, grade, repositoryOf(grade)),
+      ),
+    );
+  }
+  for (const grade of store.gradesAwaitingDisplay(names)) {
+    if (!grade.checkPosted) {
+      outcomes.push(
+        await attempt(options, 'post the check run', grade, () =>
+          postCheck(options, grade, repositoryOf(grade)),
+        ),
+      );
+    }
+    if (!grade.labelsApplied) {
+      outcomes.push(
+        await attempt(options, 'apply the risk labels', grade, () =>
+          applyLabels(options, grade, repositoryOf(grade)),
+        ),
+      );
     }
   }
-  for (const due of options.store.gradingDue(Object.keys(options.repositories), options.now())) {
-    try {
-      await gradeOne(options, due, options.repositories[due.repository] as string);
-    } catch (error) {
-      options.log(`${due.repository}#${due.number}: could not grade: ${errorMessage(error)}`);
-      graded = false;
-    }
+  for (const due of store.gradingDue(names, options.now())) {
+    outcomes.push(
+      await attempt(options, 'grade', due, () => gradeOne(options, due, repositoryOf(due))),
+    );
   }
-  return graded;
+  return outcomes.every(Boolean);
 };

@@ -205,6 +205,7 @@ export {
   Store,
   type GradingDue,
   type ListPriceEquivalent,
+  type DisplayedGrade,
   type RecordedRiskGrade,
   type RiskGrade,
   type GradeOutcome,

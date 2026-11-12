@@ -109,6 +109,8 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
   const ended = new Map<number, { state: 'OPEN' | 'MERGED' | 'CLOSED'; head: string }>();
   let files = FILES;
   let checkRunsAccepted = true;
+  let labelDeletesRefused = 0;
+  const labels = new Map<number, Set<string>>([[7, new Set(['bug'])]]);
   const checkRuns: { authorization: string; body: Record<string, unknown> }[] = [];
   const github: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -123,6 +125,23 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
         body: JSON.parse(String(init.body)) as Record<string, unknown>,
       });
       return json({ id: 1 });
+    }
+    const labelsOf = /^\/repos\/rameezk\/forge\/issues\/(\d+)\/labels(?:\/(.+))?$/.exec(url.pathname);
+    if (labelsOf !== null) {
+      assert.match(new Headers(init?.headers).get('authorization') ?? '', /^Bearer ghs_grading_/);
+      const labelled = labels.get(Number(labelsOf[1])) ?? new Set<string>();
+      labels.set(Number(labelsOf[1]), labelled);
+      if (init?.method === 'POST') {
+        for (const name of (JSON.parse(String(init.body)) as { labels: string[] }).labels) labelled.add(name);
+      } else if (init?.method === 'DELETE') {
+        if (labelDeletesRefused > 0) {
+          labelDeletesRefused -= 1;
+          return new Response('{}', { status: 500 });
+        }
+        if (!labelled.delete(decodeURIComponent(labelsOf[2] ?? ''))) return new Response('{}', { status: 404 });
+        return json([...labelled].map((name) => ({ name })));
+      }
+      return json([...labelled].map((name) => ({ name })));
     }
     const pullOf = /^\/repos\/rameezk\/forge\/pulls\/(\d+)(\/files)?$/.exec(url.pathname);
     if (pullOf !== null) {
@@ -240,8 +259,12 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
     },
     jevRequests,
     checkRuns,
+    labelsOf: (number: number): string[] => [...(labels.get(number) ?? [])].sort(),
     withStore,
     syncAndGrade,
+    refuseLabelDeletes: (count: number): void => {
+      labelDeletesRefused = count;
+    },
     acceptCheckRuns: (accepted: boolean): void => {
       checkRunsAccepted = accepted;
     },
@@ -405,6 +428,70 @@ test('given the check run is refused after Jev graded the head, when forge-gradi
 
   assert.equal(await f.grade(), 0);
   assert.equal(f.checkRuns.length, 1);
+});
+
+test('given a forge pull request graded moderate, when forge-grading runs, then it carries forge:risk-moderate and no other risk label', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.answerWith(decision({ trivial: 0.05, low: 0.15, moderate: 0.7, high: 0.1 }, 0.9));
+  await f.syncAndGrade([READY]);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-moderate']);
+});
+
+test('given a grade below the confidence threshold, when it is recorded, then the pull request carries its level label and forge:risk-unsettled', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.answerWith(decision({ trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, 0.4));
+  await f.syncAndGrade([READY]);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low', 'forge:risk-unsettled']);
+});
+
+test('given a graded forge pull request, when a revision pushes a new head, then the risk labels come off before the revision ends and the new head has no check run until the revision ends and it is regraded', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low']);
+
+  const revision = f.withStore((store) => {
+    const start = store.startRevision(
+      { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
+      [],
+      randomUUID(),
+      new Date().toISOString(),
+      Number.POSITIVE_INFINITY,
+    );
+    assert.ok('started' in start);
+    return start.started;
+  });
+  const revised = { ...READY, head: 'head-7-revised' };
+  f.answerWith(decision({ trivial: 0.6, low: 0.2, moderate: 0.1, high: 0.1 }, 0.9));
+  await f.syncAndGrade([revised]);
+  assert.deepEqual(f.labelsOf(7), ['bug']);
+  assert.equal(f.jevRequests.length, 1);
+  assert.equal(f.checkRuns.length, 1);
+
+  f.withStore((store) => store.endRevision(revision, 'done', new Date().toISOString()));
+  await f.syncAndGrade([revised]);
+  assert.equal(f.jevRequests.length, 2);
+  assert.equal(f.checkRuns.length, 2);
+  assert.equal((f.checkRuns[1]?.body as { head_sha: string }).head_sha, 'head-7-revised');
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-trivial']);
+});
+
+test('given removing the stale labels failed once, when the new head is graded and forge-grading runs again, then the new grade keeps its labels', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.refuseLabelDeletes(1);
+  f.setPulls([{ ...READY, head: 'head-7-revised' }]);
+  const synced = await journaled(() => sync(['sync'], f.env, f.fetch));
+  assert.equal(synced.result, 0, synced.journal);
+  assert.equal(await f.grade(), 1);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low']);
+  assert.equal(await f.grade(), 0);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low']);
+  assert.equal(f.jevRequests.length, 2);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7-revised')?.level), 'low');
 });
 
 const revise = (store: Store, number: number): void => {
