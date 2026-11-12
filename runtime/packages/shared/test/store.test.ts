@@ -1594,6 +1594,16 @@ test('given a failing head and a later grade of another head, when the dashboard
   store.close();
 });
 
+test('given a setup failure and a newer temporary failure on other heads, when the dashboard reads the store, then the status line reports the setup failure', () => {
+  const store = Store.open(':memory:');
+  watchedHead(store, 7, 'head-7');
+  watchedHead(store, 8, 'head-8');
+  store.recordGradingAttempt(failure('setup', '2026-10-01T10:00:00.000Z'));
+  store.recordGradingAttempt(failure('temporary', '2026-10-01T10:05:00.000Z', { number: 8, headSha: 'head-8' }));
+  assert.equal(store.gradingStatus().failure?.category, 'setup');
+  store.close();
+});
+
 test('given a declined or too large head only, when the dashboard reads the store, then grading is not reported as failing', () => {
   const store = Store.open(':memory:');
   watchedHead(store, 7, 'head-7');

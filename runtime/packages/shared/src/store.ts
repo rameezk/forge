@@ -3064,7 +3064,11 @@ export class Store {
       .get() as { at: string | null };
     const failing = this.currentGradingAttempts()
       .filter(({ category }) => RETRIED_GRADING_FAILURES.includes(category))
-      .toSorted((a, b) => (a.attemptedAt < b.attemptedAt ? 1 : -1));
+      .toSorted(
+        (a, b) =>
+          Number(b.category === 'setup') - Number(a.category === 'setup') ||
+          (a.attemptedAt < b.attemptedAt ? 1 : -1),
+      );
     return { lastSucceededAt: succeeded.at, failure: failing[0] ?? null };
   }
 

@@ -173,7 +173,11 @@ const failureOfTransport = (error: unknown): GradingFailed => {
   const name = error instanceof Error ? error.name : '';
   return name === 'TimeoutError' || name === 'AbortError'
     ? new GradingFailed('temporary', 'Jev timed out')
-    : new GradingFailed('temporary', 'could not reach OpenRouter', errorMessage(error));
+    : new GradingFailed(
+        'temporary',
+        'could not reach OpenRouter',
+        errorMessage(error).slice(0, MAX_DETAIL_LENGTH),
+      );
 };
 
 export const jevDecides =
@@ -203,13 +207,19 @@ export const jevDecides =
             { type?: string; score?: unknown; confidence?: unknown; probabilities?: unknown }
           >;
           usage?: { cost?: unknown };
-          error?: { code?: unknown; message?: unknown; metadata?: { error_type?: unknown } };
+          error?: { code?: unknown; message?: unknown; metadata?: { error_type?: unknown } } | null;
         }
       | undefined;
-    if (body === undefined) throw new GradingFailed('bug', 'OpenRouter answered with something that is not JSON');
-    if (!response.ok || body.error !== undefined) {
-      const status = isNumber(body.error?.code) && response.ok ? body.error.code : response.status;
-      throw failureOfResponse(status, body.error, model);
+    if (typeof body !== 'object' || body === null) {
+      throw new GradingFailed('bug', 'OpenRouter answered with something that is not JSON');
+    }
+    if (!response.ok) throw failureOfResponse(response.status, body.error ?? undefined, model);
+    if (body.error !== undefined && body.error !== null) {
+      const code = body.error.code;
+      if (Number.isInteger(code) && (code as number) >= 400 && (code as number) <= 599) {
+        throw failureOfResponse(code as number, body.error, model);
+      }
+      throw new GradingFailed('temporary', 'OpenRouter reported an error', detailOf(body.error));
     }
     const answer = body.answers?.[QUESTION_NAME];
     if (answer?.type === 'refusal') throw new GradingFailed('declined', 'Jev declined to answer');

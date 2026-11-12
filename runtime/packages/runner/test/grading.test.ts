@@ -607,6 +607,9 @@ test('given each error OpenRouter documents, when Jev is asked, then the failure
     ['a refusal', () => new Response(JSON.stringify({ answers: { risk: { type: 'refusal' } } })), 'declined'],
     ['a non-score answer', () => new Response(JSON.stringify({ answers: { risk: { type: 'choice' } } })), 'bug'],
     ['a body read that times out', () => ({ ok: true, status: 200, json: () => Promise.reject(new DOMException('timed out', 'TimeoutError')) }) as unknown as Response, 'temporary'],
+    ['a null body', () => new Response('null'), 'bug'],
+    ['an error body behind a 200 with no code', () => new Response(JSON.stringify({ error: { message: 'Upstream failed' } })), 'temporary'],
+    ['an error body behind a 200 with an absurd code', () => new Response(JSON.stringify({ error: { code: 1e21, message: 'x' } })), 'temporary'],
     ['a body that is not JSON', () => new Response('<html>', { status: 200 }), 'bug'],
   ];
   for (const [name, respond, expected] of cases) {
