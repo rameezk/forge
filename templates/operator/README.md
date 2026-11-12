@@ -275,18 +275,44 @@ host = forge.lib.mkHost {
 `repository` is this repository as `owner/name`. The option is off unless you
 enable it.
 
-The box reads this repository, which is usually private, with your
-[GitHub App](#the-github-app), through an installation token narrowed to this
-repository alone with read access to contents. So:
+The box acts on GitHub as a second GitHub App you own, the box App, not as
+forge's [GitHub App](#the-github-app). An App's permissions apply to every
+repository it is installed on, and the box runs this repository's `main` as
+root, so forge's App, which reaches your managed repositories, is not installed
+here. The box App is installed on this repository alone, and the pull deploy is
+the only unit given its key. It reads this repository, which is usually
+private, through an installation token narrowed to it with read access to
+contents. So:
 
-1. Add this repository to the App's installation: open the installation in your
-   GitHub settings and select this repository next to the ones forge manages.
-   Selecting it does not make it a managed repository; that stays what
-   `forge.runtime.repositories` declares. The App's Contents permission already
-   covers the read.
-2. Keep `github_app_id` and `github_app_private_key` in `secrets/runtime.yaml`,
-   even if you declare no managed repository. The build fails, naming the
-   missing key, without them.
+1. Create the box App at <https://github.com/settings/apps/new> (or under your
+   organisation's settings). Give it any name, set the homepage URL to this
+   repository, untick **Webhook**, and choose **Only on this account**. Set
+   these repository permissions and no others:
+   - Contents: read
+   - Actions: read and write, so the box can start the `forge-bump` workflow
+   - Metadata: read, which GitHub always grants
+2. Create the App, note its **App ID**, and generate a private key.
+3. Install the box App on your account or organisation and select this
+   repository **only**. Do not install forge's App here. If you installed it
+   on this repository earlier, remove this repository from its installation.
+4. Add the id and the key to `secrets/runtime.yaml` with
+   `sops edit secrets/runtime.yaml`, commit, and deploy. The build fails,
+   naming the missing key, without them. You need `github_app_id` and
+   `github_app_private_key` only if you also declare a managed repository:
+
+```yaml
+github_box_app_id: "<the box App ID>"
+github_box_app_private_key: |
+  -----BEGIN RSA PRIVATE KEY-----
+  ...
+  -----END RSA PRIVATE KEY-----
+```
+
+Upgrading an existing box: create and install the box App as above and add its
+two secrets before you deploy the version that reads them, or the build fails.
+Then remove this repository from forge's App installation. Until the box App
+is installed on this repository the pull deploy cannot mint its token and
+keeps running its current commit, recording the error in its status.
 
 Whoever can push to `main` runs code as root on the box, so protect `main`
 with a branch ruleset that limits who can push to it. Do not also declare this
@@ -553,7 +579,8 @@ lasts, so a long run can still push, and it redacts every token it mints from
 the transcript.
 
 Only the frontier sync, a dispatch and grading can read the private key, as a
-systemd credential. The workload, the dashboard and billing cannot. A workload holds
+systemd credential. The workload, the dashboard, billing and the pull deploy
+cannot: the pull deploy has its own box App. A workload holds
 only its own repository's token, so a compromised run reaches that repository
 alone, for at most an hour after it ends. Forge checks that the repository's
 default branch is protected before it dispatches there, as the next section

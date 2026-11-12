@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 LOG = "/var/lib/fake-github/requests.jsonl"
 UPSTREAM = "/var/lib/fake-github/upstream.json"
-APP_ID = "123456"
+APP_ID = "654321"
 INSTALLATION_TOKEN = "ghs_fake_installation_token"
 
 

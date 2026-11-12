@@ -10,6 +10,8 @@
 let
   appIdFile = "/run/secrets/rendered/forge-github-app.env";
   appKeyFile = "/run/secrets/github_app_private_key";
+  boxIdFile = "/run/secrets/rendered/forge-pull-deploy.env";
+  boxKeyFile = "/run/secrets/github_box_app_private_key";
 
   probe =
     name:
@@ -17,15 +19,21 @@ let
       probe() {
         echo "env=''${FORGE_GITHUB_APP_ID-unset}"
         if [ -n "''${OPENROUTER_API_KEY-}" ]; then echo "openrouter=set"; else echo "openrouter=unset"; fi
-        for file in ${appIdFile} ${appKeyFile}; do
-          if contents="$(cat "$file" 2>/dev/null)"; then
-            echo "read $(basename "$file") $contents"
-          else
-            echo "denied $(basename "$file")"
-          fi
-        done
+        ${lib.optionalString (name != "forge-pull-deploy") ''
+          for file in ${appIdFile} ${appKeyFile} ${boxIdFile} ${boxKeyFile}; do
+            if contents="$(cat "$file" 2>/dev/null)"; then
+              echo "read $(basename "$file") $contents"
+            else
+              echo "denied $(basename "$file")"
+            fi
+          done
+        ''}
         if [ -n "''${FORGE_GITHUB_APP_PRIVATE_KEY_FILE-}" ]; then
           echo "credential $(cat "$FORGE_GITHUB_APP_PRIVATE_KEY_FILE")"
+        fi
+        echo "box-env=''${FORGE_GITHUB_BOX_APP_ID-unset}"
+        if [ -n "''${FORGE_GITHUB_BOX_APP_PRIVATE_KEY_FILE-}" ]; then
+          echo "box-credential $(cat "$FORGE_GITHUB_BOX_APP_PRIVATE_KEY_FILE")"
         fi
       }
       out="/var/lib/forge/${name}''${1:+-$1}"
@@ -36,6 +44,8 @@ let
       fi
       ${lib.optionalString (name == "forge-frontend") "exec sleep infinity"}
     '';
+
+  probePullDeploy = probe "forge-pull-deploy";
 
   probeRuntime = symlinkJoin {
     name = "forge-runtime-probe";
@@ -73,6 +83,15 @@ testers.runNixOSTest {
       model = "stub/tokens";
       prompt = "/work-on {url}";
     };
+    forge.runtime.pullDeploy = {
+      enable = true;
+      repository = "operator-org/operator";
+    };
+    systemd.services.forge-pull-deploy.serviceConfig = {
+      Type = lib.mkForce "oneshot";
+      Restart = lib.mkForce "no";
+      ExecStart = lib.mkForce "${probePullDeploy}/bin/forge-pull-deploy";
+    };
     forge.runtime.grading.model = "typesafe/jev-1.13";
     forge.runtime.repositories.forge = {
       github = "rameezk/forge";
@@ -86,8 +105,12 @@ testers.runNixOSTest {
     key_credential = "credential github_app_private_key_fixture_not_a_real_key"
     no_key = "openrouter=unset"
     with_key = "openrouter=set"
-    denied = ["env=unset", no_key, "denied forge-github-app.env", "denied github_app_private_key"]
-    denied_with_key = ["env=unset", with_key, "denied forge-github-app.env", "denied github_app_private_key"]
+    box_unset = "box-env=unset"
+    box_id = "box-env=654321"
+    box_key_credential = "box-credential github_box_app_private_key_fixture_not_a_real_key"
+    files_denied = ["denied forge-github-app.env", "denied github_app_private_key", "denied forge-pull-deploy.env", "denied github_box_app_private_key"]
+    denied = ["env=unset", no_key] + files_denied + [box_unset]
+    denied_with_key = ["env=unset", with_key] + files_denied + [box_unset]
 
     def probe(name):
         return box.succeed(f"cat /var/lib/forge/{name}.out").splitlines()
@@ -98,23 +121,32 @@ testers.runNixOSTest {
         for path in ["${appIdFile}", "${appKeyFile}"]:
             assert box.succeed(f"stat -L -c '%U %a' {path}").strip() == "forge-runtime 400", path
 
+    with subtest("the box App's id and private key are owned by root and readable only by it"):
+        for path in ["${boxIdFile}", "${boxKeyFile}"]:
+            assert box.succeed(f"stat -L -c '%U %a' {path}").strip() == "root 400", path
+
     with subtest("frontier sync loads the App id and reads the private key as data from its credential"):
         box.succeed("systemctl start forge-frontier-sync.service")
-        assert probe("forge-frontier-sync") == [app, no_key, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-frontier-sync")
+        assert probe("forge-frontier-sync") == [app, no_key] + files_denied + [key_credential, box_unset], probe("forge-frontier-sync")
 
     with subtest("forge-frontier list reads the App id from its rendered file and the private key from its secret"):
         box.succeed("sudo -u forge-runtime forge-frontier list")
         listed = probe("forge-frontier-list")
         assert listed[0] == app, listed
-        assert listed[-1] == key_credential, listed
+        assert listed[-2] == key_credential, listed
+        assert listed[-1] == box_unset, listed
 
     with subtest("dispatch loads the App id and reads the private key only as data from its credential"):
         box.succeed("forge-dispatch forge 148")
-        assert probe("forge-dispatch-forge") == [app, with_key, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-dispatch-forge")
+        assert probe("forge-dispatch-forge") == [app, with_key] + files_denied + [key_credential, box_unset], probe("forge-dispatch-forge")
 
     with subtest("grading loads the App id and the OpenRouter key and reads the private key only as data from its credential, and no other secret"):
         box.succeed("systemctl start forge-grading.service")
-        assert probe("forge-grading") == [app, with_key, "denied forge-github-app.env", "denied github_app_private_key", key_credential], probe("forge-grading")
+        assert probe("forge-grading") == [app, with_key] + files_denied + [key_credential, box_unset], probe("forge-grading")
+
+    with subtest("the pull deploy loads the box App's id and reads its private key only as data from its credential, and is given nothing of the forge App"):
+        box.succeed("systemctl start forge-pull-deploy.service")
+        assert probe("forge-pull-deploy") == ["env=unset", no_key, box_id, box_key_credential], probe("forge-pull-deploy")
 
     with subtest("the units that do not use the App cannot read either"):
         box.succeed("systemctl start forge-runner@builder.service forge-billing.service")

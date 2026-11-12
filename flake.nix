@@ -1404,6 +1404,21 @@
                 && pullDeployService.serviceConfig.EnvironmentFile == pullDeployHost.config.sops.templates."forge-pull-deploy.env".path
               )
               "the pull deploy unit runs as root, so the environment file it loads must be owned by root, never by the runtime user";
+          pullDeployActsAsBoxApp =
+            lib.asserts.assertMsg
+              (
+                pullDeployHost.config.sops.templates."forge-pull-deploy.env".content
+                == "FORGE_GITHUB_BOX_APP_ID=${pullDeployHost.config.sops.placeholder.github_box_app_id}\n"
+                && pullDeployService.serviceConfig.LoadCredential
+                  == [ "github-box-app-private-key:${pullDeployHost.config.sops.secrets.github_box_app_private_key.path}" ]
+                && pullDeployHost.config.sops.secrets.github_box_app_id.sopsFile == exampleSecretsFile
+                && pullDeployHost.config.sops.secrets.github_box_app_private_key.sopsFile == exampleSecretsFile
+                && !(pullDeployHost.config.sops.secrets ? github_app_id)
+                && !(pullDeployHost.config.sops.secrets ? github_app_private_key)
+                && !(repositoryHost.config.sops.secrets ? github_box_app_id)
+                && !(repositoryHost.config.sops.secrets ? github_box_app_private_key)
+              )
+              "the pull deploy must load only the box App's id and private key, from the runtime secrets file, as its own environment and credential, a host with only the pull deploy must need neither forge App secret, and a host without the pull deploy must need neither box App secret";
           pullDeployAlsoManagedHost = secretsHost exampleSecretsFile {
             forge.runtime.pullDeploy = pullDeployModule.forge.runtime.pullDeploy;
             forge.runtime.repositories.operator.github = "Operator-Org/Operator";
@@ -2125,6 +2140,7 @@
             assert pullDeployOffByDefault;
             assert pullDeployKeepsItselfRunning;
             assert pullDeployReadsRootOwnedEnvironment;
+            assert pullDeployActsAsBoxApp;
             assert pullDeployRepositoryIsNotManaged;
             assert pullDeployTalksToGithub;
             assert pullDeployStatusReachesDashboard;
@@ -2148,9 +2164,17 @@
                 refusedKey = "github_app_private_key";
               }
               {
-                name = "pull-deploy-without-app-private-key";
+                name = "pull-deploy-without-box-app-private-key";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-box-app-private-key.yaml pullDeployModule;
+                refusedKey = "github_box_app_private_key";
+              }
+              {
+                name = "pull-deploy-without-forge-app-private-key";
                 host = secretsHost ./tests/fixtures/runtime-secrets-without-github-app-private-key.yaml pullDeployModule;
-                refusedKey = "github_app_private_key";
+              }
+              {
+                name = "repository-without-box-app-private-key";
+                host = secretsHost ./tests/fixtures/runtime-secrets-without-github-box-app-private-key.yaml repositoryModule;
               }
               {
                 name = "dispatch-without-app-private-key";
