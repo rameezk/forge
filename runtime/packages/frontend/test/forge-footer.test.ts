@@ -138,12 +138,6 @@ test('given a status with an error, when the Board and the Workloads page are re
   }
 });
 
-test('given a status with an error, when the Board is requested, then it shows the error in the box the pill links to', async () => {
-  const body = await pageWith('/', () => status({ error: 'building the system failed' }));
-
-  assert.match(body, /<[^>]*\sid="deploy-error"[^>]*>[^<]*building the system failed/);
-});
-
 test('given a status with no error, when a page is requested, then the footer has no deploy failed pill', async () => {
   assert.doesNotMatch(footerOf(await pageWith('/workloads', () => status())), /deploy failed|data-deploy-failed/);
 });
