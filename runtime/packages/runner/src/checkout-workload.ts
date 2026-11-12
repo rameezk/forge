@@ -12,7 +12,7 @@ import { cloneCheckout, headCommit, loadPiSkills, resolveCheckout } from './chec
 import { enterDevShell } from './devshell.ts';
 import { gitEnvironment } from './git.ts';
 import { boundedBySetupTimeout, type Setup } from './setup.ts';
-import { GithubTokenFile, keepFresh } from './github-token-file.ts';
+import { GithubTokenFile, keepFresh, revokingQuietly } from './github-token-file.ts';
 import { RerunChannel } from './rerun.ts';
 import type { Worker } from './harness.ts';
 import { withoutCredentials } from './provider.ts';
@@ -70,12 +70,14 @@ export const launchInCheckout = async ({
   const nixSystem = nixSystemOf(env);
   const hostEnv = withoutCredentials(env);
   const redactions: string[] = [];
+  const revoke = revokingQuietly((token) => app.revoke(token), 'workload');
   const minted = await app.mint(github, 'workload', { workflows });
-  const tokenFile = GithubTokenFile.create(
+  const tokenFile = await GithubTokenFile.createOrRevoke(
     join(stateDirOf(env), 'credentials'),
     runId,
     minted.token,
     redactions,
+    revoke,
   );
   const stopRefreshing = keepFresh(
     tokenFile,
@@ -83,14 +85,15 @@ export const launchInCheckout = async ({
     () => app.mint(github, 'workload', { workflows }),
     (error) =>
       console.error(`could not refresh the workload's GitHub token: ${errorMessage(error)}`),
+    revoke,
   );
   const rerun = await RerunChannel.open(tokenFile.directory, {
     github,
     fetch,
     token: async () => (await app.mint(github, 'rerun')).token,
     pullRequest,
-  }).catch((error: unknown) => {
-    stopRefreshing();
+  }).catch(async (error: unknown) => {
+    await stopRefreshing();
     tokenFile.remove();
     throw error;
   });
@@ -136,7 +139,7 @@ export const launchInCheckout = async ({
       };
     },
   }).finally(async () => {
-    stopRefreshing();
+    await stopRefreshing();
     await rerun.close();
     tokenFile.remove();
   });
@@ -161,11 +164,14 @@ export const inspectCheckout = async <Result>({
   inspect: (dir: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<Result>;
   setupTimeoutSeconds?: number;
 }): Promise<Result> => {
-  const tokenFile = GithubTokenFile.create(
+  const revoke = revokingQuietly((token) => app.revoke(token), 'inspection');
+  const { token } = await app.mint(github, 'workload');
+  const tokenFile = await GithubTokenFile.createOrRevoke(
     join(stateDirOf(env), 'credentials'),
     id,
-    (await app.mint(github, 'workload')).token,
+    token,
     [],
+    revoke,
   );
   const dir = join(stateDirOf(env), 'inspections', id);
   const gitEnvWithCredentials = { ...withoutCredentials(env), ...tokenFile.environment, ...gitEnv };
@@ -187,7 +193,11 @@ export const inspectCheckout = async <Result>({
           inspectIn,
         );
   } finally {
-    rmSync(dir, { recursive: true, force: true });
-    tokenFile.remove();
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      tokenFile.remove();
+    } finally {
+      await revoke(token);
+    }
   }
 };

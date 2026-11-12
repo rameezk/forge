@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { ClosedTicket, PolledFrontier, PollFailure, RefinementRequest, RunRecord, Ticket } from '@forge/shared';
+import type { ClosedTicket, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
@@ -25,7 +25,7 @@ type Seed =
   | (PolledFrontier & { lastError?: PollFailure; branchRules?: string[] })
   | { repository: string; github: string; polledAt: null; lastError: PollFailure };
 
-const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number, maxOpenPullRequests?: number | null) => {
+const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number, maxOpenPullRequests?: number | null, gradingRepositories?: string[]) => {
   const store = Store.open(':memory:');
   dispatch(store);
   for (const seed of frontier) {
@@ -46,6 +46,7 @@ const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, 
     client: '',
     ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
     ...(maxOpenPullRequests === undefined ? {} : { maxOpenPullRequests }),
+    ...(gradingRepositories === undefined ? {} : { gradingRepositories }),
   });
 };
 
@@ -1021,4 +1022,100 @@ test('given a repository whose default-branch rules failed at the last sync and 
   assert.match(callout, /No new work starts here/);
   assert.match(callout, /GitHub Actions can approve pull requests/);
   assert.match(callout, /its default branch does not require an approving review/);
+});
+
+const watchHead = (store: Store, number: number, headSha: string): void => {
+  store.recordWatchedPullRequests('forge', [{ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha, draft: false, defaultSha: 'main0' }]);
+};
+
+const gradeOf = (number: number, headSha: string, overrides: Partial<RiskGrade> = {}): RiskGrade => ({
+  repository: 'forge',
+  number,
+  headSha,
+  fingerprint: 'typesafe/jev-1.13:abc',
+  model: 'typesafe/jev-1.13',
+  probabilities: { trivial: 0.02, low: 0.1, moderate: 0.05, high: 0.83 },
+  score: 0.9,
+  confidence: 0.83,
+  level: 'high',
+  unsettled: false,
+  costUsd: 0.25,
+  gradedAt: '2026-09-30T09:30:00.000Z',
+  ...overrides,
+});
+
+const riskOf = (card: string): string => card.match(/<[^>]*\sdata-risk=[^>]*>[\s\S]*?<\/span>(?:\s*<span[^>]*data-risk-alternative[^>]*>[\s\S]*?<\/span>)?/)?.[0] ?? '';
+
+const GRADING = ['forge'];
+
+test('given a pull request in review whose current head is graded high at 83% confidence, when the Board is requested, then its card shows a high badge with 83%', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordRiskGrade(gradeOf(105, 'head1'));
+  }, undefined, undefined, GRADING);
+
+  const risk = riskOf(cardOf(await (await app.request('/')).text(), 5));
+
+  assert.match(risk, /data-risk="high"/);
+  assert.equal(readable(risk), 'high 83%');
+  assert.doesNotMatch(risk, /data-risk-unsettled/);
+});
+
+test('given a current unsettled grade of low with high as runner-up, when the Board is requested, then the badge shows low with high as the possible alternative', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordRiskGrade(gradeOf(105, 'head1', { probabilities: { trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, confidence: 0.41, level: 'low', unsettled: true }));
+  }, undefined, undefined, GRADING);
+
+  const risk = riskOf(cardOf(await (await app.request('/')).text(), 5));
+
+  assert.match(risk, /data-risk="low"/);
+  assert.match(risk, /data-risk-unsettled/);
+  assert.equal(readable(risk), 'low 41% or high');
+});
+
+test('given a pull request in review whose current head has no grade, or only a grade of an earlier head, when the Board is requested, then its card shows grading and no level', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    inReview(store, 6);
+    watchHead(store, 105, 'head2');
+    store.recordRiskGrade(gradeOf(105, 'head1'));
+  }, undefined, undefined, GRADING);
+
+  const body = await (await app.request('/')).text();
+
+  for (const number of [5, 6]) {
+    const risk = riskOf(cardOf(body, number));
+    assert.match(risk, /data-risk="grading"/);
+    assert.equal(readable(risk), 'grading');
+  }
+});
+
+test('given a repository with grading off, when the Board is requested, then its in-review card has no risk badge even when it holds a grade', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordRiskGrade(gradeOf(105, 'head1'));
+  });
+
+  const body = await (await app.request('/')).text();
+
+  assert.doesNotMatch(cardOf(body, 5), /data-risk/);
+});
+
+test('given grades recorded with costs, when the Board is requested, then a grading cost line shows their sum and no workload cost includes it', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordRiskGrade(gradeOf(105, 'head0', { costUsd: 0.125 }));
+    store.recordRiskGrade(gradeOf(105, 'head1', { costUsd: 0.25 }));
+  }, undefined, undefined, GRADING);
+
+  const body = await (await app.request('/')).text();
+  const line = /<[^>]*\sdata-grading-cost[^>]*>[\s\S]*?<\/p>/.exec(body)?.[0] ?? '';
+
+  assert.equal(readable(line), 'Grading cost $0.375000');
+  assert.doesNotMatch(readable(cardOf(body, 5)), /\$/);
 });

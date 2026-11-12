@@ -2871,6 +2871,24 @@ export class Store {
       }));
   }
 
+  currentRiskGrades(): RecordedRiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT risk_grades.* FROM risk_grades
+        JOIN feedback_watches USING (repository, number, head_sha)
+        ORDER BY risk_grades.repository, risk_grades.number`,
+      )
+      .all() as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
+  }
+
+  gradingCostUsd(): number {
+    const row = this.#db
+      .prepare('SELECT coalesce(sum(cost_usd), 0) AS cost FROM risk_grades')
+      .get() as { cost: number };
+    return row.cost;
+  }
+
   gradesAwaitingDisplay(repositories: readonly string[]): DisplayedGrade[] {
     const rows = this.#db
       .prepare(

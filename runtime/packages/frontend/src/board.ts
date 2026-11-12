@@ -1,4 +1,4 @@
-import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -23,7 +23,15 @@ export interface LiveWorkload {
   pullRequest: { number: number; url: string } | null;
 }
 
+export type CardRisk = RecordedRiskGrade | 'grading' | null;
+
+export interface RiskInputs {
+  repositories: ReadonlySet<string>;
+  grades: ReadonlyMap<string, RecordedRiskGrade>;
+}
+
 interface CardState {
+  risk: CardRisk;
   dispatch: DispatchRecord | undefined;
   workload: LiveWorkload | undefined;
   conflictFailedStart: ConflictResolutionRecord | undefined;
@@ -109,6 +117,7 @@ const runningCard = (ticket: Ticket | ClosedTicket, dispatch: DispatchRecord | u
   workload,
   conflictFailedStart: undefined,
   revisionFailedStart: undefined,
+  risk: null,
 });
 
 export const buildLanes = (
@@ -116,6 +125,7 @@ export const buildLanes = (
   dispatches: ReadonlyMap<string, DispatchRecord>,
   revisions: readonly RevisionRecord[],
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
+  risks: RiskInputs = { repositories: new Set(), grades: new Map() },
 ): BoardLane[] => {
   const liveRevisions = liveByPullRequest(revisions, 'revision');
   const liveResolutions = liveByPullRequest(conflictResolutions, 'conflict resolution');
@@ -131,7 +141,7 @@ export const buildLanes = (
       return liveRevisions.get(key) ?? liveResolutions.get(key);
     };
     for (const request of [...repository.requests].sort(oldestFirst)) {
-      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined });
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
     }
     const running: BoardCard[] = [];
     for (const ticket of [...repository.tickets].sort(oldestFirst)) {
@@ -150,12 +160,13 @@ export const buildLanes = (
         workload: undefined,
         conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
       const workload = workloadOf(ticket.number);
-      if (workload === undefined) columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined });
+      if (workload === undefined) columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
       else running.push(runningCard(ticket, dispatch, workload));
     }
     columns.running.push(...running);
