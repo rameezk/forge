@@ -34,6 +34,10 @@ export class GithubTokenFile {
     return file;
   }
 
+  get directory(): string {
+    return this.#dir;
+  }
+
   get path(): string {
     return join(this.#dir, TOKEN_FILE);
   }

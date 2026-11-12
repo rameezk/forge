@@ -4,7 +4,7 @@ import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
 import { formatCost, formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, type BoardGrading, type Risk, specBands, totals, type BoardCard, type BoardLane, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
-import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
+import { type Rendered, shortCommit, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
 
@@ -350,8 +350,6 @@ const renderGroupControl = (grouping: Grouping): Rendered =>
   html`<div class="flex items-center gap-2 mb-3"><span id="group-label" class="text-xs text-muted">Group by</span><div data-group-control role="group" aria-labelledby="group-label" class="inline-flex overflow-hidden rounded-md border border-line bg-surface text-[0.8125rem]">${GROUPINGS.map(
     ({ value, label, href }) => html`<a href="${href}"${value === grouping ? html` aria-current="true"` : ''} class="px-3 py-1 no-underline ${value === grouping ? 'bg-raised font-semibold text-fg' : 'text-muted hover:text-fg'}${value === 'none' ? '' : ' border-l border-line'}">${label}</a>`,
   )}</div></div>`;
-
-const shortCommit = (commit: string): string => commit.slice(0, 7);
 
 const renderDeployStatus = (deploy: DeployStatus | null): Rendered => {
   if (deploy === null) return '';

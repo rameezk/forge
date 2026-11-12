@@ -198,6 +198,7 @@ export const PULL_REQUEST_QUERY = `
     repository(owner: $owner, name: $name) {
       pullRequest(number: $number) {
         state
+        headRefOid
         mergedAt
         closedAt
         commits(first: 100, after: $after) {
@@ -785,12 +786,14 @@ export const queryPullRequestReadiness = async (
 
 export interface PullRequestSnapshot {
   state: PullRequestState;
+  headSha: string;
   settledAt: string | null;
   commitAuthors: (string | null)[];
 }
 
 interface PullRequestNode {
   state: string;
+  headRefOid: string;
   mergedAt: string | null;
   closedAt: string | null;
   commits: {
@@ -865,6 +868,7 @@ export const queryPullRequest = async (
   }
   return {
     state,
+    headSha: first.headRefOid,
     settledAt: state === 'merged' ? first.mergedAt : state === 'closed' ? first.closedAt : null,
     commitAuthors,
   };

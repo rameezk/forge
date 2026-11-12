@@ -196,6 +196,10 @@ _Avoid_: post-mortem, failure analysis, triage
 Jev's judgement of how much careful review one head commit of a forge pull request needs, as a probability for each of four levels (`trivial`, `low`, `moderate`, `high`), its most likely level and a confidence. Below the confidence threshold it is unsettled. A new head makes it stale. It is advice to the reviewer and never changes a dispatch's outcome (ADR-0103).
 _Avoid_: risk score, PR score, rating
 
+**Grade outcome**:
+What happened to a risk grade's head commit: open until the pull request is merged at that commit (`merged`), receives a new head (`superseded`) or is closed unmerged (`closed`), recorded with the number of revisions the pull request had completed. It lives in forge's store, the only source a later auto-merge rule reads.
+_Avoid_: grade result, verdict
+
 **Grading fingerprint**:
 What a risk grade was produced under: the configured Jev model and a hash of the question and its level descriptions. Grades sharing one form a grading cohort, compared like workload cohorts but never mixed with them.
 _Avoid_: grader version
