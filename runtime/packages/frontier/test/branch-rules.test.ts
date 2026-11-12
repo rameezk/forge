@@ -245,3 +245,14 @@ test('given a ruleset name and an error message carrying control characters and 
     assert.ok(reason.length < 400);
   }
 });
+
+test('given GitHub listing rules without end, when sync runs, then the repository is refused instead of the sync paging forever', async () => {
+  const { branchRules } = await syncing({
+    'rameezk/forge': {
+      ...PROTECTED,
+      rules: { status: 200, body: Array.from({ length: 3100 }, () => ruleOf(1)) },
+    },
+  });
+
+  assert.deepEqual(branchRules, ['its default branch rules could not be read: GitHub listed more than 3000 rules']);
+});

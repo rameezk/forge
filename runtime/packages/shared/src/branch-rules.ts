@@ -22,6 +22,7 @@ interface Ruleset {
 }
 
 const PAGE_SIZE = 100;
+const MAX_PAGES = 30;
 
 const NO_REVIEW = 'its default branch does not require an approving review';
 const NO_LAST_PUSH_APPROVAL = 'its default branch does not require approval of the most recent push';
@@ -67,6 +68,7 @@ const readBranchRules = async (
   }
   const rules: PullRequestRule[] = [];
   for (let page = 1; ; page += 1) {
+    if (page > MAX_PAGES) throw new Error(`GitHub listed more than ${MAX_PAGES * PAGE_SIZE} rules`);
     const batch = (await get(
       fetch,
       token,
@@ -105,7 +107,7 @@ const readBranchRules = async (
       const failure = bypassable(ruleset);
       if (failure !== null) failures.push(failure);
     } catch (error) {
-      failures.push(`ruleset ${id} could not be read: ${errorMessage(error)}`);
+      failures.push(`ruleset ${id} could not be read: ${printable(errorMessage(error))}`);
     }
   }
   return failures;
@@ -134,13 +136,13 @@ export const checkBranchRules = async (
     requireGithubRepository(github);
     failures.push(...(await readBranchRules(fetch, await tokens.read(), github)));
   } catch (error) {
-    failures.push(`its default branch rules could not be read: ${errorMessage(error)}`);
+    failures.push(`its default branch rules could not be read: ${printable(errorMessage(error))}`);
   }
   try {
     failures.push(...(await readActionsApproval(fetch, await tokens.administration(), github)));
   } catch (error) {
     failures.push(
-      `whether GitHub Actions can approve pull requests could not be read: ${errorMessage(error)}`,
+      `whether GitHub Actions can approve pull requests could not be read: ${printable(errorMessage(error))}`,
     );
   }
   return failures;
