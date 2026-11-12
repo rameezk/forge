@@ -1026,6 +1026,12 @@ const GRADING_RETRY_BASE_MS = 30_000;
 
 const GRADING_RETRY_CAP_MS = 3_600_000;
 
+export const notGradedTitle = ({
+  category,
+  message,
+}: Pick<GradingAttempt, 'category' | 'message'>): string =>
+  `Not graded: ${message}${RETRIED_GRADING_FAILURES.includes(category) ? ', retrying' : ''}`;
+
 export const gradingRetryDelayMs = (failures: number): number =>
   Math.min(GRADING_RETRY_BASE_MS * 2 ** Math.min(failures - 1, 16), GRADING_RETRY_CAP_MS);
 
@@ -2958,21 +2964,25 @@ export class Store {
     head: { repository: string; number: number; head_sha: string },
     now: string,
   ): boolean {
-    const attempts = this.#db
+    const latest = this.#db
       .prepare(
-        `SELECT category, attempted_at FROM grading_attempts
+        `SELECT category, attempted_at,
+          (SELECT count(*) FROM grading_attempts AS every
+            WHERE every.repository = latest.repository
+              AND every.number = latest.number
+              AND every.head_sha = latest.head_sha) AS failures
+        FROM grading_attempts AS latest
         WHERE repository = $repository AND number = $number AND head_sha = $head_sha
-        ORDER BY id DESC`,
+        ORDER BY id DESC LIMIT 1`,
       )
-      .all({
+      .get({
         repository: head.repository,
         number: head.number,
         head_sha: head.head_sha,
-      }) as { category: string; attempted_at: string }[];
-    const [latest] = attempts;
+      }) as { category: string; attempted_at: string; failures: number } | undefined;
     if (latest === undefined) return false;
     if (!RETRIED_GRADING_FAILURES.includes(latest.category as GradingFailure)) return true;
-    return Date.parse(now) < Date.parse(latest.attempted_at) + gradingRetryDelayMs(attempts.length);
+    return Date.parse(now) < Date.parse(latest.attempted_at) + gradingRetryDelayMs(latest.failures);
   }
 
   recordGradingAttempt(attempt: GradingAttempt): void {
@@ -3053,11 +3063,7 @@ export class Store {
       .prepare('SELECT max(graded_at) AS at FROM risk_grades')
       .get() as { at: string | null };
     const failing = this.currentGradingAttempts()
-      .filter(
-        ({ category, attemptedAt }) =>
-          RETRIED_GRADING_FAILURES.includes(category) &&
-          (succeeded.at === null || attemptedAt > succeeded.at),
-      )
+      .filter(({ category }) => RETRIED_GRADING_FAILURES.includes(category))
       .toSorted((a, b) => (a.attemptedAt < b.attemptedAt ? 1 : -1));
     return { lastSucceededAt: succeeded.at, failure: failing[0] ?? null };
   }

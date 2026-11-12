@@ -560,7 +560,7 @@ const SCORE_BODY = {
   usage: { cost: 0.001 },
 };
 
-const failureOf = async (respond: () => Response | Promise<Response>): Promise<{ category?: string; message?: string }> => {
+const failureOf = async (respond: () => Response | Promise<Response>): Promise<{ category?: string; message?: string; detail?: string }> => {
   const decide = jevDecides(
     new URL('http://openrouter.test/api/alpha/decisions'),
     'sk-or-test',
@@ -570,7 +570,7 @@ const failureOf = async (respond: () => Response | Promise<Response>): Promise<{
   try {
     await decide('state');
   } catch (error) {
-    return error as { category?: string; message?: string };
+    return error as { category?: string; message?: string; detail?: string };
   }
   return {};
 };
@@ -601,10 +601,12 @@ test('given each error OpenRouter documents, when Jev is asked, then the failure
     ['413 payload too large', () => errorResponse(413, 'Payload too large'), 'too-large'],
     ['400 context length exceeded by type', () => errorResponse(400, 'Request rejected', { error_type: 'context_length_exceeded' }), 'too-large'],
     ['400 context length exceeded by message', () => errorResponse(400, "This model's maximum context length is 262144 tokens"), 'too-large'],
+    ['400 exceeding a rate limit', () => errorResponse(400, 'request exceeds the rate limit of the key'), 'bug'],
     ['400 bad request', () => errorResponse(400, 'questions.risk.criteria must not be empty'), 'bug'],
     ['422 validation', () => errorResponse(422, 'Invalid criteria'), 'bug'],
     ['a refusal', () => new Response(JSON.stringify({ answers: { risk: { type: 'refusal' } } })), 'declined'],
     ['a non-score answer', () => new Response(JSON.stringify({ answers: { risk: { type: 'choice' } } })), 'bug'],
+    ['a body read that times out', () => ({ ok: true, status: 200, json: () => Promise.reject(new DOMException('timed out', 'TimeoutError')) }) as unknown as Response, 'temporary'],
     ['a body that is not JSON', () => new Response('<html>', { status: 200 }), 'bug'],
   ];
   for (const [name, respond, expected] of cases) {
@@ -617,7 +619,13 @@ test('given the key is rejected, out of credits or the model is gone, when Jev i
   assert.match((await failureOf(() => errorResponse(401, 'No auth credentials found'))).message ?? '', /OpenRouter rejected the key/);
   assert.match((await failureOf(() => errorResponse(402, 'Insufficient credits'))).message ?? '', /no credits/);
   assert.match((await failureOf(() => errorResponse(404, 'No endpoints found'))).message ?? '', /model .* not available/);
-  assert.match((await failureOf(() => errorResponse(503, 'Service unavailable'))).message ?? '', /Service unavailable/);
+  assert.equal((await failureOf(() => errorResponse(503, 'Service unavailable'))).message, 'OpenRouter answered 503');
+});
+
+test('given OpenRouter explains a failure, when Jev is asked, then its words stay out of the message that is stored and posted and are kept as detail for the log', async () => {
+  const failure = (await failureOf(() => errorResponse(400, 'questions.risk echoed ticket-text'))) as { message?: string; detail?: string };
+  assert.equal(failure.message, 'OpenRouter rejected the request with 400');
+  assert.match(failure.detail ?? '', /echoed ticket-text/);
 });
 
 test('given Jev answers with a server error, when forge-grading runs, then the attempt is recorded as temporary, the check run says it is retrying, and an immediate run sends nothing', async (t) => {
@@ -631,14 +639,14 @@ test('given Jev answers with a server error, when forge-grading runs, then the a
   assert.equal(attempts.length, 1);
   assert.equal(attempts[0]?.category, 'temporary');
   assert.equal(attempts[0]?.headSha, 'head-7');
-  assert.match(attempts[0]?.message ?? '', /Service unavailable/);
+  assert.equal(attempts[0]?.message, 'OpenRouter answered 503');
   assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')), null);
 
   assert.equal(f.checkRuns.length, 1);
   const check = f.checkRuns[0]?.body as { name: string; conclusion: string; output: { title: string } };
   assert.equal(check.name, 'forge/risk');
   assert.equal(check.conclusion, 'neutral');
-  assert.match(check.output.title, /^Not graded: .*Service unavailable.*, retrying$/);
+  assert.equal(check.output.title, 'Not graded: OpenRouter answered 503, retrying');
   assert.deepEqual(f.labelsOf(7), ['bug']);
 
   await f.syncAndGrade([READY]);
@@ -656,7 +664,7 @@ test('given OpenRouter rejects the key, when forge-grading runs, then the attemp
   assert.equal(status.failure?.category, 'setup');
   assert.match(status.failure?.message ?? '', /OpenRouter rejected the key/);
   const check = f.checkRuns[0]?.body as { output: { title: string } };
-  assert.equal(check.output.title, 'Not graded: OpenRouter rejected the key (No auth credentials found), retrying');
+  assert.equal(check.output.title, 'Not graded: OpenRouter rejected the key, retrying');
 });
 
 test('given Jev declines or the input is too large, when forge-grading runs again on the same head, then no request is sent and the check run says declined or too large', async (t) => {

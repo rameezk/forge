@@ -203,6 +203,7 @@ export { checkBranchRules, type BranchRulesTokens } from './branch-rules.ts';
 export {
   GRADING_FAILURES,
   gradingRetryDelayMs,
+  notGradedTitle,
   RETRIED_GRADING_FAILURES,
   RISK_LEVELS,
   Store,

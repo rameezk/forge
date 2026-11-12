@@ -1564,31 +1564,33 @@ test('given a failing attempt on a head, when the dashboard reads the store, the
   store.close();
 });
 
-test('given a failure and then a later grade, when the dashboard reads the store, then grading is no longer failing and shows when it last succeeded', () => {
+test('given a failing head and a later grade of another head, when the dashboard reads the store, then grading is still failing until the failing head is graded', () => {
   const store = Store.open(':memory:');
   watchedHead(store, 7, 'head-7');
   watchedHead(store, 8, 'head-8');
-  store.recordGradingAttempt(failure('setup', '2026-10-01T10:00:00.000Z'));
-  store.recordRiskGrade({
+  const grade = (number: number, gradedAt: string) => ({
     repository: 'forge',
-    number: 8,
-    headSha: 'head-8',
+    number,
+    headSha: `head-${number}`,
     fingerprint: 'm:abc',
     model: 'm',
     probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 },
     score: 0.4,
     confidence: 0.9,
-    level: 'low',
+    level: 'low' as const,
     unsettled: false,
     costUsd: 0.01,
-    gradedAt: '2026-10-01T10:05:00.000Z',
+    gradedAt,
   });
+  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: null, failure: null });
+  store.recordGradingAttempt(failure('setup', '2026-10-01T10:00:00.000Z'));
+  store.recordRiskGrade(grade(8, '2026-10-01T10:05:00.000Z'));
 
-  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: '2026-10-01T10:05:00.000Z', failure: null });
-
-  store.recordGradingAttempt(failure('temporary', '2026-10-01T10:10:00.000Z'));
   assert.equal(store.gradingStatus().lastSucceededAt, '2026-10-01T10:05:00.000Z');
-  assert.equal(store.gradingStatus().failure?.category, 'temporary');
+  assert.equal(store.gradingStatus().failure?.category, 'setup');
+
+  store.recordRiskGrade(grade(7, '2026-10-01T10:06:00.000Z'));
+  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: '2026-10-01T10:06:00.000Z', failure: null });
   store.close();
 });
 

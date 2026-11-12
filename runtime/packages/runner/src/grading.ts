@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   errorMessage,
   queryTicketContext,
+  notGradedTitle,
   RETRIED_GRADING_FAILURES,
   RISK_LEVELS,
   type ContextIssue,
@@ -123,21 +124,22 @@ export const decisionsUrl = (baseUrl: URL): URL =>
 export class GradingFailed extends Error {
   readonly category: GradingFailure;
 
-  constructor(category: GradingFailure, message: string) {
+  readonly detail: string;
+
+  constructor(category: GradingFailure, message: string, detail = '') {
     super(message);
     this.name = 'GradingFailed';
     this.category = category;
+    this.detail = detail;
   }
 }
 
 const MAX_DETAIL_LENGTH = 300;
 
-const CONTEXT_EXCEEDED = /context[ _-]?(length|window)|too (large|long)|exceeds? .*(limit|tokens)/i;
+const CONTEXT_EXCEEDED = /(maximum )?context[ _-]?(length|window)|too (large|long)/i;
 
-const detailOf = (error: { message?: unknown } | undefined): string => {
-  const message = typeof error?.message === 'string' ? error.message.trim() : '';
-  return message === '' ? '' : ` (${message.slice(0, MAX_DETAIL_LENGTH)})`;
-};
+const detailOf = (error: { message?: unknown } | undefined): string =>
+  typeof error?.message === 'string' ? error.message.trim().slice(0, MAX_DETAIL_LENGTH) : '';
 
 const failureOfResponse = (
   status: number,
@@ -150,24 +152,28 @@ const failureOfResponse = (
     ((status === 400 || status === 422) &&
       (error?.metadata?.error_type === 'context_length_exceeded' ||
         CONTEXT_EXCEEDED.test(String(error?.message ?? ''))));
-  if (exceeded) return new GradingFailed('too-large', "the input does not fit Jev's context window");
-  if (status === 401) return new GradingFailed('setup', `OpenRouter rejected the key${detail}`);
-  if (status === 402) return new GradingFailed('setup', `OpenRouter reports no credits${detail}`);
-  if (status === 403) return new GradingFailed('setup', `OpenRouter refused the key's access${detail}`);
+  if (exceeded) {
+    return new GradingFailed('too-large', "the input does not fit Jev's context window", detail);
+  }
+  if (status === 401) return new GradingFailed('setup', 'OpenRouter rejected the key', detail);
+  if (status === 402) return new GradingFailed('setup', 'OpenRouter reports no credits', detail);
+  if (status === 403) {
+    return new GradingFailed('setup', "OpenRouter refused the key's access", detail);
+  }
   if (status === 404) {
-    return new GradingFailed('setup', `the model ${model} is not available on OpenRouter${detail}`);
+    return new GradingFailed('setup', `the model ${model} is not available on OpenRouter`, detail);
   }
   if (status === 408 || status === 429 || status >= 500) {
-    return new GradingFailed('temporary', `OpenRouter answered ${status}${detail}`);
+    return new GradingFailed('temporary', `OpenRouter answered ${status}`, detail);
   }
-  return new GradingFailed('bug', `OpenRouter rejected the request with ${status}${detail}`);
+  return new GradingFailed('bug', `OpenRouter rejected the request with ${status}`, detail);
 };
 
 const failureOfTransport = (error: unknown): GradingFailed => {
   const name = error instanceof Error ? error.name : '';
   return name === 'TimeoutError' || name === 'AbortError'
     ? new GradingFailed('temporary', 'Jev timed out')
-    : new GradingFailed('temporary', `could not reach OpenRouter: ${errorMessage(error)}`);
+    : new GradingFailed('temporary', 'could not reach OpenRouter', errorMessage(error));
 };
 
 export const jevDecides =
@@ -187,7 +193,10 @@ export const jevDecides =
     }).catch((error: unknown) => {
       throw failureOfTransport(error);
     });
-    const body = (await response.json().catch(() => (response.ok ? undefined : {}))) as
+    const body = (await response.json().catch((error: unknown) => {
+      if (error instanceof SyntaxError) return response.ok ? undefined : {};
+      throw failureOfTransport(error);
+    })) as
       | {
           answers?: Record<
             string,
@@ -354,7 +363,9 @@ const gradeOne = async (
       message: error.message,
     };
     store.recordGradingAttempt(failed);
-    options.log(`${due.repository}#${due.number}: not graded (${failed.category}): ${failed.message}`);
+    options.log(
+      `${due.repository}#${due.number}: not graded (${failed.category}): ${failed.message}${error.detail === '' ? '' : ` (${error.detail})`}`,
+    );
     await postAttemptCheck(options, failed, repository);
     return;
   }
@@ -436,7 +447,7 @@ export const attemptCheckOutput = (
 ): { title: string; summary: string } => {
   const retried = RETRIED_GRADING_FAILURES.includes(attempt.category);
   return {
-    title: `Not graded: ${attempt.message}${retried ? ', retrying' : ''}`,
+    title: notGradedTitle(attempt),
     summary: [
       `This head commit has no risk grade: ${attempt.message}.`,
       '',

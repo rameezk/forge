@@ -1131,9 +1131,9 @@ const attemptOf = (number: number, headSha: string, category: GradingFailure, me
 
 test('given heads whose grading produced no level, when the Board is requested, then each card says why there is no grade', async () => {
   const cases: [GradingFailure, string, string, string][] = [
-    ['temporary', 'OpenRouter answered 503 (Service unavailable)', 'temporary', 'not graded'],
-    ['setup', 'OpenRouter rejected the key (No auth credentials found)', 'setup', 'not graded'],
-    ['bug', 'OpenRouter rejected the request with 400', 'bug', 'not graded'],
+    ['temporary', 'OpenRouter answered 503', 'temporary', 'not graded temporary, retrying'],
+    ['setup', 'OpenRouter rejected the key', 'setup', 'not graded setup, retrying'],
+    ['bug', 'OpenRouter rejected the request with 400', 'bug', 'not graded bug, retrying'],
     ['declined', 'Jev declined to answer', 'declined', 'declined'],
     ['too-large', "the input does not fit Jev's context window", 'too-large', 'too large'],
   ];
@@ -1144,11 +1144,11 @@ test('given heads whose grading produced no level, when the Board is requested, 
       store.recordGradingAttempt(attemptOf(105, 'head1', category, message));
     }, undefined, undefined, GRADING);
 
-    const risk = riskOf(cardOf(await (await app.request('/')).text(), 5));
+    const card = cardOf(await (await app.request('/')).text(), 5);
+    const risk = riskOf(card);
 
     assert.match(risk, new RegExp(`data-risk="${state}"`), category);
-    assert.equal(readable(risk), text, category);
-    assert.equal(/data-risk-retrying/.test(cardOf(await (await app.request('/')).text(), 5)), text === 'not graded', category);
+    assert.equal(readable(/<p[^>]*>(?:(?!<\/p>)[\s\S])*data-risk=[\s\S]*?<\/p>/.exec(card)?.[0] ?? ''), text, category);
     assert.match(risk, new RegExp(`title="Not graded: ${message.replace(/[()]/g, '\\$&').replace(/'/g, '&#39;')}`), category);
   }
 });
@@ -1206,14 +1206,14 @@ test('given OpenRouter rejects the key, when the Board is requested, then the st
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordGradingAttempt(attemptOf(105, 'head1', 'setup', 'OpenRouter rejected the key (No auth credentials found)'));
+    store.recordGradingAttempt(attemptOf(105, 'head1', 'setup', 'OpenRouter rejected the key '));
   }, undefined, undefined, GRADING);
 
   const line = statusLine(await (await app.request('/')).text());
 
   assert.match(line, /data-grading-setup/);
   assert.match(line, /bg-error-soft/);
-  assert.match(readable(line), /Grading needs attention - setup: OpenRouter rejected the key \(No auth credentials found\)/);
+  assert.match(readable(line), /Grading needs attention - setup: OpenRouter rejected the key/);
 });
 
 test('given a repository with grading off, when the Board is requested, then there is no grading status line', async () => {

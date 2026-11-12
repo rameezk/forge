@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type GradingStatus, type RecordedRiskGrade, type RiskLevel, RETRIED_GRADING_FAILURES, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type GradingStatus, type RecordedRiskGrade, type RiskLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
 import { formatCost, formatElapsed } from '../format.ts';
@@ -90,7 +90,7 @@ const NOT_GRADED_TEXT: Record<GradingAttempt['category'], string> = {
 const renderNotGraded = ({ category, message }: GradingAttempt): Rendered => {
   const retried = RETRIED_GRADING_FAILURES.includes(category);
   const tone = category === 'setup' || category === 'bug' ? 'bg-error-soft text-error' : QUEUED_TONE;
-  return html`<p class="${MUTED_LINE}"><span data-risk="${category}" title="Not graded: ${message}${retried ? ', retrying' : ''}" class="${PILL} ${tone} whitespace-nowrap">${NOT_GRADED_TEXT[category]}</span>${retried ? html` <span data-risk-retrying class="text-xs whitespace-nowrap text-muted">retrying</span>` : ''}</p>`;
+  return html`<p class="${MUTED_LINE}"><span data-risk="${category}" title="${notGradedTitle({ category, message })}" class="${PILL} ${tone} whitespace-nowrap">${NOT_GRADED_TEXT[category]}</span>${retried ? html` <span data-risk-retrying class="text-xs whitespace-nowrap text-muted">${category}, retrying</span>` : ''}</p>`;
 };
 
 const renderRisk = (risk: CardRisk): Rendered => {
