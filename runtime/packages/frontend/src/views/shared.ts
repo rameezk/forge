@@ -233,7 +233,7 @@ const forgeStatusPill = (deploy: DeployStatus): Rendered => {
 };
 
 const deployFailedPill = (deploy: DeployStatus): Rendered =>
-  deploy.error === null ? '' : html`<a href="/#deploy-error" data-deploy-failed class="${PILL} ${FAILED_TONE} no-underline">deploy failed</a>`;
+  deploy.error === null ? '' : html`<a href="/#deploy-error" data-deploy-failed title="The box could not switch to the head of its main; the Board shows the error" class="${PILL} ${FAILED_TONE} no-underline">deploy failed</a>`;
 
 const renderForgeStatus = (deploy: DeployStatus | null): Rendered => {
   if (deploy === null) return '';
