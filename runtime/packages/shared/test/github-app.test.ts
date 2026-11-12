@@ -165,3 +165,27 @@ test('given the stricter fake, when an installation token is sent to an /app rou
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { message: 'Bad credentials' });
 });
+
+test('given a minted token, when it is revoked, then GitHub is asked with that token and the token stops working', async () => {
+  const github = fakeGithubApp();
+  const app = appOn(github);
+  const { token } = await app.mint(INSTALLED, 'workload');
+
+  await app.revoke(token);
+
+  assert.deepEqual(github.revocations, [token]);
+  const afterwards = await github.fetch('https://api.github.com/repos/rameezk/forge-app-test', {
+    headers: { authorization: `bearer ${token}` },
+  });
+  assert.equal(afterwards.status, 401);
+});
+
+test('given GitHub refuses a revocation, when a token is revoked, then it fails with what GitHub answered', async () => {
+  const github = fakeGithubApp();
+  const app = appOn(github);
+  const { token } = await app.mint(INSTALLED, 'workload');
+  github.refuseRevocations.value = true;
+
+  await assert.rejects(app.revoke(token), /GitHub answered 403: Forbidden/);
+  assert.deepEqual(github.revocations, []);
+});

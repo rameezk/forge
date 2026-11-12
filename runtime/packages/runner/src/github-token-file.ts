@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { InstallationToken } from '@forge/shared';
+import { errorMessage, type InstallationToken } from '@forge/shared';
 
 export const GITHUB_TOKEN_FILE_ENV = 'FORGE_GITHUB_TOKEN_FILE';
 
@@ -34,6 +34,21 @@ export class GithubTokenFile {
     return file;
   }
 
+  static async createOrRevoke(
+    root: string,
+    runId: string,
+    token: string,
+    redactions: string[],
+    revoke: (token: string) => Promise<void>,
+  ): Promise<GithubTokenFile> {
+    try {
+      return GithubTokenFile.create(root, runId, token, redactions);
+    } catch (error) {
+      await revoke(token);
+      throw error;
+    }
+  }
+
   get directory(): string {
     return this.#dir;
   }
@@ -61,37 +76,72 @@ export class GithubTokenFile {
 const MIN_REFRESH_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 60_000;
 
+export const revokingQuietly =
+  (revoke: (token: string) => Promise<void>, what: string): ((token: string) => Promise<void>) =>
+  async (token) => {
+    try {
+      await revoke(token);
+    } catch (error) {
+      console.error(`could not revoke the ${what}'s GitHub token: ${errorMessage(error)}`);
+    }
+  };
+
 export const keepFresh = (
   file: GithubTokenFile,
   first: InstallationToken,
   mint: () => Promise<InstallationToken>,
   missed: (error: unknown) => void,
+  revoke: (token: string) => Promise<void>,
   now: () => number = Date.now,
-): (() => void) => {
+): (() => Promise<void>) => {
   let stopped = false;
+  let held = first.token;
+  let refreshing: Promise<void> = Promise.resolve();
   let timer: NodeJS.Timeout | undefined;
+  const refresh = async (expiresAt: string, failures: number): Promise<void> => {
+    let next: InstallationToken;
+    try {
+      next = await mint();
+    } catch (error) {
+      if (stopped) return;
+      missed(error);
+      schedule(expiresAt, failures + 1);
+      return;
+    }
+    if (stopped) {
+      await revoke(next.token);
+      return;
+    }
+    try {
+      file.replace(next.token);
+    } catch (error) {
+      await revoke(next.token);
+      missed(error);
+      schedule(expiresAt, failures + 1);
+      return;
+    }
+    const replaced = held;
+    held = next.token;
+    schedule(next.expiresAt, 0);
+    await revoke(replaced);
+  };
   const schedule = (expiresAt: string, failures: number): void => {
+    if (stopped) return;
     const delay =
       failures === 0
         ? Math.max(MIN_REFRESH_DELAY_MS, (Date.parse(expiresAt) - now()) / 2)
         : Math.min(MAX_RETRY_DELAY_MS, MIN_REFRESH_DELAY_MS * 2 ** (failures - 1));
     timer = setTimeout(() => {
-      mint()
-        .then((next) => {
-          if (stopped) return;
-          file.replace(next.token);
-          schedule(next.expiresAt, 0);
-        })
-        .catch((error: unknown) => {
-          if (stopped) return;
-          missed(error);
-          schedule(expiresAt, failures + 1);
-        });
+      refreshing = refresh(expiresAt, failures);
     }, delay);
   };
   schedule(first.expiresAt, 0);
-  return () => {
+  return async () => {
     stopped = true;
     clearTimeout(timer);
+    await refreshing;
+    const last = held;
+    held = '';
+    if (last !== '') await revoke(last);
   };
 };

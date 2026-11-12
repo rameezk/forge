@@ -25,7 +25,9 @@ import { textOf } from '../../frontend/test/html.ts';
 import {
   APP_ID,
   fakeGithubApp,
+  type FakeGithubApp,
   routedThrough,
+  tokenFor,
 } from '../../shared/test/fixtures/fake-github-app.ts';
 import {
   alive,
@@ -124,6 +126,7 @@ interface Scenario {
 
 interface Outcome {
   code: number;
+  app: FakeGithubApp;
   origin: Origin;
   runs: RunRecord[];
   resolutions: ConflictResolutionRecord[];
@@ -354,6 +357,7 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
     const transcriptRef = runs[0]?.transcriptRef;
     return {
       code,
+      app,
       origin,
       runs,
       resolutions: store.listConflictResolutions(new Date().toISOString()),
@@ -742,4 +746,19 @@ test('given a conflict resolution that ran, when the runs list is rendered, then
 
   const row = /<tr[^>]*data-run="[^"]*"[^>]*>[\s\S]*?<\/tr>/.exec(runsList)?.[0] ?? '';
   assert.match(textOf(row), /forge PR #143/);
+});
+
+test('given a conflict resolution that inspects the trial merge, runs the worker and checks the result, when it ends, then every workload token minted for it has been revoked', async () => {
+  const origin = originWhere('conflicts');
+  const { app, resolutions } = await resolve({ origin, worker: mergeAndPush });
+
+  assert.equal(resolutions[0]?.state, 'done');
+  const minted = app.mints
+    .filter((mint) => mint.kind === 'workload')
+    .map((mint, index) => tokenFor('workload', mint.repository, index + 1));
+  assert.ok(minted.length >= 2);
+  assert.deepEqual(
+    app.revocations.filter((token) => token.startsWith('ghs_workload_')).sort(),
+    [...minted].sort(),
+  );
 });

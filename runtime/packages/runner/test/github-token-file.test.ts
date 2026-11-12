@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { gitEnvironment } from '../src/git.ts';
@@ -74,6 +74,8 @@ test('given a token file that is gone, when git asks for GitHub credentials, the
 
 const HOUR = 3_600_000;
 
+const keepsNothingToRevoke = async (): Promise<void> => undefined;
+
 const expiringIn = (ms: number, now: number): string => new Date(now + ms).toISOString();
 
 test('given a token file kept fresh, when half of the token\'s life has passed, then the file holds the next token and both are redacted', async (context) => {
@@ -85,6 +87,7 @@ test('given a token file kept fresh, when half of the token\'s life has passed, 
     { token: 'first', expiresAt: expiringIn(HOUR, 0) },
     async () => ({ token: 'second', expiresAt: expiringIn(2 * HOUR, Date.now()) }),
     () => assert.fail('the refresh failed'),
+    keepsNothingToRevoke,
   );
   context.mock.timers.tick(HOUR / 2 - 1);
   assert.equal(readFileSync(file.path, 'utf8'), 'first');
@@ -109,6 +112,7 @@ test('given a refresh that keeps failing, when the token has long expired, then 
       return { token: 'second', expiresAt: expiringIn(HOUR, Date.now()) };
     },
     (error) => failures.push(error),
+    keepsNothingToRevoke,
   );
   const settle = async (ms: number): Promise<void> => {
     context.mock.timers.tick(ms);
@@ -137,6 +141,7 @@ test('given a refresh that cannot write the token file, when the next token arri
     { token: 'first', expiresAt: expiringIn(HOUR, 0) },
     async () => ({ token: 'second', expiresAt: expiringIn(HOUR, Date.now()) }),
     (error) => failures.push(error),
+    keepsNothingToRevoke,
   );
   context.mock.timers.tick(HOUR / 2);
   await new Promise<void>((resolve) => setImmediate(resolve));
@@ -152,9 +157,103 @@ test('given a stopped refresher, when its timer would have fired, then it mints 
     { token: 'first', expiresAt: expiringIn(HOUR, 0) },
     async () => assert.fail('minted after stop'),
     () => assert.fail('the refresh failed'),
+    keepsNothingToRevoke,
   );
   stop();
   context.mock.timers.tick(HOUR);
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(readFileSync(file.path, 'utf8'), 'first');
+});
+
+test('given a token file kept fresh, when the refresher replaces the token, then the old token is revoked only after the new one is in the file', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  const file = open('first');
+  const revoked: { token: string; fileHeld: string }[] = [];
+  const stop = keepFresh(
+    file,
+    { token: 'first', expiresAt: expiringIn(HOUR, 0) },
+    async () => ({ token: 'second', expiresAt: expiringIn(2 * HOUR, Date.now()) }),
+    () => assert.fail('the refresh failed'),
+    async (token) => {
+      revoked.push({ token, fileHeld: readFileSync(file.path, 'utf8') });
+    },
+  );
+  context.mock.timers.tick(HOUR / 2);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(revoked, [{ token: 'first', fileHeld: 'second' }]);
+  await stop();
+  assert.deepEqual(revoked.map(({ token }) => token), ['first', 'second']);
+});
+
+test('given a refresher that never refreshed, when it is stopped, then the token it holds is revoked once', async () => {
+  const revoked: string[] = [];
+  const stop = keepFresh(
+    open('first'),
+    { token: 'first', expiresAt: expiringIn(HOUR, Date.now()) },
+    async () => assert.fail('minted'),
+    () => assert.fail('the refresh failed'),
+    async (token) => {
+      revoked.push(token);
+    },
+  );
+  await stop();
+  await stop();
+  assert.deepEqual(revoked, ['first']);
+});
+
+test('given a refresh that is still minting, when the refresher is stopped, then the token that arrives afterwards is revoked and never written', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  const file = open('first');
+  const revoked: string[] = [];
+  let arrive: (token: { token: string; expiresAt: string }) => void = () => undefined;
+  const stop = keepFresh(
+    file,
+    { token: 'first', expiresAt: expiringIn(HOUR, 0) },
+    () => new Promise((resolve) => (arrive = resolve)),
+    () => assert.fail('the refresh failed'),
+    async (token) => {
+      revoked.push(token);
+    },
+  );
+  context.mock.timers.tick(HOUR / 2);
+  const stopped = stop();
+  arrive({ token: 'second', expiresAt: expiringIn(HOUR, Date.now()) });
+  await stopped;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(revoked.sort(), ['first', 'second']);
+  assert.equal(readFileSync(file.path, 'utf8'), 'first');
+});
+
+test('given a token whose file cannot be created, when the file is created or the token revoked, then the token is revoked and the failure is thrown', async () => {
+  const root = join(mkdtempSync(join(tmpdir(), 'forge-credentials-')), 'blocked');
+  writeFileSync(root, 'a file where the directory should go');
+  const revoked: string[] = [];
+
+  await assert.rejects(
+    GithubTokenFile.createOrRevoke(root, 'run-1', 'first', [], async (token) => {
+      revoked.push(token);
+    }),
+  );
+  assert.deepEqual(revoked, ['first']);
+});
+
+test('given a refresh that cannot write the token file, when the next token arrives, then that token is revoked and the one the file holds is revoked at the end', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  const file = open('first');
+  file.remove();
+  const revoked: string[] = [];
+  const stop = keepFresh(
+    file,
+    { token: 'first', expiresAt: expiringIn(HOUR, 0) },
+    async () => ({ token: 'second', expiresAt: expiringIn(HOUR, Date.now()) }),
+    () => undefined,
+    async (token) => {
+      revoked.push(token);
+    },
+  );
+  context.mock.timers.tick(HOUR / 2);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(revoked, ['second']);
+  await stop();
+  assert.deepEqual(revoked, ['second', 'first']);
 });

@@ -195,6 +195,10 @@ export class GithubApp {
     }
     return { token: minted.token, expiresAt: minted.expires_at };
   }
+
+  async revoke(token: string): Promise<void> {
+    await ok(await this.#request('DELETE', '/installation/token', undefined, token));
+  }
 }
 
 const readPrivateKey = (path: string | undefined): string => {

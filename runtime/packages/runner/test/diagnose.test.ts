@@ -171,6 +171,7 @@ const diagnose = async ({
     const now = new Date().toISOString();
     return {
       code,
+      app,
       thrown,
       stateDir,
       diagnosis: store.diagnosisOfRun('diagnosis-run', now) as DiagnosisRecord,
@@ -342,3 +343,9 @@ for (const [name, scenario, message] of [
     assert.equal(diagnoses.length, seeded.earlier === 'none' ? 0 : 1);
   });
 }
+
+test('given a diagnosis, when it ends, then the read token minted for it has been revoked', async () => {
+  const { app } = await diagnose({ action: writing(VERDICT) });
+
+  assert.deepEqual(app.revocations, [tokenFor('read', 'rameezk/forge')]);
+});
