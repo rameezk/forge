@@ -26,6 +26,7 @@ export interface RepositoryConfig {
   github: string;
   on?: { ticket?: string; feedback?: string; conflict?: string };
   grading?: boolean;
+  workflows?: boolean;
 }
 
 export interface DispatchConfig {
@@ -156,7 +157,7 @@ export const repositoryTriggeredBy = (
   repositories: Record<string, RepositoryConfig> | undefined,
   name: string,
   trigger: 'ticket' | 'feedback' | 'conflict',
-): { github: string; worker: string } => {
+): { github: string; worker: string; workflows: boolean } => {
   const repository =
     repositories !== undefined && Object.hasOwn(repositories, name)
       ? repositories[name]
@@ -168,5 +169,5 @@ export const repositoryTriggeredBy = (
   if (worker === undefined) {
     throw new Error(`repository '${name}' declares no on.${trigger} worker`);
   }
-  return { github: repository.github, worker };
+  return { github: repository.github, worker, workflows: repository.workflows === true };
 };

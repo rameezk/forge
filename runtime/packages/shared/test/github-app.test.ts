@@ -50,13 +50,13 @@ for (const [access, permissions] of [
   ['read', { issues: 'read', pull_requests: 'read', contents: 'read', checks: 'read', statuses: 'read' }],
   ['write', { issues: 'write', pull_requests: 'read', contents: 'read', checks: 'read', statuses: 'read' }],
   ['reactions', { issues: 'write', pull_requests: 'write' }],
+  ['grading', { issues: 'read', pull_requests: 'write', contents: 'read', checks: 'write' }],
   [
     'workload',
     {
       contents: 'write',
       issues: 'write',
       pull_requests: 'write',
-      workflows: 'write',
       checks: 'read',
       actions: 'read',
       statuses: 'read',
@@ -72,6 +72,23 @@ for (const [access, permissions] of [
     assert.deepEqual(github.mints[0]?.body.permissions, permissions);
   });
 }
+
+test('given an installed repository, when a workload token is minted with workflows, then GitHub is asked for the workload permissions plus Workflows: write', async () => {
+  const github = fakeGithubApp();
+
+  await appOn(github).mint(INSTALLED, 'workload', { workflows: true });
+
+  assert.deepEqual(github.mints[0]?.body.permissions, {
+    contents: 'write',
+    issues: 'write',
+    pull_requests: 'write',
+    workflows: 'write',
+    checks: 'read',
+    actions: 'read',
+    statuses: 'read',
+  });
+  assert.deepEqual(github.mints[0]?.body.repositories, ['forge-app-test']);
+});
 
 test('given an installation that has not granted a permission forge requests, when a token is minted, then it fails naming the permissions forge requested and what GitHub answered', async () => {
   const github = fakeGithubApp();

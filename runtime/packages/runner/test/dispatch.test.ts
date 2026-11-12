@@ -577,6 +577,7 @@ interface Scenario {
   bwrapFailure?: string;
   timeoutSeconds?: number;
   setupTimeoutSeconds?: number;
+  workflows?: boolean;
   maxCostUsd?: number;
   models?: unknown;
   piLingerMs?: number;
@@ -717,7 +718,11 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
         },
       },
       repositories: {
-        forge: { github: 'rameezk/forge', on: { ticket: 'builder' } },
+        forge: {
+          github: 'rameezk/forge',
+          on: { ticket: 'builder' },
+          ...(scenario.workflows === true ? { workflows: true } : {}),
+        },
       },
       ...(scenario.setupTimeoutSeconds === undefined
         ? {}
@@ -2416,27 +2421,37 @@ test('given an installed repository, when forge-dispatch runs, then every GitHub
   );
 });
 
-test('given a dispatched workload, when its token is minted, then it is scoped to its own repository alone with the workload permissions', async () => {
+const WORKLOAD_PERMISSIONS = {
+  contents: 'write',
+  issues: 'write',
+  pull_requests: 'write',
+  checks: 'read',
+  actions: 'read',
+  statuses: 'read',
+};
+
+test('given a repository without workflows, when a workload is dispatched, then its token is scoped to its own repository alone without Workflows: write', async () => {
   const { app } = await dispatch();
+
+  const [workload, ...others] = app.mints.filter((mint) => mint.kind === 'workload');
+  assert.deepEqual(others, []);
+  assert.deepEqual(workload?.body, { repositories: ['forge'], permissions: WORKLOAD_PERMISSIONS });
+});
+
+test('given a repository with workflows, when a workload is dispatched, then its token carries Workflows: write', async () => {
+  const { app } = await dispatch({ workflows: true });
 
   const [workload, ...others] = app.mints.filter((mint) => mint.kind === 'workload');
   assert.deepEqual(others, []);
   assert.deepEqual(workload?.body, {
     repositories: ['forge'],
-    permissions: {
-      contents: 'write',
-      issues: 'write',
-      pull_requests: 'write',
-      workflows: 'write',
-      checks: 'read',
-      actions: 'read',
-      statuses: 'read',
-    },
+    permissions: { ...WORKLOAD_PERMISSIONS, workflows: 'write' },
   });
 });
 
 test('given an installation that has not accepted Workflows: write, when forge-dispatch runs, then minting the workload token fails naming the permissions forge requested, no workload starts, and the dispatch fails', async () => {
   const { failure, pi, dispatches } = await dispatch({
+    workflows: true,
     unaccepted: { workflows: 'write' },
     failing: true,
   });
