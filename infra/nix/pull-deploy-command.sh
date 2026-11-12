@@ -153,7 +153,7 @@ main_lock() {
 }
 
 start_bump() {
-  local locked kind owner repo ref listing upstream_rev
+  local locked kind owner repo ref listing upstream_rev wanted
   main_info=""
   if ! main_lock; then
     bump_failure="could not read the forge input in the lock file on main of $FORGE_PULL_DEPLOY_REMOTE"
@@ -168,11 +168,13 @@ start_bump() {
   [[ $owner =~ ^[A-Za-z0-9_.-]+$ && $repo =~ ^[A-Za-z0-9_.-]+$ ]] || return 0
   [[ $owner != . && $owner != .. && $repo != . && $repo != .. ]] || return 0
   [[ -z $ref || ( $ref =~ ^[A-Za-z0-9_./-]+$ && $ref != /* && $ref != */ && $ref != *//* && $ref != *..* ) ]] || return 0
-  if ! listing="$(GIT_TERMINAL_PROMPT=0 git ls-remote "$FORGE_PULL_DEPLOY_UPSTREAM/$owner/$repo.git" "${ref:+refs/heads/}${ref:-HEAD}" 2>&1)"; then
-    bump_failure="could not look up the head of $owner/$repo: $(tail -n 5 <<< "$listing" | tail -c 500)"
+  wanted="${ref:+refs/heads/}${ref:-HEAD}"
+  if ! listing="$(GIT_TERMINAL_PROMPT=0 git ls-remote "$FORGE_PULL_DEPLOY_UPSTREAM/$owner/$repo.git" "$wanted" 2>&1)"; then
+    printf 'forge-pull-deploy: git ls-remote said:\n%s\n' "$(tail -n 5 <<< "$listing")" >&2
+    bump_failure="could not look up the head of $owner/$repo"
     return
   fi
-  upstream_rev="$(awk '$1 ~ /^[0-9a-f]{40}$/ {print $1; exit}' <<< "$listing")"
+  upstream_rev="$(awk -v wanted="$wanted" '$1 ~ /^[0-9a-f]{40}$/ && $2 == wanted {print $1; exit}' <<< "$listing")"
   if [ -z "$upstream_rev" ]; then
     bump_failure="$owner/$repo has no ${ref:-HEAD} to look up"
     return

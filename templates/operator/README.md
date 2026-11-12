@@ -339,7 +339,8 @@ commit (`upstreamHead`) and how many commits the box's forge is behind it
 is never a switch error. It also records the last upstream commit it started the
 forge bump for (`dispatched`) and the last error looking the upstream up or
 starting the bump (`bumpError`), which is `null` once a pass succeeds and is also
-written to the unit's journal. A bump error never stops the deploy of `main`. Read the file with
+written to the unit's journal. A bump error never stops the deploy of `main`.
+Read the file with
 `just ssh sudo cat /var/lib/forge-pull-deploy/status.json`, or see it on the
 dashboard: every page's footer shows the forge commit with a "latest" or "N behind"
 pill, plus a red "deploy failed" pill while the last switch failed, which links to
@@ -1219,16 +1220,21 @@ just ssh sudo -u forge-runtime sqlite3 -readonly /var/lib/forge/forge.db \
 
 `.github/workflows/forge-bump.yml` runs `scripts/forge-bump.sh`. It has no
 schedule, because GitHub runs scheduled workflows only on a best-effort basis.
-Instead the box starts it with `workflow_dispatch` when forge moves: with the
-[pull deploy](#following-main) on, every pass of the box looks up the head of the
-branch the locked `forge` input follows with `git ls-remote`, and when that head
-differs from the forge commit locked on `main` it starts the workflow. It starts
-it once for each new upstream commit, and again for the same commit only if the
-call to GitHub failed, in which case it tries again at the next pass. A forge
-commit the divergence guard rejects is not tried again until forge moves or you
-run the workflow by hand from the Actions tab. A forge change should be running on
-the box within about ten minutes. Without the pull deploy nothing starts the
-workflow, so run it by hand or upgrade with `upgrade-forge`. The script moves the locked `forge` input to forge's latest commit, runs the
+Instead the box starts it with `workflow_dispatch` when forge moves.
+
+With the [pull deploy](#following-main) on, every pass of the box looks up the
+head of the branch the locked `forge` input follows with `git ls-remote`, and when
+that head differs from the forge commit locked on `main` it starts the workflow.
+It starts it once for each new upstream commit, and again for the same commit only
+if the call to GitHub failed, in which case it tries again at the next pass. A
+forge commit the divergence guard rejects is not tried again until forge moves or
+you run the workflow by hand from the Actions tab. A forge change should be
+running on the box within about ten minutes. The lookup is unauthenticated, so it
+needs the upstream to be public and the `forge` input to follow a branch. Without
+the pull deploy nothing starts the workflow, so run it by hand or upgrade with
+`upgrade-forge`.
+
+The script moves the locked `forge` input to forge's latest commit, runs the
 divergence guard on the bumped lock, and only if the guard passes pushes one
 commit, `chore: update forge to <short-rev>`, straight to `main`. The commit body
 lists the subjects of the upstream commits it pulls in. It makes no commit when
