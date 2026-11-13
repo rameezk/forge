@@ -42,7 +42,22 @@ in
 testers.runNixOSTest {
   name = "runtime-toolset";
 
-  nodes.base = box "git --version && rg --version && gh --version && nix --version && printf github_pat_from_file > token && FORGE_GITHUB_TOKEN_FILE=\"$PWD/token\" gh auth token" { };
+  nodes.base =
+    box
+      ''
+        git --version && rg --version && gh --version && nix --version
+        python3 --version
+        printf 'old text' > edit.txt
+        python3 - <<'EOF'
+        import pathlib
+        path = pathlib.Path("edit.txt")
+        path.write_text(path.read_text().replace("old", "new"))
+        EOF
+        cat edit.txt
+        echo
+        printf github_pat_from_file > token && FORGE_GITHUB_TOKEN_FILE="$PWD/token" gh auth token
+      ''
+      { };
 
   nodes.extended = box "git --version && hello" (
     { options, pkgs, ... }:
@@ -76,6 +91,8 @@ testers.runNixOSTest {
         assert "ripgrep" in out, out
         assert "gh version" in out, out
         assert "nix (Nix)" in out, out
+        assert "Python 3" in out, out
+        assert "new text" in out, out
         assert "github_pat_from_file" in out, out
 
     with subtest("operators can extend the toolset"):
