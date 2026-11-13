@@ -5,7 +5,7 @@ const LONG_ERROR = `error: builder for '/nix/store/${'a'.repeat(32)}-forge-syste
 
 const sideways = (page: Page): Promise<number> => page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth);
 
-test('given an open Workloads page with no band, when a bump error is recorded and later cleared, then the band appears and later goes without a reload', async ({ dashboard, page }) => {
+test('given an open Workloads page with no band, when a bump error and a deploy error are recorded and later cleared, then the band shows each row and later goes without a reload', async ({ dashboard, page }) => {
   await page.goto('/workloads');
   await expect(page.getByRole('status')).toHaveText('Live');
   await page.evaluate(() => {
@@ -15,6 +15,13 @@ test('given an open Workloads page with no band, when a bump error is recorded a
 
   dashboard.setDeployStatus({ bumpError: 'Resource not accessible by integration' });
   await expect(page.locator('[data-attention-band]')).toContainText('Forge bump: Resource not accessible by integration');
+
+  dashboard.setDeployStatus({ bumpError: 'Resource not accessible by integration', error: 'building the system failed' });
+  await expect(page.locator('#deploy-error')).toHaveText('building the system failed');
+
+  dashboard.setDeployStatus({ bumpError: 'Resource not accessible by integration' });
+  await expect(page.locator('#deploy-error')).toHaveCount(0);
+  await expect(page.locator('[data-attention-band]')).toContainText('Forge bump');
 
   dashboard.setDeployStatus(null);
   await expect(page.locator('[data-attention-band]')).toHaveCount(0);
