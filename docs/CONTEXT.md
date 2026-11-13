@@ -197,8 +197,11 @@ Jev's judgement of how much careful review one head commit of a forge pull reque
 _Avoid_: risk score, PR score, rating
 
 **Grade outcome**:
-What happened to a risk grade's head commit: open until the pull request is merged at that commit (`merged`), receives a new head (`superseded`) or is closed unmerged (`closed`), recorded with the number of revisions the pull request had completed. It lives in forge's store, the only source a later auto-merge rule reads.
+What happened to a risk grade's head commit: open until the pull request is merged at that commit (`merged`), receives a new head (`superseded`, with its supersede cause) or is closed unmerged (`closed`), recorded with the number of revisions completed after the grade. It lives in forge's store, the only source a later auto-merge rule reads. A grade is judged over its settled outcomes: a `revision`, `other` or `unknown` supersede counts against it, a `conflict-resolution` supersede is neutral and judges nothing.
 _Avoid_: grade result, verdict
+
+**Supersede cause**:
+What pushed the head that superseded a risk grade's head commit: a forge revision (`revision`), a forge conflict resolution (`conflict-resolution`), anything else such as a person (`other`), or `unknown` for a supersede recorded before causes were.
 
 **Grading attempt**:
 One request to Jev for a head commit that produced no level, recorded with its head commit, time, category and message. The categories are temporary, setup, too large, declined and bug. Temporary, setup and bug attempts are retried on a backoff up to hourly; too large and declined are never retried for that head commit.
