@@ -230,6 +230,10 @@ _Avoid_: Work page, frontier page, kanban
 A request or ticket as the Board shows it, standing for wherever that work is now: the live run while Running, the pull request while In review, the latest attempt's run once Failed, and the issue in every other column or when that run or pull request does not exist.
 _Avoid_: tile, item
 
+**Attention band**:
+The strip under the dashboard's menu bar, on every page, that lists each problem forge cannot fix by itself and that degrades what it puts out until the operator acts: a failed deploy or forge bump, a grading setup or bug failure, a temporary grading failure once grading has gone two hours without succeeding, and a managed repository whose poll failed or whose default branch rules are not passing. A per-pull-request state such as a too-large or declined risk grade, and a healthy status or cost, never belong in it.
+_Avoid_: alert bar, error banner, status line
+
 **Operator**:
 A person who stands up and runs their own forge deployment - the reuser of forge, distinct from its author.
 
