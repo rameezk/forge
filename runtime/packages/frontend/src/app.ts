@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { aggregateRisk, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, ticketKey, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
+import { aggregateRisk, summarizeRisk, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, ticketKey, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
@@ -181,13 +181,13 @@ export const createApp = ({
       const options = store.riskOptions();
       const fingerprint = query.cohort ?? options.cohorts[0];
       const { startedFrom, startedBefore } = dayRange(query.from, query.to, timeZone);
-      const grades = fingerprint === undefined ? [] : store.listRiskGrades({
-        fingerprint,
+      const range = {
         ...(query.repository === undefined ? {} : { repository: query.repository }),
         ...(startedFrom === undefined ? {} : { gradedFrom: new Date(startedFrom).toISOString() }),
         ...(startedBefore === undefined ? {} : { gradedBefore: new Date(startedBefore).toISOString() }),
-      });
-      return c.html(renderRisk(aggregateRisk(grades), { ...query, ...(fingerprint === undefined ? {} : { cohort: fingerprint }) }, options, shown));
+      };
+      const grades = fingerprint === undefined ? [] : store.listRiskGrades({ fingerprint, ...range });
+      return c.html(renderRisk(aggregateRisk(grades), summarizeRisk(grades, store.listFailedGradingHeads(range)), { ...query, ...(fingerprint === undefined ? {} : { cohort: fingerprint }) }, options, shown));
     }
     const filter = filterOf(query);
     return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), query, store.insightsOptions(), shown));

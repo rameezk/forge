@@ -1,5 +1,5 @@
 import { quantile } from './insights.ts';
-import { RISK_LEVELS, SUPERSEDE_CAUSES, type RecordedRiskGrade, type RiskLevel, type SupersedeCause } from './store.ts';
+import { GRADING_FAILURES, RISK_LEVELS, SUPERSEDE_CAUSES, type GradingFailure, type RecordedRiskGrade, type RiskLevel, type SupersedeCause } from './store.ts';
 
 export interface RiskFilter {
   fingerprint: string;
@@ -67,3 +67,34 @@ export const aggregateRisk = (grades: RecordedRiskGrade[]): RiskRow[] =>
       rowOf(level, unsettled, grades.filter((grade) => grade.level === level && grade.unsettled === unsettled)),
     ),
   );
+
+export interface RiskSummary {
+  graded: number;
+  attempted: number;
+  failed: Record<GradingFailure, number>;
+  coverage: number | null;
+  costUsd: number;
+  costPerGrade: number | null;
+  candidates: { merged: number; judged: number; heldUpRate: number | null };
+}
+
+export const summarizeRisk = (grades: RecordedRiskGrade[], failedHeads: GradingFailure[]): RiskSummary => {
+  const failed = Object.fromEntries(
+    GRADING_FAILURES.map((category) => [category, failedHeads.filter((failure) => failure === category).length]),
+  ) as Record<GradingFailure, number>;
+  const costUsd = grades.reduce((total, grade) => total + grade.costUsd, 0);
+  const candidateLevels = RISK_GROUPS.find(({ key }) => key === 'candidates')?.levels ?? [];
+  const candidates = aggregateRisk(grades)
+    .filter(({ level, unsettled }) => candidateLevels.includes(level) && !unsettled)
+    .reduce((total, row) => ({ merged: total.merged + row.merged, judged: total.judged + row.judged }), { merged: 0, judged: 0 });
+  const attempted = grades.length + failedHeads.length;
+  return {
+    graded: grades.length,
+    attempted,
+    failed,
+    coverage: attempted === 0 ? null : grades.length / attempted,
+    costUsd,
+    costPerGrade: grades.length === 0 ? null : costUsd / grades.length,
+    candidates: { ...candidates, heldUpRate: candidates.judged === 0 ? null : candidates.merged / candidates.judged },
+  };
+};

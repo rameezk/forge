@@ -1,9 +1,9 @@
 import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
-import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, RISK_GROUPS, type RiskOptions, type RiskRow, type SupersedeCause, type ConfigFingerprint } from '@forge/shared';
+import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, RISK_GROUPS, type RiskOptions, type RiskRow, type RiskSummary, GRADING_FAILURES, type GradingFailure, type SupersedeCause, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { workloadsHref } from '../workload-filter.ts';
-import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
+import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate, formatBudget } from '../format.ts';
 import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
 
 export const INSIGHTS_TABS = ['delivery', 'cost', 'failures', 'risk'] as const;
@@ -402,15 +402,49 @@ const renderRiskTable = (rows: RiskRow[]): Rendered =>
     </table>
   </div>`;
 
+const FAILURE_LABELS: Record<GradingFailure, string> = {
+  temporary: 'Temporary',
+  setup: 'Setup',
+  'too-large': 'Too large',
+  declined: 'Declined',
+  bug: 'Bug',
+};
+
+const CARD_LABEL = 'm-0 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
+
+const CARD_FIGURE = 'm-0 mt-1 text-2xl font-semibold tabular-nums text-fg';
+
+const CARD_DETAIL = 'm-0 mt-1 text-[0.8rem] tabular-nums text-muted';
+
+const summaryCard = (name: string, label: string, body: Rendered): Rendered =>
+  html`<section class="rounded-lg border border-line bg-surface p-4" data-risk-card="${name}">
+    <h2 class="${CARD_LABEL}">${label}</h2>
+    ${body}
+  </section>`;
+
+const renderRiskSummary = ({ graded, attempted, failed, coverage, costUsd, costPerGrade, candidates }: RiskSummary): Rendered =>
+  html`<div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3" data-risk-cards>
+    ${summaryCard('coverage', 'Coverage', html`<p class="${CARD_FIGURE}" data-metric="coverage">${formatRate(coverage)}</p>
+      <p class="${CARD_DETAIL}" data-metric="coverage-count">${graded} of ${attempted} heads graded</p>
+      <p class="${CARD_DETAIL}" data-metric="coverage-failed">${GRADING_FAILURES.map((category, index) => html`${index === 0 ? '' : ' · '}<span data-failed="${category}">${FAILURE_LABELS[category]} ${failed[category]}</span>`)}</p>`)}
+    ${summaryCard('cost', 'Grading cost', html`<p class="${CARD_FIGURE}" data-metric="cost-total">${formatBudget(costUsd)} total</p>
+      <p class="${CARD_DETAIL}" data-metric="cost-per-grade">${costPerGrade === null ? 'n/a' : formatBudget(costPerGrade)} per grade</p>`)}
+    ${summaryCard('candidates', 'Auto-merge candidates held up', html`<p class="${CARD_FIGURE}" data-metric="candidates-held-up">${formatRate(candidates.heldUpRate)}</p>
+      <p class="${CARD_DETAIL}" data-metric="candidates-count">${candidates.merged} of ${candidates.judged}</p>
+      <p class="${CARD_DETAIL}" data-metric="candidates-note">Assumes auto-merge would take settled trivial and low grades and nothing unsettled.</p>`)}
+  </div>`;
+
 export const renderRisk = (
   rows: RiskRow[],
+  summary: RiskSummary,
   filter: InsightsQuery,
   options: RiskOptions,
   display: Display,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const content = rows.every(({ heads }) => heads === 0)
     ? html`<p class="${EMPTY}" data-empty>No risk grades in this range</p>`
-    : html`${renderRiskTable(rows)}
+    : html`${renderRiskSummary(summary)}
+      ${renderRiskTable(rows)}
       <p class="m-0 mt-2 text-[0.8rem] text-muted" data-risk-note>Held up is the share of settled grades merged at the graded head, leaving out those superseded by a conflict resolution. Settled means merged, superseded or closed; open grades are counted only. Conflict resolution supersedes are counted only. Revision, other and unknown supersedes count against the grade. Revisions after grade is the mean number of completed revisions that started after the grade and before its outcome, over settled grades.</p>`;
   const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
     ${renderTabs(filter)}
