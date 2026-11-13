@@ -316,6 +316,13 @@ export interface PollFailure {
   failedAt: string;
 }
 
+export interface RepositoryProblems {
+  repository: string;
+  github: string;
+  lastError: PollFailure | null;
+  branchRules: string[] | null;
+}
+
 export interface RepositoryFrontier extends Omit<PolledFrontier, 'polledAt'> {
   polledAt: string | null;
   lastError: PollFailure | null;

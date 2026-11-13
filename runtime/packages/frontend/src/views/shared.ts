@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PollFailure, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type RepositoryProblems, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatElapsed, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
@@ -133,13 +133,6 @@ export interface AssetHrefs {
   logo: string;
   idiomorph: string;
   client: string;
-}
-
-export interface RepositoryProblems {
-  repository: string;
-  github: string;
-  lastError: PollFailure | null;
-  branchRules: readonly string[] | null;
 }
 
 export interface Display {

@@ -110,7 +110,7 @@ export const createApp = ({
     const version = watch(pathname + search)?.().version;
     const deploy = deployStatus();
     const grading = gradingAttention();
-    const repositories = store.listFrontier().map(({ repository, github, lastError, branchRules }) => ({ repository, github, lastError, branchRules }));
+    const repositories = store.listRepositoryProblems();
     return version === undefined ? { ...display, deploy, grading, repositories } : { ...display, version, deploy, grading, repositories };
   };
 

@@ -1480,6 +1480,25 @@ test('given a store file whose frontier predates branch rules, when the store is
   }
 });
 
+test('given repositories with a failed poll, failing branch rules and neither, when the repository problems are listed, then only the failing ones appear, by repository', () => {
+  const store = Store.open(':memory:');
+  try {
+    for (const [repository, github] of [['forge', 'rameezk/forge'], ['dotfiles', 'rameezk/dotfiles'], ['healthy', 'rameezk/healthy']] as const) {
+      store.replaceFrontier({ repository, github, polledAt: '2026-09-29T08:10:00.000Z', closed: [], requests: [], tickets: [] });
+    }
+    store.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'GitHub answered 401', failedAt: '2026-09-29T08:20:00.000Z' });
+    store.recordBranchRules({ repository: 'dotfiles', github: 'rameezk/dotfiles', failures: ['no review'] });
+    store.recordBranchRules({ repository: 'healthy', github: 'rameezk/healthy', failures: [] });
+
+    assert.deepEqual(store.listRepositoryProblems(), [
+      { repository: 'dotfiles', github: 'rameezk/dotfiles', lastError: null, branchRules: ['no review'] },
+      { repository: 'forge', github: 'rameezk/forge', lastError: { message: 'GitHub answered 401', failedAt: '2026-09-29T08:20:00.000Z' }, branchRules: null },
+    ]);
+  } finally {
+    store.close();
+  }
+});
+
 const watchedHead = (store: Store, number: number, headSha: string): void => {
   store.recordWatchedPullRequests('forge', [
     {
