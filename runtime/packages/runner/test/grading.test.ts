@@ -495,36 +495,50 @@ test('given removing the stale labels failed once, when the new head is graded a
   assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7-revised')?.level), 'low');
 });
 
-const revise = (store: Store, number: number): void => {
+const revise = (store: Store, number: number, startedAt: string, pushed?: string): void => {
   const start = store.startRevision(
     { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
     [],
     randomUUID(),
-    '2026-01-01T00:00:00.000Z',
+    startedAt,
     Number.POSITIVE_INFINITY,
   );
   assert.ok('started' in start);
-  store.endRevision(start.started, 'done', '2026-01-01T00:01:00.000Z');
+  if (pushed !== undefined) store.recordRevisionPush(start.started, pushed);
+  store.endRevision(start.started, 'done', startedAt);
 };
 
-test('given a graded commit of a pull request that went through two revisions, when it is merged at that commit, then the grade reads merged with two revisions', async (t) => {
+const resolveConflicts = (store: Store, number: number, startedAt: string, pushed: string): void => {
+  const start = store.startConflictResolution(
+    { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
+    [],
+    randomUUID(),
+    startedAt,
+    Number.POSITIVE_INFINITY,
+    { headSha: 'head-7', defaultSha: 'default-1' },
+  );
+  assert.ok('started' in start);
+  store.recordConflictResolutionPush(start.started, pushed);
+  store.endConflictResolution(start.started, 'done', startedAt);
+};
+
+test('given a pull request with a completed revision before its head was graded and one after, when the grade settles, then its revisions after grade is 1', async (t) => {
   const f = await forge();
   t.after(f.close);
-  f.withStore((store) => {
-    revise(store, 7);
-    revise(store, 7);
-  });
+  f.withStore((store) => revise(store, 7, '2026-01-01T00:00:00.000Z'));
   await f.syncAndGrade([READY]);
   assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
+  f.withStore((store) => revise(store, 7, new Date().toISOString()));
 
   f.end(7, 'MERGED', 'head-7');
   await f.syncAndGrade([]);
   const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'merged');
-  assert.equal(grade?.revisions, 2);
+  assert.equal(grade?.revisions, 1);
+  assert.equal(grade?.supersedeCause, null);
 });
 
-test('given a graded commit, when the pull request receives a new head, then the earlier grade reads superseded', async (t) => {
+test('given a graded commit, when the pull request receives a new head, then the earlier grade reads superseded by other', async (t) => {
   const f = await forge();
   t.after(f.close);
   await f.syncAndGrade([READY]);
@@ -534,7 +548,62 @@ test('given a graded commit, when the pull request receives a new head, then the
     store.riskGrade('forge', 7, 'head-7b'),
   ]);
   assert.equal(earlier?.outcome, 'superseded');
+  assert.equal(earlier?.supersedeCause, 'other');
   assert.equal(later?.outcome, 'open');
+  assert.equal(later?.supersedeCause, null);
+});
+
+test('given a graded commit and a forge revision that pushed a new head, when sync sees the new head, then the grade is superseded by revision and counts that revision', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.withStore((store) => revise(store, 7, new Date().toISOString(), 'head-7b'));
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(grade?.outcome, 'superseded');
+  assert.equal(grade?.supersedeCause, 'revision');
+  assert.equal(grade?.revisions, 1);
+});
+
+test('given a graded commit and a forge conflict resolution that pushed a new head, when sync sees the new head, then the grade is superseded by conflict-resolution', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.withStore((store) => resolveConflicts(store, 7, new Date().toISOString(), 'head-7b'));
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(grade?.outcome, 'superseded');
+  assert.equal(grade?.supersedeCause, 'conflict-resolution');
+});
+
+test('given a graded commit and a new head that no forge workload pushed while a revision of the pull request is running, when sync sees the new head, then the grade is superseded by other', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.withStore((store) => {
+    const start = store.startRevision(
+      { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
+      [],
+      randomUUID(),
+      new Date().toISOString(),
+      Number.POSITIVE_INFINITY,
+    );
+    assert.ok('started' in start);
+  });
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(grade?.outcome, 'superseded');
+  assert.equal(grade?.supersedeCause, 'other');
+});
+
+test('given a graded commit that is merged at a newer head by a forge revision, when sync polls the pull request, then the grade is superseded by revision', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.withStore((store) => revise(store, 7, new Date().toISOString(), 'head-7b'));
+  f.end(7, 'MERGED', 'head-7b');
+  await f.syncAndGrade([]);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.supersedeCause), 'revision');
 });
 
 test('given a graded commit, when the pull request is closed without merging, then the grade reads closed', async (t) => {
@@ -543,7 +612,9 @@ test('given a graded commit, when the pull request is closed without merging, th
   await f.syncAndGrade([READY]);
   f.end(7, 'CLOSED', 'head-7');
   await f.syncAndGrade([]);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'closed');
+  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(grade?.outcome, 'closed');
+  assert.equal(grade?.supersedeCause, null);
 });
 
 test('given a graded commit, when the pull request merges at a newer head, then the earlier grade reads superseded', async (t) => {

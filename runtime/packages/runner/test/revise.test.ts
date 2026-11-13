@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store, type RevisionRecord, type RunRecord } from '@forge/shared';
@@ -54,6 +55,7 @@ interface PullRequestResponse {
         state: string;
         isCrossRepository: boolean;
         headRefName: string;
+        headRefOid: string;
         closingIssuesReferences: { nodes: { number: number }[] };
       } | null;
     };
@@ -64,6 +66,23 @@ const pullRequestFixture = (): PullRequestResponse =>
   JSON.parse(
     readFileSync(join(GITHUB_FIXTURES, 'pull-request.json'), 'utf8'),
   ) as PullRequestResponse;
+
+const withHead = (response: PullRequestResponse, headRefOid: string): PullRequestResponse => {
+  const copy = structuredClone(response);
+  copy.data.repository.pullRequest!.headRefOid = headRefOid;
+  return copy;
+};
+
+const pushedHeadsOf = (database: string, table: 'revisions' | 'conflict_resolutions'): (string | null)[] => {
+  const db = new DatabaseSync(database, { readOnly: true });
+  try {
+    return (db.prepare(`SELECT pushed_sha FROM ${table} ORDER BY id`).all() as { pushed_sha: string | null }[]).map(
+      ({ pushed_sha }) => pushed_sha,
+    );
+  } finally {
+    db.close();
+  }
+};
 
 const SKILL =
   '---\nname: address-feedback\ndescription: Address review feedback on a pull request.\n---\n\nAddress it.\n';
@@ -273,6 +292,7 @@ interface Scenario {
   viewerKind?: 'read' | 'write';
   hangingClone?: boolean;
   setupTimeoutSeconds?: number;
+  pushedHead?: string;
 }
 
 interface Outcome {
@@ -280,6 +300,7 @@ interface Outcome {
   origin: Origin;
   runs: RunRecord[];
   revisions: RevisionRecord[];
+  pushedHeads: (string | null)[];
   complaints: string;
   pi: PiCall | null;
   gitConfig: Record<string, string>;
@@ -356,6 +377,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
   const privateKeyFile = join(stateDir, 'github-app-private-key');
   writeFileSync(privateKeyFile, app.privateKey);
   const pullRequest = scenario.pullRequest ?? pullRequestFixture();
+  let headReads = 0;
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const { pathname } = new URL(String(input));
     const lookup = /^\/repos\/rameezk\/forge\/collaborators\/([^/]+)\/permission$/.exec(pathname);
@@ -372,6 +394,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
     assert.equal(pathname, '/graphql');
     const { query } = JSON.parse(String(init?.body)) as { query: string };
     const viewer = sentWith(init, scenario.viewerKind ?? 'read') ? FORGE_APP : null;
+    if (query.includes('query PullRequestHead')) headReads += 1;
     const answer = query.includes('query FeedbackWindow')
       ? scenario.feedback ?? feedbackWindow({ comments: [conversationComment()] })
       : query.includes('query FeedbackAnswers')
@@ -379,7 +402,9 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
           feedbackAnswers({
             comments: [{ ...conversationComment(), ...thumbsUp() }],
           })
-        : pullRequest;
+        : scenario.pushedHead !== undefined && headReads > 1
+          ? withHead(pullRequest, scenario.pushedHead)
+          : pullRequest;
     return new Response(JSON.stringify(viewedBy(answer, viewer)), {
       headers: { 'content-type': 'application/json' },
     });
@@ -446,6 +471,7 @@ const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       origin,
       runs: store.listRuns(),
       revisions: store.listRevisions(new Date().toISOString()),
+      pushedHeads: pushedHeadsOf(join(stateDir, 'forge.db'), 'revisions'),
       complaints: complaints.join('\n'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
       gitConfig,
@@ -551,6 +577,20 @@ test('given a revision handed one item, when the worker replies on the pull requ
     { state: 'done', reason: null },
   ]);
   assert.equal(nextAfter, revisions[0]?.startedAt);
+});
+
+test('given a revision that leaves the pull request on a new head, when it ends, then it records that head as the one it pushed', async () => {
+  const { code, pushedHeads } = await revise({ pushedHead: 'b'.repeat(40) });
+
+  assert.equal(code, 0);
+  assert.deepEqual(pushedHeads, ['b'.repeat(40)]);
+});
+
+test('given a revision that leaves the pull request on the head it started with, when it ends, then it records no pushed head', async () => {
+  const { code, pushedHeads } = await revise();
+
+  assert.equal(code, 0);
+  assert.deepEqual(pushedHeads, [null]);
 });
 
 test('given a revision that ends ok, when it is recorded, then it is against its pull request and run and linked to the dispatch that opened the pull request', async () => {

@@ -1634,3 +1634,42 @@ test('given an attempt that repeats the previous one, when it is recorded, then 
   assert.equal(store.attemptsAwaitingCheck(['forge']).length, 1);
   store.close();
 });
+
+test('given a store whose superseded grades predate supersede causes, when it is opened, then they read unknown and merged grades carry no cause', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const grade = (headSha: string) => ({
+    repository: 'forge',
+    number: 7,
+    headSha,
+    fingerprint: 'model:aaaa',
+    model: 'model',
+    probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 },
+    score: 1,
+    confidence: 0.9,
+    level: 'low' as const,
+    unsettled: false,
+    costUsd: 0.01,
+    gradedAt: '2026-09-21T10:00:00.000Z',
+  });
+  const first = Store.open(path);
+  first.recordRiskGrade(grade('one'));
+  first.recordRiskGrade(grade('two'));
+  first.settleRiskGrade({ repository: 'forge', number: 7, headSha: 'one' }, 'superseded', '2026-09-21T11:00:00.000Z', 'two');
+  first.settleRiskGrade({ repository: 'forge', number: 7, headSha: 'two' }, 'merged', '2026-09-21T12:00:00.000Z');
+  first.close();
+  const old = new DatabaseSync(path);
+  old.exec(`
+    ALTER TABLE risk_grades DROP COLUMN supersede_cause;
+    ALTER TABLE revisions DROP COLUMN pushed_sha;
+    ALTER TABLE conflict_resolutions DROP COLUMN pushed_sha;
+  `);
+  old.close();
+
+  const store = Store.open(path);
+  try {
+    assert.equal(store.riskGrade('forge', 7, 'one')?.supersedeCause, 'unknown');
+    assert.equal(store.riskGrade('forge', 7, 'two')?.supersedeCause, null);
+  } finally {
+    store.close();
+  }
+});

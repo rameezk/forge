@@ -1,5 +1,5 @@
 import { quantile } from './insights.ts';
-import { RISK_LEVELS, type RecordedRiskGrade, type RiskLevel } from './store.ts';
+import { RISK_LEVELS, SUPERSEDE_CAUSES, type RecordedRiskGrade, type RiskLevel, type SupersedeCause } from './store.ts';
 
 export interface RiskFilter {
   fingerprint: string;
@@ -19,11 +19,11 @@ export interface RiskRow {
   heads: number;
   pullRequests: number;
   merged: number;
-  superseded: number;
+  supersededBy: Record<SupersedeCause, number>;
   closed: number;
   open: number;
   heldUpRate: number | null;
-  settled: number;
+  judged: number;
   medianConfidence: number | null;
 }
 
@@ -35,20 +35,25 @@ export const RISK_GROUPS: { key: 'candidates' | 'human'; title: string; levels: 
 const rowOf = (level: RiskLevel, unsettled: boolean, grades: RecordedRiskGrade[]): RiskRow => {
   const count = (outcome: RecordedRiskGrade['outcome']): number => grades.filter((grade) => grade.outcome === outcome).length;
   const merged = count('merged');
-  const superseded = count('superseded');
+  const supersededBy = Object.fromEntries(
+    SUPERSEDE_CAUSES.map((cause) => [
+      cause,
+      grades.filter((grade) => grade.outcome === 'superseded' && grade.supersedeCause === cause).length,
+    ]),
+  ) as Record<SupersedeCause, number>;
   const closed = count('closed');
-  const settled = merged + superseded + closed;
+  const judged = merged + supersededBy.revision + supersededBy.other + supersededBy.unknown + closed;
   return {
     level,
     unsettled,
     heads: grades.length,
     pullRequests: new Set(grades.map(({ repository, number }) => `${repository}#${number}`)).size,
     merged,
-    superseded,
+    supersededBy,
     closed,
     open: count('open'),
-    settled,
-    heldUpRate: settled === 0 ? null : merged / settled,
+    judged,
+    heldUpRate: judged === 0 ? null : merged / judged,
     medianConfidence: grades.length === 0 ? null : quantile(grades.map(({ confidence }) => confidence), 0.5),
   };
 };

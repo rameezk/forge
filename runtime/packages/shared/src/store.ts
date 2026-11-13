@@ -702,7 +702,8 @@ const CREATE_REVISIONS = `
     started_at      TEXT NOT NULL,
     alive_at        TEXT NOT NULL,
     ended_at        TEXT,
-    feedback_cursor TEXT
+    feedback_cursor TEXT,
+    pushed_sha      TEXT
   ) STRICT;
 
   CREATE INDEX IF NOT EXISTS revisions_pull_request ON revisions (repository, number, id);
@@ -762,7 +763,8 @@ const CREATE_CONFLICT_RESOLUTIONS = `
     alive_at      TEXT NOT NULL,
     ended_at      TEXT,
     head_sha      TEXT,
-    default_sha   TEXT
+    default_sha   TEXT,
+    pushed_sha    TEXT
   ) STRICT;
 
   CREATE INDEX IF NOT EXISTS conflict_resolutions_pull_request ON conflict_resolutions (repository, number, id);
@@ -876,6 +878,31 @@ const ADD_CONFLICT_RESOLUTION_SHAS = `
   ALTER TABLE conflict_resolutions ADD COLUMN default_sha TEXT;
 `;
 
+const HAS_REVISION_PUSHED_SHA = `
+  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'pushed_sha'
+`;
+
+const ADD_REVISION_PUSHED_SHA = `
+  ALTER TABLE revisions ADD COLUMN pushed_sha TEXT;
+`;
+
+const HAS_CONFLICT_RESOLUTION_PUSHED_SHA = `
+  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'pushed_sha'
+`;
+
+const ADD_CONFLICT_RESOLUTION_PUSHED_SHA = `
+  ALTER TABLE conflict_resolutions ADD COLUMN pushed_sha TEXT;
+`;
+
+const HAS_GRADE_SUPERSEDE_CAUSE = `
+  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'supersede_cause'
+`;
+
+const ADD_GRADE_SUPERSEDE_CAUSE = `
+  ALTER TABLE risk_grades ADD COLUMN supersede_cause TEXT;
+  UPDATE risk_grades SET supersede_cause = 'unknown' WHERE outcome = 'superseded';
+`;
+
 const HAS_WATCH_MERGEABLE = `
   SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'mergeable'
 `;
@@ -920,6 +947,7 @@ const CREATE_RISK_GRADES = `
     outcome       TEXT NOT NULL DEFAULT 'open',
     outcome_at    TEXT,
     revisions     INTEGER,
+    supersede_cause TEXT,
     PRIMARY KEY (repository, number, head_sha)
   ) STRICT;
 `;
@@ -997,10 +1025,15 @@ export const GRADE_OUTCOMES = ['open', 'merged', 'superseded', 'closed'] as cons
 
 export type GradeOutcome = (typeof GRADE_OUTCOMES)[number];
 
+export const SUPERSEDE_CAUSES = ['revision', 'conflict-resolution', 'other', 'unknown'] as const;
+
+export type SupersedeCause = (typeof SUPERSEDE_CAUSES)[number];
+
 export interface RecordedRiskGrade extends RiskGrade {
   outcome: GradeOutcome;
   outcomeAt: string | null;
   revisions: number | null;
+  supersedeCause: SupersedeCause | null;
 }
 
 export const GRADING_FAILURES = ['temporary', 'setup', 'too-large', 'declined', 'bug'] as const;
@@ -1101,6 +1134,7 @@ type RiskGradeRow = {
   outcome: string;
   outcome_at: string | null;
   revisions: number | null;
+  supersede_cause: string | null;
 };
 
 const displayedGradeFromRow = (row: RiskGradeRow): DisplayedGrade => ({
@@ -1125,6 +1159,7 @@ const riskGradeFromRow = (row: RiskGradeRow): RecordedRiskGrade => ({
   outcome: row.outcome as GradeOutcome,
   outcomeAt: row.outcome_at,
   revisions: row.revisions,
+  supersedeCause: row.supersede_cause as SupersedeCause | null,
 });
 
 type FeedbackWatchRow = {
@@ -1537,6 +1572,9 @@ export class Store {
     this.#addColumnsOnce(HAS_DISPATCH_FAILED_STARTS, ADD_DISPATCH_FAILED_STARTS);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_FAILED_STARTS, ADD_CONFLICT_RESOLUTION_FAILED_STARTS);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_OPTIONAL_RUN, MIGRATE_CONFLICT_RESOLUTION_RUN);
+    this.#addColumnsOnce(HAS_REVISION_PUSHED_SHA, ADD_REVISION_PUSHED_SHA);
+    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_PUSHED_SHA, ADD_CONFLICT_RESOLUTION_PUSHED_SHA);
+    this.#addColumnsOnce(HAS_GRADE_SUPERSEDE_CAUSE, ADD_GRADE_SUPERSEDE_CAUSE);
     if (this.#hasOldWorkloadStates()) {
       this.#migrateWorkloadStates();
     }
@@ -2774,6 +2812,12 @@ export class Store {
     return start;
   }
 
+  recordConflictResolutionPush(id: number, headSha: string): void {
+    this.#db
+      .prepare(`UPDATE conflict_resolutions SET pushed_sha = $head_sha WHERE id = $id`)
+      .run({ id, head_sha: headSha });
+  }
+
   touchConflictResolution(id: number, now: string): void {
     this.#db
       .prepare(`UPDATE conflict_resolutions SET alive_at = $now WHERE id = $id AND state = 'running'`)
@@ -3223,6 +3267,7 @@ export class Store {
     grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>,
     outcome: Exclude<GradeOutcome, 'open'>,
     at: string,
+    supersededBy?: string,
   ): void {
     this.#db
       .prepare(
@@ -3234,13 +3279,34 @@ export class Store {
             WHERE revisions.repository = risk_grades.repository
               AND revisions.number = risk_grades.number
               AND revisions.state = 'done'
-          )
+              AND revisions.started_at >= risk_grades.graded_at
+              AND revisions.started_at <= $at
+          ),
+          supersede_cause = CASE WHEN $outcome = 'superseded' THEN
+            CASE
+              WHEN $superseded_by IS NULL THEN 'unknown'
+              WHEN EXISTS (
+                SELECT 1 FROM revisions
+                WHERE revisions.repository = risk_grades.repository
+                  AND revisions.number = risk_grades.number
+                  AND revisions.pushed_sha = $superseded_by
+              ) THEN 'revision'
+              WHEN EXISTS (
+                SELECT 1 FROM conflict_resolutions
+                WHERE conflict_resolutions.repository = risk_grades.repository
+                  AND conflict_resolutions.number = risk_grades.number
+                  AND conflict_resolutions.pushed_sha = $superseded_by
+              ) THEN 'conflict-resolution'
+              ELSE 'other'
+            END
+          END
         WHERE repository = $repository AND number = $number AND head_sha = $head_sha
           AND outcome = 'open'`,
       )
       .run({
         outcome,
         at,
+        superseded_by: supersededBy ?? null,
         repository: grade.repository,
         number: grade.number,
         head_sha: grade.headSha,
@@ -3403,6 +3469,10 @@ export class Store {
         )
         .run({ id, detail: boundedDetail(detail), at });
     });
+  }
+
+  recordRevisionPush(id: number, headSha: string): void {
+    this.#db.prepare(`UPDATE revisions SET pushed_sha = $head_sha WHERE id = $id`).run({ id, head_sha: headSha });
   }
 
   touchRevision(id: number, now: string): void {
