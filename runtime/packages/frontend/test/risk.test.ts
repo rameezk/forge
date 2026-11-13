@@ -22,13 +22,14 @@ interface Grading {
   outcome?: GradeOutcome;
   cause?: SupersedeCause;
   cost?: number;
+  revisions?: number;
 }
 
 let heads = 0;
 
 const grade = (store: Store, grading: Grading = {}): void => {
   heads += 1;
-  const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', unsettled = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open', cause = 'unknown', cost = 0.01 } = grading;
+  const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', unsettled = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open', cause = 'unknown', cost = 0.01, revisions = 0 } = grading;
   store.recordRiskGrade({
     repository,
     number,
@@ -43,6 +44,11 @@ const grade = (store: Store, grading: Grading = {}): void => {
     costUsd: cost,
     gradedAt: at,
   });
+  for (let index = 0; index < revisions; index += 1) {
+    const start = store.startRevision({ repository, number, url: `https://github.com/rameezk/${repository}/pull/${number}` }, [], `run-${heads}-${index}`, at, Number.POSITIVE_INFINITY);
+    assert.ok('started' in start);
+    store.endRevision(start.started, 'done', at);
+  }
   if (outcome === 'open') return;
   const settling = { repository, number, headSha: head };
   if (outcome !== 'superseded' || cause === 'unknown') return store.settleRiskGrade(settling, outcome, at);
@@ -110,6 +116,7 @@ test('given 4 merged low grades, 1 superseded by revision, 1 by conflict resolut
     closed: '1',
     open: '1',
     confidence: '0.90',
+    revisions: '0.00',
   });
 });
 
@@ -349,5 +356,23 @@ test('given the Risk tab with grades, when it loads, then the three cards preced
   const body = await page('?tab=risk');
 
   const order = [...body.matchAll(/data-risk-card="([^"]+)"|data-risk(?=[\s>])/g)].map((match) => match[1] ?? 'table');
-  assert.deepEqual(order, ['coverage', 'cost', 'candidates', 'table']);
+  assert.deepEqual(order, ['coverage', 'cost', 'candidates', 'table']);});
+
+test('given two settled low grades with 0 and 1 revisions after grade and an open low grade, when the Risk tab loads, then the low row shows revisions after grade 0.50', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, { outcome: 'merged' });
+  grade(store, { outcome: 'superseded', revisions: 1 });
+  grade(store, {});
+
+  const body = await page('?tab=risk');
+
+  assert.equal(rowOf(body, 'low').revisions, '0.50');
+  assert.match(textOf(body), /Revisions after grade is the mean number of completed revisions that started after the grade and before its outcome, over settled grades/);
+});
+
+test('given a level with no settled grades, when the Risk tab loads, then its row shows no revisions after grade', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, { level: 'high' });
+
+  assert.equal(rowOf(await page('?tab=risk'), 'high').revisions, 'n/a');
 });

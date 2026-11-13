@@ -35,15 +35,21 @@
     `node --test` over its unit tests
   - OpenTofu: `tofu test`
   - repo and template scripts: the matching `tests/*.sh` script
-  - a single nix check: `nix build .#checks.<system>.<check>`; a VM test lives
-    in `vmTests`, so `nix flake check` alone no longer covers it
+  - a single nix check: `nix build .#checks.<system>.<check>`
 - End your report with one line naming the local commands that passed,
   followed by "full suite: CI".
 - When a required scoped command is killed or cannot run, stop and report it.
   Do not substitute a narrower or different check.
-- When a VM test fails in CI, start from its log. Run only that test locally,
-  with `nix build .#vmTests.<system>.<test>`, if the log does not explain the
-  failure.
+- NixOS VM tests are CI-only. Never build `vmTests` locally, on any machine,
+  even when a ticket is proved by a VM test.
+- A ticket proved by a VM test goes red and green in CI on an early draft pull
+  request: commit the test change alone, push it and open the draft pull
+  request, see CI fail on that test for the right reason, push the
+  implementation, see CI pass, then run the reviews as usual. The pull request
+  stays a draft until its required checks are green on the final head.
+- When a VM test fails in CI and its log does not explain why, make the test
+  report more, such as fuller assertion messages or the node's output on
+  failure, and push again.
 - A change is not done until the required checks on its pull request are
   green.
 

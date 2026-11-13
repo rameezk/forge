@@ -538,6 +538,29 @@ test('given a pull request with a completed revision before its head was graded 
   assert.equal(grade?.supersedeCause, null);
 });
 
+test('given a graded head followed by a revision that failed and one that is still running, when sync sees a new head, then the grade settles with 0 revisions after grade', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.withStore((store) => {
+    for (const state of ['failed', 'running'] as const) {
+      const start = store.startRevision(
+        { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
+        [],
+        randomUUID(),
+        new Date().toISOString(),
+        Number.POSITIVE_INFINITY,
+      );
+      assert.ok('started' in start);
+      if (state === 'failed') store.endRevision(start.started, 'failed', new Date().toISOString(), { reason: 'interrupted', detail: null });
+    }
+  });
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(grade?.outcome, 'superseded');
+  assert.equal(grade?.revisions, 0);
+});
+
 test('given a graded commit, when the pull request receives a new head, then the earlier grade reads superseded by other', async (t) => {
   const f = await forge();
   t.after(f.close);
