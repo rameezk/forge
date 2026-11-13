@@ -572,6 +572,7 @@ let
     "ripgrep"
     "jq"
     "curl"
+    "python3"
   ];
 
   githubCli = pkgs.writeShellScriptBin "gh" ''
@@ -797,7 +798,7 @@ in
       type = lib.types.listOf lib.types.package;
       default = map (name: pkgs.${name}) baseToolset ++ [ config.nix.package ];
       defaultText = lib.literalExpression "with pkgs; [ ${lib.concatStringsSep " " baseToolset} ] ++ [ config.nix.package ]";
-      example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.python3 ]";
+      example = lib.literalExpression "options.forge.runtime.toolset.default ++ [ pkgs.ruby ]";
       description = "Workload toolset: the packages that make up a workload's `PATH`. It is not a limit on what a workload can run, since the Nix store and the nix daemon are reachable from the sandbox (ADR-0024, ADR-0027). A dispatched workload whose checkout has a flake gets its devShell's path ahead of these. Forge's own `gh`, which reads the workload's GitHub token from its token file, is not part of the toolset: it is always present, ahead of the devShell and the toolset (ADR-0073). Extend the base set with `options.forge.runtime.toolset.default ++ [ ... ]`, or set a list to replace it.";
     };
 
