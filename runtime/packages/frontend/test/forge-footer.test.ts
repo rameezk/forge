@@ -127,13 +127,13 @@ test('given no deploy status, when a page is requested, then the footer shows on
   }
 });
 
-test('given a status with an error, when the Board and the Workloads page are requested, then each footer shows a red deploy failed pill linking to the Board error box beside the forge commit the box runs', async () => {
+test('given a status with an error, when the Board and the Workloads page are requested, then each footer shows a red deploy failed pill linking to the error row in the attention band beside the forge commit the box runs', async () => {
   for (const page of ['/', '/workloads']) {
     const footer = footerOf(await pageWith(page, () => status({ error: 'building the system failed', upstreamHead: UPSTREAM_HEAD, behind: 3 })));
 
     const pill = footer.match(/<a\s[^>]*\bdata-deploy-failed\b[^>]*>[\s\S]*?<\/a>/)?.[0];
     assert.ok(pill, page);
-    assert.equal(/href="([^"]*)"/.exec(pill)![1], '/#deploy-error', page);
+    assert.equal(/href="([^"]*)"/.exec(pill)![1], '#deploy-error', page);
     assert.equal(textOf(pill), 'deploy failed', page);
     assert.match(pill, /bg-error-soft/, page);
     assert.match(textOf(forgeOf(footer)), /^Forge 3a822d0 3 behind deploy failed$/, page);

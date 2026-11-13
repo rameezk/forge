@@ -205,6 +205,13 @@ const renderHeader = (
     </div>
   </header>`;
 
+const BAND_ROW = 'm-0 break-words whitespace-pre-line bg-error-soft px-4 py-2.5 text-xs text-error';
+
+const renderAttentionBand = (deploy: DeployStatus | null): Rendered => {
+  if (deploy === null || (deploy.error === null && deploy.bumpError === null)) return '';
+  return html`<section data-attention-band aria-label="Needs attention" class="flex shrink-0 flex-col divide-y divide-error/20 border-b border-line">${deploy.error === null ? '' : html`<p id="deploy-error" data-deploy-error class="${BAND_ROW} scroll-mt-4">${deploy.error}</p>`}${deploy.bumpError === null ? '' : html`<p id="bump-error" data-bump-error class="${BAND_ROW} scroll-mt-4">Forge bump: ${deploy.bumpError}</p>`}</section>`;
+};
+
 const FIT_BODY = { scroll: '', desktop: ' lg:flex lg:h-dvh lg:flex-col', always: ' flex h-dvh flex-col' } as const;
 
 const FIT_MAIN = {
@@ -233,7 +240,7 @@ const forgeStatusPill = (deploy: DeployStatus): Rendered => {
 };
 
 const deployFailedPill = (deploy: DeployStatus): Rendered =>
-  deploy.error === null ? '' : html`<a href="/#deploy-error" data-deploy-failed title="The box could not switch to the head of its main; the Board shows the error" class="${PILL} ${FAILED_TONE} no-underline">deploy failed</a>`;
+  deploy.error === null ? '' : html`<a href="#deploy-error" data-deploy-failed title="The box could not switch to the head of its main; the attention band shows the error" class="${PILL} ${FAILED_TONE} no-underline">deploy failed</a>`;
 
 const renderForgeStatus = (deploy: DeployStatus | null): Rendered => {
   if (deploy === null) return '';
@@ -267,6 +274,7 @@ export const layout = (
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${FIT_BODY[fit]}">
         ${renderHeader(current, live, assets, version)}
+        ${renderAttentionBand(deploy ?? null)}
         <main class="w-full ${FIT_WIDTH[fit]} px-4 ${FIT_MAIN[fit]}">${body}</main>
         <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-4"><span>Times in ${timeZone}</span>${renderForgeStatus(deploy ?? null)}</div></footer>
       </body>
