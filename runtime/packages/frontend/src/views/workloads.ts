@@ -3,7 +3,7 @@ import { DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, isGithubUrl, type Diag
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
-import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, CLICKABLE_ROW, ROW_LINK, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderRunLead, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, runStateOf, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
+import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, CLICKABLE_ROW, STRETCHED_LINK, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderRunLead, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, runStateOf, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
 
 const renderRunPullRequest = (pullRequestWorkload: PullRequestWorkloadRecord | undefined): Rendered =>
   pullRequestWorkload === undefined
@@ -259,7 +259,7 @@ export const renderList = (
                     <td class="${TD}">${renderTimestamp(run.startTime, display.timeZone)}</td>
                     <td class="${TD} whitespace-nowrap tabular-nums" data-run-ticket>${renderTicketCell(run, pullRequestWorkloads.get(run.id), dispatches.get(run.id), diagnoses.has(run.id))}</td>
                     <td class="${TD}">${renderStatusCell(run, pullRequestWorkloads.get(run.id)?.workload, dispatches.get(run.id))}</td>
-                    <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK} ${ROW_LINK}" data-row-link>${run.worker}</a></td>
+                    <td class="${TD} whitespace-nowrap"><a href="/runs/${run.id}" class="${LINK} ${STRETCHED_LINK}" data-row-link>${run.worker}</a></td>
                     <td class="${TD} wrap-anywhere text-muted">${run.model}</td>
                     <td class="${TD} whitespace-nowrap" data-effort>${configuredEffort(run)}</td>
                     <td class="${TD} whitespace-nowrap" data-duration>${renderDuration(run)}</td>
