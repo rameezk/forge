@@ -1,7 +1,7 @@
 import { html, raw } from 'hono/html';
 import { isGithubRepository, isGithubUrl, ticketKey, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { formatCost, formatElapsed } from '../format.ts';
+import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type RiskInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
@@ -368,14 +368,7 @@ const renderGroupControl = (grouping: Grouping): Rendered =>
     ({ value, label, href }) => html`<a href="${href}"${value === grouping ? html` aria-current="true"` : ''} class="px-3 py-1 no-underline ${value === grouping ? 'bg-raised font-semibold text-fg' : 'text-muted hover:text-fg'}${value === 'none' ? '' : ' border-l border-line'}">${label}</a>`,
   )}</div></div>`;
 
-export interface GradingView extends RiskInputs {
-  costUsd: number;
-}
-
-const renderGradingCost = ({ repositories, costUsd }: GradingView): Rendered =>
-  repositories.size === 0 && costUsd === 0
-    ? ''
-    : html`<p data-grading-cost title="What grading has cost, apart from every workload's cost and budget" class="m-0 mb-3 text-xs text-muted tabular-nums">Grading cost ${formatCost(costUsd)}</p>`;
+export type GradingView = RiskInputs;
 
 export const renderBoard = (
   frontier: RepositoryFrontier[],
@@ -388,11 +381,10 @@ export const renderBoard = (
   review: ReviewSlots,
   display: Display,
   grouping: Grouping = 'none',
-  grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map(), costUsd: 0 },
+  grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map() },
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, grading);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
-    ${renderGradingCost(grading)}
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
