@@ -1,6 +1,6 @@
 import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
-import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, RISK_GROUPS, type RiskOptions, type RiskRow, type ConfigFingerprint } from '@forge/shared';
+import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, RISK_GROUPS, type RiskOptions, type RiskRow, type SupersedeCause, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { workloadsHref } from '../workload-filter.ts';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
@@ -343,9 +343,16 @@ const renderRiskFilters = (filter: InsightsQuery, options: RiskOptions): Rendere
     <button type="submit" class="rounded-md border border-line bg-raised px-3 py-1.5 text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
   </form>`;
 
-const UNKNOWN_SUPERSEDE_NOTE = 'Superseded before the cause was recorded. Counts against the grade.';
+const SUPERSEDE_COLUMNS: { cause: SupersedeCause; label: string; muted: boolean; note: string }[] = [
+  { cause: 'revision', label: 'Revision', muted: false, note: 'A forge revision pushed the new head. Counts against the grade.' },
+  { cause: 'other', label: 'Other', muted: false, note: 'Anyone else pushed the new head, such as a person. Counts against the grade.' },
+  { cause: 'conflict-resolution', label: 'Conflict res.', muted: true, note: 'A forge conflict resolution pushed the new head. Neutral: left out of the held up rate and shown as a count only.' },
+  { cause: 'unknown', label: 'Unknown', muted: true, note: 'Superseded before the cause was recorded. Counts against the grade.' },
+];
 
-const RISK_GROUP_SPAN = 10;
+const MUTED = ' text-muted';
+
+const RISK_GROUP_SPAN = 13;
 
 const count = (metric: string, value: number, extra = ''): Rendered =>
   html`<td class="${COHORT_TD}${value === 0 ? DIM : ''}${extra}" data-metric="${metric}">${value}</td>`;
@@ -354,12 +361,12 @@ const renderRiskRow = (row: RiskRow): Rendered => {
   const empty = row.heads === 0;
   return html`<tr class="${ROW}${empty ? ' text-muted' : ''}" data-risk-row="${row.level}" data-unsettled="${String(row.unsettled)}">
     <th scope="row" class="${PINNED} whitespace-nowrap border-t border-line bg-surface py-2.5 pr-2.5 text-left align-baseline font-medium ${row.unsettled ? 'pl-7' : 'pl-2.5'}">${row.level}${row.unsettled ? html` <span class="${PILL} bg-warning-soft align-middle text-warning" data-unsettled-pill>unsettled</span>` : ''}</th>
-    <td class="${COHORT_TD}" data-metric="held-up">${formatRate(row.heldUpRate)} <span class="text-muted">${row.merged} / ${row.settled}</span></td>
+    <td class="${COHORT_TD}" data-metric="held-up">${formatRate(row.heldUpRate)} <span class="text-muted">${row.merged} / ${row.judged}</span></td>
     ${count('heads', row.heads)}
     ${count('prs', row.pullRequests)}
     ${count('merged', row.merged)}
-    ${count('superseded-unknown', row.superseded, ' border-l border-l-line')}
-    ${count('closed', row.closed, ' border-l border-l-line')}
+    ${SUPERSEDE_COLUMNS.map(({ cause, muted }, index) => count(`superseded-${cause}`, row.supersededBy[cause], `${muted ? MUTED : ''}${index === 0 ? DIVIDER : ''}`))}
+    ${count('closed', row.closed, DIVIDER)}
     ${count('open', row.open)}
     <td class="${COHORT_TD}" data-metric="confidence">${row.medianConfidence === null ? 'n/a' : row.medianConfidence.toFixed(2)}</td>
     <td class="${COHORT_TD}" data-metric="revisions">${row.meanRevisions === null ? 'n/a' : row.meanRevisions.toFixed(2)}</td>
@@ -376,14 +383,14 @@ const renderRiskTable = (rows: RiskRow[]): Rendered =>
           <th rowspan="2" class="${COHORT_TH} text-right">Heads</th>
           <th rowspan="2" class="${COHORT_TH} text-right">PRs</th>
           <th rowspan="2" class="${COHORT_TH} text-right">Merged as graded</th>
-          <th class="${COHORT_TH} text-right${DIVIDER}">Superseded by</th>
+          <th colspan="${SUPERSEDE_COLUMNS.length}" class="${COHORT_TH} text-right${DIVIDER}">Superseded by</th>
           <th rowspan="2" class="${COHORT_TH} text-right${DIVIDER}">Closed</th>
           <th rowspan="2" class="${COHORT_TH} text-right">Open</th>
           <th rowspan="2" class="${COHORT_TH} text-right">Median confidence</th>
           <th rowspan="2" class="${COHORT_TH} text-right">Revisions after grade</th>
         </tr>
         <tr>
-          <th class="${COHORT_TH} text-right${DIVIDER}" title="${UNKNOWN_SUPERSEDE_NOTE}">Unknown</th>
+          ${SUPERSEDE_COLUMNS.map(({ cause, label, muted, note }, index) => html`<th class="${COHORT_TH} text-right${muted ? ' !text-muted' : ''}${index === 0 ? DIVIDER : ''}" data-superseded-by="${cause}" title="${note}">${label}</th>`)}
         </tr>
       </thead>
       ${RISK_GROUPS.map(
@@ -404,7 +411,7 @@ export const renderRisk = (
   const content = rows.every(({ heads }) => heads === 0)
     ? html`<p class="${EMPTY}" data-empty>No risk grades in this range</p>`
     : html`${renderRiskTable(rows)}
-      <p class="m-0 mt-2 text-[0.8rem] text-muted" data-risk-note>Held up is the share of settled grades merged at the graded head. Settled means merged, superseded or closed; open grades are counted only. No supersede cause is recorded yet, so every superseded grade is unknown and counts against the grade. Revisions after grade is the mean number of completed revisions that started after the grade and before its outcome, over settled grades.</p>`;
+      <p class="m-0 mt-2 text-[0.8rem] text-muted" data-risk-note>Held up is the share of settled grades merged at the graded head, leaving out those superseded by a conflict resolution. Settled means merged, superseded or closed; open grades are counted only. Conflict resolution supersedes are counted only. Revision, other and unknown supersedes count against the grade. Revisions after grade is the mean number of completed revisions that started after the grade and before its outcome, over settled grades.</p>`;
   const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
     ${renderTabs(filter)}
     ${renderRiskFilters(filter, options)}

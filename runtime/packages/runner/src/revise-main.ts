@@ -115,6 +115,21 @@ export const main = async (
           `${name}#${pullRequest.number}: could not refresh its revision heartbeat: ${errorMessage(error)}`,
         ),
     );
+    const recordPush = async (): Promise<void> => {
+      try {
+        const { headSha } = await queryPullRequestHead(
+          fetch,
+          (await app.mint(repository.github, 'read')).token,
+          repository.github,
+          pullRequest.number,
+        );
+        if (headSha !== pullRequest.headSha) store.recordRevisionPush(revisionId, headSha);
+      } catch (error) {
+        console.error(
+          `${name}#${pullRequest.number}: could not record the head its revision pushed: ${errorMessage(error)}`,
+        );
+      }
+    };
     try {
       let launched: LaunchResult;
       let ended: WorkloadEnd = { state: 'done' };
@@ -167,6 +182,7 @@ export const main = async (
           return 1;
         }
         ended = endOf(launched);
+        await recordPush();
         if (ended.state === 'done') {
           const unanswered = await queryUnansweredFeedback(
             fetch,
