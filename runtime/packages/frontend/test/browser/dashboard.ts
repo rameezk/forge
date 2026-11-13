@@ -32,7 +32,7 @@ export const test = base.extend<{ dashboard: Dashboard }>({
     const setDeployStatus = (status: Partial<DeployStatus> | null) => {
       deploy = status === null ? null : { running: null, head: null, error: null, bumpError: null, forge: null, upstream: null, upstreamHead: null, behind: null, ...status };
     };
-    const app = createDashboard(stateDir, served, { checkIntervalMs: 50, deployStatus: () => deploy });
+    const app = createDashboard(stateDir, served, { checkIntervalMs: 50, deployStatus: () => deploy, gradingRepositories: ['forge'] });
     const server = await new Promise<Server>((resolve) => {
       const started = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 }, () => resolve(started as Server));
     });

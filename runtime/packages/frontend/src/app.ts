@@ -12,6 +12,7 @@ import { DEFAULT_INSIGHTS_TAB, defaultKindOf, INSIGHTS_TABS, renderCohortPage, r
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs, type Display } from './views/shared.ts';
 import type { DeployStatus } from './deploy-status.ts';
+import { needsOperator, type GradingAttention } from './grading.ts';
 import { dayRange, parseDay } from './days.ts';
 import { parsePage, parseWorkloadFilter } from './workload-filter.ts';
 import { renderList } from './views/workloads.ts';
@@ -83,7 +84,7 @@ export const createApp = ({
 
   const watch = (page: string | undefined): (() => Check) | undefined => {
     if (page === undefined) return undefined;
-    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page) || COHORT_PAGE.test(page)) return () => ({ version: JSON.stringify([store.dataVersion(), deployStatus()]), finished: false });
+    if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page) || COHORT_PAGE.test(page)) return () => ({ version: JSON.stringify([store.dataVersion(), deployStatus(), escalatedGrading()]), finished: false });
     const runId = runOfDetailPage(page);
     if (runId === undefined || store.getRun(runId) === undefined) return undefined;
     return () => {
@@ -96,11 +97,20 @@ export const createApp = ({
     };
   };
 
+  const gradingAttention = (): GradingAttention | null =>
+    gradingRepositories.length === 0 ? null : { status: store.gradingStatus(), now: clock().getTime() };
+
+  const escalatedGrading = (): boolean => {
+    const grading = gradingAttention();
+    return grading !== null && needsOperator(grading) !== null;
+  };
+
   const displayOf = (c: Context): Display => {
     const { pathname, search } = new URL(c.req.url);
     const version = watch(pathname + search)?.().version;
     const deploy = deployStatus();
-    return version === undefined ? { ...display, deploy } : { ...display, version, deploy };
+    const grading = gradingAttention();
+    return version === undefined ? { ...display, deploy, grading } : { ...display, version, deploy, grading };
   };
 
   const serveImmutable = (href: string, body: string, contentType: string): void => {
@@ -126,7 +136,7 @@ export const createApp = ({
       const run = runId === null ? undefined : store.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
-    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])), costUsd: store.gradingCostUsd(), status: store.gradingStatus() }));
+    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])), costUsd: store.gradingCostUsd() }));
   });
 
   app.get('/work', (c) => c.redirect('/'));

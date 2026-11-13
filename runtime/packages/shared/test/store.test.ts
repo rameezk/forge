@@ -1551,7 +1551,7 @@ test('given a declined or too large failure, when time passes, then that head is
 test('given a failing attempt on a head, when the dashboard reads the store, then the head shows its latest attempt and the status line the latest failure', () => {
   const store = Store.open(':memory:');
   watchedHead(store, 7, 'head-7');
-  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: null, failure: null });
+  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: null, failingSince: null, failure: null });
 
   store.recordGradingAttempt(failure('temporary', '2026-10-01T10:00:00.000Z', { message: 'first' }));
   store.recordGradingAttempt(failure('setup', '2026-10-01T10:01:00.000Z', { message: 'second' }));
@@ -1582,7 +1582,7 @@ test('given a failing head and a later grade of another head, when the dashboard
     costUsd: 0.01,
     gradedAt,
   });
-  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: null, failure: null });
+  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: null, failingSince: null, failure: null });
   store.recordGradingAttempt(failure('setup', '2026-10-01T10:00:00.000Z'));
   store.recordRiskGrade(grade(8, '2026-10-01T10:05:00.000Z'));
 
@@ -1590,7 +1590,7 @@ test('given a failing head and a later grade of another head, when the dashboard
   assert.equal(store.gradingStatus().failure?.category, 'setup');
 
   store.recordRiskGrade(grade(7, '2026-10-01T10:06:00.000Z'));
-  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: '2026-10-01T10:06:00.000Z', failure: null });
+  assert.deepEqual(store.gradingStatus(), { lastSucceededAt: '2026-10-01T10:06:00.000Z', failingSince: null, failure: null });
   store.close();
 });
 
@@ -1601,6 +1601,30 @@ test('given a setup failure and a newer temporary failure on other heads, when t
   store.recordGradingAttempt(failure('setup', '2026-10-01T10:00:00.000Z'));
   store.recordGradingAttempt(failure('temporary', '2026-10-01T10:05:00.000Z', { number: 8, headSha: 'head-8' }));
   assert.equal(store.gradingStatus().failure?.category, 'setup');
+  store.close();
+});
+
+test('given a setup, a bug and a newer temporary failure on three heads, when the dashboard reads the store, then the status line reports the setup failure and without it the bug failure', () => {
+  const store = Store.open(':memory:');
+  for (const number of [7, 8, 9]) watchedHead(store, number, `head-${number}`);
+  store.recordGradingAttempt(failure('temporary', '2026-10-01T10:05:00.000Z', { number: 9, headSha: 'head-9' }));
+  store.recordGradingAttempt(failure('bug', '2026-10-01T10:04:00.000Z', { number: 8, headSha: 'head-8' }));
+  assert.equal(store.gradingStatus().failure?.category, 'bug');
+  store.recordGradingAttempt(failure('setup', '2026-10-01T10:00:00.000Z'));
+  assert.equal(store.gradingStatus().failure?.category, 'setup');
+  store.close();
+});
+
+test('given grading has never succeeded and failed over several attempts, when the dashboard reads the store, then it is failing since the first failed attempt, and since the last grade once there is one', () => {
+  const store = Store.open(':memory:');
+  watchedHead(store, 7, 'head-7');
+  watchedHead(store, 8, 'head-8');
+  store.recordGradingAttempt(failure('too-large', '2026-10-01T08:00:00.000Z', { number: 8, headSha: 'head-8' }));
+  store.recordGradingAttempt(failure('temporary', '2026-10-01T09:00:00.000Z'));
+  store.recordGradingAttempt(failure('temporary', '2026-10-01T10:00:00.000Z'));
+  assert.equal(store.gradingStatus().failingSince, '2026-10-01T09:00:00.000Z');
+  store.recordRiskGrade({ repository: 'forge', number: 8, headSha: 'head-8', fingerprint: 'm:abc', model: 'm', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 }, score: 0.4, confidence: 0.9, level: 'low', unsettled: false, costUsd: 0.01, gradedAt: '2026-10-01T09:30:00.000Z' });
+  assert.equal(store.gradingStatus().failingSince, '2026-10-01T09:30:00.000Z');
   store.close();
 });
 
