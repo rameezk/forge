@@ -1615,7 +1615,7 @@ test('given a setup, a bug and a newer temporary failure on three heads, when th
   store.close();
 });
 
-test('given grading has never succeeded and failed over several attempts, when the dashboard reads the store, then it is failing since the first failed attempt, and since the last grade once there is one', () => {
+test('given grading has never succeeded and failed over several attempts, when the dashboard reads the store, then it is failing since the first failed attempt, and a later grade of another head does not move that start', () => {
   const store = Store.open(':memory:');
   watchedHead(store, 7, 'head-7');
   watchedHead(store, 8, 'head-8');
@@ -1624,7 +1624,7 @@ test('given grading has never succeeded and failed over several attempts, when t
   store.recordGradingAttempt(failure('temporary', '2026-10-01T10:00:00.000Z'));
   assert.equal(store.gradingStatus().failingSince, '2026-10-01T09:00:00.000Z');
   store.recordRiskGrade({ repository: 'forge', number: 8, headSha: 'head-8', fingerprint: 'm:abc', model: 'm', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 }, score: 0.4, confidence: 0.9, level: 'low', unsettled: false, costUsd: 0.01, gradedAt: '2026-10-01T09:30:00.000Z' });
-  assert.equal(store.gradingStatus().failingSince, '2026-10-01T09:30:00.000Z');
+  assert.equal(store.gradingStatus().failingSince, '2026-10-01T09:00:00.000Z');
   store.close();
 });
 

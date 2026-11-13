@@ -3129,7 +3129,7 @@ export class Store {
         categories: JSON.stringify(RETRIED_GRADING_FAILURES),
         heads: JSON.stringify(failing.map(({ repository, number, headSha }) => [repository, number, headSha])),
       }) as { at: string };
-    return { lastSucceededAt: succeeded.at, failingSince: succeeded.at ?? firstFailed.at, failure: failing[0]! };
+    return { lastSucceededAt: succeeded.at, failingSince: succeeded.at === null || firstFailed.at < succeeded.at ? firstFailed.at : succeeded.at, failure: failing[0]! };
   }
 
   currentRiskGrades(): RecordedRiskGrade[] {

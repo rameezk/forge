@@ -1,4 +1,4 @@
-import { html, raw } from 'hono/html';
+import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
 import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, RISK_GROUPS, type RiskOptions, type RiskRow, type RiskSummary, GRADING_FAILURES, type GradingFailure, type SupersedeCause, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
@@ -439,7 +439,7 @@ const renderGradingStatus = (grading: GradingAttention | null | undefined): Rend
   if (grading == null) return '';
   const { status: { lastSucceededAt, failure }, now } = grading;
   const tone = failure === null ? 'text-muted' : needsOperator(grading) === null ? 'text-warning' : 'text-error';
-  return html`<p id="grading-status" data-grading-status${failure === null ? '' : raw(` data-grading-failing="${failure.category}"`)} class="m-0 mb-3 text-xs ${tone}">${renderGradingSucceeded(lastSucceededAt, now)}${failure === null ? '' : html` - failing: ${failure.category} - ${failure.message}`}</p>`;
+  return html`<p id="grading-status" data-grading-status${failure === null ? '' : html` data-grading-failing="${failure.category}"`} class="m-0 mb-3 text-xs ${tone}">${renderGradingSucceeded(lastSucceededAt, now)}${failure === null ? '' : html` - failing: ${failure.category} - ${failure.message}`}</p>`;
 };
 
 export const renderRisk = (
