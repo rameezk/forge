@@ -1,11 +1,28 @@
 {
   lib,
   config,
+  options,
   pkgs,
   ...
 }:
 let
   cfg = config.forge.runtime;
+
+  operatorSystemFeatures =
+    let
+      fromOperator = lib.filter (
+        definition:
+        !(lib.hasSuffix "/infra/nixos/runtime.nix" (toString definition.file))
+        && !(lib.hasSuffix "/modules/config/nix.nix" (toString definition.file))
+      ) options.nix.settings.definitionsWithLocations;
+    in
+    lib.concatMap (
+      definition:
+      let
+        features = definition.value.system-features or [ ];
+      in
+      if lib.isList features then features else [ ]
+    ) fromOperator;
 
   harnessProviders = lib.importJSON ../../runtime/packages/runner/src/harness-providers.json;
   harnessEfforts = lib.importJSON ../../runtime/packages/runner/src/reasoning-efforts.json;
@@ -857,6 +874,13 @@ in
       ++ [ diagnosisWorkerAssertion ];
 
       security.allowUserNamespaces = true;
+
+      nix.settings.system-features = lib.mkOverride 90 (
+        if operatorSystemFeatures != [ ] then
+          operatorSystemFeatures
+        else
+          lib.remove "kvm" (options.nix.settings.type.getSubOptions [ ]).system-features.default
+      );
 
       nix.settings.experimental-features = [
         "nix-command"
