@@ -193,8 +193,12 @@ A workload of the diagnosis worker that explains why a failed dispatch, revision
 _Avoid_: post-mortem, failure analysis, triage
 
 **Risk grade**:
-Jev's judgement of how much careful review one head commit of a forge pull request needs, as a probability for each of four levels (`trivial`, `low`, `moderate`, `high`), its most likely level and a confidence. Below the confidence threshold it is unsettled. A new head makes it stale. It is advice to the reviewer and never changes a dispatch's outcome (ADR-0103).
-_Avoid_: risk score, PR score, rating
+Jev's judgement of how much careful review one head commit of a forge pull request needs, as a probability for each of four levels (`trivial`, `low`, `moderate`, `high`), its most likely level and a confidence. Below the confidence threshold it is uncertain. A new head makes it stale. It is advice to the reviewer and never changes a dispatch's outcome (ADR-0103).
+_Avoid_: risk score, PR score, rating, unsettled grade
+
+**Uncertain**:
+A risk grade whose confidence is below the confidence threshold. It still names its most likely level, alongside the runner-up level. "Unsettled" is reserved for a pull request whose head may still change, so it is not graded: a draft, or one with a dispatch, revision or conflict resolution running.
+_Avoid_: unsettled, low-confidence, unsure
 
 **Grade outcome**:
 What happened to a risk grade's head commit: open until the pull request is merged at that commit (`merged`), receives a new head (`superseded`, with its supersede cause) or is closed unmerged (`closed`), recorded with the number of revisions completed after the grade. It lives in forge's store, the only source a later auto-merge rule reads. A grade is judged over its settled outcomes: a `revision`, `other` or `unknown` supersede counts against it, a `conflict-resolution` supersede is neutral and judges nothing.
