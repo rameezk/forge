@@ -245,6 +245,16 @@ test('given a failed dispatch whose run directory still exists, when its diagnos
   assert.ok(!pi.argv.includes('--skill'));
 });
 
+test('given a failure to diagnose, when the agent starts, then the standing instruction weighs the verdict against recorded decisions and blames the instructions, not forge, for a ruled-out capability', async () => {
+  const { pi } = await diagnose({ action: writing(VERDICT) });
+  const instruction = (pi?.argv ?? [])
+    .filter((_, index) => pi?.argv[index - 1] === '--append-system-prompt')
+    .join('\n');
+  assert.match(instruction, /category and (your )?suggested fix against the failed repository's instructions, its recorded decisions and the machine's real constraints/i);
+  assert.match(instruction, /conflicts? with (one of )?these[^.]*(say so|replace)/i);
+  assert.match(instruction, /accepted decision already rules out[^.]*(instructions or skill)[^.]*not (of |to )?forge/i);
+});
+
 test('given a failure to diagnose, when the agent starts, then the standing instruction carries the contract and the untrusted-input warning, and the failure is in the first user message with the worker prompt first', async () => {
   const { pi } = await diagnose({ action: writing(VERDICT) });
   const instruction = (pi?.argv ?? [])

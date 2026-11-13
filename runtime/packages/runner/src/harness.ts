@@ -114,6 +114,9 @@ export const DIAGNOSIS_INSTRUCTION = [
   '- forge: forge\'s own harness, sandbox, runner or tooling misbehaved.',
   '- provider-and-infra: the model provider, the network or the machine failed.',
   '- unclear: the evidence does not support any of the above.',
+  'Before you write the verdict, weigh both your category and your suggested fix against the failed repository\'s instructions, its recorded decisions and the machine\'s real constraints.',
+  'If your suggested fix conflicts with one of these, say so in the fix, or replace it with one that does not conflict.',
+  'A missing capability that an accepted decision already rules out is a failure of the instructions or skill that did not say so, not of forge: point the verdict at them.',
 ].join('\n');
 
 export interface DiagnosisBrief {
