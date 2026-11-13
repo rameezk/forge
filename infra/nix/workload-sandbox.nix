@@ -6,6 +6,7 @@
   bash,
   coreutils,
   writeText,
+  pkgsStatic,
   util-linux,
   curl,
   bubblewrap,
@@ -17,6 +18,7 @@
 }:
 let
   system = stdenv.hostPlatform.system;
+  client = "${pkgsStatic.callPackage ./command-broker.nix { }}/bin/forge-shell";
 
   flake = builtins.toFile "flake.nix" ''
     {
@@ -75,6 +77,13 @@ let
         echo "$?" > build.out
         nix build --offline --impure --no-link -f ${fineBuild} > build-after.log 2>&1
         echo "$?" > build-after.out
+        ;;
+      fanout)
+        echo "$$" > harness.pid
+        ballast=$(head -c 60000000 /dev/zero | tr "\\0" a)
+        ${client} -c 'pids=""; for i in $(seq 40); do (x=$(head -c 12000000 /dev/zero | tr "\\0" a); sleep 20) & pids="$pids $!"; done; status=0; for pid in $pids; do wait $pid || status=$?; done; exit $status'
+        echo "$?" > fanout.out
+        echo "''${#ballast}" > harness-alive.out
         ;;
       pair*)
         bash -c 'x=$(head -c 160000000 /dev/zero | tr "\\0" a); sleep 600'
@@ -190,7 +199,7 @@ let
     forge.runtime.harnesses.pi.command = lib.getExe stubHarness;
     forge.runtime.workload.maxCost = null;
     forge.runtime.workers =
-      lib.genAttrs [ "plant" "linger" "hog" "build" "pair1" "pair2" ] (name: {
+      lib.genAttrs [ "plant" "linger" "hog" "fanout" "build" "pair1" "pair2" ] (name: {
         harness = "pi";
         model = "stub/sandbox";
         prompt = name;
@@ -245,6 +254,19 @@ testers.runNixOSTest {
         assert status == "success", status
         kill = box.succeed("dmesg | grep oom-kill:")
         assert "constraint=CONSTRAINT_MEMCG" in kill and "forge-runner@hog.service" in kill, kill
+
+    with subtest("a fan-out of commands each smaller than the harness is killed before the harness, and the workload carries on"):
+        box.succeed("dmesg --clear")
+        box.succeed("systemctl start forge-runner@fanout")
+        assert box.succeed("cat /var/lib/forge/work/*/fanout.out").strip() == "137"
+        assert box.succeed("cat /var/lib/forge/work/*/harness-alive.out").strip() == "60000000"
+        status = box.succeed("sqlite3 /var/lib/forge/forge.db \"select status from runs where worker = 'fanout'\"").strip()
+        assert status == "success", status
+        harness = box.succeed("cat /var/lib/forge/work/*/harness.pid").strip()
+        kill = box.succeed("dmesg | grep oom-kill:")
+        assert "constraint=CONSTRAINT_MEMCG" in kill and "forge-runner@fanout.service" in kill, kill
+        victims = box.succeed("dmesg | grep 'Killed process'")
+        assert victims.strip() != "" and f"Killed process {harness} " not in victims, victims
 
     with subtest("a runaway nix daemon build is killed inside the shared budget, and the daemon and the box carry on"):
         box.succeed("dmesg --clear")

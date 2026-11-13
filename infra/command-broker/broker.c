@@ -118,6 +118,14 @@ static void locate_shell(char **env, char *out, size_t size) {
   snprintf(out, size, "/bin/sh");
 }
 
+static int make_first_to_be_killed(void) {
+  int fd = open("/proc/self/oom_score_adj", O_WRONLY | O_CLOEXEC);
+  if (fd < 0) return -1;
+  ssize_t written = write(fd, "1000", 4);
+  close(fd);
+  return written == 4 ? 0 : -1;
+}
+
 static void start(struct connection *c) {
   const char *cursor = c->body;
   const char *end = c->body + c->length;
@@ -187,6 +195,10 @@ static void start(struct connection *c) {
     for (int i = 0; i < FORGE_REQUEST_FDS; i++) {
       close(staged[i]);
       if (c->fds[i] >= FORGE_REQUEST_FDS) close(c->fds[i]);
+    }
+    if (make_first_to_be_killed() < 0) {
+      dprintf(2, "forge-broker: cannot raise the command's OOM score: %s\n", strerror(errno));
+      _exit(FORGE_REFUSED_STATUS);
     }
     if (chdir(cwd) < 0) {
       dprintf(2, "forge-broker: cannot enter %s: %s\n", cwd, strerror(errno));
