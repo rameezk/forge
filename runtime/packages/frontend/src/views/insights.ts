@@ -1,12 +1,12 @@
 import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
-import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, type ConfigFingerprint } from '@forge/shared';
+import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, RISK_GROUPS, type RiskOptions, type RiskRow, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { workloadsHref } from '../workload-filter.ts';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate } from '../format.ts';
 import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
 
-export const INSIGHTS_TABS = ['delivery', 'cost', 'failures'] as const;
+export const INSIGHTS_TABS = ['delivery', 'cost', 'failures', 'risk'] as const;
 
 export type InsightsTab = (typeof INSIGHTS_TABS)[number];
 
@@ -18,12 +18,14 @@ export interface InsightsQuery extends InsightsFilter {
   tab: InsightsTab;
   from?: string;
   to?: string;
+  cohort?: string;
 }
 
 const TAB_LABELS: Record<InsightsTab, string> = {
   delivery: 'Delivery',
   cost: 'Cost',
   failures: 'Failures',
+  risk: 'Risk',
 };
 
 const FIELD = 'flex flex-col gap-1 text-xs font-semibold uppercase tracking-[0.05em] text-muted';
@@ -198,6 +200,7 @@ const TAB_COLUMNS: Record<InsightsTab, Column[]> = {
     { header: 'Cache hit', render: metricCell('cache-hit', ({ cacheHitRate: rate }) => formatRate(rate)) },
   ],
   failures: FAILURE_COLUMNS,
+  risk: [],
 };
 
 const PINNED = 'sticky left-0 z-10 shadow-[1px_0_0_var(--color-line)]';
@@ -308,6 +311,101 @@ export const renderInsights = (
   const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
     ${renderTabs(filter)}
     ${renderInsightsFilters(filter, options)}
+    ${content}`;
+  return layout('Insights', 'insights', true, display, body);
+};
+
+const cohortOptionLabel = (fingerprint: string): string => {
+  const split = fingerprint.lastIndexOf(':');
+  return split < 0 ? fingerprint : `${fingerprint.slice(0, split)} ${fingerprint.slice(split + 1, split + 9)}`;
+};
+
+const renderRiskFilters = (filter: InsightsQuery, options: RiskOptions): Rendered =>
+  html`<form method="get" action="/insights" class="mb-4 flex flex-wrap items-end gap-3" data-filters>
+    <input type="hidden" name="tab" value="risk" />
+    <label class="${FIELD}">Grading cohort
+      <select name="cohort" class="${INPUT}">
+        ${options.cohorts.map((cohort) => html`<option value="${cohort}"${cohort === filter.cohort ? html` selected` : ''}>${cohortOptionLabel(cohort)}</option>`)}
+      </select>
+    </label>
+    <label class="${FIELD}">Repository
+      <select name="repository" class="${INPUT}">
+        <option value="">All</option>
+        ${renderOptions(options.repositories, filter.repository)}
+      </select>
+    </label>
+    <label class="${FIELD}">From
+      <input type="date" name="from" value="${filter.from ?? ''}" class="${INPUT}" />
+    </label>
+    <label class="${FIELD}">To
+      <input type="date" name="to" value="${filter.to ?? ''}" class="${INPUT}" />
+    </label>
+    <button type="submit" class="rounded-md border border-line bg-raised px-3 py-1.5 text-[0.9rem] font-semibold text-fg hover:bg-line">Apply</button>
+  </form>`;
+
+const UNKNOWN_SUPERSEDE_NOTE = 'Superseded before the cause was recorded. Counts against the grade.';
+
+const RISK_GROUP_SPAN = 9;
+
+const count = (metric: string, value: number, extra = ''): Rendered =>
+  html`<td class="${COHORT_TD}${value === 0 ? DIM : ''}${extra}" data-metric="${metric}">${value}</td>`;
+
+const renderRiskRow = (row: RiskRow): Rendered => {
+  const empty = row.heads === 0;
+  return html`<tr class="${ROW}${empty ? ' text-muted' : ''}" data-risk-row="${row.level}" data-unsettled="${String(row.unsettled)}">
+    <th scope="row" class="${PINNED} whitespace-nowrap border-t border-line bg-surface py-2.5 pr-2.5 text-left align-baseline font-medium ${row.unsettled ? 'pl-7' : 'pl-2.5'}">${row.level}${row.unsettled ? html` <span class="${PILL} bg-warning-soft align-middle text-warning" data-unsettled-pill>unsettled</span>` : ''}</th>
+    <td class="${COHORT_TD}" data-metric="held-up">${formatRate(row.heldUpRate)} <span class="text-muted">${row.merged} / ${row.settled}</span></td>
+    ${count('heads', row.heads)}
+    ${count('prs', row.pullRequests)}
+    ${count('merged', row.merged)}
+    ${count('superseded-unknown', row.superseded, ' border-l border-l-line')}
+    ${count('closed', row.closed, ' border-l border-l-line')}
+    ${count('open', row.open)}
+    <td class="${COHORT_TD}" data-metric="confidence">${row.medianConfidence === null ? 'n/a' : row.medianConfidence.toFixed(2)}</td>
+  </tr>`;
+};
+
+const renderRiskTable = (rows: RiskRow[]): Rendered =>
+  html`<div class="${CARD}" data-risk role="region" aria-label="Risk grades" tabindex="0">
+    <table class="${TABLE}">
+      <thead>
+        <tr>
+          <th rowspan="2" class="${COHORT_TH} ${PINNED} text-left">Level</th>
+          <th rowspan="2" class="${COHORT_TH} text-right">Held up</th>
+          <th rowspan="2" class="${COHORT_TH} text-right">Heads</th>
+          <th rowspan="2" class="${COHORT_TH} text-right">PRs</th>
+          <th rowspan="2" class="${COHORT_TH} text-right">Merged as graded</th>
+          <th class="${COHORT_TH} text-right${DIVIDER}">Superseded by</th>
+          <th rowspan="2" class="${COHORT_TH} text-right${DIVIDER}">Closed</th>
+          <th rowspan="2" class="${COHORT_TH} text-right">Open</th>
+          <th rowspan="2" class="${COHORT_TH} text-right">Median confidence</th>
+        </tr>
+        <tr>
+          <th class="${COHORT_TH} text-right${DIVIDER}" title="${UNKNOWN_SUPERSEDE_NOTE}">Unknown</th>
+        </tr>
+      </thead>
+      ${RISK_GROUPS.map(
+        ({ key, title, levels }) => html`<tbody data-risk-group="${key}">
+          <tr data-group-header><th scope="colgroup" colspan="${RISK_GROUP_SPAN}" class="${GROUP_HEADER}"><span class="sticky left-2.5">${title}</span></th></tr>
+          ${rows.filter(({ level }) => levels.includes(level)).map(renderRiskRow)}
+        </tbody>`,
+      )}
+    </table>
+  </div>`;
+
+export const renderRisk = (
+  rows: RiskRow[],
+  filter: InsightsQuery,
+  options: RiskOptions,
+  display: Display,
+): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const content = rows.every(({ heads }) => heads === 0)
+    ? html`<p class="${EMPTY}" data-empty>No risk grades in this range</p>`
+    : html`${renderRiskTable(rows)}
+      <p class="m-0 mt-2 text-[0.8rem] text-muted" data-risk-note>Held up is the share of settled grades merged at the graded head. Settled means merged, superseded or closed; open grades are counted only. No supersede cause is recorded yet, so every superseded grade is unknown and counts against the grade.</p>`;
+  const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
+    ${renderTabs(filter)}
+    ${renderRiskFilters(filter, options)}
     ${content}`;
   return layout('Insights', 'insights', true, display, body);
 };
