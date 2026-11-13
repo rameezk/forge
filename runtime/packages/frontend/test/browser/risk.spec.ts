@@ -39,6 +39,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
       await expect(page.locator('[data-risk-row]')).toHaveCount(8);
       expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+      const lefts = await page.locator('[data-risk-card]').evaluateAll((cards) => cards.map((card) => Math.round(card.getBoundingClientRect().left)));
+      expect(lefts).toHaveLength(3);
+      expect(new Set(lefts).size).toBe(width < 500 ? 1 : 3);
       const card = page.locator('[data-risk]');
       const overflow = await card.evaluate((element) => element.scrollWidth - element.clientWidth);
       if (width < 500) expect(overflow).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { GradeOutcome, RiskLevel, Store, SupersedeCause } from '@forge/shared';
+import type { GradeOutcome, GradingFailure, RiskLevel, Store, SupersedeCause } from '@forge/shared';
 import { textOf } from './html.ts';
 import { dashboard } from './insights-seed.ts';
 
@@ -21,13 +21,14 @@ interface Grading {
   at?: string;
   outcome?: GradeOutcome;
   cause?: SupersedeCause;
+  cost?: number;
 }
 
 let heads = 0;
 
 const grade = (store: Store, grading: Grading = {}): void => {
   heads += 1;
-  const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', unsettled = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open', cause = 'unknown' } = grading;
+  const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', unsettled = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open', cause = 'unknown', cost = 0.01 } = grading;
   store.recordRiskGrade({
     repository,
     number,
@@ -39,7 +40,7 @@ const grade = (store: Store, grading: Grading = {}): void => {
     confidence,
     level,
     unsettled,
-    costUsd: 0.01,
+    costUsd: cost,
     gradedAt: at,
   });
   if (outcome === 'open') return;
@@ -252,4 +253,101 @@ test('given the Risk tab, when it loads, then it offers no worker, kind or manua
   const body = await page('?tab=risk');
 
   assert.doesNotMatch(body, /name="(worker|kind|manual)"/);
+});
+
+const cardOf = (page: string, name: string): string =>
+  textOf(page.match(new RegExp(`<section[^>]*\\sdata-risk-card="${name}"[^>]*>[\\s\\S]*?</section>`))?.[0] ?? '');
+
+const fail = (store: Store, category: GradingFailure, head: string, repository = 'forge', number = 900, attemptedAt = '2026-09-21T09:00:00.000Z'): void =>
+  store.recordGradingAttempt({ repository, number, headSha: head, attemptedAt, category, message: category });
+
+test('given 9 graded heads and 1 head with only a too-large attempt, when the Risk tab loads, then coverage shows 90.0% with too large 1', async () => {
+  const { store, page } = dashboard([]);
+  many(store, 9, { outcome: 'merged' });
+  fail(store, 'too-large', 'ungraded');
+
+  const card = cardOf(await page('?tab=risk'), 'coverage');
+
+  assert.match(card, /90\.0%/);
+  assert.match(card, /9 of 10/);
+  assert.match(card, /Too large 1/);
+  assert.match(card, /Temporary 0/);
+});
+
+test('given a head with a temporary attempt that was later graded, when the Risk tab loads, then it counts as graded and not as a failed attempt', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, { number: 7, head: 'retried' });
+  fail(store, 'temporary', 'retried', 'forge', 7);
+
+  const card = cardOf(await page('?tab=risk'), 'coverage');
+
+  assert.match(card, /100\.0%/);
+  assert.match(card, /1 of 1/);
+  assert.match(card, /Temporary 0/);
+});
+
+test('given a head with several failed attempts, when the Risk tab loads, then it counts once under the category of its latest attempt', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, {});
+  fail(store, 'temporary', 'stuck', 'forge', 900, '2026-09-21T08:00:00.000Z');
+  fail(store, 'declined', 'stuck', 'forge', 900, '2026-09-21T09:00:00.000Z');
+
+  const card = cardOf(await page('?tab=risk'), 'coverage');
+
+  assert.match(card, /50\.0%/);
+  assert.match(card, /Declined 1/);
+  assert.match(card, /Temporary 0/);
+});
+
+test('given two grades costing $0.002 and $0.004, when the Risk tab loads, then the cost card shows a $0.006 total and $0.003 per grade', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, { cost: 0.002 });
+  grade(store, { cost: 0.004 });
+
+  const card = cardOf(await page('?tab=risk'), 'cost');
+
+  assert.match(card, /\$0\.006 total/);
+  assert.match(card, /\$0\.003 per grade/);
+});
+
+test('given settled trivial and low grades with 79 merged as graded out of 93 counted, plus unsettled and moderate grades, when the Risk tab loads, then the candidates card shows 84.9% (79 of 93) with the assumption footnote', async () => {
+  const { store, page } = dashboard([]);
+  many(store, 40, { level: 'trivial', outcome: 'merged' });
+  many(store, 39, { level: 'low', outcome: 'merged' });
+  many(store, 8, { level: 'trivial', outcome: 'superseded', cause: 'revision' });
+  many(store, 6, { level: 'low', outcome: 'closed' });
+  many(store, 3, { level: 'low', outcome: 'superseded', cause: 'conflict-resolution' });
+  many(store, 5, { level: 'low', unsettled: true, outcome: 'merged' });
+  many(store, 5, { level: 'moderate', outcome: 'closed' });
+
+  const card = cardOf(await page('?tab=risk'), 'candidates');
+
+  assert.match(card, /84\.9%/);
+  assert.match(card, /79 of 93/);
+  assert.match(card, /Assumes auto-merge would take settled trivial and low grades and nothing unsettled\./);
+});
+
+test('given grades in two repositories, when the tab is filtered to one repository, then all three cards count only that repository', async () => {
+  const { store, page } = dashboard([]);
+  many(store, 2, { repository: 'forge', outcome: 'merged', cost: 0.002 });
+  many(store, 2, { repository: 'site', outcome: 'closed', cost: 0.01 });
+  fail(store, 'setup', 'forge-ungraded', 'forge', 901);
+  fail(store, 'setup', 'site-ungraded', 'site', 902);
+  fail(store, 'setup', 'site-ungraded-too', 'site', 903);
+
+  const body = await page('?tab=risk&repository=forge');
+
+  assert.match(cardOf(body, 'coverage'), /66\.7%[\s\S]*2 of 3[\s\S]*Setup 1/);
+  assert.match(cardOf(body, 'cost'), /\$0\.004 total/);
+  assert.match(cardOf(body, 'candidates'), /100\.0%[\s\S]*2 of 2/);
+});
+
+test('given the Risk tab with grades, when it loads, then the three cards precede the table', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, {});
+
+  const body = await page('?tab=risk');
+
+  const order = [...body.matchAll(/data-risk-card="([^"]+)"|data-risk(?=[\s>])/g)].map((match) => match[1] ?? 'table');
+  assert.deepEqual(order, ['coverage', 'cost', 'candidates', 'table']);
 });

@@ -3158,6 +3158,34 @@ export class Store {
     return rows.map(riskGradeFromRow);
   }
 
+  listFailedGradingHeads(filter: Omit<RiskFilter, 'fingerprint'>): GradingFailure[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT grading_attempts.category FROM grading_attempts
+        WHERE grading_attempts.id = (
+            SELECT max(id) FROM grading_attempts AS later
+            WHERE later.repository = grading_attempts.repository
+              AND later.number = grading_attempts.number
+              AND later.head_sha = grading_attempts.head_sha
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM risk_grades
+            WHERE risk_grades.repository = grading_attempts.repository
+              AND risk_grades.number = grading_attempts.number
+              AND risk_grades.head_sha = grading_attempts.head_sha
+          )
+          AND ($repository IS NULL OR grading_attempts.repository = $repository)
+          AND ($attempted_from IS NULL OR grading_attempts.attempted_at >= $attempted_from)
+          AND ($attempted_before IS NULL OR grading_attempts.attempted_at < $attempted_before)`,
+      )
+      .all({
+        repository: filter.repository ?? null,
+        attempted_from: filter.gradedFrom ?? null,
+        attempted_before: filter.gradedBefore ?? null,
+      }) as { category: string }[];
+    return rows.map(({ category }) => category as GradingFailure);
+  }
+
   gradingCostUsd(): number {
     const row = this.#db
       .prepare('SELECT coalesce(sum(cost_usd), 0) AS cost FROM risk_grades')
