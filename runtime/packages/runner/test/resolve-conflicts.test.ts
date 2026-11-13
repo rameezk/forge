@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -109,6 +110,17 @@ const checkRun = (name: string, conclusion: string | null, isRequired = true): C
   isRequired,
 });
 
+const pushedHeadsOf = (database: string): (string | null)[] => {
+  const db = new DatabaseSync(database, { readOnly: true });
+  try {
+    return (
+      db.prepare('SELECT pushed_sha FROM conflict_resolutions ORDER BY id').all() as { pushed_sha: string | null }[]
+    ).map(({ pushed_sha }) => pushed_sha);
+  } finally {
+    db.close();
+  }
+};
+
 interface Scenario {
   origin?: Origin;
   checks?: CheckContext[] | null;
@@ -131,6 +143,7 @@ interface Outcome {
   origin: Origin;
   runs: RunRecord[];
   resolutions: ConflictResolutionRecord[];
+  pushedHeads: (string | null)[];
   complaints: string;
   pi: PiCall | null;
   transcript: string;
@@ -362,6 +375,7 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
       origin,
       runs,
       resolutions: store.listConflictResolutions(new Date().toISOString()),
+      pushedHeads: pushedHeadsOf(join(stateDir, 'forge.db')),
       complaints: complaints.join('\n'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
       transcript:
@@ -469,6 +483,15 @@ const pushEmptyCommit = (origin: Origin): string =>
 
 const moveMainOnThenMerge = (origin: Origin): string =>
   `printf moved > ${origin.path}/a.txt && git -C ${origin.path} -c user.name=T -c user.email=t@example.com commit --quiet --all -m moved && ${mergeAndPush(origin)}`;
+
+test('given a worker that merges the given sha and pushes, when the run ends, then the conflict resolution records the head it pushed', async () => {
+  const origin = originWhere('conflicts');
+  const { code, pushedHeads } = await resolve({ origin, worker: mergeAndPush });
+
+  assert.equal(code, 0);
+  assert.deepEqual(pushedHeads, [git(origin.path, 'rev-parse', 'feature')]);
+  assert.notEqual(pushedHeads[0], origin.featureTip);
+});
 
 test('given a worker that merges the given sha and pushes, when the run ends, then the conflict resolution ends ok and the branch holds the sha', async () => {
   const origin = originWhere('conflicts');

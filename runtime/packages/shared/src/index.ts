@@ -215,6 +215,8 @@ export {
   type RecordedRiskGrade,
   type RiskGrade,
   type GradeOutcome,
+  type SupersedeCause,
+  SUPERSEDE_CAUSES,
   type RiskLevel,
   type WorkloadSpend,
 } from './store.ts';

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { GradeOutcome, RiskLevel, Store } from '@forge/shared';
+import type { GradeOutcome, RiskLevel, Store, SupersedeCause } from '@forge/shared';
 import { textOf } from './html.ts';
 import { dashboard } from './insights-seed.ts';
 
@@ -20,13 +20,14 @@ interface Grading {
   fingerprint?: string;
   at?: string;
   outcome?: GradeOutcome;
+  cause?: SupersedeCause;
 }
 
 let heads = 0;
 
 const grade = (store: Store, grading: Grading = {}): void => {
   heads += 1;
-  const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', unsettled = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open' } = grading;
+  const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', unsettled = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open', cause = 'unknown' } = grading;
   store.recordRiskGrade({
     repository,
     number,
@@ -41,7 +42,29 @@ const grade = (store: Store, grading: Grading = {}): void => {
     costUsd: 0.01,
     gradedAt: at,
   });
-  if (outcome !== 'open') store.settleRiskGrade({ repository, number, headSha: head }, outcome, at);
+  if (outcome === 'open') return;
+  const settling = { repository, number, headSha: head };
+  if (outcome !== 'superseded' || cause === 'unknown') return store.settleRiskGrade(settling, outcome, at);
+  const superseding = `${head}-superseding`;
+  if (cause === 'revision') pushedBy(store, 'revision', repository, number, superseding);
+  if (cause === 'conflict-resolution') pushedBy(store, 'conflict-resolution', repository, number, superseding);
+  store.settleRiskGrade(settling, outcome, at, superseding);
+};
+
+const pushedBy = (store: Store, kind: 'revision' | 'conflict-resolution', repository: string, number: number, pushed: string): void => {
+  const pullRequest = { repository, number, url: `https://github.com/rameezk/${repository}/pull/${number}` };
+  const startedAt = '2026-09-21T11:00:00.000Z';
+  if (kind === 'revision') {
+    const start = store.startRevision(pullRequest, [], `run-${pushed}`, startedAt, Number.POSITIVE_INFINITY);
+    assert.ok('started' in start);
+    store.recordRevisionPush(start.started, pushed);
+    store.endRevision(start.started, 'done', startedAt);
+    return;
+  }
+  const start = store.startConflictResolution(pullRequest, [], `run-${pushed}`, startedAt, Number.POSITIVE_INFINITY, { headSha: 'before', defaultSha: 'default' });
+  assert.ok('started' in start);
+  store.recordConflictResolutionPush(start.started, pushed);
+  store.endConflictResolution(start.started, 'done', startedAt);
 };
 
 const many = (store: Store, count: number, grading: Grading): void => {
@@ -64,10 +87,11 @@ test('given the Insights page, when it loads, then a Risk tab follows Delivery, 
   assert.match(body, /data-risk/);
 });
 
-test('given 4 merged, 1 superseded, 1 closed and 1 open low grade, when the Risk tab loads, then the low row shows held up 4 / 6, 1 unknown and 1 open', async () => {
+test('given 4 merged low grades, 1 superseded by revision, 1 by conflict resolution, 1 closed and 1 open, when the Risk tab loads, then the low row shows held up 4 / 6 with the conflict resolution and the open grade as counts only', async () => {
   const { store, page } = dashboard([]);
   many(store, 4, { outcome: 'merged' });
-  many(store, 1, { outcome: 'superseded' });
+  many(store, 1, { outcome: 'superseded', cause: 'revision' });
+  many(store, 1, { outcome: 'superseded', cause: 'conflict-resolution' });
   many(store, 1, { outcome: 'closed' });
   many(store, 1, {});
 
@@ -75,14 +99,58 @@ test('given 4 merged, 1 superseded, 1 closed and 1 open low grade, when the Risk
 
   assert.deepEqual(row, {
     'held-up': '66.7% 4 / 6',
-    heads: '7',
-    prs: '7',
+    heads: '8',
+    prs: '8',
     merged: '4',
-    'superseded-unknown': '1',
+    'superseded-revision': '1',
+    'superseded-other': '0',
+    'superseded-conflict-resolution': '1',
+    'superseded-unknown': '0',
     closed: '1',
     open: '1',
     confidence: '0.90',
   });
+});
+
+test('given a settled trivial grade superseded before causes were recorded, when the Risk tab loads, then it shows under Unknown and counts in the held up denominator', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, { level: 'trivial', outcome: 'merged' });
+  grade(store, { level: 'trivial', outcome: 'superseded', cause: 'unknown' });
+  grade(store, { level: 'trivial', outcome: 'superseded', cause: 'other' });
+
+  const row = rowOf(await page('?tab=risk'), 'trivial');
+
+  assert.equal(row['superseded-unknown'], '1');
+  assert.equal(row['superseded-other'], '1');
+  assert.equal(row['held-up'], '33.3% 1 / 3');
+});
+
+test('given only conflict resolution supersedes settled, when the Risk tab loads, then the held up rate has nothing to judge', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, { outcome: 'superseded', cause: 'conflict-resolution' });
+
+  const row = rowOf(await page('?tab=risk'), 'low');
+
+  assert.equal(row['superseded-conflict-resolution'], '1');
+  assert.equal(row['held-up'], 'n/a 0 / 0');
+});
+
+test('given the Superseded by group, when the Risk tab loads, then Conflict res. and Unknown are muted and each cause header explains on hover how it is treated', async () => {
+  const { store, page } = dashboard([]);
+  grade(store, { outcome: 'superseded', cause: 'revision' });
+
+  const body = await page('?tab=risk');
+
+  const headers = [...body.matchAll(/<th[^>]*data-superseded-by="([^"]+)"[^>]*title="([^"]+)"/g)].map((match) => [match[1], match[2]]);
+  assert.deepEqual(headers.map(([cause]) => cause), ['revision', 'other', 'conflict-resolution', 'unknown']);
+  assert.match(headers[0]![1]!, /counts against the grade/i);
+  assert.match(headers[1]![1]!, /counts against the grade/i);
+  assert.match(headers[2]![1]!, /neutral/i);
+  assert.match(headers[3]![1]!, /counts against the grade/i);
+  const row = body.match(/<tr[^>]*data-risk-row="low"[^>]*data-unsettled="false"[^>]*>[\s\S]*?<\/tr>/)![0];
+  assert.match(row, /text-muted[^>]*data-metric="superseded-conflict-resolution"/);
+  assert.match(row, /text-muted[^>]*data-metric="superseded-unknown"/);
+  assert.doesNotMatch(row, /text-muted[^>]*data-metric="superseded-revision"/);
 });
 
 test('given an unsettled and a settled low grade, when the Risk tab loads, then each has its own low row and the unsettled one carries the unsettled pill', async () => {
@@ -128,11 +196,14 @@ test('given settled trivial grades with confidences 0.80, 0.90 and 0.95, when th
   assert.equal(rowOf(await page('?tab=risk'), 'trivial')['confidence'], '0.90');
 });
 
-test('given a footnote, when the Risk tab loads, then it defines held up', async () => {
+test('given a footnote, when the Risk tab loads, then it defines held up and says conflict resolution supersedes are left out', async () => {
   const { store, page } = dashboard([]);
   grade(store, {});
 
-  assert.match(textOf(await page('?tab=risk')), /Held up is the share of settled grades merged at the graded head/);
+  const note = textOf(await page('?tab=risk'));
+
+  assert.match(note, /Held up is the share of settled grades merged at the graded head, leaving out those superseded by a conflict resolution/);
+  assert.match(note, /Conflict resolution supersedes are counted only/);
 });
 
 const optionsOf = (body: string, name: string): string[] => {

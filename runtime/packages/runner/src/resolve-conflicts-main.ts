@@ -184,6 +184,21 @@ export const main = async (
           `${name}#${pullRequest.number}: could not refresh its conflict resolution heartbeat: ${errorMessage(error)}`,
         ),
     );
+    const recordPush = async (): Promise<void> => {
+      try {
+        const { headSha } = await queryPullRequestConflict(
+          fetch,
+          (await app.mint(repository.github, 'read')).token,
+          repository.github,
+          pullRequest.number,
+        );
+        if (headSha !== target.headSha) store.recordConflictResolutionPush(resolutionId, headSha);
+      } catch (error) {
+        console.error(
+          `${name}#${pullRequest.number}: could not record the head its conflict resolution pushed: ${errorMessage(error)}`,
+        );
+      }
+    };
     try {
       let failure: ConflictResolutionFailureRecord | undefined;
       let code = 0;
@@ -245,19 +260,23 @@ export const main = async (
           }
           ended = endOf(launched);
           code = launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
-          if (ended.state === 'done') {
-            failure = await unmetCondition({
-              app,
-              fetch,
-              env,
-              gitEnv,
-              github: repository.github,
-              number: pullRequest.number,
-              branch: pullRequest.branch,
-              runId,
-              sha: target.defaultSha,
-              pause,
-            });
+          try {
+            if (ended.state === 'done') {
+              failure = await unmetCondition({
+                app,
+                fetch,
+                env,
+                gitEnv,
+                github: repository.github,
+                number: pullRequest.number,
+                branch: pullRequest.branch,
+                runId,
+                sha: target.defaultSha,
+                pause,
+              });
+            }
+          } finally {
+            await recordPush();
           }
         }
       } catch (error) {

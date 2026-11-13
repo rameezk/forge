@@ -228,6 +228,7 @@ export const PULL_REQUEST_HEAD_QUERY = `
         state
         isCrossRepository
         headRefName
+        headRefOid
         closingIssuesReferences(first: 20) {
           nodes {
             number
@@ -879,6 +880,7 @@ export interface PullRequestHead extends PullRequestRef {
   open: boolean;
   fromFork: boolean;
   branch: string;
+  headSha: string;
   closes: number[];
 }
 
@@ -890,6 +892,7 @@ interface PullRequestHeadResponse {
       state: string;
       isCrossRepository: boolean;
       headRefName: string;
+      headRefOid: string;
       closingIssuesReferences: {
         nodes: { number: number; repository: { nameWithOwner: string } }[];
       };
@@ -918,6 +921,7 @@ export const queryPullRequestHead = async (
     open: pullRequest.state === 'OPEN',
     fromFork: pullRequest.isCrossRepository,
     branch: pullRequest.headRefName,
+    headSha: pullRequest.headRefOid,
     closes: pullRequest.closingIssuesReferences.nodes
       .filter((issue) => issue.repository.nameWithOwner.toLowerCase() === github.toLowerCase())
       .map((issue) => issue.number),
