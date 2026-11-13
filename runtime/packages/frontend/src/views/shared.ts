@@ -168,9 +168,9 @@ export const TD = 'border-t border-line px-3.5 py-2.5 align-baseline';
 
 export const ROW = 'hover:bg-bg';
 
-export const CLICKABLE_ROW = `${ROW} relative cursor-pointer outline-accent has-[[data-row-link]:focus-visible]:outline-2 [&_a:not([data-row-link])]:relative [&_a:not([data-row-link])]:z-10`;
+export const CLICKABLE_ROW = `${ROW} relative cursor-pointer [&_a:not([data-row-link])]:relative [&_a:not([data-row-link])]:z-10`;
 
-export const ROW_LINK = 'after:absolute after:inset-0 after:content-[\'\']';
+export const ROW_LINK = 'after:absolute after:inset-0 after:content-[\'\'] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-accent';
 
 export const NUMERIC_WRAPPING = 'text-right tabular-nums';
 

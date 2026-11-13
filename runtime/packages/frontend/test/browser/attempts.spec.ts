@@ -187,6 +187,8 @@ const seedClickableRows = (store: Store): void => {
   revise(store, 'rev-1', '2026-09-23T10:00:00.000Z', 'done');
 };
 
+type Styled = { getComputedStyle: (element: unknown, pseudo: string) => { getPropertyValue: (name: string) => string } };
+
 const offGithub = async (page: Page): Promise<void> => {
   await page.route('https://github.com/**', (route) => route.fulfill({ body: 'github' }));
 };
@@ -226,21 +228,29 @@ test.describe('clickable rows', () => {
     await expect(page).toHaveURL(/\/workloads$/);
   });
 
-  test('given the Workloads table, when a row link takes keyboard focus, then the whole row is outlined and the pointer shows across it', async ({ dashboard, page }) => {
+  test('given the Workloads table, when a row link takes keyboard focus, then the outline spans the stretched link over the whole row and the pointer shows across it', async ({ dashboard, page }) => {
     seedClickableRows(dashboard.store);
     await page.goto('/workloads');
     const row = page.locator('[data-run="first"]');
-    await expect(row).toHaveCSS('outline-style', 'none');
+    const link = row.getByRole('link', { name: 'builder' });
+    const afterStyle = (property: string) =>
+      link.evaluate(
+        (element, name) => (globalThis as unknown as Styled).getComputedStyle(element, '::after').getPropertyValue(name),
+        property,
+      );
     await expect(row).toHaveCSS('cursor', 'pointer');
+    expect(await afterStyle('outline-style')).toBe('none');
 
-    await page.keyboard.press('Tab');
-    await row.getByRole('link', { name: 'builder' }).focus();
+    await link.focus();
     await page.keyboard.press('Shift+Tab');
     await page.keyboard.press('Tab');
 
-    await expect(row.getByRole('link', { name: 'builder' })).toBeFocused();
-    await expect(row).toHaveCSS('outline-style', 'solid');
-    await expect(row).toHaveCSS('outline-width', '2px');
+    await expect(link).toBeFocused();
+    expect(await afterStyle('outline-style')).toBe('solid');
+    expect(await afterStyle('outline-width')).toBe('2px');
+    expect(await afterStyle('position')).toBe('absolute');
+    expect(await afterStyle('inset')).toBe('0px');
+    await expect(link).toHaveCSS('outline-style', 'none');
   });
 
   test('given a ticket with an attempt and a revision that ran, when empty space in each row is clicked, then each opens its own workload', async ({ dashboard, page }) => {
