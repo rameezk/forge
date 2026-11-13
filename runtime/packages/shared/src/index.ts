@@ -75,6 +75,7 @@ export type {
   PollFailure,
   RefinementRequest,
   RepositoryFrontier,
+  RepositoryProblems,
   SpecRef,
   Ticket,
   TicketState,

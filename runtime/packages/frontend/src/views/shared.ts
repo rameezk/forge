@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type RepositoryProblems, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
 import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatElapsed, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
@@ -141,6 +141,7 @@ export interface Display {
   version?: string;
   deploy?: DeployStatus | null;
   grading?: GradingAttention | null;
+  repositories?: readonly RepositoryProblems[];
 }
 
 const FOCUS_RINGS = '[&_:where(:focus-visible)]:outline-2 [&_:where(:focus-visible)]:outline-offset-2 [&_:where(:focus-visible)]:outline-accent';
@@ -222,11 +223,23 @@ const renderGradingRow = (grading: GradingAttention | null): Rendered => {
   return html`<p data-grading-attention data-grading-failing="${failure.category}" class="${BAND_ROW}">Grading needs attention - ${failure.category}: ${failure.message}. ${renderGradingSucceeded(grading.status.lastSucceededAt, grading.now)}. <a href="${GRADING_STATUS_HREF}" class="font-semibold text-error underline">See grading</a></p>`;
 };
 
-const renderAttentionBand = (deploy: DeployStatus | null, grading: GradingAttention | null): Rendered => {
+export const laneId = (repository: string): string => `lane-${repository}`;
+
+const laneLink = (repository: string): Rendered =>
+  html`<a href="/#${encodeURIComponent(laneId(repository))}" class="font-semibold text-error underline">See lane</a>`;
+
+const renderRepositoryRows = (repositories: readonly RepositoryProblems[], timeZone: string): Rendered[] =>
+  repositories.flatMap(({ repository, github, lastError, branchRules }) => [
+    lastError === null ? '' : html`<p data-poll-failed="${repository}" class="${BAND_ROW}">${github}: last poll failed ${renderTimestamp(lastError.failedAt, timeZone)}: ${lastError.message} ${laneLink(repository)}</p>`,
+    branchRules === null || branchRules.length === 0 ? '' : html`<p data-branch-rules-failing="${repository}" class="${BAND_ROW}">${github}: no new work starts until a sync finds its default branch rules passing: ${branchRules.join('; ')} ${laneLink(repository)}</p>`,
+  ]);
+
+const renderAttentionBand = (deploy: DeployStatus | null, grading: GradingAttention | null, repositories: readonly RepositoryProblems[], timeZone: string): Rendered => {
   const rows = [
     deploy?.error == null ? '' : html`<p id="deploy-error" data-deploy-error class="${BAND_ROW} scroll-mt-4">${deploy.error}</p>`,
     deploy?.bumpError == null ? '' : html`<p id="bump-error" data-bump-error class="${BAND_ROW} scroll-mt-4">Forge bump: ${deploy.bumpError}</p>`,
     renderGradingRow(grading),
+    ...renderRepositoryRows(repositories, timeZone),
   ].filter((row) => row !== '');
   return rows.length === 0 ? '' : html`<section data-attention-band aria-label="Needs attention" class="flex shrink-0 flex-col divide-y divide-error/20 border-b border-line">${rows}</section>`;
 };
@@ -276,7 +289,7 @@ export const layout = (
   title: string,
   current: Page | null,
   live: boolean,
-  { assets, timeZone, version, deploy, grading }: Display,
+  { assets, timeZone, version, deploy, grading, repositories }: Display,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
   fit: Fit = 'scroll',
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -293,7 +306,7 @@ export const layout = (
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${FIT_BODY[fit]}">
         ${renderHeader(current, live, assets, version)}
-        ${renderAttentionBand(deploy ?? null, grading ?? null)}
+        ${renderAttentionBand(deploy ?? null, grading ?? null, repositories ?? [], timeZone)}
         <main class="w-full ${FIT_WIDTH[fit]} px-4 ${FIT_MAIN[fit]}">${body}</main>
         <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-4"><span>Times in ${timeZone}</span>${renderForgeStatus(deploy ?? null)}</div></footer>
       </body>

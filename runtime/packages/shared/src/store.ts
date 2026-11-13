@@ -5,6 +5,7 @@ import {
   type ClosedTicket,
   type PolledFrontier,
   type PollFailure,
+  type RepositoryProblems,
   type RefinementRequest,
   type RepositoryFrontier,
   type Ticket,
@@ -2427,6 +2428,33 @@ export class Store {
         WHERE repository NOT IN (SELECT value FROM json_each($declared))`,
       )
       .run({ declared: JSON.stringify(declared) });
+  }
+
+  listRepositoryProblems(): RepositoryProblems[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM frontier_repositories
+        WHERE last_error IS NOT NULL OR branch_rules IS NOT NULL
+        ORDER BY repository`,
+      )
+      .all() as RepositoryRow[];
+    return rows.flatMap((row) => {
+      const lastError =
+        row.last_error === null || row.failed_at === null
+          ? null
+          : { message: row.last_error, failedAt: row.failed_at };
+      const rules = row.branch_rules === null ? [] : (JSON.parse(row.branch_rules) as string[]);
+      return lastError === null && rules.length === 0
+        ? []
+        : [
+            {
+              repository: row.repository,
+              github: row.github,
+              lastError,
+              branchRules: row.branch_rules === null ? null : rules,
+            },
+          ];
+    });
   }
 
   listFrontier(): RepositoryFrontier[] {

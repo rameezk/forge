@@ -110,7 +110,8 @@ export const createApp = ({
     const version = watch(pathname + search)?.().version;
     const deploy = deployStatus();
     const grading = gradingAttention();
-    return version === undefined ? { ...display, deploy, grading } : { ...display, version, deploy, grading };
+    const repositories = store.listRepositoryProblems();
+    return version === undefined ? { ...display, deploy, grading, repositories } : { ...display, version, deploy, grading, repositories };
   };
 
   const serveImmutable = (href: string, body: string, contentType: string): void => {
