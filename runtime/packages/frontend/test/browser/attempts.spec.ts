@@ -190,7 +190,7 @@ const seedClickableRows = (store: Store): void => {
 type Styled = { getComputedStyle: (element: unknown, pseudo: string) => { getPropertyValue: (name: string) => string } };
 
 const offGithub = async (page: Page): Promise<void> => {
-  await page.route('https://github.com/**', (route) => route.fulfill({ body: 'github' }));
+  await page.context().route('https://github.com/**', (route) => route.fulfill({ body: 'github' }));
 };
 
 const clickInside = async (page: Page, target: Locator, at: 'center' | 'start' = 'center'): Promise<void> => {
