@@ -356,7 +356,8 @@ test('given the Risk tab with grades, when it loads, then the three cards preced
   const body = await page('?tab=risk');
 
   const order = [...body.matchAll(/data-risk-card="([^"]+)"|data-risk(?=[\s>])/g)].map((match) => match[1] ?? 'table');
-  assert.deepEqual(order, ['coverage', 'cost', 'candidates', 'table']);});
+  assert.deepEqual(order, ['coverage', 'cost', 'candidates', 'table']);
+});
 
 test('given two settled low grades with 0 and 1 revisions after grade and an open low grade, when the Risk tab loads, then the low row shows revisions after grade 0.50', async () => {
   const { store, page } = dashboard([]);
