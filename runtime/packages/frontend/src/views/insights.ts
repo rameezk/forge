@@ -352,7 +352,7 @@ const SUPERSEDE_COLUMNS: { cause: SupersedeCause; label: string; muted: boolean;
 
 const MUTED = ' text-muted';
 
-const RISK_GROUP_SPAN = 12;
+const RISK_GROUP_SPAN = 13;
 
 const count = (metric: string, value: number, extra = ''): Rendered =>
   html`<td class="${COHORT_TD}${value === 0 ? DIM : ''}${extra}" data-metric="${metric}">${value}</td>`;
@@ -369,6 +369,7 @@ const renderRiskRow = (row: RiskRow): Rendered => {
     ${count('closed', row.closed, DIVIDER)}
     ${count('open', row.open)}
     <td class="${COHORT_TD}" data-metric="confidence">${row.medianConfidence === null ? 'n/a' : row.medianConfidence.toFixed(2)}</td>
+    <td class="${COHORT_TD}" data-metric="revisions">${row.meanRevisions === null ? 'n/a' : row.meanRevisions.toFixed(2)}</td>
   </tr>`;
 };
 
@@ -386,6 +387,7 @@ const renderRiskTable = (rows: RiskRow[]): Rendered =>
           <th rowspan="2" class="${COHORT_TH} text-right${DIVIDER}">Closed</th>
           <th rowspan="2" class="${COHORT_TH} text-right">Open</th>
           <th rowspan="2" class="${COHORT_TH} text-right">Median confidence</th>
+          <th rowspan="2" class="${COHORT_TH} text-right">Revisions after grade</th>
         </tr>
         <tr>
           ${SUPERSEDE_COLUMNS.map(({ cause, label, muted, note }, index) => html`<th class="${COHORT_TH} text-right${muted ? ' !text-muted' : ''}${index === 0 ? DIVIDER : ''}" data-superseded-by="${cause}" title="${note}">${label}</th>`)}
@@ -409,7 +411,7 @@ export const renderRisk = (
   const content = rows.every(({ heads }) => heads === 0)
     ? html`<p class="${EMPTY}" data-empty>No risk grades in this range</p>`
     : html`${renderRiskTable(rows)}
-      <p class="m-0 mt-2 text-[0.8rem] text-muted" data-risk-note>Held up is the share of settled grades merged at the graded head, leaving out those superseded by a conflict resolution. Settled means merged, superseded or closed; open grades are counted only. Conflict resolution supersedes are counted only. Revision, other and unknown supersedes count against the grade.</p>`;
+      <p class="m-0 mt-2 text-[0.8rem] text-muted" data-risk-note>Held up is the share of settled grades merged at the graded head, leaving out those superseded by a conflict resolution. Settled means merged, superseded or closed; open grades are counted only. Conflict resolution supersedes are counted only. Revision, other and unknown supersedes count against the grade. Revisions after grade is the mean number of completed revisions that started after the grade and before its outcome, over settled grades.</p>`;
   const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
     ${renderTabs(filter)}
     ${renderRiskFilters(filter, options)}

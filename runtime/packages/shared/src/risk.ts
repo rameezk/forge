@@ -25,6 +25,7 @@ export interface RiskRow {
   heldUpRate: number | null;
   judged: number;
   medianConfidence: number | null;
+  meanRevisions: number | null;
 }
 
 export const RISK_GROUPS: { key: 'candidates' | 'human'; title: string; levels: readonly RiskLevel[] }[] = [
@@ -43,6 +44,7 @@ const rowOf = (level: RiskLevel, unsettled: boolean, grades: RecordedRiskGrade[]
   ) as Record<SupersedeCause, number>;
   const closed = count('closed');
   const judged = merged + closed + grades.filter((grade) => grade.outcome === 'superseded').length - supersededBy['conflict-resolution'];
+  const revisions = grades.flatMap(({ outcome, revisions: after }) => (outcome !== 'open' && after !== null ? [after] : []));
   return {
     level,
     unsettled,
@@ -54,6 +56,7 @@ const rowOf = (level: RiskLevel, unsettled: boolean, grades: RecordedRiskGrade[]
     open: count('open'),
     judged,
     heldUpRate: judged === 0 ? null : merged / judged,
+    meanRevisions: revisions.length === 0 ? null : revisions.reduce((sum, value) => sum + value, 0) / revisions.length,
     medianConfidence: grades.length === 0 ? null : quantile(grades.map(({ confidence }) => confidence), 0.5),
   };
 };
