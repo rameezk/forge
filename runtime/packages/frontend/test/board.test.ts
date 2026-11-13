@@ -1038,7 +1038,7 @@ const gradeOf = (number: number, headSha: string, overrides: Partial<RiskGrade> 
   score: 0.9,
   confidence: 0.83,
   level: 'high',
-  unsettled: false,
+  uncertain: false,
   costUsd: 0.25,
   gradedAt: '2026-09-30T09:30:00.000Z',
   ...overrides,
@@ -1059,20 +1059,21 @@ test('given a pull request in review whose current head is graded high at 83% co
 
   assert.match(risk, /data-risk="high"/);
   assert.equal(readable(risk), 'high 83%');
-  assert.doesNotMatch(risk, /data-risk-unsettled/);
+  assert.doesNotMatch(risk, /data-risk-uncertain/);
 });
 
-test('given a current unsettled grade of low with high as runner-up, when the Board is requested, then the badge shows low with high as the possible alternative', async () => {
+test('given a current uncertain grade of low with high as runner-up, when the Board is requested, then the badge shows low with high as the possible alternative', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head1', { probabilities: { trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, confidence: 0.41, level: 'low', unsettled: true }));
+    store.recordRiskGrade(gradeOf(105, 'head1', { probabilities: { trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, confidence: 0.41, level: 'low', uncertain: true }));
   }, undefined, undefined, GRADING);
 
   const risk = riskOf(cardOf(await (await app.request('/')).text(), 5));
 
   assert.match(risk, /data-risk="low"/);
-  assert.match(risk, /data-risk-unsettled/);
+  assert.match(risk, /data-risk-uncertain/);
+  assert.match(risk, /title="Risk low, confidence 41%, uncertain, possibly high"/);
   assert.equal(readable(risk), 'low 41% or high');
 });
 

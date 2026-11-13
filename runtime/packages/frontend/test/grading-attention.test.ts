@@ -38,7 +38,7 @@ const succeeded = (store: Store, number: number, gradedAt: string): void =>
     score: 0.4,
     confidence: 0.9,
     level: 'low',
-    unsettled: false,
+    uncertain: false,
     costUsd: 0.01,
     gradedAt,
   });

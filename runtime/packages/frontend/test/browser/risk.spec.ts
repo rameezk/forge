@@ -8,7 +8,7 @@ const LEVELS: RiskLevel[] = ['trivial', 'low', 'moderate', 'high'];
 const seedGrades = (store: Store): void => {
   let number = 0;
   for (const level of LEVELS) {
-    for (const [outcome, unsettled] of [['merged', false], ['superseded', false], ['closed', false], ['open', false], ['merged', true]] as const) {
+    for (const [outcome, uncertain] of [['merged', false], ['superseded', false], ['closed', false], ['open', false], ['merged', true]] as const) {
       number += 1;
       store.recordRiskGrade({
         repository: 'forge',
@@ -20,7 +20,7 @@ const seedGrades = (store: Store): void => {
         score: 1,
         confidence: 0.9,
         level,
-        unsettled,
+        uncertain,
         costUsd: 0.01,
         gradedAt: '2026-09-21T10:00:00.000Z',
       });

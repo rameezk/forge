@@ -260,6 +260,9 @@ const forge = async (grading: { on: boolean; model?: string; confidenceThreshold
     },
     jevRequests,
     checkRuns,
+    carryLabel: (number: number, name: string): void => {
+      labels.get(number)?.add(name);
+    },
     labelsOf: (number: number): string[] => [...(labels.get(number) ?? [])].sort(),
     withStore,
     syncAndGrade,
@@ -307,7 +310,7 @@ test('given grading is on and a ready forge pull request, when frontier sync and
 
   const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
   assert.equal(grade?.level, 'low');
-  assert.equal(grade?.unsettled, false);
+  assert.equal(grade?.uncertain, false);
   assert.equal(grade?.confidence, 0.9);
   assert.equal(grade?.costUsd, 0.0042);
   assert.equal(grade?.model, 'typesafe/jev-1.13');
@@ -347,16 +350,17 @@ test('given a pull request changing a lockfile and source, when it is graded, th
   assert.ok(!sent.includes('LOCKFILE-CONTENT-MARKER'));
 });
 
-test('given Jev puts most probability on low, some on high and confidence below the threshold, when the grade is recorded, then it is low and unsettled and the check run shows high as the runner-up', async (t) => {
+test('given Jev puts most probability on low, some on high and confidence below the threshold, when the grade is recorded, then it is low and uncertain and the check run shows high as the runner-up', async (t) => {
   const f = await forge();
   t.after(f.close);
   f.answerWith(decision({ trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, 0.4));
   await f.syncAndGrade([READY]);
   const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
   assert.equal(grade?.level, 'low');
-  assert.equal(grade?.unsettled, true);
+  assert.equal(grade?.uncertain, true);
   const check = f.checkRuns[0]?.body as { output: { summary: string } };
   assert.match(check.output.summary, /Runner-up: high/);
+  assert.equal((f.checkRuns[0]?.body as { output: { title: string } }).output.title, 'Risk: low (uncertain), confidence 0.40');
 });
 
 test('given a draft, a pull request with a revision running, a human pull request or grading off, when forge-grading runs, then nothing is sent to Jev', async (t) => {
@@ -437,14 +441,24 @@ test('given a forge pull request graded moderate, when forge-grading runs, then 
   f.answerWith(decision({ trivial: 0.05, low: 0.15, moderate: 0.7, high: 0.1 }, 0.9));
   await f.syncAndGrade([READY]);
   assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-moderate']);
+  assert.doesNotMatch((f.checkRuns[0]?.body as { output: { title: string } }).output.title, /uncertain/);
 });
 
-test('given a grade below the confidence threshold, when it is recorded, then the pull request carries its level label and forge:risk-unsettled', async (t) => {
+test('given a pull request carrying forge:risk-unsettled from before the rename, when forge-grading grades it, then the old label is gone and only the new grade labels remain', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  f.carryLabel(7, 'forge:risk-unsettled');
+  f.answerWith(decision({ trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, 0.4));
+  await f.syncAndGrade([READY]);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low', 'forge:risk-uncertain']);
+});
+
+test('given a grade below the confidence threshold, when it is recorded, then the pull request carries its level label and forge:risk-uncertain', async (t) => {
   const f = await forge();
   t.after(f.close);
   f.answerWith(decision({ trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, 0.4));
   await f.syncAndGrade([READY]);
-  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low', 'forge:risk-unsettled']);
+  assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low', 'forge:risk-uncertain']);
 });
 
 test('given a graded forge pull request, when a revision pushes a new head, then the risk labels come off before the revision ends and the new head has no check run until the revision ends and it is regraded', async (t) => {

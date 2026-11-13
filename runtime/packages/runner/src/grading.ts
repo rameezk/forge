@@ -22,11 +22,11 @@ export const CHECK_NAME = 'forge/risk';
 
 export const RISK_LABEL_PREFIX = 'forge:risk-';
 
-export const UNSETTLED_LABEL = `${RISK_LABEL_PREFIX}unsettled`;
+export const UNCERTAIN_LABEL = `${RISK_LABEL_PREFIX}uncertain`;
 
-export const riskLabels = (grade: Pick<RiskGrade, 'level' | 'unsettled'>): string[] => [
+export const riskLabels = (grade: Pick<RiskGrade, 'level' | 'uncertain'>): string[] => [
   `${RISK_LABEL_PREFIX}${grade.level}`,
-  ...(grade.unsettled ? [UNSETTLED_LABEL] : []),
+  ...(grade.uncertain ? [UNCERTAIN_LABEL] : []),
 ];
 
 export const QUESTION_NAME = 'risk';
@@ -256,13 +256,13 @@ const fixed = (value: number): string => value.toFixed(2);
 
 export const checkRunOutput = (grade: RiskGrade): { title: string; summary: string } => {
   const [level, runnerUp] = levelsByProbability(grade.probabilities);
-  const title = `Risk: ${grade.level}${grade.unsettled ? ' (unsettled)' : ''}, confidence ${fixed(grade.confidence)}`;
+  const title = `Risk: ${grade.level}${grade.uncertain ? ' (uncertain)' : ''}, confidence ${fixed(grade.confidence)}`;
   return {
     title,
     summary: [
       `Most likely level: ${level}`,
       `Confidence: ${fixed(grade.confidence)}`,
-      ...(grade.unsettled ? [`Runner-up: ${runnerUp}`] : []),
+      ...(grade.uncertain ? [`Runner-up: ${runnerUp}`] : []),
       '',
       'Probability per level:',
       ...RISK_LEVELS.map((name) => `- ${name}: ${fixed(grade.probabilities[name])}`),
@@ -288,7 +288,7 @@ export const decideGrade = (
   score: decision.score,
   confidence: decision.confidence,
   level: levelsByProbability(decision.probabilities)[0] as RiskLevel,
-  unsettled: decision.confidence < threshold,
+  uncertain: decision.confidence < threshold,
   costUsd: decision.costUsd,
   gradedAt,
 });

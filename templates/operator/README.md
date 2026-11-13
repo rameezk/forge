@@ -998,8 +998,8 @@ four levels (`trivial`, `low`, `moderate`, `high`), with a probability per level
 and a confidence, and forge's App posts the result as a `forge/risk` check run
 on that commit. The check run always concludes neutral and is never required, so
 it advises the reviewer and cannot gate a dispatch or a merge. The pull request
-also carries a `forge:risk-<level>` label, plus `forge:risk-unsettled` when the
-grade is unsettled, so you can filter pull requests by risk. The labels come off
+also carries a `forge:risk-<level>` label, plus `forge:risk-uncertain` when the
+grade is uncertain, so you can filter pull requests by risk. The labels come off
 as soon as the pull request gets a new head and return once that head is graded;
 they only display the grade, which forge keeps in its own store.
 
@@ -1013,7 +1013,7 @@ Grading is off for a repository until you set `grading`, and
 `jev-latest` and never a dated snapshot. Changing the model, or forge changing
 the question it asks, starts a new grading cohort: each grade is stored with its
 grading fingerprint. A grade below `forge.runtime.grading.confidenceThreshold`,
-0.6 by default, is unsettled, and its check run names the runner-up level beside
+0.6 by default, is uncertain, and its check run names the runner-up level beside
 the most likely one.
 
 The `forge-grading` service runs every minute on its own timer and holds only

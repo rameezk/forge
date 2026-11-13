@@ -360,8 +360,8 @@ const count = (metric: string, value: number, extra = ''): Rendered =>
 
 const renderRiskRow = (row: RiskRow): Rendered => {
   const empty = row.heads === 0;
-  return html`<tr class="${ROW}${empty ? ' text-muted' : ''}" data-risk-row="${row.level}" data-unsettled="${String(row.unsettled)}">
-    <th scope="row" class="${PINNED} whitespace-nowrap border-t border-line bg-surface py-2.5 pr-2.5 text-left align-baseline font-medium ${row.unsettled ? 'pl-7' : 'pl-2.5'}">${row.level}${row.unsettled ? html` <span class="${PILL} bg-warning-soft align-middle text-warning" data-unsettled-pill>unsettled</span>` : ''}</th>
+  return html`<tr class="${ROW}${empty ? ' text-muted' : ''}" data-risk-row="${row.level}" data-uncertain="${String(row.uncertain)}">
+    <th scope="row" class="${PINNED} whitespace-nowrap border-t border-line bg-surface py-2.5 pr-2.5 text-left align-baseline font-medium ${row.uncertain ? 'pl-7' : 'pl-2.5'}">${row.level}${row.uncertain ? html` <span class="${PILL} bg-warning-soft align-middle text-warning" data-uncertain-pill>uncertain</span>` : ''}</th>
     <td class="${COHORT_TD}" data-metric="held-up">${formatRate(row.heldUpRate)} <span class="text-muted">${row.merged} / ${row.judged}</span></td>
     ${count('heads', row.heads)}
     ${count('prs', row.pullRequests)}
@@ -432,7 +432,7 @@ const renderRiskSummary = ({ graded, attempted, failed, coverage, costUsd, costP
       <p class="${CARD_DETAIL}" data-metric="cost-per-grade">${costPerGrade === null ? 'n/a' : formatBudget(costPerGrade)} per grade</p>`)}
     ${summaryCard('candidates', 'Auto-merge candidates held up', html`<p class="${CARD_FIGURE}" data-metric="candidates-held-up">${formatRate(candidates.heldUpRate)}</p>
       <p class="${CARD_DETAIL}" data-metric="candidates-count">${candidates.merged} of ${candidates.judged}</p>
-      <p class="${CARD_DETAIL}" data-metric="candidates-note">Assumes auto-merge would take settled trivial and low grades and nothing unsettled.</p>`)}
+      <p class="${CARD_DETAIL}" data-metric="candidates-note">Assumes auto-merge would take certain trivial and low grades and nothing uncertain.</p>`)}
   </div>`;
 
 const renderGradingStatus = (grading: GradingAttention | null | undefined): Rendered => {

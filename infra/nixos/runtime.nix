@@ -711,7 +711,7 @@ in
       confidenceThreshold = lib.mkOption {
         type = lib.types.float;
         default = 0.6;
-        description = "Confidence below which a risk grade is unsettled, above 0 and at most 1. A grade below it still names its most likely level, and its check run also names the runner-up level.";
+        description = "Confidence below which a risk grade is uncertain, above 0 and at most 1. A grade below it still names its most likely level, and its check run also names the runner-up level.";
       };
     };
 
