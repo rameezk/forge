@@ -4,7 +4,8 @@ import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KI
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { workloadsHref } from '../workload-filter.ts';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate, formatBudget } from '../format.ts';
-import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH } from './shared.ts';
+import { needsOperator, type GradingAttention } from '../grading.ts';
+import { type Rendered, ROW, renderCohortLink, SUBSCRIPTION_BADGE, CARD, type Cost, type Display, PAGE_TITLE, EMPTY, TABLE, layout, TD, PILL, LINK, TH, renderGradingSucceeded } from './shared.ts';
 
 export const INSIGHTS_TABS = ['delivery', 'cost', 'failures', 'risk'] as const;
 
@@ -434,6 +435,13 @@ const renderRiskSummary = ({ graded, attempted, failed, coverage, costUsd, costP
       <p class="${CARD_DETAIL}" data-metric="candidates-note">Assumes auto-merge would take settled trivial and low grades and nothing unsettled.</p>`)}
   </div>`;
 
+const renderGradingStatus = (grading: GradingAttention | null | undefined): Rendered => {
+  if (grading == null) return '';
+  const { status: { lastSucceededAt, failure }, now } = grading;
+  const tone = failure === null ? 'text-muted' : needsOperator(grading) === null ? 'text-warning' : 'text-error';
+  return html`<p id="grading-status" data-grading-status${failure === null ? '' : html` data-grading-failing="${failure.category}"`} class="m-0 mb-3 text-xs ${tone}">${renderGradingSucceeded(lastSucceededAt, now)}${failure === null ? '' : html` - failing: ${failure.category} - ${failure.message}`}</p>`;
+};
+
 export const renderRisk = (
   rows: RiskRow[],
   summary: RiskSummary,
@@ -449,6 +457,7 @@ export const renderRisk = (
   const body = html`<h1 class="${PAGE_TITLE}">Insights</h1>
     ${renderTabs(filter)}
     ${renderRiskFilters(filter, options)}
+    ${renderGradingStatus(display.grading)}
     ${content}`;
   return layout('Insights', 'insights', true, display, body);
 };

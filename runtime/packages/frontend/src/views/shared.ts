@@ -2,7 +2,8 @@ import { html, raw } from 'hono/html';
 import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
-import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
+import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatElapsed, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
+import { needsOperator, type GradingAttention } from '../grading.ts';
 import { renderMarkdown } from '../markdown.ts';
 import { DEFAULT_EFFORT } from '../request-record.ts';
 
@@ -139,6 +140,7 @@ export interface Display {
   timeZone: string;
   version?: string;
   deploy?: DeployStatus | null;
+  grading?: GradingAttention | null;
 }
 
 const FOCUS_RINGS = '[&_:where(:focus-visible)]:outline-2 [&_:where(:focus-visible)]:outline-offset-2 [&_:where(:focus-visible)]:outline-accent';
@@ -205,11 +207,28 @@ const renderHeader = (
     </div>
   </header>`;
 
+export const GRADING_STATUS_HREF = '/insights?tab=risk#grading-status';
+
 const BAND_ROW = 'm-0 break-words whitespace-pre-line bg-error-soft px-4 py-2.5 text-xs text-error';
 
-const renderAttentionBand = (deploy: DeployStatus | null): Rendered => {
-  if (deploy === null || (deploy.error === null && deploy.bumpError === null)) return '';
-  return html`<section data-attention-band aria-label="Needs attention" class="flex shrink-0 flex-col divide-y divide-error/20 border-b border-line">${deploy.error === null ? '' : html`<p id="deploy-error" data-deploy-error class="${BAND_ROW} scroll-mt-4">${deploy.error}</p>`}${deploy.bumpError === null ? '' : html`<p id="bump-error" data-bump-error class="${BAND_ROW} scroll-mt-4">Forge bump: ${deploy.bumpError}</p>`}</section>`;
+export const renderGradingSucceeded = (lastSucceededAt: string | null, now: number): Rendered =>
+  lastSucceededAt === null
+    ? html`Grading has not succeeded yet`
+    : html`Grading last succeeded <span data-elapsed-since="${lastSucceededAt}">${formatElapsed(now - Date.parse(lastSucceededAt))}</span> ago`;
+
+const renderGradingRow = (grading: GradingAttention | null): Rendered => {
+  const failure = grading === null ? null : needsOperator(grading);
+  if (grading === null || failure === null) return '';
+  return html`<p data-grading-attention data-grading-failing="${failure.category}" class="${BAND_ROW}">Grading needs attention - ${failure.category}: ${failure.message}. ${renderGradingSucceeded(grading.status.lastSucceededAt, grading.now)}. <a href="${GRADING_STATUS_HREF}" class="font-semibold text-error underline">See grading</a></p>`;
+};
+
+const renderAttentionBand = (deploy: DeployStatus | null, grading: GradingAttention | null): Rendered => {
+  const rows = [
+    deploy?.error == null ? '' : html`<p id="deploy-error" data-deploy-error class="${BAND_ROW} scroll-mt-4">${deploy.error}</p>`,
+    deploy?.bumpError == null ? '' : html`<p id="bump-error" data-bump-error class="${BAND_ROW} scroll-mt-4">Forge bump: ${deploy.bumpError}</p>`,
+    renderGradingRow(grading),
+  ].filter((row) => row !== '');
+  return rows.length === 0 ? '' : html`<section data-attention-band aria-label="Needs attention" class="flex shrink-0 flex-col divide-y divide-error/20 border-b border-line">${rows}</section>`;
 };
 
 const FIT_BODY = { scroll: '', desktop: ' lg:flex lg:h-dvh lg:flex-col', always: ' flex h-dvh flex-col' } as const;
@@ -257,7 +276,7 @@ export const layout = (
   title: string,
   current: Page | null,
   live: boolean,
-  { assets, timeZone, version, deploy }: Display,
+  { assets, timeZone, version, deploy, grading }: Display,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
   fit: Fit = 'scroll',
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -274,7 +293,7 @@ export const layout = (
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${FIT_BODY[fit]}">
         ${renderHeader(current, live, assets, version)}
-        ${renderAttentionBand(deploy ?? null)}
+        ${renderAttentionBand(deploy ?? null, grading ?? null)}
         <main class="w-full ${FIT_WIDTH[fit]} px-4 ${FIT_MAIN[fit]}">${body}</main>
         <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-4"><span>Times in ${timeZone}</span>${renderForgeStatus(deploy ?? null)}</div></footer>
       </body>
