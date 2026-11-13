@@ -15,7 +15,7 @@ export interface RiskOptions {
 
 export interface RiskRow {
   level: RiskLevel;
-  unsettled: boolean;
+  uncertain: boolean;
   heads: number;
   pullRequests: number;
   merged: number;
@@ -33,7 +33,7 @@ export const RISK_GROUPS: { key: 'candidates' | 'human'; title: string; levels: 
   { key: 'human', title: 'Reviewed by a human in the loop', levels: ['moderate', 'high'] },
 ];
 
-const rowOf = (level: RiskLevel, unsettled: boolean, grades: RecordedRiskGrade[]): RiskRow => {
+const rowOf = (level: RiskLevel, uncertain: boolean, grades: RecordedRiskGrade[]): RiskRow => {
   const count = (outcome: RecordedRiskGrade['outcome']): number => grades.filter((grade) => grade.outcome === outcome).length;
   const merged = count('merged');
   const supersededBy = Object.fromEntries(
@@ -47,7 +47,7 @@ const rowOf = (level: RiskLevel, unsettled: boolean, grades: RecordedRiskGrade[]
   const revisions = grades.flatMap(({ outcome, revisions: after }) => (outcome !== 'open' && after !== null ? [after] : []));
   return {
     level,
-    unsettled,
+    uncertain,
     heads: grades.length,
     pullRequests: new Set(grades.map(({ repository, number }) => `${repository}#${number}`)).size,
     merged,
@@ -63,8 +63,8 @@ const rowOf = (level: RiskLevel, unsettled: boolean, grades: RecordedRiskGrade[]
 
 export const aggregateRisk = (grades: RecordedRiskGrade[]): RiskRow[] =>
   RISK_LEVELS.flatMap((level) =>
-    [false, true].map((unsettled) =>
-      rowOf(level, unsettled, grades.filter((grade) => grade.level === level && grade.unsettled === unsettled)),
+    [false, true].map((uncertain) =>
+      rowOf(level, uncertain, grades.filter((grade) => grade.level === level && grade.uncertain === uncertain)),
     ),
   );
 
@@ -85,7 +85,7 @@ export const summarizeRisk = (grades: RecordedRiskGrade[], failedHeads: GradingF
   const costUsd = grades.reduce((total, grade) => total + grade.costUsd, 0);
   const candidateLevels = RISK_GROUPS.find(({ key }) => key === 'candidates')?.levels ?? [];
   const candidates = aggregateRisk(grades)
-    .filter(({ level, unsettled }) => candidateLevels.includes(level) && !unsettled)
+    .filter(({ level, uncertain }) => candidateLevels.includes(level) && !uncertain)
     .reduce((total, row) => ({ merged: total.merged + row.merged, judged: total.judged + row.judged }), { merged: 0, judged: 0 });
   const attempted = grades.length + failedHeads.length;
   return {

@@ -1597,7 +1597,7 @@ test('given a failing head and a later grade of another head, when the dashboard
     score: 0.4,
     confidence: 0.9,
     level: 'low' as const,
-    unsettled: false,
+    uncertain: false,
     costUsd: 0.01,
     gradedAt,
   });
@@ -1642,7 +1642,7 @@ test('given grading has never succeeded and failed over several attempts, when t
   store.recordGradingAttempt(failure('temporary', '2026-10-01T09:00:00.000Z'));
   store.recordGradingAttempt(failure('temporary', '2026-10-01T10:00:00.000Z'));
   assert.equal(store.gradingStatus().failingSince, '2026-10-01T09:00:00.000Z');
-  store.recordRiskGrade({ repository: 'forge', number: 8, headSha: 'head-8', fingerprint: 'm:abc', model: 'm', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 }, score: 0.4, confidence: 0.9, level: 'low', unsettled: false, costUsd: 0.01, gradedAt: '2026-10-01T09:30:00.000Z' });
+  store.recordRiskGrade({ repository: 'forge', number: 8, headSha: 'head-8', fingerprint: 'm:abc', model: 'm', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 }, score: 0.4, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: '2026-10-01T09:30:00.000Z' });
   assert.equal(store.gradingStatus().failingSince, '2026-10-01T09:00:00.000Z');
   store.close();
 });
@@ -1690,7 +1690,7 @@ test('given a store whose superseded grades predate supersede causes, when it is
     score: 1,
     confidence: 0.9,
     level: 'low' as const,
-    unsettled: false,
+    uncertain: false,
     costUsd: 0.01,
     gradedAt: '2026-09-21T10:00:00.000Z',
   });
@@ -1712,6 +1712,36 @@ test('given a store whose superseded grades predate supersede causes, when it is
   try {
     assert.equal(store.riskGrade('forge', 7, 'one')?.supersedeCause, 'unknown');
     assert.equal(store.riskGrade('forge', 7, 'two')?.supersedeCause, null);
+  } finally {
+    store.close();
+  }
+});
+
+test('given a store whose risk grades table still has the unsettled column, when it is opened, then a grade recorded as unsettled reads back as uncertain', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const first = Store.open(path);
+  first.recordRiskGrade({
+    repository: 'forge',
+    number: 7,
+    headSha: 'one',
+    fingerprint: 'model:aaaa',
+    model: 'model',
+    probabilities: { trivial: 0.1, low: 0.4, moderate: 0.1, high: 0.4 },
+    score: 1,
+    confidence: 0.4,
+    level: 'low',
+    uncertain: true,
+    costUsd: 0.01,
+    gradedAt: '2026-09-21T10:00:00.000Z',
+  });
+  first.close();
+  const old = new DatabaseSync(path);
+  old.exec('ALTER TABLE risk_grades RENAME COLUMN uncertain TO unsettled');
+  old.close();
+
+  const store = Store.open(path);
+  try {
+    assert.equal(store.riskGrade('forge', 7, 'one')?.uncertain, true);
   } finally {
     store.close();
   }

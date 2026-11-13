@@ -96,8 +96,8 @@ const renderRisk = (risk: CardRisk): Rendered => {
   if (risk === null) return '';
   if (risk === 'grading') return html`<p class="${MUTED_LINE}"><span data-risk="grading" title="Risk grade pending for the current head commit" class="${PILL} ${QUEUED_TONE}">grading</span></p>`;
   if ('category' in risk) return renderNotGraded(risk);
-  const title = `Risk ${risk.level}, confidence ${percent(risk.confidence)}${risk.unsettled ? `, unsettled, possibly ${runnerUpOf(risk)}` : ''}`;
-  return html`<p class="${MUTED_LINE}"><span data-risk="${risk.level}"${risk.unsettled ? raw(' data-risk-unsettled') : ''} title="${title}" class="${PILL} ${RISK_TONE[risk.level]} tabular-nums whitespace-nowrap">${risk.level} ${percent(risk.confidence)}</span>${risk.unsettled ? html` <span data-risk-alternative title="Possible alternative" class="text-xs whitespace-nowrap text-muted">or ${runnerUpOf(risk)}</span>` : ''}</p>`;
+  const title = `Risk ${risk.level}, confidence ${percent(risk.confidence)}${risk.uncertain ? `, uncertain, possibly ${runnerUpOf(risk)}` : ''}`;
+  return html`<p class="${MUTED_LINE}"><span data-risk="${risk.level}"${risk.uncertain ? raw(' data-risk-uncertain') : ''} title="${title}" class="${PILL} ${RISK_TONE[risk.level]} tabular-nums whitespace-nowrap">${risk.level} ${percent(risk.confidence)}</span>${risk.uncertain ? html` <span data-risk-alternative title="Possible alternative" class="text-xs whitespace-nowrap text-muted">or ${runnerUpOf(risk)}</span>` : ''}</p>`;
 };
 
 const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk }: BoardCard): Rendered => {

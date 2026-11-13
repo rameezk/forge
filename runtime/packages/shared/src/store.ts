@@ -941,7 +941,7 @@ const CREATE_RISK_GRADES = `
     score         REAL NOT NULL,
     confidence    REAL NOT NULL,
     level         TEXT NOT NULL,
-    unsettled     INTEGER NOT NULL,
+    uncertain     INTEGER NOT NULL,
     cost_usd      REAL NOT NULL,
     graded_at     TEXT NOT NULL,
     check_posted  INTEGER NOT NULL DEFAULT 0,
@@ -974,6 +974,14 @@ const HAS_GRADE_LABELS = `
 
 const ADD_GRADE_LABELS = `
   ALTER TABLE risk_grades ADD COLUMN labels_applied INTEGER NOT NULL DEFAULT 0;
+`;
+
+const HAS_GRADE_UNCERTAIN = `
+  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'uncertain'
+`;
+
+const RENAME_GRADE_UNSETTLED = `
+  ALTER TABLE risk_grades RENAME COLUMN unsettled TO uncertain;
 `;
 
 const HAS_RISK_GRADE_OUTCOME = `
@@ -1012,7 +1020,7 @@ export interface RiskGrade {
   score: number;
   confidence: number;
   level: RiskLevel;
-  unsettled: boolean;
+  uncertain: boolean;
   costUsd: number;
   gradedAt: string;
 }
@@ -1130,7 +1138,7 @@ type RiskGradeRow = {
   score: number;
   confidence: number;
   level: string;
-  unsettled: number;
+  uncertain: number;
   cost_usd: number;
   graded_at: string;
   check_posted: number;
@@ -1157,7 +1165,7 @@ const riskGradeFromRow = (row: RiskGradeRow): RecordedRiskGrade => ({
   score: row.score,
   confidence: row.confidence,
   level: row.level as RiskLevel,
-  unsettled: row.unsettled === 1,
+  uncertain: row.uncertain === 1,
   costUsd: row.cost_usd,
   gradedAt: row.graded_at,
   outcome: row.outcome as GradeOutcome,
@@ -1579,6 +1587,7 @@ export class Store {
     this.#addColumnsOnce(HAS_REVISION_PUSHED_SHA, ADD_REVISION_PUSHED_SHA);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_PUSHED_SHA, ADD_CONFLICT_RESOLUTION_PUSHED_SHA);
     this.#addColumnsOnce(HAS_GRADE_SUPERSEDE_CAUSE, ADD_GRADE_SUPERSEDE_CAUSE);
+    this.#addColumnsOnce(HAS_GRADE_UNCERTAIN, RENAME_GRADE_UNSETTLED);
     if (this.#hasOldWorkloadStates()) {
       this.#migrateWorkloadStates();
     }
@@ -3294,10 +3303,10 @@ export class Store {
       .prepare(
         `INSERT OR IGNORE INTO risk_grades (
           repository, number, head_sha, fingerprint, model, probabilities,
-          score, confidence, level, unsettled, cost_usd, graded_at
+          score, confidence, level, uncertain, cost_usd, graded_at
         ) VALUES (
           $repository, $number, $head_sha, $fingerprint, $model, $probabilities,
-          $score, $confidence, $level, $unsettled, $cost_usd, $graded_at
+          $score, $confidence, $level, $uncertain, $cost_usd, $graded_at
         )`,
       )
       .run({
@@ -3310,7 +3319,7 @@ export class Store {
         score: grade.score,
         confidence: grade.confidence,
         level: grade.level,
-        unsettled: grade.unsettled ? 1 : 0,
+        uncertain: grade.uncertain ? 1 : 0,
         cost_usd: grade.costUsd,
         graded_at: grade.gradedAt,
       });

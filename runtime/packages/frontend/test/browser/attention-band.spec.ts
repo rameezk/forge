@@ -13,7 +13,7 @@ const fail = (store: Store, category: GradingFailure, message: string, number = 
   store.recordGradingAttempt({ repository: 'forge', number, headSha: `head-${number}`, attemptedAt: new Date().toISOString(), category, message });
 
 const grade = (store: Store, number: number, gradedAt: string): void =>
-  store.recordRiskGrade({ repository: 'forge', number, headSha: `head-${number}`, fingerprint: 'm:abc', model: 'm', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 }, score: 0.4, confidence: 0.9, level: 'low', unsettled: false, costUsd: 0.01, gradedAt } satisfies RiskGrade);
+  store.recordRiskGrade({ repository: 'forge', number, headSha: `head-${number}`, fingerprint: 'm:abc', model: 'm', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 }, score: 0.4, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt } satisfies RiskGrade);
 
 const sideways = (page: Page): Promise<number> => page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth);
 

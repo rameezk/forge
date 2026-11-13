@@ -15,7 +15,7 @@ interface Grading {
   number?: number;
   head?: string;
   level?: RiskLevel;
-  unsettled?: boolean;
+  uncertain?: boolean;
   confidence?: number;
   fingerprint?: string;
   at?: string;
@@ -29,7 +29,7 @@ let heads = 0;
 
 const grade = (store: Store, grading: Grading = {}): void => {
   heads += 1;
-  const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', unsettled = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open', cause = 'unknown', cost = 0.01, revisions = 0 } = grading;
+  const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', uncertain = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open', cause = 'unknown', cost = 0.01, revisions = 0 } = grading;
   store.recordRiskGrade({
     repository,
     number,
@@ -40,7 +40,7 @@ const grade = (store: Store, grading: Grading = {}): void => {
     score: 1,
     confidence,
     level,
-    unsettled,
+    uncertain,
     costUsd: cost,
     gradedAt: at,
   });
@@ -78,8 +78,8 @@ const many = (store: Store, count: number, grading: Grading): void => {
   for (let index = 0; index < count; index += 1) grade(store, grading);
 };
 
-const rowOf = (page: string, level: string, unsettled = false): Record<string, string> => {
-  const row = page.match(new RegExp(`<tr[^>]*\\sdata-risk-row="${level}"[^>]*\\sdata-unsettled="${unsettled}"[^>]*>([\\s\\S]*?)</tr>`))?.[1] ?? '';
+const rowOf = (page: string, level: string, uncertain = false): Record<string, string> => {
+  const row = page.match(new RegExp(`<tr[^>]*\\sdata-risk-row="${level}"[^>]*\\sdata-uncertain="${uncertain}"[^>]*>([\\s\\S]*?)</tr>`))?.[1] ?? '';
   return Object.fromEntries([...row.matchAll(/<td[^>]*\sdata-metric="([^"]+)"[^>]*>([\s\S]*?)<\/td>/g)].map(([, name, cell]) => [name!, textOf(cell!)]));
 };
 
@@ -155,23 +155,23 @@ test('given the Superseded by group, when the Risk tab loads, then Conflict res.
   assert.match(headers[1]![1]!, /counts against the grade/i);
   assert.match(headers[2]![1]!, /neutral/i);
   assert.match(headers[3]![1]!, /counts against the grade/i);
-  const row = body.match(/<tr[^>]*data-risk-row="low"[^>]*data-unsettled="false"[^>]*>[\s\S]*?<\/tr>/)![0];
+  const row = body.match(/<tr[^>]*data-risk-row="low"[^>]*data-uncertain="false"[^>]*>[\s\S]*?<\/tr>/)![0];
   assert.match(row, /text-muted[^>]*data-metric="superseded-conflict-resolution"/);
   assert.match(row, /text-muted[^>]*data-metric="superseded-unknown"/);
   assert.doesNotMatch(row, /text-muted[^>]*data-metric="superseded-revision"/);
 });
 
-test('given an unsettled and a settled low grade, when the Risk tab loads, then each has its own low row and the unsettled one carries the unsettled pill', async () => {
+test('given an uncertain and a settled low grade, when the Risk tab loads, then each has its own low row and the uncertain one carries the uncertain pill', async () => {
   const { store, page } = dashboard([]);
   grade(store, { outcome: 'merged' });
-  grade(store, { unsettled: true, outcome: 'closed' });
+  grade(store, { uncertain: true, outcome: 'closed' });
 
   const body = await page('?tab=risk');
 
   assert.equal(rowOf(body, 'low')['held-up'], '100.0% 1 / 1');
   assert.equal(rowOf(body, 'low', true)['held-up'], '0.0% 0 / 1');
-  assert.match(body.match(/<tr[^>]*data-risk-row="low"[^>]*data-unsettled="true"[^>]*>[\s\S]*?<\/tr>/)![0], /data-unsettled-pill[^>]*>\s*unsettled/);
-  assert.doesNotMatch(body.match(/<tr[^>]*data-risk-row="low"[^>]*data-unsettled="false"[^>]*>[\s\S]*?<\/tr>/)![0], /data-unsettled-pill/);
+  assert.match(body.match(/<tr[^>]*data-risk-row="low"[^>]*data-uncertain="true"[^>]*>[\s\S]*?<\/tr>/)![0], /data-uncertain-pill[^>]*>\s*uncertain/);
+  assert.doesNotMatch(body.match(/<tr[^>]*data-risk-row="low"[^>]*data-uncertain="false"[^>]*>[\s\S]*?<\/tr>/)![0], /data-uncertain-pill/);
 });
 
 test('given grades at every level, when the Risk tab loads, then trivial and low sit under Auto-merge candidates and moderate and high under Reviewed by a human in the loop', async () => {
@@ -180,7 +180,7 @@ test('given grades at every level, when the Risk tab loads, then trivial and low
 
   const body = await page('?tab=risk');
 
-  const order = [...body.matchAll(/data-risk-group="([^"]+)"|data-risk-row="([^"]+)" data-unsettled="false"/g)].map((match) => match[1] ?? match[2]);
+  const order = [...body.matchAll(/data-risk-group="([^"]+)"|data-risk-row="([^"]+)" data-uncertain="false"/g)].map((match) => match[1] ?? match[2]);
   assert.deepEqual(order, ['candidates', 'trivial', 'low', 'human', 'moderate', 'high']);
   assert.match(textOf(body), /Auto-merge candidates/);
   assert.match(textOf(body), /Reviewed by a human in the loop/);
@@ -317,21 +317,21 @@ test('given two grades costing $0.002 and $0.004, when the Risk tab loads, then 
   assert.match(card, /\$0\.003 per grade/);
 });
 
-test('given settled trivial and low grades with 79 merged as graded out of 93 counted, plus unsettled and moderate grades, when the Risk tab loads, then the candidates card shows 84.9% (79 of 93) with the assumption footnote', async () => {
+test('given settled trivial and low grades with 79 merged as graded out of 93 counted, plus uncertain and moderate grades, when the Risk tab loads, then the candidates card shows 84.9% (79 of 93) with the assumption footnote', async () => {
   const { store, page } = dashboard([]);
   many(store, 40, { level: 'trivial', outcome: 'merged' });
   many(store, 39, { level: 'low', outcome: 'merged' });
   many(store, 8, { level: 'trivial', outcome: 'superseded', cause: 'revision' });
   many(store, 6, { level: 'low', outcome: 'closed' });
   many(store, 3, { level: 'low', outcome: 'superseded', cause: 'conflict-resolution' });
-  many(store, 5, { level: 'low', unsettled: true, outcome: 'merged' });
+  many(store, 5, { level: 'low', uncertain: true, outcome: 'merged' });
   many(store, 5, { level: 'moderate', outcome: 'closed' });
 
   const card = cardOf(await page('?tab=risk'), 'candidates');
 
   assert.match(card, /84\.9%/);
   assert.match(card, /79 of 93/);
-  assert.match(card, /Assumes auto-merge would take settled trivial and low grades and nothing unsettled\./);
+  assert.match(card, /Assumes auto-merge would take certain trivial and low grades and nothing uncertain\./);
 });
 
 test('given grades in two repositories, when the tab is filtered to one repository, then all three cards count only that repository', async () => {
