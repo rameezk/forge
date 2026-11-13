@@ -3234,6 +3234,8 @@ export class Store {
             WHERE revisions.repository = risk_grades.repository
               AND revisions.number = risk_grades.number
               AND revisions.state = 'done'
+              AND revisions.started_at >= risk_grades.graded_at
+              AND revisions.started_at <= $at
           )
         WHERE repository = $repository AND number = $number AND head_sha = $head_sha
           AND outcome = 'open'`,
