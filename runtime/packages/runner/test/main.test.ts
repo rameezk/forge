@@ -45,6 +45,7 @@ import {
   isAlive,
   brokerEnv,
   FAKE_BROKER_CLIENT,
+  withResourceNote,
 } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { NARRATION_INSTRUCTION } from '../src/harness.ts';
@@ -499,7 +500,7 @@ test('given recorded pi output whose assistant turns think before and after thei
     [
       {
         role: 'user',
-        text: 'refine the spec',
+        text: withResourceNote('refine the spec'),
         thinking: undefined,
         timestamp: run.startTime,
         stopReason: undefined,
@@ -1813,7 +1814,7 @@ test('given workers with and without a reasoning effort and a harness with opera
     '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,
-    'refine the spec',
+    withResourceNote('refine the spec'),
   ]);
   assert.deepEqual(withoutEffort.pi.argv, [
     ...PI_CONTRACT,
@@ -1826,7 +1827,7 @@ test('given workers with and without a reasoning effort and a harness with opera
     '-e',
     EXTENSION,
     ...OPERATOR_EXTRAS,
-    'refine the spec',
+    withResourceNote('refine the spec'),
   ]);
 });
 
@@ -3077,7 +3078,7 @@ test('given a worker whose prompt contains the OpenRouter key, when it runs agai
   assert.equal(first?.type === 'message' && first.role, 'user');
   assert.equal(
     first?.type === 'message' && first.text,
-    'refine the spec with [redacted]',
+    withResourceNote('refine the spec with [redacted]'),
   );
 });
 

@@ -10,7 +10,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir, totalmem } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -22,6 +22,7 @@ import {
 } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '@forge/frontend';
 import { main } from '../src/dispatch-main.ts';
+import { formatSize } from '../src/resources.ts';
 import {
   APP_ID,
   fakeGithubApp,
@@ -63,6 +64,7 @@ import {
   writeFakePi,
   type BwrapCall,
   brokerEnv,
+  withResourceNote,
 } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
@@ -564,6 +566,7 @@ interface Scenario {
   failing?: boolean;
   seed?: (store: Store) => void;
   prompt?: string;
+  sharedMemoryMax?: string;
   installed?: string[];
   lifetimeSeconds?: number;
   appId?: string | null;
@@ -724,9 +727,18 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
           ...(scenario.workflows === true ? { workflows: true } : {}),
         },
       },
-      ...(scenario.setupTimeoutSeconds === undefined
+      ...(scenario.setupTimeoutSeconds === undefined && scenario.sharedMemoryMax === undefined
         ? {}
-        : { workload: { setupTimeoutSeconds: scenario.setupTimeoutSeconds } }),
+        : {
+            workload: {
+              ...(scenario.setupTimeoutSeconds === undefined
+                ? {}
+                : { setupTimeoutSeconds: scenario.setupTimeoutSeconds }),
+              ...(scenario.sharedMemoryMax === undefined
+                ? {}
+                : { sharedMemoryMax: scenario.sharedMemoryMax }),
+            },
+          }),
       dispatch: {
         ...(scenario.maxConcurrent === undefined
           ? {}
@@ -2079,7 +2091,8 @@ const DEFAULT_CONTEXT = dispatchContext({
   spec: null,
 });
 
-const withTicketContext = (prompt: string): string => `${prompt}\n\n${DEFAULT_CONTEXT}`;
+const withTicketContext = (prompt: string): string =>
+  withResourceNote(`${prompt}\n\n${DEFAULT_CONTEXT}`);
 
 const childArgv = (pi: PiCall): string[] =>
   (JSON.parse(pi.subagentInvocation ?? 'null') as { argv: string[] }).argv;
@@ -3286,4 +3299,28 @@ test('given a workload that sends the runner anything but one run number, when i
 
   assert.deepEqual(rerunsOf(labelWrites), []);
   assert.deepEqual(answers.map(({ rerun }) => rerun), [false, false, false]);
+});
+
+test('given a box configured with a 6G shared memory limit, when forge dispatches a ticket, then the prompt states the limit, the CPU count, that other workloads share the memory and what exit 137 means, and never says budget', async () => {
+  const { pi } = await dispatch({ sharedMemoryMax: '6G' });
+
+  const prompt = userMessageOf(pi);
+  assert.match(prompt, /shared memory limit of 6 GiB/);
+  assert.match(prompt, new RegExp(`${availableParallelism()} CPUs`));
+  assert.match(prompt, /other workloads share/);
+  assert.match(prompt, /exit(s|ing)? (with )?137/);
+  assert.match(prompt, /should not be retried at the same scale/);
+  assert.doesNotMatch(prompt, /budget/i);
+});
+
+test('given two boxes, one with a 6G and one with a 50% shared memory limit, when forge dispatches the same ticket on each, then each prompt states its own limit as a size', async () => {
+  const absolute = await dispatch({ sharedMemoryMax: '6G' });
+  const percentage = await dispatch({ sharedMemoryMax: '50%' });
+
+  assert.match(userMessageOf(absolute.pi), /shared memory limit of 6 GiB/);
+  assert.match(
+    userMessageOf(percentage.pi),
+    new RegExp(`shared memory limit of ${formatSize(Math.floor(totalmem() / 2))}`),
+  );
+  assert.doesNotMatch(userMessageOf(percentage.pi), /50%/);
 });

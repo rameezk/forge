@@ -17,8 +17,11 @@ import {
   conflictBrief,
   REVISION_INSTRUCTION,
   revisionContext,
+  withContext,
   type Checkout,
 } from '../src/harness.ts';
+import { DEFAULT_SHARED_MEMORY_MAX } from '../src/config.ts';
+import { resourceNote, thisBox } from '../src/resources.ts';
 import type {
   Harness,
   HarnessInvocation,
@@ -28,6 +31,11 @@ import type {
   TranscriptWriter,
   Worker,
 } from '../src/index.ts';
+
+export const DEFAULT_RESOURCE_NOTE = resourceNote(DEFAULT_SHARED_MEMORY_MAX, thisBox());
+
+export const withResourceNote = (prompt: string): string =>
+  withContext(prompt, DEFAULT_RESOURCE_NOTE);
 
 export const skillCheckout = (
   root: string,

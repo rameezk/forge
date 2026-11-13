@@ -197,6 +197,7 @@ let
   }
   // {
     workload.setupTimeoutSeconds = timeSpanSeconds cfg.workload.setupTimeout;
+    workload.sharedMemoryMax = cfg.workload.sharedMemoryMax;
   }
   // lib.optionalAttrs (hasDispatch || hasRevision || hasConflictResolution) {
     dispatch = {

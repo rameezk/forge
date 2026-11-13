@@ -30,6 +30,7 @@ import {
   FAKE_BROKER_BASH,
   FAKE_BROKER_CLIENT,
   FAKE_GIT_SHIM_DIR,
+  withResourceNote,
 } from './helpers.ts';
 import { CLAUDE_SKILL_FILES, CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
 
@@ -1141,7 +1142,7 @@ test('given a claude-code worker with an effort and a budget, when its workload 
   assert.equal(argv.includes('--system-prompt'), false);
   assert.equal(argv.includes('--bare'), false);
   assert.equal(argv.includes('refine the spec'), false);
-  assert.equal(claude.stdin, 'refine the spec');
+  assert.equal(claude.stdin, withResourceNote('refine the spec'));
 });
 
 test('given a claude-code workload, when it runs, then the per-run dirs are private to the runner user and claude exports telemetry to no collector', async () => {
@@ -1370,7 +1371,7 @@ test('given a claude-code prompt larger than a command-line argument allows, whe
   const { claude } = await runClaude({ fixture: 'success', worker: { prompt } });
 
   assert.ok(prompt.length > 400_000);
-  assert.equal(claude.stdin, prompt);
+  assert.equal(claude.stdin, withResourceNote(prompt));
 });
 
 test('given a claude-code workload, when it runs, then claude gets an empty per-run config dir inside the sandbox state, telemetry on and auto-update off, and the dir is gone after the run', async () => {

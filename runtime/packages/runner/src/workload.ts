@@ -2,8 +2,9 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store, type RunRecord, type RunTicket } from '@forge/shared';
-import { setupTimeoutOf, type RuntimeConfig } from './config.ts';
-import type { Worker, Workspace } from './harness.ts';
+import { setupTimeoutOf, sharedMemoryMaxOf, type RuntimeConfig } from './config.ts';
+import { withContext, type Worker, type Workspace } from './harness.ts';
+import { resourceNote, thisBox, type Box } from './resources.ts';
 import { stateDirOf } from './environment.ts';
 import { builtInHarnesses, harnessFor, type HarnessRegistry } from './harnesses.ts';
 import {
@@ -54,6 +55,7 @@ export interface LaunchOptions {
   ticket?: RunTicket;
   secrets?: () => readonly string[];
   runId?: string;
+  box?: Box;
 }
 
 export interface LaunchResult {
@@ -72,6 +74,7 @@ export const launchWorkload = async ({
   ticket,
   secrets = () => [],
   runId = randomUUID(),
+  box = thisBox(),
 }: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
   const harnessConfig = Object.hasOwn(config.harnesses, worker.harness)
@@ -80,10 +83,15 @@ export const launchWorkload = async ({
   if (harnessConfig === undefined) {
     throw new Error(`unsupported harness '${worker.harness}'`);
   }
+  const told: Worker = {
+    ...worker,
+    prompt: withContext(worker.prompt, resourceNote(sharedMemoryMaxOf(config), box)),
+    promptTemplate: worker.promptTemplate ?? worker.prompt,
+  };
   const harness = harnessFor(harnesses, {
     name: worker.harness,
     config: harnessConfig,
-    worker,
+    worker: told,
     env,
     harnessEnv,
     stateDir,
@@ -100,7 +108,7 @@ export const launchWorkload = async ({
     const { id, finalMessage, cause } = await runWorkload({
       store,
       harness,
-      worker,
+      worker: told,
       openTranscript: (runId) => JsonLinesFile.transcript(transcriptsDir, runId),
       openRawEvents: (runId) => JsonLinesFile.rawEvents(transcriptsDir, runId),
       openRequestRecord: (runId) =>

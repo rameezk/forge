@@ -60,7 +60,8 @@ let
     }
     environment='for name in PATH LOCALE_ARCHIVE TZDIR LANG; do printf "%s=%s\n" "$name" "''${!name-}"; done'
     tools='for tool in gh git cat; do if command -v "$tool" > /dev/null; then echo "$tool resolved"; else echo "$tool missing"; fi; done'
-    case "''${@: -1}" in
+    prompt="''${@: -1}"
+    case "''${prompt%%$'\n'*}" in
       plant)
         echo '[credential]' > "$HOME/.gitconfig" && echo planted > planted.out
         echo planted > /tmp/planted

@@ -57,7 +57,13 @@ export const quietPeriodOf = (config: RuntimeConfig): number =>
 
 export interface WorkloadConfig {
   setupTimeoutSeconds?: number;
+  sharedMemoryMax?: string;
 }
+
+export const DEFAULT_SHARED_MEMORY_MAX = '80%';
+
+export const sharedMemoryMaxOf = (config: RuntimeConfig): string =>
+  config.workload?.sharedMemoryMax ?? DEFAULT_SHARED_MEMORY_MAX;
 
 export const DEFAULT_SETUP_TIMEOUT_SECONDS = 1800;
 
