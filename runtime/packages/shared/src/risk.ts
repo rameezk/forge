@@ -42,7 +42,7 @@ const rowOf = (level: RiskLevel, unsettled: boolean, grades: RecordedRiskGrade[]
     ]),
   ) as Record<SupersedeCause, number>;
   const closed = count('closed');
-  const judged = merged + supersededBy.revision + supersededBy.other + supersededBy.unknown + closed;
+  const judged = merged + closed + grades.filter((grade) => grade.outcome === 'superseded').length - supersededBy['conflict-resolution'];
   return {
     level,
     unsettled,

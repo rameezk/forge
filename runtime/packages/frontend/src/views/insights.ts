@@ -366,7 +366,7 @@ const renderRiskRow = (row: RiskRow): Rendered => {
     ${count('prs', row.pullRequests)}
     ${count('merged', row.merged)}
     ${SUPERSEDE_COLUMNS.map(({ cause, muted }, index) => count(`superseded-${cause}`, row.supersededBy[cause], `${muted ? MUTED : ''}${index === 0 ? DIVIDER : ''}`))}
-    ${count('closed', row.closed, ' border-l border-l-line')}
+    ${count('closed', row.closed, DIVIDER)}
     ${count('open', row.open)}
     <td class="${COHORT_TD}" data-metric="confidence">${row.medianConfidence === null ? 'n/a' : row.medianConfidence.toFixed(2)}</td>
   </tr>`;
