@@ -420,10 +420,10 @@ const summaryCard = (name: string, label: string, body: Rendered): Rendered =>
     ${body}
   </section>`;
 
-const renderRiskSummary = ({ graded, failed, coverage, costUsd, costPerGrade, candidates }: RiskSummary): Rendered =>
+const renderRiskSummary = ({ graded, attempted, failed, coverage, costUsd, costPerGrade, candidates }: RiskSummary): Rendered =>
   html`<div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3" data-risk-cards>
     ${summaryCard('coverage', 'Coverage', html`<p class="${CARD_FIGURE}" data-metric="coverage">${formatRate(coverage)}</p>
-      <p class="${CARD_DETAIL}" data-metric="coverage-count">${graded} of ${graded + GRADING_FAILURES.reduce((total, category) => total + failed[category], 0)} heads graded</p>
+      <p class="${CARD_DETAIL}" data-metric="coverage-count">${graded} of ${attempted} heads graded</p>
       <p class="${CARD_DETAIL}" data-metric="coverage-failed">${GRADING_FAILURES.map((category, index) => html`${index === 0 ? '' : ' · '}<span data-failed="${category}">${FAILURE_LABELS[category]} ${failed[category]}</span>`)}</p>`)}
     ${summaryCard('cost', 'Grading cost', html`<p class="${CARD_FIGURE}" data-metric="cost-total">${formatBudget(costUsd)} total</p>
       <p class="${CARD_DETAIL}" data-metric="cost-per-grade">${costPerGrade === null ? 'n/a' : formatBudget(costPerGrade)} per grade</p>`)}

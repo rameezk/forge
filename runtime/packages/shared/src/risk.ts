@@ -67,6 +67,7 @@ export const aggregateRisk = (grades: RecordedRiskGrade[]): RiskRow[] =>
 
 export interface RiskSummary {
   graded: number;
+  attempted: number;
   failed: Record<GradingFailure, number>;
   coverage: number | null;
   costUsd: number;
@@ -79,12 +80,14 @@ export const summarizeRisk = (grades: RecordedRiskGrade[], failedHeads: GradingF
     GRADING_FAILURES.map((category) => [category, failedHeads.filter((failure) => failure === category).length]),
   ) as Record<GradingFailure, number>;
   const costUsd = grades.reduce((total, grade) => total + grade.costUsd, 0);
+  const candidateLevels = RISK_GROUPS.find(({ key }) => key === 'candidates')?.levels ?? [];
   const candidates = aggregateRisk(grades)
-    .filter(({ level, unsettled }) => RISK_GROUPS[0]!.levels.includes(level) && !unsettled)
+    .filter(({ level, unsettled }) => candidateLevels.includes(level) && !unsettled)
     .reduce((total, row) => ({ merged: total.merged + row.merged, judged: total.judged + row.judged }), { merged: 0, judged: 0 });
   const attempted = grades.length + failedHeads.length;
   return {
     graded: grades.length,
+    attempted,
     failed,
     coverage: attempted === 0 ? null : grades.length / attempted,
     costUsd,
