@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, ticketKey, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
+import { aggregateRisk, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, ticketKey, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
 import { renderTicketAttempts } from './views/attempts.ts';
 import { renderBoard } from './views/board.ts';
 import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
-import { DEFAULT_INSIGHTS_TAB, defaultKindOf, INSIGHTS_TABS, renderCohortPage, renderInsights, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
+import { DEFAULT_INSIGHTS_TAB, defaultKindOf, INSIGHTS_TABS, renderCohortPage, renderInsights, renderRisk, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
 import { NAV_PAGES, type AssetHrefs, type Display } from './views/shared.ts';
 import type { DeployStatus } from './deploy-status.ts';
@@ -159,12 +159,13 @@ export const createApp = ({
       includeManual: tab !== 'failures' && query['manual'] === '1',
       ...(query['worker'] ? { worker: query['worker'] } : {}),
       ...(query['repository'] ? { repository: query['repository'] } : {}),
+      ...(query['cohort'] ? { cohort: query['cohort'] } : {}),
       ...(from === undefined ? {} : { from }),
       ...(to === undefined ? {} : { to }),
     };
   };
 
-  const filterOf = ({ from, to, tab: _tab, ...rest }: InsightsQuery): InsightsFilter => {
+  const filterOf = ({ from, to, tab: _tab, cohort: _cohort, ...rest }: InsightsQuery): InsightsFilter => {
     const { startedFrom, startedBefore } = dayRange(from, to, timeZone);
     return {
       ...rest,
@@ -176,6 +177,18 @@ export const createApp = ({
   app.get('/insights', (c) => {
     const shown = displayOf(c);
     const query = queryOf(c.req.query());
+    if (query.tab === 'risk') {
+      const options = store.riskOptions();
+      const fingerprint = query.cohort ?? options.cohorts[0];
+      const { startedFrom, startedBefore } = dayRange(query.from, query.to, timeZone);
+      const grades = fingerprint === undefined ? [] : store.listRiskGrades({
+        fingerprint,
+        ...(query.repository === undefined ? {} : { repository: query.repository }),
+        ...(startedFrom === undefined ? {} : { gradedFrom: new Date(startedFrom).toISOString() }),
+        ...(startedBefore === undefined ? {} : { gradedBefore: new Date(startedBefore).toISOString() }),
+      });
+      return c.html(renderRisk(aggregateRisk(grades), { ...query, ...(fingerprint === undefined ? {} : { cohort: fingerprint }) }, options, shown));
+    }
     const filter = filterOf(query);
     return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), query, store.insightsOptions(), shown));
   });

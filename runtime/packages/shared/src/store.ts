@@ -53,6 +53,7 @@ import { STALE_AFTER_MS } from './heartbeat.ts';
 import { DIAGNOSED_FAILURES } from './diagnosis.ts';
 import type { DiagnosisCategory, DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from './diagnosis.ts';
 import { aggregateCohorts, outcomeOf } from './insights.ts';
+import type { RiskFilter, RiskOptions } from './risk.ts';
 import type { ActivePair, CohortActivity, CohortInsight, InsightKind, InsightOutcome, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
 import type { RunSkillLoad } from './skill-loads.ts';
 import type {
@@ -3080,6 +3081,36 @@ export class Store {
         ORDER BY risk_grades.repository, risk_grades.number`,
       )
       .all() as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
+  }
+
+  riskOptions(): RiskOptions {
+    const column = (sql: string): string[] =>
+      (this.#db.prepare(sql).all() as { value: string }[]).map(({ value }) => value);
+    return {
+      cohorts: column(
+        'SELECT fingerprint AS value FROM risk_grades GROUP BY fingerprint ORDER BY max(graded_at) DESC, fingerprint',
+      ),
+      repositories: column('SELECT DISTINCT repository AS value FROM risk_grades ORDER BY repository'),
+    };
+  }
+
+  listRiskGrades(filter: RiskFilter): RecordedRiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM risk_grades
+        WHERE fingerprint = $fingerprint
+          AND ($repository IS NULL OR repository = $repository)
+          AND ($graded_from IS NULL OR graded_at >= $graded_from)
+          AND ($graded_before IS NULL OR graded_at < $graded_before)
+        ORDER BY graded_at, repository, number`,
+      )
+      .all({
+        fingerprint: filter.fingerprint,
+        repository: filter.repository ?? null,
+        graded_from: filter.gradedFrom ?? null,
+        graded_before: filter.gradedBefore ?? null,
+      }) as RiskGradeRow[];
     return rows.map(riskGradeFromRow);
   }
 
