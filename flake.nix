@@ -214,6 +214,39 @@
                 "flakes"
               ])
               "the forge.runtime module must enable nix-command and flakes box-wide, so a workload can run nix run and nix print-dev-env";
+          systemFeaturesOf = host: host.config.nix.settings.system-features;
+          boxDoesNotClaimKvm =
+            lib.asserts.assertMsg
+              (
+                lib.all (feature: lib.elem feature (systemFeaturesOf nixos)) [
+                  "nixos-test"
+                  "benchmark"
+                  "big-parallel"
+                ]
+                && !(lib.elem "kvm" (systemFeaturesOf nixos))
+              )
+              "the forge.runtime module must not advertise the kvm nix system feature, which the box lacks, so a VM-test build is refused at once instead of crawling under emulation, and must keep nixos-test, benchmark and big-parallel";
+          featuresWith =
+            definition:
+            systemFeaturesOf (mkHost {
+              configFile = exampleConfigFile;
+              secretsFile = exampleSecretsFile;
+              modules = [ { nix.settings.system-features = definition; } ];
+            });
+          operatorCanAddKvmBack =
+            lib.asserts.assertMsg
+              (
+                featuresWith [
+                  "kvm"
+                  "nixos-test"
+                ] == [
+                  "kvm"
+                  "nixos-test"
+                ]
+                && featuresWith (lib.mkAfter [ "kvm" ]) == [ "kvm" ]
+                && featuresWith (lib.mkForce [ "kvm" ]) == [ "kvm" ]
+              )
+              "a host that sets nix.settings.system-features, as a plain list, with mkAfter or with mkForce, must get exactly its own list, so an operator whose host has KVM can add kvm back";
           storeCollectedWeekly =
             lib.asserts.assertMsg
               (
@@ -1906,6 +1939,8 @@
 
           runtime-nix =
             assert flakesEnabled;
+            assert boxDoesNotClaimKvm;
+            assert operatorCanAddKvmBack;
             assert storeCollectedWeekly;
             assert nixInToolset;
             assert runtimeNeverTrusted;

@@ -1071,6 +1071,11 @@ collected: profile generations older than 14 days, the box's own system
 generations included, are deleted, and then every store path nothing roots,
 whatever its age. Run directories age out after the same 14 days.
 
+The box does not advertise the `kvm` nix system feature, so a build that needs
+it, such as a NixOS VM test, is refused at once instead of crawling under
+emulation. A host that really has KVM adds it back by setting
+`nix.settings.system-features` to its own list, which includes `kvm`.
+
 `forge-runtime` is never a trusted nix user, so a workload cannot add unsigned
 paths or change substituters, and cannot plant a tool for a later workload
 through the store. A host that makes it trusted in `nix.settings.trusted-users`
