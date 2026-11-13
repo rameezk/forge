@@ -2,7 +2,7 @@ import { html, raw } from 'hono/html';
 import { isGithubRepository, isGithubUrl, ticketKey, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type GradingStatus, type RecordedRiskGrade, type RiskLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
-import { formatCost, formatElapsed } from '../format.ts';
+import { formatElapsed } from '../format.ts';
 import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type RiskInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
@@ -375,7 +375,6 @@ const renderDeployErrors = (deploy: DeployStatus | null): Rendered =>
     : html`${deploy.error === null ? '' : html`<p id="deploy-error" data-deploy-error class="${ERROR_CALLOUT} mb-3 scroll-mt-4 whitespace-pre-line text-xs">${deploy.error}</p>`}${deploy.bumpError === null ? '' : html`<p id="bump-error" data-bump-error class="${ERROR_CALLOUT} mb-3 scroll-mt-4 whitespace-pre-line text-xs">Forge bump: ${deploy.bumpError}</p>`}`;
 
 export interface GradingView extends RiskInputs {
-  costUsd: number;
   status: GradingStatus;
 }
 
@@ -394,11 +393,6 @@ const renderGradingStatus = ({ repositories, status }: GradingView): Rendered =>
   return html`<p data-grading-status data-grading-failing="${failure.category}" class="m-0 mb-3 text-xs text-warning" title="${failure.message}">${renderSucceeded(status.lastSucceededAt)} - failing: ${failure.category} - ${failure.message}</p>`;
 };
 
-const renderGradingCost = ({ repositories, costUsd }: GradingView): Rendered =>
-  repositories.size === 0 && costUsd === 0
-    ? ''
-    : html`<p data-grading-cost title="What grading has cost, apart from every workload's cost and budget" class="m-0 mb-3 text-xs text-muted tabular-nums">Grading cost ${formatCost(costUsd)}</p>`;
-
 export const renderBoard = (
   frontier: RepositoryFrontier[],
   dispatches: DispatchRecord[],
@@ -411,13 +405,12 @@ export const renderBoard = (
   display: Display,
   grouping: Grouping = 'none',
   deploy: DeployStatus | null = null,
-  grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map(), costUsd: 0, status: { lastSucceededAt: null, failure: null } },
+  grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map(), status: { lastSucceededAt: null, failure: null } },
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, grading);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
     ${renderDeployErrors(deploy)}
     ${renderGradingStatus(grading)}
-    ${renderGradingCost(grading)}
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">

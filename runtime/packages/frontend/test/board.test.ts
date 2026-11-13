@@ -1105,19 +1105,19 @@ test('given a repository with grading off, when the Board is requested, then its
   assert.doesNotMatch(cardOf(body, 5), /data-risk/);
 });
 
-test('given grades recorded with costs, when the Board is requested, then a grading cost line shows their sum and no workload cost includes it', async () => {
+test('given grades recorded with costs, when the Board is requested, then it shows no grading cost line and the Risk tab cost card shows their sum', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head0', { costUsd: 0.125 }));
-    store.recordRiskGrade(gradeOf(105, 'head1', { costUsd: 0.25 }));
+    store.recordRiskGrade(gradeOf(105, 'head0', { costUsd: 0.002 }));
+    store.recordRiskGrade(gradeOf(105, 'head1', { costUsd: 0.004 }));
   }, undefined, undefined, GRADING);
 
   const body = await (await app.request('/')).text();
-  const line = /<[^>]*\sdata-grading-cost[^>]*>[\s\S]*?<\/p>/.exec(body)?.[0] ?? '';
+  const risk = await (await app.request('/insights?tab=risk')).text();
 
-  assert.equal(readable(line), 'Grading cost $0.375000');
-  assert.doesNotMatch(readable(cardOf(body, 5)), /\$/);
+  assert.doesNotMatch(body, /data-grading-cost|Grading cost/);
+  assert.match(readable(/<[^>]*data-metric="cost-total"[^>]*>[\s\S]*?<\/p>/.exec(risk)?.[0] ?? ''), /\$0\.006/);
 });
 
 const attemptOf = (number: number, headSha: string, category: GradingFailure, message: string, attemptedAt = '2026-10-01T10:00:00.000Z'): GradingAttempt => ({

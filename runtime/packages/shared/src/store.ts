@@ -3186,13 +3186,6 @@ export class Store {
     return rows.map(({ category }) => category as GradingFailure);
   }
 
-  gradingCostUsd(): number {
-    const row = this.#db
-      .prepare('SELECT coalesce(sum(cost_usd), 0) AS cost FROM risk_grades')
-      .get() as { cost: number };
-    return row.cost;
-  }
-
   gradesAwaitingDisplay(repositories: readonly string[]): DisplayedGrade[] {
     const rows = this.#db
       .prepare(
