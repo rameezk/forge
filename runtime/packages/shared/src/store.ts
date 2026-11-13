@@ -1053,8 +1053,11 @@ export interface GradingAttempt {
 
 export interface GradingStatus {
   lastSucceededAt: string | null;
+  failingSince: string | null;
   failure: GradingAttempt | null;
 }
+
+const GRADING_FAILURE_SEVERITY: readonly GradingFailure[] = ['setup', 'bug', 'temporary'];
 
 const GRADING_RETRY_BASE_MS = 30_000;
 
@@ -3111,10 +3114,22 @@ export class Store {
       .filter(({ category }) => RETRIED_GRADING_FAILURES.includes(category))
       .toSorted(
         (a, b) =>
-          Number(b.category === 'setup') - Number(a.category === 'setup') ||
+          GRADING_FAILURE_SEVERITY.indexOf(a.category) - GRADING_FAILURE_SEVERITY.indexOf(b.category) ||
           (a.attemptedAt < b.attemptedAt ? 1 : -1),
       );
-    return { lastSucceededAt: succeeded.at, failure: failing[0] ?? null };
+    if (failing.length === 0) return { lastSucceededAt: succeeded.at, failingSince: null, failure: null };
+    const firstFailed = this.#db
+      .prepare(
+        `SELECT min(attempted_at) AS at FROM grading_attempts
+        WHERE category IN (SELECT value FROM json_each($categories))
+          AND (repository, number, head_sha) IN (
+            SELECT value ->> 0, value ->> 1, value ->> 2 FROM json_each($heads))`,
+      )
+      .get({
+        categories: JSON.stringify(RETRIED_GRADING_FAILURES),
+        heads: JSON.stringify(failing.map(({ repository, number, headSha }) => [repository, number, headSha])),
+      }) as { at: string };
+    return { lastSucceededAt: succeeded.at, failingSince: succeeded.at === null || firstFailed.at < succeeded.at ? firstFailed.at : succeeded.at, failure: failing[0]! };
   }
 
   currentRiskGrades(): RecordedRiskGrade[] {
