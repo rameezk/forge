@@ -16,13 +16,11 @@ let
         && !(lib.hasSuffix "/modules/config/nix.nix" (toString definition.file))
       ) options.nix.settings.definitionsWithLocations;
     in
-    lib.concatMap (
-      definition:
-      let
-        features = definition.value.system-features or [ ];
-      in
-      if lib.isList features then features else [ ]
-    ) fromOperator;
+    lib.filter (features: (features._type or null) != "override") (
+      lib.concatMap (
+        definition: lib.optional (definition.value ? system-features) definition.value.system-features
+      ) fromOperator
+    );
 
   harnessProviders = lib.importJSON ../../runtime/packages/runner/src/harness-providers.json;
   harnessEfforts = lib.importJSON ../../runtime/packages/runner/src/reasoning-efforts.json;
@@ -875,11 +873,15 @@ in
 
       security.allowUserNamespaces = true;
 
-      nix.settings.system-features = lib.mkOverride 90 (
+      nix.settings.system-features = lib.mkMerge (
         if operatorSystemFeatures != [ ] then
-          operatorSystemFeatures
+          map (lib.mkOverride 90) operatorSystemFeatures
         else
-          lib.remove "kvm" (options.nix.settings.type.getSubOptions [ ]).system-features.default
+          [
+            (lib.mkOverride 90 (
+              lib.remove "kvm" (options.nix.settings.type.getSubOptions [ ]).system-features.default
+            ))
+          ]
       );
 
       nix.settings.experimental-features = [

@@ -226,27 +226,27 @@
                 && !(lib.elem "kvm" (systemFeaturesOf nixos))
               )
               "the forge.runtime module must not advertise the kvm nix system feature, which the box lacks, so a VM-test build is refused at once instead of crawling under emulation, and must keep nixos-test, benchmark and big-parallel";
-          kvmOperatorHost = mkHost {
-            configFile = exampleConfigFile;
-            secretsFile = exampleSecretsFile;
-            modules = [
-              {
-                nix.settings.system-features = [
-                  "kvm"
-                  "nixos-test"
-                ];
-              }
-            ];
-          };
+          featuresWith =
+            definition:
+            systemFeaturesOf (mkHost {
+              configFile = exampleConfigFile;
+              secretsFile = exampleSecretsFile;
+              modules = [ { nix.settings.system-features = definition; } ];
+            });
           operatorCanAddKvmBack =
             lib.asserts.assertMsg
               (
-                systemFeaturesOf kvmOperatorHost == [
+                featuresWith [
+                  "kvm"
+                  "nixos-test"
+                ] == [
                   "kvm"
                   "nixos-test"
                 ]
+                && featuresWith (lib.mkAfter [ "kvm" ]) == [ "kvm" ]
+                && featuresWith (lib.mkForce [ "kvm" ]) == [ "kvm" ]
               )
-              "a host that sets nix.settings.system-features must get exactly its own list, so an operator whose host has KVM can add kvm back";
+              "a host that sets nix.settings.system-features, as a plain list, with mkAfter or with mkForce, must get exactly its own list, so an operator whose host has KVM can add kvm back";
           storeCollectedWeekly =
             lib.asserts.assertMsg
               (
