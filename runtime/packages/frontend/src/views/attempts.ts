@@ -2,7 +2,7 @@ import { html, raw } from 'hono/html';
 import { isGithubUrl, type AttemptConflictResolution, type AttemptRevision, type PullRequestState, type PullRequestWorkloadRecord, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
-import { FAILED_TONE, renderWorkloadOutcome, renderStatusBeside, PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
+import { FAILED_TONE, renderWorkloadOutcome, renderStatusBeside, PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, CLICKABLE_ROW, ROW_LINK, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
 
 type AttemptLabel = PullRequestState | 'running' | 'interrupted' | 'exceeded' | 'failed';
 
@@ -57,8 +57,8 @@ const renderWorkload = (
   run: RunRecord,
   timeZone: string,
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
-  html`<tr class="${ROW}" ${raw(kind === 'revision' ? 'data-revision' : 'data-conflict-resolution')}="${run.id}">
-    <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime, timeZone)}</a> <span class="text-muted">${kind}</span></td>
+  html`<tr class="${CLICKABLE_ROW}" ${raw(kind === 'revision' ? 'data-revision' : 'data-conflict-resolution')}="${run.id}">
+    <td class="${TD} whitespace-nowrap pl-8" data-field="run"><span class="text-muted" aria-hidden="true">&crarr; </span><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK} ${ROW_LINK}" data-row-link>${renderDate(run.startTime, timeZone)}</a> <span class="text-muted">${kind}</span></td>
     <td class="${TD}"></td>
     <td class="${TD}"></td>
     <td class="${TD}" data-field="outcome"><div class="flex items-center gap-1.5">${renderWorkloadOutcome(workload)}${renderStatusBeside(run.status)}</div>${renderWorkloadFailure(workload)}</td>
@@ -92,8 +92,8 @@ const renderConflictResolution = ({ conflictResolution, run }: AttemptConflictRe
 
 const renderAttempt = (attempt: TicketAttempt, timeZone: string): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const { run, config, pullRequest } = attempt;
-  return html`<tr class="${ROW}" data-attempt="${run.id}">
-    <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK}">${renderDate(run.startTime, timeZone)}</a></td>
+  return html`<tr class="${CLICKABLE_ROW}" data-attempt="${run.id}">
+    <td class="${TD} whitespace-nowrap" data-field="run"><a href="/runs/${encodeURIComponent(run.id)}" class="${LINK} ${ROW_LINK}" data-row-link>${renderDate(run.startTime, timeZone)}</a></td>
     <td class="${TD}" data-field="cohort">${renderCohortLink(config?.hash ?? null, config?.fingerprint ?? null)}</td>
     <td class="${TD} whitespace-nowrap tabular-nums" data-field="base-commit">${renderBaseCommit(config)}</td>
     <td class="${TD}" data-field="outcome">${renderOutcome(attempt)}</td>
