@@ -2271,6 +2271,40 @@ test('given a worker with a one-second timeout and a pi that keeps running, when
   assert.equal(isAlive(pi.pid), false);
 });
 
+test('given a run that ends error or exceeded, when the worker runs, then the journal names the run, how it ended and why, and a successful run adds no such line', async () => {
+  const failed = await journaled(() =>
+    runWorker({
+      output: fixture('success.jsonl'),
+      env: { FORGE_BWRAP: '/nix/store/00000000000000000000000000000000-bubblewrap/bin/bwrap', FORGE_BROKER: '/not/used', FORGE_BROKER_CLIENT: '/not/used' },
+    }),
+  );
+  const exceeded = await journaled(() =>
+    runWorker({
+      output: cutBefore('success.jsonl', 'agent_end'),
+      lingerMs: 10_000,
+      worker: { timeoutSeconds: 1 },
+    }),
+  );
+  const succeeded = await journaled(() => runWorker({ output: fixture('success.jsonl') }));
+
+  assert.equal(failed.result.code, 1);
+  assert.ok(
+    failed.journal.includes(
+      `run ${failed.result.run.id} ended error: the tools sandbox could not start: spawn /not/used ENOENT\n`,
+    ),
+    failed.journal,
+  );
+  assert.equal(exceeded.result.code, 1);
+  assert.ok(
+    exceeded.journal.includes(
+      `run ${exceeded.result.run.id} ended exceeded: the workload was stopped after its timeout was exceeded\n`,
+    ),
+    exceeded.journal,
+  );
+  assert.equal(succeeded.result.code, 0);
+  assert.ok(!succeeded.journal.includes(`run ${succeeded.result.run.id} ended`), succeeded.journal);
+});
+
 test('given a worker with a budget the first generation\'s estimated cost passes and a pi that keeps running, when the worker runs, then pi is killed and the run ends exceeded on its budget with the budget recorded and the runner exits as for a failure', async () => {
   const openRouter = await fakeOpenRouter(billedAt({}), LISTED_MODELS);
   try {

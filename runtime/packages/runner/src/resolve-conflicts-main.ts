@@ -23,7 +23,7 @@ import { CONFLICT_INSTRUCTION, conflictBrief, withContext } from './harness.ts';
 import { conflictedFiles, containsCommit } from './merge.ts';
 import { SetupTimedOut } from './setup.ts';
 import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
-import { readRuntimeConfig, stateDirOf } from './workload.ts';
+import { exitCodeOf, readRuntimeConfig, reportFailedRun, stateDirOf } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
 
@@ -248,6 +248,7 @@ export const main = async (
               reason: 'errored',
               detail: launched.run.error,
             });
+            reportFailedRun(launched.run);
             return 1;
           }
           if (launched.run.harnessStartTime == null) {
@@ -256,10 +257,11 @@ export const main = async (
               launched.run.error ?? errorMessage(launched.cause),
               now(),
             );
+            reportFailedRun(launched.run);
             return 1;
           }
           ended = endOf(launched);
-          code = launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
+          code = exitCodeOf(launched.run);
           try {
             if (ended.state === 'done') {
               failure = await unmetCondition({

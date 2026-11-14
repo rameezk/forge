@@ -22,7 +22,7 @@ import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request
 import { SetupTimedOut } from './setup.ts';
 import { gitEnvironment } from './git.ts';
 import { REVISION_INSTRUCTION, revisionContext, withContext } from './harness.ts';
-import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
+import { exitCodeOf, readRuntimeConfig, reportFailedRun, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
 
@@ -171,6 +171,7 @@ export const main = async (
             reason: 'errored',
             detail: launched.run.error,
           });
+          reportFailedRun(launched.run);
           return 1;
         }
         if (launched.run.harnessStartTime == null) {
@@ -179,6 +180,7 @@ export const main = async (
             launched.run.error ?? errorMessage(launched.cause),
             now(),
           );
+          reportFailedRun(launched.run);
           return 1;
         }
         ended = endOf(launched);
@@ -209,9 +211,8 @@ export const main = async (
       }
       const final = failure === undefined ? ended : { state: 'failed' as const, failure };
       store.endRevision(revisionId, final.state, now(), final.failure);
-      return failure !== undefined || launched.run.status === 'error' || launched.run.status === 'exceeded'
-        ? 1
-        : 0;
+      const code = exitCodeOf(launched.run);
+      return failure !== undefined ? 1 : code;
     } finally {
       stopHeartbeat();
     }

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { resolveWorker } from './config.ts';
-import { launchWorkload, readRuntimeConfig } from './workload.ts';
+import { exitCodeOf, launchWorkload, readRuntimeConfig } from './workload.ts';
 
 export const main = async (
   argv: string[],
@@ -21,7 +21,7 @@ export const main = async (
       return { workDir };
     },
   });
-  return run.status === 'error' || run.status === 'exceeded' ? 1 : 0;
+  return exitCodeOf(run);
 };
 
 if (import.meta.filename === process.argv[1]) {

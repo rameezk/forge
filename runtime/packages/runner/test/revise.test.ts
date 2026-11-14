@@ -1014,6 +1014,28 @@ test('given a worker checkout whose clone never finishes, when forge-revise runs
   ]);
 });
 
+test('given a revision whose run ends error at setup or exceeded on its timeout, when forge-revise exits, then the journal names the run, how it ended and why', async () => {
+  const stuck = await revise({ hangingClone: true, setupTimeoutSeconds: 1 });
+  const exceeded = await revise({ piLingerMs: 10_000, timeoutSeconds: 1 });
+
+  assert.equal(stuck.code, 1);
+  assert.ok(
+    stuck.complaints
+      .split('\n')
+      .includes(`run ${stuck.runs[0]?.id} ended error: setup did not finish within 1s, stuck in the clone`),
+    stuck.complaints,
+  );
+  assert.equal(exceeded.code, 1);
+  assert.ok(
+    exceeded.complaints
+      .split('\n')
+      .includes(
+        `run ${exceeded.runs[0]?.id} ended exceeded: the workload was stopped after its timeout was exceeded`,
+      ),
+    exceeded.complaints,
+  );
+});
+
 test('given launching the worker throws, when forge-revise runs, then the revision is a failed start with the message as detail', async () => {
   const { code, thrown, pi, revisions } = await revise({ piPackage: join(tmpdir(), 'forge-missing-pi-package') });
 

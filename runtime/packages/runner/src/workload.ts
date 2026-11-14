@@ -64,6 +64,14 @@ export interface LaunchResult {
   cause: unknown;
 }
 
+export const reportFailedRun = (run: RunRecord): boolean => {
+  if (run.status !== 'error' && run.status !== 'exceeded') return false;
+  console.error(`run ${run.id} ended ${run.status}: ${run.error ?? 'no reason was recorded'}`);
+  return true;
+};
+
+export const exitCodeOf = (run: RunRecord): number => (reportFailedRun(run) ? 1 : 0);
+
 export const launchWorkload = async ({
   config,
   worker,

@@ -42,7 +42,7 @@ import { dispatchContext, withContext } from './harness.ts';
 import { SkillNotFound } from './checkout.ts';
 import { launchInCheckout } from './checkout-workload.ts';
 import { DevShellFailed, nixErrorOf } from './devshell.ts';
-import { readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
+import { exitCodeOf, readRuntimeConfig, stateDirOf, type LaunchResult } from './workload.ts';
 
 const now = (): string => new Date().toISOString();
 
@@ -334,7 +334,7 @@ export const main = async (
         ticket.number,
         outcome.state,
       );
-      return launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
+      return exitCodeOf(launched.run);
     } finally {
       stopHeartbeat();
     }

@@ -1502,6 +1502,28 @@ test('given a dispatched ticket whose devShell never finishes, when forge-dispat
   assert.equal(labelWrites.filter(({ path }) => path.endsWith('/comments')).length, 1);
 });
 
+test('given a dispatched ticket whose run ends error, when forge-dispatch exits, then the journal names the run, how it ended and why', async () => {
+  const { result, journal } = await journaled(() =>
+    dispatch({
+      origin: originWith({
+        '.claude/skills/work-on/SKILL.md': SKILL,
+        'flake.nix': FLAKE,
+      }),
+      nix: { hangs: true },
+      setupTimeoutSeconds: 1,
+      pullRequests: closing('no-pull-request'),
+    }),
+  );
+
+  assert.equal(result.code, 1);
+  assert.ok(
+    journal.includes(
+      `run ${result.runs[0]?.id} ended error: setup did not finish within 1s, stuck in the devShell\n`,
+    ),
+    journal,
+  );
+});
+
 const NIX_BUILD_FAILURE = [
   "building '/nix/store/00000000000000000000000000000000-broken-tool.drv'...",
   "error: builder for '/nix/store/00000000000000000000000000000000-broken-tool.drv' failed with exit code 3;",

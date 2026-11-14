@@ -624,6 +624,15 @@ test('given a harness that fails, when the conflict resolution ends, then it end
   assert.equal(requests.some((query) => query.includes('mutation')), false);
 });
 
+test('given a harness that fails, when forge-resolve-conflicts exits, then the journal names the run, how it ended and why', async () => {
+  const { code, runs, complaints } = await resolve({ harnessEnv: { FAKE_PI_EXIT: '1' } });
+
+  const run = runs[0];
+  assert.equal(code, 1);
+  assert.equal(run?.status, 'error');
+  assert.ok(complaints.split('\n').includes(`run ${run?.id} ended error: ${run?.error}`), complaints);
+});
+
 test('given a repository the trial merge cannot clone, when forge-resolve-conflicts runs, then the conflict resolution is a failed start with no run, the clone error as detail, and no worker starts', async () => {
   const { code, resolutions, runs, pi } = await resolve({ failingClone: 1 });
 
