@@ -164,6 +164,10 @@ Every pull request and every push to `main` runs [`.github/workflows/ci.yml`](.g
 
 Every run pulls from the public Cachix cache [`rameezk-forge`](https://rameezk-forge.cachix.org). Only a push to `main` also pushes what it built, authenticated by `CACHIX_AUTH_TOKEN`, a Cachix auth token with write access to the cache. The token is a secret of the `cachix` environment, not a repository secret, and the environment's deployment branch policy allows only `main`. GitHub releases it only to a job running on `main`, so code on any other branch cannot read it or write to the cache that later runs trust, even by adding or editing a workflow. Paths already on `cache.nixos.org` are not pushed, because the cache lists `cache.nixos.org` as an upstream.
 
+## Contributing
+
+Issues are welcome, but Forge does not take outside pull requests. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Learn more
 
 - [`docs/CONTEXT.md`](docs/CONTEXT.md) - the shared language

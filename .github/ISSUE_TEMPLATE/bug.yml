@@ -1,0 +1,35 @@
+name: Bug report
+description: Something in Forge does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Forge does not take outside pull requests, so please describe the problem here rather than sending a fix. See [CONTRIBUTING.md](https://github.com/rameezk/forge/blob/main/CONTRIBUTING.md).
+
+        For a security vulnerability, [report it privately](https://github.com/rameezk/forge/security/advisories/new) instead.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What you saw, including any error messages or log lines.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: The steps, configuration or command that shows the problem.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Forge version
+      description: The Forge commit or release your operator repository pins.
