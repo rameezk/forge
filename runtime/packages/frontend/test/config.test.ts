@@ -108,4 +108,5 @@ test('given the dispatch order and repository priorities, when resolved, then th
   assert.deepEqual(config.repositoryPriorities, { forge: 10, site: -2 });
   assert.throws(() => resolveServeConfig({ ...base, FORGE_DISPATCH_ORDER: 'newest' }), /FORGE_DISPATCH_ORDER/);
   assert.throws(() => resolveServeConfig({ ...base, FORGE_REPOSITORY_PRIORITIES: 'forge=high' }), /FORGE_REPOSITORY_PRIORITIES/);
+  assert.throws(() => resolveServeConfig({ ...base, FORGE_REPOSITORY_PRIORITIES: 'forge=' }), /FORGE_REPOSITORY_PRIORITIES/);
 });

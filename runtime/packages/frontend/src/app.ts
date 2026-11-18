@@ -142,7 +142,7 @@ export const createApp = ({
       if (run !== undefined) runs.set(run.id, run);
     }
     const frontier = store.listFrontier();
-    const ordering = { order: dispatchOrder, priorities: new Map(Object.entries(repositoryPriorities)), urgencies: certainUrgencies(store, frontier) };
+    const ordering = { order: dispatchOrder, priorities: new Map(Object.entries(repositoryPriorities)), urgencies: certainUrgencies(store, frontier, dispatchOrder) };
     return c.html(renderBoard(frontier, dispatches, revisions, conflictResolutions, store.closesByPullRequest(), runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }, ordering));
   });
 

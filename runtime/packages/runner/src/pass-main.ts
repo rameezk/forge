@@ -39,10 +39,11 @@ const dispatchable = (
   running: ReadonlySet<string>,
 ): Dispatchable[] => {
   const frontier = store.listFrontier();
+  const order = dispatchOrderOf(config);
   const byOrder = dispatchOrder(frontier, {
-    order: dispatchOrderOf(config),
+    order,
     priorities: repositoryPrioritiesOf(config),
-    urgencies: certainUrgencies(store, frontier),
+    urgencies: certainUrgencies(store, frontier, order),
   });
   return frontier
     .filter(({ repository, lastError }) => lastError === null && declaresTicketWorker(config, repository))

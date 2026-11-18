@@ -28,8 +28,10 @@ export const OLDEST_FIRST: DispatchOrdering = {
 export const certainUrgencies = (
   store: Pick<Store, 'currentUrgencyGrade'>,
   frontier: readonly RepositoryFrontier[],
+  order: DispatchOrder,
 ): Map<string, UrgencyLevel> => {
   const urgencies = new Map<string, UrgencyLevel>();
+  if (order === 'oldest') return urgencies;
   for (const { repository, tickets } of frontier) {
     for (const { number } of tickets) {
       const grade = store.currentUrgencyGrade(repository, number);
@@ -70,6 +72,12 @@ const tiersOf = (
   }
   return tiers;
 };
+
+export const dispatchRefOf = (repository: string, ticket: Pick<Ticket, 'createdAt' | 'number'>): DispatchRef => ({
+  repository,
+  createdAt: ticket.createdAt,
+  number: ticket.number,
+});
 
 export const dispatchOrder = (
   frontier: readonly RepositoryFrontier[],

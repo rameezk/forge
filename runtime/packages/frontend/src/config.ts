@@ -54,7 +54,7 @@ const resolveRepositoryPriorities = (value: string | undefined): Record<string, 
       .map((entry) => {
         const at = entry.lastIndexOf('=');
         const priority = Number(entry.slice(at + 1));
-        if (at < 1 || !Number.isInteger(priority)) {
+        if (at < 1 || at === entry.length - 1 || !Number.isInteger(priority)) {
           throw new Error(`FORGE_REPOSITORY_PRIORITIES must list name=integer pairs, got '${entry}'`);
         }
         return [entry.slice(0, at), priority];

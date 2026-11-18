@@ -1,4 +1,4 @@
-import { newestClosedFirst, type ConflictResolutionRecord, dispatchOrder, type DispatchOrdering, OLDEST_FIRST, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { newestClosedFirst, type ConflictResolutionRecord, dispatchOrder, dispatchRefOf, type DispatchOrdering, OLDEST_FIRST, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -185,7 +185,7 @@ export const buildLanes = (
     for (const request of [...repository.requests].sort(oldestFirst)) {
       columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
     }
-    for (const ticket of [...repository.tickets].sort((a, b) => byOrder({ repository: repository.repository, ...a }, { repository: repository.repository, ...b }))) {
+    for (const ticket of [...repository.tickets].sort((a, b) => byOrder(dispatchRefOf(repository.repository, a), dispatchRefOf(repository.repository, b)))) {
       if (held.has(ticket.number)) continue;
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
       const column = columnOf(ticket, dispatch);
@@ -209,8 +209,8 @@ export const buildLanes = (
   });
   return ordering.order === 'oldest' ? lanes : lanes.toSorted((a, b) => {
     const [left, right] = [a.columns['waiting-for-slot'][0], b.columns['waiting-for-slot'][0]];
-    if (left === undefined || right === undefined) return Number(left === undefined) - Number(right === undefined);
-    return byOrder({ repository: a.repository, ...left.ticket as Ticket }, { repository: b.repository, ...right.ticket as Ticket });
+    if (left?.column !== 'waiting-for-slot' || right?.column !== 'waiting-for-slot') return Number(left === undefined) - Number(right === undefined);
+    return byOrder(dispatchRefOf(a.repository, left.ticket), dispatchRefOf(b.repository, right.ticket));
   });
 };
 
