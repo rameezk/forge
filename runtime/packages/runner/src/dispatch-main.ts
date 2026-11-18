@@ -199,6 +199,7 @@ export const main = async (
         repository.github,
         ticket.number,
         isMaintainer,
+        repository.autoApprove,
       );
       if (approvedAt === null) {
         await refuseTicket(fetch, writeToken, repository.github, ticket.number);

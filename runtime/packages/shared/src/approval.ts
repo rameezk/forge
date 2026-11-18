@@ -80,15 +80,25 @@ const queryApprovalPage = async (
   return issue.timelineItems;
 };
 
-export const maintainerApprovalOf = async (
+export const READY_FOR_AGENT = 'ready-for-agent';
+
+export interface LabelEvent {
+  at: string;
+  actor: Actor | null;
+  recency: number;
+}
+
+export const latestLabelEvents = async (
   fetch: Fetch,
   token: string,
   github: string,
   number: number,
-  isMaintainer: MaintainerLookup,
-): Promise<string | null> => {
+  labels: readonly string[],
+): Promise<Map<string, LabelEvent>> => {
+  const latest = new Map<string, LabelEvent>();
   const cursors = new Set<string>();
   let before: string | null = null;
+  let recency = 0;
   do {
     const { pageInfo, nodes }: ApprovalPage = await queryApprovalPage(
       fetch,
@@ -97,13 +107,37 @@ export const maintainerApprovalOf = async (
       number,
       before,
     );
-    const latest = nodes.findLast((node) => node.label?.name === FORGE_READY);
-    if (latest !== undefined) return (await isMaintainer(latest.actor)) ? latest.createdAt : null;
+    for (const node of nodes.toReversed()) {
+      const name = node.label?.name;
+      if (name !== undefined && labels.includes(name) && !latest.has(name)) {
+        latest.set(name, { at: node.createdAt, actor: node.actor, recency });
+      }
+      recency += 1;
+    }
+    if (latest.size === labels.length) break;
     before = pageInfo.hasPreviousPage ? pageInfo.startCursor : null;
     if (before !== null && cursors.has(before)) {
       throw new Error(`GitHub paging did not advance for ${github}#${number}`);
     }
     if (before !== null) cursors.add(before);
   } while (before !== null);
-  return null;
+  return latest;
+};
+
+export const maintainerApprovalOf = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  isMaintainer: MaintainerLookup,
+  autoApprove = false,
+): Promise<string | null> => {
+  const anchors = autoApprove ? [FORGE_READY, READY_FOR_AGENT] : [FORGE_READY];
+  const events = await latestLabelEvents(fetch, token, github, number, anchors);
+  const approvals: string[] = [];
+  for (const anchor of anchors) {
+    const event = events.get(anchor);
+    if (event !== undefined && (await isMaintainer(event.actor))) approvals.push(event.at);
+  }
+  return approvals.length === 0 ? null : approvals.reduce((a, b) => (a >= b ? a : b));
 };

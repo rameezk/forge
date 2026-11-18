@@ -4,6 +4,7 @@ import {
   errorMessage,
   addEyes,
   appIdentity,
+  autoApproveTickets,
   checkBranchRules,
   ensureLabels,
   installationTokens,
@@ -21,6 +22,7 @@ import {
   type ClosedTicket,
   type Fetch,
   type InstallationTokens,
+  type PolledTicket,
   type PullRequestSnapshot,
   type RefinementRequest,
   type Ticket,
@@ -30,7 +32,7 @@ import type { FrontierConfig, RepositoryConfig } from './config.ts';
 
 type RulesCheck = (github: string) => Promise<string[]>;
 
-type Poll = (github: string) => Promise<Ticket[]>;
+type Poll = (github: string) => Promise<PolledTicket[]>;
 
 type ClosedPoll = (github: string) => Promise<ClosedTicket[]>;
 
@@ -201,6 +203,7 @@ const settleGradeOutcomes = async (
 
 interface GithubWrites {
   ensure: (github: string) => Promise<void>;
+  approve: (github: string, tickets: readonly PolledTicket[]) => ReturnType<typeof autoApproveTickets>;
   settle: (store: Store, repository: string, github: string) => Promise<boolean>;
 }
 
@@ -209,10 +212,20 @@ const githubWrites = (
   tokens: InstallationTokens,
   fetch: Fetch,
 ): GithubWrites | null =>
-  Object.values(config.repositories).every(({ on }) => on?.ticket === undefined)
+  Object.values(config.repositories).every(
+    ({ on, autoApprove }) => on?.ticket === undefined && autoApprove !== true,
+  )
     ? null
     : {
         ensure: async (github) => ensureLabels(fetch, await tokens(github, 'write'), github),
+        approve: (github, tickets) =>
+          autoApproveTickets({
+            fetch,
+            token: () => tokens(github, 'write'),
+            github,
+            tickets,
+            log: (line) => console.error(line),
+          }),
         settle: (store, repository, github) =>
           settleRunningTickets({
             store,
@@ -254,6 +267,13 @@ const sync = async (
       const { github, on } = repository;
       try {
         const tickets = await poll(github);
+        if (repository.autoApprove === true && writes !== null) {
+          const approved = await writes.approve(github, tickets);
+          for (const ticket of tickets) {
+            if (approved.labelled.has(ticket.number)) ticket.forgeReady = true;
+          }
+          if (approved.failed) failed = true;
+        }
         const closed = await pollClosed(github);
         const requests = await pollRequests(github);
         store.replaceFrontier({

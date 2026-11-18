@@ -181,6 +181,11 @@ let
         default = false;
         description = "Whether forge grades the risk of every pull request its App opens in this repository, with Jev through OpenRouter (ADR-0103). Each settled head commit, one with no forge workload running on its pull request and not a draft, gets a `forge/risk` check run from forge's App that always concludes neutral, so it never gates a dispatch or a merge. Needs `forge.runtime.grading.model`, and the GitHub App needs the Checks: write permission. Turning it on grades the repository's open forge pull requests on the next pass. Human pull requests are never graded.";
       };
+      autoApprove = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Whether this is an auto-approving repository (ADR-0118): a maintainer applying `ready-for-agent` to a ticket is its approval. Off by default, so only a maintainer applying `forge:ready` approves. On, the frontier sync applies `forge:ready` itself to every `ready-for-agent` ticket with no `forge:*` label, blocked or not, once per maintainer `ready-for-agent` label event and only while that approval stands: the latest `ready-for-agent` came from a maintainer, and no one else edited the title or body of the ticket or its parent spec after it. A ticket whose approval does not stand is left unlabelled, with no failure and no comment. A maintainer removing `forge:ready` holds the ticket until a maintainer applies `forge:ready` or `ready-for-agent` again, and forge never applies it after `forge:failed`. Dispatch accepts an approval anchored on a maintainer's `ready-for-agent`, and a maintainer applying `forge:ready` by hand approves in every repository. Turning it on labels every existing `ready-for-agent` ticket whose approval stands, so the repository's whole backlog becomes dispatchable. Writing `ready-for-agent` becomes a decision to dispatch: tooling that applies it on a maintainer's behalf approves work directly.";
+      };
       workflows = lib.mkOption {
         type = lib.types.bool;
         default = false;
@@ -205,6 +210,7 @@ let
       { inherit (r) github; }
       // lib.optionalAttrs r.grading { grading = true; }
       // lib.optionalAttrs r.workflows { workflows = true; }
+      // lib.optionalAttrs r.autoApprove { autoApprove = true; }
       // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null || r.on.conflict != null) {
         on = lib.filterAttrs (_: worker: worker != null) { inherit (r.on) ticket feedback conflict; };
       }
