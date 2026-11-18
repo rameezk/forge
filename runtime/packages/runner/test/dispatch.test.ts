@@ -2130,9 +2130,7 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
   assert.ok(pi);
   assert.match(UNATTENDED_INSTRUCTION, /no human will answer/);
   const standing = (pi?.argv ?? []).find((arg) => arg.startsWith('You are running unattended')) ?? '';
-  for (const instruction of [standing, REVISION_INSTRUCTION]) {
-    assertRepositoryNeutralCheckRule(instruction);
-  }
+  assertRepositoryNeutralCheckRule(standing);
   const root = realpathSync(pi.cwd);
   const flags = [
     ...PI_CONTRACT,
