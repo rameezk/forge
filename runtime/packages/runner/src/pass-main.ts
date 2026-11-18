@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
+  dispatchOrder,
   errorMessage,
-  oldestFirst,
   Store,
   ticketKey,
   type RevisedPullRequest,
@@ -51,7 +51,7 @@ const dispatchable = (
         )
         .map((ticket) => ({ ...ticket, repository })),
     )
-    .toSorted(oldestFirst);
+    .toSorted(dispatchOrder);
 
 type Pending =
   | ({ kind: 'dispatch' } & Dispatchable)
