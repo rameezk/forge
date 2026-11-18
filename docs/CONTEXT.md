@@ -143,6 +143,10 @@ _Avoid_: assignment, scheduling
 The most dispatches forge may have in flight or awaiting review across all managed repositories: its running dispatches plus the open pull requests its App opened for them. At the limit forge starts no new dispatch, though revisions and conflict resolutions still run (ADR-0092).
 _Avoid_: WIP limit, PR cap
 
+**Pull request on the way**:
+A running dispatch counted by the review limit, which will open a pull request for review when it succeeds. Revisions and conflict resolutions are never on the way, since they work on a pull request that is already open.
+_Avoid_: incoming PR, pending PR
+
 **Approval**:
 A maintainer applying `forge:ready` to a ticket, or `ready-for-agent` in an auto-approving repository, which approves the ticket and its parent spec as they stood at that moment; a ticket is dispatched only while its latest approval stands (ADR-0079, ADR-0118).
 _Avoid_: sign-off, review
