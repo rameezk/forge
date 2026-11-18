@@ -524,11 +524,19 @@ const startRevisionOn = (store: Store, ticketNumber: number, prNumber: number, s
   return start.started;
 };
 
-const startResolutionOn = (store: Store, ticketNumber: number, prNumber: number, startedAt = new Date().toISOString()): number => {
-  const start = store.startConflictResolution({ repository: 'forge', ...pullRequest(prNumber) }, [ticketNumber], `resolution-${prNumber}`, startedAt, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
+const watchPullRequest = (store: Store, number: number, closes: number[]): void => {
+  store.recordWatchedPullRequests('forge', [{ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes, newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head', draft: false, defaultSha: 'main0' }]);
+};
+
+const startResolutionClosing = (store: Store, prNumber: number, closes: number[], startedAt = new Date().toISOString()): number => {
+  watchPullRequest(store, prNumber, closes);
+  const start = store.startConflictResolution({ repository: 'forge', ...pullRequest(prNumber) }, closes, `resolution-${prNumber}`, startedAt, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
   assert.ok('started' in start);
   return start.started;
 };
+
+const startResolutionOn = (store: Store, ticketNumber: number, prNumber: number, startedAt = new Date().toISOString()): number =>
+  startResolutionClosing(store, prNumber, [ticketNumber], startedAt);
 
 const inReview = (store: Store, number: number, startedAt = '2026-09-30T08:00:00.000Z'): void => {
   store.endDispatch(dispatched(store, number, startedAt), { state: 'done', pullRequest: pullRequest(100 + number) }, '2026-09-30T09:00:00.000Z');
@@ -1162,4 +1170,139 @@ test('given a failure on an earlier head only, when the Board is requested, then
   }, undefined, undefined, GRADING);
 
   assert.match(riskOf(cardOf(await (await app.request('/')).text(), 5)), /data-risk="grading"/);
+});
+
+const runningCards = (body: string): string[] => {
+  const column = body.match(/<div[^>]*\sdata-column="running"[\s\S]*?(?=<div[^>]*\sdata-column="in-review")/)?.[0] ?? '';
+  return column.match(/<article[^>]*\sdata-ticket="[^"]*"[\s\S]*?<\/article>/g) ?? [];
+};
+
+const runningNumbers = (body: string): string[] => runningCards(body).map((card) => /data-ticket="([^"]*)"/.exec(card)?.[1] ?? '');
+
+const runningLimitOf = (body: string): string => textOf(/<span[^>]*data-running-limit[\s\S]*?<\/span>/.exec(body)?.[0] ?? '');
+
+test('given a ticket whose dispatch failed leaving an open pull request with a live conflict resolution, when the Board is requested, then the ticket is in Running with a conflict resolution card, not in Failed, and the running count equals the Running cards', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    store.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'no-pull-request', detail: null }, '2026-09-30T09:00:00.000Z');
+    startResolutionClosing(store, 105, [5]);
+  });
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { running: ['5'] });
+  assert.deepEqual(pillsOf(cardOf(body, 5)), ['running', 'conflict resolution']);
+  assert.equal(runningLimitOf(body), 'Running 1 / 1');
+});
+
+test('given a done dispatch that opened a pull request, a newer dispatch that failed to start and a live revision on the pull request, when the Board is requested, then the ticket is in Running with a revision card', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    store.recordFailedStart(forgeTicket(5), 'clone failed', '2026-09-30T09:30:00.000Z');
+    startRevisionOn(store, 5, 105);
+  });
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { running: ['5'] });
+  assert.deepEqual(pillsOf(cardOf(body, 5)), ['running', 'revision']);
+});
+
+test('given a ticket with a live revision on one pull request and a live conflict resolution on another, when the Board is requested, then Running holds two cards for the ticket, each with its own kind, timer and run link, and the ticket is in no other column', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    const now = new Date().toISOString();
+    store.insertRun({ ...runOf(105), id: 'revision-105', harnessStartTime: '2026-09-30T10:05:00.000Z' });
+    store.insertRun({ ...runOf(106), id: 'resolution-106', harnessStartTime: '2026-09-30T10:07:00.000Z' });
+    startRevisionOn(store, 5, 105, new Date(Date.parse(now) - 60_000).toISOString());
+    startResolutionOn(store, 5, 106, now);
+  });
+
+  const body = await (await app.request('/')).text();
+  const cards = runningCards(body);
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { running: ['5', '5'] });
+  assert.deepEqual(cards.map(pillsOf), [['running', 'revision'], ['running', 'conflict resolution']]);
+  assert.deepEqual(cards.map((card) => /data-elapsed-since="([^"]*)"/.exec(card)?.[1]), ['2026-09-30T10:05:00.000Z', '2026-09-30T10:07:00.000Z']);
+  assert.deepEqual(cards.map((card) => /<a href="(\/runs\/[^"]*)"/.exec(card)?.[1]), ['/runs/revision-105', '/runs/resolution-106']);
+  assert.equal(runningLimitOf(body), 'Running 2 / 1');
+});
+
+test('given a live conflict resolution on a pull request closing two tickets on the Board, one open and one recently closed, when the Board is requested, then Running holds one card for each ticket', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })], [], [closedTicket({ number: 6 })])], (store) => {
+    startResolutionClosing(store, 105, [5, 6]);
+  });
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { running: ['5', '6'] });
+});
+
+test('given a live conflict resolution on a pull request closing no ticket on the Board, when the Board is requested ungrouped and grouped by spec, then Running holds a card for the pull request in its lane, titled with its number, linking to it, and in the No spec band when grouped', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5 })])], (store) => {
+    store.insertRun({ ...runOf(120), id: 'resolution-120', harnessStartTime: '2026-09-30T10:07:00.000Z' });
+    startResolutionClosing(store, 120, [77]);
+  });
+
+  const body = await (await app.request('/')).text();
+  const card = runningCards(body)[0] ?? '';
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'ready-for-agent': ['5'], running: ['120'] });
+  assert.match(card, /<a href="https:\/\/github.com\/rameezk\/forge\/pull\/120"[^>]*>#120<\/a>/);
+  assert.match(card, /<a href="\/runs\/resolution-120"[^>]*><span[^>]*>running<\/span><\/a>/);
+  assert.match(card, /data-elapsed-since="2026-09-30T10:07:00.000Z"/);
+  assert.deepEqual(pillsOf(card), ['running', 'conflict resolution']);
+  assert.doesNotMatch(card, /data-spec-line|PR #120/);
+  assert.equal(runningLimitOf(body), 'Running 1 / 1');
+
+  const grouped = await (await app.request('/?group=spec')).text();
+  const none = grouped.match(/<div data-spec-band="none"[\s\S]*$/)?.[0] ?? '';
+  assert.deepEqual(runningNumbers(none), ['120']);
+});
+
+test('given a live dispatch for a ticket that is no longer on the Board, when the Board is requested, then Running holds a card for the issue in its lane, titled with its number and linking to it', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5 })])], (store) => {
+    store.insertRun({ ...runOf(9), harnessStartTime: '2026-09-30T08:03:00.000Z' });
+    dispatched(store, 9, new Date().toISOString());
+  });
+
+  const body = await (await app.request('/')).text();
+  const card = cardOf(body, 9);
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'ready-for-agent': ['5'], running: ['9'] });
+  assert.match(card, /<a href="https:\/\/github.com\/rameezk\/forge\/issues\/9"[^>]*>#9<\/a>/);
+  assert.deepEqual(pillsOf(card), ['running', 'dispatch']);
+  assert.match(card, /<a href="\/runs\/run-9"/);
+  assert.equal(runningLimitOf(body), 'Running 1 / 1');
+});
+
+test('given a live workload on an older ticket that started after a live workload on a newer ticket, when the Board is requested, then Running lists the newer ticket first', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
+    const later = new Date().toISOString();
+    const earlier = new Date(Date.parse(later) - 60_000).toISOString();
+    dispatched(store, 5, later);
+    dispatched(store, 6, earlier);
+  });
+
+  assert.deepEqual(runningNumbers(await (await app.request('/')).text()), ['6', '5']);
+});
+
+test('given a live diagnosis workload, when the Board is requested, then Running holds no card for it and the running count does not include it', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    store.insertRun({ ...runOf(5), status: 'error' });
+    store.startDiagnosis('run-5', 'diagnosis-5', new Date().toISOString());
+  });
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(runningNumbers(body), []);
+  assert.equal(runningLimitOf(body), 'Running 0 / 1');
+});
+
+test('given a ticket whose only live workload ends, when the Board is requested, then the ticket is in its usual column and not in Running', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    store.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'no-pull-request', detail: null }, '2026-09-30T09:00:00.000Z');
+    store.endConflictResolution(startResolutionClosing(store, 105, [5]), 'done', new Date().toISOString());
+  });
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(await (await app.request('/')).text(), 'forge'))), { failed: ['5'] });
 });

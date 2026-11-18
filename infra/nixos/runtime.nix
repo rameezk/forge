@@ -187,6 +187,11 @@ let
         example = "A live billing service that other teams' checkouts depend on.";
         description = "Free text saying what this repository is and who depends on it, sent to Jev with every ticket of the repository when it grades the ticket's urgency (ADR-0117), because how urgent a ticket is often hinges on context the ticket does not state, such as whether the repository is live. Forge grades the urgency of every approved ticket of every managed repository once `forge.runtime.grading.model` is set, and labels the ticket `forge:urgency-<level>` with the GitHub App's Issues: write permission.";
       };
+      autoApprove = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Whether this is an auto-approving repository (ADR-0118): a maintainer applying `ready-for-agent` to a ticket is its approval. Off by default, so only a maintainer applying `forge:ready` approves. On, the frontier sync applies `forge:ready` itself to every `ready-for-agent` ticket with no `forge:*` label, blocked or not, once per maintainer `ready-for-agent` label event and only while that approval stands: the latest `ready-for-agent` came from a maintainer, and no one else edited the title or body of the ticket or its parent spec after it. A ticket whose approval does not stand is left unlabelled, with no failure and no comment. A maintainer removing `forge:ready` holds the ticket until a maintainer applies `forge:ready` or `ready-for-agent` again, and forge never applies it after `forge:failed`. Dispatch accepts an approval anchored on a maintainer's `ready-for-agent`, and a maintainer applying `forge:ready` by hand approves in every repository. Turning it on labels every existing `ready-for-agent` ticket whose approval stands, so the repository's whole backlog becomes dispatchable. Writing `ready-for-agent` becomes a decision to dispatch: tooling that applies it on a maintainer's behalf approves work directly.";
+      };
       workflows = lib.mkOption {
         type = lib.types.bool;
         default = false;
@@ -212,6 +217,7 @@ let
       // lib.optionalAttrs r.grading { grading = true; }
       // lib.optionalAttrs (r.description != null) { inherit (r) description; }
       // lib.optionalAttrs r.workflows { workflows = true; }
+      // lib.optionalAttrs r.autoApprove { autoApprove = true; }
       // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null || r.on.conflict != null) {
         on = lib.filterAttrs (_: worker: worker != null) { inherit (r.on) ticket feedback conflict; };
       }

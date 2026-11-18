@@ -5,7 +5,9 @@ export const GITHUB_GRAPHQL_API = 'https://api.github.com/graphql';
 
 export const FRONTIER_PAGE_SIZE = 100;
 
-const READY_FOR_AGENT = 'ready-for-agent';
+export const READY_FOR_AGENT = 'ready-for-agent';
+
+const FORGE_LABEL_PREFIX = 'forge:';
 
 const READY_FOR_HUMAN = 'ready-for-human';
 
@@ -283,6 +285,10 @@ export interface Ticket {
   version?: string;
 }
 
+export interface PolledTicket extends Ticket {
+  forgeLabelled: boolean;
+}
+
 export interface ClosedTicket {
   number: number;
   title: string;
@@ -380,7 +386,7 @@ export const pullRequestUrl = (url: string): string => {
 export const ticketVersion = ({ title, body }: { title: string; body: string }): string =>
   createHash('sha256').update(JSON.stringify([title, body])).digest('hex');
 
-const toTicket = (issue: IssueNode): Ticket => ({
+const toTicket = (issue: IssueNode): PolledTicket => ({
   number: issue.number,
   title: issue.title,
   url: ticketUrl(issue.url),
@@ -394,6 +400,7 @@ const toTicket = (issue: IssueNode): Ticket => ({
         },
   createdAt: issue.createdAt,
   forgeReady: issue.labels.nodes.some((label) => label.name === FORGE_READY),
+  forgeLabelled: issue.labels.nodes.some((label) => label.name.startsWith(FORGE_LABEL_PREFIX)),
   forHuman: issue.labels.nodes.some((label) => label.name === READY_FOR_HUMAN),
   blocked: issue.issueDependenciesSummary.blockedBy > 0,
   blockedBy: issue.blockedBy.nodes.filter((blocker) => blocker.state === 'OPEN').map((blocker) => blocker.number),
@@ -512,7 +519,7 @@ const queryTicketsLabelled = async (
   token: string,
   github: string,
   label: string,
-): Promise<Ticket[]> =>
+): Promise<PolledTicket[]> =>
   (
     await queryIssues<IssueNode>(FRONTIER_QUERY, github, (after) =>
       requestFrontierPage(fetch, token, github, label, {
@@ -526,7 +533,7 @@ export const queryFrontier = async (
   fetch: Fetch,
   token: string,
   github: string,
-): Promise<Ticket[]> => {
+): Promise<PolledTicket[]> => {
   const agent = await queryTicketsLabelled(fetch, token, github, READY_FOR_AGENT);
   const human = await queryTicketsLabelled(fetch, token, github, READY_FOR_HUMAN);
   const stored = new Set(human.map((ticket) => ticket.number));

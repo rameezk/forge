@@ -582,6 +582,7 @@ interface Scenario {
   timeoutSeconds?: number;
   setupTimeoutSeconds?: number;
   workflows?: boolean;
+  autoApprove?: boolean;
   maxCostUsd?: number;
   models?: unknown;
   piLingerMs?: number;
@@ -726,6 +727,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
           github: 'rameezk/forge',
           on: { ticket: 'builder' },
           ...(scenario.workflows === true ? { workflows: true } : {}),
+          ...(scenario.autoApprove === true ? { autoApprove: true } : {}),
         },
       },
       ...(scenario.setupTimeoutSeconds === undefined && scenario.sharedMemoryMax === undefined
@@ -1169,6 +1171,74 @@ test('given a ticket no forge:ready event of which GitHub lists, when forge disp
     approvals: () => approval([['ready-for-agent', 'teammate']]),
   });
 
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
+});
+
+test('given an auto-approving repository and a ticket whose forge:ready forge\'s App applied after a maintainer\'s ready-for-agent, when forge dispatches it, then the dispatch starts', async () => {
+  const { code, pi } = await dispatch({
+    autoApprove: true,
+    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN]]),
+  });
+
+  assert.equal(code, 0);
+  assert.ok(pi);
+});
+
+test('given a repository that has not opted in and a ticket whose forge:ready forge\'s App applied after a maintainer\'s ready-for-agent, when forge dispatches it, then it is refused as unapproved', async () => {
+  const { code, pi, labelWrites } = await dispatch({
+    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN]]),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
+});
+
+test('given an auto-approving repository and a ticket whose ready-for-agent an outsider applied after the maintainer\'s, when forge dispatches it, then it is refused as unapproved', async () => {
+  const { code, pi, labelWrites } = await dispatch({
+    autoApprove: true,
+    approvals: () =>
+      approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN], ['ready-for-agent', 'author']]),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
+});
+
+test('given an auto-approving repository and a ticket a maintainer held whose forge:ready a user without write access applied again, when forge dispatches it, then it is refused as unapproved', async () => {
+  const { code, pi, labelWrites } = await dispatch({
+    autoApprove: true,
+    approvals: () =>
+      approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN], ['forge:ready', 'author']]),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
+});
+
+test('given an auto-approving repository and a ticket a maintainer held whose forge:ready another bot applied again, when forge dispatches it, then it is refused as unapproved', async () => {
+  const { code, pi, labelWrites } = await dispatch({
+    autoApprove: true,
+    approvals: () =>
+      approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN], ['forge:ready', 'github-actions[bot]']]),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
+});
+
+test('given an auto-approving repository and a ticket an outsider edited after the maintainer\'s ready-for-agent, when forge dispatches it, then it is refused', async () => {
+  const { code, pi, labelWrites } = await dispatch({
+    autoApprove: true,
+    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN]]),
+    edits: { body: () => bodyEdits([['author', '2026-10-21T05:00:00Z']]), renames: () => renames([]) },
+  });
+
+  assert.equal(code, 1);
   assert.equal(pi, null);
   assert.deepEqual(labelWrites, refusedWrites());
 });
