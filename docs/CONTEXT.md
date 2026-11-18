@@ -201,11 +201,35 @@ A risk grade whose confidence is below the confidence threshold. It still names 
 _Avoid_: unsettled, low-confidence, unsure
 
 **Grade outcome**:
-What happened to a risk grade's head commit: open until the pull request is merged at that commit (`merged`), receives a new head (`superseded`, with its supersede cause) or is closed unmerged (`closed`), recorded with the number of revisions completed after the grade. It lives in forge's store, the only source a later auto-merge rule reads. A grade is judged over its settled outcomes: a `revision`, `other` or `unknown` supersede counts against it, a `conflict-resolution` supersede is neutral and judges nothing.
+What happened to a risk grade's head commit: open until the pull request is merged at that commit by a person (`merged`) or by an auto-merge (`auto-merged`), receives a new head (`superseded`, with its supersede cause) or is closed unmerged (`closed`), recorded with the number of revisions completed after the grade. It lives in forge's store, the only source a later auto-merge rule reads. A grade is judged over its settled outcomes: a `revision`, `other` or `unknown` supersede counts against it, a `conflict-resolution` supersede and an `auto-merged` outcome are neutral and judge nothing.
 _Avoid_: grade result, verdict
 
 **Supersede cause**:
 What pushed the head that superseded a risk grade's head commit: a forge revision (`revision`), a forge conflict resolution (`conflict-resolution`), anything else such as a person (`other`), or `unknown` for a supersede recorded before causes were.
+
+**Auto-merge**:
+Forge approving and merging one of its own pull requests without a person's review, because the pull request passed every auto-merge gate at its current head in a repository that opted in (ADR-0115).
+_Avoid_: automerge, self-merge
+
+**Reviewer App**:
+The operator's GitHub App that approves and merges auto-merges, held only by the `forge-auto-merge` service and never by a workload or the grading service (ADR-0116).
+_Avoid_: merge bot, approver bot
+
+**Audit sample**:
+The pull requests that passed every auto-merge gate but that forge left for a person to review, chosen at random once per pull request and labelled `forge:sampled`, so their grade outcomes keep showing whether trivial and low grades hold up.
+_Avoid_: spot check, canary
+
+**Hold**:
+A maintainer's `forge:hold` label on a pull request, which stops forge auto-merging it until the label is removed.
+_Avoid_: veto label, block
+
+**Auto-merge pause**:
+The state in which forge auto-merges nothing and sends every pull request that passes the gates to a person, because fewer than 90% of the last 20 settled human-reviewed trivial and low grades in the current grading cohort held up. It lifts by itself once the rate recovers. A new grading cohort is instead warming up, and sends every such pull request to a person until 10 of its grades have settled.
+_Avoid_: kill switch, circuit breaker
+
+**Protected path**:
+A path that a pull request must not touch if it is to auto-merge, whatever its risk grade. Forge ships a default list and a managed repository may add to it but never remove from it (ADR-0115).
+_Avoid_: blocked path, sensitive file
 
 **Grading attempt**:
 One request to Jev for a head commit that produced no level, recorded with its head commit, time, category and message. The categories are temporary, setup, too large, declined and bug. Temporary, setup and bug attempts are retried on a backoff up to hourly; too large and declined are never retried for that head commit.
@@ -235,7 +259,7 @@ A request or ticket as the Board shows it, standing for wherever that work is no
 _Avoid_: tile, item
 
 **Attention band**:
-The strip under the dashboard's menu bar, on every page, that lists each problem forge cannot fix by itself and that degrades what it puts out until the operator acts: a failed deploy or forge bump, a grading setup or bug failure, a temporary grading failure once grading has gone two hours without succeeding, and a managed repository whose poll failed or whose default branch rules are not passing. A per-pull-request state such as a too-large or declined risk grade, and a healthy status or cost, never belong in it.
+The strip under the dashboard's menu bar, on every page, that lists each problem forge cannot fix by itself and that degrades what it puts out until the operator acts: a failed deploy or forge bump, a grading setup or bug failure, a temporary grading failure once grading has gone two hours without succeeding, an auto-merge pause, and a managed repository whose poll failed or whose default branch rules are not passing. A per-pull-request state such as a too-large or declined risk grade, and a healthy status or cost, never belong in it.
 _Avoid_: alert bar, error banner, status line
 
 **Operator**:
