@@ -86,7 +86,7 @@ const NOT_GRADED_TEXT: Record<GradingAttempt['category'], string> = {
   'too-large': 'too large',
 };
 
-const renderNotGraded = ({ category, message }: Pick<GradingAttempt, 'category' | 'message'>, attribute: string): Rendered => {
+const renderNotGraded = ({ category, message }: Pick<GradingAttempt, 'category' | 'message'>, attribute: 'data-risk' | 'data-urgency'): Rendered => {
   const retried = RETRIED_GRADING_FAILURES.includes(category);
   const tone = category === 'setup' || category === 'bug' ? 'bg-error-soft text-error' : QUEUED_TONE;
   return html`<p class="${MUTED_LINE}"><span ${raw(attribute)}="${category}" title="${notGradedTitle({ category, message })}" class="${PILL} ${tone} whitespace-nowrap">${NOT_GRADED_TEXT[category]}</span>${retried ? html` <span ${raw(`${attribute}-retrying`)} class="text-xs whitespace-nowrap text-muted">${category}, retrying</span>` : ''}</p>`;

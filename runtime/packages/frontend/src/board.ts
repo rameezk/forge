@@ -186,7 +186,7 @@ export const buildLanes = (
   const latestResolution = latestSettledOf(conflictResolutions);
   const latestRevision = latestSettledOf(revisions);
   return frontier.map((repository) => {
-    const urgencyOf = (number: number): CardUrgency => urgencies.grades.get(ticketKey(repository.repository, number)) ?? urgencies.attempts.get(ticketKey(repository.repository, number)) ?? null;
+    const urgencyOf = (number: number): CardUrgency => urgencies.attempts.get(ticketKey(repository.repository, number)) ?? urgencies.grades.get(ticketKey(repository.repository, number)) ?? null;
     const columns = emptyColumns();
     const onBoard = new Map<number, Ticket | ClosedTicket>([...repository.tickets, ...repository.closed].map((ticket) => [ticket.number, ticket]));
     const live = liveCards(repository.repository, onBoard, dispatches, revisions, conflictResolutions, closes);

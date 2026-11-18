@@ -1436,3 +1436,15 @@ test('given a failed attempt on an earlier version of a ticket, when the Board i
 
   assert.doesNotMatch(cardOf(await (await app.request('/')).text(), 5), /data-urgency/);
 });
+
+test('given a ticket edited after it was graded whose regrade failed, when the Board is requested, then its card shows the failed attempt instead of the earlier level', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5b' })])], (store) => {
+    store.recordUrgencyGrade(urgencyOf(5, 'high', { version: 'v5a' }));
+    store.recordUrgencyAttempt({ repository: 'forge', number: 5, version: 'v5b', attemptedAt: '2026-10-02T10:00:00.000Z', category: 'declined', message: 'Jev declined to answer' });
+  });
+
+  const badge = urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5));
+
+  assert.match(badge, /data-urgency="declined"/);
+  assert.equal(readable(badge), 'declined');
+});
