@@ -17,6 +17,7 @@ export interface AutoMergeOptions {
   fetch: Fetch;
   tokens: InstallationTokens;
   repositories: Record<string, string>;
+  reviewerLogin: () => Promise<string>;
   now: () => string;
   log: (line: string) => void;
 }
@@ -82,19 +83,20 @@ const settled = async (
   return null;
 };
 
-const approvedByBot = async (
+const approvedBy = async (
   fetch: Fetch,
   token: string,
   path: string,
   headSha: string,
+  login: string,
 ): Promise<boolean> => {
   const reviews = (await github(fetch, token, `${path}/reviews?per_page=100`)) as {
     state: string;
     commit_id: string;
-    user: { type: string } | null;
+    user: { login: string } | null;
   }[];
   return reviews.some(
-    ({ state, commit_id, user }) => state === 'APPROVED' && commit_id === headSha && user?.type === 'Bot',
+    ({ state, commit_id, user }) => state === 'APPROVED' && commit_id === headSha && user?.login.toLowerCase() === login.toLowerCase(),
   );
 };
 
@@ -111,7 +113,7 @@ const autoMergeOne = async (
     return;
   }
   const path = `/repos/${repository}/pulls/${grade.number}`;
-  if (!(await approvedByBot(fetch, token, path, grade.headSha))) {
+  if (!(await approvedBy(fetch, token, path, grade.headSha, await options.reviewerLogin()))) {
     await github(fetch, token, `${path}/reviews`, {
       method: 'POST',
       body: { commit_id: grade.headSha, event: 'APPROVE' },

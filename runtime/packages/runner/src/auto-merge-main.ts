@@ -1,8 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { errorMessage, installationTokens, Store, type Fetch } from '@forge/shared';
+import { cachedTokens, errorMessage, githubAppFromEnv, Store, type Fetch } from '@forge/shared';
 import { autoMergePullRequests } from './auto-merge.ts';
 import type { RuntimeConfig } from './config.ts';
+
+const memoized = <T>(read: () => Promise<T>): (() => Promise<T>) => {
+  let value: Promise<T> | undefined;
+  return () => {
+    value ??= read();
+    return value;
+  };
+};
 
 export const main = async (
   env: NodeJS.ProcessEnv,
@@ -25,12 +33,14 @@ export const main = async (
   );
   if (Object.keys(repositories).length === 0) return 0;
 
+  const app = githubAppFromEnv(env, fetch);
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     const merged = await autoMergePullRequests({
       store,
       fetch,
-      tokens: installationTokens(env, fetch),
+      tokens: cachedTokens(app),
+      reviewerLogin: memoized(() => app.login()),
       repositories,
       now,
       log: (line) => process.stderr.write(`${line}\n`),

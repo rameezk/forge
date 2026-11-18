@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store, type RiskGrade, type RiskLevel } from '@forge/shared';
 import { main as autoMerge } from '../src/auto-merge-main.ts';
-import { APP_ID, fakeGithubApp, routedThrough } from '../../shared/test/fixtures/fake-github-app.ts';
+import { APP_ID, BOT_LOGIN, fakeGithubApp, routedThrough } from '../../shared/test/fixtures/fake-github-app.ts';
 import { journaled } from './helpers.ts';
 
 const NOW = '2026-11-18T12:00:00.000Z';
@@ -100,7 +100,7 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
   const reviews: { number: number; authorization: string; body: Record<string, unknown> }[] = [];
   const merges: { number: number; body: Record<string, unknown> }[] = [];
   const comments: { number: number; authorization: string; body: string }[] = [];
-  const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false };
+  const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false, foreignApprovals: new Set<number>() };
   const github: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const json = (data: unknown, status = 200): Response =>
@@ -112,11 +112,14 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
       const pull = pulls.find((candidate) => candidate.number === number);
       if (pull === undefined) return json({}, 404);
       if (pullOf[3] === '/reviews' && init?.method !== 'POST') {
-        return json(
-          reviews
+        return json([
+          ...(hooks.foreignApprovals.has(number)
+            ? [{ state: 'APPROVED', commit_id: heads.get(number), user: { login: 'dependabot[bot]', type: 'Bot' } }]
+            : []),
+          ...reviews
             .filter((review) => review.number === number)
-            .map((review) => ({ state: 'APPROVED', commit_id: review.body.commit_id, user: { login: 'forge-reviewer[bot]', type: 'Bot' } })),
-        );
+            .map((review) => ({ state: 'APPROVED', commit_id: review.body.commit_id, user: { login: BOT_LOGIN, type: 'Bot' } })),
+        ]);
       }
       if (pullOf[3] === '/reviews') {
         reviews.push({ number, authorization, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
@@ -314,4 +317,12 @@ test('given a merge that keeps being refused at an unchanged head, when the pass
   assert.equal(f.reviews.length, 1);
   assert.equal(f.merges.length, 1);
   assert.equal(outcomeOf(f, 7), 'auto-merged');
+});
+
+test('given another bot already approved the head, when the pass runs, then the Reviewer App still approves it itself', async () => {
+  const f = forge([{ number: 7 }]);
+  f.hooks.foreignApprovals.add(7);
+  assert.equal(await f.run(), 0);
+  assert.equal(f.reviews.length, 1);
+  assert.equal(f.merges.length, 1);
 });

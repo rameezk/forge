@@ -141,6 +141,14 @@ export class GithubApp {
     return this.#identity;
   }
 
+  async login(): Promise<string> {
+    const app = (await ok(await this.#request('GET', '/app'))) as { slug?: unknown };
+    if (typeof app.slug !== 'string' || !/^[A-Za-z0-9-]+$/.test(app.slug)) {
+      throw new Error('GitHub returned a malformed GitHub App');
+    }
+    return `${app.slug}[bot]`;
+  }
+
   async #lookUpIdentity(github: string): Promise<BotIdentity> {
     const app = (await ok(await this.#request('GET', '/app'))) as { slug?: unknown };
     if (typeof app.slug !== 'string' || !/^[A-Za-z0-9-]+$/.test(app.slug)) {
