@@ -271,11 +271,11 @@ A ticket with open blockers, whichever status it carries; a queued ticket is the
 _Avoid_: waiting, held
 
 **Board**:
-The dashboard's home page: a read-only kanban view of every managed repository's requests and tickets, one swimlane per repository and one column per stage from refinement to done. Its Running column holds every ticket with a live workload, whether a dispatch, a revision or a conflict resolution, ahead of any other column. A person icon marks the columns where a human in the loop acts: refining, building a `ready-for-human` ticket, and reviewing.
+The dashboard's home page: a read-only kanban view of every managed repository's requests and tickets, one swimlane per repository and one column per stage from refinement to done. Its Running column holds a card for every live dispatch, revision and conflict resolution, exactly the workloads its running count counts, and a ticket with one shows in no other column. A person icon marks the columns where a human in the loop acts: refining, building a `ready-for-human` ticket, and reviewing.
 _Avoid_: Work page, frontier page, kanban
 
 **Card**:
-A request or ticket as the Board shows it, standing for wherever that work is now: the live run while Running, the pull request while In review, the latest attempt's run once Failed, and the issue in every other column or when that run or pull request does not exist.
+A request or ticket as the Board shows it, standing for wherever that work is now: the live run while Running, the pull request while In review, the latest attempt's run once Failed, and the issue in every other column or when that run or pull request does not exist. In Running, a card is one live workload on one ticket, the ticket being one its pull request closes; a live revision or conflict resolution whose pull request closes no ticket on the Board gets a card for the pull request itself, and a live dispatch whose ticket is not on the Board gets a card for the issue itself.
 _Avoid_: tile, item
 
 **Attention band**:
