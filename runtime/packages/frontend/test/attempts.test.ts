@@ -507,6 +507,7 @@ test('given a conflict resolution that failed to start and is now running again,
     ],
   });
   failToStart(store, '2026-09-25T10:00:00.000Z', 'fatal: unable to access the repository');
+  store.recordWatchedPullRequests('forge', [{ number: 9, url: `${GITHUB}forge/pull/9`, closes: [TICKET.number], newestFeedbackAt: null, mergeable: 'CONFLICTING', headSha: 'head-a', draft: false, defaultSha: 'default-a' }]);
   const again = store.startConflictResolution(
     { repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` },
     [TICKET.number],

@@ -3048,6 +3048,15 @@ export class Store {
     });
   }
 
+  closesByPullRequest(): Map<string, number[]> {
+    const rows = this.#db.prepare(`SELECT repository, number, closes FROM feedback_watches`).all() as {
+      repository: string;
+      number: number;
+      closes: string;
+    }[];
+    return new Map(rows.map((row) => [ticketKey(row.repository, row.number), JSON.parse(row.closes) as number[]]));
+  }
+
   gradingDue(repositories: readonly string[], now: string): GradingDue[] {
     const rows = this.#db
       .prepare(
