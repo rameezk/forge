@@ -45,6 +45,7 @@ test('given the query constants the feedback and frontier code exports, then for
       'PULL_REQUEST_HEAD_QUERY',
       'PULL_REQUEST_QUERY',
       'PULL_REQUEST_READINESS_QUERY',
+      'REVIEW_THREADS_QUERY',
       'TICKET_APPROVAL_QUERY',
       'TICKET_BODY_EDITS_QUERY',
       'TICKET_CONTEXT_QUERY',

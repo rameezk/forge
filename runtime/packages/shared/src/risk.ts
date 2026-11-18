@@ -19,6 +19,7 @@ export interface RiskRow {
   heads: number;
   pullRequests: number;
   merged: number;
+  autoMerged: number;
   supersededBy: Record<SupersedeCause, number>;
   closed: number;
   open: number;
@@ -51,6 +52,7 @@ const rowOf = (level: RiskLevel, uncertain: boolean, grades: RecordedRiskGrade[]
     heads: grades.length,
     pullRequests: new Set(grades.map(({ repository, number }) => `${repository}#${number}`)).size,
     merged,
+    autoMerged: count('auto-merged'),
     supersededBy,
     closed,
     open: count('open'),

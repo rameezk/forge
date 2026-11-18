@@ -181,6 +181,11 @@ let
         default = false;
         description = "Whether forge grades the risk of every pull request its App opens in this repository, with Jev through OpenRouter (ADR-0103). Each settled head commit, one with no forge workload running on its pull request and not a draft, gets a `forge/risk` check run from forge's App that always concludes neutral, so it never gates a dispatch or a merge. Needs `forge.runtime.grading.model`, and the GitHub App needs the Checks: write permission. Turning it on grades the repository's open forge pull requests on the next pass. Human pull requests are never graded.";
       };
+      autoMerge = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Whether forge's Reviewer App auto-merges this repository's trivial and low risk pull requests (ADR-0115, ADR-0116). Off by default, and no repository is treated specially. On, `forge-auto-merge` approves and merges, pinned to the head commit it checked, every forge pull request whose current head is graded trivial or low and not uncertain, is settled (not a draft, no forge workload running on it), has every required check green and has no open feedback and no unresolved review thread. The merge is a squash merge. The Reviewer App comments on the pull request with the grade, the head commit and the gates it passed, and the grade settles as `auto-merged`, which counts neither for nor against it. Needs `grading` on for the repository, and the Reviewer App (`github_reviewer_app_id` and `github_reviewer_app_private_key`, Pull requests: write, Contents: write, Checks: read and Commit statuses: read) installed on it. Turning it off stops all auto-merge in the repository on the next pass.";
+      };
       autoApprove = lib.mkOption {
         type = lib.types.bool;
         default = false;
@@ -209,6 +214,7 @@ let
       _: r:
       { inherit (r) github; }
       // lib.optionalAttrs r.grading { grading = true; }
+      // lib.optionalAttrs r.autoMerge { autoMerge = true; }
       // lib.optionalAttrs r.workflows { workflows = true; }
       // lib.optionalAttrs r.autoApprove { autoApprove = true; }
       // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null || r.on.conflict != null) {
@@ -251,6 +257,13 @@ let
   hasDiagnosis = cfg.diagnosis.worker != null;
   gradedRepositories = lib.filterAttrs (_: r: r.grading) cfg.repositories;
   hasGrading = gradedRepositories != { };
+  autoMergeRepositories = lib.filterAttrs (_: r: r.autoMerge) cfg.repositories;
+  hasAutoMerge = autoMergeRepositories != { };
+
+  autoMergeAssertions = lib.mapAttrsToList (name: r: {
+    assertion = !r.autoMerge || r.grading;
+    message = "forge.runtime.repositories.${name}.autoMerge needs forge.runtime.repositories.${name}.grading, because forge auto-merges only graded pull requests";
+  }) cfg.repositories;
 
   gradingAssertions = [
     {
@@ -544,6 +557,7 @@ let
     LoadCredential = [ "${appKeyCredentialId}:${config.sops.secrets.github_app_private_key.path}" ];
   };
   boxAppKeyCredentialId = "github-box-app-private-key";
+  reviewerAppKeyCredentialId = "github-reviewer-app-private-key";
   appKeyFileVariable = "FORGE_GITHUB_APP_PRIVATE_KEY_FILE=%d/${appKeyCredentialId}";
 
   hardening = {
@@ -664,7 +678,7 @@ in
       type = lib.types.package;
       default = pkgs.forge-runner;
       defaultText = lib.literalExpression "pkgs.forge-runner";
-      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-resolve-conflicts, forge-dispatch-pass, forge-billing, forge-grading, forge-migrate, forge-frontier and forge-frontend entry points.";
+      description = "Runtime package providing the forge-run, forge-dispatch, forge-revise, forge-resolve-conflicts, forge-dispatch-pass, forge-billing, forge-grading, forge-auto-merge, forge-migrate, forge-frontier and forge-frontend entry points.";
     };
 
     dashboard.timeZone = lib.mkOption {
@@ -676,7 +690,7 @@ in
 
     secretsFile = lib.mkOption {
       type = lib.types.path;
-      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, and `github_app_id` and `github_app_private_key` (the id and private key of the operator's GitHub App, installed on every managed repository) when any repository is declared, and `github_box_app_id` and `github_box_app_private_key` (the id and private key of the operator's box App, installed on the operator repository alone) when `pullDeploy.enable` is set. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for an App private key, a credential: the frontier sync, forge-dispatch and grading are given the GitHub App's, and only the pull deploy is given the box App's.";
+      description = "The operator's sops-encrypted runtime secrets file, decrypted on the box with its host key. It must hold `tailscale_auth_key` (the OAuth client secret the box joins the tailnet with as tag:forge) on every box, `openrouter_api_key` when any worker is declared, `anthropic_oauth_token` (a `claude setup-token` token, passed only to the runner) when any worker's provider is `anthropic`, and `github_app_id` and `github_app_private_key` (the id and private key of the operator's GitHub App, installed on every managed repository) when any repository is declared, and `github_box_app_id` and `github_box_app_private_key` (the id and private key of the operator's box App, installed on the operator repository alone) when `pullDeploy.enable` is set, and `github_reviewer_app_id` and `github_reviewer_app_private_key` (the id and private key of the operator's Reviewer App, installed on every repository that sets `autoMerge`) when any repository does. Only tailscaled-autoconnect reads `tailscale_auth_key`, from the decrypted file. No forge unit can see the decrypted secrets: each gets only what systemd reads for it, an EnvironmentFile or, for an App private key, a credential: the frontier sync, forge-dispatch and grading are given the GitHub App's, only the pull deploy is given the box App's, and only forge-auto-merge is given the Reviewer App's.";
     };
 
     dispatch.gitIdentity = lib.mkOption {
@@ -875,6 +889,7 @@ in
       ++ revisionAssertions
       ++ conflictResolutionAssertions
       ++ gradingAssertions
+      ++ autoMergeAssertions
       ++ [ diagnosisWorkerAssertion ];
 
       security.allowUserNamespaces = true;
@@ -1125,6 +1140,49 @@ in
 
       systemd.timers.forge-grading = {
         description = "Grade the risk of settled forge pull requests";
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = "1min";
+          OnUnitActiveSec = "1min";
+        };
+      };
+    })
+
+    (lib.mkIf hasAutoMerge {
+      sops.secrets.github_reviewer_app_id.sopsFile = cfg.secretsFile;
+      sops.secrets.github_reviewer_app_private_key.sopsFile = cfg.secretsFile;
+
+      sops.templates."forge-auto-merge.env" = {
+        content = "FORGE_GITHUB_APP_ID=${config.sops.placeholder.github_reviewer_app_id}\n";
+        owner = "root";
+        mode = "0400";
+      };
+
+      systemd.services.forge-auto-merge = {
+        description = "Forge auto-merge: approve and merge settled trivial and low risk forge pull requests as the Reviewer App";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          User = cfg.user;
+          Group = cfg.user;
+          WorkingDirectory = cfg.stateDir;
+          EnvironmentFile = envFile "forge-auto-merge.env";
+          Environment = [
+            "FORGE_RUNTIME_CONFIG=${cfg.configFile}"
+            "FORGE_STATE_DIR=${cfg.stateDir}"
+            "FORGE_GITHUB_APP_PRIVATE_KEY_FILE=%d/${reviewerAppKeyCredentialId}"
+          ];
+          LoadCredential = [
+            "${reviewerAppKeyCredentialId}:${config.sops.secrets.github_reviewer_app_private_key.path}"
+          ];
+          ExecStart = "${cfg.package}/bin/forge-auto-merge";
+        }
+        // hardening;
+      };
+
+      systemd.timers.forge-auto-merge = {
+        description = "Auto-merge settled trivial and low risk forge pull requests";
         wantedBy = [ "timers.target" ];
         timerConfig = {
           OnBootSec = "1min";

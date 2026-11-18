@@ -590,7 +590,8 @@ the transcript.
 
 Only the frontier sync, a dispatch and grading can read the private key, as a
 systemd credential. The workload, the dashboard, billing and the pull deploy
-cannot: the pull deploy has its own box App. A workload holds
+cannot: the pull deploy has its own box App, and `forge-auto-merge` has its own
+Reviewer App. A workload holds
 only its own repository's token, so a compromised run reaches that repository
 alone, for at most an hour after it ends. Forge checks that the repository's
 default branch is protected before it dispatches there, as the next section
@@ -1039,6 +1040,63 @@ retried for that head commit. Text over about 32,000 bytes runs in Jev's
 long-context mode with no extra request header. A failure never blocks or
 changes a dispatch, a revision or a conflict resolution, and never counts
 against the review limit.
+
+## Auto-merge
+
+Forge's Reviewer App approves and merges a forge pull request graded trivial or
+low, so it lands without a person (ADR-0115, ADR-0116). It is off for a
+repository until you opt it in, and no repository is treated specially:
+
+```nix
+forge.runtime.repositories.forge.grading = true;
+forge.runtime.repositories.forge.autoMerge = true;
+```
+
+`autoMerge` needs `grading` on for the repository. The `forge-auto-merge`
+service runs every minute on its own timer. For each pull request whose current
+head is graded trivial or low and not uncertain, it checks that the pull
+request is not a draft, has no forge workload running on it, has every required
+check green and has no open feedback and no unresolved review thread. It then
+approves it as the Reviewer App and squash merges it pinned to the head commit
+it checked, so a push after its check makes the merge fail rather than land the
+new head. The Reviewer App comments with the grade, the head commit and the
+gates it passed, and the grade settles as `auto-merged`, which counts neither
+for nor against it. To stop all auto-merge in a repository, set `autoMerge`
+back to false.
+
+The Reviewer App is a third GitHub App you own. Only `forge-auto-merge` holds
+its key, and neither a workload, the runner, the frontier sync, the grading
+service nor the pull deploy can read it. Its approval has to satisfy your
+default branch ruleset's required approvals together with approval of the most
+recent push, because forge's App authors every forge pull request and cannot
+approve its own. Never give the Reviewer App a bypass of the ruleset.
+
+1. Create the Reviewer App at <https://github.com/settings/apps/new> (or under
+   your organisation's settings). Give it any name, set the homepage URL to
+   this repository, untick **Webhook**, and choose **Only on this account**.
+   Set these repository permissions and no others:
+   - Pull requests: read and write
+   - Contents: read and write
+   - Checks: read
+   - Commit statuses: read
+   - Metadata: read, which GitHub always grants
+2. Create the App, note its **App ID**, and generate a private key.
+3. Install it on every repository that sets `autoMerge`.
+4. Add the id and the key to `secrets/runtime.yaml` with
+   `sops edit secrets/runtime.yaml`, commit, and deploy. The build fails,
+   naming the missing key, without them:
+
+```yaml
+github_reviewer_app_id: "<the Reviewer App ID>"
+github_reviewer_app_private_key: |
+  -----BEGIN RSA PRIVATE KEY-----
+  ...
+  -----END RSA PRIVATE KEY-----
+```
+
+The Insights Risk tab shows `auto-merged` as a count of its own, outside the
+held up rate, and the Board's done column marks an auto-merged ticket with an
+`auto-merged` pill.
 
 ## The workload sandbox
 

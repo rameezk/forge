@@ -1020,6 +1020,14 @@ const RENAME_GRADE_UNSETTLED = `
   ALTER TABLE risk_grades RENAME COLUMN unsettled TO uncertain;
 `;
 
+const HAS_GRADE_AUTO_MERGE_STARTED = `
+  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'auto_merge_started_at'
+`;
+
+const ADD_GRADE_AUTO_MERGE_STARTED = `
+  ALTER TABLE risk_grades ADD COLUMN auto_merge_started_at TEXT;
+`;
+
 const HAS_RISK_GRADE_OUTCOME = `
   SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'outcome'
 `;
@@ -1066,7 +1074,7 @@ export interface DisplayedGrade extends RecordedRiskGrade {
   labelsApplied: boolean;
 }
 
-export const GRADE_OUTCOMES = ['open', 'merged', 'superseded', 'closed'] as const;
+export const GRADE_OUTCOMES = ['open', 'merged', 'auto-merged', 'superseded', 'closed'] as const;
 
 export type GradeOutcome = (typeof GRADE_OUTCOMES)[number];
 
@@ -1614,6 +1622,7 @@ export class Store {
     db.exec(CREATE_GRADING_ATTEMPTS);
     this.#addColumnsOnce(HAS_GRADE_LABELS, ADD_GRADE_LABELS);
     this.#addColumnsOnce(HAS_RISK_GRADE_OUTCOME, ADD_RISK_GRADE_OUTCOME);
+    this.#addColumnsOnce(HAS_GRADE_AUTO_MERGE_STARTED, ADD_GRADE_AUTO_MERGE_STARTED);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
     this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
     this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
@@ -3398,7 +3407,10 @@ export class Store {
     this.#db
       .prepare(
         `UPDATE risk_grades SET
-          outcome = $outcome,
+          outcome = CASE
+            WHEN $outcome = 'merged' AND auto_merge_started_at IS NOT NULL THEN 'auto-merged'
+            ELSE $outcome
+          END,
           outcome_at = $at,
           revisions = (
             SELECT COUNT(*) FROM revisions
@@ -3437,6 +3449,44 @@ export class Store {
         number: grade.number,
         head_sha: grade.headSha,
       });
+  }
+
+  markAutoMergeStarted(grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>, at: string): void {
+    this.#db
+      .prepare(
+        `UPDATE risk_grades SET auto_merge_started_at = $at
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha AND outcome = 'open'`,
+      )
+      .run({ at, repository: grade.repository, number: grade.number, head_sha: grade.headSha });
+  }
+
+  clearAutoMergeStarted(grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>): void {
+    this.#db
+      .prepare(
+        `UPDATE risk_grades SET auto_merge_started_at = NULL
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha AND outcome = 'open'`,
+      )
+      .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
+  }
+
+  autoMergeCandidates(repositories: readonly string[], now: string): RecordedRiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT risk_grades.* FROM risk_grades
+        JOIN feedback_watches USING (repository, number, head_sha)
+        WHERE risk_grades.outcome = 'open'
+          AND risk_grades.level IN ('trivial', 'low')
+          AND risk_grades.uncertain = 0
+          AND feedback_watches.mergeable IS NOT NULL
+          AND feedback_watches.draft = 0
+          AND feedback_watches.newest IS NULL
+          AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY risk_grades.repository, risk_grades.number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
+    return rows
+      .map(riskGradeFromRow)
+      .filter(({ repository, number }) => !this.workloadRunning(repository, number, now));
   }
 
   riskGrade(repository: string, number: number, headSha: string): RecordedRiskGrade | null {

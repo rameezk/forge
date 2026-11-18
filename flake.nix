@@ -1431,6 +1431,62 @@
             ))
           ) "grading must name a Jev version id, never jev-latest and never a dated snapshot, and a repository that turns it on needs one";
 
+          autoMergeModule = lib.recursiveUpdate (gradingModuleWith { }) {
+            forge.runtime.repositories.forge.autoMerge = true;
+          };
+          autoMergeHost = secretsHost exampleSecretsFile autoMergeModule;
+          autoMergeService = autoMergeHost.config.systemd.services.forge-auto-merge;
+          autoMergeTimer = autoMergeHost.config.systemd.timers.forge-auto-merge;
+          autoMergeEnvTemplate = autoMergeHost.config.sops.templates."forge-auto-merge.env";
+          reviewerKeyPath = autoMergeHost.config.sops.secrets.github_reviewer_app_private_key.path;
+          autoMergeWired =
+            lib.asserts.assertMsg
+              (
+                autoMergeService.serviceConfig.Type == "oneshot"
+                && autoMergeService.serviceConfig.ExecStart == "${autoMergeHost.config.forge.runtime.package}/bin/forge-auto-merge"
+                && autoMergeService.serviceConfig.User == "forge-runtime"
+                && autoMergeService.serviceConfig.EnvironmentFile == autoMergeEnvTemplate.path
+                && isHardened autoMergeService
+                && autoMergeService.serviceConfig.LoadCredential == [ "github-reviewer-app-private-key:${reviewerKeyPath}" ]
+                && autoMergeEnvTemplate.owner == "root"
+                && autoMergeEnvTemplate.mode == "0400"
+                && autoMergeEnvTemplate.content == "FORGE_GITHUB_APP_ID=${autoMergeHost.config.sops.placeholder.github_reviewer_app_id}\n"
+                && autoMergeHost.config.sops.secrets.github_reviewer_app_private_key.sopsFile == exampleSecretsFile
+                && autoMergeTimer.wantedBy == [ "timers.target" ]
+                && autoMergeTimer.timerConfig.OnUnitActiveSec == "1min"
+                && autoMergeHost.config.forge.runtime.settings.repositories.forge.autoMerge == true
+              )
+              "auto-merge must run forge-auto-merge as a sandboxed oneshot on a one-minute timer, loading only the Reviewer App's id from its own root-owned sops template and its private key as a credential";
+          onlyAutoMergeHoldsTheReviewerKey =
+            lib.asserts.assertMsg
+              (
+                let
+                  mentionsReviewerKey =
+                    unit:
+                    let
+                      rendered = builtins.toJSON { inherit (unit) serviceConfig environment; };
+                    in
+                    lib.hasInfix reviewerKeyPath rendered || lib.hasInfix autoMergeEnvTemplate.path rendered;
+                  holders = lib.attrNames (lib.filterAttrs (_: mentionsReviewerKey) autoMergeHost.config.systemd.services);
+                in
+                holders == [ "forge-auto-merge" ]
+              )
+              "only forge-auto-merge may receive the Reviewer App's id or private key";
+          autoMergeOffByDefault = lib.asserts.assertMsg (
+            !(dispatchHost.config.systemd.services ? forge-auto-merge)
+            && !(dispatchHost.config.systemd.timers ? forge-auto-merge)
+            && !(gradingHost.config.systemd.services ? forge-auto-merge)
+            && !(dispatchHost.config.forge.runtime.settings.repositories.forge ? autoMerge)
+          ) "a host that turns auto-merge on for no repository must have neither the auto-merge timer nor the auto-merge service, nor the setting in its runtime config";
+          autoMergeNeedsGrading = lib.asserts.assertMsg (
+            evaluates autoMergeHost
+            && !(evaluates (
+              secretsHost exampleSecretsFile (
+                lib.recursiveUpdate (dispatchModuleWith { }) { forge.runtime.repositories.forge.autoMerge = true; }
+              )
+            ))
+          ) "a repository that turns auto-merge on must also turn grading on";
+
           hasSqlite = host: lib.elem host.pkgs.sqlite host.config.environment.systemPackages;
           sqliteWithWorkers = lib.asserts.assertMsg (hasSqlite workerHost) "a host with workers must ship sqlite so the store can be inspected";
           sqliteWithRepositories = lib.asserts.assertMsg (hasSqlite repositoryHost) "a host with repositories must ship sqlite so the store can be inspected";
@@ -2181,6 +2237,10 @@
 
           runtime-grading =
             assert gradingWired;
+            assert autoMergeWired;
+            assert onlyAutoMergeHoldsTheReviewerKey;
+            assert autoMergeOffByDefault;
+            assert autoMergeNeedsGrading;
             assert gradingConfigReflectsOptions;
             assert gradingOffByDefault;
             assert autoApproveConfigReflectsOptions;

@@ -109,6 +109,7 @@ test('given 4 merged low grades, 1 superseded by revision, 1 by conflict resolut
     heads: '8',
     prs: '8',
     merged: '4',
+    'auto-merged': '0',
     'superseded-revision': '1',
     'superseded-other': '0',
     'superseded-conflict-resolution': '1',
@@ -118,6 +119,22 @@ test('given 4 merged low grades, 1 superseded by revision, 1 by conflict resolut
     confidence: '0.90',
     revisions: '0.00',
   });
+});
+
+test('given 3 grades merged by a person, 2 auto-merged and 1 superseded by revision, when the Risk tab loads, then auto-merged is a count of its own outside the held up rate', async () => {
+  const { store, page } = dashboard([]);
+  many(store, 3, { outcome: 'merged' });
+  many(store, 2, { outcome: 'auto-merged' });
+  many(store, 1, { outcome: 'superseded', cause: 'revision' });
+
+  const body = await page('?tab=risk');
+  const row = rowOf(body, 'low');
+
+  assert.equal(row['auto-merged'], '2');
+  assert.equal(row.merged, '3');
+  assert.equal(row.heads, '6');
+  assert.equal(row['held-up'], '75.0% 3 / 4');
+  assert.match(body, /data-metric="candidates-count"[^>]*>\s*3 of 4/);
 });
 
 test('given a settled trivial grade superseded before causes were recorded, when the Risk tab loads, then it shows under Unknown and counts in the held up denominator', async () => {
