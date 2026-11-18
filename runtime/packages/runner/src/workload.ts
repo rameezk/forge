@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Store, type RunRecord, type RunTicket } from '@forge/shared';
+import { Store, errorMessage, type RunRecord, type RunTicket } from '@forge/shared';
 import { setupTimeoutOf, sharedMemoryMaxOf, type RuntimeConfig } from './config.ts';
 import { withContext, type Worker, type Workspace } from './harness.ts';
 import { resourceNote, thisBox, type Box } from './resources.ts';
@@ -14,7 +14,7 @@ import {
 } from './openrouter.ts';
 import { providerSpec, type Provider } from './provider.ts';
 import { anthropicModel } from './anthropic-models.ts';
-import { JsonLinesFile } from './transcript.ts';
+import { JsonLinesFile, transcriptPolicy } from './transcript.ts';
 import { runWorkload } from './runner.ts';
 import type { Setup } from './setup.ts';
 
@@ -56,6 +56,7 @@ export interface LaunchOptions {
   secrets?: () => readonly string[];
   runId?: string;
   box?: Box;
+  log?: (line: string) => void;
 }
 
 export interface LaunchResult {
@@ -63,6 +64,21 @@ export interface LaunchResult {
   finalMessage: string | null;
   cause: unknown;
 }
+
+const endLine = (
+  run: RunRecord,
+  cause: unknown,
+  redact: (text: string) => string,
+): string => {
+  const head = `run ${run.id.slice(0, 8)} (${run.worker}) ended ${run.status}`;
+  if (run.status !== 'error' && run.status !== 'exceeded' && run.status !== 'interrupted') {
+    return head;
+  }
+  const recorded = run.error ?? '';
+  const reason =
+    recorded === '' && cause !== null ? redact(errorMessage(cause)) : recorded;
+  return `${head}: ${reason}`;
+};
 
 export const launchWorkload = async ({
   config,
@@ -75,6 +91,7 @@ export const launchWorkload = async ({
   secrets = () => [],
   runId = randomUUID(),
   box = thisBox(),
+  log = console.error,
 }: LaunchOptions): Promise<LaunchResult> => {
   const stateDir = stateDirOf(env);
   const harnessConfig = Object.hasOwn(config.harnesses, worker.harness)
@@ -104,6 +121,11 @@ export const launchWorkload = async ({
   mkdirSync(workDirs, { recursive: true });
   const store = Store.open(join(stateDir, 'forge.db'));
 
+  const runSecrets = (): readonly string[] => [
+    env[providerSpec(worker.provider).credentialEnv] ?? '',
+    ...secrets(),
+  ];
+
   try {
     const { id, finalMessage, cause } = await runWorkload({
       store,
@@ -118,12 +140,13 @@ export const launchWorkload = async ({
       now: () => new Date().toISOString(),
       newId: () => runId,
       lookUpModel,
-      secrets: () => [env[providerSpec(worker.provider).credentialEnv] ?? '', ...secrets()],
+      secrets: runSecrets,
       forgeGitSha: env.FORGE_GIT_SHA === undefined || env.FORGE_GIT_SHA === '' ? null : env.FORGE_GIT_SHA,
       ...(ticket === undefined ? {} : { ticket }),
     });
     const run = store.getRun(id);
     if (run === undefined) throw new Error(`run ${id} was not recorded`);
+    log(endLine(run, cause, transcriptPolicy(runSecrets).redact));
     return { run, finalMessage, cause };
   } finally {
     store.close();
