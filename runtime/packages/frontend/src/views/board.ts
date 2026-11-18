@@ -2,7 +2,7 @@ import { html, raw } from 'hono/html';
 import { isGithubRepository, isGithubUrl, ticketKey, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
-import { buildLanes, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type RiskInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
+import { buildLanes, isUntracked, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type RiskInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, laneId, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
@@ -196,7 +196,7 @@ const workDestination = ({ column, ticket, dispatch, workload }: BoardCard, runs
 };
 
 const destinationOf = (card: BoardCard, runs: ReadonlyMap<string, RunRecord>): Destination | null =>
-  workDestination(card, runs) ?? (isGithubUrl(card.ticket.url) ? { href: card.ticket.url, label: `Open issue #${card.ticket.number}`, external: true } : null);
+  workDestination(card, runs) ?? (isGithubUrl(card.ticket.url) ? { href: card.ticket.url, label: `Open ${card.column === 'running' && isUntracked(card.ticket) ? card.ticket.subject : 'issue'} #${card.ticket.number}`, external: true } : null);
 
 const CARD_LINK = 'absolute inset-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
@@ -217,7 +217,7 @@ const renderCard = (repository: string, github: string, card: BoardCard, grouped
     <p class="m-0 tabular-nums">${isGithubUrl(ticket.url) ? externalLink(ticket.url, `#${ticket.number}`) : html`#${ticket.number}`}${attempted.has(ticketKey(repository, ticket.number))
       ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
       : ''}</p>
-    <p class="m-0 mt-1 break-words">${ticket.title}</p>
+    ${ticket.title === null ? '' : html`<p class="m-0 mt-1 break-words">${ticket.title}</p>`}
     ${parent === null ? '' : renderSpecLine(parent)}
     ${renderDetails(card, github, timeZone, runs)}
     ${isHeld(card, full) ? renderHeld() : ''}
@@ -375,6 +375,7 @@ export const renderBoard = (
   dispatches: DispatchRecord[],
   revisions: RevisionRecord[],
   conflictResolutions: ConflictResolutionRecord[],
+  closes: ReadonlyMap<string, readonly number[]>,
   runs: ReadonlyMap<string, RunRecord>,
   attempted: ReadonlySet<string>,
   slots: RunningSlots,
@@ -383,7 +384,7 @@ export const renderBoard = (
   grouping: Grouping = 'none',
   grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map() },
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, grading);
+  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, closes, grading);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`

@@ -23,6 +23,18 @@ export interface LiveWorkload {
   pullRequest: { number: number; url: string } | null;
 }
 
+export interface UntrackedItem {
+  subject: 'issue' | 'pull request';
+  number: number;
+  url: string;
+  title: null;
+  parent: null;
+}
+
+export type RunningSubject = Ticket | ClosedTicket | UntrackedItem;
+
+export const isUntracked = (subject: RunningSubject): subject is UntrackedItem => 'subject' in subject;
+
 export type CardRisk = RecordedRiskGrade | GradingAttempt | 'grading' | null;
 
 export interface RiskInputs {
@@ -42,7 +54,7 @@ interface CardState {
 export type BoardCard =
   | (CardState & { column: 'to-refine'; ticket: RefinementRequest })
   | (CardState & { column: 'done'; ticket: ClosedTicket })
-  | (CardState & { column: 'running'; ticket: Ticket | ClosedTicket })
+  | (CardState & { column: 'running'; ticket: RunningSubject })
   | (CardState & { column: Exclude<ColumnKey, 'to-refine' | 'running' | 'done'>; ticket: Ticket });
 
 export type Columns = Record<ColumnKey, BoardCard[]>;
@@ -104,14 +116,7 @@ const latestSettledOf = <T extends PullRequestWorkloadRecord>(records: readonly 
 const failedStartOf = <T extends PullRequestWorkloadRecord>(record: T | undefined): T | undefined =>
   record?.reason === 'not-started' ? record : undefined;
 
-const liveByPullRequest = <T extends PullRequestWorkloadRecord>(records: readonly T[], kind: LiveWorkload['kind']): Map<string, LiveWorkload> =>
-  new Map(
-    records
-      .filter(({ state }) => state === 'running')
-      .map((record) => [ticketKey(record.repository, record.number), { kind, runId: record.runId, startedAt: record.startedAt, pullRequest: { number: record.number, url: record.url } }]),
-  );
-
-const runningCard = (ticket: Ticket | ClosedTicket, dispatch: DispatchRecord | undefined, workload: LiveWorkload): BoardCard => ({
+const runningCard = (ticket: RunningSubject, dispatch: DispatchRecord | undefined, workload: LiveWorkload): BoardCard => ({
   column: 'running',
   ticket,
   dispatch,
@@ -121,37 +126,66 @@ const runningCard = (ticket: Ticket | ClosedTicket, dispatch: DispatchRecord | u
   risk: null,
 });
 
+const untracked = (subject: UntrackedItem['subject'], number: number, url: string): UntrackedItem => ({ subject, number, url, title: null, parent: null });
+
+interface LiveCard {
+  startedAt: string;
+  card: BoardCard;
+}
+
+const liveCards = (
+  repository: string,
+  onBoard: ReadonlyMap<number, Ticket | ClosedTicket>,
+  dispatches: ReadonlyMap<string, DispatchRecord>,
+  revisions: readonly RevisionRecord[],
+  conflictResolutions: readonly ConflictResolutionRecord[],
+  closes: ReadonlyMap<string, readonly number[]>,
+): LiveCard[] => {
+  const cards: LiveCard[] = [];
+  for (const dispatch of dispatches.values()) {
+    if (dispatch.repository !== repository || dispatch.state !== 'running') continue;
+    const workload: LiveWorkload = { kind: 'dispatch', runId: dispatch.runId, startedAt: dispatch.startedAt, pullRequest: null };
+    cards.push({ startedAt: dispatch.startedAt, card: runningCard(onBoard.get(dispatch.number) ?? untracked('issue', dispatch.number, dispatch.url), dispatch, workload) });
+  }
+  const pullRequestWorkloads: [LiveWorkload['kind'], readonly PullRequestWorkloadRecord[]][] = [
+    ['revision', revisions],
+    ['conflict resolution', conflictResolutions],
+  ];
+  for (const [kind, records] of pullRequestWorkloads) {
+    for (const record of records) {
+      if (record.repository !== repository || record.state !== 'running') continue;
+      const tickets = [...new Set(closes.get(ticketKey(repository, record.number)) ?? [])].filter((number) => onBoard.has(number));
+      const workload: LiveWorkload = { kind, runId: record.runId, startedAt: record.startedAt, pullRequest: { number: record.number, url: record.url } };
+      if (tickets.length === 0) {
+        cards.push({ startedAt: record.startedAt, card: runningCard(untracked('pull request', record.number, record.url), undefined, { ...workload, pullRequest: null }) });
+      }
+      for (const number of tickets) cards.push({ startedAt: record.startedAt, card: runningCard(onBoard.get(number)!, dispatches.get(ticketKey(repository, number)), workload) });
+    }
+  }
+  return cards.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+};
+
 export const buildLanes = (
   frontier: RepositoryFrontier[],
   dispatches: ReadonlyMap<string, DispatchRecord>,
   revisions: readonly RevisionRecord[],
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
+  closes: ReadonlyMap<string, readonly number[]> = new Map(),
   risks: RiskInputs = { repositories: new Set(), grades: new Map(), attempts: new Map() },
 ): BoardLane[] => {
-  const liveRevisions = liveByPullRequest(revisions, 'revision');
-  const liveResolutions = liveByPullRequest(conflictResolutions, 'conflict resolution');
   const latestResolution = latestSettledOf(conflictResolutions);
   const latestRevision = latestSettledOf(revisions);
   return frontier.map((repository) => {
     const columns = emptyColumns();
-    const workloadOf = (number: number): LiveWorkload | undefined => {
-      const dispatch = dispatches.get(ticketKey(repository.repository, number));
-      if (dispatch?.state === 'running') return { kind: 'dispatch', runId: dispatch.runId, startedAt: dispatch.startedAt, pullRequest: null };
-      if (dispatch?.pullRequest == null) return undefined;
-      const key = ticketKey(repository.repository, dispatch.pullRequest.number);
-      return liveRevisions.get(key) ?? liveResolutions.get(key);
-    };
+    const onBoard = new Map<number, Ticket | ClosedTicket>([...repository.tickets, ...repository.closed].map((ticket) => [ticket.number, ticket]));
+    const live = liveCards(repository.repository, onBoard, dispatches, revisions, conflictResolutions, closes);
+    const held = new Set(live.flatMap(({ card }) => (card.column === 'running' && isUntracked(card.ticket) ? [] : [card.ticket.number])));
     for (const request of [...repository.requests].sort(oldestFirst)) {
       columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
     }
-    const running: BoardCard[] = [];
     for (const ticket of [...repository.tickets].sort(dispatchOrder)) {
+      if (held.has(ticket.number)) continue;
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
-      const workload = workloadOf(ticket.number);
-      if (workload !== undefined) {
-        running.push(runningCard(ticket, dispatch, workload));
-        continue;
-      }
       const column = columnOf(ticket, dispatch);
       const pullRequest = dispatch?.pullRequest;
       columns[column].push({
@@ -165,12 +199,10 @@ export const buildLanes = (
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
-      const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
-      const workload = workloadOf(ticket.number);
-      if (workload === undefined) columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
-      else running.push(runningCard(ticket, dispatch, workload));
+      if (held.has(ticket.number)) continue;
+      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
     }
-    columns.running.push(...running);
+    columns.running.push(...live.map(({ card }) => card));
     return { ...repository, columns };
   });
 };

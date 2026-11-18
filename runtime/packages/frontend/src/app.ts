@@ -137,7 +137,7 @@ export const createApp = ({
       const run = runId === null ? undefined : store.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
-    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }));
+    return c.html(renderBoard(store.listFrontier(), dispatches, revisions, conflictResolutions, store.closesByPullRequest(), runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }));
   });
 
   app.get('/work', (c) => c.redirect('/'));
