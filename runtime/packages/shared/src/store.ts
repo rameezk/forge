@@ -919,6 +919,18 @@ const CONFLICT_RESOLUTION_SUPERSEDED_AS_OTHER = `
           ORDER BY next.graded_at LIMIT 1
         )
     )
+    AND NOT EXISTS (
+      SELECT 1 FROM revisions
+      WHERE revisions.repository = risk_grades.repository
+        AND revisions.number = risk_grades.number
+        AND revisions.pushed_sha = (
+          SELECT next.head_sha FROM risk_grades AS next
+          WHERE next.repository = risk_grades.repository
+            AND next.number = risk_grades.number
+            AND next.graded_at > risk_grades.graded_at
+          ORDER BY next.graded_at LIMIT 1
+        )
+    )
 `;
 
 const HAS_MISATTRIBUTED_CONFLICT_RESOLUTION_SUPERSEDE = `SELECT 1 ${CONFLICT_RESOLUTION_SUPERSEDED_AS_OTHER}`;

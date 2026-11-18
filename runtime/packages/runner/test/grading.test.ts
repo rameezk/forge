@@ -574,16 +574,9 @@ test('given a graded head followed by two revisions that failed, when sync sees 
   t.after(f.close);
   await f.syncAndGrade([READY]);
   f.withStore((store) => {
-    for (const state of ['failed', 'running'] as const) {
-      const start = store.startRevision(
-        { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
-        [],
-        randomUUID(),
-        new Date().toISOString(),
-        Number.POSITIVE_INFINITY,
-      );
-      assert.ok('started' in start);
-      store.endRevision(start.started, 'failed', new Date().toISOString(), { reason: 'interrupted', detail: null });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const now = new Date().toISOString();
+      store.endRevision(startRevising(store, 7, now), 'failed', now, { reason: 'interrupted', detail: null });
     }
   });
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
@@ -683,6 +676,16 @@ test('given a graded commit that is merged at a newer head by a forge revision, 
   f.end(7, 'MERGED', 'head-7b');
   await f.syncAndGrade([]);
   assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.supersedeCause), 'revision');
+});
+
+test('given a graded commit and a running revision, when the pull request is merged at the graded head, then the grade reads merged without waiting for the revision', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  f.withStore((store) => startRevising(store, 7, new Date().toISOString()));
+  f.end(7, 'MERGED', 'head-7');
+  await f.syncAndGrade([]);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'merged');
 });
 
 test('given a graded commit, when the pull request is closed without merging, then the grade reads closed', async (t) => {
