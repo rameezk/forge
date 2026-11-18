@@ -620,3 +620,68 @@ test.describe('column dividers on a narrow screen', () => {
     expect(columns.map(({ border }) => border.width)).toEqual(['0px', '0px', '0px']);
   });
 });
+
+const openPullRequest = (store: Store, number: number): void => {
+  const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+  if (!('started' in started)) throw new Error('dispatch refused');
+  store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+};
+
+test.describe('the review limit on a phone-width screen', () => {
+  test.use({ viewport: { width: 390, height: 800 }, hasTouch: true });
+
+  test('given 4 open dispatch pull requests and 1 running dispatch against a limit of 5, when the Limit reached badge in the In review stage header is tapped, then the breakdown is shown and tapping elsewhere hides it', async ({ dashboard, page }) => {
+    seed(dashboard.store, [1, 2, 3, 4, 5].map((number) => ({ ...ticket(number), forgeReady: true })));
+    for (const number of [1, 2, 3, 4]) openPullRequest(dashboard.store, number);
+    runningDispatch(dashboard.store, 5, true);
+    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [1, 2, 3, 4, 5].map(ticket) });
+    await page.goto('/');
+
+    const badge = page.locator('[data-stage-header] [data-review-limit]');
+    const breakdown = page.locator('[data-review-breakdown]');
+    await expect(badge).toHaveText('Limit reached');
+    await expect(breakdown).toBeHidden();
+
+    await badge.tap();
+
+    await expect(breakdown).toBeVisible();
+    await expect(breakdown).toHaveText('Forge keeps at most 5 pull requests open or on the way. Now: 4 open, 1 dispatch that will open one. New dispatches start again when you merge or close one.');
+    const box = (await breakdown.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await expect(page.locator('[data-stage-header] [data-review-limit]', { hasText: 'Limit 5' })).toHaveCount(0);
+
+    await page.mouse.click(5, 5);
+
+    await expect(breakdown).toBeHidden();
+  });
+});
+
+test.describe('the Running card status row', () => {
+  test.use({ viewport: { width: 2400, height: 800 } });
+
+  test('given a Running card for a running dispatch, when the Board is opened on a desktop screen, then the elapsed time shares a baseline with the status and kind pill text and the gaps between the three are equal', async ({ dashboard, page }) => {
+    runningDispatch(dashboard.store, 7, false);
+    dashboard.store.insertRun({ ...runRecord('run-7'), startTime: new Date(Date.now() - 53_000).toISOString() });
+    await page.goto('/');
+
+    const elapsed = page.locator('[data-ticket="7"] [data-elapsed-since]');
+    await expect(elapsed).not.toHaveText('');
+
+    const row = await page.locator('[data-ticket="7"]').evaluate((card) => {
+      const status = card.querySelector('[data-card-link] ~ p span.rounded-full')!;
+      const time = card.querySelector('[data-elapsed-since]')!;
+      const kind = card.querySelector('[data-workload-kind]')!;
+      const [a, b, c] = [status, time, kind].map((element) => element.getBoundingClientRect());
+      const bottoms = [status, time, kind].map((element) => {
+        const range = card.ownerDocument.createRange();
+        range.selectNodeContents(element);
+        return Math.max(...[...range.getClientRects()].map((rect) => rect.bottom));
+      });
+      return { bottoms, gaps: [b!.left - a!.right, c!.left - b!.right] };
+    });
+
+    expect(Math.max(...row.bottoms) - Math.min(...row.bottoms)).toBeLessThan(0.5);
+    expect(Math.abs(row.gaps[0]! - row.gaps[1]!)).toBeLessThan(0.5);
+  });
+});
