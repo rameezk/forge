@@ -271,6 +271,7 @@ const sync = async (
           const approved = await writes.approve(github, tickets);
           for (const ticket of tickets) {
             if (approved.labelled.has(ticket.number)) ticket.forgeReady = true;
+            if (approved.awaiting.has(ticket.number)) ticket.awaitingReapproval = true;
           }
           if (approved.failed) failed = true;
         }

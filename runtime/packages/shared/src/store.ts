@@ -495,6 +495,7 @@ type TicketRow = {
   for_human: number;
   blocked: number;
   blocked_by: string;
+  awaiting_reapproval: number;
 };
 
 const CREATE_FRONTIER = `
@@ -521,6 +522,7 @@ const CREATE_FRONTIER = `
     blocked       INTEGER NOT NULL,
     blocked_by    TEXT NOT NULL,
     version       TEXT NOT NULL DEFAULT '',
+    awaiting_reapproval INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (repository, number)
   ) STRICT;
 
@@ -1475,6 +1477,11 @@ const HAS_OUTDATED_FRONTIER = `
     AND NOT EXISTS (
       SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'version'
     )
+  ) OR (
+    type = 'table' AND name = 'frontier_tickets'
+    AND NOT EXISTS (
+      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'awaiting_reapproval'
+    )
   )
 `;
 
@@ -1562,6 +1569,7 @@ const ticketFromRow = (row: TicketRow): Ticket => ({
   forHuman: row.for_human === 1,
   blocked: row.blocked === 1,
   blockedBy: JSON.parse(row.blocked_by) as number[],
+  ...(row.awaiting_reapproval === 1 ? { awaitingReapproval: true } : {}),
 });
 
 const closedFromRow = (row: ClosedRow): ClosedTicket => ({
@@ -2471,10 +2479,10 @@ export class Store {
       const insert = this.#db.prepare(
         `INSERT INTO frontier_tickets (
           repository, number, title, url, parent_number, parent_title, parent_url, created_at,
-          forge_ready, for_human, blocked, blocked_by, version
+          forge_ready, for_human, blocked, blocked_by, version, awaiting_reapproval
         ) VALUES (
           $repository, $number, $title, $url, $parent_number, $parent_title, $parent_url, $created_at,
-          $forge_ready, $for_human, $blocked, $blocked_by, $version
+          $forge_ready, $for_human, $blocked, $blocked_by, $version, $awaiting_reapproval
         )`,
       );
       for (const ticket of tickets) {
@@ -2492,6 +2500,7 @@ export class Store {
           blocked: ticket.blocked ? 1 : 0,
           blocked_by: JSON.stringify(ticket.blockedBy),
           version: ticket.version ?? '',
+          awaiting_reapproval: ticket.awaitingReapproval === true ? 1 : 0,
         });
       }
       this.#db

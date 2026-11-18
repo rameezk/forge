@@ -220,6 +220,23 @@ test('given a blocked ready-for-agent ticket, a blocked forge:ready ticket and a
   assert.doesNotMatch(cardOf(body, 3), /data-queued/);
 });
 
+test('given an unlabelled ready-for-agent ticket whose approval does not stand, a blocked one, and one whose approval stands, when the Board is requested, then only the first two show awaiting re-approval, in Ready for agent and Blocked', async () => {
+  const app = appWith([
+    frontierOf([
+      ticket({ number: 1, awaitingReapproval: true }),
+      ticket({ number: 2, blocked: true, blockedBy: [200], awaitingReapproval: true }),
+      ticket({ number: 3 }),
+    ]),
+  ]);
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { blocked: ['2'], 'ready-for-agent': ['1', '3'] });
+  assert.match(cardOf(body, 1), /<span[^>]*data-awaiting-reapproval[^>]*>awaiting re-approval<\/span>/);
+  assert.match(cardOf(body, 2), /<span[^>]*data-awaiting-reapproval[^>]*>awaiting re-approval<\/span>/);
+  assert.doesNotMatch(cardOf(body, 3), /data-awaiting-reapproval|awaiting re-approval/);
+});
+
 test('given an unblocked ready-for-human ticket, when the Board is requested, then it is in Ready for human with its created date and no blocked marker', async () => {
   const app = appWith([frontierOf([ticket({ number: 8, forHuman: true, createdAt: '2026-09-27T10:00:00Z' })])]);
 
