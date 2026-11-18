@@ -39,6 +39,7 @@ import {
   writeFakePi,
   brokerEnv,
   DEFAULT_RESOURCE_NOTE,
+  assertRepositoryNeutralCheckRule,
 } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
@@ -545,6 +546,7 @@ test('given any revision, when pi starts, then its fixed instruction tells it to
   assert.match(revision ?? '', /end your run at once, without waiting or polling for an answer/);
   assert.equal(instructions.some((text) => text.includes('no human will answer')), false);
   assert.equal(instructions.includes(UNATTENDED_INSTRUCTION), false);
+  assertRepositoryNeutralCheckRule(revision ?? '');
 });
 
 test('given a revision with feedback to address, when it runs, then its instruction says to post a block or question as a reply on the pull request', async () => {

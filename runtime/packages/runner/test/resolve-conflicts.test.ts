@@ -42,6 +42,7 @@ import {
   writeFakePi,
   brokerEnv,
   DEFAULT_RESOURCE_NOTE,
+  assertRepositoryNeutralCheckRule,
 } from './helpers.ts';
 
 const PI_OUTPUT = join(import.meta.dirname, 'fixtures', 'pi', 'success.jsonl');
@@ -453,6 +454,7 @@ test('given a branch that conflicts with the default branch in two files, when f
   assert.ok(transcript.includes('a.txt'));
   const instruction = pi.argv.filter((_, index) => pi.argv[index - 1] === '--append-system-prompt').join('\n');
   assert.ok(instruction.includes(CONFLICT_INSTRUCTION));
+  assertRepositoryNeutralCheckRule(instruction);
   assert.ok(!instruction.includes(origin.mainTip));
   assert.doesNotMatch(instruction, /a\.txt|b\.txt|pull request #143/);
 });

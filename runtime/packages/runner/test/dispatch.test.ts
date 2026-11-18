@@ -65,6 +65,7 @@ import {
   type BwrapCall,
   brokerEnv,
   withResourceNote,
+  assertRepositoryNeutralCheckRule,
 } from './helpers.ts';
 
 const GITHUB_FIXTURES = join(import.meta.dirname, 'fixtures', 'github');
@@ -2128,16 +2129,8 @@ test('given a checkout root with .claude/skills, .pi/skills, AGENTS.md, CLAUDE.m
 
   assert.ok(pi);
   assert.match(UNATTENDED_INSTRUCTION, /no human will answer/);
-  for (const instruction of [UNATTENDED_INSTRUCTION, REVISION_INSTRUCTION]) {
-    assert.match(instruction, /only the scoped local commands AGENTS\.md lists/);
-    assert.match(instruction, /never the full `make check-no-vm`/);
-    assert.match(instruction, /one line naming the local commands that passed.*"full suite: CI"/);
-    assert.match(
-      instruction,
-      /required scoped command is killed or cannot run, stop and report that instead of running a narrower or different check/,
-    );
-    assert.doesNotMatch(instruction, /choose a narrower check/);
-  }
+  const standing = (pi?.argv ?? []).find((arg) => arg.startsWith('You are running unattended')) ?? '';
+  assertRepositoryNeutralCheckRule(standing);
   const root = realpathSync(pi.cwd);
   const flags = [
     ...PI_CONTRACT,

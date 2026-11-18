@@ -13,10 +13,11 @@ export interface Checkout {
   skillLines: ReadonlyMap<string, number>;
 }
 
-const SCOPED_CHECK_RULE = [
-  'Run only the scoped local commands AGENTS.md lists for the areas you changed, never the full `make check-no-vm`.',
+const CHECK_RULE = [
+  "Run only the checks the repository's own instructions name for the areas you changed, never its full suite.",
+  "When the repository's instructions name no checks, run the narrowest checks that clearly fit the change and report them, rather than stopping.",
   'End your report with one line naming the local commands that passed, followed by "full suite: CI".',
-  'When a required scoped command is killed or cannot run, stop and report that instead of running a narrower or different check.',
+  'When a required check is killed or cannot run, stop and report that instead of running a narrower or different check.',
   "A missing dependency install is something to do as the repository's instructions say, not a required command that cannot run.",
 ];
 
@@ -36,7 +37,7 @@ export const UNATTENDED_INSTRUCTION = [
   'You are running unattended: no human will answer questions or confirm anything while you work.',
   'Where a skill asks you to confirm something the ticket or its spec already settles, proceed without asking.',
   'Otherwise stop, and end with the question you need answered.',
-  ...SCOPED_CHECK_RULE,
+  ...CHECK_RULE,
   ...CI_RERUN_RULE,
 ].join(' ');
 
@@ -61,7 +62,7 @@ export const REVISION_INSTRUCTION = [
   'Where a skill asks you to confirm something their feedback already settles, proceed without asking.',
   'Otherwise ask the question as a reply on the pull request and end your run at once, without waiting or polling for an answer.',
   'If you stop because you are blocked or have a question, post that as a reply on the pull request.',
-  ...SCOPED_CHECK_RULE,
+  ...CHECK_RULE,
   ...CI_RERUN_RULE,
 ].join(' ');
 
