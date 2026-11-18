@@ -91,7 +91,7 @@ const replaying = (
 };
 
 const declaring = (
-  repositories: Record<string, { github: string; on?: { ticket?: string } }>,
+  repositories: Record<string, { github: string; on?: { ticket?: string }; autoApprove?: boolean }>,
   notInstalled: string[] = [],
 ) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-frontier-'));
@@ -1251,4 +1251,266 @@ test('given a dispatch with an open pull request in a repository that no longer 
   await run(app, ['sync'], env, github.fetch);
 
   assert.equal(storedPullRequests(stateDir)[0]?.pullRequest?.state, 'merged');
+});
+
+type Event = [label: string, login: string, at: string];
+
+interface AutoApproval {
+  timelines: Record<number, Event[]>;
+  maintainers: string[];
+  bodyEdits?: Record<number, [login: string, at: string][]>;
+  renames?: Record<number, [login: string, at: string][]>;
+}
+
+const actorOf = (login: string) => ({ __typename: 'User', login });
+
+const approving = (
+  inner: typeof globalThis.fetch,
+  { timelines, maintainers, bodyEdits = {}, renames = {} }: AutoApproval,
+): typeof globalThis.fetch =>
+  async (input, init) => {
+    const url = new URL(String(input));
+    const permission = /\/collaborators\/([^/]+)\/permission$/.exec(url.pathname);
+    if (permission !== null) {
+      const login = decodeURIComponent(permission[1] ?? '');
+      return maintainers.includes(login)
+        ? Response.json({ permission: 'write' })
+        : new Response('{}', { status: 404 });
+    }
+    if (url.pathname !== '/graphql') return inner(input, init);
+    const { query, variables } = JSON.parse(String(init?.body)) as Request['body'];
+    const number = Number(variables.number);
+    const pageInfo = { hasPreviousPage: false, hasNextPage: false, startCursor: null, endCursor: null };
+    const issue = (fields: Record<string, unknown>) =>
+      Response.json({ data: { repository: { issue: fields } } });
+    if (query.includes('query TicketApproval')) {
+      return issue({
+        timelineItems: {
+          pageInfo,
+          nodes: (timelines[number] ?? []).map(([label, login, at]) => ({
+            __typename: 'LabeledEvent',
+            createdAt: at,
+            label: { name: label },
+            actor: actorOf(login),
+          })),
+        },
+      });
+    }
+    if (query.includes('query TicketRenames')) {
+      return issue({
+        timelineItems: {
+          pageInfo,
+          nodes: (renames[number] ?? []).map(([login, at]) => ({
+            __typename: 'RenamedTitleEvent',
+            createdAt: at,
+            actor: actorOf(login),
+          })),
+        },
+      });
+    }
+    if (query.includes('query TicketBodyEdits')) {
+      return issue({
+        userContentEdits: {
+          pageInfo,
+          nodes: (bodyEdits[number] ?? []).map(([login, at]) => ({ editedAt: at, editor: actorOf(login) })),
+        },
+      });
+    }
+    return inner(input, init);
+  };
+
+const autoApproved = async (
+  scenario: AutoApproval,
+  options: { autoApprove?: boolean; response?: string; edit?: (pages: RecordedPage[]) => void } = {},
+) => {
+  const { autoApprove = true, response = 'frontier', edit } = options;
+  const { stateDir, env, app } = declaring({
+    forge: { github: 'rameezk/forge', on: { ticket: 'builder' }, ...(autoApprove ? { autoApprove: true } : {}) },
+  });
+  const pages = recorded(response);
+  edit?.(pages);
+  const github = labelling(
+    runningIssues(replaying({ 'rameezk/forge': pages }), []),
+    allForgeLabels,
+  );
+  const code = await run(app, ['sync'], env, approving(github.fetch, scenario));
+  return {
+    code,
+    stateDir,
+    writes: github.calls.filter(({ path }) => path.includes('/issues/')),
+    labelled: github.calls
+      .filter(({ method, path }) => method === 'POST' && path.endsWith('/labels') && path.includes('/issues/'))
+      .map(({ path, body }) => `${path.split('/').at(-2)}:${JSON.stringify(body)}`),
+  };
+};
+
+const forgeReadyOn = (number: number) => `${number}:{"labels":["forge:ready"]}`;
+
+const storedTicket = (stateDir: string, number: number) =>
+  storedFrontier(stateDir)[0]?.tickets.find((ticket) => ticket.number === number);
+
+const RFA_AT = '2026-10-01T10:00:00Z';
+const LATER = '2026-10-01T11:00:00Z';
+const LATEST = '2026-10-01T12:00:00Z';
+
+test('given an auto-approving repository and a ticket a maintainer labelled ready-for-agent with no forge label, when sync runs, then forge labels it forge:ready with the write token and stores it as queued', async () => {
+  const { code, stateDir, writes, labelled } = await autoApproved({
+    timelines: { 57: [['ready-for-agent', 'teammate', RFA_AT]] },
+    maintainers: ['teammate'],
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(labelled, [forgeReadyOn(57)]);
+  assert.equal(writes[0]?.authorization, `bearer ${WRITE_TOKEN}`);
+  assert.equal(storedTicket(stateDir, 57)?.forgeReady, true);
+  assert.equal(storedTicket(stateDir, 58)?.forgeReady, false);
+});
+
+test('given an auto-approving repository and a blocked ticket a maintainer labelled ready-for-agent, when sync runs, then it carries forge:ready and is stored as queued', async () => {
+  const { stateDir, labelled } = await autoApproved(
+    { timelines: { 201: [['ready-for-agent', 'teammate', RFA_AT]] }, maintainers: ['teammate'] },
+    { response: 'blocked-agent' },
+  );
+
+  assert.deepEqual(labelled, [forgeReadyOn(201)]);
+  const ticket = storedTicket(stateDir, 201);
+  assert.equal(ticket?.forgeReady, true);
+  assert.equal(ticket?.blocked, true);
+});
+
+test('given a repository that has not opted in and a ticket a maintainer labelled ready-for-agent, when sync runs, then the ticket gains no forge:ready', async () => {
+  const { writes, stateDir } = await autoApproved(
+    { timelines: { 57: [['ready-for-agent', 'teammate', RFA_AT]] }, maintainers: ['teammate'] },
+    { autoApprove: false },
+  );
+
+  assert.deepEqual(writes, []);
+  assert.equal(storedTicket(stateDir, 57)?.forgeReady, false);
+});
+
+test('given an auto-approving repository and a ticket whose latest ready-for-agent someone without write access applied, when sync runs, then it gains no forge:ready, no forge:failed and no comment', async () => {
+  for (const timeline of [
+    [['ready-for-agent', 'outsider', RFA_AT]],
+    [['ready-for-agent', 'teammate', RFA_AT], ['ready-for-agent', 'outsider', LATER]],
+  ] as Event[][]) {
+    const { writes, code } = await autoApproved({ timelines: { 57: timeline }, maintainers: ['teammate'] });
+
+    assert.equal(code, 0);
+    assert.deepEqual(writes, []);
+  }
+});
+
+test('given an auto-approving repository and a ticket a maintainer labelled ready-for-agent whose body or title, or whose parent spec\'s body or title, an outsider edited afterwards, when sync runs, then it gains no forge:ready', async () => {
+  const outsider: [string, string][] = [['outsider', LATER]];
+  const cases: Partial<AutoApproval>[] = [
+    { bodyEdits: { 57: outsider } },
+    { renames: { 57: outsider } },
+    { bodyEdits: { 54: outsider } },
+    { renames: { 54: outsider } },
+  ];
+  for (const edits of cases) {
+    const { writes } = await autoApproved({
+      timelines: { 57: [['ready-for-agent', 'teammate', RFA_AT]] },
+      maintainers: ['teammate'],
+      ...edits,
+    });
+
+    assert.deepEqual(writes, [], JSON.stringify(edits));
+  }
+});
+
+test('given an auto-approving repository and a ticket whose outsider edit predates the maintainer\'s ready-for-agent or whose edits a maintainer made, when sync runs, then it carries forge:ready', async () => {
+  const { labelled } = await autoApproved({
+    timelines: { 57: [['ready-for-agent', 'teammate', LATER]], 58: [['ready-for-agent', 'teammate', RFA_AT]] },
+    maintainers: ['teammate'],
+    bodyEdits: { 57: [['outsider', RFA_AT]], 58: [['teammate', LATER]] },
+  });
+
+  assert.deepEqual(labelled, [forgeReadyOn(57), forgeReadyOn(58)]);
+});
+
+test('given a ticket forge labelled forge:ready from which a maintainer then removed it, when sync runs again, then it gains no forge:ready, and once a maintainer applies ready-for-agent again, it does', async () => {
+  const held: Event[] = [
+    ['ready-for-agent', 'teammate', RFA_AT],
+    ['forge:ready', 'forge[bot]', LATER],
+  ];
+  const first = await autoApproved({ timelines: { 57: held }, maintainers: ['teammate'] });
+  const second = await autoApproved({
+    timelines: { 57: [...held, ['ready-for-agent', 'teammate', LATEST]] },
+    maintainers: ['teammate'],
+  });
+
+  assert.deepEqual(first.writes, []);
+  assert.deepEqual(second.labelled, [forgeReadyOn(57)]);
+});
+
+test('given a ticket a maintainer labelled ready-for-agent and forge:ready within the same second, when sync runs, then it gains no forge:ready', async () => {
+  const { writes } = await autoApproved({
+    timelines: { 57: [['ready-for-agent', 'teammate', RFA_AT], ['forge:ready', 'forge[bot]', RFA_AT]] },
+    maintainers: ['teammate'],
+  });
+
+  assert.deepEqual(writes, []);
+});
+
+test('given a ticket carrying forge:failed, running or done, when sync runs, then it gains no forge:ready', async () => {
+  for (const label of ['forge:failed', 'forge:running', 'forge:done']) {
+    const { writes } = await autoApproved(
+      { timelines: { 57: [['ready-for-agent', 'teammate', RFA_AT]] }, maintainers: ['teammate'] },
+      {
+        edit: (pages) => {
+          for (const page of pages) {
+            const node = page.data?.repository?.issues.nodes.find(({ number }) => number === 57);
+            (node?.labels as { nodes: { name: string }[] } | undefined)?.nodes.push({ name: label });
+          }
+        },
+      },
+    );
+
+    assert.deepEqual(writes, [], label);
+  }
+});
+
+test('given an auto-approving repository with several ready-for-agent tickets, some approved by maintainers and one by an outsider, when sync runs, then every maintainer-approved ticket without a forge label carries forge:ready and the outsider\'s does not', async () => {
+  const { labelled, code } = await autoApproved({
+    timelines: {
+      57: [['ready-for-agent', 'teammate', RFA_AT]],
+      58: [['ready-for-agent', 'outsider', RFA_AT]],
+      62: [['ready-for-agent', 'owner', RFA_AT]],
+      63: [['ready-for-agent', 'teammate', RFA_AT]],
+      69: [['ready-for-agent', 'teammate', RFA_AT]],
+    },
+    maintainers: ['teammate', 'owner'],
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(labelled, [forgeReadyOn(57), forgeReadyOn(62), forgeReadyOn(63)]);
+});
+
+test('given an auto-approving repository where GitHub fails reading one ticket\'s timeline, when sync runs, then the other tickets are labelled, the frontier is stored and the failure is reported with a non-zero exit code', async (t) => {
+  const stderr: string[] = [];
+  t.mock.method(console, 'error', (line: string) => stderr.push(line));
+  const scenario: AutoApproval = {
+    timelines: { 57: [['ready-for-agent', 'teammate', RFA_AT]], 58: [['ready-for-agent', 'teammate', RFA_AT]] },
+    maintainers: ['teammate'],
+  };
+  const { stateDir, env, app } = declaring({
+    forge: { github: 'rameezk/forge', on: { ticket: 'builder' }, autoApprove: true },
+  });
+  const github = labelling(runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), []), allForgeLabels);
+  const answering = approving(github.fetch, scenario);
+  const failing: typeof globalThis.fetch = async (input, init) =>
+    String(init?.body).includes('"number":57') && String(init?.body).includes('TicketApproval')
+      ? new Response('{}', { status: 502 })
+      : answering(input, init);
+
+  const code = await run(app, ['sync'], env, failing);
+
+  assert.notEqual(code, 0);
+  assert.equal(storedFrontier(stateDir)[0]?.tickets.length, 7);
+  assert.deepEqual(
+    github.calls.filter(({ method, path }) => method === 'POST' && path.endsWith('/issues/58/labels')).length,
+    1,
+  );
+  assert.deepEqual(stderr, ['rameezk/forge#57: could not auto-approve: GitHub answered 502 for rameezk/forge#57']);
 });

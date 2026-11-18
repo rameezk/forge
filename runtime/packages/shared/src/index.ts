@@ -77,6 +77,7 @@ export type {
   RepositoryFrontier,
   RepositoryProblems,
   SpecRef,
+  PolledTicket,
   Ticket,
   TicketState,
 } from './frontier.ts';
@@ -180,6 +181,7 @@ export {
   type WatchedPullRequest,
 } from './feedback.ts';
 export { maintainerApprovalOf, requestTicketApproval } from './approval.ts';
+export { autoApproveTickets } from './auto-approve.ts';
 export { hasOutsiderEditSince, requestTicketBodyEdits, requestTicketRenames } from './edits.ts';
 export { maintainerLookup, type MaintainerLookup } from './maintainers.ts';
 export type { ContextComment, ContextIssue, TicketContext } from './ticket-context.ts';

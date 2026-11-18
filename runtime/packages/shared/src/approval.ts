@@ -1,5 +1,5 @@
 import { FORGE_READY } from './dispatch.ts';
-import { readGraphql, requestGraphql, type Fetch } from './frontier.ts';
+import { readGraphql, READY_FOR_AGENT, requestGraphql, type Fetch } from './frontier.ts';
 import type { Actor, MaintainerLookup } from './maintainers.ts';
 
 export const TICKET_APPROVAL_QUERY = `
@@ -80,15 +80,23 @@ const queryApprovalPage = async (
   return issue.timelineItems;
 };
 
-export const maintainerApprovalOf = async (
+export interface LabelEvent {
+  at: string;
+  actor: Actor | null;
+  recency: number;
+}
+
+export const latestLabelEvents = async (
   fetch: Fetch,
   token: string,
   github: string,
   number: number,
-  isMaintainer: MaintainerLookup,
-): Promise<string | null> => {
+  labels: readonly string[],
+): Promise<Map<string, LabelEvent>> => {
+  const latest = new Map<string, LabelEvent>();
   const cursors = new Set<string>();
   let before: string | null = null;
+  let recency = 0;
   do {
     const { pageInfo, nodes }: ApprovalPage = await queryApprovalPage(
       fetch,
@@ -97,13 +105,66 @@ export const maintainerApprovalOf = async (
       number,
       before,
     );
-    const latest = nodes.findLast((node) => node.label?.name === FORGE_READY);
-    if (latest !== undefined) return (await isMaintainer(latest.actor)) ? latest.createdAt : null;
+    for (const node of nodes.toReversed()) {
+      const name = node.label?.name;
+      if (name !== undefined && labels.includes(name) && !latest.has(name)) {
+        latest.set(name, { at: node.createdAt, actor: node.actor, recency });
+      }
+      recency += 1;
+    }
+    if (latest.size === labels.length) break;
     before = pageInfo.hasPreviousPage ? pageInfo.startCursor : null;
     if (before !== null && cursors.has(before)) {
       throw new Error(`GitHub paging did not advance for ${github}#${number}`);
     }
     if (before !== null) cursors.add(before);
   } while (before !== null);
-  return null;
+  return latest;
+};
+
+const BOT_SUFFIX = '[bot]';
+
+const slugOf = (login: string): string =>
+  (login.endsWith(BOT_SUFFIX) ? login.slice(0, -BOT_SUFFIX.length) : login).toLowerCase();
+
+export interface AutoApproval {
+  forgeLogin: string;
+}
+
+const reappliedByOutsider = (
+  applied: LabelEvent | undefined,
+  approval: LabelEvent,
+  { forgeLogin }: AutoApproval,
+): boolean =>
+  applied !== undefined &&
+  applied.recency < approval.recency &&
+  !(
+    applied.actor?.__typename === 'Bot' && slugOf(applied.actor.login) === slugOf(forgeLogin)
+  );
+
+export const maintainerApprovalOf = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  isMaintainer: MaintainerLookup,
+  autoApproval: AutoApproval | null = null,
+): Promise<string | null> => {
+  const anchors = autoApproval === null ? [FORGE_READY] : [FORGE_READY, READY_FOR_AGENT];
+  const events = await latestLabelEvents(fetch, token, github, number, anchors);
+  const applied = events.get(FORGE_READY);
+  const approvals: string[] = [];
+  for (const anchor of anchors) {
+    const event = events.get(anchor);
+    if (event === undefined || !(await isMaintainer(event.actor))) continue;
+    if (
+      anchor === READY_FOR_AGENT &&
+      autoApproval !== null &&
+      reappliedByOutsider(applied, event, autoApproval)
+    ) {
+      continue;
+    }
+    approvals.push(event.at);
+  }
+  return approvals.length === 0 ? null : approvals.reduce((a, b) => (a >= b ? a : b));
 };

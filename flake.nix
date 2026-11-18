@@ -1406,6 +1406,16 @@
                 && !(lib.any (lib.hasPrefix "FORGE_GRADING_REPOSITORIES=") dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment)
               )
               "the dashboard must be told which repositories have grading on, and only when one does";
+          autoApproveHost = secretsHost exampleSecretsFile (
+            lib.recursiveUpdate (dispatchModuleWith { }) { forge.runtime.repositories.forge.autoApprove = true; }
+          );
+          autoApproveConfigReflectsOptions =
+            lib.asserts.assertMsg
+              (
+                autoApproveHost.config.forge.runtime.settings.repositories.forge.autoApprove == true
+                && !(dispatchHost.config.forge.runtime.settings.repositories.forge ? autoApprove)
+              )
+              "the generated runtime config must carry autoApprove only for a repository that turns it on";
           gradingOffByDefault = lib.asserts.assertMsg (
             !(dispatchHost.config.systemd.services ? forge-grading)
             && !(dispatchHost.config.systemd.timers ? forge-grading)
@@ -2173,6 +2183,7 @@
             assert gradingWired;
             assert gradingConfigReflectsOptions;
             assert gradingOffByDefault;
+            assert autoApproveConfigReflectsOptions;
             assert gradingNeedsAJevVersion;
             pkgs.runCommand "runtime-grading" { } ''
               echo "turning grading on wires a forge-grading oneshot on a one-minute timer holding only the OpenRouter key and the App, off by default, and the model must be a Jev version id" > $out
