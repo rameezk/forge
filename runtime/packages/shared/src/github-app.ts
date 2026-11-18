@@ -150,11 +150,7 @@ export class GithubApp {
   }
 
   async #lookUpIdentity(github: string): Promise<BotIdentity> {
-    const app = (await ok(await this.#request('GET', '/app'))) as { slug?: unknown };
-    if (typeof app.slug !== 'string' || !/^[A-Za-z0-9-]+$/.test(app.slug)) {
-      throw new Error('GitHub returned a malformed GitHub App');
-    }
-    const login = `${app.slug}[bot]`;
+    const login = await this.login();
     const { token } = await this.mint(github, 'read');
     const bot = (await ok(
       await this.#request('GET', `/users/${encodeURIComponent(login)}`, undefined, token),
