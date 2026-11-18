@@ -4,7 +4,7 @@ export const GITHUB_GRAPHQL_API = 'https://api.github.com/graphql';
 
 export const FRONTIER_PAGE_SIZE = 100;
 
-const READY_FOR_AGENT = 'ready-for-agent';
+export const READY_FOR_AGENT = 'ready-for-agent';
 
 const FORGE_LABEL_PREFIX = 'forge:';
 

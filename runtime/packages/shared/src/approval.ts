@@ -1,5 +1,5 @@
 import { FORGE_READY } from './dispatch.ts';
-import { readGraphql, requestGraphql, type Fetch } from './frontier.ts';
+import { readGraphql, READY_FOR_AGENT, requestGraphql, type Fetch } from './frontier.ts';
 import type { Actor, MaintainerLookup } from './maintainers.ts';
 
 export const TICKET_APPROVAL_QUERY = `
@@ -80,8 +80,6 @@ const queryApprovalPage = async (
   return issue.timelineItems;
 };
 
-export const READY_FOR_AGENT = 'ready-for-agent';
-
 export interface LabelEvent {
   at: string;
   actor: Actor | null;
@@ -124,6 +122,11 @@ export const latestLabelEvents = async (
   return latest;
 };
 
+const reappliedByOutsider = (applied: LabelEvent | undefined, approval: LabelEvent): boolean =>
+  applied !== undefined &&
+  applied.recency < approval.recency &&
+  applied.actor?.__typename !== 'Bot';
+
 export const maintainerApprovalOf = async (
   fetch: Fetch,
   token: string,
@@ -134,10 +137,13 @@ export const maintainerApprovalOf = async (
 ): Promise<string | null> => {
   const anchors = autoApprove ? [FORGE_READY, READY_FOR_AGENT] : [FORGE_READY];
   const events = await latestLabelEvents(fetch, token, github, number, anchors);
+  const applied = events.get(FORGE_READY);
   const approvals: string[] = [];
   for (const anchor of anchors) {
     const event = events.get(anchor);
-    if (event !== undefined && (await isMaintainer(event.actor))) approvals.push(event.at);
+    if (event === undefined || !(await isMaintainer(event.actor))) continue;
+    if (anchor === READY_FOR_AGENT && reappliedByOutsider(applied, event)) continue;
+    approvals.push(event.at);
   }
   return approvals.length === 0 ? null : approvals.reduce((a, b) => (a >= b ? a : b));
 };

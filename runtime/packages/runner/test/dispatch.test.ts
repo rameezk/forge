@@ -1207,6 +1207,18 @@ test('given an auto-approving repository and a ticket whose ready-for-agent an o
   assert.deepEqual(labelWrites, refusedWrites());
 });
 
+test('given an auto-approving repository and a ticket a maintainer held whose forge:ready a user without write access applied again, when forge dispatches it, then it is refused as unapproved', async () => {
+  const { code, pi, labelWrites } = await dispatch({
+    autoApprove: true,
+    approvals: () =>
+      approval([['ready-for-agent', 'teammate'], ['forge:ready', 'forge[bot]'], ['forge:ready', 'author']]),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
+});
+
 test('given an auto-approving repository and a ticket an outsider edited after the maintainer\'s ready-for-agent, when forge dispatches it, then it is refused', async () => {
   const { code, pi, labelWrites } = await dispatch({
     autoApprove: true,
