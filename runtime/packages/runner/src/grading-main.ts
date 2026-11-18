@@ -8,6 +8,7 @@ import {
   jevDecides,
 } from './grading.ts';
 import { openRouterBaseUrl } from './openrouter.ts';
+import { gradeUrgency, URGENCY_QUESTION } from './urgency.ts';
 import type { RuntimeConfig } from './config.ts';
 
 const apiKeyOf = (env: NodeJS.ProcessEnv): string => {
@@ -31,32 +32,59 @@ export const main = async (env: NodeJS.ProcessEnv, fetch: Fetch): Promise<number
     throw new Error('FORGE_RUNTIME_CONFIG is not set');
   }
   const config = JSON.parse(readFileSync(configPath, 'utf8')) as RuntimeConfig;
-  const repositories = Object.fromEntries(
-    Object.entries(config.repositories ?? {})
-      .filter(([, { grading }]) => grading === true)
-      .map(([name, { github }]) => [name, github]),
+  const managed = Object.entries(config.repositories ?? {});
+  const graded = Object.fromEntries(
+    managed.filter(([, { grading }]) => grading === true).map(([name, { github }]) => [name, github]),
   );
-  if (Object.keys(repositories).length === 0) return 0;
   const model = config.grading?.model;
   if (model === undefined) {
-    throw new Error('grading is on for a repository but forge.runtime.grading.model is not set');
+    if (Object.keys(graded).length > 0) {
+      throw new Error('grading is on for a repository but forge.runtime.grading.model is not set');
+    }
+    return 0;
   }
-  const decide = jevDecides(decisionsUrl(openRouterBaseUrl(env)), apiKeyOf(env), model, globalThis.fetch);
+  if (managed.length === 0) return 0;
+  const url = decisionsUrl(openRouterBaseUrl(env));
+  const apiKey = apiKeyOf(env);
+  const threshold = config.grading?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+  const tokens = installationTokens(env, fetch);
+  const now = (): string => new Date().toISOString();
+  const log = (line: string): void => {
+    process.stderr.write(`${line}\n`);
+  };
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    const graded = await gradePullRequests({
+    const pullRequestsGraded =
+      Object.keys(graded).length === 0 ||
+      (await gradePullRequests({
+        store,
+        fetch,
+        tokens,
+        decide: jevDecides(url, apiKey, model, globalThis.fetch),
+        repositories: graded,
+        model,
+        threshold,
+        now,
+        log,
+      }));
+    const urgencyGraded = await gradeUrgency({
       store,
       fetch,
-      tokens: installationTokens(env, fetch),
-      decide,
-      repositories,
+      tokens,
+      decide: jevDecides(url, apiKey, model, globalThis.fetch, URGENCY_QUESTION),
+      repositories: Object.fromEntries(
+        managed.map(([name, { github, description }]) => [
+          name,
+          { github, description: description ?? null },
+        ]),
+      ),
       model,
-      threshold: config.grading?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
-      now: () => new Date().toISOString(),
-      log: (line) => process.stderr.write(`${line}\n`),
+      threshold,
+      now,
+      log,
     });
-    return graded ? 0 : 1;
+    return pullRequestsGraded && urgencyGraded ? 0 : 1;
   } finally {
     store.close();
   }

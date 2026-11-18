@@ -186,6 +186,12 @@ let
         default = false;
         description = "Whether forge's Reviewer App auto-merges this repository's trivial and low risk pull requests (ADR-0115, ADR-0116). Off by default, and no repository is treated specially. On, `forge-auto-merge` approves and merges, pinned to the head commit it checked, every forge pull request whose current head is graded trivial or low and not uncertain, is settled (not a draft, no forge workload running on it), has every required check green and has no open feedback and no unresolved review thread. The merge is a squash merge. The Reviewer App comments on the pull request with the grade, the head commit and the gates it passed, and the grade settles as `auto-merged`, which counts neither for nor against it. Needs `grading` on for the repository, and the Reviewer App (`github_reviewer_app_id` and `github_reviewer_app_private_key`, Pull requests: write, Contents: write, Checks: read and Commit statuses: read) installed on it. Turning it off stops all auto-merge in the repository on the next pass.";
       };
+      description = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "A live billing service that other teams' checkouts depend on.";
+        description = "Free text saying what this repository is and who depends on it, sent to Jev with every ticket of the repository when it grades the ticket's urgency (ADR-0117), because how urgent a ticket is often hinges on context the ticket does not state, such as whether the repository is live. Forge grades the urgency of every approved ticket of every managed repository once `forge.runtime.grading.model` is set, and labels the ticket `forge:urgency-<level>` with the GitHub App's Issues: write permission.";
+      };
       autoApprove = lib.mkOption {
         type = lib.types.bool;
         default = false;
@@ -215,6 +221,7 @@ let
       { inherit (r) github; }
       // lib.optionalAttrs r.grading { grading = true; }
       // lib.optionalAttrs r.autoMerge { autoMerge = true; }
+      // lib.optionalAttrs (r.description != null) { inherit (r) description; }
       // lib.optionalAttrs r.workflows { workflows = true; }
       // lib.optionalAttrs r.autoApprove { autoApprove = true; }
       // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null || r.on.conflict != null) {
@@ -237,7 +244,7 @@ let
   // lib.optionalAttrs hasDiagnosis {
     diagnosis.worker = cfg.diagnosis.worker;
   }
-  // lib.optionalAttrs hasGrading {
+  // lib.optionalAttrs hasGradingService {
     grading = {
       inherit (cfg.grading) model confidenceThreshold;
     };
@@ -264,6 +271,7 @@ let
     assertion = !r.autoMerge || r.grading;
     message = "forge.runtime.repositories.${name}.autoMerge needs forge.runtime.repositories.${name}.grading, because forge auto-merges only graded pull requests";
   }) cfg.repositories;
+  hasGradingService = hasGrading || (cfg.grading.model != null && hasRepositories);
 
   gradingAssertions = [
     {
@@ -726,7 +734,7 @@ in
         type = lib.types.nullOr lib.types.str;
         default = null;
         example = "typesafe/jev-1.13";
-        description = "The Jev model that grades pull requests' risk, a version id such as `typesafe/jev-1.13`, never `jev-latest` and never a dated snapshot, so that a grade says what produced it. It is global, like a worker's model, and changing it starts a new grading cohort. Required when any repository sets `grading`.";
+        description = "The Jev model that grades pull requests' risk and approved tickets' urgency, a version id such as `typesafe/jev-1.13`, never `jev-latest` and never a dated snapshot, so that a grade says what produced it. It is global, like a worker's model, and changing it starts a new grading cohort. Required when any repository sets `grading`. Setting it also turns on urgency grading for every managed repository.";
       };
       confidenceThreshold = lib.mkOption {
         type = lib.types.float;
@@ -1107,7 +1115,7 @@ in
       };
     })
 
-    (lib.mkIf hasGrading {
+    (lib.mkIf hasGradingService {
       sops.secrets.openrouter_api_key.sopsFile = cfg.secretsFile;
       sops.templates."forge-grading.env" = envTemplateOf [
         openRouterKey
@@ -1118,7 +1126,7 @@ in
       ];
 
       systemd.services.forge-grading = {
-        description = "Forge grading: grade the risk of settled forge pull requests with Jev";
+        description = "Forge grading: grade the risk of settled forge pull requests and the urgency of approved tickets with Jev";
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
         serviceConfig = {
