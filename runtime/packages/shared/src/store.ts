@@ -904,6 +904,42 @@ const ADD_GRADE_SUPERSEDE_CAUSE = `
   UPDATE risk_grades SET supersede_cause = 'unknown' WHERE outcome = 'superseded';
 `;
 
+const CONFLICT_RESOLUTION_SUPERSEDED_AS_OTHER = `
+  FROM risk_grades
+  WHERE outcome = 'superseded' AND supersede_cause = 'other'
+    AND EXISTS (
+      SELECT 1 FROM conflict_resolutions
+      WHERE conflict_resolutions.repository = risk_grades.repository
+        AND conflict_resolutions.number = risk_grades.number
+        AND conflict_resolutions.pushed_sha = (
+          SELECT next.head_sha FROM risk_grades AS next
+          WHERE next.repository = risk_grades.repository
+            AND next.number = risk_grades.number
+            AND next.graded_at > risk_grades.graded_at
+          ORDER BY next.graded_at LIMIT 1
+        )
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM revisions
+      WHERE revisions.repository = risk_grades.repository
+        AND revisions.number = risk_grades.number
+        AND revisions.pushed_sha = (
+          SELECT next.head_sha FROM risk_grades AS next
+          WHERE next.repository = risk_grades.repository
+            AND next.number = risk_grades.number
+            AND next.graded_at > risk_grades.graded_at
+          ORDER BY next.graded_at LIMIT 1
+        )
+    )
+`;
+
+const HAS_MISATTRIBUTED_CONFLICT_RESOLUTION_SUPERSEDE = `SELECT 1 ${CONFLICT_RESOLUTION_SUPERSEDED_AS_OTHER}`;
+
+const CORRECT_CONFLICT_RESOLUTION_SUPERSEDES = `
+  UPDATE risk_grades SET supersede_cause = 'conflict-resolution'
+  WHERE rowid IN (SELECT rowid ${CONFLICT_RESOLUTION_SUPERSEDED_AS_OTHER});
+`;
+
 const HAS_WATCH_MERGEABLE = `
   SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'mergeable'
 `;
@@ -1588,6 +1624,9 @@ export class Store {
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_PUSHED_SHA, ADD_CONFLICT_RESOLUTION_PUSHED_SHA);
     this.#addColumnsOnce(HAS_GRADE_SUPERSEDE_CAUSE, ADD_GRADE_SUPERSEDE_CAUSE);
     this.#addColumnsOnce(HAS_GRADE_UNCERTAIN, RENAME_GRADE_UNSETTLED);
+    if (db.prepare(HAS_MISATTRIBUTED_CONFLICT_RESOLUTION_SUPERSEDE).get() !== undefined) {
+      this.#transaction(() => db.exec(CORRECT_CONFLICT_RESOLUTION_SUPERSEDES));
+    }
     if (this.#hasOldWorkloadStates()) {
       this.#migrateWorkloadStates();
     }
@@ -2633,7 +2672,7 @@ export class Store {
     return start;
   }
 
-  #latestRevision(pullRequest: RevisedPullRequest): RevisionRow | undefined {
+  #latestRevision(pullRequest: Pick<RevisedPullRequest, 'repository' | 'number'>): RevisionRow | undefined {
     return this.#db
       .prepare(
         `SELECT * FROM revisions
@@ -2645,12 +2684,12 @@ export class Store {
       | undefined;
   }
 
-  #revisionLive(pullRequest: RevisedPullRequest, now: string): boolean {
+  #revisionLive(pullRequest: Pick<RevisedPullRequest, 'repository' | 'number'>, now: string): boolean {
     const latest = this.#latestRevision(pullRequest);
     return latest?.state === 'running' && latest.alive_at >= liveSince(now);
   }
 
-  #latestConflictResolution(pullRequest: RevisedPullRequest): ConflictResolutionRow | undefined {
+  #latestConflictResolution(pullRequest: Pick<RevisedPullRequest, 'repository' | 'number'>): ConflictResolutionRow | undefined {
     return this.#db
       .prepare(
         `SELECT * FROM conflict_resolutions
@@ -2662,7 +2701,7 @@ export class Store {
       | undefined;
   }
 
-  #conflictResolutionLive(pullRequest: RevisedPullRequest, now: string): boolean {
+  #conflictResolutionLive(pullRequest: Pick<RevisedPullRequest, 'repository' | 'number'>, now: string): boolean {
     const latest = this.#latestConflictResolution(pullRequest);
     return latest?.state === 'running' && latest.alive_at >= liveSince(now);
   }
@@ -3334,6 +3373,11 @@ export class Store {
       )
       .all({ repository }) as RiskGradeRow[];
     return rows.map(riskGradeFromRow);
+  }
+
+  workloadRunning(repository: string, number: number, now: string): boolean {
+    const pullRequest = { repository, number };
+    return this.#revisionLive(pullRequest, now) || this.#conflictResolutionLive(pullRequest, now);
   }
 
   settleRiskGrade(

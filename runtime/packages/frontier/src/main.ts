@@ -175,8 +175,9 @@ const settleGradeOutcomes = async (
   for (const grade of store.openRiskGrades(name)) {
     const head = watched.find(({ number }) => number === grade.number)?.headSha;
     if (head === grade.headSha) continue;
+    const workloadRunning = store.workloadRunning(name, grade.number, at);
     if (head !== undefined) {
-      store.settleRiskGrade(grade, 'superseded', at, head);
+      if (!workloadRunning) store.settleRiskGrade(grade, 'superseded', at, head);
       continue;
     }
     try {
@@ -186,7 +187,7 @@ const settleGradeOutcomes = async (
         snapshots.set(grade.number, snapshot);
       }
       if (snapshot.headSha !== grade.headSha) {
-        store.settleRiskGrade(grade, 'superseded', at, snapshot.headSha);
+        if (!workloadRunning) store.settleRiskGrade(grade, 'superseded', at, snapshot.headSha);
       } else if (snapshot.state !== 'open') {
         store.settleRiskGrade(grade, snapshot.state, at);
       }
