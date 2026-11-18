@@ -1,6 +1,7 @@
 import {
   errorMessage,
   queryTicketContext,
+  ticketVersion,
   URGENCY_LEVELS,
   type ContextIssue,
   type DisplayedUrgencyGrade,
@@ -129,6 +130,7 @@ const gradeOne = async (options: GradeUrgencyOptions, due: UrgencyDue): Promise<
     github,
     due.number,
   );
+  if (ticketVersion(ticket) !== due.version) return;
   let decision: Decision;
   try {
     decision = await decide(urgencyInput(ticket, spec, description));

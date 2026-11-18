@@ -361,6 +361,14 @@ const forge = async (
       const graded = await journaled(() => grade(env, fetch));
       assert.equal(graded.result, 0, graded.journal);
     },
+    syncTickets: async (next: FakeTicket[]): Promise<void> => {
+      tickets = next;
+      for (const { number, labels: initial } of next) {
+        if (!labels.has(number)) labels.set(number, new Set(initial));
+      }
+      const synced = await journaled(() => sync(['sync'], env, fetch));
+      assert.equal(synced.result, 0, synced.journal);
+    },
     answerWithUrgency: (level: string, confidence: number): void => {
       answer = urgencyDecision(level, confidence);
     },
@@ -1133,4 +1141,21 @@ test('given a ticket graded normal then critical, when its body is edited back t
   await f.syncAndGradeTickets([APPROVED]);
   assert.equal(f.jevRequests.length, 2);
   assert.deepEqual(f.labelsOf(10), ['forge:ready', 'forge:urgency-normal', 'ready-for-agent']);
+  assert.equal(f.withStore((store) => store.currentUrgencyGrade('forge', 10))?.level, 'normal');
+});
+
+test('given a ticket edited between the frontier sync and the grading call, when forge-grading runs, then the text Jev read is not stored as the synced version and the next sync grades the edit', async (t) => {
+  const f = await forge({ on: false });
+  t.after(f.close);
+  await f.syncTickets([APPROVED]);
+  f.setTickets([{ ...APPROVED, body: 'edited after the sync' }]);
+  assert.equal(await f.grade(), 0);
+
+  assert.equal(f.jevRequests.length, 0);
+  assert.equal(f.withStore((store) => store.currentUrgencyGrade('forge', 10)), null);
+
+  f.answerWithUrgency('high', 0.9);
+  await f.syncAndGradeTickets([{ ...APPROVED, body: 'edited after the sync' }]);
+  assert.equal(f.jevRequests.length, 1);
+  assert.ok(f.labelsOf(10).includes('forge:urgency-high'));
 });

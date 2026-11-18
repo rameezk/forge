@@ -3333,9 +3333,13 @@ export class Store {
   currentUrgencyGrade(repository: string, number: number): DisplayedUrgencyGrade | null {
     const row = this.#db
       .prepare(
-        `SELECT * FROM urgency_grades
-        WHERE repository = $repository AND number = $number
-        ORDER BY graded_at DESC, rowid DESC LIMIT 1`,
+        `SELECT urgency_grades.* FROM urgency_grades
+        LEFT JOIN frontier_tickets
+          ON frontier_tickets.repository = urgency_grades.repository
+          AND frontier_tickets.number = urgency_grades.number
+        WHERE urgency_grades.repository = $repository AND urgency_grades.number = $number
+        ORDER BY urgency_grades.version = frontier_tickets.version DESC,
+          urgency_grades.graded_at DESC, urgency_grades.rowid DESC LIMIT 1`,
       )
       .get({ repository, number }) as UrgencyGradeRow | undefined;
     return row === undefined ? null : urgencyGradeFromRow(row);

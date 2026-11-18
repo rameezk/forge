@@ -92,6 +92,7 @@ export {
   oldestFirst,
   queryClosed,
   queryFrontier,
+  ticketVersion,
   queryLabelled,
   queryRequests,
   queryPullRequest,
