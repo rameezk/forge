@@ -14,7 +14,7 @@ import {
 } from './openrouter.ts';
 import { providerSpec, type Provider } from './provider.ts';
 import { anthropicModel } from './anthropic-models.ts';
-import { JsonLinesFile } from './transcript.ts';
+import { JsonLinesFile, transcriptPolicy } from './transcript.ts';
 import { runWorkload } from './runner.ts';
 import type { Setup } from './setup.ts';
 
@@ -65,11 +65,19 @@ export interface LaunchResult {
   cause: unknown;
 }
 
-const endLine = (run: RunRecord, cause: unknown): string => {
+const endLine = (
+  run: RunRecord,
+  cause: unknown,
+  redact: (text: string) => string,
+): string => {
   const head = `run ${run.id.slice(0, 8)} (${run.worker}) ended ${run.status}`;
-  if (run.status === 'success') return head;
+  if (run.status !== 'error' && run.status !== 'exceeded' && run.status !== 'interrupted') {
+    return head;
+  }
   const recorded = run.error ?? '';
-  return `${head}: ${recorded === '' && cause !== null ? errorMessage(cause) : recorded}`;
+  const reason =
+    recorded === '' && cause !== null ? redact(errorMessage(cause)) : recorded;
+  return `${head}: ${reason}`;
 };
 
 export const launchWorkload = async ({
@@ -113,6 +121,11 @@ export const launchWorkload = async ({
   mkdirSync(workDirs, { recursive: true });
   const store = Store.open(join(stateDir, 'forge.db'));
 
+  const runSecrets = (): readonly string[] => [
+    env[providerSpec(worker.provider).credentialEnv] ?? '',
+    ...secrets(),
+  ];
+
   try {
     const { id, finalMessage, cause } = await runWorkload({
       store,
@@ -127,13 +140,13 @@ export const launchWorkload = async ({
       now: () => new Date().toISOString(),
       newId: () => runId,
       lookUpModel,
-      secrets: () => [env[providerSpec(worker.provider).credentialEnv] ?? '', ...secrets()],
+      secrets: runSecrets,
       forgeGitSha: env.FORGE_GIT_SHA === undefined || env.FORGE_GIT_SHA === '' ? null : env.FORGE_GIT_SHA,
       ...(ticket === undefined ? {} : { ticket }),
     });
     const run = store.getRun(id);
     if (run === undefined) throw new Error(`run ${id} was not recorded`);
-    log(endLine(run, cause));
+    log(endLine(run, cause, transcriptPolicy(runSecrets).redact));
     return { run, finalMessage, cause };
   } finally {
     store.close();

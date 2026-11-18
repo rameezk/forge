@@ -122,3 +122,16 @@ test('given a recorded error spanning several lines, when the workload is launch
 
   assert.deepEqual(lines, [`${prefixOf(result)} error: ${reason}`]);
 });
+
+test('given a cause message that carries the provider key and no recorded error, when the workload is launched, then the key is redacted from the logged reason', async () => {
+  let reads = 0;
+  const cause = new Error('unused');
+  Object.defineProperty(cause, 'message', {
+    get: () => (reads++ === 0 ? '' : 'rejected sk-or-test'),
+  });
+  const { result, lines } = await launch(async function* () {
+    throw cause;
+  });
+
+  assert.deepEqual(lines, [`${prefixOf(result)} error: rejected [redacted]`]);
+});
