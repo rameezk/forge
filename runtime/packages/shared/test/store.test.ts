@@ -1717,6 +1717,54 @@ test('given a store whose superseded grades predate supersede causes, when it is
   }
 });
 
+test('given a store holding a grade settled as other by a conflict resolution push and a grade settled as unknown, when it is opened, then the first reads conflict-resolution and the second stays unknown', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const grade = (number: number, headSha: string, gradedAt: string) => ({
+    repository: 'forge',
+    number,
+    headSha,
+    fingerprint: 'model:aaaa',
+    model: 'model',
+    probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 },
+    score: 1,
+    confidence: 0.9,
+    level: 'low' as const,
+    uncertain: false,
+    costUsd: 0.01,
+    gradedAt,
+  });
+  const first = Store.open(path);
+  first.recordRiskGrade(grade(7, 'one', '2026-09-21T10:00:00.000Z'));
+  first.recordRiskGrade(grade(7, 'two', '2026-09-21T11:00:00.000Z'));
+  first.recordRiskGrade(grade(8, 'three', '2026-09-21T10:00:00.000Z'));
+  first.recordRiskGrade(grade(8, 'four', '2026-09-21T11:00:00.000Z'));
+  first.settleRiskGrade({ repository: 'forge', number: 7, headSha: 'one' }, 'superseded', '2026-09-21T11:30:00.000Z', 'unmatched');
+  first.settleRiskGrade({ repository: 'forge', number: 8, headSha: 'three' }, 'superseded', '2026-09-21T11:30:00.000Z');
+  const start = first.startConflictResolution(
+    { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
+    [],
+    'run-1',
+    '2026-09-21T10:30:00.000Z',
+    Number.POSITIVE_INFINITY,
+    { headSha: 'one', defaultSha: 'default-1' },
+  );
+  assert.ok('started' in start);
+  first.recordConflictResolutionPush(start.started, 'two');
+  first.endConflictResolution(start.started, 'done', '2026-09-21T10:40:00.000Z');
+  first.close();
+  const old = new DatabaseSync(path);
+  old.exec(`UPDATE risk_grades SET supersede_cause = 'unknown' WHERE head_sha = 'three'`);
+  old.close();
+
+  const store = Store.open(path);
+  try {
+    assert.equal(store.riskGrade('forge', 7, 'one')?.supersedeCause, 'conflict-resolution');
+    assert.equal(store.riskGrade('forge', 8, 'three')?.supersedeCause, 'unknown');
+  } finally {
+    store.close();
+  }
+});
+
 test('given a store whose risk grades table still has the unsettled column, when it is opened, then a grade recorded as unsettled reads back as uncertain', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const first = Store.open(path);

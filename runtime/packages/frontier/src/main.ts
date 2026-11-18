@@ -175,6 +175,7 @@ const settleGradeOutcomes = async (
   for (const grade of store.openRiskGrades(name)) {
     const head = watched.find(({ number }) => number === grade.number)?.headSha;
     if (head === grade.headSha) continue;
+    if (store.workloadRunning(name, grade.number, at)) continue;
     if (head !== undefined) {
       store.settleRiskGrade(grade, 'superseded', at, head);
       continue;

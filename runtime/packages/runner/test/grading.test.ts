@@ -522,7 +522,7 @@ const revise = (store: Store, number: number, startedAt: string, pushed?: string
   store.endRevision(start.started, 'done', startedAt);
 };
 
-const resolveConflicts = (store: Store, number: number, startedAt: string, pushed: string): void => {
+const startResolvingConflicts = (store: Store, number: number, startedAt: string, pushed: string): number => {
   const start = store.startConflictResolution(
     { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
     [],
@@ -533,7 +533,24 @@ const resolveConflicts = (store: Store, number: number, startedAt: string, pushe
   );
   assert.ok('started' in start);
   store.recordConflictResolutionPush(start.started, pushed);
-  store.endConflictResolution(start.started, 'done', startedAt);
+  return start.started;
+};
+
+const resolveConflicts = (store: Store, number: number, startedAt: string, pushed: string): void => {
+  store.endConflictResolution(startResolvingConflicts(store, number, startedAt, pushed), 'done', startedAt);
+};
+
+const startRevising = (store: Store, number: number, startedAt: string, pushed?: string): number => {
+  const start = store.startRevision(
+    { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
+    [],
+    randomUUID(),
+    startedAt,
+    Number.POSITIVE_INFINITY,
+  );
+  assert.ok('started' in start);
+  if (pushed !== undefined) store.recordRevisionPush(start.started, pushed);
+  return start.started;
 };
 
 test('given a pull request with a completed revision before its head was graded and one after, when the grade settles, then its revisions after grade is 1', async (t) => {
@@ -552,7 +569,7 @@ test('given a pull request with a completed revision before its head was graded 
   assert.equal(grade?.supersedeCause, null);
 });
 
-test('given a graded head followed by a revision that failed and one that is still running, when sync sees a new head, then the grade settles with 0 revisions after grade', async (t) => {
+test('given a graded head followed by two revisions that failed, when sync sees a new head, then the grade settles with 0 revisions after grade', async (t) => {
   const f = await forge();
   t.after(f.close);
   await f.syncAndGrade([READY]);
@@ -566,7 +583,7 @@ test('given a graded head followed by a revision that failed and one that is sti
         Number.POSITIVE_INFINITY,
       );
       assert.ok('started' in start);
-      if (state === 'failed') store.endRevision(start.started, 'failed', new Date().toISOString(), { reason: 'interrupted', detail: null });
+      store.endRevision(start.started, 'failed', new Date().toISOString(), { reason: 'interrupted', detail: null });
     }
   });
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
@@ -613,20 +630,45 @@ test('given a graded commit and a forge conflict resolution that pushed a new he
   assert.equal(grade?.supersedeCause, 'conflict-resolution');
 });
 
-test('given a graded commit and a new head that no forge workload pushed while a revision of the pull request is running, when sync sees the new head, then the grade is superseded by other', async (t) => {
+test('given a graded commit and a running conflict resolution that pushed a new head, when sync sees the new head and again after the conflict resolution ends, then the grade settles as conflict-resolution only after it ends', async (t) => {
   const f = await forge();
   t.after(f.close);
   await f.syncAndGrade([READY]);
-  f.withStore((store) => {
-    const start = store.startRevision(
-      { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
-      [],
-      randomUUID(),
-      new Date().toISOString(),
-      Number.POSITIVE_INFINITY,
-    );
-    assert.ok('started' in start);
-  });
+  const id = f.withStore((store) => startResolvingConflicts(store, 7, new Date().toISOString(), 'head-7b'));
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  const running = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(running?.outcome, 'open');
+  assert.equal(running?.supersedeCause, null);
+  f.withStore((store) => store.endConflictResolution(id, 'done', new Date().toISOString()));
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  const ended = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(ended?.outcome, 'superseded');
+  assert.equal(ended?.supersedeCause, 'conflict-resolution');
+});
+
+test('given a graded commit and a running revision that pushed a new head, when sync sees the new head and again after the revision ends, then the grade settles as revision only after it ends', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  const id = f.withStore((store) => startRevising(store, 7, new Date().toISOString(), 'head-7b'));
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
+  f.withStore((store) => store.endRevision(id, 'done', new Date().toISOString()));
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  assert.equal(grade?.outcome, 'superseded');
+  assert.equal(grade?.supersedeCause, 'revision');
+  assert.equal(grade?.revisions, 1);
+});
+
+test('given a graded commit, a running revision and a new head that revision did not push, when the revision ends, then the grade settles as other', async (t) => {
+  const f = await forge();
+  t.after(f.close);
+  await f.syncAndGrade([READY]);
+  const id = f.withStore((store) => startRevising(store, 7, new Date().toISOString(), 'head-7c'));
+  await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
+  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
+  f.withStore((store) => store.endRevision(id, 'done', new Date().toISOString()));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
   const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'superseded');
