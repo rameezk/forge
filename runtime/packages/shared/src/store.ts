@@ -520,6 +520,7 @@ const CREATE_FRONTIER = `
     for_human     INTEGER NOT NULL,
     blocked       INTEGER NOT NULL,
     blocked_by    TEXT NOT NULL,
+    version       TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (repository, number)
   ) STRICT;
 
@@ -1004,6 +1005,37 @@ const CREATE_GRADING_ATTEMPTS = `
     ON grading_attempts (repository, number, head_sha);
 `;
 
+const CREATE_URGENCY_GRADES = `
+  CREATE TABLE IF NOT EXISTS urgency_grades (
+    repository     TEXT NOT NULL,
+    number         INTEGER NOT NULL,
+    version        TEXT NOT NULL,
+    fingerprint    TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    probabilities  TEXT NOT NULL,
+    score          REAL NOT NULL,
+    confidence     REAL NOT NULL,
+    level          TEXT NOT NULL,
+    uncertain      INTEGER NOT NULL,
+    cost_usd       REAL NOT NULL,
+    graded_at      TEXT NOT NULL,
+    labels_applied INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (repository, number, version)
+  ) STRICT;
+
+  CREATE TABLE IF NOT EXISTS urgency_attempts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    repository   TEXT NOT NULL,
+    number       INTEGER NOT NULL,
+    version      TEXT NOT NULL,
+    attempted_at TEXT NOT NULL,
+    category     TEXT NOT NULL,
+    message      TEXT NOT NULL
+  ) STRICT;
+  CREATE INDEX IF NOT EXISTS urgency_attempts_version
+    ON urgency_attempts (repository, number, version);
+`;
+
 const HAS_GRADE_LABELS = `
   SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'labels_applied'
 `;
@@ -1066,6 +1098,76 @@ export interface DisplayedGrade extends RecordedRiskGrade {
   labelsApplied: boolean;
 }
 
+export const URGENCY_LEVELS = ['critical', 'high', 'normal', 'low'] as const;
+
+export type UrgencyLevel = (typeof URGENCY_LEVELS)[number];
+
+export interface UrgencyGrade {
+  repository: string;
+  number: number;
+  version: string;
+  fingerprint: string;
+  model: string;
+  probabilities: Record<UrgencyLevel, number>;
+  score: number;
+  confidence: number;
+  level: UrgencyLevel;
+  uncertain: boolean;
+  costUsd: number;
+  gradedAt: string;
+}
+
+export interface UrgencyAttempt {
+  repository: string;
+  number: number;
+  version: string;
+  attemptedAt: string;
+  category: GradingFailure;
+  message: string;
+}
+
+export interface UrgencyDue {
+  repository: string;
+  number: number;
+  version: string;
+}
+
+export interface DisplayedUrgencyGrade extends UrgencyGrade {
+  labelsApplied: boolean;
+}
+
+type UrgencyGradeRow = {
+  repository: string;
+  number: number;
+  version: string;
+  fingerprint: string;
+  model: string;
+  probabilities: string;
+  score: number;
+  confidence: number;
+  level: string;
+  uncertain: number;
+  cost_usd: number;
+  graded_at: string;
+  labels_applied: number;
+};
+
+const urgencyGradeFromRow = (row: UrgencyGradeRow): DisplayedUrgencyGrade => ({
+  repository: row.repository,
+  number: row.number,
+  version: row.version,
+  fingerprint: row.fingerprint,
+  model: row.model,
+  probabilities: JSON.parse(row.probabilities) as Record<UrgencyLevel, number>,
+  score: row.score,
+  confidence: row.confidence,
+  level: row.level as UrgencyLevel,
+  uncertain: row.uncertain === 1,
+  costUsd: row.cost_usd,
+  gradedAt: row.graded_at,
+  labelsApplied: row.labels_applied === 1,
+});
+
 export const GRADE_OUTCOMES = ['open', 'merged', 'superseded', 'closed'] as const;
 
 export type GradeOutcome = (typeof GRADE_OUTCOMES)[number];
@@ -1116,6 +1218,16 @@ export const notGradedTitle = ({
 
 export const gradingRetryDelayMs = (failures: number): number =>
   Math.min(GRADING_RETRY_BASE_MS * 2 ** Math.min(failures - 1, 16), GRADING_RETRY_CAP_MS);
+
+interface LatestAttempt {
+  category: string;
+  attempted_at: string;
+  failures: number;
+}
+
+const attemptHoldsOff = (latest: LatestAttempt, now: string): boolean =>
+  !RETRIED_GRADING_FAILURES.includes(latest.category as GradingFailure) ||
+  Date.parse(now) < Date.parse(latest.attempted_at) + gradingRetryDelayMs(latest.failures);
 
 type GradingAttemptRow = {
   repository: string;
@@ -1361,7 +1473,7 @@ const HAS_OUTDATED_FRONTIER = `
   ) OR (
     type = 'table' AND name = 'frontier_tickets'
     AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'blocked_by'
+      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'version'
     )
   )
 `;
@@ -1612,6 +1724,7 @@ export class Store {
     this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
     db.exec(CREATE_RISK_GRADES);
     db.exec(CREATE_GRADING_ATTEMPTS);
+    db.exec(CREATE_URGENCY_GRADES);
     this.#addColumnsOnce(HAS_GRADE_LABELS, ADD_GRADE_LABELS);
     this.#addColumnsOnce(HAS_RISK_GRADE_OUTCOME, ADD_RISK_GRADE_OUTCOME);
     this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
@@ -2358,10 +2471,10 @@ export class Store {
       const insert = this.#db.prepare(
         `INSERT INTO frontier_tickets (
           repository, number, title, url, parent_number, parent_title, parent_url, created_at,
-          forge_ready, for_human, blocked, blocked_by
+          forge_ready, for_human, blocked, blocked_by, version
         ) VALUES (
           $repository, $number, $title, $url, $parent_number, $parent_title, $parent_url, $created_at,
-          $forge_ready, $for_human, $blocked, $blocked_by
+          $forge_ready, $for_human, $blocked, $blocked_by, $version
         )`,
       );
       for (const ticket of tickets) {
@@ -2378,6 +2491,7 @@ export class Store {
           for_human: ticket.forHuman ? 1 : 0,
           blocked: ticket.blocked ? 1 : 0,
           blocked_by: JSON.stringify(ticket.blockedBy),
+          version: ticket.version ?? '',
         });
       }
       this.#db
@@ -3103,10 +3217,155 @@ export class Store {
         repository: head.repository,
         number: head.number,
         head_sha: head.head_sha,
-      }) as { category: string; attempted_at: string; failures: number } | undefined;
-    if (latest === undefined) return false;
-    if (!RETRIED_GRADING_FAILURES.includes(latest.category as GradingFailure)) return true;
-    return Date.parse(now) < Date.parse(latest.attempted_at) + gradingRetryDelayMs(latest.failures);
+      }) as LatestAttempt | undefined;
+    return latest !== undefined && attemptHoldsOff(latest, now);
+  }
+
+  urgencyDue(repositories: readonly string[], now: string): UrgencyDue[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT repository, number, version FROM frontier_tickets
+        WHERE forge_ready = 1
+          AND version <> ''
+          AND repository IN (SELECT value FROM json_each($repositories))
+          AND NOT EXISTS (
+            SELECT 1 FROM urgency_grades
+            WHERE urgency_grades.repository = frontier_tickets.repository
+              AND urgency_grades.number = frontier_tickets.number
+              AND urgency_grades.version = frontier_tickets.version
+          )
+        ORDER BY repository, number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as unknown as UrgencyDue[];
+    return rows.filter((row) => !this.#urgencyHeldOff(row, now));
+  }
+
+  #urgencyHeldOff(due: UrgencyDue, now: string): boolean {
+    const latest = this.#db
+      .prepare(
+        `SELECT category, attempted_at,
+          (SELECT count(*) FROM urgency_attempts AS every
+            WHERE every.repository = latest.repository
+              AND every.number = latest.number
+              AND every.version = latest.version) AS failures
+        FROM urgency_attempts AS latest
+        WHERE repository = $repository AND number = $number AND version = $version
+        ORDER BY id DESC LIMIT 1`,
+      )
+      .get({
+        repository: due.repository,
+        number: due.number,
+        version: due.version,
+      }) as LatestAttempt | undefined;
+    return latest !== undefined && attemptHoldsOff(latest, now);
+  }
+
+  recordUrgencyAttempt(attempt: UrgencyAttempt): void {
+    this.#db
+      .prepare(
+        `INSERT INTO urgency_attempts (
+          repository, number, version, attempted_at, category, message
+        ) VALUES (
+          $repository, $number, $version, $attempted_at, $category, $message
+        )`,
+      )
+      .run({
+        repository: attempt.repository,
+        number: attempt.number,
+        version: attempt.version,
+        attempted_at: attempt.attemptedAt,
+        category: attempt.category,
+        message: attempt.message,
+      });
+  }
+
+  urgencyAttempts(repository: string, number: number): UrgencyAttempt[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM urgency_attempts
+        WHERE repository = $repository AND number = $number ORDER BY id`,
+      )
+      .all({ repository, number }) as {
+      repository: string;
+      number: number;
+      version: string;
+      attempted_at: string;
+      category: string;
+      message: string;
+    }[];
+    return rows.map((row) => ({
+      repository: row.repository,
+      number: row.number,
+      version: row.version,
+      attemptedAt: row.attempted_at,
+      category: row.category as GradingFailure,
+      message: row.message,
+    }));
+  }
+
+  recordUrgencyGrade(grade: UrgencyGrade): void {
+    this.#db
+      .prepare(
+        `INSERT OR IGNORE INTO urgency_grades (
+          repository, number, version, fingerprint, model, probabilities,
+          score, confidence, level, uncertain, cost_usd, graded_at
+        ) VALUES (
+          $repository, $number, $version, $fingerprint, $model, $probabilities,
+          $score, $confidence, $level, $uncertain, $cost_usd, $graded_at
+        )`,
+      )
+      .run({
+        repository: grade.repository,
+        number: grade.number,
+        version: grade.version,
+        fingerprint: grade.fingerprint,
+        model: grade.model,
+        probabilities: JSON.stringify(grade.probabilities),
+        score: grade.score,
+        confidence: grade.confidence,
+        level: grade.level,
+        uncertain: grade.uncertain ? 1 : 0,
+        cost_usd: grade.costUsd,
+        graded_at: grade.gradedAt,
+      });
+  }
+
+  currentUrgencyGrade(repository: string, number: number): DisplayedUrgencyGrade | null {
+    const row = this.#db
+      .prepare(
+        `SELECT * FROM urgency_grades
+        WHERE repository = $repository AND number = $number
+        ORDER BY graded_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get({ repository, number }) as UrgencyGradeRow | undefined;
+    return row === undefined ? null : urgencyGradeFromRow(row);
+  }
+
+  urgencyGradesAwaitingLabels(repositories: readonly string[]): DisplayedUrgencyGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM urgency_grades
+        WHERE labels_applied = 0
+          AND repository IN (SELECT value FROM json_each($repositories))
+          AND rowid = (
+            SELECT later.rowid FROM urgency_grades AS later
+            WHERE later.repository = urgency_grades.repository
+              AND later.number = urgency_grades.number
+            ORDER BY later.graded_at DESC, later.rowid DESC LIMIT 1
+          )
+        ORDER BY repository, number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as UrgencyGradeRow[];
+    return rows.map(urgencyGradeFromRow);
+  }
+
+  markUrgencyLabelsApplied(grade: Pick<UrgencyGrade, 'repository' | 'number' | 'version'>): void {
+    this.#db
+      .prepare(
+        `UPDATE urgency_grades SET labels_applied = 1
+        WHERE repository = $repository AND number = $number AND version = $version`,
+      )
+      .run({ repository: grade.repository, number: grade.number, version: grade.version });
   }
 
   recordGradingAttempt(attempt: GradingAttempt): void {

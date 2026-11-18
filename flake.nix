@@ -1399,6 +1399,21 @@
                 && !(dispatchHost.config.forge.runtime.settings.repositories.forge ? grading)
               )
               "the generated runtime config must carry grading only for a repository that turns it on, with the model and the default threshold";
+          urgencyHost = secretsHost exampleSecretsFile (
+            lib.recursiveUpdate (dispatchModuleWith { }) {
+              forge.runtime.grading.model = "typesafe/jev-1.13";
+              forge.runtime.repositories.forge.description = "A live billing service.";
+            }
+          );
+          urgencyGradingNeedsOnlyAModel = lib.asserts.assertMsg (
+            urgencyHost.config.systemd.services ? forge-grading
+            && urgencyHost.config.systemd.timers ? forge-grading
+            && urgencyHost.config.forge.runtime.settings.repositories.forge.description == "A live billing service."
+            && !(urgencyHost.config.forge.runtime.settings.repositories.forge ? grading)
+            && urgencyHost.config.forge.runtime.settings.grading.model == "typesafe/jev-1.13"
+            && !(gradingHost.config.forge.runtime.settings.repositories.forge ? description)
+            && !(lib.any (lib.hasPrefix "FORGE_GRADING_REPOSITORIES=") urgencyHost.config.systemd.services.forge-frontend.serviceConfig.Environment)
+          ) "a host with a grading model and a managed repository must run the grading service for ticket urgency without any repository turning on pull request grading, and the repository description must reach the runtime config only when set";
           dashboardCarriesGradingRepositories =
             lib.asserts.assertMsg
               (
@@ -2172,6 +2187,7 @@
           runtime-grading =
             assert gradingWired;
             assert gradingConfigReflectsOptions;
+            assert urgencyGradingNeedsOnlyAModel;
             assert gradingOffByDefault;
             assert gradingNeedsAJevVersion;
             pkgs.runCommand "runtime-grading" { } ''

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { FORGE_READY, type PullRequestRef, type PullRequestState } from './dispatch.ts';
 
 export const GITHUB_GRAPHQL_API = 'https://api.github.com/graphql';
@@ -30,6 +31,7 @@ export const FRONTIER_QUERY = `
           number
           title
           url
+          body
           createdAt
           labels(first: 100) {
             nodes {
@@ -278,6 +280,7 @@ export interface Ticket {
   forHuman: boolean;
   blocked: boolean;
   blockedBy: number[];
+  version?: string;
 }
 
 export interface ClosedTicket {
@@ -333,6 +336,7 @@ interface IssueNode {
   number: number;
   title: string;
   url: string;
+  body: string;
   createdAt: string;
   labels: { nodes: { name: string }[] };
   issueDependenciesSummary: { blockedBy: number };
@@ -373,6 +377,9 @@ export const pullRequestUrl = (url: string): string => {
   return url;
 };
 
+export const ticketVersion = ({ title, body }: { title: string; body: string }): string =>
+  createHash('sha256').update(JSON.stringify([title, body])).digest('hex');
+
 const toTicket = (issue: IssueNode): Ticket => ({
   number: issue.number,
   title: issue.title,
@@ -390,6 +397,7 @@ const toTicket = (issue: IssueNode): Ticket => ({
   forHuman: issue.labels.nodes.some((label) => label.name === READY_FOR_HUMAN),
   blocked: issue.issueDependenciesSummary.blockedBy > 0,
   blockedBy: issue.blockedBy.nodes.filter((blocker) => blocker.state === 'OPEN').map((blocker) => blocker.number),
+  version: ticketVersion(issue),
 });
 
 export const requestGraphql = (
