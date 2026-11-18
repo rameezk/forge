@@ -100,7 +100,7 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
   const reviews: { number: number; authorization: string; body: Record<string, unknown> }[] = [];
   const merges: { number: number; body: Record<string, unknown> }[] = [];
   const comments: { number: number; authorization: string; body: string }[] = [];
-  const hooks = { beforeMerge: (_number: number): void => {} };
+  const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false };
   const github: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const json = (data: unknown, status = 200): Response =>
@@ -111,12 +111,20 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
       const number = Number(pullOf[2]);
       const pull = pulls.find((candidate) => candidate.number === number);
       if (pull === undefined) return json({}, 404);
+      if (pullOf[3] === '/reviews' && init?.method !== 'POST') {
+        return json(
+          reviews
+            .filter((review) => review.number === number)
+            .map((review) => ({ state: 'APPROVED', commit_id: review.body.commit_id, user: { login: 'forge-reviewer[bot]', type: 'Bot' } })),
+        );
+      }
       if (pullOf[3] === '/reviews') {
         reviews.push({ number, authorization, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
         return json({ id: 1 });
       }
       if (pullOf[3] === '/merge') {
         hooks.beforeMerge(number);
+        if (hooks.refuseMerges) return json({ message: 'Required status check is expected' }, 405);
         const body = JSON.parse(String(init?.body)) as { sha?: string };
         if (body.sha !== heads.get(number)) return json({ message: 'Head branch was modified' }, 409);
         merges.push({ number, body });
@@ -292,4 +300,18 @@ test('given the pass started a merge, when frontier sync then sees the pull requ
     store.settleRiskGrade({ repository: 'forge', number: 1, headSha: HEAD(1) }, 'merged', NOW);
   });
   assert.equal(outcomeOf(f, 1), 'auto-merged');
+});
+
+test('given a merge that keeps being refused at an unchanged head, when the pass runs again, then the Reviewer App approves that head only once', async () => {
+  const f = forge([{ number: 7 }]);
+  f.hooks.refuseMerges = true;
+  assert.equal(await f.run(), 1);
+  assert.equal(await f.run(), 1);
+  assert.equal(f.reviews.length, 1);
+  assert.deepEqual(f.merges, []);
+  f.hooks.refuseMerges = false;
+  assert.equal(await f.run(), 0);
+  assert.equal(f.reviews.length, 1);
+  assert.equal(f.merges.length, 1);
+  assert.equal(outcomeOf(f, 7), 'auto-merged');
 });

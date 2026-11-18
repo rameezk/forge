@@ -82,6 +82,22 @@ const settled = async (
   return null;
 };
 
+const approvedByBot = async (
+  fetch: Fetch,
+  token: string,
+  path: string,
+  headSha: string,
+): Promise<boolean> => {
+  const reviews = (await github(fetch, token, `${path}/reviews?per_page=100`)) as {
+    state: string;
+    commit_id: string;
+    user: { type: string } | null;
+  }[];
+  return reviews.some(
+    ({ state, commit_id, user }) => state === 'APPROVED' && commit_id === headSha && user?.type === 'Bot',
+  );
+};
+
 const autoMergeOne = async (
   options: AutoMergeOptions,
   grade: RecordedRiskGrade,
@@ -95,10 +111,12 @@ const autoMergeOne = async (
     return;
   }
   const path = `/repos/${repository}/pulls/${grade.number}`;
-  await github(fetch, token, `${path}/reviews`, {
-    method: 'POST',
-    body: { commit_id: grade.headSha, event: 'APPROVE' },
-  });
+  if (!(await approvedByBot(fetch, token, path, grade.headSha))) {
+    await github(fetch, token, `${path}/reviews`, {
+      method: 'POST',
+      body: { commit_id: grade.headSha, event: 'APPROVE' },
+    });
+  }
   store.markAutoMergeStarted(grade, now());
   try {
     await github(fetch, token, `${path}/merge`, {

@@ -205,7 +205,8 @@ export const buildLanes = (
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
       if (held.has(ticket.number)) continue;
-      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: autoMergedGrade(risks, repository.repository, dispatches.get(ticketKey(repository.repository, ticket.number))) });
+      const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
+      columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: autoMergedGrade(risks, repository.repository, dispatch) });
     }
     columns.running.push(...live.map(({ card }) => card));
     return { ...repository, columns };
