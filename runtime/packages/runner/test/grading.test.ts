@@ -1120,3 +1120,17 @@ test('given a ticket whose grading attempt was too large, when forge-grading run
   assert.equal(f.jevRequests.length, 2);
   assert.ok(f.labelsOf(10).includes('forge:urgency-low'));
 });
+
+test('given a ticket graded normal then critical, when its body is edited back to the first version, then the labels return to forge:urgency-normal without asking Jev again', async (t) => {
+  const f = await forge({ on: false });
+  t.after(f.close);
+  f.answerWithUrgency('normal', 0.9);
+  await f.syncAndGradeTickets([APPROVED]);
+  f.answerWithUrgency('critical', 0.9);
+  await f.syncAndGradeTickets([{ ...APPROVED, body: 'edited' }]);
+  assert.ok(f.labelsOf(10).includes('forge:urgency-critical'));
+
+  await f.syncAndGradeTickets([APPROVED]);
+  assert.equal(f.jevRequests.length, 2);
+  assert.deepEqual(f.labelsOf(10), ['forge:ready', 'forge:urgency-normal', 'ready-for-agent']);
+});

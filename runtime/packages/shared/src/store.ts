@@ -3344,16 +3344,14 @@ export class Store {
   urgencyGradesAwaitingLabels(repositories: readonly string[]): DisplayedUrgencyGrade[] {
     const rows = this.#db
       .prepare(
-        `SELECT * FROM urgency_grades
-        WHERE labels_applied = 0
-          AND repository IN (SELECT value FROM json_each($repositories))
-          AND rowid = (
-            SELECT later.rowid FROM urgency_grades AS later
-            WHERE later.repository = urgency_grades.repository
-              AND later.number = urgency_grades.number
-            ORDER BY later.graded_at DESC, later.rowid DESC LIMIT 1
-          )
-        ORDER BY repository, number`,
+        `SELECT urgency_grades.* FROM urgency_grades
+        JOIN frontier_tickets
+          ON frontier_tickets.repository = urgency_grades.repository
+          AND frontier_tickets.number = urgency_grades.number
+          AND frontier_tickets.version = urgency_grades.version
+        WHERE urgency_grades.labels_applied = 0
+          AND urgency_grades.repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY urgency_grades.repository, urgency_grades.number`,
       )
       .all({ repositories: JSON.stringify(repositories) }) as UrgencyGradeRow[];
     return rows.map(urgencyGradeFromRow);
@@ -3362,8 +3360,8 @@ export class Store {
   markUrgencyLabelsApplied(grade: Pick<UrgencyGrade, 'repository' | 'number' | 'version'>): void {
     this.#db
       .prepare(
-        `UPDATE urgency_grades SET labels_applied = 1
-        WHERE repository = $repository AND number = $number AND version = $version`,
+        `UPDATE urgency_grades SET labels_applied = (version = $version)
+        WHERE repository = $repository AND number = $number`,
       )
       .run({ repository: grade.repository, number: grade.number, version: grade.version });
   }
