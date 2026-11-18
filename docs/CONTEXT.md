@@ -144,8 +144,12 @@ The most dispatches forge may have in flight or awaiting review across all manag
 _Avoid_: WIP limit, PR cap
 
 **Approval**:
-A maintainer applying `forge:ready` to a ticket, which approves the ticket and its parent spec as they stood at that moment; a ticket is dispatched only while its latest approval stands (ADR-0079).
+A maintainer applying `forge:ready` to a ticket, or `ready-for-agent` in an auto-approving repository, which approves the ticket and its parent spec as they stood at that moment; a ticket is dispatched only while its latest approval stands (ADR-0079, ADR-0118).
 _Avoid_: sign-off, review
+
+**Auto-approving repository**:
+A managed repository that opted in to forge applying `forge:ready` itself to each `ready-for-agent` ticket whose approval stands (ADR-0118).
+_Avoid_: auto-dispatch, auto-label
 
 **Attempt**:
 A dispatch of a ticket, with the workload it ran. A ticket may have several, one per dispatch.
@@ -231,8 +235,24 @@ _Avoid_: kill switch, circuit breaker
 A path that a pull request must not touch if it is to auto-merge, whatever its risk grade. Forge ships a default list and a managed repository may add to it but never remove from it (ADR-0115).
 _Avoid_: blocked path, sensitive file
 
+**Urgency grade**:
+Jev's judgement of how soon a ticket should be dispatched, as one of four levels (`critical`, `high`, `normal`, `low`) with a confidence, read from the ticket, its parent spec and the repository description. An uncertain urgency grade, or a ticket not yet graded, counts as `normal`. It only orders the frontier and never holds back or refuses a ticket (ADR-0117).
+_Avoid_: priority score, triage, ticket risk
+
+**Repository priority**:
+An integer the operator sets for each managed repository, 0 by default, that orders frontier tickets of equal urgency, higher first (ADR-0117).
+_Avoid_: weight, rank
+
+**Repository description**:
+Free text the operator writes for each managed repository, saying what it is and who depends on it, sent to Jev as context for every urgency grade (ADR-0117).
+_Avoid_: repo notes, blurb
+
+**Dispatch order**:
+The order forge takes frontier tickets in: urgency grade, then repository priority, then oldest first, with a ticket taking the highest tier of any queued ticket it blocks (ADR-0117).
+_Avoid_: queue order, scheduling
+
 **Grading attempt**:
-One request to Jev for a head commit that produced no level, recorded with its head commit, time, category and message. The categories are temporary, setup, too large, declined and bug. Temporary, setup and bug attempts are retried on a backoff up to hourly; too large and declined are never retried for that head commit.
+One request to Jev for a head commit, or for a ticket as its title and body stood, that produced no level, recorded with what was graded, time, category and message. The categories are temporary, setup, too large, declined and bug. Temporary, setup and bug attempts are retried on a backoff up to hourly; too large and declined are never retried for that head commit or ticket version.
 
 **Grading fingerprint**:
 What a risk grade was produced under: the configured Jev model and a hash of the question and its level descriptions. Grades sharing one form a grading cohort, compared like workload cohorts but never mixed with them.
