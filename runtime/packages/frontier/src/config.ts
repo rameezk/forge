@@ -4,6 +4,7 @@ export interface RepositoryConfig {
   grading?: boolean;
   description?: string;
   autoApprove?: boolean;
+  priority?: number;
 }
 
 export interface FrontierConfig {

@@ -192,6 +192,12 @@ let
         default = false;
         description = "Whether this is an auto-approving repository (ADR-0118): a maintainer applying `ready-for-agent` to a ticket is its approval. Off by default, so only a maintainer applying `forge:ready` approves. On, the frontier sync applies `forge:ready` itself to every `ready-for-agent` ticket with no `forge:*` label, blocked or not, once per maintainer `ready-for-agent` label event and only while that approval stands: the latest `ready-for-agent` came from a maintainer, and no one else edited the title or body of the ticket or its parent spec after it. A ticket whose approval does not stand is left unlabelled, with no failure and no comment. A maintainer removing `forge:ready` holds the ticket until a maintainer applies `forge:ready` or `ready-for-agent` again, and forge never applies it after `forge:failed`. Dispatch accepts an approval anchored on a maintainer's `ready-for-agent`, and a maintainer applying `forge:ready` by hand approves in every repository. Turning it on labels every existing `ready-for-agent` ticket whose approval stands, so the repository's whole backlog becomes dispatchable. Writing `ready-for-agent` becomes a decision to dispatch: tooling that applies it on a maintainer's behalf approves work directly.";
       };
+      priority = lib.mkOption {
+        type = lib.types.int;
+        default = 0;
+        example = 10;
+        description = "This repository's priority when `forge.runtime.dispatch.order` is `urgency` (ADR-0117): among tickets of the same urgency grade, the ticket of the higher priority repository is dispatched first, and equal priorities go oldest first. An integer, 0 by default, higher first, and it never outranks urgency. A frontier ticket takes the highest priority of any queued ticket it blocks. It has no effect while the order is `oldest`.";
+      };
       workflows = lib.mkOption {
         type = lib.types.bool;
         default = false;
@@ -218,6 +224,7 @@ let
       // lib.optionalAttrs (r.description != null) { inherit (r) description; }
       // lib.optionalAttrs r.workflows { workflows = true; }
       // lib.optionalAttrs r.autoApprove { autoApprove = true; }
+      // lib.optionalAttrs (r.priority != 0) { inherit (r) priority; }
       // lib.optionalAttrs (r.on.ticket != null || r.on.feedback != null || r.on.conflict != null) {
         on = lib.filterAttrs (_: worker: worker != null) { inherit (r.on) ticket feedback conflict; };
       }
@@ -229,7 +236,7 @@ let
   }
   // lib.optionalAttrs (hasDispatch || hasRevision || hasConflictResolution) {
     dispatch = {
-      inherit (cfg.dispatch) maxConcurrent maxOpenPullRequests;
+      inherit (cfg.dispatch) maxConcurrent maxOpenPullRequests order;
     };
   }
   // lib.optionalAttrs hasRevision {
@@ -258,6 +265,7 @@ let
   hasDiagnosis = cfg.diagnosis.worker != null;
   gradedRepositories = lib.filterAttrs (_: r: r.grading) cfg.repositories;
   hasGrading = gradedRepositories != { };
+  prioritisedRepositories = lib.filterAttrs (_: r: r.priority != 0) cfg.repositories;
   hasGradingService = hasGrading || (cfg.grading.model != null && hasRepositories);
 
   gradingAssertions = [
@@ -268,6 +276,10 @@ let
     {
       assertion = cfg.grading.model == null || builtins.match "typesafe/jev-[0-9]+(\\.[0-9]+)*" cfg.grading.model != null;
       message = "forge.runtime.grading.model must be a Jev version id such as `typesafe/jev-1.13`, never `jev-latest` and never a dated snapshot";
+    }
+    {
+      assertion = cfg.dispatch.order != "urgency" || (cfg.grading.model != null && hasRepositories);
+      message = "forge.runtime.dispatch.order urgency needs urgency grading: set forge.runtime.grading.model (the OpenRouter key comes with it) and declare a managed repository";
     }
     {
       assertion = cfg.grading.confidenceThreshold > 0 && cfg.grading.confidenceThreshold <= 1;
@@ -706,6 +718,16 @@ in
       default = 5;
       example = 3;
       description = "The review limit: the most dispatches forge may have in flight or awaiting review across every managed repository, counting its running dispatches plus the open pull requests it opened for dispatches. At the limit the dispatch pass starts no new dispatch, logging each ticket that waits, and `forge-dispatch` refuses to start one, while revisions and conflict resolutions keep running. A pull request stops counting once the frontier sync records it as merged or closed. `null` turns the limit off.";
+    };
+
+    dispatch.order = lib.mkOption {
+      type = lib.types.enum [
+        "oldest"
+        "urgency"
+      ];
+      default = "oldest";
+      example = "urgency";
+      description = "The order forge takes ready tickets in, in the dispatch pass and on the Board (ADR-0117). `oldest` takes the oldest ticket first across every managed repository. `urgency` takes the highest urgency grade first (`critical`, `high`, `normal`, `low`), then the higher `priority` repository, then the oldest ticket. An uncertain grade and an ungraded ticket count as `normal`, and a ticket never waits for a grade. A frontier ticket takes the highest urgency and priority of any queued ticket it blocks, directly or through other blockers. Forge grades and labels tickets whatever the order, so switch to `urgency` once the `forge:urgency-*` labels on real tickets match your own judgement. `urgency` needs `forge.runtime.grading.model` and a managed repository, and fails evaluation without them. The review limit and `maxConcurrent` are unchanged.";
     };
 
     diagnosis.worker = lib.mkOption {
@@ -1379,6 +1401,10 @@ in
             "FORGE_MAX_CONCURRENT=${toString cfg.dispatch.maxConcurrent}"
             "FORGE_MAX_OPEN_PULL_REQUESTS=${if cfg.dispatch.maxOpenPullRequests == null then "null" else toString cfg.dispatch.maxOpenPullRequests}"
           ]
+          ++ [ "FORGE_DISPATCH_ORDER=${cfg.dispatch.order}" ]
+          ++ lib.optional (prioritisedRepositories != { }) "FORGE_REPOSITORY_PRIORITIES=${
+            lib.concatStringsSep "," (lib.mapAttrsToList (name: r: "${name}=${toString r.priority}") prioritisedRepositories)
+          }"
           ++ lib.optional hasGrading "FORGE_GRADING_REPOSITORIES=${lib.concatStringsSep "," (lib.attrNames gradedRepositories)}"
           ++ lib.optional cfg.pullDeploy.enable "FORGE_PULL_DEPLOY_STATUS_FILE=${cfg.pullDeploy.statusFile}";
           ExecStart = "${cfg.package}/bin/forge-frontend";

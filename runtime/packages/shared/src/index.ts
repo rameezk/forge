@@ -108,7 +108,7 @@ export {
   requestClosingPullRequests,
   requestTicket,
 } from './frontier.ts';
-export { dispatchOrder } from './dispatch-order.ts';
+export { certainUrgencies, dispatchOrder, OLDEST_FIRST, type DispatchOrder, type DispatchOrdering, type DispatchRef } from './dispatch-order.ts';
 export type {
   RunSkillLoad,
   SkillCatalog,

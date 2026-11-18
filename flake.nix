@@ -911,10 +911,11 @@
                 dispatchHost.config.forge.runtime.settings.dispatch == {
                   maxConcurrent = 1;
                   maxOpenPullRequests = 5;
+                  order = "oldest";
                 }
                 && !(workerAndRepositoryHost.config.forge.runtime.settings ? dispatch)
               )
-              "the generated runtime config must carry a concurrency limit of 1 and a review limit of 5 by default on a host that dispatches, and no dispatch settings on one that does not";
+              "the generated runtime config must carry a concurrency limit of 1, a review limit of 5 and the oldest order by default on a host that dispatches, and no dispatch settings on one that does not";
           removedGitIdentityHost = secretsHost exampleSecretsFile {
             forge.runtime.dispatch.gitIdentity = {
               name = "Forge Operator";
@@ -968,6 +969,29 @@
                 }))
               )
               "a host that sets dispatch.maxOpenPullRequests must carry it into the runtime config, null must turn the limit off, and a limit below 1 must fail evaluation";
+          urgencyOrderHost = secretsHost exampleSecretsFile (
+            lib.recursiveUpdate (dispatchModuleWith { }) {
+              forge.runtime.dispatch.order = "urgency";
+              forge.runtime.grading.model = "typesafe/jev-1.13";
+              forge.runtime.repositories.forge.priority = 10;
+            }
+          );
+          dispatchOrderOptions = lib.asserts.assertMsg (
+            dispatchHost.config.forge.runtime.settings.dispatch.order == "oldest"
+            && urgencyOrderHost.config.forge.runtime.settings.dispatch.order == "urgency"
+            && urgencyOrderHost.config.forge.runtime.settings.repositories.forge.priority == 10
+            && !(dispatchHost.config.forge.runtime.settings.repositories.forge ? priority)
+            && lib.elem "FORGE_DISPATCH_ORDER=oldest" dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+            && lib.elem "FORGE_DISPATCH_ORDER=urgency" urgencyOrderHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+            && lib.elem "FORGE_REPOSITORY_PRIORITIES=forge=10" urgencyOrderHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+            && !(lib.any (lib.hasPrefix "FORGE_REPOSITORY_PRIORITIES=") dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment)
+          ) "dispatch.order must default to oldest and, with a repository priority, reach the runtime config and the dashboard, the priority only when it is not 0";
+          urgencyOrderNeedsGrading = lib.asserts.assertMsg (
+            !(evaluates (dispatchHostWith { dispatch = { order = "urgency"; }; }))
+            && lib.any (lib.hasInfix "grading.model") (failedAssertions (dispatchHostWith { dispatch = { order = "urgency"; }; }))
+            && evaluates urgencyOrderHost
+            && !(evaluates (dispatchHostWith { dispatch = { order = "newest"; }; }))
+          ) "dispatch.order urgency must fail evaluation naming the grading model unless one is set, and only oldest and urgency are orders";
           dashboardCarriesMaxConcurrent =
             lib.asserts.assertMsg
               (
@@ -2044,6 +2068,8 @@
             assert setGitIdentityFails;
             assert dispatchConfigReflectsMaxConcurrent;
             assert dispatchConfigReflectsReviewLimit;
+            assert dispatchOrderOptions;
+            assert urgencyOrderNeedsGrading;
             assert dashboardCarriesMaxConcurrent;
             assert dashboardCarriesReviewLimit;
             assert dashboardCarriesGradingRepositories;
