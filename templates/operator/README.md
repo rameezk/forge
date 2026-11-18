@@ -1027,6 +1027,26 @@ request's title, body or commit messages. A grade's cost is billed to your
 OpenRouter account and counts against no workload's budget. The App needs the
 **Checks: read and write** permission; see [the GitHub App](#the-github-app).
 
+The same service grades the urgency of every approved ticket of every managed
+repository once `forge.runtime.grading.model` is set, with no per-repository
+opt-in (ADR-0117). A ticket is graded when it gets `forge:ready` and again when
+its title or body changes. Jev reads the ticket and its parent spec, titles,
+bodies and maintainers' comments only, plus the repository's optional free-text
+description:
+
+```nix
+forge.runtime.repositories.forge.description = "The runtime that dispatches agents for every other repository on this box.";
+```
+
+It answers `critical` (something live is broken or losing data now), `high` (a
+defect users can hit, or work blocking other people), `normal` (planned feature
+or improvement work) or `low` (cleanup, docs or nice-to-have work). Forge labels
+the ticket `forge:urgency-<level>`, plus `forge:urgency-uncertain` when the
+confidence is below `forge.runtime.grading.confidenceThreshold`, swaps the
+labels on a regrade and leaves them after dispatch. The grade does not change
+the dispatch order yet, which stays oldest first. A failed urgency call is
+retried like a failed risk grade.
+
 When grading produces no level, the head's `forge/risk` check run and its Board
 badge say why, and the Board's grading status line shows when grading last
 succeeded and, while it is failing, the category and latest message, flagged in

@@ -43,12 +43,29 @@ export const LEVEL_DESCRIPTIONS: Record<RiskLevel, string> = {
   high: 'changes data formats or migrations, sandboxing, credentials, billing, concurrency or anything hard to roll back; failure could be silent or costly',
 };
 
-const CRITERIA = RISK_LEVELS.map((level) => `${level}: ${LEVEL_DESCRIPTIONS[level]}`);
+export interface Question {
+  name: string;
+  instructions: string;
+  levels: readonly string[];
+  descriptions: Record<string, string>;
+}
 
-export const gradingFingerprint = (model: string): string =>
+const criteriaOf = ({ levels, descriptions }: Question): string[] =>
+  levels.map((level) => `${level}: ${descriptions[level]}`);
+
+export const RISK_QUESTION: Question = {
+  name: QUESTION_NAME,
+  instructions: QUESTION,
+  levels: RISK_LEVELS,
+  descriptions: LEVEL_DESCRIPTIONS,
+};
+
+export const fingerprintOf = (question: Question, model: string): string =>
   `${model}:${createHash('sha256')
-    .update(JSON.stringify({ question: QUESTION, criteria: CRITERIA }))
+    .update(JSON.stringify({ question: question.instructions, criteria: criteriaOf(question) }))
     .digest('hex')}`;
+
+export const gradingFingerprint = (model: string): string => fingerprintOf(RISK_QUESTION, model);
 
 const GITHUB_REST_API = 'https://api.github.com';
 
@@ -92,7 +109,7 @@ export const gradingInput = (
 };
 
 export interface Decision {
-  probabilities: Record<RiskLevel, number>;
+  probabilities: Record<string, number>;
   score: number;
   confidence: number;
   costUsd: number;
@@ -103,17 +120,17 @@ export type Decide = (input: string) => Promise<Decision>;
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
-const probabilitiesOf = (raw: unknown): Record<RiskLevel, number> => {
+const probabilitiesOf = (raw: unknown, levels: readonly string[]): Record<string, number> => {
   const entries = Object.entries((raw ?? {}) as Record<string, unknown>);
-  const byLevel = RISK_LEVELS.map((level, index) => {
+  const byLevel = levels.map((level, index) => {
     const found = entries.find(([key]) => key === level || key === String(index));
     return found?.[1];
   });
   if (!byLevel.every(isNumber)) {
     throw new Error('Jev answered without a probability for every level');
   }
-  return Object.fromEntries(RISK_LEVELS.map((level, index) => [level, byLevel[index]])) as Record<
-    RiskLevel,
+  return Object.fromEntries(levels.map((level, index) => [level, byLevel[index]])) as Record<
+    string,
     number
   >;
 };
@@ -187,7 +204,13 @@ const failureOfTransport = (error: unknown): GradingFailed => {
 };
 
 export const jevDecides =
-  (url: URL, apiKey: string, model: string, fetch: Fetch): Decide =>
+  (
+    url: URL,
+    apiKey: string,
+    model: string,
+    fetch: Fetch,
+    question: Question = RISK_QUESTION,
+  ): Decide =>
   async (input) => {
     const response = await fetch(url, {
       method: 'POST',
@@ -196,7 +219,11 @@ export const jevDecides =
         model,
         state: input,
         questions: {
-          [QUESTION_NAME]: { type: 'score', criteria: CRITERIA, instructions: QUESTION },
+          [question.name]: {
+            type: 'score',
+            criteria: criteriaOf(question),
+            instructions: question.instructions,
+          },
         },
       }),
       signal: AbortSignal.timeout(DECISION_TIMEOUT_MS),
@@ -228,14 +255,14 @@ export const jevDecides =
       if (isHttpError(code)) throw failureOfResponse(code, body.error, model);
       throw new GradingFailed('temporary', 'OpenRouter reported an error', detailOf(body.error));
     }
-    const answer = body.answers?.[QUESTION_NAME];
+    const answer = body.answers?.[question.name];
     if (answer?.type === 'refusal') throw new GradingFailed('declined', 'Jev declined to answer');
     if (answer?.type !== 'score' || !isNumber(answer.score) || !isNumber(answer.confidence)) {
       throw new GradingFailed('bug', 'Jev answered with something other than a score');
     }
-    let probabilities: Record<RiskLevel, number>;
+    let probabilities: Record<string, number>;
     try {
-      probabilities = probabilitiesOf(answer.probabilities);
+      probabilities = probabilitiesOf(answer.probabilities, question.levels);
     } catch (error) {
       throw new GradingFailed('bug', errorMessage(error));
     }
@@ -247,15 +274,15 @@ export const jevDecides =
     };
   };
 
-export const levelsByProbability = (
-  probabilities: Record<RiskLevel, number>,
-): RiskLevel[] =>
-  RISK_LEVELS.toSorted((a, b) => probabilities[b] - probabilities[a]);
+export const levelsByProbability = <Level extends string>(
+  probabilities: Record<Level, number>,
+  levels: readonly Level[],
+): Level[] => levels.toSorted((a, b) => probabilities[b] - probabilities[a]);
 
 const fixed = (value: number): string => value.toFixed(2);
 
 export const checkRunOutput = (grade: RiskGrade): { title: string; summary: string } => {
-  const [level, runnerUp] = levelsByProbability(grade.probabilities);
+  const [level, runnerUp] = levelsByProbability(grade.probabilities, RISK_LEVELS);
   const title = `Risk: ${grade.level}${grade.uncertain ? ' (uncertain)' : ''}, confidence ${fixed(grade.confidence)}`;
   return {
     title,
@@ -284,10 +311,10 @@ export const decideGrade = (
   headSha: due.headSha,
   fingerprint: gradingFingerprint(model),
   model,
-  probabilities: decision.probabilities,
+  probabilities: decision.probabilities as Record<RiskLevel, number>,
   score: decision.score,
   confidence: decision.confidence,
-  level: levelsByProbability(decision.probabilities)[0] as RiskLevel,
+  level: levelsByProbability(decision.probabilities, RISK_LEVELS)[0] as RiskLevel,
   uncertain: decision.confidence < threshold,
   costUsd: decision.costUsd,
   gradedAt,
@@ -305,7 +332,7 @@ export interface GradePullRequestsOptions {
   log: (line: string) => void;
 }
 
-const github = async (
+export const github = async (
   fetch: Fetch,
   token: string,
   path: string,
@@ -392,20 +419,19 @@ const gradeOne = async (
   await applyLabels(options, grade, repository);
 };
 
-const setRiskLabels = async (
-  { fetch, tokens }: GradePullRequestsOptions,
-  grade: RiskGrade,
+export const setLabels = async (
+  fetch: Fetch,
+  token: string,
   repository: string,
+  number: number,
+  prefix: string,
   wanted: readonly string[],
 ): Promise<void> => {
-  const token = await tokens(repository, 'grading');
-  const path = `/repos/${repository}/issues/${grade.number}/labels`;
+  const path = `/repos/${repository}/issues/${number}/labels`;
   const present = ((await github(fetch, token, `${path}?per_page=100`)) as { name: string }[]).map(
     ({ name }) => name,
   );
-  for (const name of present.filter(
-    (name) => name.startsWith(RISK_LABEL_PREFIX) && !wanted.includes(name),
-  )) {
+  for (const name of present.filter((name) => name.startsWith(prefix) && !wanted.includes(name))) {
     await github(fetch, token, `${path}/${encodeURIComponent(name)}`, { method: 'DELETE' });
   }
   const missing = wanted.filter((name) => !present.includes(name));
@@ -413,6 +439,21 @@ const setRiskLabels = async (
     await github(fetch, token, path, { method: 'POST', body: { labels: missing } });
   }
 };
+
+const setRiskLabels = async (
+  { fetch, tokens }: GradePullRequestsOptions,
+  grade: RiskGrade,
+  repository: string,
+  wanted: readonly string[],
+): Promise<void> =>
+  setLabels(
+    fetch,
+    await tokens(repository, 'grading'),
+    repository,
+    grade.number,
+    RISK_LABEL_PREFIX,
+    wanted,
+  );
 
 const applyLabels = async (
   options: GradePullRequestsOptions,
