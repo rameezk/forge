@@ -1,4 +1,4 @@
-import { newestClosedFirst, type ConflictResolutionRecord, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { newestClosedFirst, type ConflictResolutionRecord, dispatchOrder, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -145,7 +145,7 @@ export const buildLanes = (
       columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
     }
     const running: BoardCard[] = [];
-    for (const ticket of [...repository.tickets].sort(oldestFirst)) {
+    for (const ticket of [...repository.tickets].sort(dispatchOrder)) {
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
       const workload = workloadOf(ticket.number);
       if (workload !== undefined) {
