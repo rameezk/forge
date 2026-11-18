@@ -122,10 +122,25 @@ export const latestLabelEvents = async (
   return latest;
 };
 
-const reappliedByOutsider = (applied: LabelEvent | undefined, approval: LabelEvent): boolean =>
+const BOT_SUFFIX = '[bot]';
+
+const slugOf = (login: string): string =>
+  (login.endsWith(BOT_SUFFIX) ? login.slice(0, -BOT_SUFFIX.length) : login).toLowerCase();
+
+export interface AutoApproval {
+  forgeLogin: string;
+}
+
+const reappliedByOutsider = (
+  applied: LabelEvent | undefined,
+  approval: LabelEvent,
+  { forgeLogin }: AutoApproval,
+): boolean =>
   applied !== undefined &&
   applied.recency < approval.recency &&
-  applied.actor?.__typename !== 'Bot';
+  !(
+    applied.actor?.__typename === 'Bot' && slugOf(applied.actor.login) === slugOf(forgeLogin)
+  );
 
 export const maintainerApprovalOf = async (
   fetch: Fetch,
@@ -133,16 +148,22 @@ export const maintainerApprovalOf = async (
   github: string,
   number: number,
   isMaintainer: MaintainerLookup,
-  autoApprove = false,
+  autoApproval: AutoApproval | null = null,
 ): Promise<string | null> => {
-  const anchors = autoApprove ? [FORGE_READY, READY_FOR_AGENT] : [FORGE_READY];
+  const anchors = autoApproval === null ? [FORGE_READY] : [FORGE_READY, READY_FOR_AGENT];
   const events = await latestLabelEvents(fetch, token, github, number, anchors);
   const applied = events.get(FORGE_READY);
   const approvals: string[] = [];
   for (const anchor of anchors) {
     const event = events.get(anchor);
     if (event === undefined || !(await isMaintainer(event.actor))) continue;
-    if (anchor === READY_FOR_AGENT && reappliedByOutsider(applied, event)) continue;
+    if (
+      anchor === READY_FOR_AGENT &&
+      autoApproval !== null &&
+      reappliedByOutsider(applied, event, autoApproval)
+    ) {
+      continue;
+    }
     approvals.push(event.at);
   }
   return approvals.length === 0 ? null : approvals.reduce((a, b) => (a >= b ? a : b));

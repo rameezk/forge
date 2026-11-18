@@ -1178,7 +1178,7 @@ test('given a ticket no forge:ready event of which GitHub lists, when forge disp
 test('given an auto-approving repository and a ticket whose forge:ready forge\'s App applied after a maintainer\'s ready-for-agent, when forge dispatches it, then the dispatch starts', async () => {
   const { code, pi } = await dispatch({
     autoApprove: true,
-    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', 'forge[bot]']]),
+    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN]]),
   });
 
   assert.equal(code, 0);
@@ -1187,7 +1187,7 @@ test('given an auto-approving repository and a ticket whose forge:ready forge\'s
 
 test('given a repository that has not opted in and a ticket whose forge:ready forge\'s App applied after a maintainer\'s ready-for-agent, when forge dispatches it, then it is refused as unapproved', async () => {
   const { code, pi, labelWrites } = await dispatch({
-    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', 'forge[bot]']]),
+    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN]]),
   });
 
   assert.equal(code, 1);
@@ -1199,7 +1199,7 @@ test('given an auto-approving repository and a ticket whose ready-for-agent an o
   const { code, pi, labelWrites } = await dispatch({
     autoApprove: true,
     approvals: () =>
-      approval([['ready-for-agent', 'teammate'], ['forge:ready', 'forge[bot]'], ['ready-for-agent', 'author']]),
+      approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN], ['ready-for-agent', 'author']]),
   });
 
   assert.equal(code, 1);
@@ -1211,7 +1211,19 @@ test('given an auto-approving repository and a ticket a maintainer held whose fo
   const { code, pi, labelWrites } = await dispatch({
     autoApprove: true,
     approvals: () =>
-      approval([['ready-for-agent', 'teammate'], ['forge:ready', 'forge[bot]'], ['forge:ready', 'author']]),
+      approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN], ['forge:ready', 'author']]),
+  });
+
+  assert.equal(code, 1);
+  assert.equal(pi, null);
+  assert.deepEqual(labelWrites, refusedWrites());
+});
+
+test('given an auto-approving repository and a ticket a maintainer held whose forge:ready another bot applied again, when forge dispatches it, then it is refused as unapproved', async () => {
+  const { code, pi, labelWrites } = await dispatch({
+    autoApprove: true,
+    approvals: () =>
+      approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN], ['forge:ready', 'github-actions[bot]']]),
   });
 
   assert.equal(code, 1);
@@ -1222,7 +1234,7 @@ test('given an auto-approving repository and a ticket a maintainer held whose fo
 test('given an auto-approving repository and a ticket an outsider edited after the maintainer\'s ready-for-agent, when forge dispatches it, then it is refused', async () => {
   const { code, pi, labelWrites } = await dispatch({
     autoApprove: true,
-    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', 'forge[bot]']]),
+    approvals: () => approval([['ready-for-agent', 'teammate'], ['forge:ready', BOT_LOGIN]]),
     edits: { body: () => bodyEdits([['author', '2026-10-21T05:00:00Z']]), renames: () => renames([]) },
   });
 

@@ -199,7 +199,7 @@ export const main = async (
         repository.github,
         ticket.number,
         isMaintainer,
-        repository.autoApprove,
+        repository.autoApprove ? { forgeLogin: identity.name } : null,
       );
       if (approvedAt === null) {
         await refuseTicket(fetch, writeToken, repository.github, ticket.number);
