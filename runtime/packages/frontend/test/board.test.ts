@@ -876,17 +876,20 @@ test('given the same tickets under two specs and loose, when /?group=spec is req
   assert.deepEqual(await cardLinks(app, '/?group=spec', numbers), everyColumnDestinations);
 });
 
-const reviewLimit = (header: string): string => {
-  const start = header.indexOf('<span data-review-limit');
-  assert.notEqual(start, -1, 'the In review column header shows the review limit');
-  const ends = ['flex h-4 shrink-0', 'data-column-total', 'data-column-subtitle', 'data-stage-count', 'data-stage-subtitle'].map((marker) => header.indexOf(marker)).filter((index) => index > start);
-  const rest = header.slice(start, Math.min(...ends));
-  return rest.slice(0, rest.lastIndexOf('<'));
+const readable = (html: string): string => textOf(html).replace(/\s+/g, ' ').trim();
+
+interface LimitLine {
+  text: string;
+  breakdown: string | undefined;
+  full: boolean;
+}
+
+const limitLine = (header: string): LimitLine | null => {
+  const match = /<(?:span|button)\s[^>]*data-review-limit[^>]*>([^<]*)</.exec(header);
+  if (match === null) return null;
+  const tag = match[0];
+  return { text: readable(match[1] ?? ''), breakdown: /\stitle="([^"]*)"/.exec(tag)?.[1], full: /\sdata-full/.test(tag) };
 };
-
-const pipsOf = (gauge: string): string[] => [...gauge.matchAll(/data-pip="([^"]*)"/g)].map(([, kind]) => kind ?? '');
-
-const tooltipOf = (gauge: string): string | undefined => gauge.match(/^<span[^>]*\stitle="([^"]*)"/)?.[1];
 
 const stageHeaders = (body: string): string[] => body.match(/<div[^>]*\sdata-stage-header[\s\S]*?<\/div>/g) ?? [];
 
@@ -894,73 +897,111 @@ const inReviewStageHeader = (body: string): string => stageHeaders(body).find((h
 
 const inReviewHeader = (body: string): string => columnHeaders(body).find((header) => header.includes('data-column-header="in-review"')) ?? '';
 
+const columnTotal = (header: string): string | undefined => /data-column-total[^>]*>([^<]*)</.exec(header)?.[1];
+
 const gaugeOf = async (open: number, running: number, limit: number | null, path = '/'): Promise<string> => {
-  const app = appWith([frontierOf([ticket({ number: 90, forgeReady: true })])], (store) => {
+  const waiting = Array.from({ length: open }, (_, index) => ticket({ number: index + 1 }));
+  const app = appWith([frontierOf([ticket({ number: 90, forgeReady: true }), ...waiting])], (store) => {
     for (let number = 1; number <= open; number++) inReview(store, number);
     for (let number = 50; number < 50 + running; number++) dispatched(store, number, new Date().toISOString());
   }, 20, limit);
   return (await app.request(path)).text();
 };
 
-const readable = (html: string): string => textOf(html).replace(/\s+/g, ' ').trim();
+const BREAKDOWN_5 = 'Forge keeps at most 5 pull requests open or on the way.';
 
-test('given 2 open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested, then the In review header shows 2 solid, 1 outlined and 2 dim pips, 3 / 5, not flagged, with the parts in the tooltip', async () => {
-  const body = await gaugeOf(2, 1, 5);
-  const gauge = reviewLimit(inReviewHeader(body));
+test('given no open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested, then the In review header shows Limit 5, no badge and no pips, a column count of 0 and the breakdown', async () => {
+  const header = inReviewHeader(await gaugeOf(0, 1, 5));
 
-  assert.deepEqual(pipsOf(gauge), ['open', 'open', 'running', 'free', 'free']);
-  assert.equal(readable(gauge), '3 / 5');
-  assert.doesNotMatch(gauge, /data-full/);
-  assert.equal(tooltipOf(gauge), '2 open for review, 1 running, 2 free');
+  assert.deepEqual(limitLine(header), { text: 'Limit 5', full: false, breakdown: `${BREAKDOWN_5} Now: 0 open, 1 dispatch that will open one.` });
+  assert.equal(columnTotal(header), '0');
+  assert.doesNotMatch(header, /data-pip|data-review-running| \/ 5/);
+});
+
+test('given 3 open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested, then the In review header shows Limit 5 and a column count of 3, not flagged, and the unblocked ticket is not held', async () => {
+  const body = await gaugeOf(3, 1, 5);
+  const header = inReviewHeader(body);
+
+  assert.deepEqual(limitLine(header), { text: 'Limit 5', full: false, breakdown: `${BREAKDOWN_5} Now: 3 open, 1 dispatch that will open one.` });
+  assert.equal(columnTotal(header), '3');
+  assert.doesNotMatch(header, /text-warning/);
   assert.doesNotMatch(cardOf(body, 90), /data-held/);
 });
 
-test('given 2 open dispatch pull requests, nothing running and a limit of 5, when the Board is requested, then the tooltip leaves out the running part', async () => {
-  const gauge = reviewLimit(inReviewHeader(await gaugeOf(2, 0, 5)));
+test('given 5 open dispatch pull requests, nothing running and a limit of 5, when the Board is requested, then the In review header shows the warning badge, a column count of 5 and a breakdown that ends with when new dispatches start again', async () => {
+  const header = inReviewHeader(await gaugeOf(5, 0, 5));
 
-  assert.deepEqual(pipsOf(gauge), ['open', 'open', 'free', 'free', 'free']);
-  assert.equal(readable(gauge), '2 / 5');
-  assert.equal(tooltipOf(gauge), '2 open for review, 3 free');
+  assert.deepEqual(limitLine(header), {
+    text: 'Limit reached · new dispatches wait',
+    full: true,
+    breakdown: `${BREAKDOWN_5} Now: 5 open, 0 dispatches that will open one. New dispatches start again when you merge or close one.`,
+  });
+  assert.equal(columnTotal(header), '5');
+  assert.match(header, /text-warning/);
 });
 
-test('given 3 open dispatch pull requests, 1 running dispatch and a limit of 20, when the Board is requested, then the header shows no pips and reads 3 +1 / 20 with the parts in the tooltip', async () => {
-  const gauge = reviewLimit(inReviewHeader(await gaugeOf(3, 1, 20)));
+test('given 4 open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested, then the badge names the pull request on the way and the column count is 4', async () => {
+  const header = inReviewHeader(await gaugeOf(4, 1, 5));
 
-  assert.deepEqual(pipsOf(gauge), []);
-  assert.equal(readable(gauge), '3 +1 / 20');
-  assert.equal(tooltipOf(gauge), '3 open for review, 1 running, 16 free');
+  assert.equal(limitLine(header)?.text, 'Limit reached · 1 PR on the way · new dispatches wait');
+  assert.equal(limitLine(header)?.full, true);
+  assert.equal(columnTotal(header), '4');
 });
 
-test('given a limit of 8 and a limit of 9, when the Board is requested, then 8 still shows pips and 9 falls back to text', async () => {
-  assert.equal(pipsOf(reviewLimit(inReviewHeader(await gaugeOf(1, 0, 8)))).length, 8);
-  assert.deepEqual(pipsOf(reviewLimit(inReviewHeader(await gaugeOf(1, 0, 9)))), []);
+test('given 3 open dispatch pull requests, 2 running dispatches and a limit of 5, when the Board is requested, then the badge and the breakdown use plurals', async () => {
+  const line = limitLine(inReviewHeader(await gaugeOf(3, 2, 5)));
+
+  assert.equal(line?.text, 'Limit reached · 2 PRs on the way · new dispatches wait');
+  assert.match(line?.breakdown ?? '', /Now: 3 open, 2 dispatches that will open one\./);
 });
 
-test('given 4 open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested, then the gauge is flagged and the tooltip says new dispatches wait', async () => {
-  const gauge = reviewLimit(inReviewHeader(await gaugeOf(4, 1, 5)));
-
-  assert.match(gauge, /data-full/);
-  assert.match(gauge, /text-warning/);
-  assert.deepEqual(pipsOf(gauge), ['open', 'open', 'open', 'open', 'running']);
-  assert.equal(readable(gauge), '5 / 5');
-  assert.equal(tooltipOf(gauge), '4 open for review, 1 running, new dispatches wait');
+test('given a limit of 1 with 1 open dispatch pull request, when the Board is requested, then the breakdown says 1 pull request', async () => {
+  assert.match(limitLine(inReviewHeader(await gaugeOf(1, 0, 1)))?.breakdown ?? '', /^Forge keeps at most 1 pull request open or on the way\. Now: 1 open, /);
 });
 
-test('given 2 open dispatch pull requests, 1 running dispatch, a limit of 5 and the Board grouped by spec, when the Board is requested, then the In review stage header shows 3 / 5 without pips while the full column header shows the pips', async () => {
-  const body = await gaugeOf(2, 1, 5, '/?group=spec');
-  const stage = inReviewStageHeader(body);
+test('given 5 open dispatch pull requests, a running revision on one and a limit of 5, when the Board is requested, then the badge does not name a pull request on the way', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    for (let number = 1; number <= 5; number++) inReview(store, number);
+    startRevisionOn(store, 5, 105);
+  }, 20, 5);
 
-  assert.match(stage, /data-review-limit/);
-  assert.equal(readable(reviewLimit(stage)), '3 / 5');
-  assert.deepEqual(pipsOf(stage), []);
-  assert.deepEqual(pipsOf(reviewLimit(inReviewHeader(body))), ['open', 'open', 'running', 'free', 'free']);
+  const line = limitLine(inReviewHeader(await (await app.request('/')).text()));
+
+  assert.equal(line?.text, 'Limit reached · new dispatches wait');
+  assert.match(line?.breakdown ?? '', /Now: 5 open, 0 dispatches that will open one\./);
 });
 
-test('given 2 open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested ungrouped, then the full In review stage header shows the pips and tooltip', async () => {
-  const stage = inReviewStageHeader(await gaugeOf(2, 1, 5));
+test('given no review limit, when the Board is requested, then neither the In review column header nor its stage header shows a limit line or badge', async () => {
+  const body = await gaugeOf(10, 1, null);
 
-  assert.deepEqual(pipsOf(stage), ['open', 'open', 'running', 'free', 'free']);
-  assert.equal(tooltipOf(reviewLimit(stage)), '2 open for review, 1 running, 2 free');
+  assert.equal(limitLine(inReviewHeader(body)), null);
+  assert.equal(limitLine(inReviewStageHeader(body)), null);
+});
+
+test('given no open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested, then the In review stage header shows no limit line, no badge and no pips', async () => {
+  const stage = inReviewStageHeader(await gaugeOf(0, 1, 5));
+
+  assert.notEqual(stage, '');
+  assert.equal(limitLine(stage), null);
+  assert.doesNotMatch(stage, /data-pip|Limit/);
+});
+
+test('given 4 open dispatch pull requests, 1 running dispatch and a limit of 5, when the Board is requested, then the stage header shows a short Limit reached badge that opens the breakdown', async () => {
+  const stage = inReviewStageHeader(await gaugeOf(4, 1, 5));
+  const target = /<button[^>]*data-review-limit[^>]*\spopovertarget="([^"]*)"/.exec(stage)?.[1];
+
+  assert.equal(limitLine(stage)?.text, 'Limit reached');
+  assert.equal(limitLine(stage)?.full, true);
+  assert.ok(target, 'the badge is a button that targets a popover');
+  assert.match(stage, new RegExp(`<[^>]*\\spopover[^>]*\\sid="${target}"[^>]*>${BREAKDOWN_5} Now: 4 open, 1 dispatch that will open one\\. New dispatches start again when you merge or close one\\.<`));
+});
+
+test('given 4 open dispatch pull requests, 1 running dispatch, a limit of 5 and the Board grouped by spec, when the Board is requested, then the compact stage header shows the same badge and every popover id is unique', async () => {
+  const body = await gaugeOf(4, 1, 5, '/?group=spec');
+  const ids = [...body.matchAll(/\spopovertarget="([^"]*)"/g)].map(([, id]) => id);
+
+  assert.equal(limitLine(inReviewStageHeader(body))?.text, 'Limit reached');
+  assert.equal(new Set(ids).size, ids.length);
 });
 
 test('given the review limit is reached, an unblocked forge:ready ticket and a blocked forge:ready ticket, when the Board is requested, then the In review header is flagged, the unblocked ticket is held and the queued ticket keeps its Blocked look', async () => {
@@ -971,12 +1012,12 @@ test('given the review limit is reached, an unblocked forge:ready ticket and a b
   }, 5, 5);
 
   const body = await (await app.request('/')).text();
-  const gauge = reviewLimit(inReviewHeader(body));
+  const line = limitLine(inReviewHeader(body));
   const held = cardOf(body, 9);
   const queued = cardOf(body, 10);
 
-  assert.equal(readable(gauge), '5 / 5');
-  assert.match(gauge, /data-full/);
+  assert.equal(line?.text, 'Limit reached · 2 PRs on the way · new dispatches wait');
+  assert.equal(line?.full, true);
   assert.deepEqual(pillsOf(held), ['held: review limit']);
   assert.match(held, /data-held/);
   assert.doesNotMatch(queued, /data-held/);
@@ -991,7 +1032,7 @@ test('given a null review limit and 10 open pull requests, when the Board is req
 
   const body = await (await app.request('/')).text();
 
-  assert.doesNotMatch(inReviewHeader(body), /data-review-limit/);
+  assert.equal(limitLine(inReviewHeader(body)), null);
   assert.doesNotMatch(cardOf(body, 9), /data-held/);
 });
 
