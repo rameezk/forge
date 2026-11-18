@@ -14,9 +14,10 @@ export interface Checkout {
 }
 
 const SCOPED_CHECK_RULE = [
-  'Run only the scoped local commands AGENTS.md lists for the areas you changed, never the full `make check-no-vm`.',
+  "Run only the checks the repository's own instructions name for the areas you changed, never its full suite.",
+  "When the repository's instructions name no checks, run the narrowest checks that clearly fit the change and report them, rather than stopping.",
   'End your report with one line naming the local commands that passed, followed by "full suite: CI".',
-  'When a required scoped command is killed or cannot run, stop and report that instead of running a narrower or different check.',
+  'When a required check is killed or cannot run, stop and report that instead of running a narrower or different check.',
   "A missing dependency install is something to do as the repository's instructions say, not a required command that cannot run.",
 ];
 

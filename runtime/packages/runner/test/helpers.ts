@@ -677,3 +677,26 @@ export const OWN_CONTEXT_CASES = [
     marker: /conflicted-file\.txt/,
   },
 ];
+
+export const assertRepositoryNeutralCheckRule = (instruction: string): void => {
+  assert.match(
+    instruction,
+    /Run only the checks the repository's own instructions name for the areas you changed, never its full suite\./,
+  );
+  assert.doesNotMatch(instruction, /make check-no-vm/);
+  assert.doesNotMatch(instruction, /AGENTS\.md/);
+  assert.match(
+    instruction,
+    /name no checks, run the narrowest checks that clearly fit the change and report them, rather than stopping/,
+  );
+  assert.match(instruction, /one line naming the local commands that passed.*"full suite: CI"/);
+  assert.match(
+    instruction,
+    /required check is killed or cannot run, stop and report that instead of running a narrower or different check/,
+  );
+  assert.match(
+    instruction,
+    /missing dependency install is something to do as the repository's instructions say/,
+  );
+  assert.doesNotMatch(instruction, /choose a narrower check/);
+};
