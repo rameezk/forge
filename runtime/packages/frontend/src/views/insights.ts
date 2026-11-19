@@ -1,6 +1,6 @@
 import { html } from 'hono/html';
 import { renderChartLegend, renderCostChart, renderProviderShares, cohortSeriesOf } from '../chart.ts';
-import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, RISK_GROUPS, type RiskOptions, type RiskRow, type RiskSummary, GRADING_FAILURES, type GradingFailure, type SupersedeCause, type ConfigFingerprint } from '@forge/shared';
+import { cohortHref, DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, INSIGHT_KIND_FILTERS, sumFailures, UNKNOWN_COHORT, type CohortFailures, type DiagnosisCategory, type InsightKindFilter, cohortLabel, DEFAULT_HARNESS, type CohortInsight, type RanPair, type InsightPoint, type InsightsFilter, type InsightsOptions, type ProviderShare, RISK_GROUPS, sampleRateIn, PAUSE_BAR_PERCENT, PAUSE_WINDOW, WARM_UP_SETTLED, type AutoMergeCounts, type AutoMergeState, type AutoMergeStatus, type RiskOptions, type RiskRow, type RiskSummary, GRADING_FAILURES, type GradingFailure, type SupersedeCause, type ConfigFingerprint } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { workloadsHref } from '../workload-filter.ts';
 import { cacheHitRate, formatCost, formatMinute, formatStarted, formatMeasure, formatElapsed, formatRate, formatBudget } from '../format.ts';
@@ -425,17 +425,48 @@ const summaryCard = (name: string, label: string, body: Rendered): Rendered =>
     ${body}
   </section>`;
 
-const renderRiskSummary = ({ graded, attempted, failed, coverage, costUsd, costPerGrade, candidates }: RiskSummary): Rendered =>
-  html`<div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3" data-risk-cards>
+const renderRiskSummary = ({ graded, attempted, failed, coverage, costUsd, costPerGrade }: RiskSummary): Rendered =>
+  html`<div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2" data-risk-cards>
     ${summaryCard('coverage', 'Coverage', html`<p class="${CARD_FIGURE}" data-metric="coverage">${formatRate(coverage)}</p>
       <p class="${CARD_DETAIL}" data-metric="coverage-count">${graded} of ${attempted} heads graded</p>
       <p class="${CARD_DETAIL}" data-metric="coverage-failed">${GRADING_FAILURES.map((category, index) => html`${index === 0 ? '' : ' · '}<span data-failed="${category}">${FAILURE_LABELS[category]} ${failed[category]}</span>`)}</p>`)}
     ${summaryCard('cost', 'Grading cost', html`<p class="${CARD_FIGURE}" data-metric="cost-total">${formatBudget(costUsd)} total</p>
       <p class="${CARD_DETAIL}" data-metric="cost-per-grade">${costPerGrade === null ? 'n/a' : formatBudget(costPerGrade)} per grade</p>`)}
-    ${summaryCard('candidates', 'Auto-merge candidates held up', html`<p class="${CARD_FIGURE}" data-metric="candidates-held-up">${formatRate(candidates.heldUpRate)}</p>
-      <p class="${CARD_DETAIL}" data-metric="candidates-count">${candidates.merged} of ${candidates.judged}</p>
-      <p class="${CARD_DETAIL}" data-metric="candidates-note">Assumes auto-merge would take certain trivial and low grades and nothing uncertain.</p>`)}
   </div>`;
+
+const AUTO_MERGE_STATE_LABELS: Record<AutoMergeState, string> = {
+  live: 'Live',
+  'warming-up': 'Warming up',
+  paused: 'Paused',
+};
+
+const AUTO_MERGE_STATE_TONES: Record<AutoMergeState, string> = {
+  live: 'text-success',
+  'warming-up': 'text-warning',
+  paused: 'text-error',
+};
+
+const AUTO_MERGE_FACT = 'm-0 flex flex-col';
+
+const autoMergeFact = (name: string, label: string, value: Rendered): Rendered =>
+  html`<div class="${AUTO_MERGE_FACT}"><dt class="${CARD_LABEL}">${label}</dt><dd class="m-0 mt-1 tabular-nums text-fg" data-metric="${name}">${value}</dd></div>`;
+
+const renderAutoMergeStatus = (
+  { state, settled, heldUp, judged }: AutoMergeStatus,
+  { autoMerged, sampled }: AutoMergeCounts,
+  repositories: readonly string[],
+): Rendered =>
+  html`<section id="auto-merge" class="mb-4 rounded-lg border border-line bg-surface p-4" data-risk-card="auto-merge" data-state="${state}">
+    <h2 class="${CARD_LABEL}">Auto-merge</h2>
+    <p class="m-0 mt-1 text-2xl font-semibold tabular-nums ${AUTO_MERGE_STATE_TONES[state]}" data-metric="auto-merge-state">${AUTO_MERGE_STATE_LABELS[state]}${state === 'warming-up' ? html` <span class="text-base font-normal text-muted">${settled} of ${WARM_UP_SETTLED} settled</span>` : ''}</p>
+    <p class="${CARD_DETAIL}" data-metric="auto-merge-held-up">${formatRate(judged === 0 ? null : heldUp / judged)} held up: ${heldUp} of ${judged} over the last ${PAUSE_WINDOW} human-reviewed trivial and low grades, against the ${PAUSE_BAR_PERCENT}% bar</p>
+    <dl class="m-0 mt-3 grid grid-cols-2 gap-3 text-[0.9rem] md:grid-cols-4">
+      ${autoMergeFact('auto-merge-sample-rate', 'Sample rate', html`${Math.round(sampleRateIn(state) * 100)}%`)}
+      ${autoMergeFact('auto-merge-merged', 'Auto-merged', html`${autoMerged}`)}
+      ${autoMergeFact('auto-merge-sampled', 'Sampled', html`${sampled}`)}
+      ${autoMergeFact('auto-merge-repositories', 'Opted in', html`${repositories.length === 0 ? 'none' : repositories.join(', ')}`)}
+    </dl>
+  </section>`;
 
 const renderGradingStatus = (grading: GradingAttention | null | undefined): Rendered => {
   if (grading == null) return '';
@@ -450,6 +481,9 @@ export const renderRisk = (
   filter: InsightsQuery,
   options: RiskOptions,
   display: Display,
+  autoMerge: AutoMergeStatus,
+  autoMergeCounts: AutoMergeCounts,
+  autoMergeRepositories: readonly string[],
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const content = rows.every(({ heads }) => heads === 0)
     ? html`<p class="${EMPTY}" data-empty>No risk grades in this range</p>`
@@ -460,6 +494,7 @@ export const renderRisk = (
     ${renderTabs(filter)}
     ${renderRiskFilters(filter, options)}
     ${renderGradingStatus(display.grading)}
+    ${renderAutoMergeStatus(autoMerge, autoMergeCounts, autoMergeRepositories)}
     ${content}`;
   return layout('Insights', 'insights', true, display, body);
 };

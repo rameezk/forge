@@ -784,3 +784,39 @@ for (const colorScheme of ['light', 'dark'] as const) {
     });
   });
 }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`a paused auto-merge on a phone-width screen in ${colorScheme}`, () => {
+    test.use({ viewport: { width: 390, height: 800 }, colorScheme });
+
+    test('given a pause and a ticket in review whose pull request would have auto-merged, when the Board is opened, then its card carries a paused pill inside it, the band names the pause and nothing scrolls sideways', async ({ dashboard, page }) => {
+      const { store } = dashboard;
+      store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1)] });
+      const started = store.startDispatch({ repository: 'forge', number: 1, url: 'https://github.com/rameezk/forge/issues/1' }, 'run-1', new Date().toISOString(), 100, null);
+      if (!('started' in started)) throw new Error('dispatch refused');
+      store.endDispatch(started.started, { state: 'done', pullRequest: { number: 101, url: 'https://github.com/rameezk/forge/pull/101' } }, new Date().toISOString());
+      store.recordWatchedPullRequests('forge', [{ number: 101, url: 'https://github.com/rameezk/forge/pull/101', closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head-1', draft: false, defaultSha: 'main0' }]);
+      const grade = (number: number, headSha: string, gradedAt: string): void =>
+        store.recordRiskGrade({ repository: 'forge', number, headSha, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt });
+      for (let index = 0; index < 20; index += 1) {
+        grade(900 + index, `old-${index}`, '2026-09-20T10:00:00.000Z');
+        store.settleRiskGrade({ repository: 'forge', number: 900 + index, headSha: `old-${index}` }, index < 3 ? 'closed' : 'merged', `2026-09-21T10:${String(index).padStart(2, '0')}:00.000Z`);
+      }
+      grade(101, 'head-1', new Date().toISOString());
+
+      await page.goto('/');
+
+      const pill = page.locator('[data-ticket]', { hasText: 'Ticket 1' }).locator('[data-paused]');
+      await expect(pill).toHaveText('paused');
+      await expect(page.locator('[data-auto-merge-paused]')).toContainText('Auto-merge is paused');
+      expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+      const inside = await pill.evaluate((element) => {
+        const card = element.closest('[data-ticket]')!.getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        return box.left >= card.left && box.right <= card.right;
+      });
+      expect(inside).toBe(true);
+      await page.screenshot({ path: `test-results/board-paused-${colorScheme}.png`, fullPage: true });
+    });
+  });
+}

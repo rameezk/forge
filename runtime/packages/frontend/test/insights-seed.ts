@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fingerprintHash, Store } from '@forge/shared';
 import type { ConfigFingerprint, DiagnosisCategory, PullRequestState, RunRecord } from '@forge/shared';
-import { createApp, FileTranscriptSource } from '../src/index.ts';
+import { createApp, FileTranscriptSource, type AppOptions } from '../src/index.ts';
 
 export const onCostTab = (query: string): string => `${query === '' ? '?' : `${query}&`}tab=cost`;
 
@@ -205,7 +205,7 @@ export const seedStore = (store: Store, seeds: Seed[]): void => {
   for (const seed of seeds) seedDiagnoses(store, seed);
 };
 
-export const dashboard = (seeds: Seed[], timeZone?: string) => {
+export const dashboard = (seeds: Seed[], timeZone?: string, extra: Partial<AppOptions> = {}) => {
   const store = Store.open(':memory:');
   seedStore(store, seeds);
   const app = createApp({
@@ -216,6 +216,7 @@ export const dashboard = (seeds: Seed[], timeZone?: string) => {
     idiomorph: '',
     client: '',
     ...(timeZone === undefined ? {} : { timeZone }),
+    ...extra,
   });
   const page = async (query = ''): Promise<string> => (await app.request(`/insights${query}`)).text();
   return { store, app, page, costPage: (query = ''): Promise<string> => page(onCostTab(query)) };

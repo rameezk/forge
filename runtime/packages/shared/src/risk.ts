@@ -77,7 +77,6 @@ export interface RiskSummary {
   coverage: number | null;
   costUsd: number;
   costPerGrade: number | null;
-  candidates: { merged: number; judged: number; heldUpRate: number | null };
 }
 
 export const summarizeRisk = (grades: RecordedRiskGrade[], failedHeads: GradingFailure[]): RiskSummary => {
@@ -85,10 +84,6 @@ export const summarizeRisk = (grades: RecordedRiskGrade[], failedHeads: GradingF
     GRADING_FAILURES.map((category) => [category, failedHeads.filter((failure) => failure === category).length]),
   ) as Record<GradingFailure, number>;
   const costUsd = grades.reduce((total, grade) => total + grade.costUsd, 0);
-  const candidateLevels = RISK_GROUPS.find(({ key }) => key === 'candidates')?.levels ?? [];
-  const candidates = aggregateRisk(grades)
-    .filter(({ level, uncertain }) => candidateLevels.includes(level) && !uncertain)
-    .reduce((total, row) => ({ merged: total.merged + row.merged, judged: total.judged + row.judged }), { merged: 0, judged: 0 });
   const attempted = grades.length + failedHeads.length;
   return {
     graded: grades.length,
@@ -97,6 +92,5 @@ export const summarizeRisk = (grades: RecordedRiskGrade[], failedHeads: GradingF
     coverage: attempted === 0 ? null : grades.length / attempted,
     costUsd,
     costPerGrade: grades.length === 0 ? null : costUsd / grades.length,
-    candidates: { ...candidates, heldUpRate: candidates.judged === 0 ? null : candidates.merged / candidates.judged },
   };
 };

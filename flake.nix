@@ -1494,8 +1494,9 @@
                 && autoMergeTimer.wantedBy == [ "timers.target" ]
                 && autoMergeTimer.timerConfig.OnUnitActiveSec == "1min"
                 && autoMergeHost.config.forge.runtime.settings.repositories.forge.autoMerge == true
+                && lib.elem "FORGE_AUTO_MERGE_REPOSITORIES=forge" autoMergeHost.config.systemd.services.forge-frontend.serviceConfig.Environment
               )
-              "auto-merge must run forge-auto-merge as a sandboxed oneshot on a one-minute timer, loading only the Reviewer App's id from its own root-owned sops template and its private key as a credential";
+              "auto-merge must run forge-auto-merge as a sandboxed oneshot on a one-minute timer, loading only the Reviewer App's id from its own root-owned sops template and its private key as a credential, and the dashboard must be told which repositories opted in";
           onlyAutoMergeHoldsTheReviewerKey =
             lib.asserts.assertMsg
               (
@@ -1516,7 +1517,8 @@
             && !(dispatchHost.config.systemd.timers ? forge-auto-merge)
             && !(gradingHost.config.systemd.services ? forge-auto-merge)
             && !(dispatchHost.config.forge.runtime.settings.repositories.forge ? autoMerge)
-          ) "a host that turns auto-merge on for no repository must have neither the auto-merge timer nor the auto-merge service, nor the setting in its runtime config";
+            && !(lib.any (lib.hasPrefix "FORGE_AUTO_MERGE_REPOSITORIES=") dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment)
+          ) "a host that turns auto-merge on for no repository must have neither the auto-merge timer nor the auto-merge service, nor the setting in its runtime config, and its dashboard is told of no opted-in repository";
           autoMergeNeedsGrading = lib.asserts.assertMsg (
             evaluates autoMergeHost
             && !(evaluates (
