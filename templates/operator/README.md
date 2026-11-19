@@ -1076,13 +1076,28 @@ forge.runtime.repositories.forge.autoMerge = true;
 service runs every minute on its own timer. For each pull request whose current
 head is graded trivial or low and not uncertain, it checks that the pull
 request is not a draft, has no forge workload running on it, has every required
-check green and has no open feedback and no unresolved review thread. It then
+check green and has no open feedback and no unresolved review thread. Three
+gates do not depend on the model, so a crafted diff cannot land whatever Jev
+says: the pull request touches no protected path, changes at most 300 lines
+(additions plus deletions), and every changed file's content was in Jev's
+input, so a lockfile or generated file never auto-merges. It then
 approves it as the Reviewer App and squash merges it pinned to the head commit
 it checked, so a push after its check makes the merge fail rather than land the
 new head. The Reviewer App comments with the grade, the head commit and the
 gates it passed, and the grade settles as `auto-merged`, which counts neither
 for nor against it. To stop all auto-merge in a repository, set `autoMerge`
 back to false.
+
+Forge ships a default list of protected paths: CI workflows, nix and flake
+files, infra, agent instructions (`AGENTS.md`, `CLAUDE.md`, `.claude`) and
+skills, secrets and sops files, and dependency manifests and lockfiles. A
+repository adds globs to it and can never remove one, and may raise or lower
+the size cap:
+
+```nix
+forge.runtime.repositories.forge.protectedPaths = [ "billing/**" ];
+forge.runtime.repositories.forge.autoMergeSizeCap = 500;
+```
 
 A maintainer can stop forge auto-merging a single pull request by applying
 `forge:hold` to it, which frontier sync creates in every managed repository.

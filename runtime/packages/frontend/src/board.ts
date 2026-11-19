@@ -1,4 +1,4 @@
-import { newestClosedFirst, type ConflictResolutionRecord, dispatchOrder, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { newestClosedFirst, type ConflictResolutionRecord, dispatchOrder, dispatchRefOf, type DispatchOrdering, OLDEST_FIRST, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -180,10 +180,12 @@ export const buildLanes = (
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
   closes: ReadonlyMap<string, readonly number[]> = new Map(),
   risks: RiskInputs = { repositories: new Set(), grades: new Map(), attempts: new Map(), holds: new Set() },
+  ordering: DispatchOrdering = OLDEST_FIRST,
 ): BoardLane[] => {
+  const byOrder = dispatchOrder(frontier, ordering);
   const latestResolution = latestSettledOf(conflictResolutions);
   const latestRevision = latestSettledOf(revisions);
-  return frontier.map((repository) => {
+  const lanes = frontier.map((repository) => {
     const columns = emptyColumns();
     const onBoard = new Map<number, Ticket | ClosedTicket>([...repository.tickets, ...repository.closed].map((ticket) => [ticket.number, ticket]));
     const live = liveCards(repository.repository, onBoard, dispatches, revisions, conflictResolutions, closes);
@@ -191,7 +193,7 @@ export const buildLanes = (
     for (const request of [...repository.requests].sort(oldestFirst)) {
       columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null, held: false });
     }
-    for (const ticket of [...repository.tickets].sort(dispatchOrder)) {
+    for (const ticket of [...repository.tickets].sort((a, b) => byOrder(dispatchRefOf(repository.repository, a), dispatchRefOf(repository.repository, b)))) {
       if (held.has(ticket.number)) continue;
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
       const column = columnOf(ticket, dispatch);
@@ -214,6 +216,11 @@ export const buildLanes = (
     }
     columns.running.push(...live.map(({ card }) => card));
     return { ...repository, columns };
+  });
+  return ordering.order === 'oldest' ? lanes : lanes.toSorted((a, b) => {
+    const [left, right] = [a.columns['waiting-for-slot'][0], b.columns['waiting-for-slot'][0]];
+    if (left?.column !== 'waiting-for-slot' || right?.column !== 'waiting-for-slot') return Number(left === undefined) - Number(right === undefined);
+    return byOrder(dispatchRefOf(a.repository, left.ticket), dispatchRefOf(b.repository, right.ticket));
   });
 };
 

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
+  certainUrgencies,
   dispatchOrder,
   errorMessage,
   Store,
@@ -10,7 +11,7 @@ import {
   type RevisedPullRequest,
   type Ticket,
 } from '@forge/shared';
-import { diagnosisWorkerOf, maxConcurrentOf, maxOpenPullRequestsOf, quietPeriodOf, type RuntimeConfig } from './config.ts';
+import { diagnosisWorkerOf, dispatchOrderOf, maxConcurrentOf, maxOpenPullRequestsOf, quietPeriodOf, repositoryPrioritiesOf, type RuntimeConfig } from './config.ts';
 import { absolutePath, readRuntimeConfig, stateDirOf } from './workload.ts';
 
 const run = promisify(execFile);
@@ -36,9 +37,15 @@ const dispatchable = (
   config: RuntimeConfig,
   store: Store,
   running: ReadonlySet<string>,
-): Dispatchable[] =>
-  store
-    .listFrontier()
+): Dispatchable[] => {
+  const frontier = store.listFrontier();
+  const order = dispatchOrderOf(config);
+  const byOrder = dispatchOrder(frontier, {
+    order,
+    priorities: repositoryPrioritiesOf(config),
+    urgencies: certainUrgencies(store, frontier, order),
+  });
+  return frontier
     .filter(({ repository, lastError }) => lastError === null && declaresTicketWorker(config, repository))
     .flatMap(({ repository, tickets }) =>
       tickets
@@ -51,7 +58,8 @@ const dispatchable = (
         )
         .map((ticket) => ({ ...ticket, repository })),
     )
-    .toSorted(dispatchOrder);
+    .toSorted(byOrder);
+};
 
 type Pending =
   | ({ kind: 'dispatch' } & Dispatchable)

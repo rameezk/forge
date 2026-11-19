@@ -22,11 +22,32 @@ interface Pull {
   hold?: 'maintainer' | 'outsider';
   otherLabels?: number;
   repository?: string;
+  files?: ChangedFileSpec[];
 }
+
+interface ChangedFileSpec {
+  filename: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  previous_filename?: string;
+  status?: string;
+}
+
+const edit = (filename: string, additions = 3, deletions = 1): ChangedFileSpec => ({
+  filename,
+  additions,
+  deletions,
+  patch: '@@ -1 +1 @@\n-old\n+new',
+});
 
 const HEAD = (number: number): string => `head-${number}`;
 
-const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
+const forge = (
+  pulls: Pull[],
+  autoMergeOn: string[] = ['forge'],
+  forgeSettings: { protectedPaths?: string[]; autoMergeSizeCap?: number } = {},
+) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-auto-merge-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -35,7 +56,7 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
       harnesses: {},
       workers: {},
       repositories: {
-        forge: { github: 'rameezk/forge', grading: true, ...(autoMergeOn.includes('forge') ? { autoMerge: true } : {}) },
+        forge: { github: 'rameezk/forge', grading: true, ...forgeSettings, ...(autoMergeOn.includes('forge') ? { autoMerge: true } : {}) },
         other: { github: 'rameezk/other', grading: true, ...(autoMergeOn.includes('other') ? { autoMerge: true } : {}) },
       },
       grading: { model: 'typesafe/jev-1.13' },
@@ -110,6 +131,13 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
     const json = (data: unknown, status = 200): Response =>
       new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
     const authorization = new Headers(init?.headers).get('authorization') ?? '';
+    const filesOf = /^\/repos\/rameezk\/(forge|other)\/pulls\/(\d+)\/files$/.exec(url.pathname);
+    if (filesOf !== null) {
+      const pull = pulls.find((candidate) => candidate.number === Number(filesOf[2]));
+      const page = Number(url.searchParams.get('page') ?? '1');
+      const all = pull?.files ?? [edit('src/a.ts')];
+      return json(all.slice((page - 1) * 100, page * 100));
+    }
     const pullOf = /^\/repos\/rameezk\/(forge|other)\/pulls\/(\d+)(\/reviews|\/merge)?$/.exec(url.pathname);
     if (pullOf !== null) {
       const number = Number(pullOf[2]);
@@ -433,4 +461,129 @@ test('given a held pull request whose head then moves past its graded head, when
   );
   await f.run();
   assert.deepEqual(f.withStore((store) => store.heldPullRequests()), []);
+});
+
+const merged = (f: ReturnType<typeof forge>): number[] => f.merges.map(({ number }) => number);
+
+test('given low pull requests that change a CI workflow, a nix file, agent instructions, a skill, a sops file or a dependency manifest, when the pass runs, then none is approved or merged', async () => {
+  const paths = [
+    '.github/workflows/ci.yml',
+    'flake.nix',
+    'infra/nixos/runtime.nix',
+    'AGENTS.md',
+    'docs/CLAUDE.md',
+    '.claude/settings.json',
+    'plugin/skills/work-on/SKILL.md',
+    'secrets/runtime.yaml',
+    'runtime/package.json',
+    'Cargo.toml',
+  ];
+  const f = forge(paths.map((path, index) => ({ number: index + 1, files: [edit('src/a.ts'), edit(path)] })));
+  assert.equal(await f.run(), 0);
+  assert.deepEqual([f.reviews, f.merges, f.comments], [[], [], []]);
+});
+
+test('given a pull request that renames a file away from a protected path, when the pass runs, then it is not merged', async () => {
+  const f = forge([{ number: 1, files: [{ ...edit('src/ci.yml', 0, 0), previous_filename: '.github/workflows/ci.yml' }] }]);
+  await f.run();
+  assert.deepEqual(f.merges, []);
+});
+
+test('given a repository that adds a protected path and a low pull request that changes only that path, when the pass runs, then it is not merged, while a pull request outside it is', async () => {
+  const f = forge(
+    [
+      { number: 1, files: [edit('billing/ledger.ts')] },
+      { number: 2, files: [edit('src/a.ts')] },
+    ],
+    ['forge'],
+    { protectedPaths: ['billing/**'] },
+  );
+  await f.run();
+  assert.deepEqual(merged(f), [2]);
+});
+
+test('given a runtime config in which a repository tries to drop a default protected path, when the pass runs, then the default still applies', async () => {
+  const f = forge([{ number: 1, files: [edit('.github/workflows/ci.yml')] }], ['forge'], { protectedPaths: [] });
+  await f.run();
+  assert.deepEqual(f.merges, []);
+});
+
+test('given low pull requests of 301 changed lines, one under the default cap and one in a repository whose cap is raised, when the pass runs, then only the raised one merges', async () => {
+  const big = [edit('src/a.ts', 200, 101)];
+  const under = forge([{ number: 1, files: big }]);
+  await under.run();
+  assert.deepEqual(under.merges, []);
+  const raised = forge([{ number: 1, files: big }], ['forge'], { autoMergeSizeCap: 301 });
+  await raised.run();
+  assert.deepEqual(merged(raised), [1]);
+});
+
+test('given a low pull request of exactly 300 changed lines, when the pass runs, then it merges', async () => {
+  const f = forge([{ number: 1, files: [edit('src/a.ts', 150, 100), edit('src/b.ts', 25, 25)] }]);
+  await f.run();
+  assert.deepEqual(merged(f), [1]);
+});
+
+test('given low pull requests that change a lockfile, a generated file or a file GitHub gave no patch for, when the pass runs, then only a pure rename merges', async () => {
+  const f = forge([
+    { number: 1, files: [edit('src/a.ts'), { filename: 'poetry.lock', additions: 2, deletions: 2 }] },
+    { number: 2, files: [edit('src/gen.generated.ts')] },
+    { number: 3, files: [edit('web/dist/app.min.js')] },
+    { number: 4, files: [{ filename: 'src/huge.ts', additions: 9, deletions: 0 }] },
+    { number: 5, files: [{ filename: 'assets/logo.png', additions: 0, deletions: 0, status: 'modified' }] },
+    { number: 6, files: [{ filename: 'src/moved.ts', additions: 0, deletions: 0, status: 'renamed', previous_filename: 'src/old.ts' }] },
+  ]);
+  await f.run();
+  assert.deepEqual(merged(f), [6]);
+});
+
+test('given a pull request that passes every gate, when it auto-merges, then the comment names the protected path check, the size against the cap and that Jev saw every changed file', async () => {
+  const f = forge([{ number: 1, files: [edit('src/a.ts', 10, 5)] }]);
+  await f.run();
+  const body = f.comments[0]?.body ?? '';
+  assert.match(body, /protected path/i);
+  assert.match(body, /15 changed lines, within the cap of 300/);
+  assert.match(body, /Jev saw every changed file/);
+});
+
+test('given low pull requests that change a dot-named file under a protected directory or a differently cased protected path, when the pass runs, then none is merged', async () => {
+  const paths = [
+    '.github/workflows/.evil.yml',
+    '.claude/.x',
+    'plugin/skills/.x/a.md',
+    'infra/.x',
+    'pkg/.hidden.nix',
+    'web/.b/package.json',
+    '.GitHub/workflows/ci.yml',
+    'Infra/main.tf',
+    'agents.md',
+    'sub/.github/workflows/x.yml',
+    '.husky/pre-commit',
+    'x\ny/package.json',
+    'infra/a\nb',
+    'docs/CODEOWNERS',
+    'Dockerfile.prod',
+  ];
+  const f = forge(paths.map((path, index) => ({ number: index + 1, files: [edit(path)] })));
+  assert.equal(await f.run(), 0);
+  assert.deepEqual(f.merges, []);
+});
+
+test('given a repository that adds a dot-named protected path, when the pass runs, then it is not merged', async () => {
+  const f = forge([{ number: 1, files: [edit('billing/.ledger')] }], ['forge'], { protectedPaths: ['billing/*'] });
+  await f.run();
+  assert.deepEqual(f.merges, []);
+});
+
+test('given a pull request whose changed file list reaches the 3000 files GitHub returns, when the pass runs, then it is not merged because the list may be cut short', async () => {
+  const files = Array.from({ length: 3000 }, (_, index) => ({
+    filename: `src/f${index}.ts`,
+    additions: 0,
+    deletions: 0,
+    status: 'renamed',
+    previous_filename: `src/g${index}.ts`,
+  }));
+  const f = forge([{ number: 1, files }]);
+  await f.run();
+  assert.deepEqual(f.merges, []);
 });

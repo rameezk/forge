@@ -28,8 +28,7 @@ export const main = async (
   const config = JSON.parse(readFileSync(configPath, 'utf8')) as RuntimeConfig;
   const repositories = Object.fromEntries(
     Object.entries(config.repositories ?? {})
-      .filter(([, { autoMerge }]) => autoMerge === true)
-      .map(([name, { github }]) => [name, github]),
+      .filter(([, { autoMerge }]) => autoMerge === true),
   );
   if (Object.keys(repositories).length === 0) return 0;
 

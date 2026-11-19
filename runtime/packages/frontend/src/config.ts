@@ -1,3 +1,4 @@
+import type { DispatchOrder } from '@forge/shared';
 import { isAbsolute } from 'node:path';
 
 const DEFAULT_MAX_CONCURRENT = 1;
@@ -5,6 +6,8 @@ const DEFAULT_MAX_OPEN_PULL_REQUESTS = 5;
 const DEFAULT_TIME_ZONE = 'UTC';
 
 export interface ServeConfig {
+  dispatchOrder: DispatchOrder;
+  repositoryPriorities: Record<string, number>;
   stateDir: string;
   socketPath: string;
   maxConcurrent: number;
@@ -36,6 +39,27 @@ const resolveMaxOpenPullRequests = (value: string | undefined): number | null =>
   }
   return limit;
 };
+
+const resolveDispatchOrder = (value: string | undefined): DispatchOrder => {
+  if (value === undefined || value === 'oldest') return 'oldest';
+  if (value === 'urgency') return value;
+  throw new Error(`FORGE_DISPATCH_ORDER must be 'oldest' or 'urgency', got '${value}'`);
+};
+
+const resolveRepositoryPriorities = (value: string | undefined): Record<string, number> =>
+  Object.fromEntries(
+    (value ?? '')
+      .split(',')
+      .filter((entry) => entry !== '')
+      .map((entry) => {
+        const at = entry.lastIndexOf('=');
+        const priority = Number(entry.slice(at + 1));
+        if (at < 1 || at === entry.length - 1 || !Number.isInteger(priority)) {
+          throw new Error(`FORGE_REPOSITORY_PRIORITIES must list name=integer pairs, got '${entry}'`);
+        }
+        return [entry.slice(0, at), priority];
+      }),
+  );
 
 const resolveTimeZone = (value: string | undefined): string => {
   if (value === undefined) return DEFAULT_TIME_ZONE;
@@ -74,6 +98,8 @@ export const resolveServeConfig = (env: NodeJS.ProcessEnv): ServeConfig => {
     socketPath,
     maxConcurrent: resolveMaxConcurrent(env.FORGE_MAX_CONCURRENT),
     maxOpenPullRequests: resolveMaxOpenPullRequests(env.FORGE_MAX_OPEN_PULL_REQUESTS),
+    dispatchOrder: resolveDispatchOrder(env.FORGE_DISPATCH_ORDER),
+    repositoryPriorities: resolveRepositoryPriorities(env.FORGE_REPOSITORY_PRIORITIES),
     gradingRepositories: (env.FORGE_GRADING_REPOSITORIES ?? '').split(',').filter((name) => name !== ''),
     timeZone: resolveTimeZone(env.FORGE_DASHBOARD_TIME_ZONE),
     deployStatusFile,
