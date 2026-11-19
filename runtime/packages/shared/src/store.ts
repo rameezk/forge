@@ -495,6 +495,7 @@ type TicketRow = {
   for_human: number;
   blocked: number;
   blocked_by: string;
+  awaiting_redispatch: number;
 };
 
 const CREATE_FRONTIER = `
@@ -521,6 +522,7 @@ const CREATE_FRONTIER = `
     blocked       INTEGER NOT NULL,
     blocked_by    TEXT NOT NULL,
     version       TEXT NOT NULL DEFAULT '',
+    awaiting_redispatch INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (repository, number)
   ) STRICT;
 
@@ -1168,6 +1170,24 @@ type UrgencyGradeRow = {
   labels_applied: number;
 };
 
+type UrgencyAttemptRow = {
+  repository: string;
+  number: number;
+  version: string;
+  attempted_at: string;
+  category: string;
+  message: string;
+};
+
+const urgencyAttemptFromRow = (row: UrgencyAttemptRow): UrgencyAttempt => ({
+  repository: row.repository,
+  number: row.number,
+  version: row.version,
+  attemptedAt: row.attempted_at,
+  category: row.category as GradingFailure,
+  message: row.message,
+});
+
 const urgencyGradeFromRow = (row: UrgencyGradeRow): DisplayedUrgencyGrade => ({
   repository: row.repository,
   number: row.number,
@@ -1491,6 +1511,11 @@ const HAS_OUTDATED_FRONTIER = `
     AND NOT EXISTS (
       SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'version'
     )
+  ) OR (
+    type = 'table' AND name = 'frontier_tickets'
+    AND NOT EXISTS (
+      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'awaiting_redispatch'
+    )
   )
 `;
 
@@ -1578,6 +1603,7 @@ const ticketFromRow = (row: TicketRow): Ticket => ({
   forHuman: row.for_human === 1,
   blocked: row.blocked === 1,
   blockedBy: JSON.parse(row.blocked_by) as number[],
+  ...(row.awaiting_redispatch === 1 ? { awaitingRedispatch: true } : {}),
 });
 
 const closedFromRow = (row: ClosedRow): ClosedTicket => ({
@@ -2489,10 +2515,10 @@ export class Store {
       const insert = this.#db.prepare(
         `INSERT INTO frontier_tickets (
           repository, number, title, url, parent_number, parent_title, parent_url, created_at,
-          forge_ready, for_human, blocked, blocked_by, version
+          forge_ready, for_human, blocked, blocked_by, version, awaiting_redispatch
         ) VALUES (
           $repository, $number, $title, $url, $parent_number, $parent_title, $parent_url, $created_at,
-          $forge_ready, $for_human, $blocked, $blocked_by, $version
+          $forge_ready, $for_human, $blocked, $blocked_by, $version, $awaiting_redispatch
         )`,
       );
       for (const ticket of tickets) {
@@ -2510,6 +2536,7 @@ export class Store {
           blocked: ticket.blocked ? 1 : 0,
           blocked_by: JSON.stringify(ticket.blockedBy),
           version: ticket.version ?? '',
+          awaiting_redispatch: ticket.awaitingRedispatch === true ? 1 : 0,
         });
       }
       this.#db
@@ -3312,22 +3339,8 @@ export class Store {
         `SELECT * FROM urgency_attempts
         WHERE repository = $repository AND number = $number ORDER BY id`,
       )
-      .all({ repository, number }) as {
-      repository: string;
-      number: number;
-      version: string;
-      attempted_at: string;
-      category: string;
-      message: string;
-    }[];
-    return rows.map((row) => ({
-      repository: row.repository,
-      number: row.number,
-      version: row.version,
-      attemptedAt: row.attempted_at,
-      category: row.category as GradingFailure,
-      message: row.message,
-    }));
+      .all({ repository, number }) as UrgencyAttemptRow[];
+    return rows.map(urgencyAttemptFromRow);
   }
 
   recordUrgencyGrade(grade: UrgencyGrade): void {
@@ -3370,6 +3383,52 @@ export class Store {
       )
       .get({ repository, number }) as UrgencyGradeRow | undefined;
     return row === undefined ? null : urgencyGradeFromRow(row);
+  }
+
+  currentUrgencyGrades(): DisplayedUrgencyGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM (
+          SELECT urgency_grades.*, row_number() OVER (
+            PARTITION BY urgency_grades.repository, urgency_grades.number
+            ORDER BY urgency_grades.version = frontier_tickets.version DESC,
+              urgency_grades.graded_at DESC, urgency_grades.rowid DESC
+          ) AS rank
+          FROM urgency_grades
+          JOIN frontier_tickets
+            ON frontier_tickets.repository = urgency_grades.repository
+            AND frontier_tickets.number = urgency_grades.number
+        ) WHERE rank = 1
+        ORDER BY repository, number`,
+      )
+      .all() as UrgencyGradeRow[];
+    return rows.map(urgencyGradeFromRow);
+  }
+
+  currentUrgencyAttempts(): UrgencyAttempt[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT urgency_attempts.* FROM urgency_attempts
+        JOIN frontier_tickets
+          ON frontier_tickets.repository = urgency_attempts.repository
+          AND frontier_tickets.number = urgency_attempts.number
+          AND frontier_tickets.version = urgency_attempts.version
+        WHERE urgency_attempts.id = (
+            SELECT max(id) FROM urgency_attempts AS later
+            WHERE later.repository = urgency_attempts.repository
+              AND later.number = urgency_attempts.number
+              AND later.version = urgency_attempts.version
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM urgency_grades
+            WHERE urgency_grades.repository = urgency_attempts.repository
+              AND urgency_grades.number = urgency_attempts.number
+              AND urgency_grades.version = urgency_attempts.version
+          )
+        ORDER BY urgency_attempts.repository, urgency_attempts.number`,
+      )
+      .all() as UrgencyAttemptRow[];
+    return rows.map(urgencyAttemptFromRow);
   }
 
   urgencyGradesAwaitingLabels(repositories: readonly string[]): DisplayedUrgencyGrade[] {
