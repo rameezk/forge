@@ -105,23 +105,34 @@ const approvedBy = async (
   );
 };
 
-const autoMergeOne = async (
-  options: AutoMergeOptions,
+const maintainerHolds = async (
+  { store, fetch, log }: AutoMergeOptions,
+  token: string,
   grade: RecordedRiskGrade,
   repository: string,
-): Promise<void> => {
-  const { store, fetch, tokens, now, log } = options;
-  const token = await tokens(repository, 'review');
+): Promise<boolean> => {
   const hold = await holdOn(fetch, token, repository, grade.number, maintainerLookup(fetch, token, repository));
   if (hold === 'outsider') {
     await removeLabel(fetch, token, repository, grade.number, FORGE_HOLD);
     log(`${grade.repository}#${grade.number}: removed ${FORGE_HOLD}, it was not applied by a maintainer`);
   }
   store.recordHold(grade.repository, grade.number, hold === 'maintainer');
-  if (hold === 'maintainer') {
+  return hold === 'maintainer';
+};
+
+const autoMergeOne = async (
+  options: AutoMergeOptions,
+  grade: RecordedRiskGrade,
+  repository: string,
+  candidate: boolean,
+): Promise<void> => {
+  const { store, fetch, tokens, now, log } = options;
+  const token = await tokens(repository, 'review');
+  if (await maintainerHolds(options, token, grade, repository)) {
     log(`${grade.repository}#${grade.number}: waits, a maintainer holds it`);
     return;
   }
+  if (!candidate) return;
   const waiting = await settled(options, token, repository, grade);
   if (waiting !== null) {
     log(`${grade.repository}#${grade.number}: waits, ${waiting}`);
@@ -155,16 +166,25 @@ const autoMergeOne = async (
 export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<boolean> => {
   const { store, repositories, now, log } = options;
   let succeeded = true;
-  const candidates = store.autoMergeCandidates(Object.keys(repositories), now());
-  for (const repository of Object.keys(repositories)) {
+  const names = Object.keys(repositories);
+  const tracked = store.openGradedPullRequests(names);
+  const candidates = new Set(
+    store.autoMergeCandidates(names, now()).map(({ repository, number }) => `${repository}#${number}`),
+  );
+  for (const repository of names) {
     store.keepHolds(
       repository,
-      candidates.filter((grade) => grade.repository === repository).map(({ number }) => number),
+      tracked.filter((grade) => grade.repository === repository).map(({ number }) => number),
     );
   }
-  for (const grade of candidates) {
+  for (const grade of tracked) {
     try {
-      await autoMergeOne(options, grade, repositories[grade.repository] as string);
+      await autoMergeOne(
+        options,
+        grade,
+        repositories[grade.repository] as string,
+        candidates.has(`${grade.repository}#${grade.number}`),
+      );
     } catch (error) {
       log(`${grade.repository}#${grade.number}: could not auto-merge: ${errorMessage(error)}`);
       succeeded = false;

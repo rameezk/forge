@@ -3765,6 +3765,19 @@ export class Store {
       .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
   }
 
+  openGradedPullRequests(repositories: readonly string[]): RecordedRiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT risk_grades.* FROM risk_grades
+        JOIN feedback_watches USING (repository, number, head_sha)
+        WHERE risk_grades.outcome = 'open'
+          AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY risk_grades.repository, risk_grades.number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
+  }
+
   autoMergeCandidates(repositories: readonly string[], now: string): RecordedRiskGrade[] {
     const rows = this.#db
       .prepare(

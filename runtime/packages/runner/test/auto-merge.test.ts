@@ -407,11 +407,30 @@ test('given a pull request holding more than 100 labels with a maintainer forge:
   assert.deepEqual([f.reviews, f.merges], [[], []]);
 });
 
-test('given a held pull request that a revision then starts working on, when the pass runs again, then the store no longer records it as held', async () => {
+test('given held pull requests that are running a revision, graded moderate or carrying an outsider hold, when the pass runs, then a maintainer hold is recorded and an outsider hold is removed without any of them merging', async () => {
+  const f = forge([
+    { number: 1, hold: 'maintainer', revising: true },
+    { number: 2, hold: 'maintainer', level: 'moderate' },
+    { number: 3, hold: 'outsider', level: 'moderate' },
+  ]);
+  assert.equal(await f.run(), 0);
+  assert.deepEqual(f.withStore((store) => store.heldPullRequests()), [
+    { repository: 'forge', number: 1 },
+    { repository: 'forge', number: 2 },
+  ]);
+  assert.deepEqual(f.removedLabels, [{ number: 3, label: 'forge:hold' }]);
+  assert.deepEqual([f.reviews, f.merges], [[], []]);
+});
+
+test('given a held pull request whose head then moves past its graded head, when the pass runs again, then the store no longer records it as held', async () => {
   const f = forge([{ number: 7, hold: 'maintainer' }]);
   await f.run();
   assert.deepEqual(f.withStore((store) => store.heldPullRequests()), [{ repository: 'forge', number: 7 }]);
-  f.withStore((store) => store.startRevision({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' }, [10], 'run-7', NOW, 5));
+  f.withStore((store) =>
+    store.recordWatchedPullRequests('forge', [
+      { number: 7, url: 'https://github.com/rameezk/forge/pull/7', closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'moved-7', draft: false, defaultSha: 'default-a' },
+    ]),
+  );
   await f.run();
   assert.deepEqual(f.withStore((store) => store.heldPullRequests()), []);
 });
