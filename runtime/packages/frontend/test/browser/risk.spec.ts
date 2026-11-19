@@ -8,7 +8,7 @@ const LEVELS: RiskLevel[] = ['trivial', 'low', 'moderate', 'high'];
 const seedGrades = (store: Store): void => {
   let number = 0;
   for (const level of LEVELS) {
-    for (const [outcome, uncertain] of [['merged', false], ['superseded', false], ['closed', false], ['open', false], ['merged', true]] as const) {
+    for (const [outcome, uncertain] of [['merged', false], ['superseded', false], ['closed', false], ['open', false], ['merged', true], ['auto-merged', false]] as const) {
       number += 1;
       store.recordRiskGrade({
         repository: 'forge',
@@ -38,6 +38,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.goto('/insights?tab=risk');
 
       await expect(page.locator('[data-risk-row]')).toHaveCount(8);
+      await expect(page.locator('[data-risk-row="low"][data-uncertain="false"] [data-metric="auto-merged"]')).toHaveText('1');
+      await expect(page.locator('th[title^="Merged at the graded head by forge"]')).toHaveText('Auto-merged');
       expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
       const lefts = await page.locator('[data-risk-card]').evaluateAll((cards) => cards.map((card) => Math.round(card.getBoundingClientRect().left)));
       expect(lefts).toHaveLength(3);

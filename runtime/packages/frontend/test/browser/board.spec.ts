@@ -685,3 +685,37 @@ test.describe('the Running card status row', () => {
     expect(Math.abs(row.gaps[0]! - row.gaps[1]!)).toBeLessThan(0.5);
   });
 });
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`an auto-merged ticket on a phone-width screen in ${colorScheme}`, () => {
+    test.use({ viewport: { width: 390, height: 800 }, colorScheme });
+
+    test('given a done ticket whose pull request auto-merged and another merged by a person, when the Board is opened, then only the first carries an auto-merged pill, inside its card and without sideways scrolling', async ({ dashboard, page }) => {
+      const { store } = dashboard;
+      const closedTicket = (number: number) => ({ ...ticket(number), closedAt: new Date().toISOString() });
+      store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [closedTicket(1), closedTicket(2)], requests: [], tickets: [] });
+      for (const [number, outcome] of [[1, 'auto-merged'], [2, 'merged']] as const) {
+        const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+        if (!('started' in started)) throw new Error('dispatch refused');
+        store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+        store.recordPullRequest(started.started, { state: 'merged', settledAt: new Date().toISOString(), rework: 0 });
+        store.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
+        store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
+        store.settleRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}` }, outcome, new Date().toISOString());
+      }
+
+      await page.goto('/');
+
+      const pill = page.locator('[data-ticket]', { hasText: 'Ticket 1' }).locator('[data-auto-merged]');
+      await expect(pill).toHaveText('auto-merged');
+      await expect(page.locator('[data-ticket]', { hasText: 'Ticket 2' }).locator('[data-auto-merged]')).toHaveCount(0);
+      expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+      const inside = await pill.evaluate((element) => {
+        const card = element.closest('[data-ticket]')!.getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        return box.left >= card.left && box.right <= card.right;
+      });
+      expect(inside).toBe(true);
+    });
+  });
+}

@@ -153,10 +153,10 @@ const PERSON_ICON = personIcon('A person acts here');
 
 const BUILT_BY_PERSON_ICON = personIcon('Built by a person');
 
-const renderDone = ({ ticket, dispatch }: BoardCard & { column: 'done' }, timeZone: string): Rendered => {
+const renderDone = ({ ticket, dispatch, risk }: BoardCard & { column: 'done' }, timeZone: string): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   const merged = pullRequest != null && pullRequest.state === 'merged';
-  return html`<p class="${MUTED_LINE}">${merged ? html`<span data-merged class="${PILL} ${MERGED_TONE}">merged</span> ${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, `PR #${pullRequest.number}`) : html`PR #${pullRequest.number}`} ` : ''}${renderTimestamp(ticket.closedAt, timeZone)}${ticket.forHuman ? html` <span class="ml-1 inline-flex align-middle">${BUILT_BY_PERSON_ICON}</span>` : ''}</p>`;
+  return html`<p class="${MUTED_LINE}">${merged ? html`<span data-merged class="${PILL} ${MERGED_TONE}">merged</span> ${risk !== null && risk !== 'grading' && 'outcome' in risk && risk.outcome === 'auto-merged' ? html`<span data-auto-merged title="Merged by forge's Reviewer App without a person" class="${PILL} ${MERGED_TONE}">auto-merged</span> ` : ''}${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, `PR #${pullRequest.number}`) : html`PR #${pullRequest.number}`} ` : ''}${renderTimestamp(ticket.closedAt, timeZone)}${ticket.forHuman ? html` <span class="ml-1 inline-flex align-middle">${BUILT_BY_PERSON_ICON}</span>` : ''}</p>`;
 };
 
 const isHeld = ({ column, ticket }: BoardCard, full: boolean): boolean =>

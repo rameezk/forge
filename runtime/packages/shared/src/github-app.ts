@@ -4,7 +4,7 @@ import { requireGithubRepository, type Fetch } from './frontier.ts';
 import { GITHUB_REST_API } from './github-api.ts';
 import { isHeaderValue } from './http.ts';
 
-export type TokenAccess = 'read' | 'write' | 'reactions' | 'grading' | 'administration' | 'workload' | 'rerun';
+export type TokenAccess = 'read' | 'write' | 'reactions' | 'grading' | 'administration' | 'workload' | 'rerun' | 'review';
 
 const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
   read: {
@@ -45,6 +45,12 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
   rerun: {
     actions: 'write',
     pull_requests: 'read',
+  },
+  review: {
+    pull_requests: 'write',
+    contents: 'write',
+    checks: 'read',
+    statuses: 'read',
   },
 };
 
@@ -135,12 +141,16 @@ export class GithubApp {
     return this.#identity;
   }
 
-  async #lookUpIdentity(github: string): Promise<BotIdentity> {
+  async login(): Promise<string> {
     const app = (await ok(await this.#request('GET', '/app'))) as { slug?: unknown };
     if (typeof app.slug !== 'string' || !/^[A-Za-z0-9-]+$/.test(app.slug)) {
       throw new Error('GitHub returned a malformed GitHub App');
     }
-    const login = `${app.slug}[bot]`;
+    return `${app.slug}[bot]`;
+  }
+
+  async #lookUpIdentity(github: string): Promise<BotIdentity> {
+    const login = await this.login();
     const { token } = await this.mint(github, 'read');
     const bot = (await ok(
       await this.#request('GET', `/users/${encodeURIComponent(login)}`, undefined, token),
@@ -221,7 +231,7 @@ export const githubAppFromEnv = (env: NodeJS.ProcessEnv, fetch: Fetch): GithubAp
 
 export type InstallationTokens = (
   github: string,
-  access: 'read' | 'write' | 'reactions' | 'grading' | 'administration',
+  access: 'read' | 'write' | 'reactions' | 'grading' | 'administration' | 'review',
 ) => Promise<string>;
 
 export const cachedTokens = (app: GithubApp): InstallationTokens => {
