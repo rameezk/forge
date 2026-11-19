@@ -23,7 +23,7 @@ export interface AutoMergeCounts {
 }
 
 export const autoMergeStateOf = ({ settled, heldUp, judged }: Omit<AutoMergeStatus, 'state'>): AutoMergeState => {
-  if (settled < WARM_UP_SETTLED) return 'warming-up';
+  if (settled < WARM_UP_SETTLED || judged === 0) return 'warming-up';
   return heldUp * 100 < judged * PAUSE_BAR_PERCENT ? 'paused' : 'live';
 };
 

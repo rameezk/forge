@@ -664,3 +664,10 @@ test('given a grading fingerprint change and 9 settled trivial and low grades un
   await f.run();
   assert.deepEqual(merged(f), [8]);
 });
+
+test('given a cohort with 10 settled grades none of which a person reviewed, when the pass runs, then the pull request is sampled as warming up', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, Array<Settled>(10).fill('auto'));
+  await f.run();
+  assert.deepEqual(f.merges, []);
+  assert.deepEqual(labelled(f, 7), ['forge:sampled']);
+});

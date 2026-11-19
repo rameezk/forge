@@ -8,7 +8,6 @@ import { protectedPathsOf, sizeCapOf, touchedProtectedPath } from './protected-p
 import {
   errorMessage,
   PAUSE_BAR_PERCENT,
-  PAUSE_WINDOW,
   SAMPLE_RATE,
   WARM_UP_SETTLED,
   FORGE_SAMPLED,
@@ -94,7 +93,7 @@ const sampleReason = ({ state, settled, heldUp, judged }: AutoMergeStatus): stri
   if (state === 'warming-up') {
     return `Auto-merge is warming up: ${settled} of ${WARM_UP_SETTLED} trivial and low grades of the current grading cohort have settled, so every pull request that passes the gates goes to a maintainer.`;
   }
-  return `A random quarter of the pull requests that pass the gates goes to a maintainer so trivial and low grades keep being judged.`;
+  return `A random ${SAMPLE_RATE * 100}% of the pull requests that pass the gates goes to a maintainer so trivial and low grades keep being judged.`;
 };
 
 export const sampleComment = (grade: RecordedRiskGrade, facts: DiffFacts, status: AutoMergeStatus): string =>
