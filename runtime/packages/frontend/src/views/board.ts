@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, type UrgencyLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey, type DispatchOrdering, OLDEST_FIRST, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, type UrgencyLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
 import { buildLanes, isUntracked, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type CardUrgency, type RiskInputs, type UrgencyInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
@@ -24,6 +24,8 @@ const HUMAN_TONE = 'text-accent-text ring-1 ring-line ring-inset';
 const MERGED_TONE = 'bg-success-soft text-success';
 
 const HELD_TONE = 'bg-warning-soft text-warning';
+
+const AWAITING_TONE = HELD_TONE;
 
 const ELAPSED = 'text-xs tabular-nums text-muted';
 
@@ -143,8 +145,13 @@ const renderBlockers = (blockedBy: readonly number[], github: string): Rendered 
   return html`blocked by ${links.map((link, index) => html`${index === 0 ? '' : ', '}${link}`)}`;
 };
 
+const renderAwaitingRedispatch = (ticket: Ticket): Rendered =>
+  ticket.awaitingRedispatch === true
+    ? html`<p class="${MUTED_LINE}"><span data-awaiting-redispatch title="The latest ready-for-agent came from someone without write access, or someone else edited the ticket or its spec after it. A maintainer applies ready-for-agent again to approve it." class="${PILL} ${AWAITING_TONE} whitespace-nowrap gap-1! px-1.5!">awaiting re-dispatch</span></p>`
+    : '';
+
 const renderBlocked = ({ ticket }: { ticket: Ticket }, github: string): Rendered =>
-  html`<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}${ticket.forHuman ? html`<span data-ready-for-human class="${PILL} ${HUMAN_TONE}">ready-for-human</span> ` : ''}${renderBlockers(ticket.blockedBy, github)}</p>`;
+  html`${renderAwaitingRedispatch(ticket)}<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}${ticket.forHuman ? html`<span data-ready-for-human class="${PILL} ${HUMAN_TONE}">ready-for-human</span> ` : ''}${renderBlockers(ticket.blockedBy, github)}</p>`;
 
 const personIcon = (label: string): Rendered =>
   html`<svg data-person role="img" aria-label="${label}" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" class="text-accent-text"><title>${label}</title><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5z" /></svg>`;
@@ -178,7 +185,7 @@ const renderDetails = (card: BoardCard, github: string, timeZone: string, runs: 
     case 'done':
       return renderDone(card, timeZone);
     default:
-      return html`<p class="${MUTED_LINE}">${renderDate(card.ticket.createdAt, timeZone)}</p>`;
+      return html`${card.column === 'to-refine' ? '' : renderAwaitingRedispatch(card.ticket)}<p class="${MUTED_LINE}">${renderDate(card.ticket.createdAt, timeZone)}</p>`;
   }
 };
 
@@ -389,8 +396,9 @@ export const renderBoard = (
   grouping: Grouping = 'none',
   grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map() },
   urgencies: UrgencyView = { grades: new Map(), attempts: new Map() },
+  ordering: DispatchOrdering = OLDEST_FIRST,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, closes, grading, urgencies);
+  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, closes, grading, urgencies, ordering);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`

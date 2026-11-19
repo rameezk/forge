@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
 import type { ClosedTicket, GradingAttempt, GradingFailure, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket, UrgencyGrade, UrgencyLevel } from '@forge/shared';
-import { createApp, FileTranscriptSource } from '../src/index.ts';
+import { createApp, FileTranscriptSource, type AppOptions } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
 const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
@@ -25,7 +25,7 @@ type Seed =
   | (PolledFrontier & { lastError?: PollFailure; branchRules?: string[] })
   | { repository: string; github: string; polledAt: null; lastError: PollFailure };
 
-const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number, maxOpenPullRequests?: number | null, gradingRepositories?: string[]) => {
+const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, maxConcurrent?: number, maxOpenPullRequests?: number | null, gradingRepositories?: string[], extra: Partial<AppOptions> = {}) => {
   const store = Store.open(':memory:');
   dispatch(store);
   for (const seed of frontier) {
@@ -47,6 +47,7 @@ const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, 
     ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
     ...(maxOpenPullRequests === undefined ? {} : { maxOpenPullRequests }),
     ...(gradingRepositories === undefined ? {} : { gradingRepositories }),
+    ...extra,
   });
 };
 
@@ -218,6 +219,23 @@ test('given a blocked ready-for-agent ticket, a blocked forge:ready ticket and a
   assert.doesNotMatch(cardOf(body, 2), /data-ready-for-human/);
   assert.match(cardOf(body, 3), /<span[^>]*data-ready-for-human[^>]*>ready-for-human<\/span>/);
   assert.doesNotMatch(cardOf(body, 3), /data-queued/);
+});
+
+test('given an unlabelled ready-for-agent ticket whose approval does not stand, a blocked one, and one whose approval stands, when the Board is requested, then only the first two show awaiting re-dispatch, in Ready for agent and Blocked', async () => {
+  const app = appWith([
+    frontierOf([
+      ticket({ number: 1, awaitingRedispatch: true }),
+      ticket({ number: 2, blocked: true, blockedBy: [200], awaitingRedispatch: true }),
+      ticket({ number: 3 }),
+    ]),
+  ]);
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { blocked: ['2'], 'ready-for-agent': ['1', '3'] });
+  assert.match(cardOf(body, 1), /<span[^>]*data-awaiting-redispatch[^>]*>awaiting re-dispatch<\/span>/);
+  assert.match(cardOf(body, 2), /<span[^>]*data-awaiting-redispatch[^>]*>awaiting re-dispatch<\/span>/);
+  assert.doesNotMatch(cardOf(body, 3), /data-awaiting-redispatch|awaiting re-dispatch/);
 });
 
 test('given an unblocked ready-for-human ticket, when the Board is requested, then it is in Ready for human with its created date and no blocked marker', async () => {
@@ -1469,4 +1487,80 @@ test('given a ticket edited after it was graded whose regrade failed, when the B
 
   assert.match(badge, /data-urgency="declined"/);
   assert.equal(readable(badge), 'declined');
+});
+
+const graded = (store: Store, repository: string, number: number, level: UrgencyLevel, uncertain = false): void =>
+  store.recordUrgencyGrade({
+    repository,
+    number,
+    version: `v${number}`,
+    fingerprint: 'fingerprint',
+    model: 'typesafe/jev-1.13',
+    probabilities: { critical: 0.25, high: 0.25, normal: 0.25, low: 0.25 },
+    score: 0.5,
+    confidence: uncertain ? 0.3 : 0.9,
+    level,
+    uncertain,
+    costUsd: 0,
+    gradedAt: '2026-09-29T08:00:00.000Z',
+  });
+
+const READY = { forgeReady: true, parent: null } as const;
+
+const urgencyBoard = (order: 'oldest' | 'urgency') =>
+  appWith(
+    [
+      frontierOf([
+        ticket({ number: 1, ...READY, createdAt: '2026-09-20T10:00:00Z', version: 'v1' }),
+        ticket({ number: 2, ...READY, createdAt: '2026-09-21T10:00:00Z', version: 'v2' }),
+        ticket({ number: 3, ...READY, createdAt: '2026-09-22T10:00:00Z', version: 'v3' }),
+        ticket({ number: 4, ...READY, createdAt: '2026-09-23T10:00:00Z', version: 'v4', blocked: true, blockedBy: [3] }),
+        ticket({ number: 5, ...READY, createdAt: '2026-09-24T10:00:00Z', version: 'v5' }),
+      ]),
+      { ...frontierOf([ticket({ number: 9, ...READY, createdAt: '2026-09-25T10:00:00Z', version: 'v9' })]), repository: 'dotfiles', github: 'rameezk/dotfiles' },
+    ],
+    (store) => {
+      graded(store, 'forge', 1, 'normal');
+      graded(store, 'forge', 2, 'critical', true);
+      graded(store, 'forge', 3, 'low');
+      graded(store, 'forge', 4, 'critical');
+      graded(store, 'forge', 5, 'high');
+      graded(store, 'dotfiles', 9, 'normal');
+    },
+    undefined,
+    undefined,
+    undefined,
+    { dispatchOrder: order, repositoryPriorities: { dotfiles: 10 } },
+  );
+
+test('given the urgency order, graded tickets across two repositories of different priorities, an uncertain critical grade and a low blocker of a critical ticket, when the Board is requested, then cards and lanes follow the order the dispatch pass takes them in', async () => {
+  const body = await (await urgencyBoard('urgency').request('/')).text();
+
+  assert.deepEqual(sections(body).map((section) => /data-repository="([^"]*)"/.exec(openingTag(section))?.[1]), ['forge', 'dotfiles']);
+  assert.deepEqual(cardsByColumn(laneOf(body, 'forge'))['waiting-for-slot'], ['3', '5', '1', '2']);
+});
+
+test('given the urgency order and a repository of higher priority holding only normal tickets, when the Board is requested, then it comes before a lower priority repository holding only normal tickets', async () => {
+  const body = await (
+    await appWith(
+      [
+        frontierOf([ticket({ number: 1, ...READY })]),
+        { ...frontierOf([ticket({ number: 9, ...READY })]), repository: 'dotfiles', github: 'rameezk/dotfiles' },
+      ],
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      { dispatchOrder: 'urgency', repositoryPriorities: { dotfiles: 10 } },
+    ).request('/')
+  ).text();
+
+  assert.deepEqual(sections(body).map((section) => /data-repository="([^"]*)"/.exec(openingTag(section))?.[1]), ['dotfiles', 'forge']);
+});
+
+test('given the oldest order and graded tickets, when the Board is requested, then cards and lanes stay oldest first and ignore the grades', async () => {
+  const body = await (await urgencyBoard('oldest').request('/')).text();
+
+  assert.deepEqual(sections(body).map((section) => /data-repository="([^"]*)"/.exec(openingTag(section))?.[1]), ['dotfiles', 'forge']);
+  assert.deepEqual(cardsByColumn(laneOf(body, 'forge'))['waiting-for-slot'], ['1', '2', '3', '5']);
 });

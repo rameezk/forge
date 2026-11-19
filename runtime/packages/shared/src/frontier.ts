@@ -300,6 +300,7 @@ export interface Ticket {
   blocked: boolean;
   blockedBy: number[];
   version?: string;
+  awaitingRedispatch?: boolean;
 }
 
 export interface PolledTicket extends Ticket {

@@ -9,7 +9,7 @@ test('given state dir and socket, when resolved, then they are used', () => {
       FORGE_FRONTEND_SOCKET: '/run/forge-frontend/dashboard.sock',
       FORGE_MAX_CONCURRENT: '3',
     }),
-    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, gradingRepositories: [], timeZone: 'UTC', deployStatusFile: null },
+    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, dispatchOrder: 'oldest', repositoryPriorities: {}, gradingRepositories: [], timeZone: 'UTC', deployStatusFile: null },
   );
 });
 
@@ -99,4 +99,14 @@ test('given a deploy status file that is not an absolute path, when resolved, th
     () => resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/run/d.sock', FORGE_PULL_DEPLOY_STATUS_FILE: 'status.json' }),
     /FORGE_PULL_DEPLOY_STATUS_FILE/,
   );
+});
+
+test('given the dispatch order and repository priorities, when resolved, then they are used, and a bad order or priority throws', () => {
+  const base = { FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock' };
+  const config = resolveServeConfig({ ...base, FORGE_DISPATCH_ORDER: 'urgency', FORGE_REPOSITORY_PRIORITIES: 'forge=10,site=-2' });
+  assert.equal(config.dispatchOrder, 'urgency');
+  assert.deepEqual(config.repositoryPriorities, { forge: 10, site: -2 });
+  assert.throws(() => resolveServeConfig({ ...base, FORGE_DISPATCH_ORDER: 'newest' }), /FORGE_DISPATCH_ORDER/);
+  assert.throws(() => resolveServeConfig({ ...base, FORGE_REPOSITORY_PRIORITIES: 'forge=high' }), /FORGE_REPOSITORY_PRIORITIES/);
+  assert.throws(() => resolveServeConfig({ ...base, FORGE_REPOSITORY_PRIORITIES: 'forge=' }), /FORGE_REPOSITORY_PRIORITIES/);
 });
