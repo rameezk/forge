@@ -12,6 +12,8 @@ let
   appKeyFile = "/run/secrets/github_app_private_key";
   boxIdFile = "/run/secrets/rendered/forge-pull-deploy.env";
   boxKeyFile = "/run/secrets/github_box_app_private_key";
+  reviewerIdFile = "/run/secrets/rendered/forge-auto-merge.env";
+  reviewerKeyFile = "/run/secrets/github_reviewer_app_private_key";
 
   probe =
     name:
@@ -20,7 +22,7 @@ let
         echo "env=''${FORGE_GITHUB_APP_ID-unset}"
         if [ -n "''${OPENROUTER_API_KEY-}" ]; then echo "openrouter=set"; else echo "openrouter=unset"; fi
         ${lib.optionalString (name != "forge-pull-deploy") ''
-          for file in ${appIdFile} ${appKeyFile} ${boxIdFile} ${boxKeyFile}; do
+          for file in ${appIdFile} ${appKeyFile} ${boxIdFile} ${boxKeyFile} ${reviewerIdFile} ${reviewerKeyFile}; do
             if contents="$(cat "$file" 2>/dev/null)"; then
               echo "read $(basename "$file") $contents"
             else
@@ -55,6 +57,7 @@ let
       "forge-dispatch-pass"
       "forge-billing"
       "forge-grading"
+      "forge-auto-merge"
       "forge-migrate"
       "forge-frontier"
       "forge-frontend"
@@ -97,18 +100,21 @@ testers.runNixOSTest {
       github = "rameezk/forge";
       on.ticket = "builder";
       grading = true;
+      autoMerge = true;
     };
   };
 
   testScript = builtins.readFile ./oneshot.py + ''
     app = "env=123456"
     key_credential = "credential github_app_private_key_fixture_not_a_real_key"
+    reviewer_id = "env=246810"
+    reviewer_credential = "credential github_reviewer_app_private_key_fixture_not_a_real_key"
     no_key = "openrouter=unset"
     with_key = "openrouter=set"
     box_unset = "box-env=unset"
     box_id = "box-env=654321"
     box_key_credential = "box-credential github_box_app_private_key_fixture_not_a_real_key"
-    files_denied = ["denied forge-github-app.env", "denied github_app_private_key", "denied forge-pull-deploy.env", "denied github_box_app_private_key"]
+    files_denied = ["denied forge-github-app.env", "denied github_app_private_key", "denied forge-pull-deploy.env", "denied github_box_app_private_key", "denied forge-auto-merge.env", "denied github_reviewer_app_private_key"]
     denied = ["env=unset", no_key] + files_denied + [box_unset]
     denied_with_key = ["env=unset", with_key] + files_denied + [box_unset]
 
@@ -123,6 +129,10 @@ testers.runNixOSTest {
 
     with subtest("the box App's id and private key are owned by root and readable only by it"):
         for path in ["${boxIdFile}", "${boxKeyFile}"]:
+            assert box.succeed(f"stat -L -c '%U %a' {path}").strip() == "root 400", path
+
+    with subtest("the Reviewer App's id and private key are owned by root and readable only by it"):
+        for path in ["${reviewerIdFile}", "${reviewerKeyFile}"]:
             assert box.succeed(f"stat -L -c '%U %a' {path}").strip() == "root 400", path
 
     with subtest("frontier sync loads the App id and reads the private key as data from its credential"):
@@ -143,6 +153,10 @@ testers.runNixOSTest {
     with subtest("grading loads the App id and the OpenRouter key and reads the private key only as data from its credential, and no other secret"):
         box.succeed("systemctl start forge-grading.service")
         assert probe("forge-grading") == [app, with_key] + files_denied + [key_credential, box_unset], probe("forge-grading")
+
+    with subtest("forge-auto-merge loads the Reviewer App's id and reads its private key only as data from its credential, and is given nothing of the forge App or the OpenRouter key"):
+        box.succeed("systemctl start forge-auto-merge.service")
+        assert probe("forge-auto-merge") == [reviewer_id, no_key] + files_denied + [reviewer_credential, box_unset], probe("forge-auto-merge")
 
     with subtest("the pull deploy loads the box App's id and reads its private key only as data from its credential, and is given nothing of the forge App"):
         box.succeed("systemctl start forge-pull-deploy.service")

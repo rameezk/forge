@@ -27,6 +27,7 @@ export interface RepositoryConfig {
   github: string;
   on?: { ticket?: string; feedback?: string; conflict?: string };
   grading?: boolean;
+  autoMerge?: boolean;
   description?: string;
   autoApprove?: boolean;
   priority?: number;

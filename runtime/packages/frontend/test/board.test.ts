@@ -1094,6 +1094,28 @@ const gradeOf = (number: number, headSha: string, overrides: Partial<RiskGrade> 
   ...overrides,
 });
 
+const doneMerged = (store: Store, number: number, outcome: 'merged' | 'auto-merged'): void => {
+  const id = dispatched(store, number);
+  store.endDispatch(id, { state: 'done', pullRequest: pullRequest(100 + number) }, '2026-09-28T09:00:00.000Z');
+  store.recordPullRequest(id, { state: 'merged', settledAt: '2026-09-28T10:00:00.000Z', rework: 0 });
+  watchHead(store, 100 + number, 'head1');
+  store.recordRiskGrade(gradeOf(100 + number, 'head1', { level: 'low' }));
+  store.settleRiskGrade({ repository: 'forge', number: 100 + number, headSha: 'head1' }, outcome, '2026-09-28T10:00:00.000Z');
+};
+
+test('given a done ticket whose pull request auto-merged and another merged by a person, when the Board is requested, then only the first carries an auto-merged pill', async () => {
+  const app = appWith([frontierOf([], [], [closedTicket({ number: 10 }), closedTicket({ number: 11 })])], (store) => {
+    doneMerged(store, 10, 'auto-merged');
+    doneMerged(store, 11, 'merged');
+  }, undefined, undefined, GRADING);
+
+  const body = await (await app.request('/')).text();
+
+  assert.match(cardOf(body, 10), /<span[^>]*data-auto-merged[^>]*>\s*auto-merged\s*<\/span>/);
+  assert.match(cardOf(body, 10), /data-merged/);
+  assert.doesNotMatch(cardOf(body, 11), /data-auto-merged/);
+});
+
 const riskOf = (card: string): string => card.match(/<[^>]*\sdata-risk=[^>]*>[\s\S]*?<\/span>(?:\s*<span[^>]*data-risk-alternative[^>]*>[\s\S]*?<\/span>)?/)?.[0] ?? '';
 
 const GRADING = ['forge'];

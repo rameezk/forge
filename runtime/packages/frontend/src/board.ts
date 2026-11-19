@@ -165,6 +165,11 @@ const liveCards = (
   return cards.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
 };
 
+const autoMergedGrade = (risks: RiskInputs, repository: string, dispatch: DispatchRecord | undefined): RecordedRiskGrade | null => {
+  const grade = dispatch?.pullRequest == null ? undefined : risks.grades.get(ticketKey(repository, dispatch.pullRequest.number));
+  return grade?.outcome === 'auto-merged' ? grade : null;
+};
+
 export const buildLanes = (
   frontier: RepositoryFrontier[],
   dispatches: ReadonlyMap<string, DispatchRecord>,
@@ -202,7 +207,8 @@ export const buildLanes = (
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
       if (held.has(ticket.number)) continue;
-      columns.done.push({ column: 'done', ticket, dispatch: dispatches.get(ticketKey(repository.repository, ticket.number)), workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
+      const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
+      columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: autoMergedGrade(risks, repository.repository, dispatch) });
     }
     columns.running.push(...live.map(({ card }) => card));
     return { ...repository, columns };
