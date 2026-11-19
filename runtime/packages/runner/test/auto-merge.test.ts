@@ -449,6 +449,8 @@ test('given low pull requests that change a dot-named file under a protected dir
     '.GitHub/workflows/ci.yml',
     'Infra/main.tf',
     'agents.md',
+    'x\ny/package.json',
+    'infra/a\nb',
     'docs/CODEOWNERS',
     'Dockerfile.prod',
   ];

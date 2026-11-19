@@ -84,7 +84,7 @@ const globToRegExp = (pattern: string): RegExp => {
       source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
     }
   }
-  return new RegExp(`^${source}$`, 'i');
+  return new RegExp(`^${source}$`, 'is');
 };
 
 export const touchedProtectedPath = (
