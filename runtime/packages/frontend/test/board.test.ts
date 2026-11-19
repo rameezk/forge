@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { ClosedTicket, UrgencyLevel, GradingAttempt, GradingFailure, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket } from '@forge/shared';
+import type { ClosedTicket, GradingAttempt, GradingFailure, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket, UrgencyGrade, UrgencyLevel } from '@forge/shared';
 import { createApp, FileTranscriptSource, type AppOptions } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
@@ -1386,6 +1386,107 @@ test('given a ticket whose only live workload ends, when the Board is requested,
   });
 
   assert.deepEqual(populated(cardsByColumn(laneOf(await (await app.request('/')).text(), 'forge'))), { failed: ['5'] });
+});
+
+const urgencyOf = (number: number, level: UrgencyLevel, overrides: Partial<UrgencyGrade> = {}): UrgencyGrade => ({
+  repository: 'forge',
+  number,
+  version: `v${number}`,
+  fingerprint: 'typesafe/jev-1.13:def',
+  model: 'typesafe/jev-1.13',
+  probabilities: { critical: 0.05, high: 0.05, normal: 0.05, low: 0.05, [level]: 0.85 },
+  score: 0.5,
+  confidence: 0.85,
+  level,
+  uncertain: false,
+  costUsd: 0.01,
+  gradedAt: '2026-10-02T09:00:00.000Z',
+  ...overrides,
+});
+
+const urgencyBadgeOf = (card: string): string => /<p[^>]*>(?:(?!<\/p>)[\s\S])*data-urgency=[\s\S]*?<\/p>/.exec(card)?.[0] ?? '';
+
+test('given tickets graded critical, high, normal and low, when the Board is requested, then each card shows its level', async () => {
+  const levels: UrgencyLevel[] = ['critical', 'high', 'normal', 'low'];
+  const app = appWith([frontierOf(levels.map((_, index) => ticket({ number: index + 1, forgeReady: true, version: `v${index + 1}` })))], (store) => {
+    levels.forEach((level, index) => store.recordUrgencyGrade(urgencyOf(index + 1, level)));
+  });
+
+  const body = await (await app.request('/')).text();
+
+  levels.forEach((level, index) => {
+    const badge = urgencyBadgeOf(cardOf(body, index + 1));
+    assert.match(badge, new RegExp(`data-urgency="${level}"`), level);
+    assert.equal(readable(badge), level, level);
+    assert.doesNotMatch(badge, /data-urgency-uncertain/, level);
+  });
+});
+
+test('given an uncertain critical grade, when the Board is requested, then the card shows critical, marked uncertain, ordered as normal', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5' })])], (store) => {
+    store.recordUrgencyGrade(urgencyOf(5, 'critical', { uncertain: true, confidence: 0.4, probabilities: { critical: 0.4, high: 0.3, normal: 0.2, low: 0.1 } }));
+  });
+
+  const badge = urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5));
+
+  assert.match(badge, /data-urgency="critical"/);
+  assert.match(badge, /data-urgency-uncertain/);
+  assert.equal(readable(badge), 'critical uncertain, ordered as normal');
+});
+
+test('given a forge:ready ticket with no grade yet, when the Board is requested, then its card shows no urgency', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5' })])]);
+
+  assert.doesNotMatch(cardOf(await (await app.request('/')).text(), 5), /data-urgency/);
+});
+
+test('given a ticket regraded after an edit that has no grade for its new version yet, when the Board is requested, then its card keeps the earlier level', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5b' })])], (store) => {
+    store.recordUrgencyGrade(urgencyOf(5, 'high', { version: 'v5a' }));
+  });
+
+  assert.match(urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5)), /data-urgency="high"/);
+});
+
+test('given a ticket whose grading produced no level, when the Board is requested, then its card says why the way a pull request card does', async () => {
+  const cases: [GradingFailure, string, string][] = [
+    ['temporary', 'OpenRouter answered 503', 'not graded temporary, retrying'],
+    ['setup', 'OpenRouter rejected the key', 'not graded setup, retrying'],
+    ['bug', 'OpenRouter rejected the request with 400', 'not graded bug, retrying'],
+    ['declined', 'Jev declined to answer', 'declined'],
+    ['too-large', "the input does not fit Jev's context window", 'too large'],
+  ];
+  for (const [category, message, text] of cases) {
+    const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5' })])], (store) => {
+      store.recordUrgencyAttempt({ repository: 'forge', number: 5, version: 'v5', attemptedAt: '2026-10-02T10:00:00.000Z', category, message });
+    });
+
+    const badge = urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5));
+
+    assert.match(badge, new RegExp(`data-urgency="${category}"`), category);
+    assert.equal(readable(badge), text, category);
+    assert.match(badge, new RegExp(`title="Not graded: ${message.replace(/[()]/g, '\\$&').replace(/'/g, '&#39;')}`), category);
+  }
+});
+
+test('given a failed attempt on an earlier version of a ticket, when the Board is requested, then its card shows no urgency', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5b' })])], (store) => {
+    store.recordUrgencyAttempt({ repository: 'forge', number: 5, version: 'v5a', attemptedAt: '2026-10-02T10:00:00.000Z', category: 'declined', message: 'Jev declined to answer' });
+  });
+
+  assert.doesNotMatch(cardOf(await (await app.request('/')).text(), 5), /data-urgency/);
+});
+
+test('given a ticket edited after it was graded whose regrade failed, when the Board is requested, then its card shows the failed attempt instead of the earlier level', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5b' })])], (store) => {
+    store.recordUrgencyGrade(urgencyOf(5, 'high', { version: 'v5a' }));
+    store.recordUrgencyAttempt({ repository: 'forge', number: 5, version: 'v5b', attemptedAt: '2026-10-02T10:00:00.000Z', category: 'declined', message: 'Jev declined to answer' });
+  });
+
+  const badge = urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5));
+
+  assert.match(badge, /data-urgency="declined"/);
+  assert.equal(readable(badge), 'declined');
 });
 
 const graded = (store: Store, repository: string, number: number, level: UrgencyLevel, uncertain = false): void =>
