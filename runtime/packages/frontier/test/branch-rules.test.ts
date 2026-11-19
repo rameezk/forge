@@ -29,8 +29,22 @@ const EMPTY_PAGE = {
   },
 };
 
-const syncing = async (rules: Record<string, RepositoryRules>, stateDir?: string) => {
+interface Opting {
+  autoMerge?: boolean;
+  reviewerApp?: string[];
+}
+
+const syncing = async (
+  rules: Record<string, RepositoryRules>,
+  stateDir?: string,
+  { autoMerge = false, reviewerApp }: Opting = {},
+) => {
   const dir = stateDir ?? mkdtempSync(join(tmpdir(), 'forge-branch-rules-'));
+  if (reviewerApp !== undefined) {
+    const seeded = Store.open(join(dir, 'forge.db'));
+    seeded.recordReviewerAppFailures('forge', reviewerApp, '2026-11-18T12:00:00.000Z');
+    seeded.close();
+  }
   const app = fakeGithubApp(['rameezk/forge']);
   const keyPath = join(dir, 'github-app-private-key');
   writeFileSync(keyPath, app.privateKey);
@@ -40,7 +54,7 @@ const syncing = async (rules: Record<string, RepositoryRules>, stateDir?: string
     JSON.stringify({
       harnesses: {},
       workers: {},
-      repositories: { forge: { github: 'rameezk/forge' } },
+      repositories: { forge: { github: 'rameezk/forge', ...(autoMerge ? { autoMerge: true } : {}) } },
     }),
   );
   const requests: { pathname: string; authorization: string | null; init?: RequestInit }[] = [];
@@ -255,4 +269,42 @@ test('given GitHub listing rules without end, when sync runs, then the repositor
   });
 
   assert.deepEqual(branchRules, ['its default branch rules could not be read: GitHub listed 3000 rules or more']);
+});
+
+test('given an opted-in repository with a Reviewer App failure recorded, when sync runs, then it is added to the rule failures, logged and stored', async () => {
+  const failure = 'the Reviewer App is not installed on it';
+  const { branchRules, logged } = await syncing({ 'rameezk/forge': PROTECTED }, undefined, {
+    autoMerge: true,
+    reviewerApp: [failure],
+  });
+
+  assert.deepEqual(branchRules, [failure]);
+  assert.deepEqual(logged, [`forge: no new work, ${failure}`]);
+});
+
+test('given an opted-in repository whose own rules also fail, when sync runs, then both kinds of failure are stored together', async () => {
+  const failure = 'the Reviewer App can bypass the ruleset "protect main"';
+  const { branchRules } = await syncing(
+    { 'rameezk/forge': withPullRequest({ approvals: 0, lastPushApproval: true }) },
+    undefined,
+    { autoMerge: true, reviewerApp: [failure] },
+  );
+
+  assert.deepEqual(branchRules, ['its default branch does not require an approving review', failure]);
+});
+
+test('given a newly opted-in repository with no Reviewer App result yet, when sync runs, then its rules pass', async () => {
+  const { branchRules, logged } = await syncing({ 'rameezk/forge': PROTECTED }, undefined, { autoMerge: true });
+
+  assert.deepEqual(branchRules, []);
+  assert.deepEqual(logged, []);
+});
+
+test('given a repository no longer opted in with a Reviewer App failure still recorded, when sync runs, then no Reviewer App failure is recorded against it', async () => {
+  const { branchRules, logged } = await syncing({ 'rameezk/forge': PROTECTED }, undefined, {
+    reviewerApp: ['the Reviewer App is not installed on it'],
+  });
+
+  assert.deepEqual(branchRules, []);
+  assert.deepEqual(logged, []);
 });

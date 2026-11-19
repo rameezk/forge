@@ -54,6 +54,13 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
   },
 };
 
+export class AppNotInstalledError extends Error {
+  constructor(github: string) {
+    super(`the GitHub App is not installed on ${github}`);
+    this.name = 'AppNotInstalledError';
+  }
+}
+
 export interface MintOptions {
   workflows?: boolean;
 }
@@ -170,7 +177,7 @@ export class GithubApp {
     const [, name = ''] = github.split('/');
     const lookup = await this.#request('GET', `/repos/${github}/installation`);
     if (lookup.status === 404) {
-      throw new Error(`the GitHub App is not installed on ${github}`);
+      throw new AppNotInstalledError(github);
     }
     const installation = (await ok(lookup)) as { id: number };
     const permissions: Record<string, 'read' | 'write'> = {
