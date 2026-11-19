@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cachedTokens, errorMessage, githubAppFromEnv, Store, type Fetch } from '@forge/shared';
@@ -16,7 +17,7 @@ export const main = async (
   env: NodeJS.ProcessEnv,
   fetch: Fetch,
   now: () => string = () => new Date().toISOString(),
-  random: () => number = Math.random,
+  random: () => number = () => randomInt(2 ** 32) / 2 ** 32,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
   if (stateDir === undefined) {
