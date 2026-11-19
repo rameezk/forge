@@ -461,6 +461,7 @@ type RepositoryRow = {
   last_error: string | null;
   failed_at: string | null;
   branch_rules: string | null;
+  own_branch_rules: string | null;
 };
 
 type RequestRow = {
@@ -505,7 +506,8 @@ const CREATE_FRONTIER = `
     polled_at    TEXT,
     last_error   TEXT,
     failed_at    TEXT,
-    branch_rules TEXT
+    branch_rules TEXT,
+    own_branch_rules TEXT
   ) STRICT;
 
   CREATE TABLE IF NOT EXISTS frontier_tickets (
@@ -1523,7 +1525,7 @@ const HAS_OUTDATED_FRONTIER = `
   WHERE (
     type = 'table' AND name = 'frontier_repositories'
     AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'branch_rules'
+      SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'own_branch_rules'
     )
   ) OR (
     type = 'table' AND name = 'frontier_tickets'
@@ -2627,27 +2629,35 @@ export class Store {
     repository,
     github,
     failures,
+    reviewerApp = [],
   }: {
     repository: string;
     github: string;
     failures: string[];
+    reviewerApp?: string[];
   }): void {
     this.#db
       .prepare(
-        `INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at, branch_rules)
-        VALUES ($repository, $github, NULL, NULL, NULL, $branch_rules)
+        `INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at, branch_rules, own_branch_rules)
+        VALUES ($repository, $github, NULL, NULL, NULL, $branch_rules, $own_branch_rules)
         ON CONFLICT (repository) DO UPDATE SET
           github = excluded.github,
-          branch_rules = excluded.branch_rules`,
+          branch_rules = excluded.branch_rules,
+          own_branch_rules = excluded.own_branch_rules`,
       )
-      .run({ repository, github, branch_rules: JSON.stringify(failures) });
+      .run({
+        repository,
+        github,
+        branch_rules: JSON.stringify([...failures, ...reviewerApp]),
+        own_branch_rules: JSON.stringify(failures),
+      });
   }
 
-  repositoryRuleFailures(repository: string): string[] | null {
+  ownRuleFailures(repository: string): string[] {
     const row = this.#db
-      .prepare(`SELECT branch_rules FROM frontier_repositories WHERE repository = $repository`)
-      .get({ repository }) as { branch_rules: string | null } | undefined;
-    return row?.branch_rules == null ? null : (JSON.parse(row.branch_rules) as string[]);
+      .prepare(`SELECT own_branch_rules FROM frontier_repositories WHERE repository = $repository`)
+      .get({ repository }) as { own_branch_rules: string | null } | undefined;
+    return row?.own_branch_rules == null ? [] : (JSON.parse(row.own_branch_rules) as string[]);
   }
 
   recordReviewerAppFailures(repository: string, failures: readonly string[], checkedAt: string): void {

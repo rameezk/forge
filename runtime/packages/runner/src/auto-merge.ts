@@ -223,11 +223,9 @@ const checkReviewerAppRules = async (
   repository: string,
   config: RepositoryConfig,
 ): Promise<string[]> => {
-  const previous = new Set(store.reviewerAppFailures(repository));
   const failures = await checkReviewerApp(fetch, config.github, () => tokens(config.github, 'review'));
   store.recordReviewerAppFailures(repository, failures, now());
-  const ownFailures = (store.repositoryRuleFailures(repository) ?? []).filter((failure) => !previous.has(failure));
-  return [...ownFailures, ...failures];
+  return [...store.ownRuleFailures(repository), ...failures];
 };
 
 export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<boolean> => {
