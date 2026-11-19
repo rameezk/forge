@@ -719,3 +719,33 @@ for (const colorScheme of ['light', 'dark'] as const) {
     });
   });
 }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`a held pull request on a phone-width screen in ${colorScheme}`, () => {
+    test.use({ viewport: { width: 390, height: 800 }, colorScheme });
+
+    test('given a ticket in review whose pull request is held and another whose is not, when the Board is opened, then only the first carries a held pill, inside its card and without sideways scrolling', async ({ dashboard, page }) => {
+      const { store } = dashboard;
+      seed(store, [{ ...ticket(1), forgeReady: true }, { ...ticket(2), forgeReady: true }]);
+      for (const number of [1, 2]) {
+        const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+        if (!('started' in started)) throw new Error('dispatch refused');
+        store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+      }
+      store.recordHold('forge', 101, true);
+
+      await page.goto('/');
+
+      const pill = page.locator('[data-ticket]', { hasText: 'Ticket 1' }).locator('[data-hold]');
+      await expect(pill).toHaveText('held');
+      await expect(page.locator('[data-ticket]', { hasText: 'Ticket 2' }).locator('[data-hold]')).toHaveCount(0);
+      expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+      const inside = await pill.evaluate((element) => {
+        const card = element.closest('[data-ticket]')!.getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        return box.left >= card.left && box.right <= card.right;
+      });
+      expect(inside).toBe(true);
+    });
+  });
+}

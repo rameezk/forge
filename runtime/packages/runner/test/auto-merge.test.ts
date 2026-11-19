@@ -19,6 +19,7 @@ interface Pull {
   unresolvedThread?: boolean;
   feedback?: boolean;
   revising?: boolean;
+  hold?: 'maintainer' | 'outsider';
   repository?: string;
 }
 
@@ -100,6 +101,8 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
   const reviews: { number: number; authorization: string; body: Record<string, unknown> }[] = [];
   const merges: { number: number; body: Record<string, unknown> }[] = [];
   const comments: { number: number; authorization: string; body: string }[] = [];
+  const held = new Map(pulls.flatMap((pull) => (pull.hold === undefined ? [] : [[pull.number, pull.hold] as const])));
+  const removedLabels: { number: number; label: string }[] = [];
   const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false, foreignApprovals: new Set<number>() };
   const github: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -135,6 +138,20 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
       }
       return json({ number, state: 'open', draft: pull.draft ?? false, head: { sha: heads.get(number) } });
     }
+    const labelsOf = /^\/repos\/rameezk\/(forge|other)\/issues\/(\d+)\/labels(?:\/(.+))?$/.exec(url.pathname);
+    if (labelsOf !== null) {
+      const number = Number(labelsOf[2]);
+      if (init?.method === 'DELETE') {
+        removedLabels.push({ number, label: decodeURIComponent(labelsOf[3] ?? '') });
+        held.delete(number);
+        return json([]);
+      }
+      return json(held.has(number) ? [{ name: 'forge:hold' }] : []);
+    }
+    const permissionOf = /^\/repos\/rameezk\/(forge|other)\/collaborators\/([^/]+)\/permission$/.exec(url.pathname);
+    if (permissionOf !== null) {
+      return json({ permission: permissionOf[2] === 'maintainer' ? 'write' : 'read' });
+    }
     const commentOn = /^\/repos\/rameezk\/(forge|other)\/issues\/(\d+)\/comments$/.exec(url.pathname);
     if (commentOn !== null && init?.method === 'POST') {
       comments.push({ number: Number(commentOn[2]), authorization, body: (JSON.parse(String(init.body)) as { body: string }).body });
@@ -143,6 +160,31 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
     const { query, variables } = JSON.parse(String(init?.body)) as { query: string; variables: { number: number } };
     const pull = pulls.find((candidate) => candidate.number === variables.number);
     const operation = /query (\w+)/.exec(query)?.[1];
+    if (operation === 'PullRequestLabelEvents') {
+      const applier = pull === undefined ? undefined : held.get(pull.number);
+      return json({
+        data: {
+          repository: {
+            pullRequest: {
+              timelineItems: {
+                pageInfo: { hasPreviousPage: false, startCursor: null },
+                nodes:
+                  applier === undefined
+                    ? []
+                    : [
+                        {
+                          __typename: 'LabeledEvent',
+                          createdAt: '2026-11-18T11:45:00.000Z',
+                          label: { name: 'forge:hold' },
+                          actor: { __typename: 'User', login: applier === 'maintainer' ? 'maintainer' : 'stranger' },
+                        },
+                      ],
+              },
+            },
+          },
+        },
+      });
+    }
     if (operation === 'PullRequestReadiness') {
       const status = pull?.checks ?? 'passing';
       return json({
@@ -208,12 +250,16 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
         opened.close();
       }
     },
+    release: (number: number): void => {
+      held.delete(number);
+    },
     changeHead: (number: number): void => {
       heads.set(number, `moved-${number}`);
     },
     reviews,
     merges,
     comments,
+    removedLabels,
     hooks,
     mints: app.mints,
   };
@@ -236,7 +282,7 @@ test('given an opted-in repository and a settled pull request graded low and cer
   assert.match(comment?.body ?? '', /low/);
   assert.match(comment?.body ?? '', /0\.90/);
   assert.ok(comment?.body.includes(HEAD(7)));
-  for (const gate of ['checks', 'feedback']) assert.match(comment?.body ?? '', new RegExp(gate, 'i'));
+  for (const gate of ['checks', 'feedback', 'hold']) assert.match(comment?.body ?? '', new RegExp(gate, 'i'));
   assert.equal(outcomeOf(f, 7), 'auto-merged');
 });
 
@@ -325,4 +371,28 @@ test('given another bot already approved the head, when the pass runs, then the 
   assert.equal(await f.run(), 0);
   assert.equal(f.reviews.length, 1);
   assert.equal(f.merges.length, 1);
+});
+
+test('given an eligible pull request with forge:hold applied by a maintainer, when the pass runs, then it is not approved or merged and its label stays', async () => {
+  const f = forge([{ number: 7, hold: 'maintainer' }]);
+  assert.equal(await f.run(), 0);
+  assert.deepEqual([f.reviews, f.merges, f.comments, f.removedLabels], [[], [], [], []]);
+  assert.equal(outcomeOf(f, 7), 'open');
+});
+
+test('given a held pull request, when the maintainer removes forge:hold and the pass runs, then it auto-merges', async () => {
+  const f = forge([{ number: 7, hold: 'maintainer' }]);
+  await f.run();
+  f.release(7);
+  assert.equal(await f.run(), 0);
+  assert.equal(f.merges.length, 1);
+  assert.equal(outcomeOf(f, 7), 'auto-merged');
+});
+
+test('given an eligible pull request with forge:hold applied by someone who is not a maintainer, when the pass runs, then the label is removed and the pull request auto-merges', async () => {
+  const f = forge([{ number: 7, hold: 'outsider' }]);
+  assert.equal(await f.run(), 0);
+  assert.deepEqual(f.removedLabels, [{ number: 7, label: 'forge:hold' }]);
+  assert.equal(f.merges.length, 1);
+  assert.equal(outcomeOf(f, 7), 'auto-merged');
 });

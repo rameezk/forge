@@ -41,10 +41,12 @@ export interface RiskInputs {
   repositories: ReadonlySet<string>;
   grades: ReadonlyMap<string, RecordedRiskGrade>;
   attempts: ReadonlyMap<string, GradingAttempt>;
+  holds: ReadonlySet<string>;
 }
 
 interface CardState {
   risk: CardRisk;
+  held: boolean;
   dispatch: DispatchRecord | undefined;
   workload: LiveWorkload | undefined;
   conflictFailedStart: ConflictResolutionRecord | undefined;
@@ -124,6 +126,7 @@ const runningCard = (ticket: RunningSubject, dispatch: DispatchRecord | undefine
   conflictFailedStart: undefined,
   revisionFailedStart: undefined,
   risk: null,
+  held: false,
 });
 
 const untracked = (subject: UntrackedItem['subject'], number: number, url: string): UntrackedItem => ({ subject, number, url, title: null, parent: null });
@@ -176,7 +179,7 @@ export const buildLanes = (
   revisions: readonly RevisionRecord[],
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
   closes: ReadonlyMap<string, readonly number[]> = new Map(),
-  risks: RiskInputs = { repositories: new Set(), grades: new Map(), attempts: new Map() },
+  risks: RiskInputs = { repositories: new Set(), grades: new Map(), attempts: new Map(), holds: new Set() },
 ): BoardLane[] => {
   const latestResolution = latestSettledOf(conflictResolutions);
   const latestRevision = latestSettledOf(revisions);
@@ -186,7 +189,7 @@ export const buildLanes = (
     const live = liveCards(repository.repository, onBoard, dispatches, revisions, conflictResolutions, closes);
     const held = new Set(live.flatMap(({ card }) => (card.column === 'running' && isUntracked(card.ticket) ? [] : [card.ticket.number])));
     for (const request of [...repository.requests].sort(oldestFirst)) {
-      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null });
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null, held: false });
     }
     for (const ticket of [...repository.tickets].sort(dispatchOrder)) {
       if (held.has(ticket.number)) continue;
@@ -201,12 +204,13 @@ export const buildLanes = (
         conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? risks.attempts.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
+        held: column === 'in-review' && pullRequest != null && risks.holds.has(ticketKey(repository.repository, pullRequest.number)),
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
       if (held.has(ticket.number)) continue;
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
-      columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: autoMergedGrade(risks, repository.repository, dispatch) });
+      columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: autoMergedGrade(risks, repository.repository, dispatch), held: false });
     }
     columns.running.push(...live.map(({ card }) => card));
     return { ...repository, columns };

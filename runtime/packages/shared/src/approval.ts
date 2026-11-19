@@ -2,10 +2,12 @@ import { FORGE_READY } from './dispatch.ts';
 import { readGraphql, READY_FOR_AGENT, requestGraphql, type Fetch } from './frontier.ts';
 import type { Actor, MaintainerLookup } from './maintainers.ts';
 
-export const TICKET_APPROVAL_QUERY = `
-  query TicketApproval($owner: String!, $name: String!, $number: Int!, $before: String) {
+type LabelledSubject = 'issue' | 'pullRequest';
+
+const labelEventsQuery = (name: string, subject: LabelledSubject): string => `
+  query ${name}($owner: String!, $name: String!, $number: Int!, $before: String) {
     repository(owner: $owner, name: $name) {
-      issue(number: $number) {
+      ${subject}(number: $number) {
         timelineItems(last: 100, before: $before, itemTypes: [LABELED_EVENT]) {
           pageInfo {
             hasPreviousPage
@@ -30,20 +32,27 @@ export const TICKET_APPROVAL_QUERY = `
   }
 `;
 
+export const TICKET_APPROVAL_QUERY = labelEventsQuery('TicketApproval', 'issue');
+
+export const PULL_REQUEST_LABEL_EVENTS_QUERY = labelEventsQuery('PullRequestLabelEvents', 'pullRequest');
+
 interface LabeledEventNode {
   createdAt: string;
   label: { name: string } | null;
   actor: Actor | null;
 }
 
-interface TicketApprovalResponse {
+interface LabelledTimeline {
+  timelineItems: {
+    pageInfo: { hasPreviousPage: boolean; startCursor: string | null };
+    nodes: LabeledEventNode[];
+  };
+}
+
+interface LabelEventsResponse {
   repository: {
-    issue: {
-      timelineItems: {
-        pageInfo: { hasPreviousPage: boolean; startCursor: string | null };
-        nodes: LabeledEventNode[];
-      };
-    } | null;
+    issue?: LabelledTimeline | null;
+    pullRequest?: LabelledTimeline | null;
   } | null;
 }
 
@@ -56,9 +65,7 @@ export const requestTicketApproval = (
 ): Promise<Response> =>
   requestGraphql(fetch, token, TICKET_APPROVAL_QUERY, github, { number, before });
 
-type ApprovalPage = NonNullable<
-  NonNullable<NonNullable<TicketApprovalResponse['repository']>['issue']>
->['timelineItems'];
+type ApprovalPage = LabelledTimeline['timelineItems'];
 
 const queryApprovalPage = async (
   fetch: Fetch,
@@ -66,18 +73,20 @@ const queryApprovalPage = async (
   github: string,
   number: number,
   before: string | null,
+  subject: LabelledSubject,
 ): Promise<ApprovalPage> => {
   const where = `${github}#${number}`;
-  const data = await readGraphql<TicketApprovalResponse>(
-    await requestTicketApproval(fetch, token, github, number, before),
-    TICKET_APPROVAL_QUERY,
+  const query = subject === 'issue' ? TICKET_APPROVAL_QUERY : PULL_REQUEST_LABEL_EVENTS_QUERY;
+  const data = await readGraphql<LabelEventsResponse>(
+    await requestGraphql(fetch, token, query, github, { number, before }),
+    query,
     where,
   );
-  const issue = data?.repository?.issue;
-  if (issue === undefined || issue === null) {
-    throw new Error(`GitHub found no ticket ${where}`);
+  const found = data?.repository?.[subject];
+  if (found === undefined || found === null) {
+    throw new Error(`GitHub found no ${subject === 'issue' ? 'ticket' : 'pull request'} ${where}`);
   }
-  return issue.timelineItems;
+  return found.timelineItems;
 };
 
 export interface LabelEvent {
@@ -92,6 +101,7 @@ export const latestLabelEvents = async (
   github: string,
   number: number,
   labels: readonly string[],
+  subject: LabelledSubject = 'issue',
 ): Promise<Map<string, LabelEvent>> => {
   const latest = new Map<string, LabelEvent>();
   const cursors = new Set<string>();
@@ -104,6 +114,7 @@ export const latestLabelEvents = async (
       github,
       number,
       before,
+      subject,
     );
     for (const node of nodes.toReversed()) {
       const name = node.label?.name;

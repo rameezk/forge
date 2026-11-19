@@ -1115,6 +1115,19 @@ test('given a done ticket whose pull request auto-merged and another merged by a
   assert.doesNotMatch(cardOf(body, 11), /data-auto-merged/);
 });
 
+test('given a ticket in review whose pull request is held and another whose is not, when the Board is requested, then only the first carries a held pill', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    inReview(store, 6);
+    store.recordHold('forge', 105, true);
+  }, undefined, undefined, GRADING);
+
+  const body = await (await app.request('/')).text();
+
+  assert.match(cardOf(body, 5), /<span[^>]*data-hold[^>]*>\s*held\s*<\/span>/);
+  assert.doesNotMatch(cardOf(body, 6), /data-hold/);
+});
+
 const riskOf = (card: string): string => card.match(/<[^>]*\sdata-risk=[^>]*>[\s\S]*?<\/span>(?:\s*<span[^>]*data-risk-alternative[^>]*>[\s\S]*?<\/span>)?/)?.[0] ?? '';
 
 const GRADING = ['forge'];

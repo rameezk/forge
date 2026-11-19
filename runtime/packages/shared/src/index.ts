@@ -182,9 +182,10 @@ export {
   type FeedbackKind,
   type WatchedPullRequest,
 } from './feedback.ts';
-export { maintainerApprovalOf, requestTicketApproval } from './approval.ts';
+export { latestLabelEvents, maintainerApprovalOf, requestTicketApproval } from './approval.ts';
 export { autoApproveTickets } from './auto-approve.ts';
 export { hasOutsiderEditSince, requestTicketBodyEdits, requestTicketRenames } from './edits.ts';
+export { holdOn, type Hold } from './hold.ts';
 export { maintainerLookup, type MaintainerLookup } from './maintainers.ts';
 export type { ContextComment, ContextIssue, TicketContext } from './ticket-context.ts';
 export {
@@ -243,8 +244,11 @@ export {
 export { settleRunningTickets, type SettleRunningOptions } from './settle.ts';
 export { GITHUB_REST_API } from './github-api.ts';
 export {
+  FORGE_HOLD,
   FORGE_LABELS,
   STATUS_LABELS,
+  hasLabel,
+  removeLabel,
   ensureLabels,
   labelExists,
   refuseTicket,

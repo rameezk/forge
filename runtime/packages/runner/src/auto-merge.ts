@@ -1,5 +1,9 @@
 import {
   errorMessage,
+  FORGE_HOLD,
+  holdOn,
+  maintainerLookup,
+  removeLabel,
   queryPullRequestReadiness,
   queryUnresolvedThreads,
   type Fetch,
@@ -48,6 +52,7 @@ export const GATES_PASSED = [
   'Settled: not a draft, and no forge workload is running on it.',
   'Checks: every required check is green.',
   'Feedback: no open feedback and no unresolved review threads.',
+  'Hold: no maintainer has put forge:hold on it.',
 ] as const;
 
 export const autoMergeComment = (grade: RecordedRiskGrade): string =>
@@ -107,6 +112,16 @@ const autoMergeOne = async (
 ): Promise<void> => {
   const { store, fetch, tokens, now, log } = options;
   const token = await tokens(repository, 'review');
+  const hold = await holdOn(fetch, token, repository, grade.number, maintainerLookup(fetch, token, repository));
+  if (hold === 'outsider') {
+    await removeLabel(fetch, token, repository, grade.number, FORGE_HOLD);
+    log(`${grade.repository}#${grade.number}: removed ${FORGE_HOLD}, it was not applied by a maintainer`);
+  }
+  store.recordHold(grade.repository, grade.number, hold === 'maintainer');
+  if (hold === 'maintainer') {
+    log(`${grade.repository}#${grade.number}: waits, a maintainer holds it`);
+    return;
+  }
   const waiting = await settled(options, token, repository, grade);
   if (waiting !== null) {
     log(`${grade.repository}#${grade.number}: waits, ${waiting}`);
