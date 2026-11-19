@@ -719,3 +719,38 @@ for (const colorScheme of ['light', 'dark'] as const) {
     });
   });
 }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`a sampled ticket on a phone-width screen in ${colorScheme}`, () => {
+    test.use({ viewport: { width: 390, height: 800 }, colorScheme });
+
+    test('given a ticket in review whose pull request is sampled and another whose is not, when the Board is opened, then only the first carries a sampled pill, inside its card and without sideways scrolling', async ({ dashboard, page }) => {
+      const { store } = dashboard;
+      store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1), ticket(2)] });
+      for (const number of [1, 2]) {
+        const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+        if (!('started' in started)) throw new Error('dispatch refused');
+        store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+      }
+      store.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
+      for (const number of [1, 2]) {
+        store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
+      }
+      store.drawSample('forge', 101, () => true, new Date().toISOString());
+      store.drawSample('forge', 102, () => false, new Date().toISOString());
+
+      await page.goto('/');
+
+      const pill = page.locator('[data-ticket]', { hasText: 'Ticket 1' }).locator('[data-sampled]');
+      await expect(pill).toHaveText('sampled');
+      await expect(page.locator('[data-ticket]', { hasText: 'Ticket 2' }).locator('[data-sampled]')).toHaveCount(0);
+      expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+      const inside = await pill.evaluate((element) => {
+        const card = element.closest('[data-ticket]')!.getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        return box.left >= card.left && box.right <= card.right;
+      });
+      expect(inside).toBe(true);
+    });
+  });
+}

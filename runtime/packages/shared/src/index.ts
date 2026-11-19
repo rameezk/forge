@@ -244,6 +244,7 @@ export { settleRunningTickets, type SettleRunningOptions } from './settle.ts';
 export { GITHUB_REST_API } from './github-api.ts';
 export {
   FORGE_LABELS,
+  FORGE_SAMPLED,
   STATUS_LABELS,
   ensureLabels,
   labelExists,

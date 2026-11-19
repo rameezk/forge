@@ -16,6 +16,7 @@ export const main = async (
   env: NodeJS.ProcessEnv,
   fetch: Fetch,
   now: () => string = () => new Date().toISOString(),
+  random: () => number = Math.random,
 ): Promise<number> => {
   const stateDir = env.FORGE_STATE_DIR;
   if (stateDir === undefined) {
@@ -41,6 +42,7 @@ export const main = async (
       tokens: cachedTokens(app),
       reviewerLogin: memoized(() => app.login()),
       repositories,
+      random,
       now,
       log: (line) => process.stderr.write(`${line}\n`),
     });

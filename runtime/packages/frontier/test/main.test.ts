@@ -328,6 +328,7 @@ const FORGE_LABELS = [
   { name: 'forge:running', color: 'fbca04', description: 'Forge is running an agent on this ticket' },
   { name: 'forge:done', color: '0e8a16', description: 'Forge left a ready pull request with green required checks closing this ticket' },
   { name: 'forge:failed', color: 'd93f0b', description: 'Not a ready pull request with green required checks; see the dashboard, label forge:ready to retry' },
+  { name: 'forge:sampled', color: 'c5def5', description: 'Would have auto-merged; left for a maintainer to review as an audit sample' },
 ];
 
 const STATUS_LABELS = [
@@ -382,11 +383,11 @@ const labelling = (
   return { fetch, calls };
 };
 
-test('given a declared repository missing two forge labels and ready-for-agent and holding stale forge:running and grey ready-for-refinement, when sync runs on a host that dispatches, then all four forge labels and the three status labels exist with their fixed descriptions and colours, written with a write token scoped to that repository alone', async () => {
+test('given a declared repository missing three forge labels and ready-for-agent and holding stale forge:running and grey ready-for-refinement, when sync runs on a host that dispatches, then all five forge labels and the three status labels exist with their fixed descriptions and colours, written with a write token scoped to that repository alone', async () => {
   const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge', on: { ticket: 'builder' } } });
-  const [ready, running, done, failed] = FORGE_LABELS;
+  const [ready, running, done, failed, sampled] = FORGE_LABELS;
   const [refinement, human, agent] = STATUS_LABELS;
-  assert.ok(ready && running && done && failed && refinement && human && agent);
+  assert.ok(ready && running && done && failed && sampled && refinement && human && agent);
   const github = labelling(runningIssues(replaying({ 'rameezk/forge': recorded('frontier') }), []), {
     'forge:running': { color: 'ededed', description: running.description },
     'forge:done': { color: done.color.toUpperCase(), description: done.description },
@@ -413,6 +414,7 @@ test('given a declared repository missing two forge labels and ready-for-agent a
         body: { color: running.color, description: running.description },
       },
       { method: 'POST', path: '/repos/rameezk/forge/labels', authorization: `bearer ${WRITE_TOKEN}`, body: failed },
+      { method: 'POST', path: '/repos/rameezk/forge/labels', authorization: `bearer ${WRITE_TOKEN}`, body: sampled },
       {
         method: 'PATCH',
         path: '/repos/rameezk/forge/labels/ready-for-refinement',

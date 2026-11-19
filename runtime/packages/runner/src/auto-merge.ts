@@ -7,8 +7,10 @@ import type { RepositoryConfig } from './config.ts';
 import { protectedPathsOf, sizeCapOf, touchedProtectedPath } from './protected-paths.ts';
 import {
   errorMessage,
+  FORGE_SAMPLED,
   queryPullRequestReadiness,
   queryUnresolvedThreads,
+  relabel,
   type Fetch,
   type InstallationTokens,
   type RecordedRiskGrade,
@@ -19,12 +21,17 @@ const GITHUB_REST_API = 'https://api.github.com';
 
 export const MERGE_METHOD = 'squash';
 
+export const SAMPLE_RATE = 0.25;
+
+export const drawsSample = (random: () => number): boolean => random() < SAMPLE_RATE;
+
 export interface AutoMergeOptions {
   store: Store;
   fetch: Fetch;
   tokens: InstallationTokens;
   repositories: Record<string, RepositoryConfig>;
   reviewerLogin: () => Promise<string>;
+  random: () => number;
   now: () => string;
   log: (line: string) => void;
 }
@@ -68,6 +75,16 @@ export const gatesPassed = ({ changedLines, sizeCap }: DiffFacts): string[] => [
 export const autoMergeComment = (grade: RecordedRiskGrade, facts: DiffFacts): string =>
   [
     `Forge auto-merged this pull request at \`${grade.headSha}\`.`,
+    '',
+    `Risk grade: ${grade.level}, confidence ${grade.confidence.toFixed(2)}.`,
+    '',
+    'Gates passed:',
+    ...gatesPassed(facts).map((gate) => `- ${gate}`),
+  ].join('\n');
+
+export const sampleComment = (grade: RecordedRiskGrade, facts: DiffFacts): string =>
+  [
+    `Forge would have auto-merged this pull request at \`${grade.headSha}\`, but it was sampled: a maintainer reviews it so trivial and low grades keep being judged. Forge will not merge it.`,
     '',
     `Risk grade: ${grade.level}, confidence ${grade.confidence.toFixed(2)}.`,
     '',
@@ -136,6 +153,17 @@ const autoMergeOne = async (
   const facts = await settled(options, token, repository, grade, config);
   if (typeof facts === 'string') {
     log(`${grade.repository}#${grade.number}: waits, ${facts}`);
+    return;
+  }
+  const sampled = store.drawSample(grade.repository, grade.number, () => drawsSample(options.random), now());
+  if (sampled) {
+    await relabel(fetch, token, repository, grade.number, FORGE_SAMPLED, []);
+    await github(fetch, token, `/repos/${repository}/issues/${grade.number}/comments`, {
+      method: 'POST',
+      body: { body: sampleComment(grade, facts) },
+    });
+    store.markSampleAnnounced(grade.repository, grade.number);
+    log(`${grade.repository}#${grade.number}: sampled for a maintainer's review at ${grade.headSha}`);
     return;
   }
   const path = `/repos/${repository}/pulls/${grade.number}`;
