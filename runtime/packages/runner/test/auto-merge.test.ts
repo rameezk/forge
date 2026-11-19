@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store, type RiskGrade, type RiskLevel } from '@forge/shared';
+import { SAMPLE_RATE, Store, type RiskGrade, type RiskLevel } from '@forge/shared';
 import { main as autoMerge } from '../src/auto-merge-main.ts';
 import { APP_ID, BOT_LOGIN, fakeGithubApp, routedThrough } from '../../shared/test/fixtures/fake-github-app.ts';
-import { drawsSample, SAMPLE_RATE } from '../src/auto-merge.ts';
+import { drawsSample } from '../src/auto-merge.ts';
 import { journaled } from './helpers.ts';
 
 const NOW = '2026-11-18T12:00:00.000Z';

@@ -113,7 +113,9 @@ export const createApp = ({
   };
 
   const pausedPullRequests = (now: string): { repository: string; number: number }[] =>
-    autoMergePause() === null ? [] : store.autoMergeCandidates(autoMergeRepositories, now);
+    autoMergePause() === null
+      ? []
+      : store.autoMergeCandidates(autoMergeRepositories, now).filter(({ repository, number }) => store.pullRequestSampled(repository, number) !== true);
 
   const escalatedGrading = (): boolean => {
     const grading = gradingAttention();

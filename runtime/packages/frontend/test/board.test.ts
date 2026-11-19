@@ -1162,7 +1162,7 @@ const settleHistory = (store: Store, held: number, failed: number): void => {
   }
 };
 
-const pausedBoard = (held: number, failed: number, optedIn = ['forge']) =>
+const pausedBoard = (held: number, failed: number, optedIn = ['forge'], announced = true) =>
   appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true }), ticket({ number: 7, forgeReady: true })])], (store) => {
     settleHistory(store, held, failed);
     for (const number of [5, 6, 7]) {
@@ -1171,7 +1171,7 @@ const pausedBoard = (held: number, failed: number, optedIn = ['forge']) =>
     }
     store.recordWatchedPullRequests('forge', [105, 106, 107].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'head1', draft: false, defaultSha: 'main0' })));
     store.drawSample('forge', 106, () => true, '2026-09-30T09:30:00.000Z');
-    store.markSampleAnnounced('forge', 106);
+    if (announced) store.markSampleAnnounced('forge', 106);
   }, undefined, undefined, GRADING, { autoMergeRepositories: optedIn });
 
 test('given a pause, when the Board is requested, then an eligible card in review carries a paused pill, and a sampled one and a moderate one do not', async () => {
@@ -1181,6 +1181,15 @@ test('given a pause, when the Board is requested, then an eligible card in revie
   assert.doesNotMatch(cardOf(body, 6), /data-paused/);
   assert.match(cardOf(body, 6), /data-sampled/);
   assert.doesNotMatch(cardOf(body, 7), /data-paused/);
+});
+
+test('given a pause and a pull request that is sampled but not yet announced, when the Board is requested, then its card carries a sampled pill and no paused pill', async () => {
+  const app = pausedBoard(17, 3, ['forge'], false);
+
+  const body = await (await app.request('/')).text();
+
+  assert.match(cardOf(body, 6), /data-sampled/);
+  assert.doesNotMatch(cardOf(body, 6), /data-paused/);
 });
 
 test('given a record above the bar, or a repository that has not opted in, when the Board is requested, then no card carries a paused pill', async () => {

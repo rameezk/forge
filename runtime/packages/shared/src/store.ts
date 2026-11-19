@@ -3837,7 +3837,7 @@ export class Store {
       .prepare(
         `INSERT INTO auto_merge_samples (repository, number, sampled, drawn_at)
         VALUES ($repository, $number, $sampled, $at)
-        ON CONFLICT (repository, number) DO UPDATE SET sampled = excluded.sampled`,
+        ON CONFLICT (repository, number) DO UPDATE SET sampled = excluded.sampled, drawn_at = excluded.drawn_at`,
       )
       .run({ repository, number, sampled: sampled ? 1 : 0, at });
     return sampled;

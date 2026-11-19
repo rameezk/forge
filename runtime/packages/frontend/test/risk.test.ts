@@ -422,6 +422,15 @@ test('given two sampled pull requests drawn on 21 and 22 September and one auto-
   assert.match(text, /Auto-merged 0/);
 });
 
+test('given a pull request drawn unsampled on 21 September and forced into the sample on 22 September, when the tab is limited to 22 September onwards, then the card counts it as sampled', async () => {
+  const { text } = await statusCard((store) => {
+    store.drawSample('forge', 1, () => false, '2026-09-21T10:00:00.000Z');
+    store.drawSample('forge', 1, () => false, '2026-09-22T10:00:00.000Z', true);
+  }, '?tab=risk&from=2026-09-22');
+
+  assert.match(text, /Sampled 1/);
+});
+
 test('given grades in two repositories, when the tab is filtered to one repository, then the coverage and cost cards count only that repository', async () => {
   const { store, page } = dashboard([]);
   many(store, 2, { repository: 'forge', outcome: 'merged', cost: 0.002 });

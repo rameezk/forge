@@ -25,8 +25,6 @@ const GITHUB_REST_API = 'https://api.github.com';
 
 export const MERGE_METHOD = 'squash';
 
-export { SAMPLE_RATE };
-
 export const drawsSample = (random: () => number): boolean => random() < SAMPLE_RATE;
 
 export interface AutoMergeOptions {
