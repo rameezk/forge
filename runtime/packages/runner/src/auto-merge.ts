@@ -10,6 +10,7 @@ import {
   FORGE_HOLD,
   holdOn,
   maintainerLookup,
+  checkReviewerApp,
   PAUSE_BAR_PERCENT,
   SAMPLE_RATE,
   WARM_UP_SETTLED,
@@ -232,10 +233,25 @@ const autoMergeOne = async (
   });
 };
 
+const checkReviewerAppRules = async (
+  { store, fetch, tokens, now }: AutoMergeOptions,
+  repository: string,
+  config: RepositoryConfig,
+): Promise<string[]> => {
+  const failures = await checkReviewerApp(fetch, config.github, () => tokens(config.github, 'review'));
+  store.recordReviewerAppFailures(repository, failures, now());
+  return [...store.ownRuleFailures(repository), ...failures];
+};
+
 export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<boolean> => {
   const { store, repositories, now, log } = options;
   let succeeded = true;
-  const names = Object.keys(repositories);
+  const names: string[] = [];
+  for (const [repository, config] of Object.entries(repositories)) {
+    const failures = await checkReviewerAppRules(options, repository, config);
+    if (failures.length === 0) names.push(repository);
+    else log(`${repository}: merges nothing, ${failures.join('; ')}`);
+  }
   const tracked = store.openGradedPullRequests(names);
   const candidates = new Set(
     store.autoMergeCandidates(names, now()).map(({ repository, number }) => `${repository}#${number}`),

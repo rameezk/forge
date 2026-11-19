@@ -297,9 +297,10 @@ const sync = async (
         failed = true;
       }
       const failures = await checkRules(github);
-      store.recordBranchRules({ repository: name, github, failures });
-      if (failures.length > 0) {
-        console.error(`${name}: no new work, ${failures.join('; ')}`);
+      const reviewerApp = repository.autoMerge === true ? store.reviewerAppFailures(name) : [];
+      store.recordBranchRules({ repository: name, github, failures, reviewerApp });
+      if (failures.length + reviewerApp.length > 0) {
+        console.error(`${name}: no new work, ${[...failures, ...reviewerApp].join('; ')}`);
       }
       if (
         !(await refreshPullRequests(

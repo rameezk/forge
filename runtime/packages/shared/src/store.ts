@@ -462,6 +462,7 @@ type RepositoryRow = {
   last_error: string | null;
   failed_at: string | null;
   branch_rules: string | null;
+  own_branch_rules: string | null;
 };
 
 type RequestRow = {
@@ -506,7 +507,8 @@ const CREATE_FRONTIER = `
     polled_at    TEXT,
     last_error   TEXT,
     failed_at    TEXT,
-    branch_rules TEXT
+    branch_rules TEXT,
+    own_branch_rules TEXT
   ) STRICT;
 
   CREATE TABLE IF NOT EXISTS frontier_tickets (
@@ -1092,6 +1094,14 @@ const CREATE_AUTO_MERGE_SAMPLES = `
   );
 `;
 
+const CREATE_REVIEWER_APP_CHECKS = `
+  CREATE TABLE IF NOT EXISTS reviewer_app_checks (
+    repository TEXT PRIMARY KEY,
+    failures   TEXT NOT NULL,
+    checked_at TEXT NOT NULL
+  ) STRICT;
+`;
+
 const CREATE_FEEDBACK_WATCHES = `
   CREATE TABLE IF NOT EXISTS feedback_watches (
     repository TEXT NOT NULL,
@@ -1516,7 +1526,7 @@ const HAS_OUTDATED_FRONTIER = `
   WHERE (
     type = 'table' AND name = 'frontier_repositories'
     AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'branch_rules'
+      SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'own_branch_rules'
     )
   ) OR (
     type = 'table' AND name = 'frontier_tickets'
@@ -1774,6 +1784,7 @@ export class Store {
     this.#addColumnsOnce(HAS_REVISION_OPTIONAL_RUN, MIGRATE_REVISION_RUN);
     db.exec(CREATE_FEEDBACK_WATCHES);
     db.exec(CREATE_AUTO_MERGE_SAMPLES);
+    db.exec(CREATE_REVIEWER_APP_CHECKS);
     this.#addColumnsOnce(HAS_DIAGNOSIS_START, `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}`);
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
     this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
@@ -2619,23 +2630,63 @@ export class Store {
     repository,
     github,
     failures,
+    reviewerApp = [],
   }: {
     repository: string;
     github: string;
     failures: string[];
+    reviewerApp?: string[];
   }): void {
     this.#db
       .prepare(
-        `INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at, branch_rules)
-        VALUES ($repository, $github, NULL, NULL, NULL, $branch_rules)
+        `INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at, branch_rules, own_branch_rules)
+        VALUES ($repository, $github, NULL, NULL, NULL, $branch_rules, $own_branch_rules)
         ON CONFLICT (repository) DO UPDATE SET
           github = excluded.github,
-          branch_rules = excluded.branch_rules`,
+          branch_rules = excluded.branch_rules,
+          own_branch_rules = excluded.own_branch_rules`,
       )
-      .run({ repository, github, branch_rules: JSON.stringify(failures) });
+      .run({
+        repository,
+        github,
+        branch_rules: JSON.stringify([...failures, ...reviewerApp]),
+        own_branch_rules: JSON.stringify(failures),
+      });
+  }
+
+  ownRuleFailures(repository: string): string[] {
+    const row = this.#db
+      .prepare(`SELECT own_branch_rules FROM frontier_repositories WHERE repository = $repository`)
+      .get({ repository }) as { own_branch_rules: string | null } | undefined;
+    return row?.own_branch_rules == null ? [] : (JSON.parse(row.own_branch_rules) as string[]);
+  }
+
+  recordReviewerAppFailures(repository: string, failures: readonly string[], checkedAt: string): void {
+    this.#db
+      .prepare(
+        `INSERT INTO reviewer_app_checks (repository, failures, checked_at)
+        VALUES ($repository, $failures, $checked_at)
+        ON CONFLICT (repository) DO UPDATE SET
+          failures = excluded.failures,
+          checked_at = excluded.checked_at`,
+      )
+      .run({ repository, failures: JSON.stringify(failures), checked_at: checkedAt });
+  }
+
+  reviewerAppFailures(repository: string): string[] {
+    const row = this.#db
+      .prepare(`SELECT failures FROM reviewer_app_checks WHERE repository = $repository`)
+      .get({ repository }) as { failures: string } | undefined;
+    return row === undefined ? [] : (JSON.parse(row.failures) as string[]);
   }
 
   pruneFrontier(declared: string[]): void {
+    this.#db
+      .prepare(
+        `DELETE FROM reviewer_app_checks
+        WHERE repository NOT IN (SELECT value FROM json_each($declared))`,
+      )
+      .run({ declared: JSON.stringify(declared) });
     this.#db
       .prepare(
         `DELETE FROM feedback_watches

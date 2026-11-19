@@ -1,4 +1,5 @@
 import { errorMessage } from './errors.ts';
+import { AppNotInstalledError } from './github-app.ts';
 import { requireGithubRepository, type Fetch } from './frontier.ts';
 import { GITHUB_REST_API } from './github-api.ts';
 
@@ -50,16 +51,18 @@ const get = async (fetch: Fetch, token: string, path: string): Promise<unknown> 
   return body;
 };
 
-const bypassable = ({ name, current_user_can_bypass }: Ruleset): string | null =>
-  current_user_can_bypass === 'never'
-    ? null
-    : `forge's App can bypass the ruleset "${typeof name === 'string' ? printable(name) : 'unnamed'}"`;
+const rulesetName = ({ name }: Ruleset): string => (typeof name === 'string' ? printable(name) : 'unnamed');
 
-const readBranchRules = async (
+const bypassable = (ruleset: Ruleset, subject: string): string | null =>
+  ruleset.current_user_can_bypass === 'never'
+    ? null
+    : `${subject} can bypass the ruleset "${rulesetName(ruleset)}"`;
+
+const readRules = async (
   fetch: Fetch,
   token: string,
   github: string,
-): Promise<string[]> => {
+): Promise<PullRequestRule[]> => {
   const { default_branch } = (await get(fetch, token, `/repos/${github}`)) as {
     default_branch?: unknown;
   };
@@ -78,6 +81,24 @@ const readBranchRules = async (
     rules.push(...batch);
     if (batch.length < PAGE_SIZE) break;
   }
+  return rules;
+};
+
+const applyingRulesetIds = (rules: readonly PullRequestRule[]): number[] => [
+  ...new Set(
+    rules.map(({ ruleset_id }) => ruleset_id).filter((id): id is number => Number.isSafeInteger(id)),
+  ),
+];
+
+const readRuleset = (fetch: Fetch, token: string, github: string, id: number): Promise<Ruleset> =>
+  get(fetch, token, `/repos/${github}/rulesets/${id}?includes_parents=true`) as Promise<Ruleset>;
+
+const readBranchRules = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+): Promise<string[]> => {
+  const rules = await readRules(fetch, token, github);
   const failures: string[] = [];
   const pullRequests = rules.filter(({ type }) => type === 'pull_request');
   if (
@@ -94,17 +115,9 @@ const readBranchRules = async (
   if (rules.some(({ ruleset_id }) => !Number.isSafeInteger(ruleset_id))) {
     failures.push('a rule GitHub applies to its default branch names no ruleset to check');
   }
-  const applying = new Set(
-    rules.map(({ ruleset_id }) => ruleset_id).filter((id): id is number => Number.isSafeInteger(id)),
-  );
-  for (const id of applying) {
+  for (const id of applyingRulesetIds(rules)) {
     try {
-      const ruleset = (await get(
-        fetch,
-        token,
-        `/repos/${github}/rulesets/${id}?includes_parents=true`,
-      )) as Ruleset;
-      const failure = bypassable(ruleset);
+      const failure = bypassable(await readRuleset(fetch, token, github, id), "forge's App");
       if (failure !== null) failures.push(failure);
     } catch (error) {
       failures.push(`ruleset ${id} could not be read: ${printable(errorMessage(error))}`);
@@ -146,4 +159,34 @@ export const checkBranchRules = async (
     );
   }
   return failures;
+};
+
+const REVIEWER_APP = 'the Reviewer App';
+
+const REVIEWER_APP_NOT_INSTALLED = `${REVIEWER_APP} is not installed on it`;
+
+const reviewerAppUnchecked = (error: unknown): string =>
+  `whether ${REVIEWER_APP} is set up could not be checked: ${printable(errorMessage(error))}`;
+
+export const checkReviewerApp = async (
+  fetch: Fetch,
+  github: string,
+  token: () => Promise<string>,
+): Promise<string[]> => {
+  try {
+    requireGithubRepository(github);
+    const reviewer = await token();
+    const rules = await readRules(fetch, reviewer, github);
+    if (rules.some(({ ruleset_id }) => !Number.isSafeInteger(ruleset_id))) {
+      throw new Error('a rule GitHub applies to its default branch names no ruleset to check');
+    }
+    const failures: string[] = [];
+    for (const id of applyingRulesetIds(rules)) {
+      const failure = bypassable(await readRuleset(fetch, reviewer, github, id), REVIEWER_APP);
+      if (failure !== null) failures.push(failure);
+    }
+    return failures;
+  } catch (error) {
+    return [error instanceof AppNotInstalledError ? REVIEWER_APP_NOT_INSTALLED : reviewerAppUnchecked(error)];
+  }
 };

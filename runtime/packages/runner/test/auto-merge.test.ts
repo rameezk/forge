@@ -8,6 +8,7 @@ import { main as autoMerge } from '../src/auto-merge-main.ts';
 import { APP_ID, BOT_LOGIN, fakeGithubApp, routedThrough } from '../../shared/test/fixtures/fake-github-app.ts';
 import { drawsSample } from '../src/auto-merge.ts';
 import { journaled } from './helpers.ts';
+import { bypassable, PROTECTED, unreadable, withProtectedRepositories, type RepositoryRules } from '../../shared/test/fixtures/branch-rules.ts';
 
 const NOW = '2026-11-18T12:00:00.000Z';
 
@@ -85,6 +86,12 @@ const forge = (
   pulls: Pull[],
   autoMergeOn: string[] = ['forge'],
   forgeSettings: { protectedPaths?: string[]; autoMergeSizeCap?: number } = {},
+  reviewerApp: {
+    installed?: string[];
+    rules?: Record<string, RepositoryRules>;
+    storedRuleFailures?: string[];
+    unreachable?: boolean;
+  } = {},
   history: Settled[] = held(10),
 ) => {
   const dice = { next: UNSAMPLED };
@@ -102,7 +109,7 @@ const forge = (
       grading: { model: 'typesafe/jev-1.13' },
     }),
   );
-  const app = fakeGithubApp(['rameezk/forge', 'rameezk/other']);
+  const app = fakeGithubApp(reviewerApp.installed ?? ['rameezk/forge', 'rameezk/other']);
   const keyPath = join(stateDir, 'github-app-private-key');
   writeFileSync(keyPath, app.privateKey);
   const env = {
@@ -113,6 +120,9 @@ const forge = (
   };
 
   const store = Store.open(join(stateDir, 'forge.db'));
+  if (reviewerApp.storedRuleFailures !== undefined) {
+    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: reviewerApp.storedRuleFailures });
+  }
   settleHistory(store, history);
   for (const pull of pulls) {
     const repository = pull.repository ?? 'forge';
@@ -168,7 +178,7 @@ const forge = (
   const removedLabels: { number: number; label: string }[] = [];
   const labels: { number: number; labels: string[] }[] = [];
   const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
-  const github: typeof globalThis.fetch = async (input, init) => {
+  const answering: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const json = (data: unknown, status = 200): Response =>
       new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
@@ -314,13 +324,17 @@ const forge = (
     }
     throw new Error(`unexpected GitHub request ${String(operation)}`);
   };
+  const journals: string[] = [];
+  const github = withProtectedRepositories(answering, reviewerApp.rules ?? {});
   const fetch = routedThrough(app, github);
 
   return {
     run: async (): Promise<number> => {
-      const { result } = await journaled(() => autoMerge(env, fetch, () => NOW, () => dice.next));
+      const { result, journal } = await journaled(() => autoMerge(env, fetch, () => NOW, () => dice.next));
+      journals.push(journal);
       return result;
     },
+    journals,
     settle: (more: Settled[], fingerprint = COHORT): void => {
       const opened = Store.open(join(stateDir, 'forge.db'));
       try {
@@ -409,7 +423,8 @@ test('given low certain pull requests that are a draft, running a revision, fail
 test('given a repository that has not opted in and an otherwise eligible pull request, when the pass runs, then it is not approved or merged and no token is minted', async () => {
   const f = forge([{ number: 1, repository: 'other' }], ['forge']);
   assert.equal(await f.run(), 0);
-  assert.deepEqual([f.reviews, f.merges, f.comments, f.mints], [[], [], [], []]);
+  assert.deepEqual([f.reviews, f.merges, f.comments], [[], [], []]);
+  assert.deepEqual(f.mints.filter(({ repository }) => repository === 'rameezk/other'), []);
   assert.equal(outcomeOf(f, 1, 'other'), 'open');
 });
 
@@ -728,8 +743,91 @@ test('given many draws from a seeded random source, when each is drawn, then the
   assert.equal(SAMPLE_RATE, 0.25);
 });
 
+const reviewerFailures = (f: ReturnType<typeof forge>): string[] =>
+  f.withStore((store) => store.reviewerAppFailures('forge'));
+
+test('given an opted-in repository whose rules pass and where the Reviewer App is not installed, when the pass runs, then it merges nothing there, logs why and records that the App is not installed', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, { installed: ['rameezk/other'] });
+  await f.run();
+
+  assert.deepEqual(f.merges, []);
+  assert.deepEqual(f.reviews, []);
+  assert.deepEqual(reviewerFailures(f), ['the Reviewer App is not installed on it']);
+  assert.match(f.journals.join(''), /forge: merges nothing, the Reviewer App is not installed on it/);
+});
+
+test('given a ruleset the Reviewer App can bypass, when the pass runs, then the pull request is not merged and the failure names the ruleset', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, { rules: { 'rameezk/forge': bypassable('always') } });
+  await f.run();
+
+  assert.deepEqual(f.merges, []);
+  assert.deepEqual(reviewerFailures(f), ['the Reviewer App can bypass the ruleset "protect main"']);
+});
+
+test('given GitHub answering the Reviewer App check with an error, when the pass runs, then nothing merges and the failure says it could not be checked', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, { rules: { 'rameezk/forge': unreadable } });
+  await f.run();
+
+  assert.deepEqual(f.merges, []);
+  const [failure] = reviewerFailures(f);
+  assert.match(failure ?? '', /^whether the Reviewer App is set up could not be checked: /);
+  assert.match(failure ?? '', /403/);
+});
+
+test('given the Reviewer App installed and unable to bypass, when the pass runs, then the pull request merges and no Reviewer App failure is recorded', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, { rules: { 'rameezk/forge': PROTECTED } });
+  await f.run();
+
+  assert.equal(f.merges.length, 1);
+  assert.deepEqual(reviewerFailures(f), []);
+});
+
+test('given a repository that fails the Reviewer App check and then passes it, when the pass runs again, then the failure clears and the pull request merges', async () => {
+  const rules = { 'rameezk/forge': bypassable('always') };
+  const f = forge([{ number: 7 }], ['forge'], {}, { rules });
+  await f.run();
+  assert.deepEqual(f.merges, []);
+
+  rules['rameezk/forge'] = PROTECTED;
+  await f.run();
+  assert.equal(f.merges.length, 1);
+  assert.deepEqual(reviewerFailures(f), []);
+});
+
+test('given stored rule failures saying the default branch no longer requires approval of the latest push, when the pass runs, then the pull request is not merged and the pass logs the repository and its failures', async () => {
+  const failure = 'its default branch does not require approval of the most recent push';
+  const f = forge([{ number: 7 }], ['forge'], {}, { storedRuleFailures: [failure] });
+  await f.run();
+
+  assert.deepEqual(f.merges, []);
+  assert.ok(f.journals.join('').includes(`forge: merges nothing, ${failure}`));
+});
+
+test('given a repository that is not opted in, when the pass runs, then its Reviewer App is not checked', async () => {
+  const f = forge([{ number: 7 }], [], {}, { installed: [] });
+  await f.run();
+
+  assert.deepEqual(reviewerFailures(f), []);
+});
+
+test('given frontier sync last stored a Reviewer App failure that the App has since cleared, when the pass runs, then the stale failure does not stop the merge', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, { rules: { 'rameezk/forge': PROTECTED } });
+  f.withStore((store) => {
+    store.recordReviewerAppFailures('forge', ['the Reviewer App is not installed on it'], NOW);
+    store.recordBranchRules({
+      repository: 'forge',
+      github: 'rameezk/forge',
+      failures: [],
+      reviewerApp: ['the Reviewer App is not installed on it'],
+    });
+  });
+  await f.run();
+
+  assert.equal(f.merges.length, 1);
+});
+
 test('given 20 settled human-reviewed trivial and low grades in the current cohort of which 17 held up, when the pass runs on an eligible pull request, then it is sampled with the pause named and not merged', async () => {
-  const f = forge([{ number: 7 }], ['forge'], {}, [...failed(3), ...held(17)]);
+  const f = forge([{ number: 7 }], ['forge'], {}, {}, [...failed(3), ...held(17)]);
   assert.equal(await f.run(), 0);
   assert.deepEqual(labelled(f, 7), ['forge:sampled']);
   assert.deepEqual([f.reviews, f.merges], [[], []]);
@@ -739,7 +837,7 @@ test('given 20 settled human-reviewed trivial and low grades in the current coho
 });
 
 test('given a pause that further sampled grades lift until 18 of the last 20 held up, when the pass runs on an eligible unsampled pull request, then it auto-merges', async () => {
-  const f = forge([{ number: 7 }, { number: 8, checks: 'pending' }], ['forge'], {}, [...failed(3), ...held(17)]);
+  const f = forge([{ number: 7 }, { number: 8, checks: 'pending' }], ['forge'], {}, {}, [...failed(3), ...held(17)]);
   await f.run();
   assert.deepEqual(f.merges, []);
   f.settle(held(1));
@@ -750,17 +848,17 @@ test('given a pause that further sampled grades lift until 18 of the last 20 hel
 });
 
 test('given a cohort whose last 20 settled grades include auto-merged ones, when the pass runs, then only the human-reviewed grades are in the rate', async () => {
-  const lifted = forge([{ number: 7 }], ['forge'], {}, [...failed(1), ...held(18), ...Array<Settled>(10).fill('auto')]);
+  const lifted = forge([{ number: 7 }], ['forge'], {}, {}, [...failed(1), ...held(18), ...Array<Settled>(10).fill('auto')]);
   await lifted.run();
   assert.deepEqual(merged(lifted), [7]);
-  const paused = forge([{ number: 7 }], ['forge'], {}, [...failed(3), ...held(17), ...Array<Settled>(10).fill('auto')]);
+  const paused = forge([{ number: 7 }], ['forge'], {}, {}, [...failed(3), ...held(17), ...Array<Settled>(10).fill('auto')]);
   await paused.run();
   assert.deepEqual(paused.merges, []);
 });
 
 test('given a grading fingerprint change and 9 settled trivial and low grades under the new cohort, all held up, when the pass runs, then the pull request is sampled as warming up, and after the 10th settles the next eligible pull request auto-merges', async () => {
   const fresh = { fingerprint: 'new-cohort' };
-  const f = forge([{ number: 7, ...fresh }, { number: 8, checks: 'pending', ...fresh }], ['forge'], {}, held(20));
+  const f = forge([{ number: 7, ...fresh }, { number: 8, checks: 'pending', ...fresh }], ['forge'], {}, {}, held(20));
   f.settle(held(9), 'new-cohort');
   await f.run();
   assert.deepEqual(f.merges, []);
@@ -773,7 +871,7 @@ test('given a grading fingerprint change and 9 settled trivial and low grades un
 });
 
 test('given a cohort with 10 settled grades none of which a person reviewed, when the pass runs, then the pull request is sampled as warming up', async () => {
-  const f = forge([{ number: 7 }], ['forge'], {}, Array<Settled>(10).fill('auto'));
+  const f = forge([{ number: 7 }], ['forge'], {}, {}, Array<Settled>(10).fill('auto'));
   await f.run();
   assert.deepEqual(f.merges, []);
   assert.deepEqual(labelled(f, 7), ['forge:sampled']);

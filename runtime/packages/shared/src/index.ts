@@ -219,7 +219,7 @@ export {
   type InstallationToken,
   type TokenAccess,
 } from './github-app.ts';
-export { checkBranchRules, type BranchRulesTokens } from './branch-rules.ts';
+export { checkBranchRules, checkReviewerApp, type BranchRulesTokens } from './branch-rules.ts';
 export {
   notGradedTitle,
   GRADING_FAILURES,
