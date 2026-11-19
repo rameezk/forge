@@ -75,7 +75,7 @@ const MAX_FILES_PAGES = 30;
 
 const DECISION_TIMEOUT_MS = 300_000;
 
-const LEFT_OUT =
+export const LEFT_OUT =
   /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|go\.sum|[^/]*\.lock)$|\.min\.(js|css)$|\.generated\.|(^|\/)generated\/|\.pb\.go$|_pb2\.py$/;
 
 export interface ChangedFile {
@@ -83,7 +83,13 @@ export interface ChangedFile {
   additions: number;
   deletions: number;
   patch?: string;
+  previous_filename?: string;
+  status?: string;
 }
+
+export const shownToJev = ({ filename, additions, deletions, patch, status }: ChangedFile): boolean =>
+  !LEFT_OUT.test(filename) &&
+  (patch !== undefined || (status === 'renamed' && additions + deletions === 0));
 
 export const gradingInput = (
   ticket: ContextIssue,
@@ -354,7 +360,7 @@ export const github = async (
   return response.json();
 };
 
-const changedFiles = async (
+export const changedFiles = async (
   fetch: Fetch,
   token: string,
   repository: string,

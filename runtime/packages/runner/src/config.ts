@@ -27,6 +27,8 @@ export interface RepositoryConfig {
   on?: { ticket?: string; feedback?: string; conflict?: string };
   grading?: boolean;
   autoMerge?: boolean;
+  protectedPaths?: string[];
+  autoMergeSizeCap?: number;
   description?: string;
   autoApprove?: boolean;
   workflows?: boolean;

@@ -184,7 +184,19 @@ let
       autoMerge = lib.mkOption {
         type = lib.types.bool;
         default = false;
-        description = "Whether forge's Reviewer App auto-merges this repository's trivial and low risk pull requests (ADR-0115, ADR-0116). Off by default, and no repository is treated specially. On, `forge-auto-merge` approves and merges, pinned to the head commit it checked, every forge pull request whose current head is graded trivial or low and not uncertain, is settled (not a draft, no forge workload running on it), has every required check green and has no open feedback and no unresolved review thread. The merge is a squash merge. The Reviewer App comments on the pull request with the grade, the head commit and the gates it passed, and the grade settles as `auto-merged`, which counts neither for nor against it. Needs `grading` on for the repository, and the Reviewer App (`github_reviewer_app_id` and `github_reviewer_app_private_key`, Pull requests: write, Contents: write, Checks: read and Commit statuses: read) installed on it. Turning it off stops all auto-merge in the repository on the next pass.";
+        description = "Whether forge's Reviewer App auto-merges this repository's trivial and low risk pull requests (ADR-0115, ADR-0116). Off by default, and no repository is treated specially. On, `forge-auto-merge` approves and merges, pinned to the head commit it checked, every forge pull request whose current head is graded trivial or low and not uncertain, is settled (not a draft, no forge workload running on it), has every required check green, has no open feedback and no unresolved review thread, touches no protected path (`protectedPaths` adds to forge's defaults), changes at most `autoMergeSizeCap` lines (300 by default) and had every changed file's content in Jev's input, so a lockfile or generated file never auto-merges. The merge is a squash merge. The Reviewer App comments on the pull request with the grade, the head commit and the gates it passed, and the grade settles as `auto-merged`, which counts neither for nor against it. Needs `grading` on for the repository, and the Reviewer App (`github_reviewer_app_id` and `github_reviewer_app_private_key`, Pull requests: write, Contents: write, Checks: read and Commit statuses: read) installed on it. Turning it off stops all auto-merge in the repository on the next pass.";
+      };
+      protectedPaths = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "billing/**" ];
+        description = "Globs of paths, matched against a pull request's changed file paths from the repository root, that stop `forge-auto-merge` merging any pull request touching them, whatever its risk grade (ADR-0115). They add to forge's default protected paths, which cover CI workflows, nix and flake files, infra, agent instructions and skills, secrets and sops files, and dependency manifests and lockfiles, and can never remove one: the defaults apply to every repository.";
+      };
+      autoMergeSizeCap = lib.mkOption {
+        type = lib.types.nullOr lib.types.ints.positive;
+        default = null;
+        example = 500;
+        description = "The most changed lines (additions plus deletions) of the diff Jev saw that a pull request may have and still auto-merge in this repository. Forge's default is 300.";
       };
       description = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -221,6 +233,8 @@ let
       { inherit (r) github; }
       // lib.optionalAttrs r.grading { grading = true; }
       // lib.optionalAttrs r.autoMerge { autoMerge = true; }
+      // lib.optionalAttrs (r.protectedPaths != [ ]) { inherit (r) protectedPaths; }
+      // lib.optionalAttrs (r.autoMergeSizeCap != null) { inherit (r) autoMergeSizeCap; }
       // lib.optionalAttrs (r.description != null) { inherit (r) description; }
       // lib.optionalAttrs r.workflows { workflows = true; }
       // lib.optionalAttrs r.autoApprove { autoApprove = true; }

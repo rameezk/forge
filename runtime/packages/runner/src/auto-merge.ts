@@ -1,4 +1,10 @@
 import {
+  changedFiles,
+  shownToJev,
+} from './grading.ts';
+import type { RepositoryConfig } from './config.ts';
+import { protectedPathsOf, sizeCapOf, touchedProtectedPath } from './protected-paths.ts';
+import {
   errorMessage,
   queryPullRequestReadiness,
   queryUnresolvedThreads,
@@ -16,7 +22,7 @@ export interface AutoMergeOptions {
   store: Store;
   fetch: Fetch;
   tokens: InstallationTokens;
-  repositories: Record<string, string>;
+  repositories: Record<string, RepositoryConfig>;
   reviewerLogin: () => Promise<string>;
   now: () => string;
   log: (line: string) => void;
@@ -44,20 +50,28 @@ const github = async (
   return response.json();
 };
 
-export const GATES_PASSED = [
+export interface DiffFacts {
+  changedLines: number;
+  sizeCap: number;
+}
+
+export const gatesPassed = ({ changedLines, sizeCap }: DiffFacts): string[] => [
   'Settled: not a draft, and no forge workload is running on it.',
   'Checks: every required check is green.',
   'Feedback: no open feedback and no unresolved review threads.',
-] as const;
+  'Protected paths: it touches none.',
+  `Size: ${changedLines} changed lines, within the cap of ${sizeCap}.`,
+  'Seen by Jev: Jev saw every changed file.',
+];
 
-export const autoMergeComment = (grade: RecordedRiskGrade): string =>
+export const autoMergeComment = (grade: RecordedRiskGrade, facts: DiffFacts): string =>
   [
     `Forge auto-merged this pull request at \`${grade.headSha}\`.`,
     '',
     `Risk grade: ${grade.level}, confidence ${grade.confidence.toFixed(2)}.`,
     '',
     'Gates passed:',
-    ...GATES_PASSED.map((gate) => `- ${gate}`),
+    ...gatesPassed(facts).map((gate) => `- ${gate}`),
   ].join('\n');
 
 const settled = async (
@@ -65,7 +79,8 @@ const settled = async (
   token: string,
   repository: string,
   grade: RecordedRiskGrade,
-): Promise<string | null> => {
+  config: RepositoryConfig,
+): Promise<DiffFacts | string> => {
   const pull = (await github(fetch, token, `/repos/${repository}/pulls/${grade.number}`)) as {
     state: string;
     draft: boolean;
@@ -80,7 +95,15 @@ const settled = async (
   if (readiness.pending.length > 0) return `required checks are pending: ${readiness.pending.join(', ')}`;
   const threads = await queryUnresolvedThreads(fetch, token, repository, grade.number);
   if (threads > 0) return `it has ${threads} unresolved review thread${threads === 1 ? '' : 's'}`;
-  return null;
+  const files = await changedFiles(fetch, token, repository, grade.number);
+  const protectedPath = touchedProtectedPath(files, protectedPathsOf(config));
+  if (protectedPath !== null) return `it touches the protected path ${protectedPath}`;
+  const hidden = files.find((file) => !shownToJev(file));
+  if (hidden !== undefined) return `Jev did not see the content of ${hidden.filename}`;
+  const changedLines = files.reduce((sum, { additions, deletions }) => sum + additions + deletions, 0);
+  const sizeCap = sizeCapOf(config);
+  if (changedLines > sizeCap) return `it changes ${changedLines} lines, over the cap of ${sizeCap}`;
+  return { changedLines, sizeCap };
 };
 
 const approvedBy = async (
@@ -103,13 +126,14 @@ const approvedBy = async (
 const autoMergeOne = async (
   options: AutoMergeOptions,
   grade: RecordedRiskGrade,
-  repository: string,
+  config: RepositoryConfig,
 ): Promise<void> => {
   const { store, fetch, tokens, now, log } = options;
+  const repository = config.github;
   const token = await tokens(repository, 'review');
-  const waiting = await settled(options, token, repository, grade);
-  if (waiting !== null) {
-    log(`${grade.repository}#${grade.number}: waits, ${waiting}`);
+  const facts = await settled(options, token, repository, grade, config);
+  if (typeof facts === 'string') {
+    log(`${grade.repository}#${grade.number}: waits, ${facts}`);
     return;
   }
   const path = `/repos/${repository}/pulls/${grade.number}`;
@@ -133,7 +157,7 @@ const autoMergeOne = async (
   log(`${grade.repository}#${grade.number}: auto-merged at ${grade.headSha}`);
   await github(fetch, token, `/repos/${repository}/issues/${grade.number}/comments`, {
     method: 'POST',
-    body: { body: autoMergeComment(grade) },
+    body: { body: autoMergeComment(grade, facts) },
   });
 };
 
@@ -142,7 +166,7 @@ export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<
   let succeeded = true;
   for (const grade of store.autoMergeCandidates(Object.keys(repositories), now())) {
     try {
-      await autoMergeOne(options, grade, repositories[grade.repository] as string);
+      await autoMergeOne(options, grade, repositories[grade.repository] as RepositoryConfig);
     } catch (error) {
       log(`${grade.repository}#${grade.number}: could not auto-merge: ${errorMessage(error)}`);
       succeeded = false;
