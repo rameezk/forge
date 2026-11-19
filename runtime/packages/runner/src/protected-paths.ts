@@ -1,5 +1,7 @@
 export const DEFAULT_PROTECTED_PATHS: readonly string[] = [
-  '.github/**',
+  '**/.github/**',
+  '**/.husky/**',
+  '**/.gitattributes',
   '**/*.nix',
   '**/flake.lock',
   'infra/**',
