@@ -7,10 +7,15 @@ import type { RepositoryConfig } from './config.ts';
 import { protectedPathsOf, sizeCapOf, touchedProtectedPath } from './protected-paths.ts';
 import {
   errorMessage,
+  PAUSE_BAR_PERCENT,
+  PAUSE_WINDOW,
+  SAMPLE_RATE,
+  WARM_UP_SETTLED,
   FORGE_SAMPLED,
   queryPullRequestReadiness,
   queryUnresolvedThreads,
   relabel,
+  type AutoMergeStatus,
   type Fetch,
   type InstallationTokens,
   type RecordedRiskGrade,
@@ -21,7 +26,7 @@ const GITHUB_REST_API = 'https://api.github.com';
 
 export const MERGE_METHOD = 'squash';
 
-export const SAMPLE_RATE = 0.25;
+export { SAMPLE_RATE };
 
 export const drawsSample = (random: () => number): boolean => random() < SAMPLE_RATE;
 
@@ -82,9 +87,21 @@ export const autoMergeComment = (grade: RecordedRiskGrade, facts: DiffFacts): st
     ...gatesPassed(facts).map((gate) => `- ${gate}`),
   ].join('\n');
 
-export const sampleComment = (grade: RecordedRiskGrade, facts: DiffFacts): string =>
+const sampleReason = ({ state, settled, heldUp, judged }: AutoMergeStatus): string => {
+  if (state === 'paused') {
+    return `Auto-merge is paused: ${heldUp} of the last ${judged} settled human-reviewed trivial and low grades held up, below the ${PAUSE_BAR_PERCENT}% bar, so every pull request that passes the gates goes to a maintainer.`;
+  }
+  if (state === 'warming-up') {
+    return `Auto-merge is warming up: ${settled} of ${WARM_UP_SETTLED} trivial and low grades of the current grading cohort have settled, so every pull request that passes the gates goes to a maintainer.`;
+  }
+  return `A random quarter of the pull requests that pass the gates goes to a maintainer so trivial and low grades keep being judged.`;
+};
+
+export const sampleComment = (grade: RecordedRiskGrade, facts: DiffFacts, status: AutoMergeStatus): string =>
   [
-    `Forge would have auto-merged this pull request at \`${grade.headSha}\`, but it was sampled: a maintainer reviews it so trivial and low grades keep being judged. Forge will not merge it.`,
+    `Forge would have auto-merged this pull request at \`${grade.headSha}\`, but it was sampled: a maintainer reviews it. Forge will not merge it.`,
+    '',
+    sampleReason(status),
     '',
     `Risk grade: ${grade.level}, confidence ${grade.confidence.toFixed(2)}.`,
     '',
@@ -155,12 +172,13 @@ const autoMergeOne = async (
     log(`${grade.repository}#${grade.number}: waits, ${facts}`);
     return;
   }
-  const sampled = store.drawSample(grade.repository, grade.number, () => drawsSample(options.random), now());
+  const status = store.autoMergeStatus();
+  const sampled = store.drawSample(grade.repository, grade.number, () => drawsSample(options.random), now(), status.state !== 'live');
   if (sampled) {
     await relabel(fetch, token, repository, grade.number, FORGE_SAMPLED, []);
     await github(fetch, token, `/repos/${repository}/issues/${grade.number}/comments`, {
       method: 'POST',
-      body: { body: sampleComment(grade, facts) },
+      body: { body: sampleComment(grade, facts, status) },
     });
     store.markSampleAnnounced(grade.repository, grade.number);
     log(`${grade.repository}#${grade.number}: sampled for a maintainer's review at ${grade.headSha}`);

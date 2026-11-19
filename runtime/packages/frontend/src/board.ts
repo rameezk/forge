@@ -42,6 +42,7 @@ export interface RiskInputs {
   grades: ReadonlyMap<string, RecordedRiskGrade>;
   attempts: ReadonlyMap<string, GradingAttempt>;
   sampled?: ReadonlySet<string>;
+  paused?: ReadonlySet<string>;
 }
 
 export type CardUrgency = DisplayedUrgencyGrade | UrgencyAttempt | null;
@@ -59,6 +60,7 @@ interface CardState {
   conflictFailedStart: ConflictResolutionRecord | undefined;
   revisionFailedStart: RevisionRecord | undefined;
   sampled?: boolean;
+  paused?: boolean;
 }
 
 export type BoardCard =
@@ -216,6 +218,7 @@ export const buildLanes = (
         conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         sampled: column === 'in-review' && pullRequest != null && risks.sampled?.has(ticketKey(repository.repository, pullRequest.number)) === true,
+        paused: column === 'in-review' && pullRequest != null && risks.paused?.has(ticketKey(repository.repository, pullRequest.number)) === true,
         urgency: urgencyOf(ticket.number),
         risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? risks.attempts.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
       });

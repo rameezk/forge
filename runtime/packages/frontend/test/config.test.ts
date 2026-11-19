@@ -9,13 +9,14 @@ test('given state dir and socket, when resolved, then they are used', () => {
       FORGE_FRONTEND_SOCKET: '/run/forge-frontend/dashboard.sock',
       FORGE_MAX_CONCURRENT: '3',
     }),
-    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, dispatchOrder: 'oldest', repositoryPriorities: {}, gradingRepositories: [], timeZone: 'UTC', deployStatusFile: null },
+    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, dispatchOrder: 'oldest', repositoryPriorities: {}, gradingRepositories: [], autoMergeRepositories: [], timeZone: 'UTC', deployStatusFile: null },
   );
 });
 
 test('given the repositories with grading on, when resolved, then they are listed', () => {
   const base = { FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/s.sock' };
   assert.deepEqual(resolveServeConfig({ ...base, FORGE_GRADING_REPOSITORIES: 'forge,site' }).gradingRepositories, ['forge', 'site']);
+  assert.deepEqual(resolveServeConfig({ ...base, FORGE_AUTO_MERGE_REPOSITORIES: 'forge,site' }).autoMergeRepositories, ['forge', 'site']);
 });
 
 test('given no socket, when resolved, then it throws naming FORGE_FRONTEND_SOCKET', () => {

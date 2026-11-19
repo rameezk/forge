@@ -1478,6 +1478,7 @@ in
             lib.concatStringsSep "," (lib.mapAttrsToList (name: r: "${name}=${toString r.priority}") prioritisedRepositories)
           }"
           ++ lib.optional hasGrading "FORGE_GRADING_REPOSITORIES=${lib.concatStringsSep "," (lib.attrNames gradedRepositories)}"
+          ++ lib.optional hasAutoMerge "FORGE_AUTO_MERGE_REPOSITORIES=${lib.concatStringsSep "," (lib.attrNames autoMergeRepositories)}"
           ++ lib.optional cfg.pullDeploy.enable "FORGE_PULL_DEPLOY_STATUS_FILE=${cfg.pullDeploy.statusFile}";
           ExecStart = "${cfg.package}/bin/forge-frontend";
           Restart = "on-failure";

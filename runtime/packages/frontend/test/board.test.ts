@@ -1150,6 +1150,45 @@ test('given a ticket whose pull request is sampled and another whose is not, whe
   assert.doesNotMatch(cardOf(body, 6), /data-sampled/);
 });
 
+const settleHistory = (store: Store, held: number, failed: number): void => {
+  for (let index = 0; index < held + failed; index += 1) {
+    const number = 900 + index;
+    store.recordRiskGrade(gradeOf(number, `old-${number}`, { level: 'low', gradedAt: '2026-09-29T09:00:00.000Z' }));
+    store.settleRiskGrade(
+      { repository: 'forge', number, headSha: `old-${number}` },
+      index < failed ? 'closed' : 'merged',
+      `2026-09-29T10:${String(index).padStart(2, '0')}:00.000Z`,
+    );
+  }
+};
+
+const pausedBoard = (held: number, failed: number, optedIn = ['forge']) =>
+  appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true }), ticket({ number: 7, forgeReady: true })])], (store) => {
+    settleHistory(store, held, failed);
+    for (const number of [5, 6, 7]) {
+      inReview(store, number);
+      store.recordRiskGrade(gradeOf(100 + number, 'head1', { level: number === 7 ? 'moderate' : 'low' }));
+    }
+    store.recordWatchedPullRequests('forge', [105, 106, 107].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'head1', draft: false, defaultSha: 'main0' })));
+    store.drawSample('forge', 106, () => true, '2026-09-30T09:30:00.000Z');
+    store.markSampleAnnounced('forge', 106);
+  }, undefined, undefined, GRADING, { autoMergeRepositories: optedIn });
+
+test('given a pause, when the Board is requested, then an eligible card in review carries a paused pill, and a sampled one and a moderate one do not', async () => {
+  const body = await (await pausedBoard(17, 3).request('/')).text();
+
+  assert.match(cardOf(body, 5), /<span[^>]*data-paused[^>]*>\s*paused\s*<\/span>/);
+  assert.doesNotMatch(cardOf(body, 6), /data-paused/);
+  assert.match(cardOf(body, 6), /data-sampled/);
+  assert.doesNotMatch(cardOf(body, 7), /data-paused/);
+});
+
+test('given a record above the bar, or a repository that has not opted in, when the Board is requested, then no card carries a paused pill', async () => {
+  for (const app of [pausedBoard(19, 1), pausedBoard(17, 3, [])]) {
+    assert.doesNotMatch(await (await app.request('/')).text(), /data-paused/);
+  }
+});
+
 const riskOf = (card: string): string => card.match(/<[^>]*\sdata-risk=[^>]*>[\s\S]*?<\/span>(?:\s*<span[^>]*data-risk-alternative[^>]*>[\s\S]*?<\/span>)?/)?.[0] ?? '';
 
 const GRADING = ['forge'];
