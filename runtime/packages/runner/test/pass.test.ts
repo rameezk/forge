@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store, type PolledFrontier, type Ticket } from '@forge/shared';
+import { Store, type PolledFrontier, type Ticket, type UrgencyLevel } from '@forge/shared';
 import { main } from '../src/pass-main.ts';
 import { journaled, leaveOpenPullRequests, startedDispatch } from './helpers.ts';
 
@@ -17,6 +17,7 @@ const ticket = (github: string, number: number, overrides: Partial<Ticket> = {})
   blocked: false,
   forHuman: false,
   blockedBy: [],
+  version: `v${number}`,
   ...overrides,
 });
 
@@ -38,9 +39,37 @@ interface Scenario {
   diagnosisWorker?: string;
   passes?: number;
   branchRules?: Record<string, string[] | null>;
+  order?: 'oldest' | 'urgency';
+  priorities?: Record<string, number>;
+  grades?: Record<string, { level: UrgencyLevel; uncertain?: boolean }>;
 }
 
-const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failingUnit, failedPolls = [], diagnosisWorker, passes = 1, branchRules = {} }: Scenario) => {
+const UNIFORM: Record<UrgencyLevel, number> = { critical: 0.25, high: 0.25, normal: 0.25, low: 0.25 };
+
+const gradeTickets = (store: Store, frontier: PolledFrontier[], grades: NonNullable<Scenario['grades']>): void => {
+  for (const { repository, tickets } of frontier) {
+    for (const { number, version } of tickets) {
+      const grade = grades[`${repository}#${number}`];
+      if (grade === undefined || version === undefined) continue;
+      store.recordUrgencyGrade({
+        repository,
+        number,
+        version,
+        fingerprint: 'fingerprint',
+        model: 'typesafe/jev-1.13',
+        probabilities: UNIFORM,
+        score: 0.5,
+        confidence: grade.uncertain === true ? 0.3 : 0.9,
+        level: grade.level,
+        uncertain: grade.uncertain === true,
+        costUsd: 0,
+        gradedAt: '2026-09-29T08:00:00.000Z',
+      });
+    }
+  }
+};
+
+const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failingUnit, failedPolls = [], diagnosisWorker, passes = 1, branchRules = {}, order, priorities = {}, grades = {} }: Scenario) => {
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-pass-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -53,13 +82,14 @@ const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failin
       },
       ...(diagnosisWorker === undefined ? {} : { diagnosis: { worker: diagnosisWorker } }),
       repositories: {
-        forge: { github: 'rameezk/forge', on: { ticket: 'builder' } },
-        dotfiles: { github: 'rameezk/dotfiles', on: { ticket: 'builder' } },
+        forge: { github: 'rameezk/forge', on: { ticket: 'builder' }, ...(priorities.forge === undefined ? {} : { priority: priorities.forge }) },
+        dotfiles: { github: 'rameezk/dotfiles', on: { ticket: 'builder' }, ...(priorities.dotfiles === undefined ? {} : { priority: priorities.dotfiles }) },
         notes: { github: 'rameezk/notes' },
       },
       dispatch: {
         ...(maxConcurrent === undefined ? {} : { maxConcurrent }),
         ...(maxOpenPullRequests === undefined ? {} : { maxOpenPullRequests }),
+        ...(order === undefined ? {} : { order }),
       },
     }),
   );
@@ -85,6 +115,7 @@ const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failin
     for (const repository of failedPolls) {
       store.recordFrontierError({ repository, github: `rameezk/${repository}`, message: 'GitHub answered 502', failedAt: '2026-09-29T08:05:00.000Z' });
     }
+    gradeTickets(store, frontier, grades);
     seed?.(store);
   } finally {
     store.close();
@@ -425,4 +456,117 @@ test('given a diagnosis unit that cannot be started, when the pass runs again, t
   });
   assert.equal(diagnosisUnits(started).length, 2);
   assert.equal(code, 1);
+});
+
+const dispatched = (repository: string, number: number): string[] => [
+  `start --no-block --no-ask-password -- forge-dispatch@${repository}:${number}.service`,
+];
+
+const later = (github: string, number: number, overrides: Partial<Ticket> = {}): Ticket =>
+  ticket(github, number, { createdAt: `2026-09-28T11:00:${String(number % 60).padStart(2, '0')}Z`, ...overrides });
+
+test('given the urgency order, one free slot, an older normal ticket in a priority 10 repository and a newer critical ticket in a priority 0 repository, when the pass runs, then the critical ticket is dispatched', async () => {
+  const { started } = await pass({
+    order: 'urgency',
+    priorities: { forge: 10, dotfiles: 0 },
+    grades: { 'forge#1': { level: 'normal' }, 'dotfiles#2': { level: 'critical' } },
+    frontier: [
+      polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 1)]),
+      polled('dotfiles', 'rameezk/dotfiles', [later('rameezk/dotfiles', 2)]),
+    ],
+  });
+
+  assert.deepEqual(started, dispatched('dotfiles', 2));
+});
+
+test('given the urgency order, one free slot and two normal tickets, an older one in a priority 0 repository and a newer one in a priority 10 repository, when the pass runs, then the priority 10 ticket is dispatched', async () => {
+  const { started } = await pass({
+    order: 'urgency',
+    priorities: { forge: 0, dotfiles: 10 },
+    grades: { 'forge#1': { level: 'normal' }, 'dotfiles#2': { level: 'normal' } },
+    frontier: [
+      polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 1)]),
+      polled('dotfiles', 'rameezk/dotfiles', [later('rameezk/dotfiles', 2)]),
+    ],
+  });
+
+  assert.deepEqual(started, dispatched('dotfiles', 2));
+});
+
+test('given the urgency order and two normal tickets in repositories of equal priority, when the pass runs with one free slot, then the older is dispatched', async () => {
+  const { started } = await pass({
+    order: 'urgency',
+    grades: { 'forge#1': { level: 'normal' }, 'dotfiles#2': { level: 'normal' } },
+    frontier: [
+      polled('dotfiles', 'rameezk/dotfiles', [later('rameezk/dotfiles', 2)]),
+      polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 1)]),
+    ],
+  });
+
+  assert.deepEqual(started, dispatched('forge', 1));
+});
+
+test('given the urgency order, an uncertain critical ticket, an ungraded ticket and a high ticket, when the pass runs, then the high ticket goes first and the other two are ordered as normal', async () => {
+  const { started } = await pass({
+    order: 'urgency',
+    maxConcurrent: 3,
+    grades: { 'forge#1': { level: 'critical', uncertain: true }, 'forge#3': { level: 'high' } },
+    frontier: [
+      polled('forge', 'rameezk/forge', [
+        later('rameezk/forge', 3),
+        ticket('rameezk/forge', 2),
+        ticket('rameezk/forge', 1),
+      ]),
+    ],
+  });
+
+  assert.deepEqual(started, [...dispatched('forge', 3), ...dispatched('forge', 1), ...dispatched('forge', 2)]);
+});
+
+test('given the urgency order, a low frontier ticket blocking a queued critical ticket and an older normal frontier ticket, when the pass runs with one free slot, then the low blocker is dispatched', async () => {
+  const { started } = await pass({
+    order: 'urgency',
+    grades: { 'forge#3': { level: 'low' }, 'forge#1': { level: 'normal' }, 'forge#4': { level: 'critical' } },
+    frontier: [
+      polled('forge', 'rameezk/forge', [
+        ticket('rameezk/forge', 1),
+        later('rameezk/forge', 3),
+        later('rameezk/forge', 4, { blocked: true, blockedBy: [3] }),
+      ]),
+    ],
+  });
+
+  assert.deepEqual(started, dispatched('forge', 3));
+});
+
+test('given the urgency order, a low frontier ticket blocking a queued ticket that blocks a critical one in a priority 10 repository, and an older normal ticket, when the pass runs with one free slot, then the low ticket is dispatched', async () => {
+  const { started } = await pass({
+    order: 'urgency',
+    priorities: { dotfiles: 10 },
+    grades: { 'dotfiles#3': { level: 'low' }, 'dotfiles#4': { level: 'low' }, 'dotfiles#5': { level: 'critical' }, 'forge#1': { level: 'critical' } },
+    frontier: [
+      polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 1)]),
+      polled('dotfiles', 'rameezk/dotfiles', [
+        later('rameezk/dotfiles', 3),
+        later('rameezk/dotfiles', 4, { blocked: true, blockedBy: [3] }),
+        later('rameezk/dotfiles', 5, { blocked: true, blockedBy: [4] }),
+      ]),
+    ],
+  });
+
+  assert.deepEqual(started, dispatched('dotfiles', 3));
+});
+
+test('given the oldest order, a newer critical ticket and an older low one, when the pass runs with one free slot, then the older ticket is dispatched', async () => {
+  const { started } = await pass({
+    order: 'oldest',
+    priorities: { dotfiles: 10 },
+    grades: { 'forge#1': { level: 'low' }, 'dotfiles#2': { level: 'critical' } },
+    frontier: [
+      polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 1)]),
+      polled('dotfiles', 'rameezk/dotfiles', [later('rameezk/dotfiles', 2)]),
+    ],
+  });
+
+  assert.deepEqual(started, dispatched('forge', 1));
 });

@@ -1,3 +1,4 @@
+import type { DispatchOrder } from '@forge/shared';
 import { withEffort, type Worker } from './harness.ts';
 import REASONING_EFFORTS from './reasoning-efforts.json' with { type: 'json' };
 import HARNESS_PROVIDERS from './harness-providers.json' with { type: 'json' };
@@ -31,13 +32,20 @@ export interface RepositoryConfig {
   autoMergeSizeCap?: number;
   description?: string;
   autoApprove?: boolean;
+  priority?: number;
   workflows?: boolean;
 }
 
 export interface DispatchConfig {
   maxConcurrent?: number;
   maxOpenPullRequests?: number | null;
+  order?: DispatchOrder;
 }
+
+export const dispatchOrderOf = (config: RuntimeConfig): DispatchOrder => config.dispatch?.order ?? 'oldest';
+
+export const repositoryPrioritiesOf = ({ repositories = {} }: RuntimeConfig): Map<string, number> =>
+  new Map(Object.entries(repositories).map(([name, { priority }]) => [name, priority ?? 0]));
 
 export const DEFAULT_MAX_CONCURRENT = 1;
 
