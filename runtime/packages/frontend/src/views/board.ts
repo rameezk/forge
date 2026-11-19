@@ -1,8 +1,8 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, type DispatchOrdering, OLDEST_FIRST, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { isGithubRepository, isGithubUrl, ticketKey, type DispatchOrdering, OLDEST_FIRST, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, type UrgencyLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
-import { buildLanes, isUntracked, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type RiskInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
+import { buildLanes, isUntracked, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type CardUrgency, type RiskInputs, type UrgencyInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, laneId, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
@@ -88,16 +88,30 @@ const NOT_GRADED_TEXT: Record<GradingAttempt['category'], string> = {
   'too-large': 'too large',
 };
 
-const renderNotGraded = ({ category, message }: GradingAttempt): Rendered => {
+const renderNotGraded = ({ category, message }: Pick<GradingAttempt, 'category' | 'message'>, attribute: 'data-risk' | 'data-urgency'): Rendered => {
   const retried = RETRIED_GRADING_FAILURES.includes(category);
   const tone = category === 'setup' || category === 'bug' ? 'bg-error-soft text-error' : QUEUED_TONE;
-  return html`<p class="${MUTED_LINE}"><span data-risk="${category}" title="${notGradedTitle({ category, message })}" class="${PILL} ${tone} whitespace-nowrap">${NOT_GRADED_TEXT[category]}</span>${retried ? html` <span data-risk-retrying class="text-xs whitespace-nowrap text-muted">${category}, retrying</span>` : ''}</p>`;
+  return html`<p class="${MUTED_LINE}"><span ${raw(attribute)}="${category}" title="${notGradedTitle({ category, message })}" class="${PILL} ${tone} whitespace-nowrap">${NOT_GRADED_TEXT[category]}</span>${retried ? html` <span ${raw(`${attribute}-retrying`)} class="text-xs whitespace-nowrap text-muted">${category}, retrying</span>` : ''}</p>`;
+};
+
+const URGENCY_TONE: Record<UrgencyLevel, string> = {
+  critical: 'bg-error-soft text-error',
+  high: 'bg-warning-soft text-warning',
+  normal: 'bg-raised text-fg',
+  low: QUEUED_TONE,
+};
+
+const renderUrgency = (urgency: CardUrgency): Rendered => {
+  if (urgency === null) return '';
+  if ('category' in urgency) return renderNotGraded(urgency, 'data-urgency');
+  const title = `Urgency ${urgency.level}, confidence ${percent(urgency.confidence)}${urgency.uncertain ? ', uncertain, ordered as normal' : ''}`;
+  return html`<p class="${MUTED_LINE} flex flex-wrap items-center gap-x-2 gap-y-0.5"><span data-urgency="${urgency.level}"${urgency.uncertain ? raw(' data-urgency-uncertain') : ''} title="${title}" class="${PILL} ${URGENCY_TONE[urgency.level]}${urgency.uncertain ? ' outline-1 outline-dashed outline-offset-1 outline-current' : ''} whitespace-nowrap">${urgency.level}</span>${urgency.uncertain ? html`<span data-urgency-note class="text-xs text-muted">uncertain, ordered as normal</span>` : ''}</p>`;
 };
 
 const renderRisk = (risk: CardRisk): Rendered => {
   if (risk === null) return '';
   if (risk === 'grading') return html`<p class="${MUTED_LINE}"><span data-risk="grading" title="Risk grade pending for the current head commit" class="${PILL} ${QUEUED_TONE}">grading</span></p>`;
-  if ('category' in risk) return renderNotGraded(risk);
+  if ('category' in risk) return renderNotGraded(risk, 'data-risk');
   const title = `Risk ${risk.level}, confidence ${percent(risk.confidence)}${risk.uncertain ? `, uncertain, possibly ${runnerUpOf(risk)}` : ''}`;
   return html`<p class="${MUTED_LINE}"><span data-risk="${risk.level}"${risk.uncertain ? raw(' data-risk-uncertain') : ''} title="${title}" class="${PILL} ${RISK_TONE[risk.level]} tabular-nums whitespace-nowrap">${risk.level} ${percent(risk.confidence)}</span>${risk.uncertain ? html` <span data-risk-alternative title="Possible alternative" class="text-xs whitespace-nowrap text-muted">or ${runnerUpOf(risk)}</span>` : ''}</p>`;
 };
@@ -229,6 +243,7 @@ const renderCard = (repository: string, github: string, card: BoardCard, grouped
       : ''}</p>
     ${ticket.title === null ? '' : html`<p class="m-0 mt-1 break-words">${ticket.title}</p>`}
     ${parent === null ? '' : renderSpecLine(parent)}
+    ${renderUrgency(card.urgency)}
     ${renderDetails(card, github, timeZone, runs)}
     ${isHeld(card, full) ? renderHeld() : ''}
   </article>`;
@@ -368,6 +383,8 @@ const renderGroupControl = (grouping: Grouping): Rendered =>
 
 export type GradingView = RiskInputs;
 
+export type UrgencyView = UrgencyInputs;
+
 export const renderBoard = (
   frontier: RepositoryFrontier[],
   dispatches: DispatchRecord[],
@@ -381,9 +398,10 @@ export const renderBoard = (
   display: Display,
   grouping: Grouping = 'none',
   grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map() },
+  urgencies: UrgencyView = { grades: new Map(), attempts: new Map() },
   ordering: DispatchOrdering = OLDEST_FIRST,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, closes, grading, ordering);
+  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, closes, grading, urgencies, ordering);
   const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
