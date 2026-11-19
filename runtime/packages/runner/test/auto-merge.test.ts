@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Store, type RiskGrade, type RiskLevel } from '@forge/shared';
 import { main as autoMerge } from '../src/auto-merge-main.ts';
 import { APP_ID, BOT_LOGIN, fakeGithubApp, routedThrough } from '../../shared/test/fixtures/fake-github-app.ts';
+import { drawsSample, SAMPLE_RATE } from '../src/auto-merge.ts';
 import { journaled } from './helpers.ts';
 
 const NOW = '2026-11-18T12:00:00.000Z';
@@ -39,6 +40,9 @@ const edit = (filename: string, additions = 3, deletions = 1): ChangedFileSpec =
   patch: '@@ -1 +1 @@\n-old\n+new',
 });
 
+const UNSAMPLED = 0.9;
+const SAMPLED = 0.1;
+
 const HEAD = (number: number): string => `head-${number}`;
 
 const forge = (
@@ -46,6 +50,7 @@ const forge = (
   autoMergeOn: string[] = ['forge'],
   forgeSettings: { protectedPaths?: string[]; autoMergeSizeCap?: number } = {},
 ) => {
+  const dice = { next: UNSAMPLED };
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-auto-merge-'));
   const configPath = join(stateDir, 'runtime.json');
   writeFileSync(
@@ -121,7 +126,8 @@ const forge = (
   const reviews: { number: number; authorization: string; body: Record<string, unknown> }[] = [];
   const merges: { number: number; body: Record<string, unknown> }[] = [];
   const comments: { number: number; authorization: string; body: string }[] = [];
-  const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false, foreignApprovals: new Set<number>() };
+  const labels: { number: number; labels: string[] }[] = [];
+  const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
   const github: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const json = (data: unknown, status = 200): Response =>
@@ -162,6 +168,12 @@ const forge = (
         return json({ merged: true });
       }
       return json({ number, state: 'open', draft: pull.draft ?? false, head: { sha: heads.get(number) } });
+    }
+    const labelOn = /^\/repos\/rameezk\/(forge|other)\/issues\/(\d+)\/labels$/.exec(url.pathname);
+    if (labelOn !== null && init?.method === 'POST') {
+      if (hooks.failLabels) return json({ message: 'nope' }, 500);
+      labels.push({ number: Number(labelOn[2]), labels: (JSON.parse(String(init.body)) as { labels: string[] }).labels });
+      return json([], 200);
     }
     const commentOn = /^\/repos\/rameezk\/(forge|other)\/issues\/(\d+)\/comments$/.exec(url.pathname);
     if (commentOn !== null && init?.method === 'POST') {
@@ -225,7 +237,7 @@ const forge = (
 
   return {
     run: async (): Promise<number> => {
-      const { result } = await journaled(() => autoMerge(env, fetch, () => NOW));
+      const { result } = await journaled(() => autoMerge(env, fetch, () => NOW, () => dice.next));
       return result;
     },
     withStore: <T>(use: (store: Store) => T): T => {
@@ -242,6 +254,8 @@ const forge = (
     reviews,
     merges,
     comments,
+    labels,
+    dice,
     hooks,
     mints: app.mints,
   };
@@ -478,4 +492,86 @@ test('given a pull request whose changed file list reaches the 3000 files GitHub
   const f = forge([{ number: 1, files }]);
   await f.run();
   assert.deepEqual(f.merges, []);
+});
+
+const labelled = (f: ReturnType<typeof forge>, number: number): string[] =>
+  f.labels.filter((entry) => entry.number === number).flatMap((entry) => entry.labels);
+
+test('given an eligible pull request whose draw sampled it, when the pass runs, then it is labelled forge:sampled, gets a comment saying it would have auto-merged and why, and is not approved or merged', async () => {
+  const f = forge([{ number: 7 }]);
+  f.dice.next = SAMPLED;
+  assert.equal(await f.run(), 0);
+  assert.deepEqual(labelled(f, 7), ['forge:sampled']);
+  assert.deepEqual([f.reviews, f.merges], [[], []]);
+  assert.equal(f.comments.length, 1);
+  const body = f.comments[0]?.body ?? '';
+  assert.match(body, /would have auto-merged/);
+  assert.match(body, /sampled/);
+  assert.match(body, /low, confidence 0\.90/);
+  assert.match(body, /Checks: every required check is green/);
+  assert.equal(outcomeOf(f, 7), 'open');
+});
+
+test('given a sampled pull request that receives a new head passing every gate, when the pass runs again, then it is still sampled, still not merged and not announced twice', async () => {
+  const f = forge([{ number: 7 }]);
+  f.dice.next = SAMPLED;
+  await f.run();
+  f.dice.next = UNSAMPLED;
+  f.changeHead(7);
+  f.withStore((store) => {
+    store.recordRiskGrade({ ...store.riskGrade('forge', 7, HEAD(7))!, headSha: 'moved-7' });
+    store.recordWatchedPullRequests('forge', [{ number: 7, url: 'https://github.com/rameezk/forge/pull/7', closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'moved-7', draft: false, defaultSha: 'default-a' }]);
+  });
+  assert.equal(await f.run(), 0);
+  assert.deepEqual([f.reviews, f.merges], [[], []]);
+  assert.equal(f.comments.length, 1);
+  assert.deepEqual(labelled(f, 7), ['forge:sampled']);
+  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), true);
+});
+
+test('given an eligible pull request whose draw did not sample it, when the pass runs, then it auto-merges and a later pass does not redraw it', async () => {
+  const f = forge([{ number: 7 }]);
+  await f.run();
+  assert.deepEqual(merged(f), [7]);
+  assert.deepEqual(f.labels, []);
+  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), false);
+  f.dice.next = SAMPLED;
+  await f.run();
+  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), false);
+});
+
+test('given a sampled pull request whose label could not be applied, when the pass runs again, then the draw stands and the sample is announced once the label lands', async () => {
+  const f = forge([{ number: 7 }]);
+  f.dice.next = SAMPLED;
+  f.hooks.failLabels = true;
+  assert.equal(await f.run(), 1);
+  assert.equal(f.comments.length, 0);
+  f.hooks.failLabels = false;
+  f.dice.next = UNSAMPLED;
+  assert.equal(await f.run(), 0);
+  assert.deepEqual(labelled(f, 7), ['forge:sampled']);
+  assert.equal(f.comments.length, 1);
+  assert.deepEqual(f.merges, []);
+});
+
+test('given a pull request that fails a gate, when the pass runs, then no draw is made for it', async () => {
+  const f = forge([{ number: 1, checks: 'failing' }]);
+  f.dice.next = SAMPLED;
+  await f.run();
+  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 1)), null);
+  assert.deepEqual(f.labels, []);
+});
+
+test('given many draws from a seeded random source, when each is drawn, then the share sampled is a quarter for that seed', () => {
+  let state = 20261119;
+  const random = (): number => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const draws = 20000;
+  const sampled = Array.from({ length: draws }, () => drawsSample(random)).filter(Boolean).length;
+  assert.ok(Math.abs(sampled / draws - SAMPLE_RATE) < 0.01, `sampled ${sampled / draws}`);
+  assert.equal(SAMPLE_RATE, 0.25);
 });

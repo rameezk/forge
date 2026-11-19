@@ -1133,6 +1133,23 @@ test('given a done ticket whose pull request auto-merged and another merged by a
   assert.doesNotMatch(cardOf(body, 11), /data-auto-merged/);
 });
 
+test('given a ticket whose pull request is sampled and another whose is not, when the Board is requested, then only the first card in review carries a sampled pill', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
+    for (const number of [5, 6]) {
+      inReview(store, number);
+      watchHead(store, 100 + number, 'head1');
+      store.recordRiskGrade(gradeOf(100 + number, 'head1', { level: 'low' }));
+    }
+    store.drawSample('forge', 105, () => true, '2026-09-30T09:30:00.000Z');
+    store.drawSample('forge', 106, () => false, '2026-09-30T09:30:00.000Z');
+  }, undefined, undefined, GRADING);
+
+  const body = await (await app.request('/')).text();
+
+  assert.match(cardOf(body, 5), /<span[^>]*data-sampled[^>]*>\s*sampled\s*<\/span>/);
+  assert.doesNotMatch(cardOf(body, 6), /data-sampled/);
+});
+
 const riskOf = (card: string): string => card.match(/<[^>]*\sdata-risk=[^>]*>[\s\S]*?<\/span>(?:\s*<span[^>]*data-risk-alternative[^>]*>[\s\S]*?<\/span>)?/)?.[0] ?? '';
 
 const GRADING = ['forge'];

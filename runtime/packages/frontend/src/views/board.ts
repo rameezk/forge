@@ -116,11 +116,14 @@ const renderRisk = (risk: CardRisk): Rendered => {
   return html`<p class="${MUTED_LINE}"><span data-risk="${risk.level}"${risk.uncertain ? raw(' data-risk-uncertain') : ''} title="${title}" class="${PILL} ${RISK_TONE[risk.level]} tabular-nums whitespace-nowrap">${risk.level} ${percent(risk.confidence)}</span>${risk.uncertain ? html` <span data-risk-alternative title="Possible alternative" class="text-xs whitespace-nowrap text-muted">or ${runnerUpOf(risk)}</span>` : ''}</p>`;
 };
 
-const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk }: BoardCard): Rendered => {
+const renderSampled = (): Rendered =>
+  html`<p class="${MUTED_LINE}"><span data-sampled title="Forge would have auto-merged this pull request and left it for a maintainer to review" class="${PILL} ${HUMAN_TONE}">sampled</span></p>`;
+
+const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled }: BoardCard): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${renderRisk(risk)}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
