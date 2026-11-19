@@ -131,7 +131,8 @@ const forge = (
     if (filesOf !== null) {
       const pull = pulls.find((candidate) => candidate.number === Number(filesOf[2]));
       const page = Number(url.searchParams.get('page') ?? '1');
-      return json(page === 1 ? (pull?.files ?? [edit('src/a.ts')]) : []);
+      const all = pull?.files ?? [edit('src/a.ts')];
+      return json(all.slice((page - 1) * 100, page * 100));
     }
     const pullOf = /^\/repos\/rameezk\/(forge|other)\/pulls\/(\d+)(\/reviews|\/merge)?$/.exec(url.pathname);
     if (pullOf !== null) {
@@ -435,4 +436,42 @@ test('given a pull request that passes every gate, when it auto-merges, then the
   assert.match(body, /protected path/i);
   assert.match(body, /15 changed lines, within the cap of 300/);
   assert.match(body, /Jev saw every changed file/);
+});
+
+test('given low pull requests that change a dot-named file under a protected directory or a differently cased protected path, when the pass runs, then none is merged', async () => {
+  const paths = [
+    '.github/workflows/.evil.yml',
+    '.claude/.x',
+    'plugin/skills/.x/a.md',
+    'infra/.x',
+    'pkg/.hidden.nix',
+    'web/.b/package.json',
+    '.GitHub/workflows/ci.yml',
+    'Infra/main.tf',
+    'agents.md',
+    'docs/CODEOWNERS',
+    'Dockerfile.prod',
+  ];
+  const f = forge(paths.map((path, index) => ({ number: index + 1, files: [edit(path)] })));
+  assert.equal(await f.run(), 0);
+  assert.deepEqual(f.merges, []);
+});
+
+test('given a repository that adds a dot-named protected path, when the pass runs, then it is not merged', async () => {
+  const f = forge([{ number: 1, files: [edit('billing/.ledger')] }], ['forge'], { protectedPaths: ['billing/*'] });
+  await f.run();
+  assert.deepEqual(f.merges, []);
+});
+
+test('given a pull request whose changed file list reaches the 3000 files GitHub returns, when the pass runs, then it is not merged because the list may be cut short', async () => {
+  const files = Array.from({ length: 3000 }, (_, index) => ({
+    filename: `src/f${index}.ts`,
+    additions: 0,
+    deletions: 0,
+    status: 'renamed',
+    previous_filename: `src/g${index}.ts`,
+  }));
+  const f = forge([{ number: 1, files }]);
+  await f.run();
+  assert.deepEqual(f.merges, []);
 });

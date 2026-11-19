@@ -1,5 +1,6 @@
 import {
   changedFiles,
+  MAX_CHANGED_FILES,
   shownToJev,
 } from './grading.ts';
 import type { RepositoryConfig } from './config.ts';
@@ -96,6 +97,7 @@ const settled = async (
   const threads = await queryUnresolvedThreads(fetch, token, repository, grade.number);
   if (threads > 0) return `it has ${threads} unresolved review thread${threads === 1 ? '' : 's'}`;
   const files = await changedFiles(fetch, token, repository, grade.number);
+  if (files.length >= MAX_CHANGED_FILES) return `it changes ${MAX_CHANGED_FILES} files or more, more than forge can list`;
   const protectedPath = touchedProtectedPath(files, protectedPathsOf(config));
   if (protectedPath !== null) return `it touches the protected path ${protectedPath}`;
   const hidden = files.find((file) => !shownToJev(file));

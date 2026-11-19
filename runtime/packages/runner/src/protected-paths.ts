@@ -1,5 +1,3 @@
-import { matchesGlob } from 'node:path';
-
 export const DEFAULT_PROTECTED_PATHS: readonly string[] = [
   '.github/**',
   '**/*.nix',
@@ -8,7 +6,11 @@ export const DEFAULT_PROTECTED_PATHS: readonly string[] = [
   '**/*.tf',
   '**/*.tofu',
   '**/*.tfvars',
-  '**/Dockerfile',
+  '**/Dockerfile*',
+  '**/*.Dockerfile',
+  '**/CODEOWNERS',
+  '**/.gitmodules',
+  '**/.mcp.json',
   '**/AGENTS.md',
   '**/CLAUDE.md',
   '**/.claude/**',
@@ -62,13 +64,37 @@ export const protectedPathsOf = (repository: { protectedPaths?: readonly string[
 export const sizeCapOf = (repository: { autoMergeSizeCap?: number }): number =>
   repository.autoMergeSizeCap ?? DEFAULT_SIZE_CAP;
 
+const globToRegExp = (pattern: string): RegExp => {
+  let source = '';
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern.charAt(index);
+    if (char === '*' && pattern.charAt(index + 1) === '*') {
+      if (pattern.charAt(index + 2) === '/') {
+        source += '(?:.*/)?';
+        index += 2;
+      } else {
+        source += '.*';
+        index += 1;
+      }
+    } else if (char === '*') {
+      source += '[^/]*';
+    } else if (char === '?') {
+      source += '[^/]';
+    } else {
+      source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(`^${source}$`, 'i');
+};
+
 export const touchedProtectedPath = (
   files: readonly { filename: string; previous_filename?: string }[],
   patterns: readonly string[],
 ): string | null => {
+  const matchers = patterns.map(globToRegExp);
   for (const { filename, previous_filename } of files) {
     for (const path of [filename, previous_filename]) {
-      if (path !== undefined && patterns.some((pattern) => matchesGlob(path, pattern))) return path;
+      if (path !== undefined && matchers.some((matcher) => matcher.test(path))) return path;
     }
   }
   return null;

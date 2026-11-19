@@ -73,6 +73,8 @@ const FILES_PAGE_SIZE = 100;
 
 const MAX_FILES_PAGES = 30;
 
+export const MAX_CHANGED_FILES = FILES_PAGE_SIZE * MAX_FILES_PAGES;
+
 const DECISION_TIMEOUT_MS = 300_000;
 
 export const LEFT_OUT =
