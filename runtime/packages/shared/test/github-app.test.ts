@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cachedTokens, GithubApp } from '../src/index.ts';
-import { APP_ID, fakeGithubApp, INSTALLED, tokenFor } from './fixtures/fake-github-app.ts';
+import { APP_ID, APP_SLUG, fakeGithubApp, INSTALLED, tokenFor } from './fixtures/fake-github-app.ts';
 
 const appOn = (github: ReturnType<typeof fakeGithubApp>): GithubApp =>
   new GithubApp({
@@ -188,4 +188,11 @@ test('given GitHub refuses a revocation, when a token is revoked, then it fails 
 
   await assert.rejects(app.revoke(token), /GitHub answered 403: Forbidden/);
   assert.deepEqual(github.revocations, []);
+});
+
+test('given the App, when its login is read, then it is the slug GitHub reports with the bot suffix and nothing is minted', async () => {
+  const github = fakeGithubApp();
+
+  assert.equal(await appOn(github).login(), `${APP_SLUG}[bot]`);
+  assert.equal(github.mints.length, 0);
 });

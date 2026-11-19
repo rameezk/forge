@@ -197,6 +197,23 @@ export const PULL_REQUEST_READINESS_QUERY = `
   }
 `;
 
+export const REVIEW_THREADS_QUERY = `
+  query ReviewThreads($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        reviewThreads(first: 100) {
+          pageInfo {
+            hasNextPage
+          }
+          nodes {
+            isResolved
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const PULL_REQUEST_QUERY = `
   query PullRequest($owner: String!, $name: String!, $number: Int!, $after: String) {
     repository(owner: $owner, name: $name) {
@@ -806,6 +823,36 @@ export const queryPullRequestReadiness = async (
       .filter((node) => checkOutcome(node) === outcome)
       .map((node) => (node.__typename === 'CheckRun' ? node.name : node.context) ?? 'unnamed');
   return { draft: pullRequest.isDraft, failing: named('failing'), pending: named('pending') };
+};
+
+interface ReviewThreadsResponse {
+  repository: {
+    pullRequest: {
+      reviewThreads: { pageInfo: { hasNextPage: boolean }; nodes: { isResolved: boolean }[] };
+    } | null;
+  } | null;
+}
+
+export const queryUnresolvedThreads = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+): Promise<number> => {
+  const subject = `${github}#${number}`;
+  const data = await readGraphql<ReviewThreadsResponse>(
+    await requestGraphql(fetch, token, REVIEW_THREADS_QUERY, github, { number }),
+    REVIEW_THREADS_QUERY,
+    subject,
+  );
+  const threads = data?.repository?.pullRequest?.reviewThreads;
+  if (threads === undefined) {
+    throw new Error(`GitHub found no pull request ${subject}`);
+  }
+  if (threads.pageInfo.hasNextPage) {
+    throw new Error(`${subject} has more review threads than forge reads`);
+  }
+  return threads.nodes.filter(({ isResolved }) => !isResolved).length;
 };
 
 export interface PullRequestSnapshot {
