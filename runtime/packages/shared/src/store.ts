@@ -48,6 +48,7 @@ import type {
 } from './generation.ts';
 import type { WatchedPullRequest } from './feedback.ts';
 import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from './attempts.ts';
+import { autoMergeStateOf, PAUSE_WINDOW, type AutoMergeCounts, type AutoMergeStatus } from './auto-merge-status.ts';
 import { UNKNOWN_COHORT } from './fingerprint.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
@@ -3927,17 +3928,71 @@ export class Store {
       .filter(({ repository, number }) => !this.workloadRunning(repository, number, now));
   }
 
-  drawSample(repository: string, number: number, draw: () => boolean, at: string): boolean {
+  drawSample(repository: string, number: number, draw: () => boolean, at: string, forced = false): boolean {
     const known = this.pullRequestSampled(repository, number);
-    if (known !== null) return known;
-    const sampled = draw();
+    if (known === true || (known === false && !forced)) return known;
+    const sampled = forced || draw();
     this.#db
       .prepare(
-        `INSERT OR IGNORE INTO auto_merge_samples (repository, number, sampled, drawn_at)
-        VALUES ($repository, $number, $sampled, $at)`,
+        `INSERT INTO auto_merge_samples (repository, number, sampled, drawn_at)
+        VALUES ($repository, $number, $sampled, $at)
+        ON CONFLICT (repository, number) DO UPDATE SET sampled = excluded.sampled, drawn_at = excluded.drawn_at`,
       )
       .run({ repository, number, sampled: sampled ? 1 : 0, at });
-    return this.pullRequestSampled(repository, number) as boolean;
+    return sampled;
+  }
+
+  autoMergeCounts(filter: Omit<RiskFilter, 'fingerprint'>): AutoMergeCounts {
+    const bounds = {
+      repository: filter.repository ?? null,
+      from: filter.gradedFrom ?? null,
+      before: filter.gradedBefore ?? null,
+    };
+    const count = (table: string, condition: string, at: string): number =>
+      (
+        this.#db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM ${table}
+            WHERE ${condition}
+              AND ($repository IS NULL OR repository = $repository)
+              AND ($from IS NULL OR ${at} >= $from)
+              AND ($before IS NULL OR ${at} < $before)`,
+          )
+          .get(bounds) as { n: number }
+      ).n;
+    return {
+      autoMerged: count('risk_grades', "outcome = 'auto-merged'", 'graded_at'),
+      sampled: count('auto_merge_samples', 'sampled = 1', 'drawn_at'),
+    };
+  }
+
+  autoMergeStatus(): AutoMergeStatus {
+    const current = this.#db
+      .prepare('SELECT fingerprint FROM risk_grades ORDER BY graded_at DESC, rowid DESC LIMIT 1')
+      .get() as { fingerprint: string } | undefined;
+    const fingerprint = current?.fingerprint ?? null;
+    const { settled } = this.#db
+      .prepare(
+        `SELECT COUNT(*) AS settled FROM risk_grades
+        WHERE fingerprint = $fingerprint AND level IN ('trivial', 'low') AND outcome <> 'open'`,
+      )
+      .get({ fingerprint }) as { settled: number };
+    const window = this.#db
+      .prepare(
+        `SELECT outcome FROM risk_grades
+        WHERE fingerprint = $fingerprint AND level IN ('trivial', 'low')
+          AND (outcome IN ('merged', 'closed')
+            OR (outcome = 'superseded' AND supersede_cause IS NOT 'conflict-resolution'))
+        ORDER BY outcome_at DESC, rowid DESC
+        LIMIT $window`,
+      )
+      .all({ fingerprint, window: PAUSE_WINDOW }) as { outcome: string }[];
+    const counts = {
+      settled,
+      heldUp: window.filter(({ outcome }) => outcome === 'merged').length,
+      judged: window.length,
+    };
+    return { ...counts, state: autoMergeStateOf(counts) };
   }
 
   pullRequestSampled(repository: string, number: number): boolean | null {

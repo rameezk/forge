@@ -134,7 +134,6 @@ test('given 3 grades merged by a person, 2 auto-merged and 1 superseded by revis
   assert.equal(row.merged, '3');
   assert.equal(row.heads, '6');
   assert.equal(row['held-up'], '75.0% 3 / 4');
-  assert.match(body, /data-metric="candidates-count"[^>]*>\s*3 of 4/);
 });
 
 test('given a settled trivial grade superseded before causes were recorded, when the Risk tab loads, then it shows under Unknown and counts in the held up denominator', async () => {
@@ -334,24 +333,105 @@ test('given two grades costing $0.002 and $0.004, when the Risk tab loads, then 
   assert.match(card, /\$0\.003 per grade/);
 });
 
-test('given settled trivial and low grades with 79 merged as graded out of 93 counted, plus uncertain and moderate grades, when the Risk tab loads, then the candidates card shows 84.9% (79 of 93) with the assumption footnote', async () => {
-  const { store, page } = dashboard([]);
-  many(store, 40, { level: 'trivial', outcome: 'merged' });
-  many(store, 39, { level: 'low', outcome: 'merged' });
-  many(store, 8, { level: 'trivial', outcome: 'superseded', cause: 'revision' });
-  many(store, 6, { level: 'low', outcome: 'closed' });
-  many(store, 3, { level: 'low', outcome: 'superseded', cause: 'conflict-resolution' });
-  many(store, 5, { level: 'low', uncertain: true, outcome: 'merged' });
-  many(store, 5, { level: 'moderate', outcome: 'closed' });
+const OPTED_IN = { autoMergeRepositories: ['forge', 'site'] };
 
-  const card = cardOf(await page('?tab=risk'), 'candidates');
+const statusCard = async (setup: (store: Store) => void, query = '?tab=risk'): Promise<{ text: string; html: string }> => {
+  const { store, page } = dashboard([], undefined, OPTED_IN);
+  setup(store);
+  const body = await page(query);
+  const html = body.match(/<section[^>]*\sdata-risk-card="auto-merge"[^>]*>[\s\S]*?<\/section>/)?.[0] ?? '';
+  return { text: textOf(html), html };
+};
 
-  assert.match(card, /84\.9%/);
-  assert.match(card, /79 of 93/);
-  assert.match(card, /Assumes auto-merge would take certain trivial and low grades and nothing uncertain\./);
+test('given 20 settled human-reviewed trivial and low grades of which 17 held up, when the Risk tab loads, then the auto-merge card shows paused with 85.0% as 17 of 20 against the 90% bar, a 100% sample rate and the opted-in repositories', async () => {
+  const { text, html } = await statusCard((store) => {
+    many(store, 3, { outcome: 'closed' });
+    many(store, 17, { level: 'trivial', outcome: 'merged' });
+  });
+
+  assert.match(html, /data-state="paused"/);
+  assert.match(text, /Paused/);
+  assert.match(text, /85\.0%/);
+  assert.match(text, /17 of 20/);
+  assert.match(text, /90% bar/);
+  assert.match(text, /Sample rate 100%/);
+  assert.match(text, /Opted in forge, site/);
 });
 
-test('given grades in two repositories, when the tab is filtered to one repository, then all three cards count only that repository', async () => {
+test('given 19 of the last 20 settled human-reviewed grades held up, when the Risk tab loads, then the auto-merge card shows live with a 25% sample rate', async () => {
+  const { text, html } = await statusCard((store) => {
+    many(store, 1, { outcome: 'superseded', cause: 'revision' });
+    many(store, 19, { outcome: 'merged' });
+  });
+
+  assert.match(html, /data-state="live"/);
+  assert.match(text, /Live/);
+  assert.match(text, /95\.0%/);
+  assert.match(text, /19 of 20/);
+  assert.match(text, /Sample rate 25%/);
+});
+
+test('given 4 settled trivial and low grades in the current cohort, when the Risk tab loads, then the auto-merge card shows warming up with 4 of 10 settled', async () => {
+  const { text, html } = await statusCard((store) => many(store, 4, { outcome: 'merged' }));
+
+  assert.match(html, /data-state="warming-up"/);
+  assert.match(text, /Warming up/);
+  assert.match(text, /4 of 10 settled/);
+  assert.match(text, /Sample rate 100%/);
+});
+
+test('given a previous cohort with a poor record and a current cohort with 12 grades that all held up, when the Risk tab loads, then the card judges only the current cohort', async () => {
+  const { html } = await statusCard((store) => {
+    many(store, 20, { fingerprint: PREVIOUS, outcome: 'closed', at: '2026-09-20T10:00:00.000Z' });
+    many(store, 12, { outcome: 'merged' });
+  });
+
+  assert.match(html, /data-state="live"/);
+});
+
+test('given 17 held up of 20 human-reviewed grades and 10 auto-merged and 2 conflict resolution supersedes after them, when the Risk tab loads, then neither counts in the rate', async () => {
+  const { text } = await statusCard((store) => {
+    many(store, 3, { outcome: 'closed' });
+    many(store, 17, { outcome: 'merged' });
+    many(store, 10, { outcome: 'auto-merged' });
+    many(store, 2, { outcome: 'superseded', cause: 'conflict-resolution' });
+  });
+
+  assert.match(text, /17 of 20/);
+  assert.match(text, /Auto-merged 10/);
+});
+
+test('given no grades and no opted-in repository, when the Risk tab loads, then the auto-merge card is still shown with no opted-in repositories', async () => {
+  const { store, page } = dashboard([]);
+  assert.ok(store);
+
+  const text = textOf(await page('?tab=risk'));
+
+  assert.match(text, /Auto-merge/);
+  assert.match(text, /Opted in none/);
+});
+
+test('given two sampled pull requests drawn on 21 and 22 September and one auto-merged grade, when the tab is limited to 22 September onwards, then the card counts one sampled and no auto-merged pull request', async () => {
+  const { text } = await statusCard((store) => {
+    store.drawSample('forge', 1, () => true, '2026-09-21T10:00:00.000Z');
+    store.drawSample('forge', 2, () => true, '2026-09-22T10:00:00.000Z');
+    grade(store, { outcome: 'auto-merged', at: '2026-09-21T10:00:00.000Z' });
+  }, '?tab=risk&from=2026-09-22');
+
+  assert.match(text, /Sampled 1/);
+  assert.match(text, /Auto-merged 0/);
+});
+
+test('given a pull request drawn unsampled on 21 September and forced into the sample on 22 September, when the tab is limited to 22 September onwards, then the card counts it as sampled', async () => {
+  const { text } = await statusCard((store) => {
+    store.drawSample('forge', 1, () => false, '2026-09-21T10:00:00.000Z');
+    store.drawSample('forge', 1, () => false, '2026-09-22T10:00:00.000Z', true);
+  }, '?tab=risk&from=2026-09-22');
+
+  assert.match(text, /Sampled 1/);
+});
+
+test('given grades in two repositories, when the tab is filtered to one repository, then the coverage and cost cards count only that repository', async () => {
   const { store, page } = dashboard([]);
   many(store, 2, { repository: 'forge', outcome: 'merged', cost: 0.002 });
   many(store, 2, { repository: 'site', outcome: 'closed', cost: 0.01 });
@@ -363,17 +443,16 @@ test('given grades in two repositories, when the tab is filtered to one reposito
 
   assert.match(cardOf(body, 'coverage'), /66\.7%[\s\S]*2 of 3[\s\S]*Setup 1/);
   assert.match(cardOf(body, 'cost'), /\$0\.004 total/);
-  assert.match(cardOf(body, 'candidates'), /100\.0%[\s\S]*2 of 2/);
 });
 
-test('given the Risk tab with grades, when it loads, then the three cards precede the table', async () => {
+test('given the Risk tab with grades, when it loads, then the auto-merge card, coverage and cost precede the table', async () => {
   const { store, page } = dashboard([]);
   grade(store, {});
 
   const body = await page('?tab=risk');
 
   const order = [...body.matchAll(/data-risk-card="([^"]+)"|data-risk(?=[\s>])/g)].map((match) => match[1] ?? 'table');
-  assert.deepEqual(order, ['coverage', 'cost', 'candidates', 'table']);
+  assert.deepEqual(order, ['auto-merge', 'coverage', 'cost', 'table']);
 });
 
 test('given two settled low grades with 0 and 1 revisions after grade and an open low grade, when the Risk tab loads, then the low row shows revisions after grade 0.50', async () => {

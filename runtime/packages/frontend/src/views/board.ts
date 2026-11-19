@@ -122,11 +122,14 @@ const renderHold = (): Rendered =>
 const renderSampled = (): Rendered =>
   html`<p class="${MUTED_LINE}"><span data-sampled title="Forge would have auto-merged this pull request and left it for a maintainer to review" class="${PILL} ${HUMAN_TONE}">sampled</span></p>`;
 
-const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, held }: BoardCard): Rendered => {
+const renderPaused = (): Rendered =>
+  html`<p class="${MUTED_LINE}"><span data-paused title="Auto-merge is paused: this pull request would have auto-merged and waits for a maintainer's review" class="${PILL} ${HUMAN_TONE}">paused</span></p>`;
+
+const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, held, paused }: BoardCard): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${paused === true ? renderPaused() : ''}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {

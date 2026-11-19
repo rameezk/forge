@@ -1,8 +1,8 @@
 import { html, raw } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type RepositoryProblems, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, PAUSE_BAR_PERCENT, type AutoMergeStatus, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type RepositoryProblems, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
-import { cacheHitRate, formatBudget, formatCost, formatDate, formatDuration, formatElapsed, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
+import { cacheHitRate, formatBudget, formatRate, formatCost, formatDate, formatDuration, formatElapsed, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
 import { needsOperator, type GradingAttention } from '../grading.ts';
 import { renderMarkdown } from '../markdown.ts';
 import { DEFAULT_EFFORT } from '../request-record.ts';
@@ -141,6 +141,7 @@ export interface Display {
   version?: string;
   deploy?: DeployStatus | null;
   grading?: GradingAttention | null;
+  autoMergePause?: AutoMergeStatus | null;
   repositories?: readonly RepositoryProblems[];
 }
 
@@ -227,6 +228,13 @@ const renderGradingRow = (grading: GradingAttention | null): Rendered => {
   return html`<p data-grading-attention data-grading-failing="${failure.category}" class="${BAND_ROW}">Grading needs attention - ${failure.category}: ${failure.message}. ${renderGradingSucceeded(grading.status.lastSucceededAt, grading.now)}. <a href="${GRADING_STATUS_HREF}" class="font-semibold text-error underline">See grading</a></p>`;
 };
 
+export const AUTO_MERGE_STATUS_HREF = '/insights?tab=risk#auto-merge';
+
+const renderAutoMergeRow = (pause: AutoMergeStatus | null): Rendered =>
+  pause === null
+    ? ''
+    : html`<p data-auto-merge-paused class="${BAND_ROW}">Auto-merge is paused - ${formatRate(pause.heldUp / pause.judged)} held up (${pause.heldUp} of ${pause.judged} human-reviewed trivial and low grades), below the ${PAUSE_BAR_PERCENT}% bar. Eligible pull requests wait for review. <a href="${AUTO_MERGE_STATUS_HREF}" class="font-semibold text-error underline">See auto-merge</a></p>`;
+
 export const laneId = (repository: string): string => `lane-${repository}`;
 
 const laneLink = (repository: string): Rendered =>
@@ -238,11 +246,12 @@ const renderRepositoryRows = (repositories: readonly RepositoryProblems[], timeZ
     branchRules === null || branchRules.length === 0 ? '' : html`<p data-branch-rules-failing="${repository}" class="${BAND_ROW}">${github}: no new work starts until a sync finds its default branch rules passing: ${branchRules.join('; ')} ${laneLink(repository)}</p>`,
   ]);
 
-const renderAttentionBand = (deploy: DeployStatus | null, grading: GradingAttention | null, repositories: readonly RepositoryProblems[], timeZone: string): Rendered => {
+const renderAttentionBand = (deploy: DeployStatus | null, grading: GradingAttention | null, autoMergePause: AutoMergeStatus | null, repositories: readonly RepositoryProblems[], timeZone: string): Rendered => {
   const rows = [
     deploy?.error == null ? '' : html`<p id="deploy-error" data-deploy-error class="${BAND_ROW} scroll-mt-4">${deploy.error}</p>`,
     deploy?.bumpError == null ? '' : html`<p id="bump-error" data-bump-error class="${BAND_ROW} scroll-mt-4">Forge bump: ${deploy.bumpError}</p>`,
     renderGradingRow(grading),
+    renderAutoMergeRow(autoMergePause),
     ...renderRepositoryRows(repositories, timeZone),
   ].filter((row) => row !== '');
   return rows.length === 0 ? '' : html`<section data-attention-band aria-label="Needs attention" class="flex shrink-0 flex-col divide-y divide-error/20 border-b border-line">${rows}</section>`;
@@ -293,7 +302,7 @@ export const layout = (
   title: string,
   current: Page | null,
   live: boolean,
-  { assets, timeZone, version, deploy, grading, repositories }: Display,
+  { assets, timeZone, version, deploy, grading, autoMergePause, repositories }: Display,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
   fit: Fit = 'scroll',
 ): HtmlEscapedString | Promise<HtmlEscapedString> =>
@@ -310,7 +319,7 @@ export const layout = (
       </head>
       <body class="bg-bg text-[15px] text-fg ${FOCUS_RINGS}${FIT_BODY[fit]}">
         ${renderHeader(current, live, assets, version)}
-        ${renderAttentionBand(deploy ?? null, grading ?? null, repositories ?? [], timeZone)}
+        ${renderAttentionBand(deploy ?? null, grading ?? null, autoMergePause ?? null, repositories ?? [], timeZone)}
         <main class="w-full ${FIT_WIDTH[fit]} px-4 ${FIT_MAIN[fit]}">${body}</main>
         <footer class="shrink-0 border-t border-line text-xs text-muted"><div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-4"><span>Times in ${timeZone}</span>${renderForgeStatus(deploy ?? null)}</div></footer>
       </body>

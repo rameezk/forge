@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store, type DiagnosisRecord, type RunRecord } from '@forge/shared';
@@ -86,7 +86,7 @@ const diagnose = async ({
   transcript = true,
   dispatch = true,
 }: Scenario = {}) => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'forge-diagnose-'));
+  const stateDir = realpathSync(mkdtempSync(join(tmpdir(), 'forge-diagnose-')));
   const record = join(stateDir, 'pi-call.json');
   const bwrapRecord = join(stateDir, 'bwrap-call.json');
   const configPath = join(stateDir, 'runtime.json');

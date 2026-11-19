@@ -13,6 +13,7 @@ export interface ServeConfig {
   maxConcurrent: number;
   maxOpenPullRequests: number | null;
   gradingRepositories: string[];
+  autoMergeRepositories: string[];
   timeZone: string;
   deployStatusFile: string | null;
 }
@@ -101,6 +102,7 @@ export const resolveServeConfig = (env: NodeJS.ProcessEnv): ServeConfig => {
     dispatchOrder: resolveDispatchOrder(env.FORGE_DISPATCH_ORDER),
     repositoryPriorities: resolveRepositoryPriorities(env.FORGE_REPOSITORY_PRIORITIES),
     gradingRepositories: (env.FORGE_GRADING_REPOSITORIES ?? '').split(',').filter((name) => name !== ''),
+    autoMergeRepositories: (env.FORGE_AUTO_MERGE_REPOSITORIES ?? '').split(',').filter((name) => name !== ''),
     timeZone: resolveTimeZone(env.FORGE_DASHBOARD_TIME_ZONE),
     deployStatusFile,
   };

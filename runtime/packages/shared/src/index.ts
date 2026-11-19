@@ -162,6 +162,18 @@ export type {
   WorkloadOutcome,
 } from './insights.ts';
 export { INSIGHT_KIND_FILTERS, noFailures, sumFailures } from './insights.ts';
+export {
+  AUTO_MERGE_STATES,
+  autoMergeStateOf,
+  PAUSE_BAR_PERCENT,
+  PAUSE_WINDOW,
+  SAMPLE_RATE,
+  sampleRateIn,
+  WARM_UP_SETTLED,
+  type AutoMergeCounts,
+  type AutoMergeState,
+  type AutoMergeStatus,
+} from './auto-merge-status.ts';
 export { aggregateRisk, RISK_GROUPS, summarizeRisk, type RiskFilter, type RiskOptions, type RiskRow, type RiskSummary } from './risk.ts';
 export { countEvent, countEvents, noCounters } from './counters.ts';
 export { STALE_AFTER_MS, startHeartbeat } from './heartbeat.ts';

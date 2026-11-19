@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store, type RiskGrade, type RiskLevel } from '@forge/shared';
+import { SAMPLE_RATE, Store, type RiskGrade, type RiskLevel } from '@forge/shared';
 import { main as autoMerge } from '../src/auto-merge-main.ts';
 import { APP_ID, BOT_LOGIN, fakeGithubApp, routedThrough } from '../../shared/test/fixtures/fake-github-app.ts';
-import { drawsSample, SAMPLE_RATE } from '../src/auto-merge.ts';
+import { drawsSample } from '../src/auto-merge.ts';
 import { journaled } from './helpers.ts';
 import { bypassable, PROTECTED, unreadable, withProtectedRepositories, type RepositoryRules } from '../../shared/test/fixtures/branch-rules.ts';
 
@@ -25,6 +25,7 @@ interface Pull {
   otherLabels?: number;
   repository?: string;
   files?: ChangedFileSpec[];
+  fingerprint?: string;
 }
 
 interface ChangedFileSpec {
@@ -48,6 +49,39 @@ const SAMPLED = 0.1;
 
 const HEAD = (number: number): string => `head-${number}`;
 
+type Settled = 'held' | 'failed' | 'auto';
+
+const COHORT = 'typesafe/jev-1.13:abc';
+
+let tick = 0;
+
+const settleHistory = (store: Store, history: Settled[], fingerprint = COHORT): void => {
+  for (const outcome of history) {
+    tick += 1;
+    const grade: RiskGrade = {
+      repository: 'forge',
+      number: 1000 + tick,
+      headSha: `old-${tick}`,
+      fingerprint,
+      model: 'typesafe/jev-1.13',
+      probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 },
+      score: 0.4,
+      confidence: 0.9,
+      level: 'low',
+      uncertain: false,
+      costUsd: 0,
+      gradedAt: '2026-11-17T09:00:00.000Z',
+    };
+    const at = new Date(Date.parse('2026-11-17T10:00:00.000Z') + tick * 1000).toISOString();
+    store.recordRiskGrade(grade);
+    if (outcome === 'auto') store.markAutoMergeStarted(grade, at);
+    store.settleRiskGrade(grade, outcome === 'failed' ? 'closed' : 'merged', at);
+  }
+};
+
+const held = (count: number): Settled[] => Array<Settled>(count).fill('held');
+const failed = (count: number): Settled[] => Array<Settled>(count).fill('failed');
+
 const forge = (
   pulls: Pull[],
   autoMergeOn: string[] = ['forge'],
@@ -58,6 +92,7 @@ const forge = (
     storedRuleFailures?: string[];
     unreachable?: boolean;
   } = {},
+  history: Settled[] = held(10),
 ) => {
   const dice = { next: UNSAMPLED };
   const stateDir = mkdtempSync(join(tmpdir(), 'forge-auto-merge-'));
@@ -88,13 +123,14 @@ const forge = (
   if (reviewerApp.storedRuleFailures !== undefined) {
     store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: reviewerApp.storedRuleFailures });
   }
+  settleHistory(store, history);
   for (const pull of pulls) {
     const repository = pull.repository ?? 'forge';
     const grade: RiskGrade = {
       repository,
       number: pull.number,
       headSha: HEAD(pull.number),
-      fingerprint: 'typesafe/jev-1.13:abc',
+      fingerprint: pull.fingerprint ?? COHORT,
       model: 'typesafe/jev-1.13',
       probabilities: { trivial: 0.1, low: 0.7, moderate: 0.15, high: 0.05 },
       score: 0.4,
@@ -299,6 +335,14 @@ const forge = (
       return result;
     },
     journals,
+    settle: (more: Settled[], fingerprint = COHORT): void => {
+      const opened = Store.open(join(stateDir, 'forge.db'));
+      try {
+        settleHistory(opened, more, fingerprint);
+      } finally {
+        opened.close();
+      }
+    },
     withStore: <T>(use: (store: Store) => T): T => {
       const opened = Store.open(join(stateDir, 'forge.db'));
       try {
@@ -313,6 +357,7 @@ const forge = (
     changeHead: (number: number): void => {
       heads.set(number, `moved-${number}`);
     },
+    pulls,
     reviews,
     merges,
     comments,
@@ -779,4 +824,55 @@ test('given frontier sync last stored a Reviewer App failure that the App has si
   await f.run();
 
   assert.equal(f.merges.length, 1);
+});
+
+test('given 20 settled human-reviewed trivial and low grades in the current cohort of which 17 held up, when the pass runs on an eligible pull request, then it is sampled with the pause named and not merged', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, {}, [...failed(3), ...held(17)]);
+  assert.equal(await f.run(), 0);
+  assert.deepEqual(labelled(f, 7), ['forge:sampled']);
+  assert.deepEqual([f.reviews, f.merges], [[], []]);
+  assert.match(f.comments[0]?.body ?? '', /paused: 17 of the last 20/);
+  assert.match(f.comments[0]?.body ?? '', /90%/);
+  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), true);
+});
+
+test('given a pause that further sampled grades lift until 18 of the last 20 held up, when the pass runs on an eligible unsampled pull request, then it auto-merges', async () => {
+  const f = forge([{ number: 7 }, { number: 8, checks: 'pending' }], ['forge'], {}, {}, [...failed(3), ...held(17)]);
+  await f.run();
+  assert.deepEqual(f.merges, []);
+  f.settle(held(1));
+  f.pulls[1]!.checks = 'passing';
+  assert.equal(await f.run(), 0);
+  assert.deepEqual(merged(f), [8]);
+  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), true);
+});
+
+test('given a cohort whose last 20 settled grades include auto-merged ones, when the pass runs, then only the human-reviewed grades are in the rate', async () => {
+  const lifted = forge([{ number: 7 }], ['forge'], {}, {}, [...failed(1), ...held(18), ...Array<Settled>(10).fill('auto')]);
+  await lifted.run();
+  assert.deepEqual(merged(lifted), [7]);
+  const paused = forge([{ number: 7 }], ['forge'], {}, {}, [...failed(3), ...held(17), ...Array<Settled>(10).fill('auto')]);
+  await paused.run();
+  assert.deepEqual(paused.merges, []);
+});
+
+test('given a grading fingerprint change and 9 settled trivial and low grades under the new cohort, all held up, when the pass runs, then the pull request is sampled as warming up, and after the 10th settles the next eligible pull request auto-merges', async () => {
+  const fresh = { fingerprint: 'new-cohort' };
+  const f = forge([{ number: 7, ...fresh }, { number: 8, checks: 'pending', ...fresh }], ['forge'], {}, {}, held(20));
+  f.settle(held(9), 'new-cohort');
+  await f.run();
+  assert.deepEqual(f.merges, []);
+  assert.deepEqual(labelled(f, 7), ['forge:sampled']);
+  assert.match(f.comments[0]?.body ?? '', /warming up: 9 of 10/);
+  f.settle(held(1), 'new-cohort');
+  f.pulls[1]!.checks = 'passing';
+  await f.run();
+  assert.deepEqual(merged(f), [8]);
+});
+
+test('given a cohort with 10 settled grades none of which a person reviewed, when the pass runs, then the pull request is sampled as warming up', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, {}, Array<Settled>(10).fill('auto'));
+  await f.run();
+  assert.deepEqual(f.merges, []);
+  assert.deepEqual(labelled(f, 7), ['forge:sampled']);
 });
