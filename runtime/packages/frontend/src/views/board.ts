@@ -131,13 +131,13 @@ const renderBlockers = (blockedBy: readonly number[], github: string): Rendered 
   return html`blocked by ${links.map((link, index) => html`${index === 0 ? '' : ', '}${link}`)}`;
 };
 
-const renderAwaitingReapproval = (ticket: Ticket): Rendered =>
-  ticket.awaitingReapproval === true
-    ? html`<p class="${MUTED_LINE}"><span data-awaiting-reapproval title="The latest ready-for-agent came from someone without write access, or someone else edited the ticket or its spec after it. A maintainer applies ready-for-agent again to approve it." class="${PILL} ${AWAITING_TONE} whitespace-nowrap gap-1! px-1.5!">awaiting re-approval</span></p>`
+const renderAwaitingRedispatch = (ticket: Ticket): Rendered =>
+  ticket.awaitingRedispatch === true
+    ? html`<p class="${MUTED_LINE}"><span data-awaiting-redispatch title="The latest ready-for-agent came from someone without write access, or someone else edited the ticket or its spec after it. A maintainer applies ready-for-agent again to approve it." class="${PILL} ${AWAITING_TONE} whitespace-nowrap gap-1! px-1.5!">awaiting re-dispatch</span></p>`
     : '';
 
 const renderBlocked = ({ ticket }: { ticket: Ticket }, github: string): Rendered =>
-  html`${renderAwaitingReapproval(ticket)}<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}${ticket.forHuman ? html`<span data-ready-for-human class="${PILL} ${HUMAN_TONE}">ready-for-human</span> ` : ''}${renderBlockers(ticket.blockedBy, github)}</p>`;
+  html`${renderAwaitingRedispatch(ticket)}<p class="${MUTED_LINE}">${ticket.forgeReady ? html`<span data-queued class="${PILL} ${QUEUED_TONE}">queued</span> ` : ''}${ticket.forHuman ? html`<span data-ready-for-human class="${PILL} ${HUMAN_TONE}">ready-for-human</span> ` : ''}${renderBlockers(ticket.blockedBy, github)}</p>`;
 
 const personIcon = (label: string): Rendered =>
   html`<svg data-person role="img" aria-label="${label}" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" class="text-accent-text"><title>${label}</title><circle cx="8" cy="5" r="3" /><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5z" /></svg>`;
@@ -171,7 +171,7 @@ const renderDetails = (card: BoardCard, github: string, timeZone: string, runs: 
     case 'done':
       return renderDone(card, timeZone);
     default:
-      return html`${card.column === 'to-refine' ? '' : renderAwaitingReapproval(card.ticket)}<p class="${MUTED_LINE}">${renderDate(card.ticket.createdAt, timeZone)}</p>`;
+      return html`${card.column === 'to-refine' ? '' : renderAwaitingRedispatch(card.ticket)}<p class="${MUTED_LINE}">${renderDate(card.ticket.createdAt, timeZone)}</p>`;
   }
 };
 

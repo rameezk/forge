@@ -283,7 +283,7 @@ export interface Ticket {
   blocked: boolean;
   blockedBy: number[];
   version?: string;
-  awaitingReapproval?: boolean;
+  awaitingRedispatch?: boolean;
 }
 
 export interface PolledTicket extends Ticket {

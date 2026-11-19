@@ -1400,7 +1400,7 @@ test('given an auto-approving repository and a ticket whose latest ready-for-age
   }
 });
 
-test('given an auto-approving repository and tickets whose approval does not stand and one whose approval stands, when sync runs, then only the ones whose approval does not stand are stored as awaiting re-approval', async () => {
+test('given an auto-approving repository and tickets whose approval does not stand and one whose approval stands, when sync runs, then only the ones whose approval does not stand are stored as awaiting re-dispatch', async () => {
   const { stateDir } = await autoApproved({
     timelines: {
       57: [['ready-for-agent', 'outsider', RFA_AT]],
@@ -1409,12 +1409,12 @@ test('given an auto-approving repository and tickets whose approval does not sta
     maintainers: ['teammate'],
   });
 
-  assert.equal(storedTicket(stateDir, 57)?.awaitingReapproval, true);
+  assert.equal(storedTicket(stateDir, 57)?.awaitingRedispatch, true);
   assert.equal(storedTicket(stateDir, 57)?.forgeReady, false);
-  assert.equal(storedTicket(stateDir, 58)?.awaitingReapproval ?? false, false);
+  assert.equal(storedTicket(stateDir, 58)?.awaitingRedispatch ?? false, false);
 });
 
-test('given an auto-approving repository and a ticket a maintainer labelled ready-for-agent whose body or title, or whose parent spec\'s body or title, an outsider edited afterwards, when sync runs, then it is stored as awaiting re-approval', async () => {
+test('given an auto-approving repository and a ticket a maintainer labelled ready-for-agent whose body or title, or whose parent spec\'s body or title, an outsider edited afterwards, when sync runs, then it is stored as awaiting re-dispatch', async () => {
   const outsider: [string, string][] = [['outsider', LATER]];
   const cases: Partial<AutoApproval>[] = [
     { bodyEdits: { 57: outsider } },
@@ -1429,26 +1429,26 @@ test('given an auto-approving repository and a ticket a maintainer labelled read
       ...edits,
     });
 
-    assert.equal(storedTicket(stateDir, 57)?.awaitingReapproval, true);
+    assert.equal(storedTicket(stateDir, 57)?.awaitingRedispatch, true);
   }
 });
 
-test('given a repository that has not opted in and a ticket whose ready-for-agent an outsider applied, when sync runs, then it is not stored as awaiting re-approval', async () => {
+test('given a repository that has not opted in and a ticket whose ready-for-agent an outsider applied, when sync runs, then it is not stored as awaiting re-dispatch', async () => {
   const { stateDir } = await autoApproved(
     { timelines: { 57: [['ready-for-agent', 'outsider', RFA_AT]] }, maintainers: ['teammate'] },
     { autoApprove: false },
   );
 
-  assert.equal(storedTicket(stateDir, 57)?.awaitingReapproval ?? false, false);
+  assert.equal(storedTicket(stateDir, 57)?.awaitingRedispatch ?? false, false);
 });
 
-test('given a ticket forge labelled forge:ready from which a maintainer removed it, when sync runs, then it is not stored as awaiting re-approval', async () => {
+test('given a ticket forge labelled forge:ready from which a maintainer removed it, when sync runs, then it is not stored as awaiting re-dispatch', async () => {
   const { stateDir } = await autoApproved({
     timelines: { 57: [['ready-for-agent', 'teammate', RFA_AT], ['forge:ready', 'forge[bot]', LATER]] },
     maintainers: ['teammate'],
   });
 
-  assert.equal(storedTicket(stateDir, 57)?.awaitingReapproval ?? false, false);
+  assert.equal(storedTicket(stateDir, 57)?.awaitingRedispatch ?? false, false);
 });
 
 test('given an auto-approving repository and a ticket a maintainer labelled ready-for-agent whose body or title, or whose parent spec\'s body or title, an outsider edited afterwards, when sync runs, then it gains no forge:ready', async () => {
