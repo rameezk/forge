@@ -20,6 +20,7 @@ interface Pull {
   feedback?: boolean;
   revising?: boolean;
   hold?: 'maintainer' | 'outsider';
+  otherLabels?: number;
   repository?: string;
 }
 
@@ -146,7 +147,10 @@ const forge = (pulls: Pull[], autoMergeOn: string[] = ['forge']) => {
         held.delete(number);
         return json([]);
       }
-      return json(held.has(number) ? [{ name: 'forge:hold' }] : []);
+      const filler = Array.from({ length: pulls.find((pull) => pull.number === number)?.otherLabels ?? 0 }, (_, index) => ({ name: `label-${index}` }));
+      const labels = [...filler, ...(held.has(number) ? [{ name: 'forge:hold' }] : [])];
+      const page = Number(url.searchParams.get('page') ?? '1');
+      return json(labels.slice((page - 1) * 100, page * 100));
     }
     const permissionOf = /^\/repos\/rameezk\/(forge|other)\/collaborators\/([^/]+)\/permission$/.exec(url.pathname);
     if (permissionOf !== null) {
@@ -395,4 +399,19 @@ test('given an eligible pull request with forge:hold applied by someone who is n
   assert.deepEqual(f.removedLabels, [{ number: 7, label: 'forge:hold' }]);
   assert.equal(f.merges.length, 1);
   assert.equal(outcomeOf(f, 7), 'auto-merged');
+});
+
+test('given a pull request holding more than 100 labels with a maintainer forge:hold past the first page, when the pass runs, then it is not merged', async () => {
+  const f = forge([{ number: 7, hold: 'maintainer', otherLabels: 120 }]);
+  assert.equal(await f.run(), 0);
+  assert.deepEqual([f.reviews, f.merges], [[], []]);
+});
+
+test('given a held pull request that a revision then starts working on, when the pass runs again, then the store no longer records it as held', async () => {
+  const f = forge([{ number: 7, hold: 'maintainer' }]);
+  await f.run();
+  assert.deepEqual(f.withStore((store) => store.heldPullRequests()), [{ repository: 'forge', number: 7 }]);
+  f.withStore((store) => store.startRevision({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' }, [10], 'run-7', NOW, 5));
+  await f.run();
+  assert.deepEqual(f.withStore((store) => store.heldPullRequests()), []);
 });

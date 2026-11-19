@@ -3506,10 +3506,20 @@ export class Store {
       .run({ repository, number });
   }
 
+  keepHolds(repository: string, numbers: readonly number[]): void {
+    this.#db
+      .prepare(
+        `DELETE FROM pull_request_holds
+        WHERE repository = $repository AND number NOT IN (SELECT value FROM json_each($numbers))`,
+      )
+      .run({ repository, numbers: JSON.stringify(numbers) });
+  }
+
   heldPullRequests(): { repository: string; number: number }[] {
-    return this.#db
+    const rows = this.#db
       .prepare(`SELECT repository, number FROM pull_request_holds ORDER BY repository, number`)
       .all() as { repository: string; number: number }[];
+    return rows.map(({ repository, number }) => ({ repository, number }));
   }
 
   currentRiskGrades(): RecordedRiskGrade[] {

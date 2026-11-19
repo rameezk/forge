@@ -155,7 +155,14 @@ const autoMergeOne = async (
 export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<boolean> => {
   const { store, repositories, now, log } = options;
   let succeeded = true;
-  for (const grade of store.autoMergeCandidates(Object.keys(repositories), now())) {
+  const candidates = store.autoMergeCandidates(Object.keys(repositories), now());
+  for (const repository of Object.keys(repositories)) {
+    store.keepHolds(
+      repository,
+      candidates.filter((grade) => grade.repository === repository).map(({ number }) => number),
+    );
+  }
+  for (const grade of candidates) {
     try {
       await autoMergeOne(options, grade, repositories[grade.repository] as string);
     } catch (error) {

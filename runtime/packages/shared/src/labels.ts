@@ -130,6 +130,8 @@ export const removeLabel = async (
   }
 };
 
+const LABELS_PER_PAGE = 100;
+
 export const hasLabel = async (
   fetch: Fetch,
   token: string,
@@ -137,11 +139,21 @@ export const hasLabel = async (
   number: number,
   label: string,
 ): Promise<boolean> => {
-  const listed = await requestRest(fetch, token, 'GET', github, `/issues/${number}/labels?per_page=100`);
-  if (!listed.ok) {
-    throw new Error(`GitHub answered ${listed.status} listing the labels of ${github}#${number}`);
+  for (let page = 1; ; page += 1) {
+    const listed = await requestRest(
+      fetch,
+      token,
+      'GET',
+      github,
+      `/issues/${number}/labels?per_page=${LABELS_PER_PAGE}&page=${page}`,
+    );
+    if (!listed.ok) {
+      throw new Error(`GitHub answered ${listed.status} listing the labels of ${github}#${number}`);
+    }
+    const names = ((await listed.json()) as { name: string }[]).map(({ name }) => name);
+    if (names.includes(label)) return true;
+    if (names.length < LABELS_PER_PAGE) return false;
   }
-  return ((await listed.json()) as { name: string }[]).some(({ name }) => name === label);
 };
 
 export const FAILED_TICKET_COMMENT =
