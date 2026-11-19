@@ -1080,6 +1080,17 @@ const ADD_RISK_GRADE_OUTCOME = `
   ALTER TABLE risk_grades ADD COLUMN revisions INTEGER;
 `;
 
+const CREATE_AUTO_MERGE_SAMPLES = `
+  CREATE TABLE IF NOT EXISTS auto_merge_samples (
+    repository TEXT NOT NULL,
+    number     INTEGER NOT NULL,
+    sampled    INTEGER NOT NULL,
+    drawn_at   TEXT NOT NULL,
+    announced  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (repository, number)
+  );
+`;
+
 const CREATE_FEEDBACK_WATCHES = `
   CREATE TABLE IF NOT EXISTS feedback_watches (
     repository TEXT NOT NULL,
@@ -1761,6 +1772,7 @@ export class Store {
     this.#addColumnsOnce(HAS_REVISION_FAILED_STARTS, ADD_REVISION_FAILED_STARTS);
     this.#addColumnsOnce(HAS_REVISION_OPTIONAL_RUN, MIGRATE_REVISION_RUN);
     db.exec(CREATE_FEEDBACK_WATCHES);
+    db.exec(CREATE_AUTO_MERGE_SAMPLES);
     this.#addColumnsOnce(HAS_DIAGNOSIS_START, `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}`);
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
     this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
@@ -3849,12 +3861,51 @@ export class Store {
           AND feedback_watches.draft = 0
           AND feedback_watches.newest IS NULL
           AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
+          AND NOT EXISTS (
+            SELECT 1 FROM auto_merge_samples
+            WHERE auto_merge_samples.repository = risk_grades.repository
+              AND auto_merge_samples.number = risk_grades.number
+              AND auto_merge_samples.sampled = 1
+              AND auto_merge_samples.announced = 1
+          )
         ORDER BY risk_grades.repository, risk_grades.number`,
       )
       .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
     return rows
       .map(riskGradeFromRow)
       .filter(({ repository, number }) => !this.workloadRunning(repository, number, now));
+  }
+
+  drawSample(repository: string, number: number, draw: () => boolean, at: string): boolean {
+    const known = this.pullRequestSampled(repository, number);
+    if (known !== null) return known;
+    const sampled = draw();
+    this.#db
+      .prepare(
+        `INSERT OR IGNORE INTO auto_merge_samples (repository, number, sampled, drawn_at)
+        VALUES ($repository, $number, $sampled, $at)`,
+      )
+      .run({ repository, number, sampled: sampled ? 1 : 0, at });
+    return this.pullRequestSampled(repository, number) as boolean;
+  }
+
+  pullRequestSampled(repository: string, number: number): boolean | null {
+    const row = this.#db
+      .prepare(`SELECT sampled FROM auto_merge_samples WHERE repository = $repository AND number = $number`)
+      .get({ repository, number }) as { sampled: number } | undefined;
+    return row === undefined ? null : row.sampled === 1;
+  }
+
+  markSampleAnnounced(repository: string, number: number): void {
+    this.#db
+      .prepare(`UPDATE auto_merge_samples SET announced = 1 WHERE repository = $repository AND number = $number`)
+      .run({ repository, number });
+  }
+
+  sampledPullRequests(): { repository: string; number: number }[] {
+    return this.#db
+      .prepare(`SELECT repository, number FROM auto_merge_samples WHERE sampled = 1 ORDER BY repository, number`)
+      .all() as { repository: string; number: number }[];
   }
 
   riskGrade(repository: string, number: number, headSha: string): RecordedRiskGrade | null {

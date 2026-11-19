@@ -10,6 +10,8 @@ export interface LabelDefinition {
   description: string;
 }
 
+export const FORGE_SAMPLED = 'forge:sampled';
+
 export const FORGE_LABELS: readonly LabelDefinition[] = [
   {
     name: FORGE_READY,
@@ -36,6 +38,11 @@ export const FORGE_LABELS: readonly LabelDefinition[] = [
     name: FORGE_HOLD,
     color: 'b60205',
     description: "A maintainer's hold: forge does not auto-merge this pull request while the label stands",
+  },
+  {
+    name: FORGE_SAMPLED,
+    color: 'c5def5',
+    description: 'Would have auto-merged; left for a maintainer to review as an audit sample',
   },
 ];
 

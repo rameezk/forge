@@ -246,6 +246,7 @@ export { GITHUB_REST_API } from './github-api.ts';
 export {
   FORGE_HOLD,
   FORGE_LABELS,
+  FORGE_SAMPLED,
   STATUS_LABELS,
   hasLabel,
   removeLabel,

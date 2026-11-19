@@ -42,6 +42,7 @@ export interface RiskInputs {
   grades: ReadonlyMap<string, RecordedRiskGrade>;
   attempts: ReadonlyMap<string, GradingAttempt>;
   holds: ReadonlySet<string>;
+  sampled?: ReadonlySet<string>;
 }
 
 export type CardUrgency = DisplayedUrgencyGrade | UrgencyAttempt | null;
@@ -59,6 +60,7 @@ interface CardState {
   workload: LiveWorkload | undefined;
   conflictFailedStart: ConflictResolutionRecord | undefined;
   revisionFailedStart: RevisionRecord | undefined;
+  sampled?: boolean;
 }
 
 export type BoardCard =
@@ -216,6 +218,7 @@ export const buildLanes = (
         workload: undefined,
         conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        sampled: column === 'in-review' && pullRequest != null && risks.sampled?.has(ticketKey(repository.repository, pullRequest.number)) === true,
         urgency: urgencyOf(ticket.number),
         risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? risks.attempts.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
         held: column === 'in-review' && pullRequest != null && risks.holds.has(ticketKey(repository.repository, pullRequest.number)),

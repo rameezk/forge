@@ -119,11 +119,14 @@ const renderRisk = (risk: CardRisk): Rendered => {
 const renderHold = (): Rendered =>
   html`<p class="${MUTED_LINE}"><span data-hold title="A maintainer put forge:hold on this pull request, so forge does not auto-merge it" class="${PILL} ${HELD_TONE}">held</span></p>`;
 
-const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, held }: BoardCard): Rendered => {
+const renderSampled = (): Rendered =>
+  html`<p class="${MUTED_LINE}"><span data-sampled title="Forge would have auto-merged this pull request and left it for a maintainer to review" class="${PILL} ${HUMAN_TONE}">sampled</span></p>`;
+
+const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, held }: BoardCard): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
