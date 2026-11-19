@@ -2,6 +2,8 @@ import { FORGE_DONE, FORGE_FAILED, FORGE_READY, FORGE_RUNNING } from './dispatch
 import { requireGithubRepository, type Fetch } from './frontier.ts';
 import { GITHUB_REST_API } from './github-api.ts';
 
+export const FORGE_HOLD = 'forge:hold';
+
 export interface LabelDefinition {
   name: string;
   color: string;
@@ -31,6 +33,11 @@ export const FORGE_LABELS: readonly LabelDefinition[] = [
     color: 'd93f0b',
     description:
       'Not a ready pull request with green required checks; see the dashboard, label forge:ready to retry',
+  },
+  {
+    name: FORGE_HOLD,
+    color: 'b60205',
+    description: "A maintainer's hold: forge does not auto-merge this pull request while the label stands",
   },
   {
     name: FORGE_SAMPLED,
@@ -114,6 +121,45 @@ export const relabel = async (
         `GitHub answered ${removed.status} removing ${label} from ${github}#${number}`,
       );
     }
+  }
+};
+
+export const removeLabel = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  label: string,
+): Promise<void> => {
+  const removed = await requestRest(fetch, token, 'DELETE', github, `/issues/${number}${labelPath(label)}`);
+  if (!removed.ok && removed.status !== 404) {
+    throw new Error(`GitHub answered ${removed.status} removing ${label} from ${github}#${number}`);
+  }
+};
+
+const LABELS_PER_PAGE = 100;
+
+export const hasLabel = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+  label: string,
+): Promise<boolean> => {
+  for (let page = 1; ; page += 1) {
+    const listed = await requestRest(
+      fetch,
+      token,
+      'GET',
+      github,
+      `/issues/${number}/labels?per_page=${LABELS_PER_PAGE}&page=${page}`,
+    );
+    if (!listed.ok) {
+      throw new Error(`GitHub answered ${listed.status} listing the labels of ${github}#${number}`);
+    }
+    const names = ((await listed.json()) as { name: string }[]).map(({ name }) => name);
+    if (names.includes(label)) return true;
+    if (names.length < LABELS_PER_PAGE) return false;
   }
 };
 

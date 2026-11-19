@@ -116,17 +116,20 @@ const renderRisk = (risk: CardRisk): Rendered => {
   return html`<p class="${MUTED_LINE}"><span data-risk="${risk.level}"${risk.uncertain ? raw(' data-risk-uncertain') : ''} title="${title}" class="${PILL} ${RISK_TONE[risk.level]} tabular-nums whitespace-nowrap">${risk.level} ${percent(risk.confidence)}</span>${risk.uncertain ? html` <span data-risk-alternative title="Possible alternative" class="text-xs whitespace-nowrap text-muted">or ${runnerUpOf(risk)}</span>` : ''}</p>`;
 };
 
+const renderHold = (): Rendered =>
+  html`<p class="${MUTED_LINE}"><span data-hold title="A maintainer put forge:hold on this pull request, so forge does not auto-merge it" class="${PILL} ${HELD_TONE}">held</span></p>`;
+
 const renderSampled = (): Rendered =>
   html`<p class="${MUTED_LINE}"><span data-sampled title="Forge would have auto-merged this pull request and left it for a maintainer to review" class="${PILL} ${HUMAN_TONE}">sampled</span></p>`;
 
 const renderPaused = (): Rendered =>
   html`<p class="${MUTED_LINE}"><span data-paused title="Auto-merge is paused: this pull request would have auto-merged and waits for a maintainer's review" class="${PILL} ${HUMAN_TONE}">paused</span></p>`;
 
-const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, paused }: BoardCard): Rendered => {
+const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, held, paused }: BoardCard): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${paused === true ? renderPaused() : ''}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${paused === true ? renderPaused() : ''}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
@@ -400,7 +403,7 @@ export const renderBoard = (
   review: ReviewSlots,
   display: Display,
   grouping: Grouping = 'none',
-  grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map() },
+  grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map(), holds: new Set() },
   urgencies: UrgencyView = { grades: new Map(), attempts: new Map() },
   ordering: DispatchOrdering = OLDEST_FIRST,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {

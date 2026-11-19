@@ -1099,6 +1099,16 @@ forge.runtime.repositories.forge.protectedPaths = [ "billing/**" ];
 forge.runtime.repositories.forge.autoMergeSizeCap = 500;
 ```
 
+A maintainer can stop forge auto-merging a single pull request by applying
+`forge:hold` to it, which frontier sync creates in every managed repository.
+While the label stands the pull request is not approved or merged, and the Board
+marks its card in reviewing with a `held` pill. Removing the label makes it
+eligible again. A hold counts only when a maintainer, a person with write
+access, applied it: forge removes a `forge:hold` anyone else applied, and the
+pull request then auto-merges as if it was never held. There is no timed delay
+before an auto-merge, so apply the hold before the pass reaches the pull
+request.
+
 The Reviewer App is a third GitHub App you own. Only `forge-auto-merge` holds
 its key, and neither a workload, the runner, the frontier sync, the grading
 service nor the pull deploy can read it. Its approval has to satisfy your
