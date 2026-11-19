@@ -41,6 +41,7 @@ export interface RiskInputs {
   repositories: ReadonlySet<string>;
   grades: ReadonlyMap<string, RecordedRiskGrade>;
   attempts: ReadonlyMap<string, GradingAttempt>;
+  holds: ReadonlySet<string>;
   sampled?: ReadonlySet<string>;
 }
 
@@ -53,6 +54,7 @@ export interface UrgencyInputs {
 
 interface CardState {
   risk: CardRisk;
+  held: boolean;
   urgency: CardUrgency;
   dispatch: DispatchRecord | undefined;
   workload: LiveWorkload | undefined;
@@ -134,6 +136,7 @@ const runningCard = (ticket: RunningSubject, dispatch: DispatchRecord | undefine
   conflictFailedStart: undefined,
   revisionFailedStart: undefined,
   risk: null,
+  held: false,
   urgency: null,
 });
 
@@ -187,7 +190,7 @@ export const buildLanes = (
   revisions: readonly RevisionRecord[],
   conflictResolutions: readonly ConflictResolutionRecord[] = [],
   closes: ReadonlyMap<string, readonly number[]> = new Map(),
-  risks: RiskInputs = { repositories: new Set(), grades: new Map(), attempts: new Map() },
+  risks: RiskInputs = { repositories: new Set(), grades: new Map(), attempts: new Map(), holds: new Set() },
   urgencies: UrgencyInputs = { grades: new Map(), attempts: new Map() },
   ordering: DispatchOrdering = OLDEST_FIRST,
 ): BoardLane[] => {
@@ -201,7 +204,7 @@ export const buildLanes = (
     const live = liveCards(repository.repository, onBoard, dispatches, revisions, conflictResolutions, closes);
     const held = new Set(live.flatMap(({ card }) => (card.column === 'running' && isUntracked(card.ticket) ? [] : [card.ticket.number])));
     for (const request of [...repository.requests].sort(oldestFirst)) {
-      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null, urgency: null });
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null, urgency: null, held: false });
     }
     for (const ticket of [...repository.tickets].sort((a, b) => byOrder(dispatchRefOf(repository.repository, a), dispatchRefOf(repository.repository, b)))) {
       if (held.has(ticket.number)) continue;
@@ -218,12 +221,13 @@ export const buildLanes = (
         sampled: column === 'in-review' && pullRequest != null && risks.sampled?.has(ticketKey(repository.repository, pullRequest.number)) === true,
         urgency: urgencyOf(ticket.number),
         risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? risks.attempts.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
+        held: column === 'in-review' && pullRequest != null && risks.holds.has(ticketKey(repository.repository, pullRequest.number)),
       });
     }
     for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
       if (held.has(ticket.number)) continue;
       const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
-      columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: autoMergedGrade(risks, repository.repository, dispatch), urgency: null });
+      columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: autoMergedGrade(risks, repository.repository, dispatch), urgency: null, held: false });
     }
     columns.running.push(...live.map(({ card }) => (card.column === 'running' && isUntracked(card.ticket) ? card : { ...card, urgency: urgencyOf(card.ticket.number) })));
     return { ...repository, columns };

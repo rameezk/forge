@@ -1007,6 +1007,14 @@ const CREATE_GRADING_ATTEMPTS = `
     ON grading_attempts (repository, number, head_sha);
 `;
 
+const CREATE_PULL_REQUEST_HOLDS = `
+  CREATE TABLE IF NOT EXISTS pull_request_holds (
+    repository TEXT NOT NULL,
+    number     INTEGER NOT NULL,
+    PRIMARY KEY (repository, number)
+  );
+`;
+
 const CREATE_URGENCY_GRADES = `
   CREATE TABLE IF NOT EXISTS urgency_grades (
     repository     TEXT NOT NULL,
@@ -1771,6 +1779,7 @@ export class Store {
     db.exec(CREATE_RISK_GRADES);
     db.exec(CREATE_GRADING_ATTEMPTS);
     db.exec(CREATE_URGENCY_GRADES);
+    db.exec(CREATE_PULL_REQUEST_HOLDS);
     this.#addColumnsOnce(HAS_GRADE_LABELS, ADD_GRADE_LABELS);
     this.#addColumnsOnce(HAS_RISK_GRADE_OUTCOME, ADD_RISK_GRADE_OUTCOME);
     this.#addColumnsOnce(HAS_GRADE_AUTO_MERGE_STARTED, ADD_GRADE_AUTO_MERGE_STARTED);
@@ -3558,6 +3567,32 @@ export class Store {
     return { lastSucceededAt: succeeded.at, failingSince: succeeded.at === null || firstFailed.at < succeeded.at ? firstFailed.at : succeeded.at, failure: failing[0]! };
   }
 
+  recordHold(repository: string, number: number, held: boolean): void {
+    this.#db
+      .prepare(
+        held
+          ? `INSERT OR IGNORE INTO pull_request_holds (repository, number) VALUES ($repository, $number)`
+          : `DELETE FROM pull_request_holds WHERE repository = $repository AND number = $number`,
+      )
+      .run({ repository, number });
+  }
+
+  keepHolds(repository: string, numbers: readonly number[]): void {
+    this.#db
+      .prepare(
+        `DELETE FROM pull_request_holds
+        WHERE repository = $repository AND number NOT IN (SELECT value FROM json_each($numbers))`,
+      )
+      .run({ repository, numbers: JSON.stringify(numbers) });
+  }
+
+  heldPullRequests(): { repository: string; number: number }[] {
+    const rows = this.#db
+      .prepare(`SELECT repository, number FROM pull_request_holds ORDER BY repository, number`)
+      .all() as { repository: string; number: number }[];
+    return rows.map(({ repository, number }) => ({ repository, number }));
+  }
+
   currentRiskGrades(): RecordedRiskGrade[] {
     const rows = this.#db
       .prepare(
@@ -3799,6 +3834,19 @@ export class Store {
         WHERE repository = $repository AND number = $number AND head_sha = $head_sha AND outcome = 'open'`,
       )
       .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
+  }
+
+  openGradedPullRequests(repositories: readonly string[]): RecordedRiskGrade[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT risk_grades.* FROM risk_grades
+        JOIN feedback_watches USING (repository, number, head_sha)
+        WHERE risk_grades.outcome = 'open'
+          AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY risk_grades.repository, risk_grades.number`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
+    return rows.map(riskGradeFromRow);
   }
 
   autoMergeCandidates(repositories: readonly string[], now: string): RecordedRiskGrade[] {

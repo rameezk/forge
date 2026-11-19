@@ -7,6 +7,10 @@ import type { RepositoryConfig } from './config.ts';
 import { protectedPathsOf, sizeCapOf, touchedProtectedPath } from './protected-paths.ts';
 import {
   errorMessage,
+  FORGE_HOLD,
+  holdOn,
+  maintainerLookup,
+  removeLabel,
   FORGE_SAMPLED,
   queryPullRequestReadiness,
   queryUnresolvedThreads,
@@ -67,6 +71,7 @@ export const gatesPassed = ({ changedLines, sizeCap }: DiffFacts): string[] => [
   'Settled: not a draft, and no forge workload is running on it.',
   'Checks: every required check is green.',
   'Feedback: no open feedback and no unresolved review threads.',
+  'Hold: no maintainer has put forge:hold on it.',
   'Protected paths: it touches none.',
   `Size: ${changedLines} changed lines, within the cap of ${sizeCap}.`,
   'Seen by Jev: Jev saw every changed file.',
@@ -142,14 +147,35 @@ const approvedBy = async (
   );
 };
 
+const maintainerHolds = async (
+  { store, fetch, log }: AutoMergeOptions,
+  token: string,
+  grade: RecordedRiskGrade,
+  repository: string,
+): Promise<boolean> => {
+  const hold = await holdOn(fetch, token, repository, grade.number, maintainerLookup(fetch, token, repository));
+  if (hold === 'outsider') {
+    await removeLabel(fetch, token, repository, grade.number, FORGE_HOLD);
+    log(`${grade.repository}#${grade.number}: removed ${FORGE_HOLD}, it was not applied by a maintainer`);
+  }
+  store.recordHold(grade.repository, grade.number, hold === 'maintainer');
+  return hold === 'maintainer';
+};
+
 const autoMergeOne = async (
   options: AutoMergeOptions,
   grade: RecordedRiskGrade,
   config: RepositoryConfig,
+  candidate: boolean,
 ): Promise<void> => {
   const { store, fetch, tokens, now, log } = options;
   const repository = config.github;
   const token = await tokens(repository, 'review');
+  if (await maintainerHolds(options, token, grade, repository)) {
+    log(`${grade.repository}#${grade.number}: waits, a maintainer holds it`);
+    return;
+  }
+  if (!candidate) return;
   const facts = await settled(options, token, repository, grade, config);
   if (typeof facts === 'string') {
     log(`${grade.repository}#${grade.number}: waits, ${facts}`);
@@ -194,9 +220,25 @@ const autoMergeOne = async (
 export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<boolean> => {
   const { store, repositories, now, log } = options;
   let succeeded = true;
-  for (const grade of store.autoMergeCandidates(Object.keys(repositories), now())) {
+  const names = Object.keys(repositories);
+  const tracked = store.openGradedPullRequests(names);
+  const candidates = new Set(
+    store.autoMergeCandidates(names, now()).map(({ repository, number }) => `${repository}#${number}`),
+  );
+  for (const repository of names) {
+    store.keepHolds(
+      repository,
+      tracked.filter((grade) => grade.repository === repository).map(({ number }) => number),
+    );
+  }
+  for (const grade of tracked) {
     try {
-      await autoMergeOne(options, grade, repositories[grade.repository] as RepositoryConfig);
+      await autoMergeOne(
+        options,
+        grade,
+        repositories[grade.repository] as RepositoryConfig,
+        candidates.has(`${grade.repository}#${grade.number}`),
+      );
     } catch (error) {
       log(`${grade.repository}#${grade.number}: could not auto-merge: ${errorMessage(error)}`);
       succeeded = false;
