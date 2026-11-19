@@ -52,7 +52,11 @@ const contextBlock = (heading: string, issue: ContextIssue): string =>
 
 export const dispatchContext = ({ ticket, spec }: TicketContext): string =>
   [
-    `This is the context of the ticket${spec === null ? '' : ' and of its parent spec'}, with only the comments maintainers wrote. Work from it instead of reading the ticket's issue or its comments yourself.`,
+    `This is the context of the ticket${spec === null ? '' : ' and of its parent spec'}, with only the comments maintainers wrote. Work from it instead of reading the ticket's issue or its comments yourself.${
+      spec === null
+        ? ''
+        : " The ticket alone sets what to build. The parent spec is there for its seams and its limits; whatever else it describes belongs to sibling tickets, so build none of it unless the ticket asks for it."
+    }`,
     contextBlock('Ticket', ticket),
     ...(spec === null ? [] : [contextBlock('Parent spec', spec)]),
   ].join('\n\n');

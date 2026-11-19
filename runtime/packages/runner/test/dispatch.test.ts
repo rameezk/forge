@@ -2323,6 +2323,27 @@ test('given a ticket and its parent spec, each with comments from a maintainer, 
   assert.match(instructionOf(pi), /Narrate your work/);
 });
 
+test('given a ticket with a parent spec, when forge dispatches it, then the user message says the ticket alone sets what to build and the rest of the spec belongs to sibling tickets', async () => {
+  const { pi } = await dispatch({
+    contexts: {
+      113: withContext((issue) => {
+        issue.parent = {
+          number: 112,
+          title: 'The spec title',
+          url: 'https://github.com/rameezk/forge/issues/112',
+          body: 'The spec body.',
+          comments: { nodes: [] },
+          parent: null,
+        };
+      }),
+    },
+  });
+
+  const instruction = userMessageOf(pi);
+  assert.match(instruction, /The ticket alone sets what to build/);
+  assert.match(instruction, /belongs to sibling tickets/);
+});
+
 test('given a ticket with no parent spec and a maintainer\'s comment, when forge dispatches it, then the user message carries the ticket\'s title, body and that comment, and nothing for a spec, and the system prompt carries none of them', async () => {
   const { pi } = await dispatch({
     permissions: { helper: 'write' },
