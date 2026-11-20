@@ -75,6 +75,14 @@ const github = async (
   return response.json();
 };
 
+const TITLE_LIMIT = 255;
+
+const SUMMARY_LIMIT = 65535;
+
+const clip = (text: string, limit: number): string => (text.length <= limit ? text : `${text.slice(0, limit - 1)}…`);
+
+const code = (name: string): string => `\`${name.replaceAll('`', "'").replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ')}\``;
+
 export interface DiffFacts {
   changedLines: number;
   sizeCap: number;
@@ -150,7 +158,7 @@ interface Evaluation {
 }
 
 const evaluate = async (
-  { fetch, store, now }: AutoMergeOptions,
+  { fetch }: AutoMergeOptions,
   token: string,
   repository: string,
   { grade, ...known }: CandidateFacts,
@@ -171,22 +179,22 @@ const evaluate = async (
     gates.push({ key, detail });
   };
   if (pull.draft || known.draft || readiness.draft) fail('draft', 'it is a draft');
-  if (store.workloadRunning(grade.repository, grade.number, now())) fail('working', 'a forge workload is running on it');
+  if (known.workloadRunning) fail('working', 'a forge workload is running on it');
   if (!known.mergeable) fail('mergeability', 'its mergeability is not known yet');
-  if (readiness.failing.length > 0) fail('checks-failing', `required checks fail: ${readiness.failing.join(', ')}`);
-  if (readiness.pending.length > 0) fail('checks-pending', `required checks are pending: ${readiness.pending.join(', ')}`);
+  if (readiness.failing.length > 0) fail('checks-failing', `required checks fail: ${readiness.failing.map(code).join(', ')}`);
+  if (readiness.pending.length > 0) fail('checks-pending', `required checks are pending: ${readiness.pending.map(code).join(', ')}`);
   const feedback = [
     ...(known.feedbackOpen ? ['it has open feedback'] : []),
     ...(threads > 0 ? [`it has ${threads} unresolved review thread${threads === 1 ? '' : 's'}`] : []),
   ];
   if (feedback.length > 0) fail('feedback', feedback.join(' and '));
   const protectedPath = touchedProtectedPath(files, protectedPathsOf(config));
-  if (protectedPath !== null) fail('protected-path', `it touches the protected path ${protectedPath}`);
+  if (protectedPath !== null) fail('protected-path', `it touches the protected path ${code(protectedPath)}`);
   if (files.length >= MAX_CHANGED_FILES) {
     fail('too-many-files', `it changes ${MAX_CHANGED_FILES} files or more, more than forge can list`);
   }
   const hidden = files.find((file) => !shownToJev(file));
-  if (hidden !== undefined) fail('not-seen', `Jev did not see the content of ${hidden.filename}`);
+  if (hidden !== undefined) fail('not-seen', `Jev did not see the content of ${code(hidden.filename)}`);
   const changedLines = files.reduce((sum, { additions, deletions }) => sum + additions + deletions, 0);
   const sizeCap = sizeCapOf(config);
   if (changedLines > sizeCap) fail('size', `it changes ${changedLines} lines, over the cap of ${sizeCap}`);
@@ -206,14 +214,14 @@ const verdictOutput = (
   }
   const [first, ...others] = verdict.gates;
   return {
-    title: `Waits: ${first?.detail ?? ''}${others.length > 0 ? `, +${others.length} more` : ''}`,
-    summary: [
+    title: clip(`Waits: ${first?.detail ?? ''}${others.length > 0 ? `, +${others.length} more` : ''}`, TITLE_LIMIT),
+    summary: clip([
       'Forge will not auto-merge this pull request until:',
       ...verdict.gates.map(({ detail }) => `- ${detail}`),
       '',
       'Gates passed:',
       ...gatesPassed(facts, verdict.gates).map((gate) => `- ${gate}`),
-    ].join('\n'),
+    ].join('\n'), SUMMARY_LIMIT),
   };
 };
 
@@ -340,7 +348,11 @@ const autoMergeOne = async (
     method: 'POST',
     body: { body: autoMergeComment(grade, facts) },
   });
-  await publishVerdict(options, token, grade, repository, { kind: 'auto-merged' }, facts);
+  try {
+    await publishVerdict(options, token, grade, repository, { kind: 'auto-merged' }, facts);
+  } catch (error) {
+    throw new Error(`the pull request merged, but its check run could not be written: ${errorMessage(error)}`);
+  }
 };
 
 const checkReviewerAppRules = async (

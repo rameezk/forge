@@ -1,31 +1,6 @@
 import { autoMergeStateOf, PAUSE_WINDOW, type AutoMergeStatus } from './auto-merge-status.ts';
 import { riskGradeFromRow, type RecordedRiskGrade, type RiskGradeRow, type Store } from './store.ts';
 
-export const autoMergeCandidates = (store: Store, repositories: readonly string[], now: string): RecordedRiskGrade[] =>
-  store
-    .read<RiskGradeRow>(
-      `SELECT risk_grades.* FROM risk_grades
-      JOIN feedback_watches USING (repository, number, head_sha)
-      WHERE risk_grades.outcome = 'open'
-        AND risk_grades.level IN ('trivial', 'low')
-        AND risk_grades.uncertain = 0
-        AND feedback_watches.mergeable IS NOT NULL
-        AND feedback_watches.draft = 0
-        AND feedback_watches.newest IS NULL
-        AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
-        AND NOT EXISTS (
-          SELECT 1 FROM auto_merge_samples
-          WHERE auto_merge_samples.repository = risk_grades.repository
-            AND auto_merge_samples.number = risk_grades.number
-            AND auto_merge_samples.sampled = 1
-            AND auto_merge_samples.announced = 1
-        )
-      ORDER BY risk_grades.repository, risk_grades.number`,
-      { repositories: JSON.stringify(repositories) },
-    )
-    .map(riskGradeFromRow)
-    .filter(({ repository, number }) => !store.workloadRunning(repository, number, now));
-
 export interface CandidateFacts {
   grade: RecordedRiskGrade;
   draft: boolean;
@@ -62,11 +37,16 @@ export const candidatesWithFacts = (store: Store, repositories: readonly string[
       return {
         grade,
         draft: row.watch_draft === 1,
-        mergeable: row.watch_mergeable !== null,
+        mergeable: row.watch_mergeable !== null && row.watch_draft !== null,
         feedbackOpen: row.watch_newest !== null,
         workloadRunning: store.workloadRunning(grade.repository, grade.number, now),
       };
     });
+
+export const autoMergeCandidates = (store: Store, repositories: readonly string[], now: string): RecordedRiskGrade[] =>
+  candidatesWithFacts(store, repositories, now)
+    .filter(({ draft, mergeable, feedbackOpen, workloadRunning }) => !draft && mergeable && !feedbackOpen && !workloadRunning)
+    .map(({ grade }) => grade);
 
 export const pullRequestSampled = (store: Store, repository: string, number: number): boolean | null => {
   const [row] = store.read<{ sampled: number }>(

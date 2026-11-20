@@ -186,7 +186,7 @@ const forge = (
   const removedLabels: { number: number; label: string }[] = [];
   const checkRuns: CheckRunWrite[] = [];
   const labels: { number: number; labels: string[] }[] = [];
-  const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
+  const hooks = { failCheckRuns: false, beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
   const answering: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const json = (data: unknown, status = 200): Response =>
@@ -230,6 +230,7 @@ const forge = (
     }
     const checkRunsOf = /^\/repos\/rameezk\/(forge|other)\/check-runs(?:\/(\d+))?$/.exec(url.pathname);
     if (checkRunsOf !== null) {
+      if (hooks.failCheckRuns) return json({ message: 'nope' }, 500);
       const body = JSON.parse(String(init?.body)) as CheckRunWrite['body'];
       const id = checkRunsOf[2] === undefined ? checkRuns.filter(({ method }) => method === 'POST').length + 1 : Number(checkRunsOf[2]);
       checkRuns.push({ method: String(init?.method), id, authorization, body });
@@ -922,8 +923,8 @@ test('given a candidate graded low that touches a protected path, when the pass 
   assert.equal(run?.body.head_sha, HEAD(1));
   assert.equal(run?.body.status, 'completed');
   assert.equal(run?.body.conclusion, 'neutral');
-  assert.equal(run?.body.output.title, 'Waits: it touches the protected path .github/workflows/ci.yml');
-  assert.match(run?.body.output.summary ?? '', /it touches the protected path \.github\/workflows\/ci\.yml/);
+  assert.equal(run?.body.output.title, 'Waits: it touches the protected path `.github/workflows/ci.yml`');
+  assert.match(run?.body.output.summary ?? '', /it touches the protected path `\.github\/workflows\/ci\.yml`/);
 });
 
 const titles = (f: ReturnType<typeof forge>): string[] => f.checkRuns.map(({ body }) => body.output.title);
@@ -931,7 +932,7 @@ const titles = (f: ReturnType<typeof forge>): string[] => f.checkRuns.map(({ bod
 test('given a candidate that touches a protected path and is over the size cap, when the pass runs, then the check run summary names both and its title names the first with +1 more', async () => {
   const f = forge([{ number: 1, files: [edit('.github/workflows/ci.yml', 200, 101)] }]);
   await f.run();
-  assert.deepEqual(titles(f), ['Waits: it touches the protected path .github/workflows/ci.yml, +1 more']);
+  assert.deepEqual(titles(f), ['Waits: it touches the protected path `.github/workflows/ci.yml`, +1 more']);
   const summary = f.checkRuns[0]?.body.output.summary ?? '';
   assert.match(summary, /it touches the protected path/);
   assert.match(summary, /it changes 301 lines, over the cap of 300/);
@@ -955,7 +956,7 @@ test('given candidates that are a draft, have a forge workload running or have o
     'Waits: a forge workload is running on it',
     'Waits: it has open feedback',
     'Waits: it has 1 unresolved review thread',
-    'Waits: required checks are pending: ci',
+    'Waits: required checks are pending: `ci`',
   ]);
 });
 
@@ -968,7 +969,7 @@ test('given a held-back candidate whose required checks were pending and now fai
     f.checkRuns.map(({ method, id }) => [method, id]),
     [['POST', 1], ['PATCH', 1]],
   );
-  assert.equal(f.checkRuns[1]?.body.output.title, 'Waits: required checks fail: ci');
+  assert.equal(f.checkRuns[1]?.body.output.title, 'Waits: required checks fail: `ci`');
 });
 
 test('given a held-back candidate whose push brings it over the size cap and whose new head is graded low, when the pass runs, then a new check run on the new head names the size cap and the old head run is untouched', async () => {
@@ -1045,4 +1046,27 @@ test('given a candidate whose head moved past its graded head, a pull request gr
   f.changeHead(1);
   await f.run();
   assert.deepEqual(f.checkRuns, []);
+});
+
+test('given a pull request whose changed file name carries Markdown, when the pass runs, then the check run quotes the name as code', async () => {
+  const f = forge([{ number: 1, files: [edit('.github/workflows/[x](https://evil.example)@all`.yml')] }]);
+  await f.run();
+  assert.equal(
+    f.checkRuns[0]?.body.output.title,
+    'Waits: it touches the protected path `.github/workflows/[x](https://evil.example)@all\'.yml`',
+  );
+});
+
+test('given a pull request whose changed file name is very long, when the pass runs, then the check run title stays within 255 characters', async () => {
+  const f = forge([{ number: 1, files: [edit(`.github/workflows/${'a'.repeat(400)}.yml`)] }]);
+  await f.run();
+  assert.equal(f.checkRuns[0]?.body.output.title.length, 255);
+});
+
+test('given a merge that succeeds but whose check run cannot be written, when the pass runs, then it reports that the pull request merged and the check run failed', async () => {
+  const f = forge([{ number: 1 }]);
+  f.hooks.failCheckRuns = true;
+  assert.equal(await f.run(), 1);
+  assert.equal(f.merges.length, 1);
+  assert.match(f.journals[0] ?? '', /merged, but its check run could not be written/);
 });
