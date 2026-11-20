@@ -37,6 +37,13 @@ interface ChangedFileSpec {
   status?: string;
 }
 
+interface CheckRunWrite {
+  method: string;
+  id: number;
+  authorization: string;
+  body: { name?: string; head_sha?: string; status: string; conclusion: string; output: { title: string; summary: string } };
+}
+
 const edit = (filename: string, additions = 3, deletions = 1): ChangedFileSpec => ({
   filename,
   additions,
@@ -177,6 +184,7 @@ const forge = (
   const comments: { number: number; authorization: string; body: string }[] = [];
   const held = new Map(pulls.flatMap((pull) => (pull.hold === undefined ? [] : [[pull.number, pull.hold] as const])));
   const removedLabels: { number: number; label: string }[] = [];
+  const checkRuns: CheckRunWrite[] = [];
   const labels: { number: number; labels: string[] }[] = [];
   const hooks = { beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
   const answering: typeof globalThis.fetch = async (input, init) => {
@@ -219,6 +227,13 @@ const forge = (
         return json({ merged: true });
       }
       return json({ number, state: 'open', draft: pull.draft ?? false, head: { sha: heads.get(number) } });
+    }
+    const checkRunsOf = /^\/repos\/rameezk\/(forge|other)\/check-runs(?:\/(\d+))?$/.exec(url.pathname);
+    if (checkRunsOf !== null) {
+      const body = JSON.parse(String(init?.body)) as CheckRunWrite['body'];
+      const id = checkRunsOf[2] === undefined ? checkRuns.filter(({ method }) => method === 'POST').length + 1 : Number(checkRunsOf[2]);
+      checkRuns.push({ method: String(init?.method), id, authorization, body });
+      return json({ id }, init?.method === 'POST' ? 201 : 200);
     }
     const labelsOf = /^\/repos\/rameezk\/(forge|other)\/issues\/(\d+)\/labels(?:\/(.+))?$/.exec(url.pathname);
     if (labelsOf !== null) {
@@ -364,6 +379,7 @@ const forge = (
     comments,
     removedLabels,
     labels,
+    checkRuns,
     dice,
     hooks,
     mints: app.mints,
@@ -893,4 +909,140 @@ test('given a cohort with 10 settled grades none of which a person reviewed, whe
   await f.run();
   assert.deepEqual(f.merges, []);
   assert.deepEqual(labelled(f, 7), ['forge:sampled']);
+});
+
+test('given a candidate graded low that touches a protected path, when the pass runs, then its head has a completed neutral forge/auto-merge check run naming the protected path, written by the Reviewer App', async () => {
+  const f = forge([{ number: 1, files: [edit('.github/workflows/ci.yml')] }]);
+  await f.run();
+  assert.equal(f.checkRuns.length, 1);
+  const [run] = f.checkRuns;
+  assert.equal(run?.method, 'POST');
+  assert.match(run?.authorization ?? '', /^bearer ghs_review_/i);
+  assert.equal(run?.body.name, 'forge/auto-merge');
+  assert.equal(run?.body.head_sha, HEAD(1));
+  assert.equal(run?.body.status, 'completed');
+  assert.equal(run?.body.conclusion, 'neutral');
+  assert.equal(run?.body.output.title, 'Waits: it touches the protected path .github/workflows/ci.yml');
+  assert.match(run?.body.output.summary ?? '', /it touches the protected path \.github\/workflows\/ci\.yml/);
+});
+
+const titles = (f: ReturnType<typeof forge>): string[] => f.checkRuns.map(({ body }) => body.output.title);
+
+test('given a candidate that touches a protected path and is over the size cap, when the pass runs, then the check run summary names both and its title names the first with +1 more', async () => {
+  const f = forge([{ number: 1, files: [edit('.github/workflows/ci.yml', 200, 101)] }]);
+  await f.run();
+  assert.deepEqual(titles(f), ['Waits: it touches the protected path .github/workflows/ci.yml, +1 more']);
+  const summary = f.checkRuns[0]?.body.output.summary ?? '';
+  assert.match(summary, /it touches the protected path/);
+  assert.match(summary, /it changes 301 lines, over the cap of 300/);
+});
+
+test('given candidates that are a draft, have a forge workload running or have open feedback, when the pass runs, then each gets a neutral check run naming that gate', async () => {
+  const f = forge([
+    { number: 1, draft: true },
+    { number: 2, revising: true },
+    { number: 3, feedback: true },
+    { number: 4, unresolvedThread: true },
+    { number: 5, checks: 'pending' },
+  ]);
+  await f.run();
+  assert.deepEqual(
+    f.checkRuns.map(({ body }) => [body.head_sha, body.conclusion]),
+    [1, 2, 3, 4, 5].map((number) => [HEAD(number), 'neutral']),
+  );
+  assert.deepEqual(titles(f), [
+    'Waits: it is a draft',
+    'Waits: a forge workload is running on it',
+    'Waits: it has open feedback',
+    'Waits: it has 1 unresolved review thread',
+    'Waits: required checks are pending: ci',
+  ]);
+});
+
+test('given a held-back candidate whose required checks were pending and now fail, when the pass runs, then its existing check run is updated in place and no second run is created', async () => {
+  const f = forge([{ number: 1, checks: 'pending' }]);
+  await f.run();
+  (f.pulls[0] as Pull).checks = 'failing';
+  await f.run();
+  assert.deepEqual(
+    f.checkRuns.map(({ method, id }) => [method, id]),
+    [['POST', 1], ['PATCH', 1]],
+  );
+  assert.equal(f.checkRuns[1]?.body.output.title, 'Waits: required checks fail: ci');
+});
+
+test('given a held-back candidate whose push brings it over the size cap and whose new head is graded low, when the pass runs, then a new check run on the new head names the size cap and the old head run is untouched', async () => {
+  const f = forge([{ number: 1, draft: true }]);
+  await f.run();
+  f.changeHead(1);
+  (f.pulls[0] as Pull).draft = false;
+  (f.pulls[0] as Pull).files = [edit('src/a.ts', 200, 101)];
+  f.withStore((store) => {
+    store.recordRiskGrade({ ...(store.riskGrade('forge', 1, HEAD(1)) as RiskGrade), headSha: 'moved-1' });
+    store.recordWatchedPullRequests('forge', [
+      {
+        number: 1,
+        url: 'https://github.com/rameezk/forge/pull/1',
+        closes: [10],
+        newestFeedbackAt: null,
+        mergeable: 'MERGEABLE',
+        headSha: 'moved-1',
+        draft: false,
+        defaultSha: 'default-a',
+      },
+    ]);
+  });
+  await f.run();
+  assert.deepEqual(
+    f.checkRuns.map(({ method, id, body }) => [method, id, body.head_sha]),
+    [['POST', 1, HEAD(1)], ['POST', 2, 'moved-1']],
+  );
+  assert.match(f.checkRuns[1]?.body.output.title ?? '', /over the cap of 300/);
+});
+
+test('given a held-back candidate whose reason has not changed, when the pass runs again, then it makes no check run write and logs no waits line', async () => {
+  const f = forge([{ number: 1, files: [edit('.github/workflows/ci.yml')] }]);
+  await f.run();
+  await f.run();
+  assert.equal(f.checkRuns.length, 1);
+  assert.match(f.journals[0] ?? '', /waits, it touches the protected path/);
+  assert.doesNotMatch(f.journals[1] ?? '', /waits/);
+});
+
+test('given a candidate that passes every gate, when forge merges it, then its check run concludes success titled with the head and the comment is unchanged', async () => {
+  const f = forge([{ number: 1 }]);
+  await f.run();
+  assert.deepEqual(
+    f.checkRuns.map(({ method, body }) => [method, body.conclusion, body.output.title]),
+    [['POST', 'success', `Auto-merged at ${HEAD(1)}`]],
+  );
+  assert.equal(f.comments.length, 1);
+  assert.match(f.comments[0]?.body ?? '', /Forge auto-merged this pull request/);
+  assert.equal(outcomeOf(f, 1), 'auto-merged');
+});
+
+test('given a candidate that waited and then passes every gate, when forge merges it, then the same check run is updated to success', async () => {
+  const f = forge([{ number: 1, checks: 'pending' }]);
+  await f.run();
+  (f.pulls[0] as Pull).checks = 'passing';
+  await f.run();
+  assert.deepEqual(
+    f.checkRuns.map(({ method, id, body }) => [method, id, body.conclusion]),
+    [['POST', 1, 'neutral'], ['PATCH', 1, 'success']],
+  );
+});
+
+test('given a candidate whose head moved past its graded head, a pull request graded moderate or uncertain, and one in a repository without autoMerge, when the pass runs, then no check run is written', async () => {
+  const f = forge(
+    [
+      { number: 1, draft: true },
+      { number: 2, level: 'moderate', draft: true },
+      { number: 3, uncertain: true, draft: true },
+      { number: 4, repository: 'other', draft: true },
+    ],
+    ['forge'],
+  );
+  f.changeHead(1);
+  await f.run();
+  assert.deepEqual(f.checkRuns, []);
 });
