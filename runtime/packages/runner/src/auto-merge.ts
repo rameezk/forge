@@ -118,6 +118,10 @@ const passedWording = ({ changedLines, sizeCap }: DiffFacts): [GateGroup, string
 
 export const gatesPassed = (facts: DiffFacts, failing: readonly FailingGate[] = []): string[] => {
   const failed = new Set(failing.map(({ key }) => GATE_GROUP[key]));
+  if (failing.some(({ key }) => key === 'too-many-files')) {
+    failed.add('protected-paths');
+    failed.add('seen');
+  }
   return passedWording(facts)
     .filter(([group]) => !failed.has(group))
     .map(([, wording]) => wording);

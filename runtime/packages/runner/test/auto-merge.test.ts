@@ -1087,3 +1087,13 @@ test('given a merge whose comment cannot be posted, when the pass runs, then the
   assert.equal(await f.run(), 1);
   assert.deepEqual(f.checkRuns.map(({ body }) => body.conclusion), ['success']);
 });
+
+test('given a pull request with more files than forge can list, when the pass runs, then the summary does not claim the protected paths or Jev gates passed', async () => {
+  const files = Array.from({ length: 3000 }, (_, index) => edit(`src/f${index}.ts`, 0, 0));
+  const f = forge([{ number: 1, files }]);
+  await f.run();
+  const summary = f.checkRuns[0]?.body.output.summary ?? '';
+  assert.match(summary, /more than forge can list/);
+  assert.doesNotMatch(summary, /Protected paths: it touches none/);
+  assert.doesNotMatch(summary, /Seen by Jev/);
+});
