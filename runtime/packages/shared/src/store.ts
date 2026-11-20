@@ -3929,6 +3929,16 @@ export class Store {
     };
   }
 
+  recordSample(repository: string, number: number, sampled: boolean, at: string): void {
+    this.#db
+      .prepare(
+        `INSERT INTO auto_merge_samples (repository, number, sampled, drawn_at)
+        VALUES ($repository, $number, $sampled, $at)
+        ON CONFLICT (repository, number) DO UPDATE SET sampled = excluded.sampled, drawn_at = excluded.drawn_at`,
+      )
+      .run({ repository, number, sampled: sampled ? 1 : 0, at });
+  }
+
   markSampleAnnounced(repository: string, number: number): void {
     this.#db
       .prepare(`UPDATE auto_merge_samples SET announced = 1 WHERE repository = $repository AND number = $number`)

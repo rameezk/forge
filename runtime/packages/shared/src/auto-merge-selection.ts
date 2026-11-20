@@ -45,13 +45,7 @@ export const drawSample = (
   const known = pullRequestSampled(store, repository, number);
   if (known === true || (known === false && !forced)) return known;
   const sampled = forced || draw();
-  store.read(
-    `INSERT INTO auto_merge_samples (repository, number, sampled, drawn_at)
-    VALUES ($repository, $number, $sampled, $at)
-    ON CONFLICT (repository, number) DO UPDATE SET sampled = excluded.sampled, drawn_at = excluded.drawn_at
-    RETURNING sampled`,
-    { repository, number, sampled: sampled ? 1 : 0, at },
-  );
+  store.recordSample(repository, number, sampled, at);
   return sampled;
 };
 
