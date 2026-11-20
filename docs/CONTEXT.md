@@ -219,6 +219,10 @@ What pushed the head that superseded a risk grade's head commit: a forge revisio
 Forge approving and merging one of its own pull requests without a person's review, because the pull request passed every auto-merge gate at its current head in a repository that opted in (ADR-0115).
 _Avoid_: automerge, self-merge
 
+**Auto-merge candidate**:
+An open pull request in a repository that opted in to auto-merge whose current head has a trivial or low risk grade that is not uncertain. Whether it auto-merges is then up to the gates, a hold, the audit sample and the auto-merge pause.
+_Avoid_: eligible pull request
+
 **Reviewer App**:
 The operator's GitHub App that approves and merges auto-merges, held only by the `forge-auto-merge` service and never by a workload or the grading service (ADR-0116).
 _Avoid_: merge bot, approver bot
