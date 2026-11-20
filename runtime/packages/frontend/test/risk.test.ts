@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { GradeOutcome, GradingFailure, RiskLevel, Store, SupersedeCause } from '@forge/shared';
+import { drawSample } from '@forge/shared';
 import { textOf } from './html.ts';
 import { dashboard } from './insights-seed.ts';
 
@@ -413,8 +414,8 @@ test('given no grades and no opted-in repository, when the Risk tab loads, then 
 
 test('given two sampled pull requests drawn on 21 and 22 September and one auto-merged grade, when the tab is limited to 22 September onwards, then the card counts one sampled and no auto-merged pull request', async () => {
   const { text } = await statusCard((store) => {
-    store.drawSample('forge', 1, () => true, '2026-09-21T10:00:00.000Z');
-    store.drawSample('forge', 2, () => true, '2026-09-22T10:00:00.000Z');
+    drawSample(store, 'forge', 1, () => true, '2026-09-21T10:00:00.000Z');
+    drawSample(store, 'forge', 2, () => true, '2026-09-22T10:00:00.000Z');
     grade(store, { outcome: 'auto-merged', at: '2026-09-21T10:00:00.000Z' });
   }, '?tab=risk&from=2026-09-22');
 
@@ -424,8 +425,8 @@ test('given two sampled pull requests drawn on 21 and 22 September and one auto-
 
 test('given a pull request drawn unsampled on 21 September and forced into the sample on 22 September, when the tab is limited to 22 September onwards, then the card counts it as sampled', async () => {
   const { text } = await statusCard((store) => {
-    store.drawSample('forge', 1, () => false, '2026-09-21T10:00:00.000Z');
-    store.drawSample('forge', 1, () => false, '2026-09-22T10:00:00.000Z', true);
+    drawSample(store, 'forge', 1, () => false, '2026-09-21T10:00:00.000Z');
+    drawSample(store, 'forge', 1, () => false, '2026-09-22T10:00:00.000Z', true);
   }, '?tab=risk&from=2026-09-22');
 
   assert.match(text, /Sampled 1/);

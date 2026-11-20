@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { aggregateRisk, certainUrgencies, summarizeRisk, type DispatchOrder, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, ticketKey, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type AutoMergeStatus, type RunRecord, type Store } from '@forge/shared';
+import { aggregateRisk, autoMergeCandidates, autoMergeStatus, pullRequestSampled, certainUrgencies, summarizeRisk, type DispatchOrder, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, ticketKey, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type AutoMergeStatus, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
@@ -108,14 +108,14 @@ export const createApp = ({
 
   const autoMergePause = (): AutoMergeStatus | null => {
     if (autoMergeRepositories.length === 0) return null;
-    const status = store.autoMergeStatus();
+    const status = autoMergeStatus(store);
     return status.state === 'paused' ? status : null;
   };
 
   const pausedPullRequests = (now: string): { repository: string; number: number }[] =>
     autoMergePause() === null
       ? []
-      : store.autoMergeCandidates(autoMergeRepositories, now).filter(({ repository, number }) => store.pullRequestSampled(repository, number) !== true);
+      : autoMergeCandidates(store, autoMergeRepositories, now).filter(({ repository, number }) => pullRequestSampled(store, repository, number) !== true);
 
   const escalatedGrading = (): boolean => {
     const grading = gradingAttention();
@@ -218,7 +218,7 @@ export const createApp = ({
         ...(startedBefore === undefined ? {} : { gradedBefore: new Date(startedBefore).toISOString() }),
       };
       const grades = fingerprint === undefined ? [] : store.listRiskGrades({ fingerprint, ...range });
-      return c.html(renderRisk(aggregateRisk(grades), summarizeRisk(grades, store.listFailedGradingHeads(range)), { ...query, ...(fingerprint === undefined ? {} : { cohort: fingerprint }) }, options, shown, store.autoMergeStatus(), store.autoMergeCounts(range), autoMergeRepositories));
+      return c.html(renderRisk(aggregateRisk(grades), summarizeRisk(grades, store.listFailedGradingHeads(range)), { ...query, ...(fingerprint === undefined ? {} : { cohort: fingerprint }) }, options, shown, autoMergeStatus(store), store.autoMergeCounts(range), autoMergeRepositories));
     }
     const filter = filterOf(query);
     return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), query, store.insightsOptions(), shown));

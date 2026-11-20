@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SAMPLE_RATE, Store, type RiskGrade, type RiskLevel } from '@forge/shared';
+import { autoMergeCandidates, pullRequestSampled, SAMPLE_RATE, Store, type RiskGrade, type RiskLevel } from '@forge/shared';
 import { main as autoMerge } from '../src/auto-merge-main.ts';
 import { APP_ID, BOT_LOGIN, fakeGithubApp, routedThrough } from '../../shared/test/fixtures/fake-github-app.ts';
 import { drawsSample } from '../src/auto-merge.ts';
@@ -435,7 +435,7 @@ test('given a pull request whose head changes after the pass checked it, when th
   assert.deepEqual(f.merges, []);
   assert.deepEqual(f.comments, []);
   assert.equal(outcomeOf(f, 7), 'open');
-  assert.equal(f.withStore((store) => store.autoMergeCandidates(['forge'], NOW).length), 1);
+  assert.equal(f.withStore((store) => autoMergeCandidates(store, ['forge'], NOW).length), 1);
 });
 
 test('given an auto-merged grade and a grade merged by a person, when the store settles a merge, then they stay distinct outcomes', async () => {
@@ -693,7 +693,7 @@ test('given a sampled pull request that receives a new head passing every gate, 
   assert.deepEqual([f.reviews, f.merges], [[], []]);
   assert.equal(f.comments.length, 1);
   assert.deepEqual(labelled(f, 7), ['forge:sampled']);
-  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), true);
+  assert.equal(f.withStore((store) => pullRequestSampled(store, 'forge', 7)), true);
 });
 
 test('given an eligible pull request whose draw did not sample it, when the pass runs, then it auto-merges and a later pass does not redraw it', async () => {
@@ -701,10 +701,10 @@ test('given an eligible pull request whose draw did not sample it, when the pass
   await f.run();
   assert.deepEqual(merged(f), [7]);
   assert.deepEqual(f.labels, []);
-  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), false);
+  assert.equal(f.withStore((store) => pullRequestSampled(store, 'forge', 7)), false);
   f.dice.next = SAMPLED;
   await f.run();
-  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), false);
+  assert.equal(f.withStore((store) => pullRequestSampled(store, 'forge', 7)), false);
 });
 
 test('given a sampled pull request whose label could not be applied, when the pass runs again, then the draw stands and the sample is announced once the label lands', async () => {
@@ -725,7 +725,7 @@ test('given a pull request that fails a gate, when the pass runs, then no draw i
   const f = forge([{ number: 1, checks: 'failing' }]);
   f.dice.next = SAMPLED;
   await f.run();
-  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 1)), null);
+  assert.equal(f.withStore((store) => pullRequestSampled(store, 'forge', 1)), null);
   assert.deepEqual(f.labels, []);
 });
 
@@ -833,7 +833,7 @@ test('given 20 settled human-reviewed trivial and low grades in the current coho
   assert.deepEqual([f.reviews, f.merges], [[], []]);
   assert.match(f.comments[0]?.body ?? '', /paused: 17 of the last 20/);
   assert.match(f.comments[0]?.body ?? '', /90%/);
-  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), true);
+  assert.equal(f.withStore((store) => pullRequestSampled(store, 'forge', 7)), true);
 });
 
 test('given a pause that further sampled grades lift until 18 of the last 20 held up, when the pass runs on an eligible unsampled pull request, then it auto-merges', async () => {
@@ -844,7 +844,7 @@ test('given a pause that further sampled grades lift until 18 of the last 20 hel
   f.pulls[1]!.checks = 'passing';
   assert.equal(await f.run(), 0);
   assert.deepEqual(merged(f), [8]);
-  assert.equal(f.withStore((store) => store.pullRequestSampled('forge', 7)), true);
+  assert.equal(f.withStore((store) => pullRequestSampled(store, 'forge', 7)), true);
 });
 
 test('given a cohort whose last 20 settled grades include auto-merged ones, when the pass runs, then only the human-reviewed grades are in the rate', async () => {

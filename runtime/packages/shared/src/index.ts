@@ -162,6 +162,7 @@ export type {
   WorkloadOutcome,
 } from './insights.ts';
 export { INSIGHT_KIND_FILTERS, noFailures, sumFailures } from './insights.ts';
+export { autoMergeCandidates, autoMergeStatus, drawSample, pullRequestSampled } from './auto-merge-selection.ts';
 export {
   AUTO_MERGE_STATES,
   autoMergeStateOf,
