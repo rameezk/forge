@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '@forge/shared';
+import { drawSample, Store } from '@forge/shared';
 import type { ClosedTicket, GradingAttempt, GradingFailure, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket, UrgencyGrade, UrgencyLevel } from '@forge/shared';
 import { createApp, FileTranscriptSource, type AppOptions } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
@@ -1153,8 +1153,8 @@ test('given a ticket whose pull request is sampled and another whose is not, whe
       watchHead(store, 100 + number, 'head1');
       store.recordRiskGrade(gradeOf(100 + number, 'head1', { level: 'low' }));
     }
-    store.drawSample('forge', 105, () => true, '2026-09-30T09:30:00.000Z');
-    store.drawSample('forge', 106, () => false, '2026-09-30T09:30:00.000Z');
+    drawSample(store, 'forge', 105, () => true, '2026-09-30T09:30:00.000Z');
+    drawSample(store, 'forge', 106, () => false, '2026-09-30T09:30:00.000Z');
   }, undefined, undefined, GRADING);
 
   const body = await (await app.request('/')).text();
@@ -1183,7 +1183,7 @@ const pausedBoard = (held: number, failed: number, optedIn = ['forge'], announce
       store.recordRiskGrade(gradeOf(100 + number, 'head1', { level: number === 7 ? 'moderate' : 'low' }));
     }
     store.recordWatchedPullRequests('forge', [105, 106, 107].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'head1', draft: false, defaultSha: 'main0' })));
-    store.drawSample('forge', 106, () => true, '2026-09-30T09:30:00.000Z');
+    drawSample(store, 'forge', 106, () => true, '2026-09-30T09:30:00.000Z');
     if (announced) store.markSampleAnnounced('forge', 106);
   }, undefined, undefined, GRADING, { autoMergeRepositories: optedIn });
 

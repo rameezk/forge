@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import {
   newestClosedFirst,
   oldestFirst,
@@ -48,7 +48,7 @@ import type {
 } from './generation.ts';
 import type { WatchedPullRequest } from './feedback.ts';
 import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from './attempts.ts';
-import { autoMergeStateOf, PAUSE_WINDOW, type AutoMergeCounts, type AutoMergeStatus } from './auto-merge-status.ts';
+import type { AutoMergeCounts } from './auto-merge-status.ts';
 import { UNKNOWN_COHORT } from './fingerprint.ts';
 import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
 import { STALE_AFTER_MS } from './heartbeat.ts';
@@ -1334,7 +1334,7 @@ export interface GradingDue {
   headSha: string;
 }
 
-type RiskGradeRow = {
+export type RiskGradeRow = {
   repository: string;
   number: number;
   head_sha: string;
@@ -1361,7 +1361,7 @@ const displayedGradeFromRow = (row: RiskGradeRow): DisplayedGrade => ({
   labelsApplied: row.labels_applied === 1,
 });
 
-const riskGradeFromRow = (row: RiskGradeRow): RecordedRiskGrade => ({
+export const riskGradeFromRow = (row: RiskGradeRow): RecordedRiskGrade => ({
   repository: row.repository,
   number: row.number,
   headSha: row.head_sha,
@@ -3812,6 +3812,10 @@ export class Store {
     return rows.map(riskGradeFromRow);
   }
 
+  read<Row>(sql: string, parameters: Record<string, SQLInputValue> = {}): Row[] {
+    return this.#db.prepare(sql).all(parameters) as Row[];
+  }
+
   workloadRunning(repository: string, number: number, now: string): boolean {
     const pullRequest = { repository, number };
     return this.#revisionLive(pullRequest, now) || this.#conflictResolutionLive(pullRequest, now);
@@ -3901,47 +3905,6 @@ export class Store {
     return rows.map(riskGradeFromRow);
   }
 
-  autoMergeCandidates(repositories: readonly string[], now: string): RecordedRiskGrade[] {
-    const rows = this.#db
-      .prepare(
-        `SELECT risk_grades.* FROM risk_grades
-        JOIN feedback_watches USING (repository, number, head_sha)
-        WHERE risk_grades.outcome = 'open'
-          AND risk_grades.level IN ('trivial', 'low')
-          AND risk_grades.uncertain = 0
-          AND feedback_watches.mergeable IS NOT NULL
-          AND feedback_watches.draft = 0
-          AND feedback_watches.newest IS NULL
-          AND risk_grades.repository IN (SELECT value FROM json_each($repositories))
-          AND NOT EXISTS (
-            SELECT 1 FROM auto_merge_samples
-            WHERE auto_merge_samples.repository = risk_grades.repository
-              AND auto_merge_samples.number = risk_grades.number
-              AND auto_merge_samples.sampled = 1
-              AND auto_merge_samples.announced = 1
-          )
-        ORDER BY risk_grades.repository, risk_grades.number`,
-      )
-      .all({ repositories: JSON.stringify(repositories) }) as RiskGradeRow[];
-    return rows
-      .map(riskGradeFromRow)
-      .filter(({ repository, number }) => !this.workloadRunning(repository, number, now));
-  }
-
-  drawSample(repository: string, number: number, draw: () => boolean, at: string, forced = false): boolean {
-    const known = this.pullRequestSampled(repository, number);
-    if (known === true || (known === false && !forced)) return known;
-    const sampled = forced || draw();
-    this.#db
-      .prepare(
-        `INSERT INTO auto_merge_samples (repository, number, sampled, drawn_at)
-        VALUES ($repository, $number, $sampled, $at)
-        ON CONFLICT (repository, number) DO UPDATE SET sampled = excluded.sampled, drawn_at = excluded.drawn_at`,
-      )
-      .run({ repository, number, sampled: sampled ? 1 : 0, at });
-    return sampled;
-  }
-
   autoMergeCounts(filter: Omit<RiskFilter, 'fingerprint'>): AutoMergeCounts {
     const bounds = {
       repository: filter.repository ?? null,
@@ -3966,40 +3929,14 @@ export class Store {
     };
   }
 
-  autoMergeStatus(): AutoMergeStatus {
-    const current = this.#db
-      .prepare('SELECT fingerprint FROM risk_grades ORDER BY graded_at DESC, rowid DESC LIMIT 1')
-      .get() as { fingerprint: string } | undefined;
-    const fingerprint = current?.fingerprint ?? null;
-    const { settled } = this.#db
+  recordSample(repository: string, number: number, sampled: boolean, at: string): void {
+    this.#db
       .prepare(
-        `SELECT COUNT(*) AS settled FROM risk_grades
-        WHERE fingerprint = $fingerprint AND level IN ('trivial', 'low') AND outcome <> 'open'`,
+        `INSERT INTO auto_merge_samples (repository, number, sampled, drawn_at)
+        VALUES ($repository, $number, $sampled, $at)
+        ON CONFLICT (repository, number) DO UPDATE SET sampled = excluded.sampled, drawn_at = excluded.drawn_at`,
       )
-      .get({ fingerprint }) as { settled: number };
-    const window = this.#db
-      .prepare(
-        `SELECT outcome FROM risk_grades
-        WHERE fingerprint = $fingerprint AND level IN ('trivial', 'low')
-          AND (outcome IN ('merged', 'closed')
-            OR (outcome = 'superseded' AND supersede_cause IS NOT 'conflict-resolution'))
-        ORDER BY outcome_at DESC, rowid DESC
-        LIMIT $window`,
-      )
-      .all({ fingerprint, window: PAUSE_WINDOW }) as { outcome: string }[];
-    const counts = {
-      settled,
-      heldUp: window.filter(({ outcome }) => outcome === 'merged').length,
-      judged: window.length,
-    };
-    return { ...counts, state: autoMergeStateOf(counts) };
-  }
-
-  pullRequestSampled(repository: string, number: number): boolean | null {
-    const row = this.#db
-      .prepare(`SELECT sampled FROM auto_merge_samples WHERE repository = $repository AND number = $number`)
-      .get({ repository, number }) as { sampled: number } | undefined;
-    return row === undefined ? null : row.sampled === 1;
+      .run({ repository, number, sampled: sampled ? 1 : 0, at });
   }
 
   markSampleAnnounced(repository: string, number: number): void {

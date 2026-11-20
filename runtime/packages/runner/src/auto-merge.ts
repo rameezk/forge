@@ -15,6 +15,9 @@ import {
   SAMPLE_RATE,
   WARM_UP_SETTLED,
   removeLabel,
+  autoMergeCandidates,
+  autoMergeStatus,
+  drawSample,
   FORGE_SAMPLED,
   queryPullRequestReadiness,
   queryUnresolvedThreads,
@@ -196,8 +199,8 @@ const autoMergeOne = async (
     log(`${grade.repository}#${grade.number}: waits, ${facts}`);
     return;
   }
-  const status = store.autoMergeStatus();
-  const sampled = store.drawSample(grade.repository, grade.number, () => drawsSample(options.random), now(), status.state !== 'live');
+  const status = autoMergeStatus(store);
+  const sampled = drawSample(store, grade.repository, grade.number, () => drawsSample(options.random), now(), status.state !== 'live');
   if (sampled) {
     await relabel(fetch, token, repository, grade.number, FORGE_SAMPLED, []);
     await github(fetch, token, `/repos/${repository}/issues/${grade.number}/comments`, {
@@ -254,7 +257,7 @@ export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<
   }
   const tracked = store.openGradedPullRequests(names);
   const candidates = new Set(
-    store.autoMergeCandidates(names, now()).map(({ repository, number }) => `${repository}#${number}`),
+    autoMergeCandidates(store, names, now()).map(({ repository, number }) => `${repository}#${number}`),
   );
   for (const repository of names) {
     store.keepHolds(

@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { RunRecord, Store, Ticket } from '@forge/shared';
+import { drawSample } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
 const ticket = (number: number): Ticket => ({
@@ -766,8 +767,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
       for (const number of [1, 2]) {
         store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
       }
-      store.drawSample('forge', 101, () => true, new Date().toISOString());
-      store.drawSample('forge', 102, () => false, new Date().toISOString());
+      drawSample(store, 'forge', 101, () => true, new Date().toISOString());
+      drawSample(store, 'forge', 102, () => false, new Date().toISOString());
 
       await page.goto('/');
 
