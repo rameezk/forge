@@ -79,9 +79,12 @@ const TITLE_LIMIT = 255;
 
 const SUMMARY_LIMIT = 65535;
 
-const clip = (text: string, limit: number): string => (text.length <= limit ? text : `${text.slice(0, limit - 1)}…`);
+const clip = (text: string, limit: number): string => {
+  const characters = Array.from(text);
+  return characters.length <= limit ? text : `${characters.slice(0, limit - 1).join('')}…`;
+};
 
-const code = (name: string): string => `\`${name.replaceAll('`', "'").replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ')}\``;
+const code = (name: string): string => `\`${name.replaceAll('`', "'").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ')}\``;
 
 export interface DiffFacts {
   changedLines: number;
@@ -344,14 +347,16 @@ const autoMergeOne = async (
   }
   store.settleRiskGrade(grade, 'merged', now());
   log(`${grade.repository}#${grade.number}: auto-merged at ${grade.headSha}`);
+  const checkRunFailure = await publishVerdict(options, token, grade, repository, { kind: 'auto-merged' }, facts).then(
+    () => null,
+    (error: unknown) => error,
+  );
   await github(fetch, token, `/repos/${repository}/issues/${grade.number}/comments`, {
     method: 'POST',
     body: { body: autoMergeComment(grade, facts) },
   });
-  try {
-    await publishVerdict(options, token, grade, repository, { kind: 'auto-merged' }, facts);
-  } catch (error) {
-    throw new Error(`the pull request merged, but its check run could not be written: ${errorMessage(error)}`);
+  if (checkRunFailure !== null) {
+    throw new Error(`the pull request merged, but its check run could not be written: ${errorMessage(checkRunFailure)}`);
   }
 };
 

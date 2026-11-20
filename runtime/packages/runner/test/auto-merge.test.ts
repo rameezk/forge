@@ -186,7 +186,7 @@ const forge = (
   const removedLabels: { number: number; label: string }[] = [];
   const checkRuns: CheckRunWrite[] = [];
   const labels: { number: number; labels: string[] }[] = [];
-  const hooks = { failCheckRuns: false, beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
+  const hooks = { failComments: false, failCheckRuns: false, beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
   const answering: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const json = (data: unknown, status = 200): Response =>
@@ -260,6 +260,7 @@ const forge = (
     }
     const commentOn = /^\/repos\/rameezk\/(forge|other)\/issues\/(\d+)\/comments$/.exec(url.pathname);
     if (commentOn !== null && init?.method === 'POST') {
+      if (hooks.failComments) return json({ message: 'nope' }, 500);
       comments.push({ number: Number(commentOn[2]), authorization, body: (JSON.parse(String(init.body)) as { body: string }).body });
       return json({ id: 2 }, 201);
     }
@@ -1060,7 +1061,7 @@ test('given a pull request whose changed file name carries Markdown, when the pa
 test('given a pull request whose changed file name is very long, when the pass runs, then the check run title stays within 255 characters', async () => {
   const f = forge([{ number: 1, files: [edit(`.github/workflows/${'a'.repeat(400)}.yml`)] }]);
   await f.run();
-  assert.equal(f.checkRuns[0]?.body.output.title.length, 255);
+  assert.equal(Array.from(f.checkRuns[0]?.body.output.title ?? '').length, 255);
 });
 
 test('given a merge that succeeds but whose check run cannot be written, when the pass runs, then it reports that the pull request merged and the check run failed', async () => {
@@ -1069,4 +1070,20 @@ test('given a merge that succeeds but whose check run cannot be written, when th
   assert.equal(await f.run(), 1);
   assert.equal(f.merges.length, 1);
   assert.match(f.journals[0] ?? '', /merged, but its check run could not be written/);
+});
+
+test('given a file name with direction override characters and astral characters at the clip boundary, when the pass runs, then the check run text carries neither a bidi character nor a split surrogate pair', async () => {
+  const f = forge([{ number: 1, files: [edit(`.github/workflows/\u202Efdp.yml${'\u{1F600}'.repeat(300)}`)] }]);
+  await f.run();
+  const { title } = f.checkRuns[0]?.body.output ?? { title: '' };
+  assert.doesNotMatch(title, /\u202E/);
+  assert.doesNotMatch(title, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  assert.ok(Array.from(title).length <= 255);
+});
+
+test('given a merge whose comment cannot be posted, when the pass runs, then the check run still concludes success', async () => {
+  const f = forge([{ number: 1 }]);
+  f.hooks.failComments = true;
+  assert.equal(await f.run(), 1);
+  assert.deepEqual(f.checkRuns.map(({ body }) => body.conclusion), ['success']);
 });
