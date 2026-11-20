@@ -1122,7 +1122,7 @@ approve its own. Never give the Reviewer App a bypass of the ruleset.
    Set these repository permissions and no others:
    - Pull requests: read and write
    - Contents: read and write
-   - Checks: read
+   - Checks: read and write
    - Commit statuses: read
    - Metadata: read, which GitHub always grants
 2. Create the App, note its **App ID**, and generate a private key.
@@ -1138,6 +1138,11 @@ github_reviewer_app_private_key: |
   ...
   -----END RSA PRIVATE KEY-----
 ```
+
+Upgrading an existing Reviewer App: change **Checks** to read and write in its
+repository permissions, then accept the new permission on each installation.
+Until you do, the repository shows a Reviewer App rule failure naming the
+permission and `forge-auto-merge` merges nothing there.
 
 The Insights Risk tab shows `auto-merged` as a count of its own, outside the
 held up rate, and the Board's done column marks an auto-merged ticket with an

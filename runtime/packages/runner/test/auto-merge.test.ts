@@ -91,6 +91,7 @@ const forge = (
     rules?: Record<string, RepositoryRules>;
     storedRuleFailures?: string[];
     unreachable?: boolean;
+    unaccepted?: Record<string, string>;
   } = {},
   history: Settled[] = held(10),
 ) => {
@@ -109,7 +110,7 @@ const forge = (
       grading: { model: 'typesafe/jev-1.13' },
     }),
   );
-  const app = fakeGithubApp(reviewerApp.installed ?? ['rameezk/forge', 'rameezk/other']);
+  const app = fakeGithubApp(reviewerApp.installed ?? ['rameezk/forge', 'rameezk/other'], 3600, reviewerApp.unaccepted);
   const keyPath = join(stateDir, 'github-app-private-key');
   writeFileSync(keyPath, app.privateKey);
   const env = {
@@ -754,6 +755,23 @@ test('given an opted-in repository whose rules pass and where the Reviewer App i
   assert.deepEqual(f.reviews, []);
   assert.deepEqual(reviewerFailures(f), ['the Reviewer App is not installed on it']);
   assert.match(f.journals.join(''), /forge: merges nothing, the Reviewer App is not installed on it/);
+});
+
+test('given a Reviewer App installation without Checks write and a pull request that passes every gate, when the pass runs, then the failure names the missing permission and nothing is approved or merged, and it clears once the permission is granted', async () => {
+  const unaccepted: Record<string, string> = { checks: 'write' };
+  const f = forge([{ number: 7 }], ['forge'], {}, { rules: { 'rameezk/forge': PROTECTED }, unaccepted });
+  await f.run();
+
+  assert.deepEqual(f.merges, []);
+  assert.deepEqual(f.reviews, []);
+  const [failure] = reviewerFailures(f);
+  assert.match(failure ?? '', /checks: write/);
+  assert.match(f.journals.join(''), /forge: merges nothing, .*checks: write/);
+
+  delete unaccepted.checks;
+  await f.run();
+  assert.equal(f.merges.length, 1);
+  assert.deepEqual(reviewerFailures(f), []);
 });
 
 test('given a ruleset the Reviewer App can bypass, when the pass runs, then the pull request is not merged and the failure names the ruleset', async () => {

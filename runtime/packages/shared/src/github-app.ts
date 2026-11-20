@@ -49,7 +49,7 @@ const PERMISSIONS: Record<TokenAccess, Record<string, 'read' | 'write'>> = {
   review: {
     pull_requests: 'write',
     contents: 'write',
-    checks: 'read',
+    checks: 'write',
     statuses: 'read',
   },
 };
