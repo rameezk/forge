@@ -823,13 +823,13 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect(card.locator('[data-gate="protected-path"]')).toHaveAttribute('title', /runtime\/packages\/runner\/src\/config\.ts/);
       await expect(page.locator('[data-ticket]', { hasText: 'Ticket 2' }).locator('[data-gate]')).toHaveCount(0);
       expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
-      const inside = await card.locator('[data-gate]').evaluateAll((elements, boundary) => {
-        const box = document.querySelector(boundary)!.getBoundingClientRect();
-        return elements.every((element) => {
+      const inside = await card.locator('[data-gate]').evaluateAll((elements) =>
+        elements.every((element) => {
+          const box = element.closest('[data-ticket]')!.getBoundingClientRect();
           const rect = element.getBoundingClientRect();
           return rect.left >= box.left && rect.right <= box.right;
-        });
-      }, '[data-ticket]:has([data-gate])');
+        }),
+      );
       expect(inside).toBe(true);
       await page.screenshot({ path: `test-results/board-gates-${colorScheme}.png`, fullPage: true });
     });
