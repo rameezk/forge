@@ -18,7 +18,12 @@ export interface FailingGate {
   detail: string;
 }
 
-export type AutoMergeVerdict = { kind: 'waits'; gates: FailingGate[] } | { kind: 'auto-merged' };
+export type AutoMergeVerdict =
+  | { kind: 'waits'; gates: FailingGate[] }
+  | { kind: 'held' }
+  | { kind: 'sampled'; reason: string }
+  | { kind: 'merges-nothing'; failures: string[] }
+  | { kind: 'auto-merged' };
 
 export type CheckRunConclusion = 'neutral' | 'success';
 

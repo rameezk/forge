@@ -164,6 +164,19 @@ interface Evaluation {
   gates: FailingGate[];
 }
 
+const headIsCurrent = async (
+  { fetch }: AutoMergeOptions,
+  token: string,
+  repository: string,
+  grade: RecordedRiskGrade,
+): Promise<boolean> => {
+  const pull = (await github(fetch, token, `/repos/${repository}/pulls/${grade.number}`)) as {
+    state: string;
+    head: { sha: string };
+  };
+  return pull.state === 'open' && pull.head.sha === grade.headSha;
+};
+
 const evaluate = async (
   { fetch }: AutoMergeOptions,
   token: string,
@@ -211,8 +224,33 @@ const evaluate = async (
 const verdictOutput = (
   grade: RecordedRiskGrade,
   verdict: AutoMergeVerdict,
-  facts: DiffFacts,
+  facts: DiffFacts | null,
 ): { title: string; summary: string } => {
+  if (verdict.kind === 'held') {
+    return {
+      title: 'Held by a maintainer',
+      summary: `A maintainer put ${FORGE_HOLD} on this pull request. Forge will not auto-merge it until the label is removed.`,
+    };
+  }
+  if (verdict.kind === 'merges-nothing') {
+    return {
+      title: 'Forge merges nothing in this repository',
+      summary: clip(
+        ['Forge merges nothing in this repository:', ...verdict.failures.map((failure) => `- ${code(failure)}`)].join('\n'),
+        SUMMARY_LIMIT,
+      ),
+    };
+  }
+  if (facts === null) throw new Error(`a ${verdict.kind} verdict needs the diff facts`);
+  if (verdict.kind === 'sampled') {
+    return {
+      title: "Sampled for a maintainer's review",
+      summary: clip(
+        [verdict.reason, '', 'Gates passed:', ...gatesPassed(facts).map((gate) => `- ${gate}`)].join('\n'),
+        SUMMARY_LIMIT,
+      ),
+    };
+  }
   if (verdict.kind === 'auto-merged') {
     return {
       title: `Auto-merged at ${grade.headSha}`,
@@ -238,7 +276,7 @@ const publishVerdict = async (
   grade: RecordedRiskGrade,
   repository: string,
   verdict: AutoMergeVerdict,
-  facts: DiffFacts,
+  facts: DiffFacts | null,
 ): Promise<boolean> => {
   const conclusion: CheckRunConclusion = verdict.kind === 'auto-merged' ? 'success' : 'neutral';
   const known = store.autoMergeVerdict(grade.repository, grade.number, grade.headSha);
@@ -305,6 +343,9 @@ const autoMergeOne = async (
   const token = await tokens(repository, 'review');
   if (await maintainerHolds(options, token, grade, repository)) {
     log(`${grade.repository}#${grade.number}: waits, a maintainer holds it`);
+    if (candidate !== undefined && (await headIsCurrent(options, token, repository, grade))) {
+      await publishVerdict(options, token, grade, repository, { kind: 'held' }, null);
+    }
     return;
   }
   if (candidate === undefined) return;
@@ -323,6 +364,7 @@ const autoMergeOne = async (
   const status = autoMergeStatus(store);
   const sampled = drawSample(store, grade.repository, grade.number, () => drawsSample(options.random), now(), status.state !== 'live');
   if (sampled) {
+    await publishVerdict(options, token, grade, repository, { kind: 'sampled', reason: sampleReason(status) }, facts);
     await relabel(fetch, token, repository, grade.number, FORGE_SAMPLED, []);
     await github(fetch, token, `/repos/${repository}/issues/${grade.number}/comments`, {
       method: 'POST',
@@ -374,14 +416,42 @@ const checkReviewerAppRules = async (
   return [...store.ownRuleFailures(repository), ...failures];
 };
 
+const publishMergesNothing = async (
+  options: AutoMergeOptions,
+  config: RepositoryConfig,
+  grade: RecordedRiskGrade,
+  failures: string[],
+): Promise<void> => {
+  const token = await options.tokens(config.github, 'review').catch(() => null);
+  if (token === null || !(await headIsCurrent(options, token, config.github, grade))) return;
+  await publishVerdict(options, token, grade, config.github, { kind: 'merges-nothing', failures }, null);
+};
+
 export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<boolean> => {
   const { store, repositories, now, log } = options;
   let succeeded = true;
   const names: string[] = [];
+  const failing = new Map<string, string[]>();
   for (const [repository, config] of Object.entries(repositories)) {
     const failures = await checkReviewerAppRules(options, repository, config);
     if (failures.length === 0) names.push(repository);
-    else log(`${repository}: merges nothing, ${failures.join('; ')}`);
+    else {
+      failing.set(repository, failures);
+      log(`${repository}: merges nothing, ${failures.join('; ')}`);
+    }
+  }
+  for (const { grade } of candidatesWithFacts(store, [...failing.keys()], now())) {
+    try {
+      await publishMergesNothing(
+        options,
+        repositories[grade.repository] as RepositoryConfig,
+        grade,
+        failing.get(grade.repository) as string[],
+      );
+    } catch (error) {
+      log(`${grade.repository}#${grade.number}: could not write the check run: ${errorMessage(error)}`);
+      succeeded = false;
+    }
   }
   const tracked = store.openGradedPullRequests(names);
   const candidates = new Map(
