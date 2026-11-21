@@ -13,6 +13,19 @@ export const GATE_KEYS = [
 
 export type GateKey = (typeof GATE_KEYS)[number];
 
+export const GATE_LABELS: Record<GateKey, string> = {
+  draft: 'draft',
+  working: 'working',
+  mergeability: 'mergeability',
+  'checks-failing': 'checks failing',
+  'checks-pending': 'checks pending',
+  feedback: 'feedback',
+  'protected-path': 'protected path',
+  'too-many-files': 'too many files',
+  'not-seen': 'not seen by Jev',
+  size: 'size',
+};
+
 export interface FailingGate {
   key: GateKey;
   detail: string;

@@ -1,4 +1,4 @@
-import { newestClosedFirst, type ConflictResolutionRecord, dispatchOrder, dispatchRefOf, type DispatchOrdering, OLDEST_FIRST, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket, type DisplayedUrgencyGrade, type UrgencyAttempt } from '@forge/shared';
+import { newestClosedFirst, type FailingGate, type ConflictResolutionRecord, dispatchOrder, dispatchRefOf, type DispatchOrdering, OLDEST_FIRST, oldestFirst, type GradingAttempt, type RecordedRiskGrade, type PullRequestWorkloadRecord, ticketKey, type ClosedTicket, type DispatchRecord, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type SpecRef, type Ticket, type DisplayedUrgencyGrade, type UrgencyAttempt } from '@forge/shared';
 
 const HUMAN = 'Needs a human in the loop';
 
@@ -44,6 +44,7 @@ export interface RiskInputs {
   holds: ReadonlySet<string>;
   sampled?: ReadonlySet<string>;
   paused?: ReadonlySet<string>;
+  gates?: ReadonlyMap<string, readonly FailingGate[]>;
 }
 
 export type CardUrgency = DisplayedUrgencyGrade | UrgencyAttempt | null;
@@ -63,6 +64,7 @@ interface CardState {
   revisionFailedStart: RevisionRecord | undefined;
   sampled?: boolean;
   paused?: boolean;
+  gates?: readonly FailingGate[];
 }
 
 export type BoardCard =
@@ -222,6 +224,7 @@ export const buildLanes = (
         revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
         sampled: column === 'in-review' && pullRequest != null && risks.sampled?.has(ticketKey(repository.repository, pullRequest.number)) === true,
         paused: column === 'in-review' && pullRequest != null && risks.paused?.has(ticketKey(repository.repository, pullRequest.number)) === true,
+        gates: column === 'in-review' && pullRequest != null ? (risks.gates?.get(ticketKey(repository.repository, pullRequest.number)) ?? []) : [],
         urgency: urgencyOf(ticket.number),
         risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? risks.attempts.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
         held: column === 'in-review' && pullRequest != null && risks.holds.has(ticketKey(repository.repository, pullRequest.number)),

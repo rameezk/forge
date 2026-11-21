@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drawSample, Store } from '@forge/shared';
-import type { ClosedTicket, GradingAttempt, GradingFailure, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket, UrgencyGrade, UrgencyLevel } from '@forge/shared';
+import type { ClosedTicket, GateKey, GradingAttempt, GradingFailure, PolledFrontier, PollFailure, RefinementRequest, RiskGrade, RunRecord, Ticket, UrgencyGrade, UrgencyLevel } from '@forge/shared';
 import { createApp, FileTranscriptSource, type AppOptions } from '../src/index.ts';
 import { openingTag, textOf } from './html.ts';
 
@@ -1161,6 +1161,69 @@ test('given a ticket whose pull request is sampled and another whose is not, whe
 
   assert.match(cardOf(body, 5), /<span[^>]*data-sampled[^>]*>\s*sampled\s*<\/span>/);
   assert.doesNotMatch(cardOf(body, 6), /data-sampled/);
+});
+
+const gatedBoard = (gates: { key: GateKey; detail: string }[], graded: 'low' | 'moderate' = 'low', verdictHead = 'head1') =>
+  appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordRiskGrade(gradeOf(105, 'head1', { level: graded }));
+    store.recordAutoMergeVerdict('forge', 105, verdictHead, { verdict: { kind: 'waits', gates }, conclusion: 'neutral', checkRunId: 7 });
+  }, undefined, undefined, GRADING);
+
+const gatePills = (card: string): { label: string; title: string }[] =>
+  [...card.matchAll(/<span[^>]*data-gate="([^"]+)"[^>]*title="([^"]*)"[^>]*>\s*([^<]*?)\s*<\/span>/g)].map((match) => ({ label: match[3]!, title: match[2]! }));
+
+test('given an in-review candidate whose stored verdict names a protected path, when the Board is requested, then its card shows a protected path pill whose title names the path', async () => {
+  const path = 'runtime/packages/runner/src/config.ts';
+  const body = await (await gatedBoard([{ key: 'protected-path', detail: `it touches the protected path \`${path}\`` }]).request('/')).text();
+
+  const pills = gatePills(cardOf(body, 5));
+
+  assert.deepEqual(pills.map(({ label }) => label), ['protected path']);
+  assert.ok(pills[0]!.title.includes(path));
+  assert.match(cardOf(body, 5), /<span[^>]*data-gate="protected-path"[^>]*class="[^"]*text-muted[^"]*ring-line/);
+});
+
+test('given a candidate held back by a protected path and the size cap, when the Board is requested, then its card shows a pill for each with its detail', async () => {
+  const body = await (await gatedBoard([
+    { key: 'protected-path', detail: 'it touches the protected path `a.ts`' },
+    { key: 'size', detail: 'it changes 900 lines, over the cap of 400' },
+  ]).request('/')).text();
+
+  assert.deepEqual(gatePills(cardOf(body, 5)), [
+    { label: 'protected path', title: 'it touches the protected path `a.ts`' },
+    { label: 'size', title: 'it changes 900 lines, over the cap of 400' },
+  ]);
+});
+
+test('given every gate key, when the Board is requested, then each pill carries its short gate name', async () => {
+  const keys = ['draft', 'working', 'mergeability', 'checks-failing', 'checks-pending', 'feedback', 'protected-path', 'too-many-files', 'not-seen', 'size'] as const;
+  const body = await (await gatedBoard(keys.map((key) => ({ key, detail: `detail of ${key}` }))).request('/')).text();
+
+  assert.deepEqual(gatePills(cardOf(body, 5)).map(({ label }) => label), ['draft', 'working', 'mergeability', 'checks failing', 'checks pending', 'feedback', 'protected path', 'too many files', 'not seen by Jev', 'size']);
+});
+
+test('given a stored verdict that names no gate, when the Board is requested, then its card shows no gate pill', async () => {
+  const body = await (await gatedBoard([]).request('/')).text();
+
+  assert.doesNotMatch(cardOf(body, 5), /data-gate/);
+});
+
+test('given a pull request graded moderate with no verdict, when the Board is requested, then its card shows no gate pill', async () => {
+  const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
+    inReview(store, 5);
+    watchHead(store, 105, 'head1');
+    store.recordRiskGrade(gradeOf(105, 'head1', { level: 'moderate' }));
+  }, undefined, undefined, GRADING);
+
+  assert.doesNotMatch(cardOf(await (await app.request('/')).text(), 5), /data-gate/);
+});
+
+test('given a verdict stored for a head the pull request moved past, when the Board is requested, then its card shows no gate pill', async () => {
+  const body = await (await gatedBoard([{ key: 'size', detail: 'too big' }], 'low', 'old-head').request('/')).text();
+
+  assert.doesNotMatch(cardOf(body, 5), /data-gate/);
 });
 
 const settleHistory = (store: Store, held: number, failed: number): void => {
