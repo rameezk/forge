@@ -1174,6 +1174,7 @@ test('given a candidate in a repository where the Reviewer App can bypass the ru
   assert.match(run?.body.output.title ?? '', /merges nothing in this repository/i);
   assert.match(run?.body.output.summary ?? '', /merges nothing in this repository/i);
   assert.match(run?.body.output.summary ?? '', /the Reviewer App can bypass the ruleset "protect main"/);
+  assert.match(run?.body.output.summary ?? '', /^- `.*`$/m);
   await f.run();
   assert.equal(f.checkRuns.length, 1);
 });

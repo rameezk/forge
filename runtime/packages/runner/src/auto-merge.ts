@@ -236,7 +236,7 @@ const verdictOutput = (
     return {
       title: 'Forge merges nothing in this repository',
       summary: clip(
-        ['Forge merges nothing in this repository:', ...verdict.failures.map((failure) => `- ${failure}`)].join('\n'),
+        ['Forge merges nothing in this repository:', ...verdict.failures.map((failure) => `- ${code(failure)}`)].join('\n'),
         SUMMARY_LIMIT,
       ),
     };
