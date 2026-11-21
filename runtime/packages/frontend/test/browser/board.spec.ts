@@ -787,6 +787,56 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
+  test.describe(`a candidate held back by several gates on a phone-width screen in ${colorScheme}`, () => {
+    test.use({ viewport: { width: 390, height: 800 }, colorScheme });
+
+    test('given a ticket in review whose pull request fails several gates and another that is graded moderate, when the Board is opened, then the first carries a pill per gate with its detail inside its card, the second none, and nothing scrolls sideways', async ({ dashboard, page }) => {
+      const { store } = dashboard;
+      store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1), ticket(2)] });
+      for (const number of [1, 2]) {
+        const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+        if (!('started' in started)) throw new Error('dispatch refused');
+        store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+      }
+      store.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
+      for (const number of [1, 2]) {
+        store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: number === 1 ? 'low' : 'moderate', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
+      }
+      store.recordAutoMergeVerdict('forge', 101, 'head-1', {
+        verdict: {
+          kind: 'waits',
+          gates: [
+            { key: 'protected-path', detail: 'it touches the protected path `runtime/packages/runner/src/config.ts`' },
+            { key: 'checks-failing', detail: 'required checks fail: `test`' },
+            { key: 'not-seen', detail: 'Jev did not see the content of `package-lock.json`' },
+            { key: 'size', detail: 'it changes 900 lines, over the cap of 400' },
+          ],
+        },
+        conclusion: 'neutral',
+        checkRunId: 1,
+      });
+
+      await page.goto('/');
+
+      const card = page.locator('[data-ticket]', { hasText: 'Ticket 1' });
+      await expect(card.locator('[data-gate]')).toHaveText(['protected path', 'checks failing', 'not seen by Jev', 'size']);
+      await expect(card.locator('[data-gate="protected-path"]')).toHaveAttribute('title', /runtime\/packages\/runner\/src\/config\.ts/);
+      await expect(page.locator('[data-ticket]', { hasText: 'Ticket 2' }).locator('[data-gate]')).toHaveCount(0);
+      expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+      const inside = await card.locator('[data-gate]').evaluateAll((elements) =>
+        elements.every((element) => {
+          const box = element.closest('[data-ticket]')!.getBoundingClientRect();
+          const rect = element.getBoundingClientRect();
+          return rect.left >= box.left && rect.right <= box.right;
+        }),
+      );
+      expect(inside).toBe(true);
+      await page.screenshot({ path: `test-results/board-gates-${colorScheme}.png`, fullPage: true });
+    });
+  });
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
   test.describe(`a paused auto-merge on a phone-width screen in ${colorScheme}`, () => {
     test.use({ viewport: { width: 390, height: 800 }, colorScheme });
 

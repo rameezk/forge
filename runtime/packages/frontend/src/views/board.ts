@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { isGithubRepository, isGithubUrl, ticketKey, type DispatchOrdering, OLDEST_FIRST, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, type UrgencyLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { GATE_LABELS, isGithubRepository, isGithubUrl, ticketKey, type DispatchOrdering, type FailingGate, OLDEST_FIRST, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, type UrgencyLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
 import { buildLanes, isUntracked, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type CardUrgency, type RiskInputs, type UrgencyInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
@@ -125,11 +125,16 @@ const renderSampled = (): Rendered =>
 const renderPaused = (): Rendered =>
   html`<p class="${MUTED_LINE}"><span data-paused title="Auto-merge is paused: this pull request would have auto-merged and waits for a maintainer's review" class="${PILL} ${HUMAN_TONE}">paused</span></p>`;
 
-const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, held, paused }: BoardCard): Rendered => {
+const renderGates = (gates: readonly FailingGate[]): Rendered =>
+  gates.length === 0
+    ? html``
+    : html`<p class="${MUTED_LINE} flex flex-wrap items-center gap-x-1.5 gap-y-1">${gates.map(({ key, detail }) => html`<span data-gate="${key}" title="${detail}" class="${PILL} ${QUEUED_TONE} whitespace-nowrap">${GATE_LABELS[key]}</span>`)}</p>`;
+
+const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, held, paused, gates }: BoardCard): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${paused === true ? renderPaused() : ''}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${paused === true ? renderPaused() : ''}${renderGates(gates ?? [])}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
 };
 
 const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {

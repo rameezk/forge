@@ -1,5 +1,5 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import type { AutoMergeVerdict, CheckRunConclusion, RecordedAutoMergeVerdict } from './auto-merge-verdict.ts';
+import type { AutoMergeVerdict, CheckRunConclusion, FailingGate, RecordedAutoMergeVerdict } from './auto-merge-verdict.ts';
 import {
   newestClosedFirst,
   oldestFirst,
@@ -3975,6 +3975,22 @@ export class Store {
           conclusion: row.conclusion as CheckRunConclusion,
           checkRunId: row.check_run_id,
         };
+  }
+
+  currentFailingGates(): { repository: string; number: number; gates: FailingGate[] }[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT auto_merge_verdicts.repository, auto_merge_verdicts.number, auto_merge_verdicts.verdict
+        FROM auto_merge_verdicts
+        JOIN feedback_watches USING (repository, number, head_sha)
+        JOIN risk_grades USING (repository, number, head_sha)
+        ORDER BY auto_merge_verdicts.repository, auto_merge_verdicts.number`,
+      )
+      .all() as { repository: string; number: number; verdict: string }[];
+    return rows.flatMap(({ repository, number, verdict }) => {
+      const parsed = JSON.parse(verdict) as AutoMergeVerdict;
+      return parsed.kind === 'waits' && parsed.gates.length > 0 ? [{ repository, number, gates: parsed.gates }] : [];
+    });
   }
 
   recordAutoMergeVerdict(

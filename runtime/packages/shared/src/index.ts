@@ -170,7 +170,7 @@ export {
   pullRequestSampled,
   type CandidateFacts,
 } from './auto-merge-selection.ts';
-export { GATE_KEYS } from './auto-merge-verdict.ts';
+export { GATE_KEYS, GATE_LABELS } from './auto-merge-verdict.ts';
 export type {
   AutoMergeVerdict,
   CheckRunConclusion,
