@@ -1097,3 +1097,116 @@ test('given a pull request with more files than forge can list, when the pass ru
   assert.doesNotMatch(summary, /Protected paths: it touches none/);
   assert.doesNotMatch(summary, /Seen by Jev/);
 });
+
+const verdictRuns = (f: ReturnType<typeof forge>): [string, string, string][] =>
+  f.checkRuns.map(({ method, body }) => [method, body.conclusion, body.output.title]);
+
+test('given a candidate a maintainer put forge:hold on, when the pass runs, then its head has a neutral check run titled Held by a maintainer', async () => {
+  const f = forge([{ number: 1, hold: 'maintainer' }]);
+  await f.run();
+  assert.deepEqual(verdictRuns(f), [['POST', 'neutral', 'Held by a maintainer']]);
+  assert.equal(f.checkRuns[0]?.body.head_sha, HEAD(1));
+  assert.equal(f.checkRuns[0]?.body.status, 'completed');
+  assert.deepEqual(f.merges, []);
+});
+
+test('given a held candidate still held at the same head, when the pass runs again, then it makes no check run write', async () => {
+  const f = forge([{ number: 1, hold: 'maintainer' }]);
+  await f.run();
+  await f.run();
+  assert.equal(f.checkRuns.length, 1);
+});
+
+test('given a held candidate whose hold is released, when the pass runs, then the same check run is updated to success', async () => {
+  const f = forge([{ number: 1, hold: 'maintainer' }]);
+  await f.run();
+  f.release(1);
+  await f.run();
+  assert.deepEqual(
+    f.checkRuns.map(({ method, id, body }) => [method, id, body.conclusion]),
+    [['POST', 1, 'neutral'], ['PATCH', 1, 'success']],
+  );
+});
+
+test('given held pull requests that are graded moderate or uncertain, or whose head moved on, when the pass runs, then no check run is written', async () => {
+  const f = forge([
+    { number: 1, hold: 'maintainer' },
+    { number: 2, hold: 'maintainer', level: 'moderate' },
+    { number: 3, hold: 'maintainer', uncertain: true },
+  ]);
+  f.changeHead(1);
+  await f.run();
+  assert.deepEqual(f.checkRuns, []);
+});
+
+test('given a candidate that passes every gate and is drawn for the audit sample, when the pass runs, then its check run is neutral, titled Sampled for a maintainer\'s review, with the audit-sample reason', async () => {
+  const f = forge([{ number: 7 }]);
+  f.dice.next = SAMPLED;
+  await f.run();
+  assert.deepEqual(verdictRuns(f), [['POST', 'neutral', "Sampled for a maintainer's review"]]);
+  const summary = f.checkRuns[0]?.body.output.summary ?? '';
+  assert.match(summary, /A random 25% of the pull requests that pass the gates goes to a maintainer/);
+  assert.ok((f.comments[0]?.body ?? '').includes(summary.split('\n')[0] ?? 'missing'));
+  await f.run();
+  assert.equal(f.checkRuns.length, 1);
+});
+
+test('given candidates that pass every gate while auto-merge is paused and while it is warming up, when the pass runs, then each check run gives the reason worded as in the sample comment', async () => {
+  const paused = forge([{ number: 7 }], ['forge'], {}, {}, [...failed(3), ...held(17)]);
+  await paused.run();
+  assert.deepEqual(verdictRuns(paused), [['POST', 'neutral', "Sampled for a maintainer's review"]]);
+  assert.match(paused.checkRuns[0]?.body.output.summary ?? '', /Auto-merge is paused: 17 of the last 20/);
+
+  const warming = forge([{ number: 7 }], ['forge'], {}, {}, Array<Settled>(10).fill('auto'));
+  await warming.run();
+  assert.match(warming.checkRuns[0]?.body.output.summary ?? '', /Auto-merge is warming up: 10 of 10/);
+});
+
+test('given a candidate in a repository where the Reviewer App can bypass the rules, when the pass runs, then it is not merged and its check run says forge merges nothing in this repository and names the failure', async () => {
+  const f = forge([{ number: 7 }], ['forge'], {}, { rules: { 'rameezk/forge': bypassable('always') } });
+  await f.run();
+  assert.deepEqual(f.merges, []);
+  assert.equal(f.checkRuns.length, 1);
+  const [run] = f.checkRuns;
+  assert.equal(run?.method, 'POST');
+  assert.equal(run?.body.conclusion, 'neutral');
+  assert.equal(run?.body.head_sha, HEAD(7));
+  assert.match(run?.body.output.title ?? '', /merges nothing in this repository/i);
+  assert.match(run?.body.output.summary ?? '', /merges nothing in this repository/i);
+  assert.match(run?.body.output.summary ?? '', /the Reviewer App can bypass the ruleset "protect main"/);
+  await f.run();
+  assert.equal(f.checkRuns.length, 1);
+});
+
+test('given a repository that stops failing its rules, when the pass runs again, then the same check run is updated', async () => {
+  const rules = { 'rameezk/forge': bypassable('always') };
+  const f = forge([{ number: 7 }], ['forge'], {}, { rules });
+  await f.run();
+  rules['rameezk/forge'] = PROTECTED;
+  await f.run();
+  assert.deepEqual(
+    f.checkRuns.map(({ method, id, body }) => [method, id, body.conclusion]),
+    [['POST', 1, 'neutral'], ['PATCH', 1, 'success']],
+  );
+});
+
+test('given a candidate in a repository whose Reviewer App lacks Checks write or is not installed, when the pass runs, then no check run write is attempted', async () => {
+  const missing = forge([{ number: 7 }], ['forge'], {}, { rules: { 'rameezk/forge': PROTECTED }, unaccepted: { checks: 'write' } });
+  await missing.run();
+  assert.deepEqual(missing.checkRuns, []);
+  const uninstalled = forge([{ number: 7 }], ['forge'], {}, { installed: [] });
+  await uninstalled.run();
+  assert.deepEqual(uninstalled.checkRuns, []);
+});
+
+test('given a failing repository whose candidate head moved on or that is not a candidate, when the pass runs, then no check run is written', async () => {
+  const f = forge(
+    [{ number: 1 }, { number: 2, level: 'moderate' }, { number: 3, repository: 'other' }],
+    ['forge'],
+    {},
+    { rules: { 'rameezk/forge': bypassable('always') } },
+  );
+  f.changeHead(1);
+  await f.run();
+  assert.deepEqual(f.checkRuns, []);
+});
