@@ -1163,13 +1163,13 @@ test('given a ticket whose pull request is sampled and another whose is not, whe
   assert.doesNotMatch(cardOf(body, 6), /data-sampled/);
 });
 
-const gatedBoard = (gates: { key: GateKey; detail: string }[], graded: 'low' | 'moderate' = 'low', verdictHead = 'head1') =>
+const gatedBoard = (gates: { key: GateKey; detail: string }[], verdictHead = 'head1', optedIn = ['forge']) =>
   appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head1', { level: graded }));
+    store.recordRiskGrade(gradeOf(105, 'head1', { level: 'low' }));
     store.recordAutoMergeVerdict('forge', 105, verdictHead, { verdict: { kind: 'waits', gates }, conclusion: 'neutral', checkRunId: 7 });
-  }, undefined, undefined, GRADING);
+  }, undefined, undefined, GRADING, { autoMergeRepositories: optedIn });
 
 const gatePills = (card: string): { label: string; title: string }[] =>
   [...card.matchAll(/<span[^>]*data-gate="([^"]+)"[^>]*title="([^"]*)"[^>]*>\s*([^<]*?)\s*<\/span>/g)].map((match) => ({ label: match[3]!, title: match[2]! }));
@@ -1220,8 +1220,14 @@ test('given a pull request graded moderate with no verdict, when the Board is re
   assert.doesNotMatch(cardOf(await (await app.request('/')).text(), 5), /data-gate/);
 });
 
+test('given a stored verdict in a repository that has not opted in to auto-merge, when the Board is requested, then its card shows no gate pill', async () => {
+  const body = await (await gatedBoard([{ key: 'size', detail: 'too big' }], 'head1', []).request('/')).text();
+
+  assert.doesNotMatch(cardOf(body, 5), /data-gate/);
+});
+
 test('given a verdict stored for a head the pull request moved past, when the Board is requested, then its card shows no gate pill', async () => {
-  const body = await (await gatedBoard([{ key: 'size', detail: 'too big' }], 'low', 'old-head').request('/')).text();
+  const body = await (await gatedBoard([{ key: 'size', detail: 'too big' }], 'old-head').request('/')).text();
 
   assert.doesNotMatch(cardOf(body, 5), /data-gate/);
 });
