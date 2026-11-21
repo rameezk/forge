@@ -1,4 +1,5 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import type { AutoMergeVerdict, CheckRunConclusion, RecordedAutoMergeVerdict } from './auto-merge-verdict.ts';
 import {
   newestClosedFirst,
   oldestFirst,
@@ -1094,6 +1095,18 @@ const CREATE_AUTO_MERGE_SAMPLES = `
   );
 `;
 
+const CREATE_AUTO_MERGE_VERDICTS = `
+  CREATE TABLE IF NOT EXISTS auto_merge_verdicts (
+    repository   TEXT NOT NULL,
+    number       INTEGER NOT NULL,
+    head_sha     TEXT NOT NULL,
+    verdict      TEXT NOT NULL,
+    conclusion   TEXT NOT NULL,
+    check_run_id INTEGER NOT NULL,
+    PRIMARY KEY (repository, number, head_sha)
+  ) STRICT;
+`;
+
 const CREATE_REVIEWER_APP_CHECKS = `
   CREATE TABLE IF NOT EXISTS reviewer_app_checks (
     repository TEXT PRIMARY KEY,
@@ -1784,6 +1797,7 @@ export class Store {
     this.#addColumnsOnce(HAS_REVISION_OPTIONAL_RUN, MIGRATE_REVISION_RUN);
     db.exec(CREATE_FEEDBACK_WATCHES);
     db.exec(CREATE_AUTO_MERGE_SAMPLES);
+    db.exec(CREATE_AUTO_MERGE_VERDICTS);
     db.exec(CREATE_REVIEWER_APP_CHECKS);
     this.#addColumnsOnce(HAS_DIAGNOSIS_START, `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}`);
     this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
@@ -3943,6 +3957,49 @@ export class Store {
     this.#db
       .prepare(`UPDATE auto_merge_samples SET announced = 1 WHERE repository = $repository AND number = $number`)
       .run({ repository, number });
+  }
+
+  autoMergeVerdict(repository: string, number: number, headSha: string): RecordedAutoMergeVerdict | null {
+    const row = this.#db
+      .prepare(
+        `SELECT verdict, conclusion, check_run_id FROM auto_merge_verdicts
+        WHERE repository = $repository AND number = $number AND head_sha = $head_sha`,
+      )
+      .get({ repository, number, head_sha: headSha }) as
+      | { verdict: string; conclusion: string; check_run_id: number }
+      | undefined;
+    return row === undefined
+      ? null
+      : {
+          verdict: JSON.parse(row.verdict) as AutoMergeVerdict,
+          conclusion: row.conclusion as CheckRunConclusion,
+          checkRunId: row.check_run_id,
+        };
+  }
+
+  recordAutoMergeVerdict(
+    repository: string,
+    number: number,
+    headSha: string,
+    { verdict, conclusion, checkRunId }: RecordedAutoMergeVerdict,
+  ): void {
+    this.#db
+      .prepare(
+        `INSERT INTO auto_merge_verdicts (repository, number, head_sha, verdict, conclusion, check_run_id)
+        VALUES ($repository, $number, $head_sha, $verdict, $conclusion, $check_run_id)
+        ON CONFLICT (repository, number, head_sha) DO UPDATE SET
+          verdict = excluded.verdict,
+          conclusion = excluded.conclusion,
+          check_run_id = excluded.check_run_id`,
+      )
+      .run({
+        repository,
+        number,
+        head_sha: headSha,
+        verdict: JSON.stringify(verdict),
+        conclusion,
+        check_run_id: checkRunId,
+      });
   }
 
   sampledPullRequests(): { repository: string; number: number }[] {
