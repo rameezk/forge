@@ -258,13 +258,12 @@ export {
   Store,
   URGENCY_LEVELS,
   type DisplayedUrgencyGrade,
-  type ListPriceEquivalent,
   type UrgencyAttempt,
   type UrgencyDue,
   type UrgencyGrade,
   type UrgencyLevel,
-  type WorkloadSpend,
 } from './store/store.ts';
+export { type ListPriceEquivalent, type Runs, type WorkloadSpend } from './store/runs.ts';
 export {
   parseTranscript,
   parseTranscriptLines,

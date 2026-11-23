@@ -19,7 +19,7 @@ test('given a current store file where another connection holds a write transact
 
   try {
     const store = Store.open(path);
-    assert.deepEqual(store.listRuns(), []);
+    assert.deepEqual(store.runs.listRuns(), []);
     store.close();
   } finally {
     writer.exec('ROLLBACK');
@@ -84,9 +84,9 @@ test('given a store file where another process briefly holds a write transaction
   await once(writer, 'message');
 
   try {
-    store.insertRun(sampleRun({ id: 'while-locked' }));
+    store.runs.insertRun(sampleRun({ id: 'while-locked' }));
     assert.equal(Atomics.load(new Int32Array(released), 0), 1, 'the write should land only once the other writer lets go');
-    assert.equal(store.getRun('while-locked')?.id, 'while-locked');
+    assert.equal(store.runs.getRun('while-locked')?.id, 'while-locked');
   } finally {
     store.close();
     await once(writer, 'exit');
@@ -123,14 +123,14 @@ test('given a WAL-mode forge.db whose last connection has closed, when it is ope
   const dir = mkdtempSync(join(tmpdir(), 'forge-store-'));
   const path = join(dir, 'forge.db');
   const writer = Store.open(path);
-  writer.insertRun(sampleRun());
+  writer.runs.insertRun(sampleRun());
   writer.close();
   assert.equal(existsSync(`${path}-wal`), false);
   assert.equal(existsSync(`${path}-shm`), false);
 
   const store = Store.openReadOnly(path);
 
-  assert.deepEqual(store.getRun('run-01'), sampleRun());
+  assert.deepEqual(store.runs.getRun('run-01'), sampleRun());
   store.close();
 });
 
@@ -139,11 +139,11 @@ test('given a read-only store open alongside a writer, when it attempts an inser
   const writer = Store.open(path);
   const store = Store.openReadOnly(path);
 
-  assert.throws(() => store.insertRun(sampleRun({ id: 'run-ro' })), /readonly/i);
-  assert.equal(store.getRun('run-ro'), undefined);
-  writer.insertRun(sampleRun({ id: 'run-rw' }));
+  assert.throws(() => store.runs.insertRun(sampleRun({ id: 'run-ro' })), /readonly/i);
+  assert.equal(store.runs.getRun('run-ro'), undefined);
+  writer.runs.insertRun(sampleRun({ id: 'run-rw' }));
 
-  assert.deepEqual(store.getRun('run-rw'), sampleRun({ id: 'run-rw' }));
+  assert.deepEqual(store.runs.getRun('run-rw'), sampleRun({ id: 'run-rw' }));
   const raw = new DatabaseSync(path, { readOnly: true });
   assert.equal((raw.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode, 'wal');
   raw.close();
@@ -210,7 +210,7 @@ test('given an empty database and one built at the oldest schema with rows in it
 
   assert.deepEqual(schemaOf(old), schemaOf(fresh));
   assert.deepEqual(
-    migrated.listRuns().map(({ id, costStatus, costUsd }) => ({ id, costStatus, costUsd })),
+    migrated.runs.listRuns().map(({ id, costStatus, costUsd }) => ({ id, costStatus, costUsd })),
     [
       { id: 'uncertain', costStatus: 'unconfirmed', costUsd: 0.0125 },
       { id: 'settled', costStatus: 'billed', costUsd: 0.00093252 },
@@ -290,4 +290,33 @@ test('given the store migrations, when they run on a fresh database, then every 
     CONCERNS.map(({ name }) => name),
     ['runs', 'frontier', 'workloads', 'grades', 'urgency', 'autoMerge', 'diagnoses'],
   );
+});
+
+test('given an opened store, when its interface is inspected, then runs are reached only through the runs concern', () => {
+  const store = Store.open(':memory:');
+  const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(store));
+  const moved = [
+    'insertRun',
+    'finalizeRun',
+    'getRun',
+    'listRuns',
+    'recordGeneration',
+    'listGenerations',
+    'recordLookups',
+    'unsettledGenerations',
+    'recordSkillLoad',
+    'listSkillLoads',
+    'recordFingerprint',
+    'getFingerprint',
+    'getCohortFingerprint',
+    'listCohortFingerprints',
+    'runCohorts',
+    'hasUnknownConfigRuns',
+  ];
+  assert.deepEqual(
+    methods.filter((name) => moved.includes(name)),
+    [],
+  );
+  assert.equal(typeof store.runs.insertRun, 'function');
+  store.close();
 });

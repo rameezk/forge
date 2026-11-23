@@ -6,7 +6,7 @@ import {
   type HarnessEvent,
   type LookupResult,
   type RunSkillLoad,
-  type Store,
+  type Runs,
   type UnsettledGeneration,
 } from '@forge/shared';
 import type { LookupOutcome, LookUpGeneration } from './openrouter.ts';
@@ -18,7 +18,7 @@ const GIVE_UP_AFTER_HOURS = 24;
 const GIVE_UP_AFTER_MS = GIVE_UP_AFTER_HOURS * 60 * 60 * 1000;
 
 export interface SettleOptions {
-  store: Store;
+  runs: Runs;
   lookUp: LookUpGeneration;
   readTranscript: (ref: string) => HarnessEvent[] | null;
   now: () => string;
@@ -67,19 +67,19 @@ const resultOf = (
 };
 
 export const settleGenerations = async ({
-  store,
+  runs,
   lookUp,
   readTranscript,
   now,
   log,
 }: SettleOptions): Promise<void> => {
-  const generations = store.unsettledGenerations();
+  const generations = runs.unsettledGenerations();
   const lookups = await lookUpAll(generations, lookUp);
   const attemptedAt = now();
   const results = generations.map((generation, index) =>
     resultOf(generation, lookups[index] as LookupOutcome, attemptedAt),
   );
-  store.recordLookups(results, attemptedAt);
+  runs.recordLookups(results, attemptedAt);
   results.forEach((result, index) => {
     if ('givenUp' in result && result.givenUp) {
       const { generationId, runId } = generations[index] as UnsettledGeneration;
@@ -89,7 +89,7 @@ export const settleGenerations = async ({
     }
   });
   const staleSince = new Date(Date.parse(attemptedAt) - STALE_AFTER_MS).toISOString();
-  for (const { id, lastSeen } of store.interruptStaleRuns(staleSince, attemptedAt)) {
+  for (const { id, lastSeen } of runs.interruptStaleRuns(staleSince, attemptedAt)) {
     log(
       `run ${JSON.stringify(id)} was interrupted: its runner stopped without finishing, last seen at ${lastSeen}`,
     );
@@ -97,22 +97,22 @@ export const settleGenerations = async ({
   const quietSince = new Date(
     Date.parse(attemptedAt) - GIVE_UP_AFTER_MS,
   ).toISOString();
-  for (const runId of store.giveUpUnfinishedRuns(quietSince, attemptedAt)) {
+  for (const runId of runs.giveUpUnfinishedRuns(quietSince, attemptedAt)) {
     log(
       `gave up on run ${JSON.stringify(runId)}: it never ended and has had no generation for ${GIVE_UP_AFTER_HOURS} hours`,
     );
   }
-  for (const { id, transcriptRef } of store.runsWithoutCounters()) {
+  for (const { id, transcriptRef } of runs.runsWithoutCounters()) {
     try {
       const events = readTranscript(transcriptRef);
       if (events !== null) {
-        store.recordCounters(id, countEvents(events));
+        runs.recordCounters(id, countEvents(events));
       }
     } catch (error) {
       log(`could not count the transcript of run ${JSON.stringify(id)}: ${errorMessage(error)}`);
     }
   }
-  for (const { id, transcriptRef } of store.runsWithoutSkillLoadRecord()) {
+  for (const { id, transcriptRef } of runs.runsWithoutSkillLoadRecord()) {
     let loads: RunSkillLoad[] | null = null;
     try {
       const events = transcriptRef === null ? null : readTranscript(transcriptRef);
@@ -127,6 +127,6 @@ export const settleGenerations = async ({
     } catch (error) {
       log(`could not read the skill loads of run ${JSON.stringify(id)}: ${errorMessage(error)}`);
     }
-    store.recordBackfilledSkillLoads(id, loads);
+    runs.recordBackfilledSkillLoads(id, loads);
   }
 };

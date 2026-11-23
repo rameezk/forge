@@ -129,7 +129,7 @@ test('given a running diagnosis, when workloads are counted, then it holds no co
 
 test('given diagnosis runs in the store, when insights load with manual workloads included, then no diagnosis cohort or spend is counted', () => {
   const store = Store.open(':memory:');
-  store.insertRun(aRun('diagnosis-1', { costUsd: 9 }));
+  store.runs.insertRun(aRun('diagnosis-1', { costUsd: 9 }));
   const at = new Date().toISOString();
   failedDispatch(store, 'checks', 'check-failed');
   store.startDiagnosis('checks', 'diagnosis-1', at);

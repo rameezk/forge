@@ -8,7 +8,7 @@ import {
   type RunStatus,
   type RunCounters,
   type RunTicket,
-  type Store,
+  type Runs,
   type TokenUsage,
   countEvent,
   noCounters,
@@ -32,7 +32,7 @@ import {
 } from './transcript.ts';
 
 export interface RunWorkloadOptions {
-  store: Store;
+  runs: Runs;
   harness: Harness;
   worker: Worker;
   openTranscript: (runId: string) => TranscriptWriter;
@@ -110,7 +110,7 @@ const estimatedCost = (price: ListPrice | null, usage: TokenUsage): number | nul
 export const runWorkload = async (
   options: RunWorkloadOptions,
 ): Promise<WorkloadResult> => {
-  const { store, harness, worker, openTranscript, openWorkspace, now, newId } =
+  const { runs, harness, worker, openTranscript, openWorkspace, now, newId } =
     options;
   const policy = transcriptPolicy(options.secrets ?? (() => []));
   const id = newId();
@@ -129,7 +129,7 @@ export const runWorkload = async (
   const rawEvents = options.openRawEvents(id);
   const requestRecord = options.openRequestRecord(id);
 
-  store.insertRun({
+  runs.insertRun({
     id,
     worker: worker.name,
     harness: worker.harness,
@@ -159,7 +159,7 @@ export const runWorkload = async (
     counters: null,
   });
   const stopHeartbeat = startHeartbeat(
-    () => store.touchRun(id, now()),
+    () => runs.touchRun(id, now()),
     (error) =>
       process.stderr.write(
         `run ${id}: could not refresh its heartbeat: ${errorMessage(error)}\n`,
@@ -182,7 +182,7 @@ export const runWorkload = async (
         `run ${id}: gave up on a generation, ${givenUpBecause}, so it can never be billed\n`,
       );
     }
-    store.recordGeneration({
+    runs.recordGeneration({
       runId: id,
       generationId: call.generationId,
       subagent: call.subagent,
@@ -240,7 +240,7 @@ export const runWorkload = async (
           skills: skillsHash(invocation.checkout),
           baseCommit: invocation.baseCommit ?? null,
           forgeGitSha: options.forgeGitSha ?? null,
-          record: (recorded) => store.recordFingerprint(id, recorded),
+          record: (recorded) => runs.recordFingerprint(id, recorded),
         });
         return { invocation, recorder };
       },
@@ -256,7 +256,7 @@ export const runWorkload = async (
         requestRecord.append(policy.redactValue(line));
       },
     };
-    store.markHarnessStarted(id, now());
+    runs.markHarnessStarted(id, now());
     if (worker.timeoutSeconds != null) {
       const timer = setTimeout(() => {
         exceeded = 'timeout';
@@ -267,7 +267,7 @@ export const runWorkload = async (
     for await (const harnessEvent of harnessRun.run(invocation, sinks)) {
       if (harnessEvent.type === 'skill_load') {
         const { type: _type, ...load } = harnessEvent;
-        store.recordSkillLoad({ ...load, runId: id, loadedAt: now() });
+        runs.recordSkillLoad({ ...load, runId: id, loadedAt: now() });
         continue;
       }
       const event = policy.record(harnessEvent);
@@ -277,7 +277,7 @@ export const runWorkload = async (
       if (calls.length > 0) {
         calls.forEach(recordGeneration);
         if (exceeded === null && worker.maxCostUsd != null) {
-          const spend = store.workloadSpend(id);
+          const spend = runs.workloadSpend(id);
           if (spend.unpriced || spend.costUsd > worker.maxCostUsd) {
             exceeded = 'budget';
             stop.abort();
@@ -319,7 +319,7 @@ export const runWorkload = async (
     error = `the workload was stopped after its ${exceeded} was exceeded`;
   }
 
-  store.finalizeRun(id, {
+  runs.finalizeRun(id, {
     endTime: now(),
     status,
     sessionId,

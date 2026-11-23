@@ -49,7 +49,7 @@ const startedRun = (
     aliveAt = null,
   }: { startTime?: string; generatedAt?: string | null; aliveAt?: string | null } = {},
 ): void => {
-  store.insertRun({
+  store.runs.insertRun({
     id,
     worker: 'refiner',
     harness: 'pi',
@@ -79,7 +79,7 @@ const startedRun = (
     counters: null,
   });
   if (generatedAt !== null) {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: id,
       generationId: `gen-${id}`,
       subagent: null,
@@ -92,7 +92,7 @@ const startedRun = (
 };
 
 const finish = (store: Store, id: string, endTime: string): void => {
-  store.finalizeRun(id, {
+  store.runs.finalizeRun(id, {
     endTime,
     status: 'success',
     sessionId: null,
@@ -112,22 +112,22 @@ test('given one run that ended just over 24 hours ago and one just under, each w
   const log: string[] = [];
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: noTranscripts,
     lookUp: async () => ({ outcome: 'temporary', reason: 'HTTP 404' }),
     now: () => NOW,
     log: (line) => log.push(line),
   });
 
-  assert.equal(store.getRun('stale')?.costStatus, 'unconfirmed');
-  assert.equal(store.getRun('fresh')?.costStatus, 'pending');
+  assert.equal(store.runs.getRun('stale')?.costStatus, 'unconfirmed');
+  assert.equal(store.runs.getRun('fresh')?.costStatus, 'pending');
   assert.deepEqual(log.length, 1);
   assert.match(log[0] ?? '', /"gen-stale"/);
   assert.match(log[0] ?? '', /run "stale"/);
   assert.match(log[0] ?? '', /HTTP 404/);
   assert.match(log[0] ?? '', /still unbilled after 24 hours/);
   assert.deepEqual(
-    store.listGenerations('fresh').map(({ attempts, lastAttemptAt }) => ({
+    store.runs.listGenerations('fresh').map(({ attempts, lastAttemptAt }) => ({
       attempts,
       lastAttemptAt,
     })),
@@ -140,25 +140,25 @@ test('given a run still running whose generations so far are all billed, when th
   startedRun(store, 'live', { generatedAt: endedAgo(60_000), aliveAt: BEATING });
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: () => {},
   });
 
-  assert.equal(store.getRun('live')?.costStatus, 'pending');
-  assert.equal(store.getRun('live')?.costUsd, 0.25);
+  assert.equal(store.runs.getRun('live')?.costStatus, 'pending');
+  assert.equal(store.runs.getRun('live')?.costUsd, 0.25);
   finish(store, 'live', NOW);
-  assert.equal(store.getRun('live')?.costStatus, 'billed');
-  assert.equal(store.getRun('live')?.costUsd, 0.25);
+  assert.equal(store.runs.getRun('live')?.costStatus, 'billed');
+  assert.equal(store.runs.getRun('live')?.costUsd, 0.25);
 });
 
 test('given a run whose runner is still beating but has had no generation for 24 hours, when the settle step runs, then it keeps running with what was billed as unconfirmed, a given-up row records why, the give-up is logged, and a run still within the window stays pending', async () => {
   const store = Store.open(':memory:');
   startedRun(store, 'quiet', { aliveAt: BEATING });
   startedRun(store, 'recent', { aliveAt: BEATING });
-  store.recordGeneration({
+  store.runs.recordGeneration({
     runId: 'recent',
     generationId: 'gen-recent-late',
     subagent: null,
@@ -170,19 +170,19 @@ test('given a run whose runner is still beating but has had no generation for 24
   const log: string[] = [];
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: (line) => log.push(line),
   });
 
-  assert.equal(store.getRun('quiet')?.status, 'running');
-  assert.equal(store.getRun('quiet')?.costStatus, 'unconfirmed');
-  assert.equal(store.getRun('quiet')?.costUsd, 0.25);
+  assert.equal(store.runs.getRun('quiet')?.status, 'running');
+  assert.equal(store.runs.getRun('quiet')?.costStatus, 'unconfirmed');
+  assert.equal(store.runs.getRun('quiet')?.costUsd, 0.25);
   assert.deepEqual(
     store
-      .listGenerations('quiet')
+      .runs.listGenerations('quiet')
       .map(({ generationId, givenUpAt, lastError }) => ({ generationId, givenUpAt, lastError })),
     [
       { generationId: 'gen-quiet', givenUpAt: null, lastError: null },
@@ -193,8 +193,8 @@ test('given a run whose runner is still beating but has had no generation for 24
       },
     ],
   );
-  assert.equal(store.getRun('recent')?.costStatus, 'pending');
-  assert.equal(store.getRun('recent')?.costUsd, 0.5);
+  assert.equal(store.runs.getRun('recent')?.costStatus, 'pending');
+  assert.equal(store.runs.getRun('recent')?.costUsd, 0.5);
   assert.deepEqual(log, [
     'gave up on run "quiet": it never ended and has had no generation for 24 hours',
   ]);
@@ -206,15 +206,15 @@ test('given a run whose runner is still beating but has had no generation since 
   const log: string[] = [];
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: (line) => log.push(line),
   });
 
-  assert.equal(store.getRun('quiet-from-start')?.costStatus, 'unconfirmed');
-  assert.equal(store.getRun('quiet-from-start')?.costUsd, 0);
+  assert.equal(store.runs.getRun('quiet-from-start')?.costStatus, 'unconfirmed');
+  assert.equal(store.runs.getRun('quiet-from-start')?.costUsd, 0);
   assert.deepEqual(log, [
     'gave up on run "quiet-from-start": it never ended and has had no generation for 24 hours',
   ]);
@@ -224,7 +224,7 @@ test('given a run given up because it never ended, when its runner later finaliz
   const store = Store.open(':memory:');
   startedRun(store, 'late', { aliveAt: BEATING });
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
@@ -233,8 +233,8 @@ test('given a run given up because it never ended, when its runner later finaliz
 
   finish(store, 'late', NOW);
 
-  assert.equal(store.getRun('late')?.costStatus, 'unconfirmed');
-  assert.equal(store.getRun('late')?.costUsd, 0.25);
+  assert.equal(store.runs.getRun('late')?.costStatus, 'unconfirmed');
+  assert.equal(store.runs.getRun('late')?.costUsd, 0.25);
 });
 
 test('given running runs whose runner last beat just over two minutes ago, whose runner never beat and started just over two minutes ago, and whose runner beat just under two minutes ago, when the settle step runs, then the first two end as interrupted when last seen, with what was billed as unconfirmed, a given-up row recording why and the interruption logged, and the third keeps running', async () => {
@@ -255,7 +255,7 @@ test('given running runs whose runner last beat just over two minutes ago, whose
   const log: string[] = [];
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: noTranscripts,
     lookUp: async () => billed(0.25),
     now: () => NOW,
@@ -264,7 +264,7 @@ test('given running runs whose runner last beat just over two minutes ago, whose
 
   assert.deepEqual(
     ['killed', 'never-beat', 'alive'].map((id) => {
-      const run = store.getRun(id);
+      const run = store.runs.getRun(id);
       return {
         id,
         status: run?.status,
@@ -303,7 +303,7 @@ test('given running runs whose runner last beat just over two minutes ago, whose
   );
   assert.deepEqual(
     store
-      .listGenerations('killed')
+      .runs.listGenerations('killed')
       .map(({ generationId, givenUpAt, lastError }) => ({ generationId, givenUpAt, lastError })),
     [
       { generationId: 'gen-killed', givenUpAt: null, lastError: null },
@@ -330,21 +330,21 @@ test('given a running run whose runner stopped beating, with a transcript holdin
   ]);
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: (ref) => transcripts.get(ref) ?? null,
     lookUp: async () => billed(0.25),
     now: () => NOW,
     log: () => {},
   });
 
-  assert.equal(store.getRun('killed')?.status, 'interrupted');
-  assert.deepEqual(store.getRun('killed')?.counters, {
+  assert.equal(store.runs.getRun('killed')?.status, 'interrupted');
+  assert.deepEqual(store.runs.getRun('killed')?.counters, {
     toolCalls: 2,
     failedToolResults: 1,
     retries: 0,
     compactions: 0,
   });
-  assert.equal(store.getRun('alive')?.counters, null);
+  assert.equal(store.runs.getRun('alive')?.counters, null);
 });
 
 test('given an ended run recorded without counters whose transcript holds tool calls and a failed result, when billing runs twice, then the first run fills its counters from the transcript and the second leaves them unchanged', async () => {
@@ -360,7 +360,7 @@ test('given an ended run recorded without counters whose transcript holds tool c
   ];
   const settle = (events: HarnessEvent[]): Promise<void> =>
     settleGenerations({
-      store,
+      runs: store.runs,
       readTranscript: () => events,
       lookUp: async () => billed(0.25),
       now: () => NOW,
@@ -368,11 +368,11 @@ test('given an ended run recorded without counters whose transcript holds tool c
     });
 
   await settle(transcript);
-  const filled = store.getRun('older')?.counters;
+  const filled = store.runs.getRun('older')?.counters;
   await settle([]);
 
   assert.deepEqual(filled, { toolCalls: 2, failedToolResults: 1, retries: 1, compactions: 1 });
-  assert.deepEqual(store.getRun('older')?.counters, filled);
+  assert.deepEqual(store.runs.getRun('older')?.counters, filled);
 });
 
 test('given two ended runs without counters whose first transcript cannot be read, when the settle step runs, then the failure is logged and the second run still gets its counters', async () => {
@@ -384,7 +384,7 @@ test('given two ended runs without counters whose first transcript cannot be rea
   const log: string[] = [];
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: (ref) => {
       if (ref === 'a-broken.jsonl') throw new Error('EACCES: permission denied');
       return [toolCall('a')];
@@ -394,8 +394,8 @@ test('given two ended runs without counters whose first transcript cannot be rea
     log: (line) => log.push(line),
   });
 
-  assert.equal(store.getRun('a-broken')?.counters, null);
-  assert.equal(store.getRun('b-fine')?.counters?.toolCalls, 1);
+  assert.equal(store.runs.getRun('a-broken')?.counters, null);
+  assert.equal(store.runs.getRun('b-fine')?.counters?.toolCalls, 1);
   assert.deepEqual(log, [
     'could not count the transcript of run "a-broken": EACCES: permission denied',
   ]);
@@ -405,7 +405,7 @@ test('given a run with one generation OpenRouter billed and one it rejected for 
   const store = Store.open(':memory:');
   startedRun(store, 'mixed', { generatedAt: null });
   for (const [generationId, estimatedCostUsd] of [['gen-billed', 0.2], ['gen-rejected', 0.36]] as const) {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: 'mixed',
       generationId,
       subagent: null,
@@ -418,7 +418,7 @@ test('given a run with one generation OpenRouter billed and one it rejected for 
   finish(store, 'mixed', endedAgo(DAY_MS + 1000));
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: noTranscripts,
     lookUp: async (generationId) =>
       generationId === 'gen-billed' ? billed(0.25) : { outcome: 'permanent', reason: 'HTTP 400' },
@@ -426,7 +426,7 @@ test('given a run with one generation OpenRouter billed and one it rejected for 
     log: () => {},
   });
 
-  const run = store.getRun('mixed');
+  const run = store.runs.getRun('mixed');
   assert.equal(run?.costStatus, 'unconfirmed');
   assert.equal(run?.costUsd, 0.25);
   assert.equal(run?.unconfirmedEstimateUsd, 0.36);
@@ -435,7 +435,7 @@ test('given a run with one generation OpenRouter billed and one it rejected for 
 test('given a run whose every generation OpenRouter rejected for good, when the settle step runs, then it bills nothing and keeps the whole estimate as unconfirmed', async () => {
   const store = Store.open(':memory:');
   startedRun(store, 'rejected', { generatedAt: null });
-  store.recordGeneration({
+  store.runs.recordGeneration({
     runId: 'rejected',
     generationId: 'msg_01',
     subagent: null,
@@ -447,14 +447,14 @@ test('given a run whose every generation OpenRouter rejected for good, when the 
   finish(store, 'rejected', endedAgo(DAY_MS + 1000));
 
   await settleGenerations({
-    store,
+    runs: store.runs,
     readTranscript: noTranscripts,
     lookUp: async () => ({ outcome: 'permanent', reason: 'HTTP 400' }),
     now: () => NOW,
     log: () => {},
   });
 
-  const run = store.getRun('rejected');
+  const run = store.runs.getRun('rejected');
   assert.equal(run?.costStatus, 'unconfirmed');
   assert.equal(run?.costUsd, 0);
   assert.equal(run?.costEstimated, false);

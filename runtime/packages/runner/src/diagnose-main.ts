@@ -131,7 +131,7 @@ const startRerun = (
   resolveWorker(config, workerName);
   const at = now();
   if (store.diagnosisOfRun(failedRunId, at) !== null) throw new Error(`${failedRunId} is a diagnosis, which is never diagnosed`);
-  const failed = store.getRun(failedRunId);
+  const failed = store.runs.getRun(failedRunId);
   if (failed === undefined) throw new Error(`${failedRunId} is not recorded`);
   if (briefOf(store, failed, stateDir) === null) {
     throw new Error(`${failedRunId} is not a dispatch, revision or conflict resolution`);
@@ -182,7 +182,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
     );
     try {
       const worker = resolveWorker(config, workerName);
-      const failed = store.getRun(diagnosis.failedRunId);
+      const failed = store.runs.getRun(diagnosis.failedRunId);
       if (failed === undefined) throw new Error(`the failed run ${diagnosis.failedRunId} is not recorded`);
       const prepared = briefOf(store, failed, stateDir);
       if (prepared === null) throw new Error(`${failed.id} is not a dispatch, revision or conflict resolution`);

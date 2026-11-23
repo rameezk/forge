@@ -41,7 +41,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
 
 const appWith = (runs: RunRecord[]) => {
   const store = Store.open(':memory:');
-  for (const run of runs) store.insertRun(run);
+  for (const run of runs) store.runs.insertRun(run);
   return createApp({
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),

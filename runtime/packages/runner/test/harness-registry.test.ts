@@ -84,14 +84,14 @@ test('given a test-only harness registered by name that emits its own events, re
     const store = Store.open(join(stateDir, 'forge.db'));
     try {
       assert.deepEqual(
-        store.listGenerations(run.id).map(({ generationId }) => generationId),
+        store.runs.listGenerations(run.id).map(({ generationId }) => generationId),
         ['scripted-gen-1'],
       );
       assert.deepEqual(
-        store.listSkillLoads(run.id).map(({ skill, source }) => [skill, source]),
+        store.runs.listSkillLoads(run.id).map(({ skill, source }) => [skill, source]),
         [['scripted-skill', 'prompt']],
       );
-      const fingerprint = store.getFingerprint(run.id);
+      const fingerprint = store.runs.getFingerprint(run.id);
       assert.equal(fingerprint?.fingerprint.harnessVersion, '9.9.9');
       assert.deepEqual(fingerprint?.fingerprint.harnessArgs, ['--scripted']);
       assert.notEqual(fingerprint?.fingerprint.systemPrompt, null);

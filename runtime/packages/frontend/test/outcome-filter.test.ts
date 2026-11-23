@@ -46,7 +46,7 @@ const appOver = (store: Store) =>
 const dashboard = () => {
   const store = Store.open(':memory:');
   const dispatch = (id: string, status: RunStatus, number: number, outcome?: Parameters<Store['endDispatch']>[1]) => {
-    store.insertRun(sampleRun(id, status));
+    store.runs.insertRun(sampleRun(id, status));
     const started = store.startDispatch(issue(number), id, outcome === undefined ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10, null);
     assert.ok('started' in started);
     if (outcome !== undefined) store.endDispatch(started.started, outcome, '2026-09-21T10:03:20.000Z');
@@ -54,8 +54,8 @@ const dashboard = () => {
   dispatch('done-dispatch', 'success', 1, { state: 'done', pullRequest: { number: 101, url: 'https://github.com/rameezk/forge/pull/101' } });
   dispatch('draft-dispatch', 'success', 2, { state: 'failed', reason: 'draft', detail: null });
   dispatch('running-dispatch', 'running', 3);
-  store.insertRun(sampleRun('plain-interrupted', 'interrupted'));
-  store.insertRun(sampleRun('plain-success', 'success'));
+  store.runs.insertRun(sampleRun('plain-interrupted', 'interrupted'));
+  store.runs.insertRun(sampleRun('plain-success', 'success'));
   return appOver(store);
 };
 
@@ -88,15 +88,15 @@ test('given a dispatch still in progress, when the running chip is picked, then 
 test('given successful runs whose revision failed, whose conflict resolution failed and whose revision is done, when the failed chip is picked, then only the failed ones are listed', async () => {
   const store = Store.open(':memory:');
   const pull = (number: number) => ({ repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` });
-  store.insertRun(sampleRun('revision-failed', 'success'));
+  store.runs.insertRun(sampleRun('revision-failed', 'success'));
   const failedRevision = store.startRevision(pull(1), [], 'revision-failed', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in failedRevision);
   store.endRevision(failedRevision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'unanswered', detail: null });
-  store.insertRun(sampleRun('resolution-failed', 'success'));
+  store.runs.insertRun(sampleRun('resolution-failed', 'success'));
   const failedResolution = store.startConflictResolution(pull(2), [], 'resolution-failed', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head', defaultSha: 'default' });
   assert.ok('started' in failedResolution);
   store.endConflictResolution(failedResolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'still-conflicting', detail: null });
-  store.insertRun(sampleRun('revision-done', 'success'));
+  store.runs.insertRun(sampleRun('revision-done', 'success'));
   const doneRevision = store.startRevision(pull(3), [], 'revision-done', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in doneRevision);
   store.endRevision(doneRevision.started, 'done', '2026-09-21T10:03:20.000Z');

@@ -41,7 +41,7 @@ const sampleRun = (id: string, status: RunStatus, ticketNumber: number | null): 
 });
 
 const dispatchRun = (store: Store, id: string, status: RunStatus, number: number, outcome?: DispatchOutcome): void => {
-  store.insertRun(sampleRun(id, status, number));
+  store.runs.insertRun(sampleRun(id, status, number));
   const started = store.startDispatch({ repository: 'forge', number, url: `${GITHUB}forge/issues/${number}` }, id, status === 'running' ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10, null);
   assert.ok('started' in started);
   if (outcome !== undefined) store.endDispatch(started.started, outcome, '2026-09-21T10:03:20.000Z');
@@ -54,16 +54,16 @@ const dashboard = () => {
   dispatchRun(store, 'stopped', 'interrupted', 3, { state: 'failed', reason: 'interrupted', detail: null });
   dispatchRun(store, 'errored', 'error', 4, { state: 'failed', reason: 'errored', detail: null });
   dispatchRun(store, 'going', 'running', 5);
-  store.insertRun(sampleRun('over', 'exceeded', null));
+  store.runs.insertRun(sampleRun('over', 'exceeded', null));
   const revision = store.startRevision({ repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` }, [], 'over', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in revision);
   store.endRevision(revision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'exceeded', detail: 'budget' });
-  store.insertRun(sampleRun('conflicted', 'success', null));
+  store.runs.insertRun(sampleRun('conflicted', 'success', null));
   const resolution = store.startConflictResolution({ repository: 'forge', number: 8, url: `${GITHUB}forge/pull/8` }, [], 'conflicted', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head', defaultSha: 'default' });
   assert.ok('started' in resolution);
   store.endConflictResolution(resolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'still-conflicting', detail: null });
-  store.insertRun(sampleRun('plain', 'success', null));
-  store.insertRun(sampleRun('plain-stopped', 'interrupted', null));
+  store.runs.insertRun(sampleRun('plain', 'success', null));
+  store.runs.insertRun(sampleRun('plain-stopped', 'interrupted', null));
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
 };
 
@@ -136,7 +136,7 @@ test('given runs that are done, failed and running, when the failed chip is pick
 test('given a ticket whose dispatch run ended success and whose revision run was interrupted, when the attempts page is requested, then the revision leads with failed beside interrupted, and every pill has a tooltip', async () => {
   const store = Store.open(':memory:');
   dispatchRun(store, 'built', 'success', 21, { state: 'done', pullRequest: { number: 31, url: `${GITHUB}forge/pull/31` } });
-  store.insertRun(sampleRun('revised', 'interrupted', null));
+  store.runs.insertRun(sampleRun('revised', 'interrupted', null));
   const revision = store.startRevision({ repository: 'forge', number: 31, url: `${GITHUB}forge/pull/31` }, [], 'revised', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in revision);
   store.endRevision(revision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'interrupted', detail: null });
