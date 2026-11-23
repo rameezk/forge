@@ -47,7 +47,7 @@ const ticketIn = (repository: string, number: number) => ({
 
 const open = async (runs: RunRecord[], path = '/workloads'): Promise<string> => {
   const store = Store.open(':memory:');
-  for (const run of runs) store.insertRun(run);
+  for (const run of runs) store.runs.insertRun(run);
   const app = createApp({
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),
@@ -123,9 +123,9 @@ test('given workloads started today and two weeks ago, when filtered to the last
 
 test('given billed and subscription workloads, when filtered to the subscription ones, then the Cost tile reads $0.00 with the list-price note', async () => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun({ id: 'billed', costUsd: 0.2 }));
-  store.insertRun(sampleRun({ id: 'sub', costStatus: 'subscription', costUsd: 0, model: 'x/sub' }));
-  store.recordGeneration({
+  store.runs.insertRun(sampleRun({ id: 'billed', costUsd: 0.2 }));
+  store.runs.insertRun(sampleRun({ id: 'sub', costStatus: 'subscription', costUsd: 0, model: 'x/sub' }));
+  store.runs.recordGeneration({
     runId: 'sub',
     generationId: 'sub-gen',
     subagent: null,

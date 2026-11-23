@@ -47,7 +47,7 @@ const appWith = (
   seed: (store: Store) => void = () => {},
 ) => {
   const store = Store.open(':memory:');
-  for (const run of runs) store.insertRun(run);
+  for (const run of runs) store.runs.insertRun(run);
   seed(store);
   return createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
 };
@@ -405,7 +405,7 @@ test('given a billed run and a finished subscription run, when the list is reque
 
 const listPriced = (runId: string, ...equivalents: (number | null)[]) => (store: Store): void => {
   equivalents.forEach((listPriceEquivalentUsd, index) => {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId,
       generationId: `${runId}-gen-${index + 1}`,
       subagent: null,
@@ -1193,18 +1193,18 @@ const viewWithGenerations = async (
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n');
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl', ...run }));
+  store.runs.insertRun(sampleRun({ id: 'run-01', transcriptRef: 'run-01.jsonl', ...run }));
   for (const { generationId, subagent, estimate } of generations) {
-    store.recordGeneration({ runId: 'run-01', generationId, subagent, kind: 'message', usage, estimatedCostUsd: estimate ?? null, createdAt: '2026-09-21T10:01:00.000Z' });
+    store.runs.recordGeneration({ runId: 'run-01', generationId, subagent, kind: 'message', usage, estimatedCostUsd: estimate ?? null, createdAt: '2026-09-21T10:01:00.000Z' });
   }
-  const ids = new Map(store.unsettledGenerations().map((g) => [g.generationId, g.id]));
+  const ids = new Map(store.runs.unsettledGenerations().map((g) => [g.generationId, g.id]));
   const lookups: LookupResult[] = [];
   for (const generation of generations) {
     const id = ids.get(generation.generationId)!;
     if (generation.outcome === 'billed') lookups.push({ id, billing: { costUsd: generation.cost ?? 0, usage: null, reasoningTokens: null, provider: generation.provider ?? null, model: null } });
     if (generation.outcome === 'given-up') lookups.push({ id, error: 'not found', givenUp: true });
   }
-  store.recordLookups(lookups, '2026-09-21T10:02:00.000Z');
+  store.runs.recordLookups(lookups, '2026-09-21T10:02:00.000Z');
   const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
   return (await app.request(page)).text();
 };

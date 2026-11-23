@@ -46,8 +46,8 @@ const sampleRun = (id: string, startTime: string): RunRecord => ({
 
 const listed = async (timeZone: string | undefined, path: string): Promise<string[]> => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun('before', BEFORE_MIDNIGHT));
-  store.insertRun(sampleRun('after', AFTER_MIDNIGHT));
+  store.runs.insertRun(sampleRun('before', BEFORE_MIDNIGHT));
+  store.runs.insertRun(sampleRun('after', AFTER_MIDNIGHT));
   const app = createApp({
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),

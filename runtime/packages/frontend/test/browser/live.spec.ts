@@ -76,11 +76,11 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
   await openLive(page, '/workloads');
   await expect(page.getByText('No workloads have run yet.')).toBeVisible();
 
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   const row = page.getByRole('row', { name: /refiner/ });
   await expect(row.locator('[data-status]')).toHaveText('running');
 
-  dashboard.store.recordGeneration({
+  dashboard.store.runs.recordGeneration({
     runId: 'run-01',
     generationId: 'gen-01',
     subagent: null,
@@ -89,7 +89,7 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
     estimatedCostUsd: null,
     createdAt: '2026-09-21T10:01:00.000Z',
   });
-  dashboard.store.finalizeRun('run-01', {
+  dashboard.store.runs.finalizeRun('run-01', {
     status: 'success',
     endTime: '2026-09-21T10:03:20.000Z',
     sessionId: 'sess-abc',
@@ -98,8 +98,8 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
   await expect(row.locator('[data-status]')).toHaveText('success');
   await expect(row.locator('[data-cost]')).toHaveText('pending');
 
-  const [unsettled] = dashboard.store.unsettledGenerations();
-  dashboard.store.recordLookups(
+  const [unsettled] = dashboard.store.runs.unsettledGenerations();
+  dashboard.store.runs.recordLookups(
     [{ id: unsettled!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic', model: null } }],
     '2026-09-21T10:05:00.000Z',
   );
@@ -112,11 +112,11 @@ test('given the runs list filtered to Failed, when a run fails and another succe
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({ ...runningRun, id: 'earlier', worker: 'earlier-worker', status: 'success', endTime: '2026-09-21T10:03:20.000Z', costStatus: 'billed' });
+  dashboard.store.runs.insertRun({ ...runningRun, id: 'earlier', worker: 'earlier-worker', status: 'success', endTime: '2026-09-21T10:03:20.000Z', costStatus: 'billed' });
   await openLive(page, '/workloads?status=failed');
   await expect(page.getByText('No workloads match.')).toBeVisible();
 
-  dashboard.store.insertRun({ ...runningRun, id: 'failed', worker: 'failing-worker', status: 'error', endTime: '2026-09-21T10:03:20.000Z', costStatus: 'billed' });
+  dashboard.store.runs.insertRun({ ...runningRun, id: 'failed', worker: 'failing-worker', status: 'error', endTime: '2026-09-21T10:03:20.000Z', costStatus: 'billed' });
 
   await expect(page.getByRole('row', { name: /failing-worker/ })).toBeVisible();
   await expect(page.getByRole('row', { name: /earlier-worker/ })).toHaveCount(0);
@@ -126,7 +126,7 @@ test('given the runs list filtered to Failed, when a run fails and another succe
 });
 
 test('given a live page whose data has not changed since it was rendered, when it loads and opens its change stream, then it does not refetch itself', async ({ dashboard, page }) => {
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   const refetched: string[] = [];
   page.on('request', (request) => {
     if (request.resourceType() === 'fetch') refetched.push(request.url());
@@ -153,7 +153,7 @@ test('given the runs list loaded before its stream connects, when a run is recor
   await page.goto('/workloads');
   await expect(page.getByText('No workloads have run yet.')).toBeVisible();
 
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   release();
 
   await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
@@ -176,7 +176,7 @@ test('given the runs list open in a browser, when the dashboard starts serving d
     { times: 1 },
   );
 
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   await reloaded;
 
   expect(await wasReloaded(page)).toBe(true);
@@ -191,7 +191,7 @@ test('given the runs list whose refresh after a change failed, when its stream d
   const failed = page.waitForEvent('requestfailed');
   await page.route('/workloads', (route) => (route.request().resourceType() === 'fetch' ? route.abort() : route.fallback()), { times: 1 });
 
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   await failed;
   await expect(page.getByText('No workloads have run yet.')).toBeVisible();
   dashboard.dropConnections();
@@ -212,7 +212,7 @@ test('given the runs list open in a browser with an extension that added its own
     doc.head.append(injected);
   });
 
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
 
   await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
   await expectNotReloaded(page);
@@ -290,7 +290,7 @@ test('given a detail page with a tool call the operator expanded, when a new tra
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(transcribedRun);
+  dashboard.store.runs.insertRun(transcribedRun);
   dashboard.appendEvents(
     'run-01.jsonl',
     { type: 'message', role: 'user', text: 'Work on #138.', usage: NO_USAGE, generationId: null },
@@ -316,7 +316,7 @@ test('given a detail page with a tool call the operator expanded without clickin
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(transcribedRun);
+  dashboard.store.runs.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', toolCall('call-1', 'docs/CONTEXT.md'), toolResult('call-1', 'ok'));
   await openLive(page, '/runs/run-01/transcript');
   const call = page.locator('[data-tool-call]');
@@ -335,7 +335,7 @@ test('given a detail page with a tool call awaiting its result that the operator
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(transcribedRun);
+  dashboard.store.runs.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', toolCall('call-1', 'docs/CONTEXT.md'));
   await openLive(page, '/runs/run-01/transcript');
   const call = page.locator('[data-tool-call]');
@@ -352,7 +352,7 @@ test('given a running workload\'s detail page scrolled to the bottom, when new t
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(transcribedRun);
+  dashboard.store.runs.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', say(longText));
   await openLive(page, '/runs/run-01/transcript');
   await scrollTo(page, 1e6);
@@ -368,7 +368,7 @@ test('given a running workload\'s detail page scrolled up, when new transcript e
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(transcribedRun);
+  dashboard.store.runs.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', say(longText));
   await openLive(page, '/runs/run-01/transcript');
   await scrollTo(page, 300);
@@ -390,7 +390,7 @@ test('given a running workload\'s transcript page scrolled up with a tool call e
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(transcribedRun);
+  dashboard.store.runs.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', say(longText), toolCall('call-1', 'docs/CONTEXT.md'));
   await openLive(page, '/runs/run-01/transcript');
   await page.locator('[data-tool-call] summary').click();
@@ -406,9 +406,9 @@ test('given a live detail page showing Live, when the workload\'s cost settles a
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(transcribedRun);
+  dashboard.store.runs.insertRun(transcribedRun);
   dashboard.appendEvents('run-01.jsonl', say('Reading the ticket.'));
-  dashboard.store.recordGeneration({
+  dashboard.store.runs.recordGeneration({
     runId: 'run-01',
     generationId: 'gen-01',
     subagent: null,
@@ -417,11 +417,11 @@ test('given a live detail page showing Live, when the workload\'s cost settles a
     estimatedCostUsd: null,
     createdAt: '2026-09-21T10:01:00.000Z',
   });
-  dashboard.store.finalizeRun('run-01', { status: 'success', endTime: '2026-09-21T10:03:20.000Z', sessionId: 'sess-abc', error: null });
+  dashboard.store.runs.finalizeRun('run-01', { status: 'success', endTime: '2026-09-21T10:03:20.000Z', sessionId: 'sess-abc', error: null });
   await openLive(page, '/runs/run-01');
 
-  const [unsettled] = dashboard.store.unsettledGenerations();
-  dashboard.store.recordLookups(
+  const [unsettled] = dashboard.store.runs.unsettledGenerations();
+  dashboard.store.runs.recordLookups(
     [{ id: unsettled!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: null, provider: 'Anthropic', model: null } }],
     '2026-09-21T10:05:00.000Z',
   );
@@ -442,7 +442,7 @@ test.describe('with JS disabled', () => {
     dashboard,
     page,
   }) => {
-    dashboard.store.insertRun(transcribedRun);
+    dashboard.store.runs.insertRun(transcribedRun);
     dashboard.appendEvents('run-01.jsonl', say('Reading the ticket.'));
     dashboard.store.replaceFrontier(polledFrontier);
 
@@ -468,11 +468,11 @@ test('given a running workload\'s detail page open in a browser, when its genera
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   await openLive(page, '/runs/run-01');
   await expect(page.locator('[data-calls]')).toHaveCount(0);
   const record = (generationId: string, cacheReadTokens: number, cacheWriteTokens: number, estimatedCostUsd: number) =>
-    dashboard.store.recordGeneration({
+    dashboard.store.runs.recordGeneration({
       runId: 'run-01',
       generationId,
       subagent: null,
@@ -493,8 +493,8 @@ test('given a running workload\'s detail page open in a browser, when its genera
   await expect(rows.nth(1)).toHaveAttribute('data-cache-miss', '');
   await expect(rows.first()).not.toHaveAttribute('data-cache-miss', '');
 
-  const [first] = dashboard.store.unsettledGenerations();
-  dashboard.store.recordLookups(
+  const [first] = dashboard.store.runs.unsettledGenerations();
+  dashboard.store.runs.recordLookups(
     [{ id: first!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: 7, provider: 'Novita', model: 'z-ai/glm-5.1' } }],
     '2026-09-21T10:05:00.000Z',
   );
@@ -522,8 +522,8 @@ const secondCohort = cohortFingerprint('d');
 const thirdCohort = cohortFingerprint('e');
 
 const recordCohort = (store: Store, id: string, config: ConfigFingerprint): void => {
-  store.insertRun({ ...runningRun, id, worker: 'builder', status: 'success', endTime: '2026-09-21T10:03:00.000Z', costStatus: 'billed' });
-  store.recordFingerprint(id, { fingerprint: config, hash: fingerprintHash(config), forgeGitSha: null, baseCommit: null });
+  store.runs.insertRun({ ...runningRun, id, worker: 'builder', status: 'success', endTime: '2026-09-21T10:03:00.000Z', costStatus: 'billed' });
+  store.runs.recordFingerprint(id, { fingerprint: config, hash: fingerprintHash(config), forgeGitSha: null, baseCommit: null });
 };
 
 const respondWith = async (page: Page, rewrite: (body: string) => string): Promise<void> => {

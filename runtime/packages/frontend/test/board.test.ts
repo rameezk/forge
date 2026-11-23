@@ -319,7 +319,7 @@ test('given tickets with attempts, a parent spec, and dispatches in each state, 
       ]),
     ],
     (store) => {
-      store.insertRun(runOf(4));
+      store.runs.insertRun(runOf(4));
       dispatched(store, 4, new Date().toISOString());
       store.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
       store.endDispatch(dispatched(store, 6), { state: 'failed', reason: 'no-pull-request', detail: 'Should the check use <b>REST</b>?' }, '2026-09-30T09:00:00.000Z');
@@ -565,7 +565,7 @@ const pillsOf = (card: string): string[] => [...card.matchAll(/<span[^>]*class="
 test('given a done dispatch with an open pull request and a live revision on it, when the Board is requested, then the ticket is in Running with a running pill linking to the revision run, an elapsed time from its harness start, a revision kind pill and its PR link', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
-    store.insertRun({ ...runOf(105), id: 'revision-105', startTime: '2026-09-30T10:00:00.000Z', harnessStartTime: '2026-09-30T10:05:00.000Z' });
+    store.runs.insertRun({ ...runOf(105), id: 'revision-105', startTime: '2026-09-30T10:00:00.000Z', harnessStartTime: '2026-09-30T10:05:00.000Z' });
     startRevisionOn(store, 5, 105);
   });
 
@@ -584,7 +584,7 @@ test('given a done dispatch with an open pull request and a live revision on it,
 test('given a done dispatch with an open pull request and a live conflict resolution on it, when the Board is requested, then the ticket is in Running with a running pill linking to the resolution run, an elapsed time, a conflict resolution kind pill and its PR link', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
-    store.insertRun({ ...runOf(105), id: 'resolution-105', startTime: '2026-09-30T10:00:00.000Z', harnessStartTime: '2026-09-30T10:07:00.000Z' });
+    store.runs.insertRun({ ...runOf(105), id: 'resolution-105', startTime: '2026-09-30T10:00:00.000Z', harnessStartTime: '2026-09-30T10:07:00.000Z' });
     startResolutionOn(store, 5, 105);
   });
 
@@ -600,7 +600,7 @@ test('given a done dispatch with an open pull request and a live conflict resolu
 
 test('given a running dispatch, when the Board is requested, then its card is in Running with a running pill, an elapsed time and a dispatch kind pill, and no pull request link', async () => {
   const app = appWith([frontierOf([ticket({ number: 4, forgeReady: true })])], (store) => {
-    store.insertRun({ ...runOf(4), harnessStartTime: '2026-09-30T08:03:00.000Z' });
+    store.runs.insertRun({ ...runOf(4), harnessStartTime: '2026-09-30T08:03:00.000Z' });
     dispatched(store, 4, new Date().toISOString());
   });
 
@@ -700,7 +700,7 @@ test('given the Board, when it is requested, then the slot pill tooltip reads Wo
 
 test('given a running dispatch whose run has no harness start time, when the Board is requested, then the Running card counts from the run start time', async () => {
   const app = appWith([frontierOf([ticket({ number: 4, forgeReady: true })])], (store) => {
-    store.insertRun({ ...runOf(4), startTime: '2026-09-30T08:01:00.000Z' });
+    store.runs.insertRun({ ...runOf(4), startTime: '2026-09-30T08:01:00.000Z' });
     dispatched(store, 4, new Date().toISOString());
   });
 
@@ -709,7 +709,7 @@ test('given a running dispatch whose run has no harness start time, when the Boa
 
 test('given a running dispatch whose run has a later harness start time, when the Board and the run page are requested, then both count from the same instant', async () => {
   const app = appWith([frontierOf([ticket({ number: 4, forgeReady: true })])], (store) => {
-    store.insertRun({ ...runOf(4), harnessStartTime: '2026-09-30T08:03:00.000Z' });
+    store.runs.insertRun({ ...runOf(4), harnessStartTime: '2026-09-30T08:03:00.000Z' });
     dispatched(store, 4, new Date().toISOString());
   });
 
@@ -819,13 +819,13 @@ const ticketsNamed = (numbers: number[]) => numbers.map((number) => named(number
 
 test('given a running dispatch whose run exists, a running revision, a running conflict resolution and a running dispatch whose run does not exist yet, when the Board is requested, then each Running card links to its own workload run in the same tab, or to the issue in a new tab when the run does not exist', async () => {
   const app = appWith([frontierOf(ticketsNamed([4, 5, 6, 7]))], (store) => {
-    store.insertRun(runOf(4));
+    store.runs.insertRun(runOf(4));
     dispatched(store, 4, new Date().toISOString());
     inReview(store, 5);
-    store.insertRun({ ...runOf(105), id: 'revision-105' });
+    store.runs.insertRun({ ...runOf(105), id: 'revision-105' });
     startRevisionOn(store, 5, 105);
     inReview(store, 6);
-    store.insertRun({ ...runOf(106), id: 'resolution-106' });
+    store.runs.insertRun({ ...runOf(106), id: 'resolution-106' });
     startResolutionOn(store, 6, 106);
     dispatched(store, 7, new Date().toISOString());
   });
@@ -843,7 +843,7 @@ const failedAttempt = (store: Store, number: number, runId: string | null, start
     store.recordFailedStart(forgeTicket(number), 'harness missing', startedAt);
     return;
   }
-  store.insertRun({ ...runOf(number), id: runId });
+  store.runs.insertRun({ ...runOf(number), id: runId });
   const start = store.startDispatch(forgeTicket(number), runId, startedAt, Number.POSITIVE_INFINITY, null);
   assert.ok('started' in start);
   store.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail: null }, startedAt);
@@ -1439,8 +1439,8 @@ test('given a ticket with a live revision on one pull request and a live conflic
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     const now = new Date().toISOString();
-    store.insertRun({ ...runOf(105), id: 'revision-105', harnessStartTime: '2026-09-30T10:05:00.000Z' });
-    store.insertRun({ ...runOf(106), id: 'resolution-106', harnessStartTime: '2026-09-30T10:07:00.000Z' });
+    store.runs.insertRun({ ...runOf(105), id: 'revision-105', harnessStartTime: '2026-09-30T10:05:00.000Z' });
+    store.runs.insertRun({ ...runOf(106), id: 'resolution-106', harnessStartTime: '2026-09-30T10:07:00.000Z' });
     startRevisionOn(store, 5, 105, new Date(Date.parse(now) - 60_000).toISOString());
     startResolutionOn(store, 5, 106, now);
   });
@@ -1467,7 +1467,7 @@ test('given a live conflict resolution on a pull request closing two tickets on 
 
 test('given a live conflict resolution on a pull request closing no ticket on the Board, when the Board is requested ungrouped and grouped by spec, then Running holds a card for the pull request in its lane, titled with its number, linking to it, and in the No spec band when grouped', async () => {
   const app = appWith([frontierOf([ticket({ number: 5 })])], (store) => {
-    store.insertRun({ ...runOf(120), id: 'resolution-120', harnessStartTime: '2026-09-30T10:07:00.000Z' });
+    store.runs.insertRun({ ...runOf(120), id: 'resolution-120', harnessStartTime: '2026-09-30T10:07:00.000Z' });
     startResolutionClosing(store, 120, [77]);
   });
 
@@ -1489,7 +1489,7 @@ test('given a live conflict resolution on a pull request closing no ticket on th
 
 test('given a live dispatch for a ticket that is no longer on the Board, when the Board is requested, then Running holds a card for the issue in its lane, titled with its number and linking to it', async () => {
   const app = appWith([frontierOf([ticket({ number: 5 })])], (store) => {
-    store.insertRun({ ...runOf(9), harnessStartTime: '2026-09-30T08:03:00.000Z' });
+    store.runs.insertRun({ ...runOf(9), harnessStartTime: '2026-09-30T08:03:00.000Z' });
     dispatched(store, 9, new Date().toISOString());
   });
 
@@ -1516,7 +1516,7 @@ test('given a live workload on an older ticket that started after a live workloa
 
 test('given a live diagnosis workload, when the Board is requested, then Running holds no card for it and the running count does not include it', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
-    store.insertRun({ ...runOf(5), status: 'error' });
+    store.runs.insertRun({ ...runOf(5), status: 'error' });
     store.startDiagnosis('run-5', 'diagnosis-5', new Date().toISOString());
   });
 

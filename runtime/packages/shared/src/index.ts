@@ -253,7 +253,6 @@ export {
   type GradingAttempt,
   type GradingStatus,
   type GradingDue,
-  type ListPriceEquivalent,
   type DisplayedGrade,
   type RecordedRiskGrade,
   type RiskGrade,
@@ -261,8 +260,8 @@ export {
   type SupersedeCause,
   SUPERSEDE_CAUSES,
   type RiskLevel,
-  type WorkloadSpend,
 } from './store/store.ts';
+export { type ListPriceEquivalent, type Runs, type WorkloadSpend } from './store/runs.ts';
 export {
   parseTranscript,
   parseTranscriptLines,

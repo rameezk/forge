@@ -77,10 +77,10 @@ interface Seeded {
 }
 
 const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests = true }: Seeded): void => {
-  store.insertRun(sampleRun({ id, ...run }));
+  store.runs.insertRun(sampleRun({ id, ...run }));
   calls.forEach((call, index) => {
     const usage = call.usage ?? NO_TOKENS;
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: id,
       generationId: `${id}-gen-${index + 1}`,
       subagent: call.subagent ?? null,
@@ -96,7 +96,7 @@ const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests =
       createdAt: call.at ?? `2026-09-21T10:00:${String(index + 1).padStart(2, '0')}.000Z`,
     });
   });
-  const ids = new Map(store.unsettledGenerations().map((g) => [g.generationId, g.id]));
+  const ids = new Map(store.runs.unsettledGenerations().map((g) => [g.generationId, g.id]));
   const lookups: LookupResult[] = [];
   calls.forEach((call, index) => {
     if (call.billed === undefined) return;
@@ -118,7 +118,7 @@ const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests =
       },
     });
   });
-  store.recordLookups(lookups, '2026-09-21T10:30:00.000Z');
+  store.runs.recordLookups(lookups, '2026-09-21T10:30:00.000Z');
   if (recordRequests) {
     const lines = calls
       .filter((call) => call.sentEffort !== undefined)
@@ -309,7 +309,7 @@ test('given a workload with more generations than recorded requests, when its de
 test('given a request record of a hundred thousand requests, when its detail page is requested, then it renders promptly', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun());
+  store.runs.insertRun(sampleRun());
   writeFileSync(join(dir, 'run-01.requests.jsonl'), (requestLine(null, 'high') + '\n').repeat(100_000));
   const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
 
