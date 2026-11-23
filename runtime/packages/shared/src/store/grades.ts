@@ -354,6 +354,7 @@ export class Grades {
       }) as { at: string };
     return { lastSucceededAt: succeeded.at, failingSince: succeeded.at === null || firstFailed.at < succeeded.at ? firstFailed.at : succeeded.at, failure: failing[0]! };
   }
+
   currentRiskGrades(): RecordedRiskGrade[] {
     const rows = this.#db
       .prepare(
@@ -520,6 +521,7 @@ export class Grades {
       .all({ repository }) as RiskGradeRow[];
     return rows.map(riskGradeFromRow);
   }
+
   settleRiskGrade(
     grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>,
     outcome: Exclude<GradeOutcome, 'open'>,
