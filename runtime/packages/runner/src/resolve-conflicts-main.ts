@@ -1,52 +1,25 @@
-import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { join } from 'node:path';
 import {
   errorMessage,
-  githubAppFromEnv,
   queryPullRequestConflict,
-  queryPullRequestHead,
   queryPullRequestReadiness,
-  startHeartbeat,
-  Store,
   type ConflictResolutionFailureRecord,
-  type ConflictResolutionStart,
   type Fetch,
   type GithubApp,
   type Mergeable,
   type PullRequestConflict,
 } from '@forge/shared';
-import { maxConcurrentOf, repositoryTriggeredBy, resolveWorker, setupTimeoutOf } from './config.ts';
-import { inspectCheckout, launchInCheckout } from './checkout-workload.ts';
-import { gitEnvironment } from './git.ts';
-import { CONFLICT_INSTRUCTION, conflictBrief, withContext } from './harness.ts';
+import { setupTimeoutOf } from './config.ts';
+import { inspectCheckout } from './checkout-workload.ts';
+import { CONFLICT_INSTRUCTION, conflictBrief } from './harness.ts';
 import { conflictedFiles, containsCommit } from './merge.ts';
-import { SetupTimedOut } from './setup.ts';
-import { endOf, fillPrompt, headRefusal, type WorkloadEnd } from './pull-request-workload.ts';
-import { readRuntimeConfig, stateDirOf } from './workload.ts';
+import { runPullRequestWorkload, type PullRequestKind } from './pull-request-workload.ts';
 
-const now = (): string => new Date().toISOString();
-
-const USAGE = 'usage: forge-resolve-conflicts <repository> <pull-request>';
+type Pause = (ms: number) => Promise<void>;
 
 const MERGEABLE_ATTEMPTS = 5;
 
 const MERGEABLE_DELAY_MS = 2000;
-
-const startRefusal = (start: Exclude<ConflictResolutionStart, { started: number }>): string => {
-  switch (start.refused) {
-    case 'resolving':
-      return 'a conflict resolution of it is already running';
-    case 'revising':
-      return 'a revision of it is already running';
-    case 'dispatching':
-      return 'the dispatch that opened it is still running';
-    case 'full':
-      return `${start.live} ${start.live === 1 ? 'workload is' : 'workloads are'} already running, the most forge.runtime.dispatch.maxConcurrent allows`;
-  }
-};
-
-type Pause = (ms: number) => Promise<void>;
 
 const settledMergeable = async (
   read: () => Promise<PullRequestConflict>,
@@ -128,207 +101,61 @@ const unmetCondition = async ({
   return undefined;
 };
 
-export const main = async (
+const conflictResolution = (pause: Pause): PullRequestKind<'conflict'> => ({
+  command: 'forge-resolve-conflicts',
+  trigger: 'conflict',
+  refusal: 'cannot have its conflicts resolved',
+  noun: 'conflict resolution',
+  launch: { instruction: CONFLICT_INSTRUCTION, conflictResolution: true },
+  prepare: ({ fetch, token, github, pullRequest }) =>
+    queryPullRequestConflict(fetch, token, github, pullRequest.number),
+  before: async ({ env, config, app, gitEnv, github, pullRequest, runId }, target) => {
+    const files = await inspectCheckout({
+      env,
+      github,
+      branch: pullRequest.branch,
+      app,
+      gitEnv,
+      id: `${runId}-trial`,
+      inspect: (dir, cloneEnv, signal) =>
+        conflictedFiles(dir, cloneEnv, target.defaultSha, signal),
+      setupTimeoutSeconds: setupTimeoutOf(config),
+    });
+    return files.length === 0
+      ? null
+      : {
+          context: conflictBrief({
+            number: pullRequest.number,
+            url: pullRequest.url,
+            branch: pullRequest.branch,
+            defaultBranch: target.defaultBranch,
+            sha: target.defaultSha,
+            files,
+          }),
+          carried: null,
+        };
+  },
+  after: ({ app, fetch, env, gitEnv, github, pullRequest, runId }, target) =>
+    unmetCondition({
+      app,
+      fetch,
+      env,
+      gitEnv,
+      github,
+      number: pullRequest.number,
+      branch: pullRequest.branch,
+      runId,
+      sha: target.defaultSha,
+      pause,
+    }),
+});
+
+export const main = (
   argv: string[],
   env: NodeJS.ProcessEnv,
   fetch: Fetch,
   pause: Pause = (ms) => sleep(ms),
-): Promise<number> => {
-  const [name, number, ...rest] = argv;
-  if (
-    name === undefined ||
-    number === undefined ||
-    rest.length > 0 ||
-    !/^[1-9][0-9]*$/.test(number)
-  ) {
-    throw new Error(USAGE);
-  }
-  const config = readRuntimeConfig(env);
-  const repository = repositoryTriggeredBy(config.repositories, name, 'conflict');
-  const worker = resolveWorker(config, repository.worker);
-  const app = githubAppFromEnv(env, fetch);
-  const store = Store.open(join(stateDirOf(env), 'forge.db'));
-  try {
-    let prepared;
-    try {
-      const identity = await app.identity(repository.github);
-      const token = (await app.mint(repository.github, 'write')).token;
-      const pullRequest = await queryPullRequestHead(fetch, token, repository.github, Number(number));
-      const refused = headRefusal(pullRequest);
-      prepared =
-        refused !== null
-          ? { refused, pullRequest }
-          : {
-              refused,
-              identity,
-              gitEnv: gitEnvironment(env, identity, { conflictResolution: true }),
-              pullRequest,
-              target: await queryPullRequestConflict(fetch, token, repository.github, pullRequest.number),
-            };
-    } catch (error) {
-      store.recordConflictResolutionStartFailure(
-        {
-          repository: name,
-          number: Number(number),
-          url: `https://github.com/${repository.github}/pull/${number}`,
-        },
-        errorMessage(error),
-        now(),
-      );
-      throw error;
-    }
-    if (prepared.refused !== null) {
-      console.error(
-        `${name}#${prepared.pullRequest.number} cannot have its conflicts resolved: ${prepared.refused}`,
-      );
-      return 1;
-    }
-    const { identity, gitEnv, pullRequest, target } = prepared;
-    const resolved = { repository: name, number: pullRequest.number, url: pullRequest.url };
-    const runId = randomUUID();
-    const start = store.startConflictResolution(
-      resolved,
-      pullRequest.closes,
-      runId,
-      now(),
-      maxConcurrentOf(config),
-      { headSha: target.headSha, defaultSha: target.defaultSha },
-    );
-    if ('refused' in start) {
-      console.error(
-        `${name}#${pullRequest.number} cannot have its conflicts resolved: ${startRefusal(start)}`,
-      );
-      return 1;
-    }
-    const resolutionId = start.started;
-    const stopHeartbeat = startHeartbeat(
-      () => store.touchConflictResolution(resolutionId, now()),
-      (error) =>
-        console.error(
-          `${name}#${pullRequest.number}: could not refresh its conflict resolution heartbeat: ${errorMessage(error)}`,
-        ),
-    );
-    const recordPush = async (): Promise<void> => {
-      try {
-        const { headSha } = await queryPullRequestConflict(
-          fetch,
-          (await app.mint(repository.github, 'read')).token,
-          repository.github,
-          pullRequest.number,
-        );
-        if (headSha !== target.headSha) store.recordConflictResolutionPush(resolutionId, headSha);
-      } catch (error) {
-        console.error(
-          `${name}#${pullRequest.number}: could not record the head its conflict resolution pushed: ${errorMessage(error)}`,
-        );
-      }
-    };
-    try {
-      let failure: ConflictResolutionFailureRecord | undefined;
-      let code = 0;
-      let ended: WorkloadEnd = { state: 'done' };
-      try {
-        const files = await inspectCheckout({
-          env,
-          github: repository.github,
-          branch: pullRequest.branch,
-          app,
-          gitEnv,
-          id: `${runId}-trial`,
-          inspect: (dir, cloneEnv, signal) =>
-            conflictedFiles(dir, cloneEnv, target.defaultSha, signal),
-          setupTimeoutSeconds: setupTimeoutOf(config),
-        });
-        if (files.length > 0) {
-          const launched = await launchInCheckout({
-            env,
-            config,
-            worker: {
-              ...worker,
-              prompt: withContext(fillPrompt(worker.prompt, repository.github, pullRequest), conflictBrief({
-                number: pullRequest.number,
-                url: pullRequest.url,
-                branch: pullRequest.branch,
-                defaultBranch: target.defaultBranch,
-                sha: target.defaultSha,
-                files,
-              })),
-              promptTemplate: worker.prompt,
-            },
-            github: repository.github,
-            workflows: repository.workflows,
-            branch: pullRequest.branch,
-            instruction: CONFLICT_INSTRUCTION,
-            app,
-            gitEnv,
-            identity,
-            runId,
-            fetch,
-            pullRequest: async () => pullRequest.number,
-            conflictResolution: true,
-          });
-          if (launched.run.harnessStartTime == null && launched.cause instanceof SetupTimedOut) {
-            store.endConflictResolution(resolutionId, 'failed', now(), {
-              reason: 'errored',
-              detail: launched.run.error,
-            });
-            return 1;
-          }
-          if (launched.run.harnessStartTime == null) {
-            store.failConflictResolutionStart(
-              resolutionId,
-              launched.run.error ?? errorMessage(launched.cause),
-              now(),
-            );
-            return 1;
-          }
-          ended = endOf(launched);
-          code = launched.run.status === 'error' || launched.run.status === 'exceeded' ? 1 : 0;
-          try {
-            if (ended.state === 'done') {
-              failure = await unmetCondition({
-                app,
-                fetch,
-                env,
-                gitEnv,
-                github: repository.github,
-                number: pullRequest.number,
-                branch: pullRequest.branch,
-                runId,
-                sha: target.defaultSha,
-                pause,
-              });
-            }
-          } finally {
-            await recordPush();
-          }
-        }
-      } catch (error) {
-        if (error instanceof SetupTimedOut) {
-          store.endConflictResolution(resolutionId, 'failed', now(), {
-            reason: 'errored',
-            detail: error.message,
-          });
-        } else if (store.getRun(runId)?.harnessStartTime == null) {
-          store.failConflictResolutionStart(resolutionId, errorMessage(error), now());
-        } else {
-          store.endConflictResolution(resolutionId, 'failed', now(), {
-            reason: 'crashed',
-            detail: errorMessage(error),
-          });
-        }
-        throw error;
-      }
-      const final = failure === undefined ? ended : { state: 'failed' as const, failure };
-      store.endConflictResolution(resolutionId, final.state, now(), final.failure);
-      return failure !== undefined ? 1 : code;
-    } finally {
-      stopHeartbeat();
-    }
-  } finally {
-    store.close();
-  }
-};
+): Promise<number> => runPullRequestWorkload(conflictResolution(pause), argv, env, fetch);
 
 if (import.meta.filename === process.argv[1]) {
   main(process.argv.slice(2), process.env, globalThis.fetch)
