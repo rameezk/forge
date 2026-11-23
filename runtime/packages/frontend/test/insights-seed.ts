@@ -143,8 +143,8 @@ const seedDiagnoses = (store: Store, seed: Seed): void => {
     const { fingerprint: _fingerprint, ...rest } = seed;
     const at = new Date(Date.parse(seed.start ?? '2026-09-21T10:00:00.000Z') + (seed.seconds + 60 * (index + 1)) * 1000).toISOString();
     store.runs.insertRun({ ...runOf({ ...rest, id, worker: 'diagnoser', dispatched: false }), startTime: at, endTime: at });
-    const started = store.startDiagnosis(seed.id, id, at);
-    store.endDiagnosis(
+    const started = store.diagnoses.startDiagnosis(seed.id, id, at);
+    store.diagnoses.endDiagnosis(
       started,
       result === 'failed' ? 'failed' : 'done',
       at,

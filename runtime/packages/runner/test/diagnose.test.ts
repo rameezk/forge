@@ -117,8 +117,8 @@ const diagnose = async ({
       seeded.endDispatch(id, { state: 'failed', reason: 'check-failed', detail: 'build, lint' }, at);
     }
     if (earlier !== 'none') {
-      const diagnosisId = seeded.startDiagnosis('failed-run', 'diagnosis-run', at);
-      if (earlier === 'done') seeded.endDiagnosis(diagnosisId, 'done', at, { verdict: EARLIER_VERDICT });
+      const diagnosisId = seeded.diagnoses.startDiagnosis('failed-run', 'diagnosis-run', at);
+      if (earlier === 'done') seeded.diagnoses.endDiagnosis(diagnosisId, 'done', at, { verdict: EARLIER_VERDICT });
     }
   } finally {
     seeded.close();
@@ -175,9 +175,9 @@ const diagnose = async ({
       app,
       thrown,
       stateDir,
-      diagnosis: store.diagnosisOfRun('diagnosis-run', now) as DiagnosisRecord,
-      diagnoses: store.diagnosesOf('failed-run', now),
-      undiagnosed: store.undiagnosedFailures(),
+      diagnosis: store.diagnoses.diagnosisOfRun('diagnosis-run', now) as DiagnosisRecord,
+      diagnoses: store.diagnoses.diagnosesOf('failed-run', now),
+      undiagnosed: store.diagnoses.undiagnosedFailures(),
       run: store.runs.getRun('diagnosis-run'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
       tools: existsSync(`${bwrapRecord}.tools`) ? (JSON.parse(readFileSync(`${bwrapRecord}.tools`, 'utf8')) as BwrapCall) : null,

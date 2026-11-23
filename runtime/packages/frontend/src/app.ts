@@ -175,8 +175,8 @@ export const createApp = ({
         workload.runId === null ? [] : [[workload.runId, { kind: 'conflict-resolution', workload }]],
       ),
     ]);
-    const diagnoses = store.listDiagnoses(now);
-    const categories = store.latestDiagnosisCategories(now);
+    const diagnoses = store.diagnoses.listDiagnoses(now);
+    const categories = store.diagnoses.latestDiagnosisCategories(now);
     return c.html(renderList(store.runs.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.runs.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runs.runCohorts(), shown, clock().getTime()));
   });
 
@@ -263,7 +263,7 @@ export const createApp = ({
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.dispatchOfRun(run.id, new Date().toISOString()), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnosesOf(run.id, new Date().toISOString()), store.diagnosisOfRun(run.id, new Date().toISOString()), shown));
+    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.dispatchOfRun(run.id, new Date().toISOString()), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnoses.diagnosesOf(run.id, new Date().toISOString()), store.diagnoses.diagnosisOfRun(run.id, new Date().toISOString()), shown));
   });
 
   app.get('/runs/:id/transcript', (c) => {

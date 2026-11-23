@@ -261,6 +261,7 @@ export {
   type RiskLevel,
 } from './store/store.ts';
 export { type ListPriceEquivalent, type Runs, type WorkloadSpend } from './store/runs.ts';
+export { type Diagnoses } from './store/diagnoses.ts';
 export {
   parseTranscript,
   parseTranscriptLines,

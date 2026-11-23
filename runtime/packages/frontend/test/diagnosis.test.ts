@@ -48,9 +48,9 @@ const dashboard = (finish: 'valid' | 'invalid' | 'none') => {
   store.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
   store.runs.insertRun(aRun('diagnosis', 'diagnoser'));
   if (finish !== 'none') {
-    const id = store.startDiagnosis('failed', 'diagnosis', AT);
+    const id = store.diagnoses.startDiagnosis('failed', 'diagnosis', AT);
     if (finish === 'valid') {
-      store.endDiagnosis(id, 'done', AT, {
+      store.diagnoses.endDiagnosis(id, 'done', AT, {
         verdict: {
           category: 'skill',
           evidence: [{ turn: 4, note: 'the worker skipped the skill' }, { turn: 9, note: 'then guessed the file' }],
@@ -58,7 +58,7 @@ const dashboard = (finish: 'valid' | 'invalid' | 'none') => {
         },
       });
     } else {
-      store.endDiagnosis(id, 'failed', AT, { detail: 'the agent wrote no diagnosis.json' });
+      store.diagnoses.endDiagnosis(id, 'failed', AT, { detail: 'the agent wrote no diagnosis.json' });
     }
   }
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
@@ -112,11 +112,11 @@ test('given a failed run diagnosed twice, when its page opens, then it shows the
   store.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
   store.runs.insertRun(aRun('first', 'diagnoser'));
   store.runs.insertRun(aRun('second', 'other-diagnoser'));
-  store.endDiagnosis(store.startDiagnosis('failed', 'first', AT), 'done', AT, {
+  store.diagnoses.endDiagnosis(store.diagnoses.startDiagnosis('failed', 'first', AT), 'done', AT, {
     verdict: { category: 'worker', evidence: [{ turn: 2, note: 'older evidence' }], suggestedFix: 'Older fix' },
   });
   const later = '2026-11-02T09:00:00.000Z';
-  store.endDiagnosis(store.startDiagnosis('failed', 'second', later), 'done', later, {
+  store.diagnoses.endDiagnosis(store.diagnoses.startDiagnosis('failed', 'second', later), 'done', later, {
     verdict: { category: 'ticket-or-spec', evidence: [{ turn: 5, note: 'newer evidence' }], suggestedFix: 'Newer fix' },
   });
   const app = createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
