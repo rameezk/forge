@@ -255,6 +255,7 @@ export class Grades {
       }) as LatestAttempt | undefined;
     return latest !== undefined && attemptHoldsOff(latest, now);
   }
+
   recordGradingAttempt(attempt: GradingAttempt): void {
     const previous = this.#db
       .prepare(
