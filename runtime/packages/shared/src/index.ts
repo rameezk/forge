@@ -261,7 +261,7 @@ export {
   SUPERSEDE_CAUSES,
   type RiskLevel,
   type WorkloadSpend,
-} from './store.ts';
+} from './store/store.ts';
 export {
   parseTranscript,
   parseTranscriptLines,
