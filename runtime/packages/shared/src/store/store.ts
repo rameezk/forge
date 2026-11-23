@@ -2144,7 +2144,7 @@ export class Store {
         `SELECT (${liveRevisionOn('subject')}) OR (${liveConflictResolutionOn('subject')}) AS running
         FROM (SELECT $repository AS repository, $number AS number) AS subject`,
       )
-      .get({ repository: subject.repository, number: subject.number, live_since: subject.live_since }) as { running: number };
+      .get(subject) as { running: number };
     return row.running === 1;
   }
 
