@@ -2201,7 +2201,7 @@ export class Store {
     detail: string,
     at: string,
   ): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       if (this.#conflictResolutionLive(pullRequest, at)) return;
       const latest = this.#latestConflictResolution(pullRequest);
       if (latest?.reason === 'not-started') {
