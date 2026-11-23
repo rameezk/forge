@@ -5,7 +5,6 @@ import { AutoMerge } from './auto-merge.ts';
 import { liveSince } from './liveness.ts';
 import { Runs } from './runs.ts';
 import { riskGradeFromRow, type RiskGradeRow } from './risk-grade-row.ts';
-import type { AutoMergeVerdict, CheckRunConclusion, FailingGate, RecordedAutoMergeVerdict } from '../auto-merge-verdict.ts';
 import {
   newestClosedFirst,
   oldestFirst,
@@ -48,7 +47,6 @@ import type {
 } from '../revision.ts';
 import type { WatchedPullRequest } from '../feedback.ts';
 import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from '../attempts.ts';
-import type { AutoMergeCounts } from '../auto-merge-status.ts';
 import type { ConfigFingerprint } from '../fingerprint.ts';
 import { DIAGNOSED_FAILURES } from '../diagnosis.ts';
 import type { DiagnosisCategory, DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from '../diagnosis.ts';

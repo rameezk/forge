@@ -1,4 +1,3 @@
-import type { SQLInputValue } from 'node:sqlite';
 import type { Connection } from './connection.ts';
 import { liveSince } from './liveness.ts';
 import { riskGradeFromRow, type RiskGradeRow } from './risk-grade-row.ts';
