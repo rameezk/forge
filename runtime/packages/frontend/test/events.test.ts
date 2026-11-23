@@ -124,7 +124,7 @@ test('given a client streaming events for the runs list, when a new run is recor
   const { app, writer } = dashboard(t);
   const stream = await streamEvents(t, app, '/workloads');
 
-  writer.insertRun(sampleRun());
+  writer.runs.insertRun(sampleRun());
 
   const signal = await stream.next();
   assert.equal(signal?.event, 'change');
@@ -132,10 +132,10 @@ test('given a client streaming events for the runs list, when a new run is recor
 
 test('given a client streaming events for the Board, when a generation is recorded for a running workload, then no change signal is emitted', async (t) => {
   const { app, writer } = dashboard(t);
-  writer.insertRun(sampleRun({ status: 'running', endTime: null, costStatus: 'pending', costUsd: 0 }));
+  writer.runs.insertRun(sampleRun({ status: 'running', endTime: null, costStatus: 'pending', costUsd: 0 }));
   const stream = await streamEvents(t, app, '/');
 
-  writer.recordGeneration({
+  writer.runs.recordGeneration({
     runId: 'run-01',
     generationId: 'gen-01',
     subagent: null,
@@ -170,7 +170,7 @@ test('given a live page rendered before a store write, when its stream connects 
   const { app, writer } = dashboard(t);
   const version = await renderedVersion(app, '/workloads');
   assert.notEqual(version, undefined);
-  writer.insertRun(sampleRun());
+  writer.runs.insertRun(sampleRun());
 
   const stream = await streamEvents(t, app, '/workloads', version);
 
@@ -179,7 +179,7 @@ test('given a live page rendered before a store write, when its stream connects 
 
 test('given a run detail page rendered before its transcript grew, when its stream connects with the rendered version after the growth, then the stream emits a change signal at once', async (t) => {
   const { app, writer, appendEvent, writeTranscript } = dashboard(t);
-  writer.insertRun(runningRun);
+  writer.runs.insertRun(runningRun);
   writeTranscript('run-01.jsonl');
   const version = await renderedVersion(app, '/runs/run-01');
   assert.notEqual(version, undefined);
@@ -202,7 +202,7 @@ test('given a page that does not update live, when its events are requested, the
 
 test('given a client streaming events for a running workload\'s detail page, when an event is appended to its transcript, then the stream emits a change signal', async (t) => {
   const { app, writer, appendEvent, writeTranscript } = dashboard(t);
-  writer.insertRun(runningRun);
+  writer.runs.insertRun(runningRun);
   writeTranscript('run-01.jsonl');
   const stream = await streamEvents(t, app, '/runs/run-01');
 
@@ -214,7 +214,7 @@ test('given a client streaming events for a running workload\'s detail page, whe
 
 test('given a client streaming events for a running workload\'s filtered full transcript page, when an event is appended to its transcript, then the stream emits a change signal', async (t) => {
   const { app, writer, appendEvent, writeTranscript } = dashboard(t);
-  writer.insertRun(runningRun);
+  writer.runs.insertRun(runningRun);
   writeTranscript('run-01.jsonl');
   const stream = await streamEvents(t, app, '/runs/run-01/transcript?show=messages');
 
@@ -252,14 +252,14 @@ const settlements: [string, (id: number) => LookupResult][] = [
 for (const [costStatus, lookup] of settlements) {
   test(`given a client streaming events for a workload's detail page, when the workload has ended and its cost status becomes ${costStatus}, then the stream emits done and closes`, async (t) => {
     const { app, writer, writeTranscript } = dashboard(t);
-    writer.insertRun(runningRun);
+    writer.runs.insertRun(runningRun);
     writeTranscript('run-01.jsonl');
-    writer.recordGeneration(generation);
-    writer.finalizeRun('run-01', ended);
+    writer.runs.recordGeneration(generation);
+    writer.runs.finalizeRun('run-01', ended);
     const stream = await streamEvents(t, app, '/runs/run-01');
 
-    const [unsettled] = writer.unsettledGenerations();
-    writer.recordLookups([lookup(unsettled!.id)], '2026-09-21T10:05:00.000Z');
+    const [unsettled] = writer.runs.unsettledGenerations();
+    writer.runs.recordLookups([lookup(unsettled!.id)], '2026-09-21T10:05:00.000Z');
 
     let signal = await stream.next();
     while (signal?.event === 'change') signal = await stream.next();
@@ -270,15 +270,15 @@ for (const [costStatus, lookup] of settlements) {
 
 const unsettled: [string, (writer: Store) => void][] = [
   ['is still running', () => {}],
-  ['has ended with cost status pending', (writer) => writer.finalizeRun('run-01', ended)],
+  ['has ended with cost status pending', (writer) => writer.runs.finalizeRun('run-01', ended)],
 ];
 
 for (const [state, reach] of unsettled) {
   test(`given a client streaming events for a workload that ${state}, when a check runs, then the stream stays open`, async (t) => {
     const { app, writer, writeTranscript } = dashboard(t);
-    writer.insertRun(runningRun);
+    writer.runs.insertRun(runningRun);
     writeTranscript('run-01.jsonl');
-    writer.recordGeneration(generation);
+    writer.runs.recordGeneration(generation);
     reach(writer);
     const stream = await streamEvents(t, app, '/runs/run-01');
 
@@ -300,11 +300,11 @@ test('given a client streaming events for a filtered insights page, when a workl
     tools: null,
     skills: null,
   };
-  writer.insertRun(runningRun);
-  writer.recordFingerprint('run-01', { fingerprint, hash: 'cohort', forgeGitSha: null, baseCommit: null });
+  writer.runs.insertRun(runningRun);
+  writer.runs.recordFingerprint('run-01', { fingerprint, hash: 'cohort', forgeGitSha: null, baseCommit: null });
   const stream = await streamEvents(t, app, '/insights?manual=1&worker=refiner');
 
-  writer.finalizeRun('run-01', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:03:20.000Z' });
+  writer.runs.finalizeRun('run-01', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:03:20.000Z' });
 
   const signal = await stream.next();
   assert.equal(signal?.event, 'change');
@@ -314,12 +314,12 @@ test('given a client streaming events for a filtered insights page, when a workl
 test('given a client streaming events for a ticket attempts page, when an attempt at that ticket ends, then the stream emits a change signal', async (t) => {
   const { app, writer } = dashboard(t);
   const ticket = { repository: 'forge', number: 42, url: 'https://github.com/rameezk/forge/issues/42' };
-  writer.insertRun({ ...runningRun, ticket });
+  writer.runs.insertRun({ ...runningRun, ticket });
   const started = writer.workloads.startDispatch(ticket, 'run-01', runningRun.startTime, 100, null);
   assert.ok('started' in started);
   const stream = await streamEvents(t, app, '/tickets/forge/42');
 
-  writer.finalizeRun('run-01', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:03:20.000Z' });
+  writer.runs.finalizeRun('run-01', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:03:20.000Z' });
 
   const signal = await stream.next();
   assert.equal(signal?.event, 'change');
@@ -339,12 +339,12 @@ test('given a client streaming events for a cohort page, when another cohort app
     skills: null,
   };
   const page = `/cohorts/${'a'.repeat(64)}`;
-  writer.insertRun(sampleRun({ id: 'run-01' }));
-  writer.recordFingerprint('run-01', { fingerprint, hash: 'a'.repeat(64), forgeGitSha: null, baseCommit: null });
+  writer.runs.insertRun(sampleRun({ id: 'run-01' }));
+  writer.runs.recordFingerprint('run-01', { fingerprint, hash: 'a'.repeat(64), forgeGitSha: null, baseCommit: null });
   const stream = await streamEvents(t, app, page);
 
-  writer.insertRun(sampleRun({ id: 'run-02' }));
-  writer.recordFingerprint('run-02', { fingerprint: { ...fingerprint, skills: 'k' }, hash: 'b'.repeat(64), forgeGitSha: null, baseCommit: null });
+  writer.runs.insertRun(sampleRun({ id: 'run-02' }));
+  writer.runs.recordFingerprint('run-02', { fingerprint: { ...fingerprint, skills: 'k' }, hash: 'b'.repeat(64), forgeGitSha: null, baseCommit: null });
 
   const signal = await stream.next();
   assert.equal(signal?.event, 'change');

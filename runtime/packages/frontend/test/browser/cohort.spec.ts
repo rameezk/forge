@@ -46,8 +46,8 @@ const workload = (id: string): RunRecord => ({
 });
 
 const record = (store: Store, id: string, config: ConfigFingerprint): void => {
-  store.insertRun(workload(id));
-  store.recordFingerprint(id, { fingerprint: config, hash: fingerprintHash(config), forgeGitSha: null, baseCommit: null });
+  store.runs.insertRun(workload(id));
+  store.runs.recordFingerprint(id, { fingerprint: config, hash: fingerprintHash(config), forgeGitSha: null, baseCommit: null });
 };
 
 test('given two cohorts, when a cohort label is followed from the insights page and the other cohort is chosen, then the diff marks only the changed field', async ({

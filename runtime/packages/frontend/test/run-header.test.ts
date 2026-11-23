@@ -41,7 +41,7 @@ const sampleRun = (overrides: Partial<RunRecord> = {}): RunRecord => ({
 
 const page = async (run: Partial<RunRecord>, seed: (store: Store) => void = () => {}): Promise<string> => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun(run));
+  store.runs.insertRun(sampleRun(run));
   seed(store);
   const app = createApp({
     store,
@@ -80,7 +80,7 @@ test('given workloads whose cost is pending, estimated, unconfirmed and subscrip
   const estimated = await page({ costEstimated: true });
   const unconfirmed = await page({ costStatus: 'unconfirmed' });
   const subscription = await page({ costStatus: 'subscription', costUsd: 0 }, (store) => {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: 'run-01',
       generationId: 'g1',
       subagent: null,
@@ -205,7 +205,7 @@ test('given a workload with calls, one of them a cache miss, when its run page i
       { cacheRead: 1000, cacheWrite: 100 },
       { cacheRead: 100, cacheWrite: 1200 },
     ].forEach(({ cacheRead, cacheWrite }, index) => {
-      store.recordGeneration({
+      store.runs.recordGeneration({
         runId: 'run-01',
         generationId: `g${index}`,
         subagent: null,
@@ -228,7 +228,7 @@ test('given a workload with calls, one of them a cache miss, when its run page i
 test('given a workload with a call that missed the cache, when its run page is opened, then the cache hit tile counts the miss', async () => {
   const body = await page({}, (store) => {
     [1000, 0].forEach((cacheRead, index) => {
-      store.recordGeneration({
+      store.runs.recordGeneration({
         runId: 'run-01',
         generationId: `g${index}`,
         subagent: null,
@@ -255,7 +255,7 @@ test('given a workload with no calls, when its run page is opened, then there is
 });
 
 const seedGeneration = (store: Store, generationId: string, givenUpBecause?: string): void => {
-  store.recordGeneration({
+  store.runs.recordGeneration({
     runId: 'run-01',
     generationId,
     subagent: null,
@@ -281,7 +281,7 @@ test('given a workload with a generation given up for a non-OpenRouter id, when 
 
 test('given a workload whose only given-up generation has no id, or a subscription workload with req_ ids, when its run page is opened, then no unbillable-ids warning is shown', async () => {
   const unnamed = await page({ costStatus: 'unconfirmed' }, (store) =>
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: 'run-01',
       generationId: null,
       subagent: null,

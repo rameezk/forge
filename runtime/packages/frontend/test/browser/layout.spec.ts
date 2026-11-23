@@ -36,7 +36,7 @@ const seedRun = (store: Store): void => {
     exceededLimit: null,
     counters: null,
   };
-  store.insertRun(run);
+  store.runs.insertRun(run);
   const started = store.workloads.startDispatch(ticket, run.id, run.startTime, 100, null);
   if (!('started' in started)) throw new Error('dispatch refused');
   store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 7, url: 'https://github.com/rameezk/forge/pull/7' } }, run.endTime!);

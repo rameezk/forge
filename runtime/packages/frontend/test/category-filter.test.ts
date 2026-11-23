@@ -47,12 +47,12 @@ const dashboard = () => {
   let number = 0;
   const failed = (id: string, worker: string, categories: DiagnosisCategory[]) => {
     number += 1;
-    store.insertRun(aRun(id, worker, number));
+    store.runs.insertRun(aRun(id, worker, number));
     const dispatch = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, id, '2026-11-01T10:00:00.000Z', 10, null);
     assert.ok('started' in dispatch);
     store.workloads.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
     categories.forEach((category, index) => {
-      store.insertRun(aRun(`${id}-diagnosis-${index}`, 'diagnoser', number));
+      store.runs.insertRun(aRun(`${id}-diagnosis-${index}`, 'diagnoser', number));
       store.endDiagnosis(store.startDiagnosis(id, `${id}-diagnosis-${index}`, AT), 'done', AT, { verdict: verdictOf(category) });
     });
   };

@@ -20,7 +20,7 @@ const appWith = ({
   client?: string;
 }) => {
   const store = Store.open(':memory:');
-  store.insertRun({
+  store.runs.insertRun({
     id: 'run-01',
     worker: 'refiner',
     harness: 'pi',

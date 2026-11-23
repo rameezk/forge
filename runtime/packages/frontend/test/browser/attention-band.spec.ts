@@ -168,7 +168,7 @@ test('given an open Workloads page, when a repository poll fails and its branch 
 test('given two repositories, the second with a failed poll, when See lane is followed from a run page, then the Board opens at the second lane', async ({ dashboard, page }) => {
   for (const repository of ['alpha', 'zulu']) poll(dashboard.store, repository);
   dashboard.store.recordFrontierError({ repository: 'zulu', github: 'rameezk/zulu', message: 'GitHub answered 401', failedAt: new Date().toISOString() });
-  dashboard.store.insertRun(finishedRun);
+  dashboard.store.runs.insertRun(finishedRun);
   await page.goto('/runs/run-01');
   await page.getByRole('link', { name: 'See lane' }).click();
 

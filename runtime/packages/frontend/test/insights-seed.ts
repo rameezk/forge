@@ -92,7 +92,7 @@ const runOf = (seed: Seed): RunRecord => {
 
 const seedGenerations = (store: Store, seed: Seed): void => {
   if (seed.unpricedGeneration === true) {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: seed.id,
       generationId: `${seed.id}-gen-unpriced`,
       subagent: null,
@@ -104,7 +104,7 @@ const seedGenerations = (store: Store, seed: Seed): void => {
     });
   }
   if (seed.listPrice !== undefined) {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: seed.id,
       generationId: `${seed.id}-gen-1`,
       subagent: null,
@@ -117,7 +117,7 @@ const seedGenerations = (store: Store, seed: Seed): void => {
   }
   const providers = Object.entries(seed.providers ?? {});
   providers.forEach(([provider, tokens], index) => {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: seed.id,
       generationId: `${seed.id}-gen-${index + 1}`,
       subagent: null,
@@ -127,8 +127,8 @@ const seedGenerations = (store: Store, seed: Seed): void => {
       createdAt: '2026-09-21T10:00:01.000Z',
     });
   });
-  const ids = new Map(store.unsettledGenerations().map(({ generationId, id }) => [generationId, id]));
-  store.recordLookups(
+  const ids = new Map(store.runs.unsettledGenerations().map(({ generationId, id }) => [generationId, id]));
+  store.runs.recordLookups(
     providers.map(([provider], index) => ({
       id: ids.get(`${seed.id}-gen-${index + 1}`)!,
       billing: { costUsd: seed.cost / providers.length, usage: null, reasoningTokens: null, provider, model: null },
@@ -142,7 +142,7 @@ const seedDiagnoses = (store: Store, seed: Seed): void => {
     const id = `${seed.id}-diagnosis-${index}`;
     const { fingerprint: _fingerprint, ...rest } = seed;
     const at = new Date(Date.parse(seed.start ?? '2026-09-21T10:00:00.000Z') + (seed.seconds + 60 * (index + 1)) * 1000).toISOString();
-    store.insertRun({ ...runOf({ ...rest, id, worker: 'diagnoser', dispatched: false }), startTime: at, endTime: at });
+    store.runs.insertRun({ ...runOf({ ...rest, id, worker: 'diagnoser', dispatched: false }), startTime: at, endTime: at });
     const started = store.startDiagnosis(seed.id, id, at);
     store.endDiagnosis(
       started,
@@ -156,9 +156,9 @@ const seedDiagnoses = (store: Store, seed: Seed): void => {
 export const seedStore = (store: Store, seeds: Seed[]): void => {
   for (const seed of seeds) {
     const run = runOf(seed);
-    store.insertRun(run);
+    store.runs.insertRun(run);
     if (seed.fingerprint !== undefined) {
-      store.recordFingerprint(seed.id, {
+      store.runs.recordFingerprint(seed.id, {
         fingerprint: seed.fingerprint,
         hash: fingerprintHash(seed.fingerprint),
         forgeGitSha: null,

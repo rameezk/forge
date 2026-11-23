@@ -48,7 +48,7 @@ export const main = async (env: NodeJS.ProcessEnv): Promise<number> => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     await settleGenerations({
-      store,
+      runs: store.runs,
       lookUp,
       readTranscript,
       now: () => new Date().toISOString(),

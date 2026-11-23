@@ -25,7 +25,7 @@ const runWith = async (
   const harness = fakeHarness(events, overrides.hooks);
   const transcripts = arrayTranscripts();
   const { id } = await runWorkload({
-    store,
+    runs: store.runs,
     harness,
     worker: aWorker(overrides.worker),
     openTranscript: transcripts.open,
@@ -39,7 +39,7 @@ const runWith = async (
     newId: () => 'run-1',
     ...withoutModelEntry,
   });
-  return { store, harness, transcripts, run: store.getRun(id) };
+  return { store, harness, transcripts, run: store.runs.getRun(id) };
 };
 
 test('given a declared worker and a harness that ends normally, when it runs on demand, then a run is recorded and finalized as success with an end time and token counts', async () => {
@@ -50,7 +50,7 @@ test('given a declared worker and a harness that ends normally, when it runs on 
   ]);
 
   const { id } = await runWorkload({
-    store,
+    runs: store.runs,
     harness,
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
@@ -65,7 +65,7 @@ test('given a declared worker and a harness that ends normally, when it runs on 
     ...withoutModelEntry,
   });
 
-  const run = store.getRun(id);
+  const run = store.runs.getRun(id);
   assert.equal(id, 'run-1');
   assert.equal(run?.status, 'success');
   assert.equal(run?.worker, 'refiner');
@@ -97,7 +97,7 @@ test('given a multi-message run, when it completes, then each assistant generati
   assert.equal(run?.costUsd, 0);
   assert.equal(run?.costStatus, 'pending');
   assert.deepEqual(
-    store.listGenerations('run-1').map(({ generationId, subagent, kind }) => ({ generationId, subagent, kind })),
+    store.runs.listGenerations('run-1').map(({ generationId, subagent, kind }) => ({ generationId, subagent, kind })),
     [
       { generationId: 'gen-a', subagent: null, kind: 'message' },
       { generationId: 'gen-b', subagent: 'call_alpha', kind: 'message' },
@@ -112,7 +112,7 @@ test('given an assistant response with no generation id whose whole prompt was r
     result({ status: 'success' }),
   ]);
 
-  assert.equal(store.listGenerations('run-1').length, 2);
+  assert.equal(store.runs.listGenerations('run-1').length, 2);
   assert.equal(run?.cacheReadTokens, 900);
   assert.equal(run?.cacheWriteTokens, 300);
   assert.equal(run?.costStatus, 'unconfirmed');
@@ -133,7 +133,7 @@ test('given a harness stream that ends in an error result, when it finishes, the
 test('given a runner failure mid-stream, when it finishes, then the run is error with the thrown message and an end time, never left running, and the generation it saw is left pending for billing to settle', async () => {
   const store = Store.open(':memory:');
   const { id } = await runWorkload({
-    store,
+    runs: store.runs,
     harness: throwingHarness([message()], new Error('harness crashed')),
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
@@ -145,13 +145,13 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
     ...withoutModelEntry,
   });
 
-  const run = store.getRun(id);
+  const run = store.runs.getRun(id);
   assert.equal(run?.status, 'error');
   assert.equal(run?.error, 'harness crashed');
   assert.equal(run?.endTime, '2026-09-21T10:00:05.000Z');
   assert.equal(run?.costStatus, 'pending');
   assert.deepEqual(
-    store.listGenerations(id).map((generation) => generation.generationId),
+    store.runs.listGenerations(id).map((generation) => generation.generationId),
     ['gen-1'],
   );
 });
@@ -159,7 +159,7 @@ test('given a runner failure mid-stream, when it finishes, then the run is error
 test('given a harness that throws with a secret in its message, when the run is recorded, then the stored error has the secret redacted', async () => {
   const store = Store.open(':memory:');
   const { id } = await runWorkload({
-    store,
+    runs: store.runs,
     harness: throwingHarness([], new Error('spawn failed for sk-or-secret')),
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
@@ -172,7 +172,7 @@ test('given a harness that throws with a secret in its message, when the run is 
     secrets: () => ['sk-or-secret'],
   });
 
-  assert.equal(store.getRun(id)?.error, 'spawn failed for [redacted]');
+  assert.equal(store.runs.getRun(id)?.error, 'spawn failed for [redacted]');
 });
 
 test('given a harness stream that ends without a result event, when it finishes, then the run is error, not left running', async () => {
@@ -185,17 +185,17 @@ test('given a harness stream that ends without a result event, when it finishes,
 
 test('given a worker whose harness has begun but not finished, when the store is read mid-run, then a run exists with running status, a start time, no end time and a pending cost', async () => {
   const store = Store.open(':memory:');
-  let midRun: ReturnType<Store['getRun']>;
+  let midRun: ReturnType<Store['runs']['getRun']>;
   const harness = fakeHarness([message(), result({ status: 'success' })], {
     beforeEach: (index) => {
       if (index === 0) {
-        midRun = store.getRun('run-1');
+        midRun = store.runs.getRun('run-1');
       }
     },
   });
 
   await runWorkload({
-    store,
+    runs: store.runs,
     harness,
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
@@ -232,7 +232,7 @@ test('given a harness emitting a multi-event stream, when the worker runs, then 
   });
 
   const { id } = await runWorkload({
-    store,
+    runs: store.runs,
     harness,
     worker: aWorker(),
     openTranscript: transcripts.open,
@@ -247,7 +247,7 @@ test('given a harness emitting a multi-event stream, when the worker runs, then 
   assert.deepEqual(seenCounts, [2, 3]);
   assert.deepEqual(transcripts.events('run-1').slice(1), events);
   assert.equal(transcripts.closed('run-1'), true);
-  assert.equal(store.getRun(id)?.transcriptRef, 'run-1.jsonl');
+  assert.equal(store.runs.getRun(id)?.transcriptRef, 'run-1.jsonl');
 });
 
 test('given a worker declared with a reasoning effort, when it runs, then the harness is invoked with that effort', async () => {
@@ -283,7 +283,7 @@ test('given a worker whose prompt contains a secret, when it is run, then the fi
   const store = Store.open(':memory:');
   const transcripts = arrayTranscripts();
   await runWorkload({
-    store,
+    runs: store.runs,
     harness: fakeHarness([message(), result({ status: 'success' })]),
     worker: aWorker({ prompt: '/work-on https://example.test/1 sk-or-secret' }),
     openTranscript: transcripts.open,
@@ -316,7 +316,7 @@ test('given a run whose harness is still working, when 20 seconds pass at a time
   const tick = (at: string): void => {
     clock = at;
     t.mock.timers.tick(20_000);
-    heartbeats.push(store.getRun('run-1')?.aliveAt ?? null);
+    heartbeats.push(store.runs.getRun('run-1')?.aliveAt ?? null);
   };
   const harness = fakeHarness(
     [message({ generationId: 'gen-a' }), result({ status: 'success' })],
@@ -327,7 +327,7 @@ test('given a run whose harness is still working, when 20 seconds pass at a time
   );
 
   await runWorkload({
-    store,
+    runs: store.runs,
     harness,
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
@@ -342,13 +342,13 @@ test('given a run whose harness is still working, when 20 seconds pass at a time
   t.mock.timers.tick(60_000);
 
   assert.deepEqual(heartbeats, ['2026-09-21T10:00:20.000Z', '2026-09-21T10:00:40.000Z']);
-  assert.equal(store.getRun('run-1')?.aliveAt, '2026-09-21T10:00:40.000Z');
+  assert.equal(store.runs.getRun('run-1')?.aliveAt, '2026-09-21T10:00:40.000Z');
 });
 
 test('given a run whose heartbeat write fails, when its 20 seconds pass, then the failure is logged and the run carries on to finish', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   const store = Store.open(':memory:');
-  t.mock.method(store, 'touchRun', () => {
+  t.mock.method(store.runs, 'touchRun', () => {
     throw new Error('database is locked');
   });
   const stderr: string[] = [];
@@ -362,7 +362,7 @@ test('given a run whose heartbeat write fails, when its 20 seconds pass, then th
   );
 
   await runWorkload({
-    store,
+    runs: store.runs,
     harness,
     worker: aWorker(),
     openTranscript: arrayTranscripts().open,
@@ -374,7 +374,7 @@ test('given a run whose heartbeat write fails, when its 20 seconds pass, then th
     ...withoutModelEntry,
   });
 
-  assert.equal(store.getRun('run-1')?.status, 'success');
+  assert.equal(store.runs.getRun('run-1')?.status, 'success');
   assert.ok(stderr.includes('run run-1: could not refresh its heartbeat: database is locked\n'), stderr.join(''));
 });
 
@@ -384,7 +384,7 @@ test('given a worker with a one-second timeout whose workspace takes longer than
   const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
   await runWorkload({
-    store,
+    runs: store.runs,
     harness: fakeHarness([message(), result({ status: 'success' })], {
       beforeEach: (index) => (index === 0 ? sleep(600) : undefined),
     }),
@@ -402,7 +402,7 @@ test('given a worker with a one-second timeout whose workspace takes longer than
     ...withoutModelEntry,
   });
 
-  const run = store.getRun('run-1');
+  const run = store.runs.getRun('run-1');
   assert.equal(run?.status, 'success');
   assert.equal(run?.exceededLimit, null);
   assert.equal(run?.timeoutSeconds, 1);
@@ -436,7 +436,7 @@ for (const { name, billedFirst, budget, outcome } of [
     const store = Store.open(':memory:');
 
     await runWorkload({
-      store,
+      runs: store.runs,
       harness: fakeHarness(
         [
           message({ generationId: 'gen-1' }),
@@ -446,9 +446,9 @@ for (const { name, billedFirst, budget, outcome } of [
         {
           beforeEach: (index) => {
             if (index !== 1) return;
-            const [first] = store.unsettledGenerations();
+            const [first] = store.runs.unsettledGenerations();
             assert.ok(first);
-            store.recordLookups(
+            store.runs.recordLookups(
               [
                 {
                   id: first.id,
@@ -471,7 +471,7 @@ for (const { name, billedFirst, budget, outcome } of [
       lookUpModel: pricedModel,
     });
 
-    assert.equal(store.getRun('run-1')?.status, outcome);
+    assert.equal(store.runs.getRun('run-1')?.status, outcome);
   });
 }
 
@@ -479,7 +479,7 @@ test('given a subscription run whose context compacts, when the workload ends, t
   const store = Store.open(':memory:');
 
   await runWorkload({
-    store,
+    runs: store.runs,
     harness: fakeHarness([
       message({ generationId: 'req-1' }),
       {
@@ -510,20 +510,20 @@ test('given a subscription run whose context compacts, when the workload ends, t
   });
 
   const compaction = store
-    .listGenerations('run-1')
+    .runs.listGenerations('run-1')
     .find(({ kind }) => kind === 'compaction');
   assert.equal(compaction?.generationId, 'req-summary');
   assert.equal(compaction?.estimatedCostUsd, null);
   assert.ok(Math.abs((compaction?.listPriceEquivalentUsd ?? 0) - 0.003) < 1e-12);
   assert.equal(compaction?.billedCostUsd, null);
-  assert.equal(store.getRun('run-1')?.costStatus, 'subscription');
+  assert.equal(store.runs.getRun('run-1')?.costStatus, 'subscription');
 });
 
 test('given a subscription run whose cache is warmed, when the workload ends, then the cache_warm generation has its list-price equivalent, is never billed, and the cost status stays subscription', async () => {
   const store = Store.open(':memory:');
 
   await runWorkload({
-    store,
+    runs: store.runs,
     harness: fakeHarness([
       message({ generationId: 'req-1' }),
       {
@@ -545,13 +545,13 @@ test('given a subscription run whose cache is warmed, when the workload ends, th
   });
 
   const warm = store
-    .listGenerations('run-1')
+    .runs.listGenerations('run-1')
     .find(({ kind }) => kind === 'cache_warm');
   assert.equal(warm?.generationId, 'req-warm');
   assert.equal(warm?.estimatedCostUsd, null);
   assert.ok(Math.abs((warm?.listPriceEquivalentUsd ?? 0) - 0.003) < 1e-12);
   assert.equal(warm?.billedCostUsd, null);
-  assert.equal(store.getRun('run-1')?.costStatus, 'subscription');
+  assert.equal(store.runs.getRun('run-1')?.costStatus, 'subscription');
 });
 
 const hangingSetup = async (
@@ -563,7 +563,7 @@ const hangingSetup = async (
   const harness = fakeHarness([message(), result({ status: 'success' })]);
   const stopped: boolean[] = [];
   const { cause } = await runWorkload({
-    store,
+    runs: store.runs,
     harness,
     worker: aWorker(worker),
     openTranscript: arrayTranscripts().open,
@@ -583,7 +583,7 @@ const hangingSetup = async (
     newId: () => 'run-1',
     ...withoutModelEntry,
   });
-  return { run: store.getRun('run-1'), harness, stopped, cause };
+  return { run: store.runs.getRun('run-1'), harness, stopped, cause };
 };
 
 test('given a worker with a timeout and a workspace whose setup never finishes, when the run starts, then it ends as an error once the setup timeout passes, naming the limit and the stage, and the harness never starts', async () => {

@@ -56,7 +56,7 @@ const bodyOf = async (app: ReturnType<typeof appWith>, path: string): Promise<st
   (await app.request(path)).text();
 
 test('given a run that ended exceeded on a 2 hour timeout, when its page and the run list render, then each shows an amber exceeded pill and the page a callout naming the timeout', async () => {
-  const app = appWith((store) => store.insertRun(sampleRun()));
+  const app = appWith((store) => store.runs.insertRun(sampleRun()));
 
   const page = await bodyOf(app, '/runs/run-01');
   const pill = page.match(/<span[^>]*\sdata-status="exceeded"[^>]*>[\s\S]*?<\/span>/)?.[0] ?? '';
@@ -94,8 +94,8 @@ test('given a dispatch that ended exceeded on its timeout, when the Board render
 test('given a running run with a 2 hour timeout whose harness started after its run did, and one with no timeout, when the list and run pages render, then the first carries the harness start and its timeout for the browser to count against and the second counts from its run start', async () => {
   const running = { status: 'running', endTime: null, costStatus: 'pending', exceededLimit: null, error: null } as const;
   const app = appWith((store) => {
-    store.insertRun(sampleRun({ id: 'limited', ...running }));
-    store.insertRun(sampleRun({ id: 'open', ...running, timeoutSeconds: null, harnessStartTime: null }));
+    store.runs.insertRun(sampleRun({ id: 'limited', ...running }));
+    store.runs.insertRun(sampleRun({ id: 'open', ...running, timeoutSeconds: null, harnessStartTime: null }));
   });
 
   const counting = (body: string): string =>
@@ -112,8 +112,8 @@ test('given a running run with a 2 hour timeout whose harness started after its 
 test('given a running run with a 5 USD budget that has spent 3.20 USD, and one with no budget, when the list and run pages render, then the first reads $3.20 / $5 and the second its plain cost', async () => {
   const running = { status: 'running', endTime: null, costStatus: 'pending', costEstimated: true, exceededLimit: null, error: null } as const;
   const app = appWith((store) => {
-    store.insertRun(sampleRun({ id: 'budgeted', ...running, costUsd: 3.2, maxCostUsd: 5 }));
-    store.insertRun(sampleRun({ id: 'open', ...running, costUsd: 3.2, maxCostUsd: null }));
+    store.runs.insertRun(sampleRun({ id: 'budgeted', ...running, costUsd: 3.2, maxCostUsd: 5 }));
+    store.runs.insertRun(sampleRun({ id: 'open', ...running, costUsd: 3.2, maxCostUsd: null }));
   });
 
   const spend = (body: string): string => textOf(body.match(/<span[^>]*\sdata-spend[^>]*>[\s\S]*?<\/span>/)?.[0] ?? '');
@@ -126,7 +126,7 @@ test('given budgets of 5, 2.5 and 0.5 USD on running runs, when their pages rend
   const running = { status: 'running', endTime: null, costStatus: 'pending', costEstimated: true, exceededLimit: null, error: null, costUsd: 0.1 } as const;
   const app = appWith((store) => {
     for (const [id, maxCostUsd] of [['five', 5], ['half', 0.5], ['quarter', 2.5]] as const) {
-      store.insertRun(sampleRun({ id, ...running, maxCostUsd }));
+      store.runs.insertRun(sampleRun({ id, ...running, maxCostUsd }));
     }
   });
 
@@ -137,7 +137,7 @@ test('given budgets of 5, 2.5 and 0.5 USD on running runs, when their pages rend
 
 test('given a run that ended exceeded on its 5 USD budget at 5.21 USD, when its page and the list render, then each shows an amber exceeded pill and the page a callout reading Stopped at $5.21 of a $5 budget', async () => {
   const app = appWith((store) =>
-    store.insertRun(
+    store.runs.insertRun(
       sampleRun({
         costUsd: 5.21,
         maxCostUsd: 5,

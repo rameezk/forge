@@ -30,7 +30,7 @@ const dashboard = () => {
       },
     ],
   });
-  store.insertRun({
+  store.runs.insertRun({
     id: 'run-01',
     worker: 'builder',
     harness: 'pi',

@@ -444,7 +444,7 @@ export const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
     return {
       code,
       origin,
-      runs: store.listRuns(),
+      runs: store.runs.listRuns(),
       revisions: store.workloads.listRevisions(new Date().toISOString()),
       pushedHeads: pushedHeadsOf(join(stateDir, 'forge.db'), 'revisions'),
       complaints: complaints.join('\n'),

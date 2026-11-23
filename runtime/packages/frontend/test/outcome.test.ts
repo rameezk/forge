@@ -43,7 +43,7 @@ const DETAIL = 'https://github.com/rameezk/forge/pull/9#issuecomment-1\nsecond l
 const dashboard = () => {
   const store = Store.open(':memory:');
   const revise = (runId: string, number: number, state: 'done' | 'failed', failure?: RevisionFailureRecord): void => {
-    store.insertRun(sampleRun(runId));
+    store.runs.insertRun(sampleRun(runId));
     const start = store.workloads.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
       [],
@@ -57,9 +57,9 @@ const dashboard = () => {
   revise('unanswered', 1, 'failed', { reason: 'unanswered', detail: DETAIL });
   revise('reasonless', 2, 'failed');
   revise('good', 3, 'done');
-  store.insertRun(sampleRun('resolving'));
+  store.runs.insertRun(sampleRun('resolving'));
   store.workloads.startConflictResolution({ repository: 'forge', number: 4, url: 'https://github.com/rameezk/forge/pull/4' }, [], 'resolving', new Date().toISOString(), 10, { headSha: 'head-a', defaultSha: 'default-a' });
-  store.insertRun(sampleRun('resolved'));
+  store.runs.insertRun(sampleRun('resolved'));
   const resolution = store.workloads.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head-b', defaultSha: 'default-b' });
   assert.ok('started' in resolution);
   store.workloads.endConflictResolution(resolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'not-merged', detail: 'abc1234 is missing' });
@@ -114,7 +114,7 @@ test('given a conflict resolution that failed and one still running, when the li
 test('given a revision that failed as exceeded on its budget and one that failed as interrupted, when the list is requested, then both read failed and the reasons name the budget and the interruption', async () => {
   const store = Store.open(':memory:');
   const stop = (runId: string, number: number, failure: RevisionFailureRecord): void => {
-    store.insertRun(sampleRun(runId));
+    store.runs.insertRun(sampleRun(runId));
     const start = store.workloads.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
       [],

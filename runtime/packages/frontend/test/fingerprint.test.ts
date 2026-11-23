@@ -51,9 +51,9 @@ const fingerprint: ConfigFingerprint = {
 
 const app = () => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun('fingerprinted'));
-  store.insertRun(sampleRun('legacy'));
-  store.recordFingerprint('fingerprinted', {
+  store.runs.insertRun(sampleRun('fingerprinted'));
+  store.runs.insertRun(sampleRun('legacy'));
+  store.runs.recordFingerprint('fingerprinted', {
     fingerprint,
     hash: fingerprintHash(fingerprint),
     forgeGitSha: 'abc1234def5678',

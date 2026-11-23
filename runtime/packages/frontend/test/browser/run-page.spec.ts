@@ -49,8 +49,8 @@ const longTranscript = (): HarnessEvent[] => [
   ...Array.from({ length: 30 }, (_, index) => say(`later ${index + 1}`)),
 ];
 
-const seed = (dashboard: { store: { insertRun: (run: RunRecord) => void }; appendEvents: (ref: string, ...events: HarnessEvent[]) => void }, events = longTranscript()): void => {
-  dashboard.store.insertRun(finishedRun);
+const seed = (dashboard: { store: { runs: { insertRun: (run: RunRecord) => void } }; appendEvents: (ref: string, ...events: HarnessEvent[]) => void }, events = longTranscript()): void => {
+  dashboard.store.runs.insertRun(finishedRun);
   dashboard.appendEvents('run-01.jsonl', ...events);
 };
 
@@ -145,7 +145,7 @@ test('given a workload with a failed tool call, when the widget links are follow
 });
 
 test('given a running workload whose run page is open, when new events are recorded, then they appear at the top of the widget without a reload', async ({ dashboard, page }) => {
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   dashboard.appendEvents('run-01.jsonl', say('first'));
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/runs/run-01');
@@ -158,7 +158,7 @@ test('given a running workload whose run page is open, when new events are recor
 });
 
 test('given a running subagent in the widget, when it narrates again, then its row shows the new narration without a reload', async ({ dashboard, page }) => {
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   dashboard.appendEvents(
     'run-01.jsonl',
     { type: 'tool_call', id: 'call_alpha', name: 'subagent', arguments: { task: 'Review the change' } },
@@ -177,7 +177,7 @@ test('given a running subagent in the widget, when it narrates again, then its r
 });
 
 test('given a subagent with a long task and a long narration, when its run page is opened at phone width, then its widget row stays on one line', async ({ dashboard, page }) => {
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   const task = 'Review the change for standards, for the spec it implements and for security, reading every file it touches. '.repeat(2);
   const narration = 'Reading every file under the runtime packages to map how the transcript view groups a subagent and where its row is drawn. '.repeat(3);
   dashboard.appendEvents(

@@ -47,7 +47,7 @@ test('given a running workload, when time passes in the browser, then its elapse
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   await openAt(page, minutesAfterStart(45), '/workloads');
   const listed = page.getByRole('row', { name: /builder/ }).locator('[data-duration]');
   await expect(listed).toHaveText('45m 0s');
@@ -68,12 +68,12 @@ test('given a running workload whose elapsed time is ticking, when it ends, then
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   await openAt(page, minutesAfterStart(5), '/runs/run-01');
   const duration = page.locator('[data-duration]');
   await expect(duration).toHaveText('5m 0s');
 
-  dashboard.store.finalizeRun('run-01', {
+  dashboard.store.runs.finalizeRun('run-01', {
     status: 'success',
     endTime: '2026-09-21T10:03:20.000Z',
     sessionId: null,
@@ -101,7 +101,7 @@ test('given a running dispatch and a finished one, when the Board renders and ti
   const pullRequest = (number: number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}` });
   dashboard.store.workloads.endDispatch(dispatch(57), { state: 'done', pullRequest: pullRequest(143) }, new Date(began.getTime() + 5 * 60_000).toISOString());
   dashboard.store.workloads.endDispatch(dispatch(58), { state: 'done', pullRequest: pullRequest(144) }, new Date(began.getTime() + 5 * 60_000).toISOString());
-  dashboard.store.insertRun({ ...runningRun, id: 'revision-143', startTime: new Date(began.getTime() + 50 * 60_000).toISOString(), harnessStartTime: new Date(began.getTime() + 60 * 60_000).toISOString() });
+  dashboard.store.runs.insertRun({ ...runningRun, id: 'revision-143', startTime: new Date(began.getTime() + 50 * 60_000).toISOString(), harnessStartTime: new Date(began.getTime() + 60 * 60_000).toISOString() });
   dashboard.store.workloads.startRevision({ repository: 'forge', ...pullRequest(143) }, [57], 'revision-143', began.toISOString(), Number.POSITIVE_INFINITY);
   await openAt(page, new Date(began.getTime() + 125 * 60_000), '/');
   const running = page.locator('[data-ticket="56"] [data-elapsed-since]');
@@ -127,7 +127,7 @@ test('given running workloads at several elapsed times, when the browser counts 
   const elapsedSeconds = [0, 59, 60, 3599, 3600, 8140, 90_000];
   const startedAt = (seconds: number): string => new Date(now.getTime() - seconds * 1000).toISOString();
   for (const seconds of elapsedSeconds) {
-    dashboard.store.insertRun({ ...runningRun, id: `run-${seconds}`, worker: `worker-${seconds}s`, startTime: startedAt(seconds) });
+    dashboard.store.runs.insertRun({ ...runningRun, id: `run-${seconds}`, worker: `worker-${seconds}s`, startTime: startedAt(seconds) });
   }
 
   await openAt(page, now, '/workloads');
@@ -143,7 +143,7 @@ test('given a running workload with a 2 hour timeout whose harness started 45 mi
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({
+  dashboard.store.runs.insertRun({
     ...runningRun,
     timeoutSeconds: 7200,
     harnessStartTime: '2026-09-21T10:10:00.000Z',

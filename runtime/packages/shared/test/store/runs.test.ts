@@ -18,9 +18,9 @@ test('given a fresh store, when a run record with every field is inserted, inclu
     },
   });
 
-  store.insertRun(run);
+  store.runs.insertRun(run);
 
-  assert.deepEqual(store.getRun('run-01'), run);
+  assert.deepEqual(store.runs.getRun('run-01'), run);
 });
 
 test('given a run written at start, when it is inserted, then it round-trips with a null end time and no error', () => {
@@ -49,38 +49,38 @@ test('given a run written at start, when it is inserted, then it round-trips wit
     counters: null,
   });
 
-  store.insertRun(run);
+  store.runs.insertRun(run);
 
-  assert.deepEqual(store.getRun('run-running'), run);
+  assert.deepEqual(store.runs.getRun('run-running'), run);
 });
 
 test('given a fresh store, when an unknown run is read, then it returns undefined', () => {
   const store = Store.open(':memory:');
 
-  assert.equal(store.getRun('nope'), undefined);
+  assert.equal(store.runs.getRun('nope'), undefined);
 });
 
 test('given a fresh store, when runs are listed, then an empty list is returned', () => {
   const store = Store.open(':memory:');
 
-  assert.deepEqual(store.listRuns(), []);
+  assert.deepEqual(store.runs.listRuns(), []);
 });
 
 test('given several runs, when they are listed, then they come back newest-first by start time', () => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun({ id: 'mid', startTime: '2026-09-21T10:00:00.000Z' }));
-  store.insertRun(sampleRun({ id: 'newest', startTime: '2026-09-21T11:00:00.000Z' }));
-  store.insertRun(sampleRun({ id: 'oldest', startTime: '2026-09-21T09:00:00.000Z' }));
+  store.runs.insertRun(sampleRun({ id: 'mid', startTime: '2026-09-21T10:00:00.000Z' }));
+  store.runs.insertRun(sampleRun({ id: 'newest', startTime: '2026-09-21T11:00:00.000Z' }));
+  store.runs.insertRun(sampleRun({ id: 'oldest', startTime: '2026-09-21T09:00:00.000Z' }));
 
   assert.deepEqual(
-    store.listRuns().map((run) => run.id),
+    store.runs.listRuns().map((run) => run.id),
     ['newest', 'mid', 'oldest'],
   );
 });
 
 test('given a run recorded at start, when it is finalized, then result fields are written, identity and transcript are left intact, and with no generations its cost is billed at nothing', () => {
   const store = Store.open(':memory:');
-  store.insertRun(
+  store.runs.insertRun(
     sampleRun({
       id: 'run-final',
       status: 'running',
@@ -105,14 +105,14 @@ test('given a run recorded at start, when it is finalized, then result fields ar
     }),
   );
 
-  store.finalizeRun('run-final', {
+  store.runs.finalizeRun('run-final', {
     endTime: '2026-09-21T10:03:20.000Z',
     status: 'success',
     sessionId: 'sess-final',
     error: null,
   });
 
-  assert.deepEqual(store.getRun('run-final'), {
+  assert.deepEqual(store.runs.getRun('run-final'), {
     id: 'run-final',
     worker: 'refiner',
     harness: 'pi',
@@ -173,7 +173,7 @@ test('given a store file in the old schema with one run whose cost was settled, 
   const store = Store.open(path);
 
   assert.deepEqual(
-    store.listRuns().map(({ id, costStatus, costUsd }) => ({ id, costStatus, costUsd })),
+    store.runs.listRuns().map(({ id, costStatus, costUsd }) => ({ id, costStatus, costUsd })),
     [
       { id: 'abandoned', costStatus: 'unconfirmed', costUsd: 0 },
       { id: 'uncertain', costStatus: 'unconfirmed', costUsd: 0.0125 },
@@ -182,7 +182,7 @@ test('given a store file in the old schema with one run whose cost was settled, 
   );
   store.close();
   const reopened = Store.open(path);
-  assert.deepEqual(reopened.listRuns().map((run) => run.costStatus), ['unconfirmed', 'unconfirmed', 'billed']);
+  assert.deepEqual(reopened.runs.listRuns().map((run) => run.costStatus), ['unconfirmed', 'unconfirmed', 'billed']);
   reopened.close();
 });
 
@@ -204,8 +204,8 @@ test('given a store whose skill loads were recorded before coverage, when it is 
   old.close();
 
   const store = Store.open(path);
-  const loaded = store.listSkillLoads('run-01');
-  store.recordSkillLoad({
+  const loaded = store.runs.listSkillLoads('run-01');
+  store.runs.recordSkillLoad({
     runId: 'run-01',
     skill: 'work-on',
     source: 'read',
@@ -213,7 +213,7 @@ test('given a store whose skill loads were recorded before coverage, when it is 
     loadedAt: '2026-09-21T10:05:00.000Z',
     coverage: { coveredLines: 60, totalLines: 142 },
   });
-  const updated = store.listSkillLoads('run-01');
+  const updated = store.runs.listSkillLoads('run-01');
   store.close();
 
   assert.deepEqual(loaded.map(({ skill, coverage }) => ({ skill, coverage })), [
@@ -266,10 +266,10 @@ test('given a store file whose runs predate dispatch, when the store is opened, 
   });
 
   const store = Store.open(path);
-  store.insertRun(dispatched);
+  store.runs.insertRun(dispatched);
 
-  assert.equal(store.getRun('by-hand')?.ticket, null);
-  assert.deepEqual(store.getRun('dispatched'), dispatched);
+  assert.equal(store.runs.getRun('by-hand')?.ticket, null);
+  assert.deepEqual(store.runs.getRun('dispatched'), dispatched);
   store.close();
   Store.open(path).close();
 });
@@ -314,20 +314,20 @@ test('given a store file whose runs predate heartbeats, holding a run left runni
   const beating = sampleRun({ id: 'beating', startTime: '2026-09-21T11:00:00.000Z' });
 
   const store = Store.open(path);
-  store.insertRun(beating);
+  store.runs.insertRun(beating);
 
-  assert.equal(store.getRun('stuck')?.aliveAt, null);
-  assert.deepEqual(store.getRun('beating'), beating);
+  assert.equal(store.runs.getRun('stuck')?.aliveAt, null);
+  assert.deepEqual(store.runs.getRun('beating'), beating);
   store.close();
   Store.open(path).close();
 });
 
 test('given generations whose token counts are each the largest safe integer, when the run totals are read, then they are held at that integer so the run stays readable', () => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun({ id: 'huge', status: 'running', endTime: null }));
+  store.runs.insertRun(sampleRun({ id: 'huge', status: 'running', endTime: null }));
   const most = Number.MAX_SAFE_INTEGER;
   for (const generationId of ['gen-a', 'gen-b']) {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: 'huge',
       generationId,
       subagent: null,
@@ -338,7 +338,7 @@ test('given generations whose token counts are each the largest safe integer, wh
     });
   }
 
-  const run = store.listRuns()[0];
+  const run = store.runs.listRuns()[0];
   assert.deepEqual(
     [run?.inputTokens, run?.outputTokens, run?.cacheReadTokens, run?.cacheWriteTokens],
     [most, most, most, most],
@@ -374,7 +374,7 @@ test('given a store whose generations predate kinds, when it is opened twice, th
   const store = Store.open(path);
   const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
   for (const kind of ['message', 'compaction', 'cache_warm'] as const) {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: 'new',
       generationId: `gen-${kind}`,
       subagent: null,
@@ -385,8 +385,8 @@ test('given a store whose generations predate kinds, when it is opened twice, th
     });
   }
 
-  assert.deepEqual(store.listGenerations('old').map(({ kind }) => kind), ['message', 'message', 'message']);
-  assert.deepEqual(store.listGenerations('new').map(({ kind }) => kind), ['message', 'compaction', 'cache_warm']);
+  assert.deepEqual(store.runs.listGenerations('old').map(({ kind }) => kind), ['message', 'message', 'message']);
+  assert.deepEqual(store.runs.listGenerations('new').map(({ kind }) => kind), ['message', 'compaction', 'cache_warm']);
   store.close();
 });
 
@@ -436,9 +436,9 @@ test('given a store whose generations predate token columns, holding finished wo
   old.close();
 
   const store = Store.open(path);
-  const [unsettled] = store.unsettledGenerations();
+  const [unsettled] = store.runs.unsettledGenerations();
   assert.ok(unsettled);
-  store.recordLookups(
+  store.runs.recordLookups(
     [{
       id: unsettled.id,
       billing: {
@@ -453,7 +453,7 @@ test('given a store whose generations predate token columns, holding finished wo
   );
 
   assert.deepEqual(
-    store.listRuns().map(({ id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, costEstimated, listPrice }) => ({
+    store.runs.listRuns().map(({ id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, costEstimated, listPrice }) => ({
       id, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, costEstimated, listPrice,
     })),
     [
@@ -462,11 +462,11 @@ test('given a store whose generations predate token columns, holding finished wo
     ],
   );
   assert.deepEqual(
-    store.listGenerations('billed').map(({ usage, estimatedCostUsd }) => ({ usage, estimatedCostUsd })),
+    store.runs.listGenerations('billed').map(({ usage, estimatedCostUsd }) => ({ usage, estimatedCostUsd })),
     [{ usage: null, estimatedCostUsd: null }],
   );
   assert.deepEqual(
-    store.listGenerations('settling').map(({ usage, reasoningTokens, provider }) => ({ usage, reasoningTokens, provider })),
+    store.runs.listGenerations('settling').map(({ usage, reasoningTokens, provider }) => ({ usage, reasoningTokens, provider })),
     [{ usage: null, reasoningTokens: 5, provider: 'Z.AI' }],
   );
   store.close();
@@ -475,11 +475,11 @@ test('given a store whose generations predate token columns, holding finished wo
 
 test('given a run recorded under a timeout, when it is finalized as exceeded on that limit, then it reads back with the status, the limit, its timeout and when its harness started', () => {
   const store = Store.open(':memory:');
-  store.insertRun(
+  store.runs.insertRun(
     sampleRun({ id: 'slow', status: 'running', endTime: null, timeoutSeconds: 7200 }),
   );
-  store.markHarnessStarted('slow', '2026-09-21T10:00:30.000Z');
-  store.finalizeRun('slow', {
+  store.runs.markHarnessStarted('slow', '2026-09-21T10:00:30.000Z');
+  store.runs.finalizeRun('slow', {
     endTime: '2026-09-21T12:00:30.000Z',
     status: 'exceeded',
     sessionId: null,
@@ -487,7 +487,7 @@ test('given a run recorded under a timeout, when it is finalized as exceeded on 
     exceededLimit: 'timeout',
   });
 
-  const run = store.getRun('slow');
+  const run = store.runs.getRun('slow');
   assert.equal(run?.status, 'exceeded');
   assert.equal(run?.exceededLimit, 'timeout');
   assert.equal(run?.timeoutSeconds, 7200);
@@ -544,14 +544,14 @@ test('given a store file whose runs predate limits, holding a finished run, when
   });
 
   const store = Store.open(path);
-  store.insertRun(limited);
+  store.runs.insertRun(limited);
 
-  const past = store.getRun('past');
+  const past = store.runs.getRun('past');
   assert.equal(past?.harnessStartTime, null);
   assert.equal(past?.timeoutSeconds, null);
   assert.equal(past?.maxCostUsd, null);
   assert.equal(past?.exceededLimit, null);
-  assert.deepEqual(store.getRun('limited'), limited);
+  assert.deepEqual(store.runs.getRun('limited'), limited);
   store.close();
   Store.open(path).close();
 });
@@ -578,32 +578,32 @@ const aRunFingerprint = (overrides: Partial<RunFingerprint> = {}): RunFingerprin
 
 test('given a recorded run, when its fingerprint is recorded, then it reads back whole and a run without one reads back as none', () => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun({ id: 'with' }));
-  store.insertRun(sampleRun({ id: 'without' }));
+  store.runs.insertRun(sampleRun({ id: 'with' }));
+  store.runs.insertRun(sampleRun({ id: 'without' }));
   const recorded = aRunFingerprint({ baseCommit: 'deadbeef' });
 
-  store.recordFingerprint('with', recorded);
+  store.runs.recordFingerprint('with', recorded);
 
-  assert.deepEqual(store.getFingerprint('with'), recorded);
-  assert.equal(store.getFingerprint('without'), null);
-  assert.equal(store.getFingerprint('missing'), null);
+  assert.deepEqual(store.runs.getFingerprint('with'), recorded);
+  assert.equal(store.runs.getFingerprint('without'), null);
+  assert.equal(store.runs.getFingerprint('missing'), null);
 });
 
 test('given a run whose fingerprint is already recorded, when another is recorded for it, then the first stands', () => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun());
+  store.runs.insertRun(sampleRun());
   const first = aRunFingerprint();
 
-  store.recordFingerprint('run-01', first);
-  store.recordFingerprint('run-01', aRunFingerprint({ forgeGitSha: 'other' }));
+  store.runs.recordFingerprint('run-01', first);
+  store.runs.recordFingerprint('run-01', aRunFingerprint({ forgeGitSha: 'other' }));
 
-  assert.deepEqual(store.getFingerprint('run-01'), first);
+  assert.deepEqual(store.runs.getFingerprint('run-01'), first);
 });
 
 test('given a store file whose runs predate fingerprints, when the store is opened, then its runs have no fingerprint and a new run can record one', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const first = Store.open(path);
-  first.insertRun(sampleRun({ id: 'old' }));
+  first.runs.insertRun(sampleRun({ id: 'old' }));
   first.close();
   const old = new DatabaseSync(path);
   old.exec(`
@@ -615,11 +615,11 @@ test('given a store file whose runs predate fingerprints, when the store is open
   old.close();
 
   const store = Store.open(path);
-  store.insertRun(sampleRun({ id: 'new' }));
-  store.recordFingerprint('new', aRunFingerprint());
+  store.runs.insertRun(sampleRun({ id: 'new' }));
+  store.runs.recordFingerprint('new', aRunFingerprint());
 
-  assert.equal(store.getFingerprint('old'), null);
-  assert.deepEqual(store.getFingerprint('new'), aRunFingerprint());
+  assert.equal(store.runs.getFingerprint('old'), null);
+  assert.deepEqual(store.runs.getFingerprint('new'), aRunFingerprint());
   store.close();
   Store.open(path).close();
 });
@@ -633,7 +633,7 @@ const usageOf = (inputTokens: number, outputTokens: number) => ({
 
 test('given a subscription run with two generations, when it ends and the store settles it, then no generation awaits billing, the run stays subscription with its tokens summed and no cost', () => {
   const store = Store.open(':memory:');
-  store.insertRun(
+  store.runs.insertRun(
     sampleRun({
       status: 'running',
       endTime: null,
@@ -644,7 +644,7 @@ test('given a subscription run with two generations, when it ends and the store 
     }),
   );
   for (const [generationId, input] of [['msg_1', 100], ['msg_2', 250]] as const) {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId: 'run-01',
       generationId,
       subagent: null,
@@ -655,27 +655,27 @@ test('given a subscription run with two generations, when it ends and the store 
     });
   }
 
-  assert.deepEqual(store.unsettledGenerations(), []);
+  assert.deepEqual(store.runs.unsettledGenerations(), []);
 
-  store.finalizeRun('run-01', {
+  store.runs.finalizeRun('run-01', {
     endTime: '2026-09-21T10:03:20.000Z',
     status: 'success',
     sessionId: 'sess-abc',
     error: null,
   });
 
-  const run = store.getRun('run-01');
+  const run = store.runs.getRun('run-01');
   assert.equal(run?.costStatus, 'subscription');
   assert.equal(run?.costUsd, 0);
   assert.equal(run?.costEstimated, false);
   assert.equal(run?.inputTokens, 350);
   assert.equal(run?.outputTokens, 20);
-  assert.deepEqual(store.unsettledGenerations(), []);
+  assert.deepEqual(store.runs.unsettledGenerations(), []);
 });
 
 test('given a subscription run whose runner stopped heartbeating, when the store interrupts it, then it stays subscription and nothing awaits billing', () => {
   const store = Store.open(':memory:');
-  store.insertRun(
+  store.runs.insertRun(
     sampleRun({
       status: 'running',
       endTime: null,
@@ -685,23 +685,23 @@ test('given a subscription run whose runner stopped heartbeating, when the store
     }),
   );
 
-  const interrupted = store.interruptStaleRuns(
+  const interrupted = store.runs.interruptStaleRuns(
     '2026-09-21T11:00:00.000Z',
     '2026-09-21T11:05:00.000Z',
   );
 
   assert.equal(interrupted.length, 1);
-  assert.equal(store.getRun('run-01')?.status, 'interrupted');
-  assert.equal(store.getRun('run-01')?.costStatus, 'subscription');
-  assert.deepEqual(store.unsettledGenerations(), []);
+  assert.equal(store.runs.getRun('run-01')?.status, 'interrupted');
+  assert.equal(store.runs.getRun('run-01')?.costStatus, 'subscription');
+  assert.deepEqual(store.runs.unsettledGenerations(), []);
 });
 
 test('given a billed run and a subscription run each with a generation, when the store lists what awaits billing, then only the billed run\'s generation is listed', () => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun({ id: 'run-billed', costStatus: 'pending' }));
-  store.insertRun(sampleRun({ id: 'run-sub', costStatus: 'subscription' }));
+  store.runs.insertRun(sampleRun({ id: 'run-billed', costStatus: 'pending' }));
+  store.runs.insertRun(sampleRun({ id: 'run-sub', costStatus: 'subscription' }));
   for (const runId of ['run-billed', 'run-sub']) {
-    store.recordGeneration({
+    store.runs.recordGeneration({
       runId,
       generationId: `gen-of-${runId}`,
       subagent: null,
@@ -713,7 +713,7 @@ test('given a billed run and a subscription run each with a generation, when the
   }
 
   assert.deepEqual(
-    store.unsettledGenerations().map(({ generationId }) => generationId),
+    store.runs.unsettledGenerations().map(({ generationId }) => generationId),
     ['gen-of-run-billed'],
   );
 });
@@ -721,15 +721,15 @@ test('given a billed run and a subscription run each with a generation, when the
 test('given a store file whose unconfirmed run predates the unconfirmed estimate, when the store is opened, then the run reads back with the estimate of its given-up generations and none of the billed one', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const before = Store.open(path);
-  before.insertRun(sampleRun({ id: 'old', status: 'running', endTime: null, costStatus: 'pending', costUsd: 0 }));
+  before.runs.insertRun(sampleRun({ id: 'old', status: 'running', endTime: null, costStatus: 'pending', costUsd: 0 }));
   const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
   for (const [generationId, estimatedCostUsd] of [['gen-billed', 0.1], ['msg_01', 0.25], ['msg_02', 0.11]] as const) {
-    before.recordGeneration({ runId: 'old', generationId, subagent: null, kind: 'message', usage, estimatedCostUsd, createdAt: '2026-09-21T10:01:00.000Z' });
+    before.runs.recordGeneration({ runId: 'old', generationId, subagent: null, kind: 'message', usage, estimatedCostUsd, createdAt: '2026-09-21T10:01:00.000Z' });
   }
-  before.recordLookups(
+  before.runs.recordLookups(
     [
-      { id: before.unsettledGenerations()[0]?.id ?? 0, billing: { costUsd: 0.12, usage: null, reasoningTokens: null, provider: null, model: null } },
-      ...before.unsettledGenerations().slice(1).map(({ id }) => ({ id, error: 'HTTP 400', givenUp: true as const })),
+      { id: before.runs.unsettledGenerations()[0]?.id ?? 0, billing: { costUsd: 0.12, usage: null, reasoningTokens: null, provider: null, model: null } },
+      ...before.runs.unsettledGenerations().slice(1).map(({ id }) => ({ id, error: 'HTTP 400', givenUp: true as const })),
     ],
     '2026-09-21T10:05:00.000Z',
   );
@@ -740,7 +740,7 @@ test('given a store file whose unconfirmed run predates the unconfirmed estimate
 
   const store = Store.open(path);
 
-  const run = store.getRun('old');
+  const run = store.runs.getRun('old');
   assert.equal(run?.costStatus, 'unconfirmed');
   assert.equal(run?.costUsd, 0.12);
   assert.equal(run?.unconfirmedEstimateUsd, 0.36);
@@ -752,7 +752,7 @@ for (const [table, list] of [['revisions', 'listRevisions'], ['conflict_resoluti
     const dir = mkdtempSync(join(tmpdir(), 'forge-store-'));
     const path = join(dir, 'forge.db');
     const seeded = Store.open(path);
-    seeded.insertRun(sampleRun({ id: 'run-over', status: 'exceeded', exceededLimit: 'budget' }));
+    seeded.runs.insertRun(sampleRun({ id: 'run-over', status: 'exceeded', exceededLimit: 'budget' }));
     seeded.close();
     const raw = new DatabaseSync(path);
     const insert = raw.prepare(

@@ -356,7 +356,7 @@ export const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    const runs = store.listRuns();
+    const runs = store.runs.listRuns();
     const transcriptRef = runs[0]?.transcriptRef;
     return {
       code,

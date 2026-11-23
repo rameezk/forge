@@ -465,7 +465,7 @@ const runRecord = (id: string): RunRecord => ({
 
 const runningDispatch = (store: Store, number: number, runExists: boolean): void => {
   seed(store, [{ ...ticket(number), forgeReady: true }]);
-  if (runExists) store.insertRun(runRecord(`run-${number}`));
+  if (runExists) store.runs.insertRun(runRecord(`run-${number}`));
   const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
   if (!('started' in started)) throw new Error('dispatch refused');
 };
@@ -530,7 +530,7 @@ test.describe('clicking a card', () => {
     await expect(link).toHaveAttribute('href', 'https://github.com/rameezk/forge/issues/7');
     await expect(link).toHaveAttribute('target', '_blank');
 
-    dashboard.store.insertRun(runRecord('run-7'));
+    dashboard.store.runs.insertRun(runRecord('run-7'));
 
     await expect(link).toHaveAttribute('href', '/runs/run-7');
     await expect(link).toHaveAccessibleName('Open run for #7');
@@ -663,7 +663,7 @@ test.describe('the Running card status row', () => {
 
   test('given a Running card for a running dispatch, when the Board is opened on a desktop screen, then the elapsed time shares a baseline with the status and kind pill text and the gaps between the three are equal', async ({ dashboard, page }) => {
     runningDispatch(dashboard.store, 7, false);
-    dashboard.store.insertRun({ ...runRecord('run-7'), startTime: new Date(Date.now() - 53_000).toISOString() });
+    dashboard.store.runs.insertRun({ ...runRecord('run-7'), startTime: new Date(Date.now() - 53_000).toISOString() });
     await page.goto('/');
 
     const elapsed = page.locator('[data-ticket="7"] [data-elapsed-since]');

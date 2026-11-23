@@ -111,7 +111,7 @@ const diagnose = async ({
   const at = new Date().toISOString();
   const seeded = Store.open(join(stateDir, 'forge.db'));
   try {
-    seeded.insertRun(failedRun('failed-run'));
+    seeded.runs.insertRun(failedRun('failed-run'));
     if (dispatch) {
       const id = startedDispatch(seeded, 'forge', 31, 'failed-run', at);
       seeded.workloads.endDispatch(id, { state: 'failed', reason: 'check-failed', detail: 'build, lint' }, at);
@@ -178,7 +178,7 @@ const diagnose = async ({
       diagnosis: store.diagnosisOfRun('diagnosis-run', now) as DiagnosisRecord,
       diagnoses: store.diagnosesOf('failed-run', now),
       undiagnosed: store.undiagnosedFailures(),
-      run: store.getRun('diagnosis-run'),
+      run: store.runs.getRun('diagnosis-run'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
       tools: existsSync(`${bwrapRecord}.tools`) ? (JSON.parse(readFileSync(`${bwrapRecord}.tools`, 'utf8')) as BwrapCall) : null,
       bwrap: existsSync(bwrapRecord) ? (JSON.parse(readFileSync(bwrapRecord, 'utf8')) as BwrapCall) : null,
@@ -302,7 +302,7 @@ test('given a re-run names another worker, when it runs, then the diagnosis is a
   const { diagnoses, stateDir } = await diagnose({ argv: RERUN, earlier: 'done', action: writing(VERDICT) });
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    assert.equal(store.getRun((diagnoses[0] as DiagnosisRecord).runId)?.worker, 'second');
+    assert.equal(store.runs.getRun((diagnoses[0] as DiagnosisRecord).runId)?.worker, 'second');
   } finally {
     store.close();
   }
@@ -333,7 +333,7 @@ test('given a diagnosis worker is configured, when a run is re-run without a wor
   assert.equal(code, 0);
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    assert.equal(store.getRun((diagnoses[0] as DiagnosisRecord).runId)?.worker, 'diagnoser');
+    assert.equal(store.runs.getRun((diagnoses[0] as DiagnosisRecord).runId)?.worker, 'diagnoser');
   } finally {
     store.close();
   }

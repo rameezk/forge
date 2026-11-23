@@ -13,7 +13,7 @@ test('given a state directory without forge.db, when forge-migrate runs, then fo
 
   assert.equal(existsSync(join(stateDir, 'forge.db')), true);
   const store = Store.openReadOnly(join(stateDir, 'forge.db'));
-  assert.equal(store.getRun('absent'), undefined);
+  assert.equal(store.runs.getRun('absent'), undefined);
   store.close();
 });
 

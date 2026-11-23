@@ -46,8 +46,8 @@ const attempt = (store: Store, id: string, start: string, merged: boolean): void
     exceededLimit: null,
     counters: { toolCalls: 40, failedToolResults: 2, retries: 1, compactions: 0 },
   };
-  store.insertRun(run);
-  store.recordFingerprint(id, {
+  store.runs.insertRun(run);
+  store.runs.recordFingerprint(id, {
     fingerprint,
     hash: fingerprintHash(fingerprint),
     forgeGitSha: null,
@@ -97,7 +97,7 @@ test('given the attempts view at desktop width, when it is opened, then every co
 });
 
 const revise = (store: Store, runId: string, start: string, state: 'done' | 'failed' | 'exceeded' | 'interrupted'): void => {
-  store.insertRun({
+  store.runs.insertRun({
     id: runId,
     worker: 'reviser',
     harness: 'pi',
