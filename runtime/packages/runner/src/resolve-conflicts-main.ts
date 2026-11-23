@@ -147,21 +147,45 @@ export const main = async (
   const repository = repositoryTriggeredBy(config.repositories, name, 'conflict');
   const worker = resolveWorker(config, repository.worker);
   const app = githubAppFromEnv(env, fetch);
-  const identity = await app.identity(repository.github);
-  const gitEnv = gitEnvironment(env, identity, { conflictResolution: true });
-  const token = (await app.mint(repository.github, 'write')).token;
-  const pullRequest = await queryPullRequestHead(fetch, token, repository.github, Number(number));
-  const refused = headRefusal(pullRequest);
-  if (refused !== null) {
-    console.error(`${name}#${pullRequest.number} cannot have its conflicts resolved: ${refused}`);
-    return 1;
-  }
-  const target = await queryPullRequestConflict(fetch, token, repository.github, pullRequest.number);
-
-  const resolved = { repository: name, number: pullRequest.number, url: pullRequest.url };
-  const runId = randomUUID();
   const store = Store.open(join(stateDirOf(env), 'forge.db'));
   try {
+    let prepared;
+    try {
+      const identity = await app.identity(repository.github);
+      const token = (await app.mint(repository.github, 'write')).token;
+      const pullRequest = await queryPullRequestHead(fetch, token, repository.github, Number(number));
+      const refused = headRefusal(pullRequest);
+      prepared =
+        refused !== null
+          ? { refused, pullRequest }
+          : {
+              refused,
+              identity,
+              gitEnv: gitEnvironment(env, identity, { conflictResolution: true }),
+              pullRequest,
+              target: await queryPullRequestConflict(fetch, token, repository.github, pullRequest.number),
+            };
+    } catch (error) {
+      store.recordConflictResolutionStartFailure(
+        {
+          repository: name,
+          number: Number(number),
+          url: `https://github.com/${repository.github}/pull/${number}`,
+        },
+        errorMessage(error),
+        now(),
+      );
+      throw error;
+    }
+    if (prepared.refused !== null) {
+      console.error(
+        `${name}#${prepared.pullRequest.number} cannot have its conflicts resolved: ${prepared.refused}`,
+      );
+      return 1;
+    }
+    const { identity, gitEnv, pullRequest, target } = prepared;
+    const resolved = { repository: name, number: pullRequest.number, url: pullRequest.url };
+    const runId = randomUUID();
     const start = store.startConflictResolution(
       resolved,
       pullRequest.closes,

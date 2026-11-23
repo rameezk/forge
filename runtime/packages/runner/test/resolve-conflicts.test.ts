@@ -128,6 +128,7 @@ interface Scenario {
   worker?: (origin: Origin) => string;
   mergeable?: string[];
   failingQuery?: string;
+  botLookupFails?: boolean;
   failingClone?: number;
   hangingTrialMerge?: boolean;
   hangingWorkerClone?: boolean;
@@ -198,6 +199,16 @@ const recordingGit = (
   chmodSync(join(bin, 'git'), 0o755);
   return { bin, log, hung };
 };
+
+const botLookupRejected =
+  (next: typeof globalThis.fetch): typeof globalThis.fetch =>
+  async (input, init) =>
+    /^\/users\/[^/]+(\[bot\]|%5Bbot%5D)$/.test(new URL(String(input)).pathname)
+      ? new Response(JSON.stringify({ message: 'Bad credentials' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })
+      : next(input, init);
 
 const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
   const origin = scenario.origin ?? originWhere('conflicts');
@@ -352,7 +363,7 @@ const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
       OPENROUTER_BASE_URL: openRouter.baseUrl,
       ...gitConfig,
     },
-    routedThrough(app, fetch),
+    scenario.botLookupFails === true ? botLookupRejected(routedThrough(app, fetch)) : routedThrough(app, fetch),
     async (ms) => {
       pauses.push(ms);
     },
@@ -699,6 +710,51 @@ test('given a worker checkout whose clone never finishes after the trial merge f
     resolutions.map(({ state, reason, detail }) => ({ state, reason, detail })),
     [{ state: 'failed', reason: 'errored', detail: error }],
   );
+});
+
+const preparingFailures: [string, Scenario, string][] = [
+  ['a bot identity lookup that answers 401', { botLookupFails: true }, 'GitHub answered 401: Bad credentials'],
+  ['a pull request head query that fails', { failingQuery: 'query PullRequestHead' }, 'GitHub is down'],
+  ['a conflict target query that fails', { failingQuery: 'query PullRequestConflict' }, 'GitHub is down'],
+];
+
+for (const [what, scenario, detail] of preparingFailures) {
+  test(`given ${what}, when forge-resolve-conflicts runs, then the conflict resolution is a failed start with no run carrying the error, and the runs list shows no run for it`, async () => {
+    const { code, thrown, pi, resolutions, runs, runsList } = await resolve(scenario);
+
+    assert.equal(code, 1);
+    assert.equal(thrown, detail);
+    assert.equal(pi, null);
+    assert.deepEqual(
+      resolutions.map(({ repository, number, runId, state, reason, detail, failedStarts }) => ({ repository, number, runId, state, reason, detail, failedStarts })),
+      [{ repository: 'forge', number: 143, runId: null, state: 'failed', reason: 'not-started', detail, failedStarts: 1 }],
+    );
+    assert.deepEqual(runs, []);
+    assert.doesNotMatch(runsList, /data-run=/);
+  });
+}
+
+test('given a conflict resolution that already failed to start, when preparing fails again, then there is one failed start with a count of two', async () => {
+  const { resolutions } = await resolve({
+    botLookupFails: true,
+    seed: (store) => store.recordConflictResolutionStartFailure({ repository: 'forge', number: 143, url: PULL_REQUEST_URL }, 'earlier', new Date(Date.now() - 60_000).toISOString()),
+  });
+
+  assert.deepEqual(resolutions.map(({ reason, failedStarts }) => ({ reason, failedStarts })), [{ reason: 'not-started', failedStarts: 2 }]);
+});
+
+test('given a live conflict resolution of the pull request and a bot identity lookup that answers 401, when forge-resolve-conflicts runs, then the live one stays the latest and no failed start is recorded over it', async () => {
+  const { code, resolutions, runs } = await resolve({
+    botLookupFails: true,
+    seed: (store) => {
+      const start = store.startConflictResolution({ repository: 'forge', number: 143, url: PULL_REQUEST_URL }, [], 'earlier', new Date().toISOString(), 10, { headSha: 'head-a', defaultSha: 'default-a' });
+      assert.ok('started' in start);
+    },
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(resolutions.map(({ state }) => state), ['running']);
+  assert.deepEqual(runs, []);
 });
 
 const OPEN_ELSEWHERE = { repository: 'forge', url: PULL_REQUEST_URL };
