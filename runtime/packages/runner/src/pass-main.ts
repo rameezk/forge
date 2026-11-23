@@ -114,14 +114,14 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
     const now = new Date().toISOString();
     running = new Set(
       store
-        .listDispatches(now)
+        .workloads.listDispatches(now)
         .filter(({ state }) => state === 'running')
         .map(({ repository, number }) => ticketKey(repository, number)),
     );
-    live = store.liveWorkloads(now);
-    inReview = store.dispatchesInReview(now);
+    live = store.workloads.liveWorkloads(now);
+    inReview = store.workloads.dispatchesInReview(now);
     const conflicts = store
-      .conflictsDue(now)
+      .workloads.conflictsDue(now)
       .filter(({ repository }) => declaresConflictWorker(config, repository));
     const resolving = new Set(conflicts.map(({ repository, number }) => ticketKey(repository, number)));
     const rules = new Map(
@@ -130,7 +130,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
     const everything: Pending[] = [
       ...conflicts.map((pull): Pending => ({ kind: 'conflict-resolution', ...pull })),
       ...store
-        .feedbackDue(now, quietPeriodOf(config))
+        .workloads.feedbackDue(now, quietPeriodOf(config))
         .filter(
           ({ repository, number }) =>
             declaresFeedbackWorker(config, repository) && !resolving.has(ticketKey(repository, number)),

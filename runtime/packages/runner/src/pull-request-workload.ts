@@ -17,6 +17,7 @@ import {
   type RevisionFailureRecord,
   type RevisionStart,
   type RevisionState,
+  type Workloads,
 } from '@forge/shared';
 import { launchInCheckout } from './checkout-workload.ts';
 import {
@@ -93,13 +94,13 @@ type Refusal = Exclude<RevisionStart, { started: number }>;
 
 interface StoreCalls<Shape extends Shapes[Trigger]> {
   recordStartFailure: (
-    store: Store,
+    workloads: Workloads,
     pullRequest: RevisedPullRequest,
     detail: string,
     at: string,
   ) => void;
   start: (
-    store: Store,
+    workloads: Workloads,
     pullRequest: RevisedPullRequest,
     openedBy: readonly number[],
     runId: string,
@@ -107,11 +108,11 @@ interface StoreCalls<Shape extends Shapes[Trigger]> {
     maxConcurrent: number,
     target: Shape['target'],
   ) => { started: number; after: string | null } | Refusal;
-  touch: (store: Store, id: number, at: string) => void;
-  recordPush: (store: Store, id: number, headSha: string) => void;
-  failStart: (store: Store, id: number, detail: string, at: string) => void;
+  touch: (workloads: Workloads, id: number, at: string) => void;
+  recordPush: (workloads: Workloads, id: number, headSha: string) => void;
+  failStart: (workloads: Workloads, id: number, detail: string, at: string) => void;
   end: (
-    store: Store,
+    workloads: Workloads,
     id: number,
     state: Exclude<RevisionState, 'running'>,
     at: string,
@@ -121,29 +122,29 @@ interface StoreCalls<Shape extends Shapes[Trigger]> {
 
 const STORE: { [K in Trigger]: StoreCalls<Shapes[K]> } = {
   feedback: {
-    recordStartFailure: (store, pullRequest, detail, at) =>
-      store.recordRevisionStartFailure(pullRequest, detail, at),
-    start: (store, pullRequest, openedBy, runId, at, maxConcurrent) =>
-      store.startRevision(pullRequest, openedBy, runId, at, maxConcurrent),
-    touch: (store, id, at) => store.touchRevision(id, at),
-    recordPush: (store, id, headSha) => store.recordRevisionPush(id, headSha),
-    failStart: (store, id, detail, at) => store.failRevisionStart(id, detail, at),
-    end: (store, id, state, at, failure) => store.endRevision(id, state, at, failure),
+    recordStartFailure: (workloads, pullRequest, detail, at) =>
+      workloads.recordRevisionStartFailure(pullRequest, detail, at),
+    start: (workloads, pullRequest, openedBy, runId, at, maxConcurrent) =>
+      workloads.startRevision(pullRequest, openedBy, runId, at, maxConcurrent),
+    touch: (workloads, id, at) => workloads.touchRevision(id, at),
+    recordPush: (workloads, id, headSha) => workloads.recordRevisionPush(id, headSha),
+    failStart: (workloads, id, detail, at) => workloads.failRevisionStart(id, detail, at),
+    end: (workloads, id, state, at, failure) => workloads.endRevision(id, state, at, failure),
   },
   conflict: {
-    recordStartFailure: (store, pullRequest, detail, at) =>
-      store.recordConflictResolutionStartFailure(pullRequest, detail, at),
-    start: (store, pullRequest, openedBy, runId, at, maxConcurrent, target) => {
-      const start = store.startConflictResolution(pullRequest, openedBy, runId, at, maxConcurrent, {
+    recordStartFailure: (workloads, pullRequest, detail, at) =>
+      workloads.recordConflictResolutionStartFailure(pullRequest, detail, at),
+    start: (workloads, pullRequest, openedBy, runId, at, maxConcurrent, target) => {
+      const start = workloads.startConflictResolution(pullRequest, openedBy, runId, at, maxConcurrent, {
         headSha: target.headSha,
         defaultSha: target.defaultSha,
       });
       return 'started' in start ? { started: start.started, after: null } : start;
     },
-    touch: (store, id, at) => store.touchConflictResolution(id, at),
-    recordPush: (store, id, headSha) => store.recordConflictResolutionPush(id, headSha),
-    failStart: (store, id, detail, at) => store.failConflictResolutionStart(id, detail, at),
-    end: (store, id, state, at, failure) => store.endConflictResolution(id, state, at, failure),
+    touch: (workloads, id, at) => workloads.touchConflictResolution(id, at),
+    recordPush: (workloads, id, headSha) => workloads.recordConflictResolutionPush(id, headSha),
+    failStart: (workloads, id, detail, at) => workloads.failConflictResolutionStart(id, detail, at),
+    end: (workloads, id, state, at, failure) => workloads.endConflictResolution(id, state, at, failure),
   },
 };
 
@@ -243,7 +244,7 @@ export const runPullRequestWorkload = async <K extends Trigger>(
       }
     } catch (error) {
       table.recordStartFailure(
-        store,
+        store.workloads,
         {
           repository: name,
           number: Number(number),
@@ -264,7 +265,7 @@ export const runPullRequestWorkload = async <K extends Trigger>(
     const subject = { repository: name, number: pullRequest.number, url: pullRequest.url };
     const startedAt = now();
     const start = table.start(
-      store,
+      store.workloads,
       subject,
       pullRequest.closes,
       runId,
@@ -278,7 +279,7 @@ export const runPullRequestWorkload = async <K extends Trigger>(
     }
     const id = start.started;
     const stopHeartbeat = startHeartbeat(
-      () => table.touch(store, id, now()),
+      () => table.touch(store.workloads, id, now()),
       (error) =>
         console.error(
           `${name}#${pullRequest.number}: could not refresh its ${kind.noun} heartbeat: ${errorMessage(error)}`,
@@ -292,7 +293,7 @@ export const runPullRequestWorkload = async <K extends Trigger>(
           github,
           pullRequest.number,
         );
-        if (headSha !== pullRequest.headSha) table.recordPush(store, id, headSha);
+        if (headSha !== pullRequest.headSha) table.recordPush(store.workloads, id, headSha);
       } catch (error) {
         console.error(
           `${name}#${pullRequest.number}: could not record the head its ${kind.noun} pushed: ${errorMessage(error)}`,
@@ -305,7 +306,7 @@ export const runPullRequestWorkload = async <K extends Trigger>(
       try {
         const work = await kind.before(reads, target, { startedAt, after: start.after });
         if (work === null) {
-          table.end(store, id, 'done', now());
+          table.end(store.workloads, id, 'done', now());
           return 0;
         }
         const launched = await launchInCheckout({
@@ -329,14 +330,14 @@ export const runPullRequestWorkload = async <K extends Trigger>(
           conflictResolution: kind.launch.conflictResolution,
         });
         if (launched.run.harnessStartTime == null && launched.cause instanceof SetupTimedOut) {
-          table.end(store, id, 'failed', now(), {
+          table.end(store.workloads, id, 'failed', now(), {
             reason: 'errored',
             detail: launched.run.error,
           });
           return 1;
         }
         if (launched.run.harnessStartTime == null) {
-          table.failStart(store, id, launched.run.error ?? errorMessage(launched.cause), now());
+          table.failStart(store.workloads, id, launched.run.error ?? errorMessage(launched.cause), now());
           return 1;
         }
         ended = endOf(launched);
@@ -344,17 +345,17 @@ export const runPullRequestWorkload = async <K extends Trigger>(
         if (ended.state === 'done') failure = await kind.after(reads, target, work.carried);
       } catch (error) {
         if (error instanceof SetupTimedOut) {
-          table.end(store, id, 'failed', now(), { reason: 'errored', detail: error.message });
+          table.end(store.workloads, id, 'failed', now(), { reason: 'errored', detail: error.message });
         } else if (store.getRun(runId)?.harnessStartTime == null) {
-          table.failStart(store, id, errorMessage(error), now());
+          table.failStart(store.workloads, id, errorMessage(error), now());
         } else {
-          table.end(store, id, 'failed', now(), { reason: 'crashed', detail: errorMessage(error) });
+          table.end(store.workloads, id, 'failed', now(), { reason: 'crashed', detail: errorMessage(error) });
         }
         throw error;
       }
       const final: WorkloadEnd | { state: 'failed'; failure: Shapes[K]['failure'] } =
         failure === undefined ? ended : { state: 'failed', failure };
-      table.end(store, id, final.state, now(), final.failure);
+      table.end(store.workloads, id, final.state, now(), final.failure);
       return final.state === 'done' ? 0 : 1;
     } finally {
       stopHeartbeat();

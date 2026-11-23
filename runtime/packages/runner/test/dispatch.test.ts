@@ -869,7 +869,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
       stateDir,
       origin,
       runs: store.listRuns(),
-      dispatches: store.listDispatches(new Date().toISOString()),
+      dispatches: store.workloads.listDispatches(new Date().toISOString()),
       pi: existsSync(record)
         ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall)
         : null,
@@ -2051,8 +2051,8 @@ test('given a ticket still labelled forge:running whose dispatch already ended d
     seed: (store) => {
       const done = startedDispatch(store, 'forge', 114, 'run-114', at);
       const failed = startedDispatch(store, 'forge', 115, 'run-115', at);
-      store.endDispatch(done, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);
-      store.endDispatch(failed, { state: 'failed', reason: 'errored', detail: 'GitHub answered 502' }, at);
+      store.workloads.endDispatch(done, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);
+      store.workloads.endDispatch(failed, { state: 'failed', reason: 'errored', detail: 'GitHub answered 502' }, at);
     },
   });
 

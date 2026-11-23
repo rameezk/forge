@@ -44,7 +44,7 @@ const dashboard = () => {
   const store = Store.open(':memory:');
   const revise = (runId: string, number: number, state: 'done' | 'failed', failure?: RevisionFailureRecord): void => {
     store.insertRun(sampleRun(runId));
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
       [],
       runId,
@@ -52,17 +52,17 @@ const dashboard = () => {
       10,
     );
     assert.ok('started' in start);
-    store.endRevision(start.started, state, '2026-09-21T10:03:20.000Z', failure);
+    store.workloads.endRevision(start.started, state, '2026-09-21T10:03:20.000Z', failure);
   };
   revise('unanswered', 1, 'failed', { reason: 'unanswered', detail: DETAIL });
   revise('reasonless', 2, 'failed');
   revise('good', 3, 'done');
   store.insertRun(sampleRun('resolving'));
-  store.startConflictResolution({ repository: 'forge', number: 4, url: 'https://github.com/rameezk/forge/pull/4' }, [], 'resolving', new Date().toISOString(), 10, { headSha: 'head-a', defaultSha: 'default-a' });
+  store.workloads.startConflictResolution({ repository: 'forge', number: 4, url: 'https://github.com/rameezk/forge/pull/4' }, [], 'resolving', new Date().toISOString(), 10, { headSha: 'head-a', defaultSha: 'default-a' });
   store.insertRun(sampleRun('resolved'));
-  const resolution = store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head-b', defaultSha: 'default-b' });
+  const resolution = store.workloads.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head-b', defaultSha: 'default-b' });
   assert.ok('started' in resolution);
-  store.endConflictResolution(resolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'not-merged', detail: 'abc1234 is missing' });
+  store.workloads.endConflictResolution(resolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'not-merged', detail: 'abc1234 is missing' });
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
 };
 
@@ -115,7 +115,7 @@ test('given a revision that failed as exceeded on its budget and one that failed
   const store = Store.open(':memory:');
   const stop = (runId: string, number: number, failure: RevisionFailureRecord): void => {
     store.insertRun(sampleRun(runId));
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
       [],
       runId,
@@ -123,7 +123,7 @@ test('given a revision that failed as exceeded on its budget and one that failed
       10,
     );
     assert.ok('started' in start);
-    store.endRevision(start.started, 'failed', '2026-09-21T10:03:20.000Z', failure);
+    store.workloads.endRevision(start.started, 'failed', '2026-09-21T10:03:20.000Z', failure);
   };
   stop('over', 1, { reason: 'exceeded', detail: 'budget' });
   stop('cut', 2, { reason: 'interrupted', detail: null });

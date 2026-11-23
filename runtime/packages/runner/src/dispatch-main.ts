@@ -17,6 +17,7 @@ import {
   refuseTicket,
   queryTicketContext,
   Store,
+  type Workloads,
   settleTicket,
   relabel,
   settleRunningTickets,
@@ -123,7 +124,7 @@ const outcomeOf = (
 };
 
 const settleAllRunningTickets = async (
-  store: Store,
+  workloads: Workloads,
   repositories: Record<string, RepositoryConfig> | undefined,
   fetch: Fetch,
   tokens: InstallationTokens,
@@ -131,7 +132,7 @@ const settleAllRunningTickets = async (
   for (const [name, { github, on }] of Object.entries(repositories ?? {})) {
     if (on?.ticket === undefined) continue;
     await settleRunningTickets({
-      store,
+      workloads,
       fetch,
       token: () => tokens(github, 'write'),
       repository: name,
@@ -172,7 +173,7 @@ export const main = async (
     let prepared;
     try {
       const identity = await app.identity(repository.github);
-      await settleAllRunningTickets(store, config.repositories, fetch, tokens);
+      await settleAllRunningTickets(store.workloads, config.repositories, fetch, tokens);
 
       const ticket = await queryTicket(
         fetch,
@@ -222,7 +223,7 @@ export const main = async (
       const dispatched = { ...unstarted, url: ticket.url };
       const runId = randomUUID();
       const maxOpenPullRequests = maxOpenPullRequestsOf(config);
-      const start = store.startDispatch(
+      const start = store.workloads.startDispatch(
         dispatched,
         runId,
         now(),
@@ -237,13 +238,13 @@ export const main = async (
       }
       prepared = { identity, ticket, context, dispatched, runId, dispatchId: start.started };
     } catch (error) {
-      store.recordFailedStart(unstarted, errorMessage(error), now());
+      store.workloads.recordFailedStart(unstarted, errorMessage(error), now());
       throw error;
     }
     const { identity, ticket, context, dispatched, runId, dispatchId } = prepared;
     const gitEnv = gitEnvironment(env, identity);
     const stopHeartbeat = startHeartbeat(
-      () => store.touchDispatch(dispatchId, now()),
+      () => store.workloads.touchDispatch(dispatchId, now()),
       (error) =>
         console.error(
           `${name}#${ticket.number}: could not refresh its dispatch heartbeat: ${errorMessage(error)}`,
@@ -251,7 +252,7 @@ export const main = async (
     );
     try {
       const failAs = (stage: string, error: unknown): never => {
-        store.endDispatch(
+        store.workloads.endDispatch(
           dispatchId,
           { state: 'failed', reason: 'errored', detail: `${stage}: ${errorMessage(error)}` },
           now(),
@@ -327,7 +328,7 @@ export const main = async (
       }
 
       const outcome = outcomeOf(pullRequest, readiness, launched);
-      store.endDispatch(dispatchId, outcome, now());
+      store.workloads.endDispatch(dispatchId, outcome, now());
       await settleTicket(
         fetch,
         await afterTokens(repository.github, 'write'),

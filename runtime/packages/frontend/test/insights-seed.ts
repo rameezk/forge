@@ -169,25 +169,25 @@ export const seedStore = (store: Store, seeds: Seed[]): void => {
     if (run.ticket === null) continue;
     const failure = { reason: 'unanswered' as const, detail: null };
     if (seed.kind === 'revision') {
-      const started = store.startRevision(run.ticket, [], seed.id, run.startTime, 100);
+      const started = store.workloads.startRevision(run.ticket, [], seed.id, run.startTime, 100);
       assert.ok('started' in started);
       if (seed.running !== true) {
-        store.endRevision(started.started, seed.failed === true ? 'failed' : 'done', run.endTime!, seed.failed === true ? failure : undefined);
+        store.workloads.endRevision(started.started, seed.failed === true ? 'failed' : 'done', run.endTime!, seed.failed === true ? failure : undefined);
       }
       continue;
     }
     if (seed.kind === 'conflict-resolution') {
-      const started = store.startConflictResolution(run.ticket, [], seed.id, run.startTime, 100, { headSha: 'head', defaultSha: 'default' });
+      const started = store.workloads.startConflictResolution(run.ticket, [], seed.id, run.startTime, 100, { headSha: 'head', defaultSha: 'default' });
       assert.ok('started' in started);
       if (seed.running !== true) {
-        store.endConflictResolution(started.started, seed.failed === true ? 'failed' : 'done', run.endTime!, seed.failed === true ? { reason: 'still-conflicting', detail: null } : undefined);
+        store.workloads.endConflictResolution(started.started, seed.failed === true ? 'failed' : 'done', run.endTime!, seed.failed === true ? { reason: 'still-conflicting', detail: null } : undefined);
       }
       continue;
     }
-    const started = store.startDispatch(run.ticket, seed.id, run.startTime, 100, null);
+    const started = store.workloads.startDispatch(run.ticket, seed.id, run.startTime, 100, null);
     assert.ok('started' in started);
     if (seed.running === true) continue;
-    store.endDispatch(
+    store.workloads.endDispatch(
       started.started,
       seed.pullRequest === undefined
         ? { state: 'failed', reason: 'no-pull-request', detail: null }
@@ -195,7 +195,7 @@ export const seedStore = (store: Store, seeds: Seed[]): void => {
       run.endTime!,
     );
     if (seed.pullRequest !== undefined && seed.pullRequest.state !== 'open') {
-      store.recordPullRequest(started.started, {
+      store.workloads.recordPullRequest(started.started, {
         state: seed.pullRequest.state,
         settledAt: run.endTime,
         rework: seed.pullRequest.rework,

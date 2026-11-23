@@ -484,7 +484,7 @@ test('given a draft, a pull request with a revision running, a human pull reques
   const on = await forge();
   t.after(on.close);
   on.withStore((store) => {
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number: 8, url: 'https://github.com/rameezk/forge/pull/8' },
       [],
       randomUUID(),
@@ -585,7 +585,7 @@ test('given a graded forge pull request, when a revision pushes a new head, then
   assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low']);
 
   const revision = f.withStore((store) => {
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
       [],
       randomUUID(),
@@ -602,7 +602,7 @@ test('given a graded forge pull request, when a revision pushes a new head, then
   assert.equal(f.jevRequests.length, 1);
   assert.equal(f.checkRuns.length, 1);
 
-  f.withStore((store) => store.endRevision(revision, 'done', new Date().toISOString()));
+  f.withStore((store) => store.workloads.endRevision(revision, 'done', new Date().toISOString()));
   await f.syncAndGrade([revised]);
   assert.equal(f.jevRequests.length, 2);
   assert.equal(f.checkRuns.length, 2);
@@ -627,7 +627,7 @@ test('given removing the stale labels failed once, when the new head is graded a
 });
 
 const revise = (store: Store, number: number, startedAt: string, pushed?: string): void => {
-  const start = store.startRevision(
+  const start = store.workloads.startRevision(
     { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
     [],
     randomUUID(),
@@ -635,12 +635,12 @@ const revise = (store: Store, number: number, startedAt: string, pushed?: string
     Number.POSITIVE_INFINITY,
   );
   assert.ok('started' in start);
-  if (pushed !== undefined) store.recordRevisionPush(start.started, pushed);
-  store.endRevision(start.started, 'done', startedAt);
+  if (pushed !== undefined) store.workloads.recordRevisionPush(start.started, pushed);
+  store.workloads.endRevision(start.started, 'done', startedAt);
 };
 
 const startResolvingConflicts = (store: Store, number: number, startedAt: string, pushed: string): number => {
-  const start = store.startConflictResolution(
+  const start = store.workloads.startConflictResolution(
     { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
     [],
     randomUUID(),
@@ -649,16 +649,16 @@ const startResolvingConflicts = (store: Store, number: number, startedAt: string
     { headSha: 'head-7', defaultSha: 'default-1' },
   );
   assert.ok('started' in start);
-  store.recordConflictResolutionPush(start.started, pushed);
+  store.workloads.recordConflictResolutionPush(start.started, pushed);
   return start.started;
 };
 
 const resolveConflicts = (store: Store, number: number, startedAt: string, pushed: string): void => {
-  store.endConflictResolution(startResolvingConflicts(store, number, startedAt, pushed), 'done', startedAt);
+  store.workloads.endConflictResolution(startResolvingConflicts(store, number, startedAt, pushed), 'done', startedAt);
 };
 
 const startRevising = (store: Store, number: number, startedAt: string, pushed?: string): number => {
-  const start = store.startRevision(
+  const start = store.workloads.startRevision(
     { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
     [],
     randomUUID(),
@@ -666,7 +666,7 @@ const startRevising = (store: Store, number: number, startedAt: string, pushed?:
     Number.POSITIVE_INFINITY,
   );
   assert.ok('started' in start);
-  if (pushed !== undefined) store.recordRevisionPush(start.started, pushed);
+  if (pushed !== undefined) store.workloads.recordRevisionPush(start.started, pushed);
   return start.started;
 };
 
@@ -693,7 +693,7 @@ test('given a graded head followed by two revisions that failed, when sync sees 
   f.withStore((store) => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const now = new Date().toISOString();
-      store.endRevision(startRevising(store, 7, now), 'failed', now, { reason: 'interrupted', detail: null });
+      store.workloads.endRevision(startRevising(store, 7, now), 'failed', now, { reason: 'interrupted', detail: null });
     }
   });
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
@@ -749,7 +749,7 @@ test('given a graded commit and a running conflict resolution that pushed a new 
   const running = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
   assert.equal(running?.outcome, 'open');
   assert.equal(running?.supersedeCause, null);
-  f.withStore((store) => store.endConflictResolution(id, 'done', new Date().toISOString()));
+  f.withStore((store) => store.workloads.endConflictResolution(id, 'done', new Date().toISOString()));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
   const ended = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
   assert.equal(ended?.outcome, 'superseded');
@@ -763,7 +763,7 @@ test('given a graded commit and a running revision that pushed a new head, when 
   const id = f.withStore((store) => startRevising(store, 7, new Date().toISOString(), 'head-7b'));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
   assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
-  f.withStore((store) => store.endRevision(id, 'done', new Date().toISOString()));
+  f.withStore((store) => store.workloads.endRevision(id, 'done', new Date().toISOString()));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
   const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'superseded');
@@ -778,7 +778,7 @@ test('given a graded commit, a running revision and a new head that revision did
   const id = f.withStore((store) => startRevising(store, 7, new Date().toISOString(), 'head-7c'));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
   assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
-  f.withStore((store) => store.endRevision(id, 'done', new Date().toISOString()));
+  f.withStore((store) => store.workloads.endRevision(id, 'done', new Date().toISOString()));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
   const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'superseded');

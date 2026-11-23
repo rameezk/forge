@@ -114,7 +114,7 @@ const diagnose = async ({
     seeded.insertRun(failedRun('failed-run'));
     if (dispatch) {
       const id = startedDispatch(seeded, 'forge', 31, 'failed-run', at);
-      seeded.endDispatch(id, { state: 'failed', reason: 'check-failed', detail: 'build, lint' }, at);
+      seeded.workloads.endDispatch(id, { state: 'failed', reason: 'check-failed', detail: 'build, lint' }, at);
     }
     if (earlier !== 'none') {
       const diagnosisId = seeded.startDiagnosis('failed-run', 'diagnosis-run', at);

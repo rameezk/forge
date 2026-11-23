@@ -59,7 +59,7 @@ const dashboard = () => {
     exceededLimit: null,
     counters: null,
   });
-  const dispatch = store.startDispatch(
+  const dispatch = store.workloads.startDispatch(
     { repository: 'forge', number: 56, url: TICKET_URL },
     'run-01',
     '2026-09-29T09:00:00.000Z',
@@ -67,7 +67,7 @@ const dashboard = () => {
     null,
   );
   assert.ok('started' in dispatch);
-  store.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, '2026-09-29T09:03:20.000Z');
+  store.workloads.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, '2026-09-29T09:03:20.000Z');
   const transcripts = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(
     join(transcripts, 'run-01.jsonl'),

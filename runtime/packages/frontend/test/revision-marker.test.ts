@@ -43,12 +43,12 @@ const PULL_REQUEST = 'https://github.com/rameezk/forge/pull/489';
 const dashboard = () => {
   const store = Store.open(':memory:');
   store.insertRun(sampleRun('revision'));
-  const start = store.startRevision({ repository: 'forge', number: 489, url: PULL_REQUEST }, [], 'revision', '2026-09-21T10:00:00.000Z', 10);
+  const start = store.workloads.startRevision({ repository: 'forge', number: 489, url: PULL_REQUEST }, [], 'revision', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in start);
-  store.endRevision(start.started, 'done', '2026-09-21T10:03:20.000Z');
+  store.workloads.endRevision(start.started, 'done', '2026-09-21T10:03:20.000Z');
   store.insertRun(sampleRun('first-build'));
   store.insertRun(sampleRun('resolution'));
-  store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolution', new Date().toISOString(), 10, { headSha: 'head', defaultSha: 'default' });
+  store.workloads.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolution', new Date().toISOString(), 10, { headSha: 'head', defaultSha: 'default' });
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
 };
 

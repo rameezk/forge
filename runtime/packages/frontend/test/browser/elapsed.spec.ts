@@ -93,16 +93,16 @@ test('given a running dispatch and a finished one, when the Board renders and ti
   dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: START, closed: [], requests: [], tickets: [ticket(56), ticket(57), ticket(58)] });
   const began = new Date();
   const dispatch = (number: number) => {
-    const started = dashboard.store.startDispatch({ repository: 'forge', number, url: ticket(number).url }, `run-${number}`, began.toISOString(), Number.POSITIVE_INFINITY, null);
+    const started = dashboard.store.workloads.startDispatch({ repository: 'forge', number, url: ticket(number).url }, `run-${number}`, began.toISOString(), Number.POSITIVE_INFINITY, null);
     if (!('started' in started)) throw new Error('dispatch refused');
     return started.started;
   };
   dispatch(56);
   const pullRequest = (number: number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}` });
-  dashboard.store.endDispatch(dispatch(57), { state: 'done', pullRequest: pullRequest(143) }, new Date(began.getTime() + 5 * 60_000).toISOString());
-  dashboard.store.endDispatch(dispatch(58), { state: 'done', pullRequest: pullRequest(144) }, new Date(began.getTime() + 5 * 60_000).toISOString());
+  dashboard.store.workloads.endDispatch(dispatch(57), { state: 'done', pullRequest: pullRequest(143) }, new Date(began.getTime() + 5 * 60_000).toISOString());
+  dashboard.store.workloads.endDispatch(dispatch(58), { state: 'done', pullRequest: pullRequest(144) }, new Date(began.getTime() + 5 * 60_000).toISOString());
   dashboard.store.insertRun({ ...runningRun, id: 'revision-143', startTime: new Date(began.getTime() + 50 * 60_000).toISOString(), harnessStartTime: new Date(began.getTime() + 60 * 60_000).toISOString() });
-  dashboard.store.startRevision({ repository: 'forge', ...pullRequest(143) }, [57], 'revision-143', began.toISOString(), Number.POSITIVE_INFINITY);
+  dashboard.store.workloads.startRevision({ repository: 'forge', ...pullRequest(143) }, [57], 'revision-143', began.toISOString(), Number.POSITIVE_INFINITY);
   await openAt(page, new Date(began.getTime() + 125 * 60_000), '/');
   const running = page.locator('[data-ticket="56"] [data-elapsed-since]');
   const open = page.locator('[data-ticket="57"] [data-elapsed-since]');

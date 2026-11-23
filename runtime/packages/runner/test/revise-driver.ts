@@ -292,7 +292,7 @@ export const botLookupRejected =
       : next(input, init);
 
 export const nextRevisionAfter = (store: Store): string | null => {
-  const next = store.startRevision(
+  const next = store.workloads.startRevision(
     { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
     [],
     'next-run',
@@ -445,7 +445,7 @@ export const revise = async (scenario: Scenario = {}): Promise<Outcome> => {
       code,
       origin,
       runs: store.listRuns(),
-      revisions: store.listRevisions(new Date().toISOString()),
+      revisions: store.workloads.listRevisions(new Date().toISOString()),
       pushedHeads: pushedHeadsOf(join(stateDir, 'forge.db'), 'revisions'),
       complaints: complaints.join('\n'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
@@ -504,14 +504,14 @@ export const revisionLifecycle: LifecycleKind = {
   command: 'forge-revise',
   main,
   earlierFailedStart: (store) =>
-    store.recordRevisionStartFailure(
+    store.workloads.recordRevisionStartFailure(
       { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
       'earlier',
       new Date(Date.now() - 60_000).toISOString(),
     ),
   refusal: 'cannot be revised',
   livePullRequest: (store) => {
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
       [],
       'earlier-run',

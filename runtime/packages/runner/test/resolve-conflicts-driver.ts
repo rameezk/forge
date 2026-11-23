@@ -363,7 +363,7 @@ export const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
       app,
       origin,
       runs,
-      resolutions: store.listConflictResolutions(new Date().toISOString()),
+      resolutions: store.workloads.listConflictResolutions(new Date().toISOString()),
       pushedHeads: pushedHeadsOf(join(stateDir, 'forge.db')),
       complaints: complaints.join('\n'),
       pi: existsSync(record) ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall) : null,
@@ -433,14 +433,14 @@ export const conflictResolutionLifecycle: LifecycleKind = {
   command: 'forge-resolve-conflicts',
   main,
   earlierFailedStart: (store) =>
-    store.recordConflictResolutionStartFailure(
+    store.workloads.recordConflictResolutionStartFailure(
       { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
       'earlier',
       new Date(Date.now() - 60_000).toISOString(),
     ),
   refusal: 'cannot have its conflicts resolved',
   livePullRequest: (store) => {
-    const start = store.startConflictResolution(
+    const start = store.workloads.startConflictResolution(
       { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
       [],
       'earlier-run',
