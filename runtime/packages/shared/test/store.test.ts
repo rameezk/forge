@@ -1101,6 +1101,40 @@ test('given a conflict resolution that ran and failed, when the next one fails t
   );
 });
 
+test('given a pull request with no conflict resolution started, when its pre-harness step fails twice, then one failed start with no run is kept with the count', () => {
+  const store = Store.open(':memory:');
+
+  store.recordConflictResolutionStartFailure(CONFLICTING_PULL_REQUEST, 'first', '2026-09-21T10:00:00.000Z');
+  store.recordConflictResolutionStartFailure(CONFLICTING_PULL_REQUEST, 'second', '2026-09-21T10:05:00.000Z');
+
+  assert.deepEqual(
+    store.listConflictResolutions('2026-09-21T10:06:00.000Z').map(({ runId, state, reason, detail, failedStarts }) => ({ runId, state, reason, detail, failedStarts })),
+    [{ runId: null, state: 'failed', reason: 'not-started', detail: 'second', failedStarts: 2 }],
+  );
+});
+
+test('given a conflict resolution that already failed to start after starting, when a pre-harness failure is recorded, then it is folded into that one with the count raised', () => {
+  const store = Store.open(':memory:');
+  failToStart(store, 'run-01', '2026-09-21T10:00:00.000Z', 'first');
+
+  store.recordConflictResolutionStartFailure(CONFLICTING_PULL_REQUEST, 'second', '2026-09-21T10:05:00.000Z');
+
+  assert.deepEqual(
+    store.listConflictResolutions('2026-09-21T10:06:00.000Z').map(({ failedStarts, detail }) => ({ failedStarts, detail })),
+    [{ failedStarts: 2, detail: 'second' }],
+  );
+});
+
+test('given a live conflict resolution of the pull request, when a pre-harness failure is recorded, then nothing is recorded over it', () => {
+  const store = Store.open(':memory:');
+  const live = store.startConflictResolution(CONFLICTING_PULL_REQUEST, [], 'run-01', '2026-09-21T10:00:00.000Z', 10, PAIR);
+  assert.ok('started' in live);
+
+  store.recordConflictResolutionStartFailure(CONFLICTING_PULL_REQUEST, 'boom', '2026-09-21T10:00:30.000Z');
+
+  assert.deepEqual(store.listConflictResolutions('2026-09-21T10:00:40.000Z').map(({ state }) => state), ['running']);
+});
+
 test('given a database from before failed starts, when it is opened, then its conflict resolutions read back and a failed start can be recorded', () => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-store-'));
   const path = join(dir, 'forge.db');
