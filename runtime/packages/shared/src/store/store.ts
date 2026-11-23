@@ -3,7 +3,6 @@ import { openConnection, type Connection } from './connection.ts';
 import { migrate } from './migrate.ts';
 import {
   attemptHoldsOff,
-  gradingRetryDelayMs,
   RETRIED_GRADING_FAILURES,
   type GradingFailure,
   type LatestAttempt,
