@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../../src/index.ts';
+
 test('given a store file whose frontier predates last errors, when the store is opened, then the stale snapshot is dropped and a repository that has never been polled can record when and why it failed', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   Store.open(path).close();
@@ -130,7 +130,6 @@ test('given a store file whose frontier snapshot predates spec URLs, when the st
   }
 });
 
-
 test('given a repository with stored requests, when its frontier is replaced, then only the new requests remain', () => {
   const store = Store.open(':memory:');
   try {
@@ -145,7 +144,6 @@ test('given a repository with stored requests, when its frontier is replaced, th
     store.close();
   }
 });
-
 
 test('given a store file whose frontier predates branch rules, when the store is opened, then the stale snapshot is dropped and a repository records whether its rules failed', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
@@ -194,5 +192,3 @@ test('given repositories with a failed poll, failing branch rules and neither, w
     store.close();
   }
 });
-
-

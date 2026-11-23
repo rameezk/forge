@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +10,7 @@ import { Store } from '../../src/index.ts';
 import { openConnection, type Connection } from '../../src/store/connection.ts';
 import { CONCERNS, migrate } from '../../src/store/migrate.ts';
 import { columnsOf, sampleRun } from './support.ts';
+
 test('given a current store file where another connection holds a write transaction, when the store is opened, then it opens without waiting on that writer', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   Store.open(path).close();
@@ -76,7 +76,6 @@ test('given a store file from before the frontier where another connection brief
   }
 });
 
-
 test('given a store file where another process briefly holds a write transaction, when this process writes a run, then the write waits for the other writer and succeeds instead of failing as busy', async () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const store = Store.open(path);
@@ -105,7 +104,6 @@ test('given a store file, when the store is opened, then the file is in write-ah
     db.close();
   }
 });
-
 
 test('given a forge.db with an older schema, when it is opened read-only, then the schema is unchanged', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
@@ -152,8 +150,6 @@ test('given a read-only store open alongside a writer, when it attempts an inser
   store.close();
   writer.close();
 });
-
-
 
 const OLDEST_RUNS = `
   CREATE TABLE runs (

@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { fingerprintHash, Store } from '../../src/index.ts';
 import type { ConfigFingerprint, RunFingerprint } from '../../src/index.ts';
 import { sampleRun } from './support.ts';
+
 test('given a fresh store, when a run record with every field is inserted, including the ticket it was dispatched for, then it round-trips', () => {
   const store = Store.open(':memory:');
   const run = sampleRun({
@@ -473,7 +473,6 @@ test('given a store whose generations predate token columns, holding finished wo
   Store.open(path).close();
 });
 
-
 test('given a run recorded under a timeout, when it is finalized as exceeded on that limit, then it reads back with the status, the limit, its timeout and when its harness started', () => {
   const store = Store.open(':memory:');
   store.insertRun(
@@ -625,7 +624,6 @@ test('given a store file whose runs predate fingerprints, when the store is open
   Store.open(path).close();
 });
 
-
 const usageOf = (inputTokens: number, outputTokens: number) => ({
   inputTokens,
   outputTokens,
@@ -720,7 +718,6 @@ test('given a billed run and a subscription run each with a generation, when the
   );
 });
 
-
 test('given a store file whose unconfirmed run predates the unconfirmed estimate, when the store is opened, then the run reads back with the estimate of its given-up generations and none of the billed one', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const before = Store.open(path);
@@ -783,5 +780,3 @@ for (const [table, list] of [['revisions', 'listRevisions'], ['conflict_resoluti
     store.close();
   });
 }
-
-

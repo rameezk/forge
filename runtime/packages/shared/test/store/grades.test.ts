@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -302,4 +301,3 @@ test('given a store whose risk grades table still has the unsettled column, when
     store.close();
   }
 });
-

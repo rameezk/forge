@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../../src/index.ts';
+
 test('given a store file whose dispatches predate pull request tracking, when the store is opened twice, then the old dispatch reads back with no pull request and a new one records its pull request', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
   const old = new DatabaseSync(path);
@@ -50,7 +50,6 @@ test('given a store file whose dispatches predate pull request tracking, when th
   );
   store.close();
 });
-
 
 const CONFLICTING_PULL_REQUEST = {
   repository: 'forge',
@@ -350,5 +349,3 @@ test('given a revision left running with a stale heartbeat, when a new revision 
   assert.equal(next.after, '2026-09-21T10:00:00.000Z');
   assert.equal(store.listRevisions('2026-09-21T11:00:00.000Z').find(({ id }) => id === stale.id)?.reason, 'interrupted');
 });
-
-
