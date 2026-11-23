@@ -35,7 +35,7 @@ test('given a dashboard serving a real store with one recorded run, when the run
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(recordedRun);
+  dashboard.store.runs.insertRun(recordedRun);
 
   await page.goto('/workloads');
 
@@ -50,8 +50,8 @@ test('given a running workload with an estimated cost and a finished one whose c
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({ ...recordedRun, id: 'running', status: 'running', endTime: null, costStatus: 'pending', costUsd: 1.234567, costEstimated: true });
-  dashboard.store.insertRun({ ...recordedRun, id: 'given-up', model: 'anthropic/claude-opus-5.5', costStatus: 'unconfirmed', costUsd: 0.5, costEstimated: true, ticket: { repository: 'forge', number: 158, url: 'https://github.com/rameezk/forge/issues/158' } });
+  dashboard.store.runs.insertRun({ ...recordedRun, id: 'running', status: 'running', endTime: null, costStatus: 'pending', costUsd: 1.234567, costEstimated: true });
+  dashboard.store.runs.insertRun({ ...recordedRun, id: 'given-up', model: 'anthropic/claude-opus-5.5', costStatus: 'unconfirmed', costUsd: 0.5, costEstimated: true, ticket: { repository: 'forge', number: 158, url: 'https://github.com/rameezk/forge/issues/158' } });
 
   await page.goto('/workloads');
 
@@ -65,7 +65,7 @@ test.describe('with JS disabled', () => {
   test.use({ javaScriptEnabled: false });
 
   test('given the same dashboard, when the runs list is opened, then it renders fully', async ({ dashboard, page }) => {
-    dashboard.store.insertRun(recordedRun);
+    dashboard.store.runs.insertRun(recordedRun);
 
     await page.goto('/workloads');
 
@@ -80,13 +80,13 @@ test('given a workload whose calls are billed, estimated and flagged as cache mi
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, reasoningEffort: 'high', model: 'anthropic/claude-opus-5.5' });
+  dashboard.store.runs.insertRun({ ...recordedRun, transcriptRef: null, reasoningEffort: 'high', model: 'anthropic/claude-opus-5.5' });
   const usage = (cacheReadTokens: number, cacheWriteTokens: number) => ({ inputTokens: 120, outputTokens: 450, cacheReadTokens, cacheWriteTokens });
   [usage(0, 20000), usage(20000, 800), usage(0, 20800)].forEach((tokens, index) =>
-    dashboard.store.recordGeneration({ runId: 'run-01', generationId: `gen-0${index}`, subagent: null, kind: 'message', usage: tokens, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
+    dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId: `gen-0${index}`, subagent: null, kind: 'message', usage: tokens, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
   );
-  const [first] = dashboard.store.unsettledGenerations();
-  dashboard.store.recordLookups(
+  const [first] = dashboard.store.runs.unsettledGenerations();
+  dashboard.store.runs.recordLookups(
     [{ id: first!.id, billing: { costUsd: 0.1021, usage: null, reasoningTokens: 812, provider: 'Google Vertex', model: 'anthropic/claude-opus-5.5-20260921' } }],
     '2026-09-21T10:30:00.000Z',
   );
@@ -104,10 +104,10 @@ test('given a workload with message, compaction and cache-warm generations, when
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, model: 'anthropic/claude-opus-5.5' });
+  dashboard.store.runs.insertRun({ ...recordedRun, transcriptRef: null, model: 'anthropic/claude-opus-5.5' });
   const usage = { inputTokens: 120, outputTokens: 450, cacheReadTokens: 20000, cacheWriteTokens: 800 };
   (['message', 'compaction', 'message', 'cache_warm'] as const).forEach((kind, index) =>
-    dashboard.store.recordGeneration({ runId: 'run-01', generationId: `gen-0${index}`, subagent: null, kind, usage, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
+    dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId: `gen-0${index}`, subagent: null, kind, usage, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
   );
 
   await page.goto('/runs/run-01');
@@ -126,10 +126,10 @@ test('given a run whose agent loaded skills from its prompt, in the parent and i
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(recordedRun);
+  dashboard.store.runs.insertRun(recordedRun);
   dashboard.appendEvents('run-01.jsonl', { type: 'message', role: 'user', text: 'work', usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, generationId: null });
   const load = (skill: string, source: 'prompt' | 'read', subagent: string | null, coveredLines = 142) =>
-    dashboard.store.recordSkillLoad({ runId: 'run-01', skill, source, subagent, loadedAt: '2026-09-21T10:00:01.000Z', coverage: { coveredLines, totalLines: 142 } });
+    dashboard.store.runs.recordSkillLoad({ runId: 'run-01', skill, source, subagent, loadedAt: '2026-09-21T10:00:01.000Z', coverage: { coveredLines, totalLines: 142 } });
   load('work-on', 'prompt', null);
   load('code-review', 'read', 'call_1', 60);
   load('security-review', 'read', 'call_2');
@@ -147,7 +147,7 @@ test('given a run with a subagent that loaded two skills and one that loaded non
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(recordedRun);
+  dashboard.store.runs.insertRun(recordedRun);
   const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
   dashboard.appendEvents(
     'run-01.jsonl',
@@ -159,7 +159,7 @@ test('given a run with a subagent that loaded two skills and one that loaded non
     { type: 'tool_result', id: 'call_2', isError: false, text: 'A summary.' },
   );
   const load = (skill: string, subagent: string) =>
-    dashboard.store.recordSkillLoad({ runId: 'run-01', skill, source: 'read', subagent, loadedAt: '2026-09-21T10:00:01.000Z', coverage: null });
+    dashboard.store.runs.recordSkillLoad({ runId: 'run-01', skill, source: 'read', subagent, loadedAt: '2026-09-21T10:00:01.000Z', coverage: null });
   load('security-review', 'call_1');
   load('code-review', 'call_1');
   await page.setViewportSize({ width: 390, height: 800 });
@@ -176,7 +176,7 @@ test('given a claude-code run whose two Agent subagents loaded a skill and none,
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({ ...recordedRun, harness: 'claude-code', model: 'claude-opus-4-5', costStatus: 'subscription', costUsd: 0 });
+  dashboard.store.runs.insertRun({ ...recordedRun, harness: 'claude-code', model: 'claude-opus-4-5', costStatus: 'subscription', costUsd: 0 });
   const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
   const agent = (id: string, prompt: string) => ({
     type: 'tool_call' as const,
@@ -195,7 +195,7 @@ test('given a claude-code run whose two Agent subagents loaded a skill and none,
     { type: 'tool_result', id: 'toolu_alpha', isError: false, text: 'No findings.' },
     { type: 'tool_result', id: 'toolu_beta', isError: false, text: 'A summary.' },
   );
-  dashboard.store.recordSkillLoad({ runId: 'run-01', skill: 'code-review', source: 'read', subagent: 'toolu_alpha', loadedAt: '2026-09-21T10:00:01.000Z', coverage: { coveredLines: 142, totalLines: 142 } });
+  dashboard.store.runs.recordSkillLoad({ runId: 'run-01', skill: 'code-review', source: 'read', subagent: 'toolu_alpha', loadedAt: '2026-09-21T10:00:01.000Z', coverage: { coveredLines: 142, totalLines: 142 } });
   await page.setViewportSize({ width: 390, height: 800 });
 
   await page.goto('/runs/run-01/transcript');
@@ -216,7 +216,7 @@ test('given a subagent with a long narration, when its page is opened on a phone
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(recordedRun);
+  dashboard.store.runs.insertRun(recordedRun);
   const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
   const narration = 'Reading every file under the runtime packages to map how the transcript view groups a subagent and where its header is drawn. '.repeat(3);
   dashboard.appendEvents(
@@ -242,7 +242,7 @@ test('given a claude-code run on subscription, when its page is opened, then the
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({
+  dashboard.store.runs.insertRun({
     ...recordedRun,
     harness: 'claude-code',
     model: 'claude-opus-4-5',
@@ -256,9 +256,9 @@ test('given a claude-code run on subscription, when its page is opened, then the
   await expect(page.getByText('anthropic', { exact: true })).toBeVisible();
 });
 
-const seedWorkloads = (dashboard: { store: { insertRun: (run: RunRecord) => void } }) => {
-  dashboard.store.insertRun({ ...recordedRun, id: 'run-a', startTime: '2026-09-21T10:00:00.000Z', reasoningEffort: 'high', cacheReadTokens: 9000, ticket: { repository: 'forge', number: 377, url: 'https://github.com/rameezk/forge/issues/377' } });
-  dashboard.store.insertRun({ ...recordedRun, id: 'run-b', worker: 'reviewer', status: 'error', startTime: '2026-09-22T10:00:00.000Z', model: 'anthropic/claude-sonnet-5.5', costUsd: 0.5 });
+const seedWorkloads = (dashboard: { store: { runs: { insertRun: (run: RunRecord) => void } } }) => {
+  dashboard.store.runs.insertRun({ ...recordedRun, id: 'run-a', startTime: '2026-09-21T10:00:00.000Z', reasoningEffort: 'high', cacheReadTokens: 9000, ticket: { repository: 'forge', number: 377, url: 'https://github.com/rameezk/forge/issues/377' } });
+  dashboard.store.runs.insertRun({ ...recordedRun, id: 'run-b', worker: 'reviewer', status: 'error', startTime: '2026-09-22T10:00:00.000Z', model: 'anthropic/claude-sonnet-5.5', costUsd: 0.5 });
 };
 
 test.describe('on a phone screen', () => {
@@ -380,7 +380,7 @@ test.describe('on a laptop screen', () => {
   test('given workloads with long model names, when Workloads is opened, then the whole input row including Apply sits on one line and the page does not scroll sideways', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
     const model = 'anthropic/claude-opus-4-with-a-remarkably-long-model-name-for-testing-the-select-width';
-    dashboard.store.insertRun({ ...recordedRun, id: 'run-long', model, startTime: '2026-09-23T10:00:00.000Z' });
+    dashboard.store.runs.insertRun({ ...recordedRun, id: 'run-long', model, startTime: '2026-09-23T10:00:00.000Z' });
 
     await page.goto('/workloads');
 
@@ -414,7 +414,7 @@ test('given a failed workload with a long error, when its page is opened and the
   page,
 }) => {
   const error = `build failed: ${'the compiler gave up after a very long chain of errors, '.repeat(12)}done`;
-  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null, status: 'error', error, ticket: null });
+  dashboard.store.runs.insertRun({ ...recordedRun, transcriptRef: null, status: 'error', error, ticket: null });
 
   await page.goto('/runs/run-01');
 
@@ -432,8 +432,8 @@ test('given a finished workload, when its page is opened at laptop width, then R
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({ ...recordedRun, transcriptRef: null });
-  dashboard.store.recordGeneration({ runId: 'run-01', generationId: 'gen-01', subagent: null, kind: 'message', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, estimatedCostUsd: 0.01, createdAt: '2026-09-21T10:01:00.000Z' });
+  dashboard.store.runs.insertRun({ ...recordedRun, transcriptRef: null });
+  dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId: 'gen-01', subagent: null, kind: 'message', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, estimatedCostUsd: 0.01, createdAt: '2026-09-21T10:01:00.000Z' });
 
   await page.goto('/runs/run-01');
 
@@ -447,8 +447,8 @@ test('given billed workloads, when the list is opened on a desktop screen and at
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(recordedRun);
-  dashboard.store.insertRun({ ...recordedRun, id: 'run-02', costStatus: 'unconfirmed', costUsd: 0.5, unconfirmedEstimateUsd: 0.36 });
+  dashboard.store.runs.insertRun(recordedRun);
+  dashboard.store.runs.insertRun({ ...recordedRun, id: 'run-02', costStatus: 'unconfirmed', costUsd: 0.5, unconfirmedEstimateUsd: 0.36 });
 
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 800 });
@@ -469,8 +469,8 @@ test('given a subscription workload whose list price puts a note under the Cost 
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun({ ...recordedRun, harness: 'claude-code', model: 'claude-opus-4-5', costStatus: 'subscription', costUsd: 0 });
-  dashboard.store.recordGeneration({ runId: 'run-01', generationId: 'gen-01', subagent: null, kind: 'message', usage: { inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheWriteTokens: 0 }, estimatedCostUsd: null, listPriceEquivalentUsd: 0.05, createdAt: '2026-09-21T10:01:00.000Z' });
+  dashboard.store.runs.insertRun({ ...recordedRun, harness: 'claude-code', model: 'claude-opus-4-5', costStatus: 'subscription', costUsd: 0 });
+  dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId: 'gen-01', subagent: null, kind: 'message', usage: { inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheWriteTokens: 0 }, estimatedCostUsd: null, listPriceEquivalentUsd: 0.05, createdAt: '2026-09-21T10:01:00.000Z' });
   await page.setViewportSize({ width: 1280, height: 800 });
 
   await page.goto('/workloads');
@@ -487,7 +487,7 @@ test('given a run with an unconfirmed estimate, when its page is opened at lapto
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(unconfirmedRun);
+  dashboard.store.runs.insertRun(unconfirmedRun);
   await page.setViewportSize({ width: 1280, height: 800 });
 
   await page.goto('/runs/run-01');
@@ -503,7 +503,7 @@ test('given a workload with an unconfirmed estimate, when the list is opened at 
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(unconfirmedRun);
+  dashboard.store.runs.insertRun(unconfirmedRun);
   await page.setViewportSize({ width: 390, height: 800 });
 
   await page.goto('/workloads');

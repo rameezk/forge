@@ -188,14 +188,14 @@ const runClaude = async ({
   }
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    const [run] = store.listRuns();
+    const [run] = store.runs.listRuns();
     assert.ok(run);
     return {
       code,
       rawEvents: readFileSync(join(stateDir, 'transcripts', rawEventsRef(run.id)), 'utf8'),
       stateDir,
       run,
-      generations: store.listGenerations(run.id),
+      generations: store.runs.listGenerations(run.id),
       transcript: readFileSync(join(stateDir, 'transcripts', `${run.id}.jsonl`), 'utf8'),
       requestRecord: parseRecord(
         join(stateDir, 'transcripts', requestRecordRef(run.id)),
@@ -309,7 +309,7 @@ const snapshotRequests = (snapshot: Snapshot) => ({
 const fingerprintOf = ({ stateDir, run }: Outcome) => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    return store.getFingerprint(run.id);
+    return store.runs.getFingerprint(run.id);
   } finally {
     store.close();
   }
@@ -1404,8 +1404,8 @@ test('given a subscription workload, when it finishes and the billing service fi
     try {
       assert.equal(code, 0);
       assert.deepEqual(openRouter.lookups, []);
-      assert.equal(JSON.stringify(store.listGenerations(outcome.run.id)), before);
-      assert.equal(store.listRuns()[0]?.costStatus, 'subscription');
+      assert.equal(JSON.stringify(store.runs.listGenerations(outcome.run.id)), before);
+      assert.equal(store.runs.listRuns()[0]?.costStatus, 'subscription');
     } finally {
       store.close();
     }

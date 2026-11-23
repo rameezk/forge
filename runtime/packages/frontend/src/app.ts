@@ -92,9 +92,9 @@ export const createApp = ({
     if (page === undefined) return undefined;
     if (NAV_PAGES.has(page.split('?')[0]!) || ATTEMPTS_PAGE.test(page) || COHORT_PAGE.test(page)) return () => ({ version: JSON.stringify([store.dataVersion(), deployStatus(), escalatedGrading()]), finished: false });
     const runId = runOfDetailPage(page);
-    if (runId === undefined || store.getRun(runId) === undefined) return undefined;
+    if (runId === undefined || store.runs.getRun(runId) === undefined) return undefined;
     return () => {
-      const run = store.getRun(runId);
+      const run = store.runs.getRun(runId);
       const ref = run?.transcriptRef ?? null;
       return {
         version: JSON.stringify([store.dataVersion(), ref === null ? undefined : transcripts.size(ref)]),
@@ -152,7 +152,7 @@ export const createApp = ({
     const conflictResolutions = store.listConflictResolutions(now);
     const runs = new Map<string, RunRecord>();
     for (const runId of [...dispatches, ...[...revisions, ...conflictResolutions].filter(({ state }) => state === 'running')].map(({ runId }) => runId)) {
-      const run = runId === null ? undefined : store.getRun(runId);
+      const run = runId === null ? undefined : store.runs.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
     const frontier = store.listFrontier();
@@ -177,7 +177,7 @@ export const createApp = ({
     ]);
     const diagnoses = store.listDiagnoses(now);
     const categories = store.latestDiagnosisCategories(now);
-    return c.html(renderList(store.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runCohorts(), shown, clock().getTime()));
+    return c.html(renderList(store.runs.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.runs.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runs.runCohorts(), shown, clock().getTime()));
   });
 
   const queryOf = (query: Record<string, string>): InsightsQuery => {
@@ -226,17 +226,17 @@ export const createApp = ({
 
   app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => {
     const shown = displayOf(c);
-    return store.hasUnknownConfigRuns() ? c.html(renderUnknownCohortPage(shown)) : c.notFound();
+    return store.runs.hasUnknownConfigRuns() ? c.html(renderUnknownCohortPage(shown)) : c.notFound();
   });
 
   app.get('/cohorts/:hash', (c) => {
     const shown = displayOf(c);
     const hash = c.req.param('hash');
-    const fingerprint = store.getCohortFingerprint(hash);
+    const fingerprint = store.runs.getCohortFingerprint(hash);
     if (fingerprint === null) return c.notFound();
     const againstHash = c.req.query('against') ?? '';
-    const against = againstHash === hash ? null : store.getCohortFingerprint(againstHash);
-    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.listCohortFingerprints(), store.listCohorts({ kind: 'all', includeManual: false }).find((cohort) => cohort.hash === hash)?.failures ?? noFailures(), shown));
+    const against = againstHash === hash ? null : store.runs.getCohortFingerprint(againstHash);
+    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.runs.listCohortFingerprints(), store.listCohorts({ kind: 'all', includeManual: false }).find((cohort) => cohort.hash === hash)?.failures ?? noFailures(), shown));
   });
 
   app.get('/tickets/:repository/:number', (c) => {
@@ -258,25 +258,25 @@ export const createApp = ({
 
   app.get('/runs/:id', (c) => {
     const shown = displayOf(c);
-    const run = store.getRun(c.req.param('id'));
+    const run = store.runs.getRun(c.req.param('id'));
     if (run === undefined) return c.notFound();
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.dispatchOfRun(run.id, new Date().toISOString()), store.listSkillLoads(run.id), downloadsOf(run), store.getFingerprint(run.id), store.diagnosesOf(run.id, new Date().toISOString()), store.diagnosisOfRun(run.id, new Date().toISOString()), shown));
+    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.dispatchOfRun(run.id, new Date().toISOString()), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnosesOf(run.id, new Date().toISOString()), store.diagnosisOfRun(run.id, new Date().toISOString()), shown));
   });
 
   app.get('/runs/:id/transcript', (c) => {
     const shown = displayOf(c);
-    const run = store.getRun(c.req.param('id'));
+    const run = store.runs.getRun(c.req.param('id'));
     if (run === undefined) return c.notFound();
     const events = run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
-    return c.html(renderFullTranscript(run, events, store.listGenerations(run.id), store.listSkillLoads(run.id), parseTranscriptShow(c.req.query('show')), shown));
+    return c.html(renderFullTranscript(run, events, store.runs.listGenerations(run.id), store.runs.listSkillLoads(run.id), parseTranscriptShow(c.req.query('show')), shown));
   });
 
   const serveDownload = (path: `/runs/:id/${string}`, refOf: (run: RunRecord) => string | null): void => {
     app.get(path, (c) => {
-      const run = store.getRun(c.req.param('id'));
+      const run = store.runs.getRun(c.req.param('id'));
       const ref = run === undefined ? null : refOf(run);
       if (!downloadable(ref)) return c.notFound();
       return c.body(transcripts.stream(ref), 200, {

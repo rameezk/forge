@@ -57,7 +57,7 @@ const PAGES = ['/', '/workloads', '/insights', '/runs/run-01'];
 
 const pageWith = async (page: string, deployStatus: DeployStatus | null, seed: (store: Store) => void = () => {}): Promise<string> => {
   const store = Store.open(':memory:');
-  store.insertRun(run);
+  store.runs.insertRun(run);
   seed(store);
   const app = createApp({
     store,

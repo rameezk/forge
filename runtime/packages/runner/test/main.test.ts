@@ -156,7 +156,7 @@ const withStore = <T>(stateDir: string, read: (store: Store) => T): T => {
 };
 
 const storedRun = (stateDir: string, id: string): RunRecord => {
-  const run = withStore(stateDir, (store) => store.getRun(id));
+  const run = withStore(stateDir, (store) => store.runs.getRun(id));
   assert.ok(run);
   return run;
 };
@@ -165,7 +165,7 @@ const storedGenerations = (
   stateDir: string,
   runId: string,
 ): GenerationRecord[] =>
-  withStore(stateDir, (store) => store.listGenerations(runId));
+  withStore(stateDir, (store) => store.runs.listGenerations(runId));
 
 const systemPi = (stateDir: string): string =>
   join(stateDir, 'current-system', 'sw', 'bin', 'pi');
@@ -270,7 +270,7 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     unlisted?.close();
   }
 
-  const runs = withStore(stateDir, (store) => store.listRuns());
+  const runs = withStore(stateDir, (store) => store.runs.listRuns());
   assert.equal(runs.length, 1);
   const runId = (runs[0] as RunRecord).id;
 
@@ -348,7 +348,7 @@ const generationsRecorded = async (
 ): Promise<RunRecord> => {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    const run = withStore(stateDir, (store) => store.listRuns()[0]);
+    const run = withStore(stateDir, (store) => store.runs.listRuns()[0]);
     if (run !== undefined && storedGenerations(stateDir, run.id).length >= count) {
       return run;
     }
@@ -1139,7 +1139,7 @@ test('given pi reports its own cost for each generation, when the store and the 
 
     assertCost(run.costUsd, FIRST_ESTIMATE + SECOND_ESTIMATE);
     const stored = JSON.stringify(
-      withStore(stateDir, (store) => [store.listRuns(), store.listGenerations(run.id)]),
+      withStore(stateDir, (store) => [store.runs.listRuns(), store.runs.listGenerations(run.id)]),
     );
     assert.doesNotMatch(stored, /0\.4242|0\.8484/);
     const store = Store.open(join(stateDir, 'forge.db'));
@@ -1391,13 +1391,13 @@ test('given a store already upgraded with skill loads backfilled, when billing o
     const { stateDir, run } = await runWorker({ output: fixture('tool-calls.jsonl') });
     beforeSkillLoads(stateDir, FULL_AND_PARTIAL_READS, run.id);
     assert.equal(await fire(stateDir, openRouter), 0);
-    const first = withStore(stateDir, (store) => store.listSkillLoads(run.id));
+    const first = withStore(stateDir, (store) => store.runs.listSkillLoads(run.id));
     writeFileSync(join(stateDir, 'transcripts', `${run.id}.jsonl`), transcriptLines([]));
 
     assert.equal(await fire(stateDir, openRouter), 0);
 
     assert.equal(first.length, 2);
-    assert.deepEqual(withStore(stateDir, (store) => store.listSkillLoads(run.id)), first);
+    assert.deepEqual(withStore(stateDir, (store) => store.runs.listSkillLoads(run.id)), first);
   } finally {
     openRouter.close();
   }
@@ -1412,8 +1412,8 @@ test('given a store from before skill loads with a run whose transcript is gone,
 
     assert.equal(await fire(stateDir, openRouter), 0);
 
-    assert.deepEqual(withStore(stateDir, (store) => store.listSkillLoads(run.id)), []);
-    assert.equal(withStore(stateDir, (store) => store.runsWithoutSkillLoadRecord()).length, 0);
+    assert.deepEqual(withStore(stateDir, (store) => store.runs.listSkillLoads(run.id)), []);
+    assert.equal(withStore(stateDir, (store) => store.runs.runsWithoutSkillLoadRecord()).length, 0);
     assert.deepEqual(await skillsListed(stateDir, run.id), []);
   } finally {
     openRouter.close();
@@ -1565,7 +1565,7 @@ const rawEventsOnceWritten = async (
 ): Promise<{ run: RunRecord; rawEvents: Record<string, unknown>[] }> => {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
-    const run = withStore(stateDir, (store) => store.listRuns()[0]);
+    const run = withStore(stateDir, (store) => store.runs.listRuns()[0]);
     const path =
       run === undefined
         ? undefined
@@ -3103,7 +3103,7 @@ test('given a worker with a model, an effort, extra args and a prompt, when the 
     env: { FORGE_GIT_SHA: 'abc1234' },
   });
 
-  const recorded = withStore(stateDir, (store) => store.getFingerprint(run.id));
+  const recorded = withStore(stateDir, (store) => store.runs.getFingerprint(run.id));
 
   assert.deepEqual(recorded?.fingerprint, {
     model: 'z-ai/glm-5',
@@ -3136,7 +3136,7 @@ test('given two workers identical except that one sets provider openrouter and t
       env: Object.keys(outcome.bwrap.env).sort(),
       key: outcome.bwrap.env.OPENROUTER_API_KEY,
       fingerprint: withStore(outcome.stateDir, (store) =>
-        store.getFingerprint(outcome.run.id),
+        store.runs.getFingerprint(outcome.run.id),
       ),
     };
   };
@@ -3174,7 +3174,7 @@ test('given two workloads of one worker with an unchanged config, when both run 
       requests: requestsOf('h-system'),
       env: { FORGE_GIT_SHA: sha },
     });
-    return withStore(stateDir, (store) => store.getFingerprint(run.id));
+    return withStore(stateDir, (store) => store.runs.getFingerprint(run.id));
   };
 
   const first = await run('aaa1111');
@@ -3191,7 +3191,7 @@ test('given two workloads whose system prompts differ, when both run, then their
       output: fixture('success.jsonl'),
       requests: requestsOf(system),
     });
-    return withStore(stateDir, (store) => store.getFingerprint(run.id));
+    return withStore(stateDir, (store) => store.runs.getFingerprint(run.id));
   };
 
   assert.notEqual((await run('h-one'))?.hash, (await run('h-two'))?.hash);
@@ -3200,7 +3200,7 @@ test('given two workloads whose system prompts differ, when both run, then their
 test('given a workload whose pi never made a request, when it ends, then its fingerprint is recorded with no system prompt or tool hash', async () => {
   const { stateDir, run } = await runWorker({ output: fixture('success.jsonl') });
 
-  const recorded = withStore(stateDir, (store) => store.getFingerprint(run.id));
+  const recorded = withStore(stateDir, (store) => store.runs.getFingerprint(run.id));
 
   assert.equal(recorded?.fingerprint.systemPrompt, null);
   assert.equal(recorded?.fingerprint.tools, null);
@@ -3224,7 +3224,7 @@ test('given two workloads of one worker whose system prompt names the working di
       output: fixture('success.jsonl'),
       requests: cwdRequests(),
     });
-    return withStore(stateDir, (store) => store.getFingerprint(run.id));
+    return withStore(stateDir, (store) => store.runs.getFingerprint(run.id));
   };
 
   const first = await run();
@@ -3241,7 +3241,7 @@ test('given a harness whose version cannot be read, when the workload runs, then
     piVersion: null,
   });
 
-  const recorded = withStore(stateDir, (store) => store.getFingerprint(run.id));
+  const recorded = withStore(stateDir, (store) => store.runs.getFingerprint(run.id));
 
   assert.equal(run.status, 'success');
   assert.equal(recorded?.fingerprint.harnessVersion, null);
@@ -3254,5 +3254,5 @@ test('given an empty FORGE_GIT_SHA, when the workload runs, then no git sha is r
     env: { FORGE_GIT_SHA: '' },
   });
 
-  assert.equal(withStore(stateDir, (store) => store.getFingerprint(run.id))?.forgeGitSha, null);
+  assert.equal(withStore(stateDir, (store) => store.runs.getFingerprint(run.id))?.forgeGitSha, null);
 });

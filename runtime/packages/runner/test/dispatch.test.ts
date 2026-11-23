@@ -858,7 +858,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
 
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    const [run] = store.listRuns();
+    const [run] = store.runs.listRuns();
     return {
       code,
       failure,
@@ -868,7 +868,7 @@ const dispatch = async (scenario: Scenario = {}): Promise<Outcome> => {
           : readFileSync(join(stateDir, 'transcripts', run.transcriptRef), 'utf8'),
       stateDir,
       origin,
-      runs: store.listRuns(),
+      runs: store.runs.listRuns(),
       dispatches: store.listDispatches(new Date().toISOString()),
       pi: existsSync(record)
         ? (JSON.parse(readFileSync(record, 'utf8')) as PiCall)
@@ -3093,7 +3093,7 @@ test('given a run whose subagents load no skill, when the full transcript page i
 const fingerprintOf = ({ stateDir, runs }: Outcome): RunFingerprint | null => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    return store.getFingerprint((runs[0] as RunRecord).id);
+    return store.runs.getFingerprint((runs[0] as RunRecord).id);
   } finally {
     store.close();
   }

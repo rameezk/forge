@@ -66,7 +66,7 @@ const dashboard = (timeZone?: string) => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(join(dir, 'run-01.jsonl'), events.map((event) => JSON.stringify(event)).join('\n') + '\n');
   const store = Store.open(':memory:');
-  store.insertRun(run);
+  store.runs.insertRun(run);
   const started = store.startDispatch(TICKET, run.id, run.startTime, 100, null);
   assert.ok('started' in started);
   store.endDispatch(started.started, { state: 'failed', reason: 'no-pull-request', detail: null }, run.endTime!);

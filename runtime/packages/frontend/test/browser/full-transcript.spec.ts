@@ -65,7 +65,7 @@ test('given a run whose third tool call failed behind long failed messages, when
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(finishedRun);
+  dashboard.store.runs.insertRun(finishedRun);
   dashboard.appendEvents(
     'run-01.jsonl',
     toolCall('c1', 'a.txt'),
@@ -92,7 +92,7 @@ test('given a running workload whose full transcript page is open with one tool 
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(runningRun);
+  dashboard.store.runs.insertRun(runningRun);
   dashboard.appendEvents('run-01.jsonl', toolCall('c1', 'docs/CONTEXT.md'), toolResult('c1', 'contents'), say('Reading.'));
   await openLive(page, '/runs/run-01/transcript');
   const call = page.locator('[data-tool-call]');
@@ -109,7 +109,7 @@ test('given a full transcript page at phone width, when it opens, then the filte
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(finishedRun);
+  dashboard.store.runs.insertRun(finishedRun);
   dashboard.appendEvents('run-01.jsonl', say('hello'), toolCall('c1', 'a.txt'), toolResult('c1', 'a'));
   await page.setViewportSize({ width: 390, height: 800 });
 
@@ -128,7 +128,7 @@ test('given a full transcript page on a wide screen, when it opens, then the fil
   dashboard,
   page,
 }) => {
-  dashboard.store.insertRun(finishedRun);
+  dashboard.store.runs.insertRun(finishedRun);
   dashboard.appendEvents('run-01.jsonl', say('hello'));
   await page.setViewportSize({ width: 1280, height: 800 });
 

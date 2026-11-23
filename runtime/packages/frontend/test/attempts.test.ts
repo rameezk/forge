@@ -75,8 +75,8 @@ const runOf = (attempt: Attempt): RunRecord => ({
 const seed = (store: Store, attempts: Attempt[]): void => {
   for (const attempt of attempts) {
     const run = runOf(attempt);
-    store.insertRun(run);
-    store.recordFingerprint(attempt.id, {
+    store.runs.insertRun(run);
+    store.runs.recordFingerprint(attempt.id, {
       fingerprint: attempt.fingerprint,
       hash: fingerprintHash(attempt.fingerprint),
       forgeGitSha: null,
@@ -210,7 +210,7 @@ test('given a dispatched workload, when its run detail page and the Board are re
 
 test('given a manual workload with no ticket, when its run detail page is requested, then it has no attempts link', async () => {
   const { app, store } = dashboard([]);
-  store.insertRun({ ...runOf({ ...THREE[0]!, id: 'manual' }), ticket: null });
+  store.runs.insertRun({ ...runOf({ ...THREE[0]!, id: 'manual' }), ticket: null });
   const detail = await (await app.request('/runs/manual')).text();
   assert.doesNotMatch(detail, /data-attempts/);
 });
@@ -282,7 +282,7 @@ const revise = (
   pullRequest = 9,
   failure?: RevisionFailureRecord,
 ): void => {
-  store.insertRun({
+  store.runs.insertRun({
     ...runOf({ ...THREE[0]!, id: runId, start, seconds: 120, cost: 0.5 }),
     worker: 'reviser',
     ticket: null,
@@ -383,7 +383,7 @@ const resolve = (
   pullRequest = 9,
   failure?: ConflictResolutionFailureRecord,
 ): void => {
-  store.insertRun({
+  store.runs.insertRun({
     ...runOf({ ...THREE[0]!, id: runId, start, seconds: 120, cost: 0.5 }),
     worker: 'resolver',
     ticket: null,

@@ -47,8 +47,8 @@ const workload = (id: string, overrides: Partial<RunRecord> = {}): RunRecord => 
 });
 
 const record = (store: Store, run: RunRecord): void => {
-  store.insertRun(run);
-  store.recordFingerprint(run.id, { fingerprint, hash: fingerprintHash(fingerprint), forgeGitSha: null, baseCommit: null });
+  store.runs.insertRun(run);
+  store.runs.recordFingerprint(run.id, { fingerprint, hash: fingerprintHash(fingerprint), forgeGitSha: null, baseCommit: null });
 };
 
 test('given the insights page open on a cohort, when one of its workloads ends, then the cohort row updates without a reload', async ({
@@ -62,7 +62,7 @@ test('given the insights page open on a cohort, when one of its workloads ends, 
   await expect(row.locator('[data-metric="workloads"]')).toHaveText('1');
   await expect(page.locator('#live')).toHaveText('Live');
 
-  dashboard.store.finalizeRun('running', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:05:00.000Z' });
+  dashboard.store.runs.finalizeRun('running', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:05:00.000Z' });
 
   await expect(row.locator('[data-metric="workloads"]')).toHaveText('2');
 });
@@ -89,7 +89,7 @@ test('given the insights page open on the chart, when a workload ends, then its 
   await expect(page.locator('[data-point]')).toHaveCount(1);
   await expect(page.locator('#live')).toHaveText('Live');
 
-  dashboard.store.finalizeRun('running', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:05:00.000Z' });
+  dashboard.store.runs.finalizeRun('running', { status: 'success', sessionId: null, error: null, endTime: '2026-09-21T10:05:00.000Z' });
 
   await expect(page.locator('[data-point]')).toHaveCount(2);
 });
@@ -114,8 +114,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const hashOf = (config: ConfigFingerprint): string => fingerprintHash(config);
     const dispatched = (id: string, startTime: string, endTime: string, config: ConfigFingerprint): void => {
       const run = workload(id, { startTime, endTime, ticket: { repository: 'forge', number: Number(id.slice(-1)), url: 'https://github.com/rameezk/forge/issues/1' } });
-      dashboard.store.insertRun(run);
-      dashboard.store.recordFingerprint(id, { fingerprint: config, hash: hashOf(config), forgeGitSha: null, baseCommit: null });
+      dashboard.store.runs.insertRun(run);
+      dashboard.store.runs.recordFingerprint(id, { fingerprint: config, hash: hashOf(config), forgeGitSha: null, baseCommit: null });
       const started = dashboard.store.startDispatch(run.ticket!, id, startTime, 100, null);
       if (!('started' in started)) throw new Error('dispatch did not start');
       dashboard.store.endDispatch(started.started, { state: 'failed', reason: 'no-pull-request', detail: null }, endTime);
@@ -191,7 +191,7 @@ test('given expanded previous cohorts, when a workload ends and the page updates
   await expect(page.locator('#live')).toHaveText('Live');
   await previousToggle(page).click();
 
-  dashboard.store.finalizeRun('running', { status: 'success', sessionId: null, error: null, endTime: '2026-09-03T10:05:00.000Z' });
+  dashboard.store.runs.finalizeRun('running', { status: 'success', sessionId: null, error: null, endTime: '2026-09-03T10:05:00.000Z' });
 
   await expect(page.locator(`tr[data-cohort="${fingerprintHash(GLM)}"] [data-metric="workloads"]`)).toHaveText('2');
   await expect(page.locator(`tr[data-cohort="${fingerprintHash(GLM)}"]`)).toBeVisible();

@@ -40,7 +40,7 @@ const sampleRun = (id: string, counters: RunCounters | null): RunRecord => ({
 
 const counted = async (counters: RunCounters | null): Promise<Record<string, string>> => {
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun('run', counters));
+  store.runs.insertRun(sampleRun('run', counters));
   const app = createApp({
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),
