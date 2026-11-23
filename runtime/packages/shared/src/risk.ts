@@ -1,5 +1,5 @@
 import { quantile } from './insights.ts';
-import { GRADING_FAILURES, RISK_LEVELS, SUPERSEDE_CAUSES, type GradingFailure, type RecordedRiskGrade, type RiskLevel, type SupersedeCause } from './store.ts';
+import { GRADING_FAILURES, RISK_LEVELS, SUPERSEDE_CAUSES, type GradingFailure, type RecordedRiskGrade, type RiskLevel, type SupersedeCause } from './store/store.ts';
 
 export interface RiskFilter {
   fingerprint: string;

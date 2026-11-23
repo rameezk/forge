@@ -1,5 +1,8 @@
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import type { AutoMergeVerdict, CheckRunConclusion, FailingGate, RecordedAutoMergeVerdict } from './auto-merge-verdict.ts';
+import type { SQLInputValue } from 'node:sqlite';
+import { openConnection, type Connection } from './connection.ts';
+import { migrate } from './migrate.ts';
+import { GIVEN_UP_ESTIMATE } from './migrations/runs.ts';
+import type { AutoMergeVerdict, CheckRunConclusion, FailingGate, RecordedAutoMergeVerdict } from '../auto-merge-verdict.ts';
 import {
   newestClosedFirst,
   oldestFirst,
@@ -10,7 +13,7 @@ import {
   type RefinementRequest,
   type RepositoryFrontier,
   type Ticket,
-} from './frontier.ts';
+} from '../frontier.ts';
 import {
   DISPATCH_DETAIL_LIMIT,
   ticketKey,
@@ -22,7 +25,7 @@ import {
   type DispatchTicket,
   type PullRequestRecord,
   type PullRequestState,
-} from './dispatch.ts';
+} from '../dispatch.ts';
 import type {
   ConflictResolutionFailure,
   ConflictResolutionFailureRecord,
@@ -31,7 +34,7 @@ import type {
   ConflictResolutionState,
   RunPullRequestWorkload,
   ShaPair,
-} from './conflict-resolution.ts';
+} from '../conflict-resolution.ts';
 import type {
   RevisedPullRequest,
   RevisionFailure,
@@ -39,26 +42,26 @@ import type {
   RevisionRecord,
   RevisionStart,
   RevisionState,
-} from './revision.ts';
+} from '../revision.ts';
 import type {
   GenerationKind,
   GenerationRecord,
   LookupResult,
   NewGeneration,
   UnsettledGeneration,
-} from './generation.ts';
-import type { WatchedPullRequest } from './feedback.ts';
-import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from './attempts.ts';
-import type { AutoMergeCounts } from './auto-merge-status.ts';
-import { UNKNOWN_COHORT } from './fingerprint.ts';
-import type { ConfigFingerprint, RunFingerprint } from './fingerprint.ts';
-import { STALE_AFTER_MS } from './heartbeat.ts';
-import { DIAGNOSED_FAILURES } from './diagnosis.ts';
-import type { DiagnosisCategory, DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from './diagnosis.ts';
-import { aggregateCohorts, outcomeOf } from './insights.ts';
-import type { RiskFilter, RiskOptions } from './risk.ts';
-import type { ActivePair, CohortActivity, CohortInsight, InsightKind, InsightOutcome, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from './insights.ts';
-import type { RunSkillLoad } from './skill-loads.ts';
+} from '../generation.ts';
+import type { WatchedPullRequest } from '../feedback.ts';
+import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from '../attempts.ts';
+import type { AutoMergeCounts } from '../auto-merge-status.ts';
+import { UNKNOWN_COHORT } from '../fingerprint.ts';
+import type { ConfigFingerprint, RunFingerprint } from '../fingerprint.ts';
+import { STALE_AFTER_MS } from '../heartbeat.ts';
+import { DIAGNOSED_FAILURES } from '../diagnosis.ts';
+import type { DiagnosisCategory, DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from '../diagnosis.ts';
+import { aggregateCohorts, outcomeOf } from '../insights.ts';
+import type { RiskFilter, RiskOptions } from '../risk.ts';
+import type { ActivePair, CohortActivity, CohortInsight, InsightKind, InsightOutcome, InsightPoint, InsightsFilter, InsightsOptions, ProviderShare } from '../insights.ts';
+import type { RunSkillLoad } from '../skill-loads.ts';
 import type {
   CostStatus,
   ExceededLimit,
@@ -67,7 +70,7 @@ import type {
   RunRecord,
   RunResult,
   RunStatus,
-} from './run.ts';
+} from '../run.ts';
 
 type RunRow = {
   id: string;
@@ -107,153 +110,6 @@ type RunRow = {
   compactions: number | null;
 };
 
-const CREATE_RUNS = `
-  CREATE TABLE IF NOT EXISTS runs (
-    id             TEXT PRIMARY KEY,
-    worker         TEXT NOT NULL,
-    harness        TEXT NOT NULL,
-    model          TEXT NOT NULL,
-    start_time     TEXT NOT NULL,
-    end_time       TEXT,
-    status         TEXT NOT NULL,
-    cost_status    TEXT NOT NULL,
-    cost_usd       REAL NOT NULL,
-    input_tokens   INTEGER NOT NULL,
-    output_tokens  INTEGER NOT NULL,
-    transcript_ref TEXT,
-    session_id     TEXT,
-    error          TEXT,
-    repository     TEXT,
-    ticket_number  INTEGER,
-    ticket_url     TEXT,
-    cache_read_tokens  INTEGER,
-    cache_write_tokens INTEGER,
-    cost_estimated     INTEGER NOT NULL DEFAULT 0,
-    unconfirmed_estimate_usd REAL NOT NULL DEFAULT 0,
-    input_price        REAL,
-    output_price       REAL,
-    cache_read_price   REAL,
-    cache_write_price  REAL,
-    reasoning_effort   TEXT,
-    alive_at           TEXT,
-    harness_start_time TEXT,
-    timeout_seconds    INTEGER,
-    exceeded_limit     TEXT,
-    max_cost_usd       REAL,
-    fingerprint        TEXT,
-    fingerprint_hash   TEXT,
-    forge_git_sha      TEXT,
-    base_commit        TEXT,
-    tool_calls          INTEGER,
-    failed_tool_results INTEGER,
-    retries             INTEGER,
-    compactions         INTEGER
-  ) STRICT;
-`;
-
-const HAS_RUN_TICKET = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'ticket_number'
-`;
-
-const ADD_RUN_TICKET = `
-  ALTER TABLE runs ADD COLUMN repository TEXT;
-  ALTER TABLE runs ADD COLUMN ticket_number INTEGER;
-  ALTER TABLE runs ADD COLUMN ticket_url TEXT;
-`;
-
-const HAS_RUN_CACHE_TOKENS = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'cache_read_tokens'
-`;
-
-const ADD_RUN_CACHE_TOKENS = `
-  ALTER TABLE runs ADD COLUMN cache_read_tokens INTEGER;
-  ALTER TABLE runs ADD COLUMN cache_write_tokens INTEGER;
-`;
-
-const HAS_RUN_ESTIMATE = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'cost_estimated'
-`;
-
-const ADD_RUN_ESTIMATE = `
-  ALTER TABLE runs ADD COLUMN cost_estimated INTEGER NOT NULL DEFAULT 0;
-  ALTER TABLE runs ADD COLUMN input_price REAL;
-  ALTER TABLE runs ADD COLUMN output_price REAL;
-  ALTER TABLE runs ADD COLUMN cache_read_price REAL;
-  ALTER TABLE runs ADD COLUMN cache_write_price REAL;
-`;
-
-const GIVEN_UP_ESTIMATE = `(
-  SELECT COALESCE(SUM(estimated_cost_usd), 0) FROM generations
-  WHERE run_id = runs.id AND billed_cost_usd IS NULL AND given_up_at IS NOT NULL
-)`;
-
-const HAS_RUN_UNCONFIRMED_ESTIMATE = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'unconfirmed_estimate_usd'
-`;
-
-const ADD_RUN_UNCONFIRMED_ESTIMATE = `
-  ALTER TABLE runs ADD COLUMN unconfirmed_estimate_usd REAL NOT NULL DEFAULT 0;
-  UPDATE runs SET unconfirmed_estimate_usd = ${GIVEN_UP_ESTIMATE};
-`;
-
-const HAS_RUN_EFFORT = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'reasoning_effort'
-`;
-
-const ADD_RUN_EFFORT = `
-  ALTER TABLE runs ADD COLUMN reasoning_effort TEXT;
-`;
-
-const HAS_RUN_HEARTBEAT = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'alive_at'
-`;
-
-const ADD_RUN_HEARTBEAT = `
-  ALTER TABLE runs ADD COLUMN alive_at TEXT;
-`;
-
-const HAS_RUN_LIMITS = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'exceeded_limit'
-`;
-
-const ADD_RUN_LIMITS = `
-  ALTER TABLE runs ADD COLUMN harness_start_time TEXT;
-  ALTER TABLE runs ADD COLUMN timeout_seconds INTEGER;
-  ALTER TABLE runs ADD COLUMN exceeded_limit TEXT;
-`;
-
-const HAS_RUN_FINGERPRINT = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'fingerprint'
-`;
-
-const ADD_RUN_FINGERPRINT = `
-  ALTER TABLE runs ADD COLUMN fingerprint TEXT;
-  ALTER TABLE runs ADD COLUMN fingerprint_hash TEXT;
-  ALTER TABLE runs ADD COLUMN forge_git_sha TEXT;
-  ALTER TABLE runs ADD COLUMN base_commit TEXT;
-`;
-
-const HAS_RUN_BUDGET = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'max_cost_usd'
-`;
-
-const ADD_RUN_BUDGET = `
-  ALTER TABLE runs ADD COLUMN max_cost_usd REAL;
-`;
-
-const HAS_RUN_COUNTERS = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'tool_calls'
-`;
-
-const ADD_RUN_COUNTERS = `
-  ALTER TABLE runs ADD COLUMN tool_calls INTEGER;
-  ALTER TABLE runs ADD COLUMN failed_tool_results INTEGER;
-  ALTER TABLE runs ADD COLUMN retries INTEGER;
-  ALTER TABLE runs ADD COLUMN compactions INTEGER;
-`;
-
-const BUSY_TIMEOUT_MS = 5000;
-
 type GenerationRow = {
   run_id: string;
   generation_id: string | null;
@@ -282,118 +138,6 @@ type UnsettledRow = {
   generation_id: string;
   since: string;
 };
-
-const CREATE_GENERATIONS = `
-  CREATE TABLE IF NOT EXISTS generations (
-    id              INTEGER PRIMARY KEY,
-    run_id          TEXT NOT NULL,
-    generation_id   TEXT,
-    subagent        TEXT,
-    billed_cost_usd REAL,
-    attempts        INTEGER NOT NULL DEFAULT 0,
-    last_attempt_at TEXT,
-    last_error      TEXT,
-    given_up_at     TEXT,
-    created_at      TEXT NOT NULL,
-    input_tokens       INTEGER,
-    output_tokens      INTEGER,
-    cache_read_tokens  INTEGER,
-    cache_write_tokens INTEGER,
-    reasoning_tokens   INTEGER,
-    provider           TEXT,
-    estimated_cost_usd REAL,
-    list_price_equivalent_usd REAL,
-    served_model       TEXT,
-    kind               TEXT NOT NULL DEFAULT 'message' CHECK (kind IN ('message', 'compaction', 'cache_warm')),
-    UNIQUE (run_id, generation_id)
-  ) STRICT;
-
-  CREATE INDEX IF NOT EXISTS generations_unsettled ON generations (id)
-    WHERE billed_cost_usd IS NULL AND given_up_at IS NULL;
-`;
-
-const HAS_GENERATION_TOKENS = `
-  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'input_tokens'
-`;
-
-const ADD_GENERATION_TOKENS = `
-  ALTER TABLE generations ADD COLUMN input_tokens INTEGER;
-  ALTER TABLE generations ADD COLUMN output_tokens INTEGER;
-  ALTER TABLE generations ADD COLUMN cache_read_tokens INTEGER;
-  ALTER TABLE generations ADD COLUMN cache_write_tokens INTEGER;
-`;
-
-const HAS_GENERATION_BILLING = `
-  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'provider'
-`;
-
-const ADD_GENERATION_BILLING = `
-  ALTER TABLE generations ADD COLUMN reasoning_tokens INTEGER;
-  ALTER TABLE generations ADD COLUMN provider TEXT;
-`;
-
-const HAS_GENERATION_ESTIMATE = `
-  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'estimated_cost_usd'
-`;
-
-const ADD_GENERATION_ESTIMATE = `
-  ALTER TABLE generations ADD COLUMN estimated_cost_usd REAL;
-`;
-
-const HAS_GENERATION_LIST_PRICE_EQUIVALENT = `
-  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'list_price_equivalent_usd'
-`;
-
-const ADD_GENERATION_LIST_PRICE_EQUIVALENT = `
-  ALTER TABLE generations ADD COLUMN list_price_equivalent_usd REAL;
-`;
-
-const HAS_GENERATION_SERVED_MODEL = `
-  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'served_model'
-`;
-
-const ADD_GENERATION_SERVED_MODEL = `
-  ALTER TABLE generations ADD COLUMN served_model TEXT;
-`;
-
-const HAS_GENERATION_KIND = `
-  SELECT 1 FROM pragma_table_info('generations') WHERE name = 'kind'
-`;
-
-const ADD_GENERATION_KIND = `
-  ALTER TABLE generations ADD COLUMN kind TEXT NOT NULL DEFAULT 'message'
-    CHECK (kind IN ('message', 'compaction', 'cache_warm'));
-`;
-
-const CREATE_SKILL_LOADS = `
-  CREATE TABLE IF NOT EXISTS skill_loads (
-    run_id    TEXT NOT NULL,
-    subagent  TEXT NOT NULL,
-    skill     TEXT NOT NULL,
-    source    TEXT NOT NULL,
-    loaded_at TEXT NOT NULL,
-    PRIMARY KEY (run_id, subagent, skill)
-  ) STRICT;
-`;
-
-const HAS_SKILL_LOAD_COVERAGE = `
-  SELECT 1 FROM pragma_table_info('skill_loads') WHERE name = 'lines_covered'
-`;
-
-const ADD_SKILL_LOAD_COVERAGE = `
-  ALTER TABLE skill_loads ADD COLUMN lines_covered INTEGER;
-  ALTER TABLE skill_loads ADD COLUMN total_lines INTEGER;
-`;
-
-const HAS_RUN_SKILL_LOADS_RECORDED = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'skill_loads_recorded'
-`;
-
-const ADD_RUN_SKILL_LOADS_RECORDED = `
-  ALTER TABLE runs ADD COLUMN skill_loads_recorded INTEGER;
-  UPDATE runs SET skill_loads_recorded = 1
-    WHERE id IN (SELECT run_id FROM skill_loads);
-`;
 
 type SkillLoadRow = {
   run_id: string;
@@ -501,59 +245,6 @@ type TicketRow = {
   awaiting_redispatch: number;
 };
 
-const CREATE_FRONTIER = `
-  CREATE TABLE IF NOT EXISTS frontier_repositories (
-    repository   TEXT PRIMARY KEY,
-    github       TEXT NOT NULL,
-    polled_at    TEXT,
-    last_error   TEXT,
-    failed_at    TEXT,
-    branch_rules TEXT,
-    own_branch_rules TEXT
-  ) STRICT;
-
-  CREATE TABLE IF NOT EXISTS frontier_tickets (
-    repository    TEXT NOT NULL REFERENCES frontier_repositories (repository) ON DELETE CASCADE,
-    number        INTEGER NOT NULL,
-    title         TEXT NOT NULL,
-    url           TEXT NOT NULL,
-    parent_number INTEGER,
-    parent_title  TEXT,
-    parent_url    TEXT,
-    created_at    TEXT NOT NULL,
-    forge_ready   INTEGER NOT NULL,
-    for_human     INTEGER NOT NULL,
-    blocked       INTEGER NOT NULL,
-    blocked_by    TEXT NOT NULL,
-    version       TEXT NOT NULL DEFAULT '',
-    awaiting_redispatch INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (repository, number)
-  ) STRICT;
-
-  CREATE TABLE IF NOT EXISTS frontier_closed (
-    repository    TEXT NOT NULL REFERENCES frontier_repositories (repository) ON DELETE CASCADE,
-    number        INTEGER NOT NULL,
-    title         TEXT NOT NULL,
-    url           TEXT NOT NULL,
-    parent_number INTEGER,
-    parent_title  TEXT,
-    parent_url    TEXT,
-    created_at    TEXT NOT NULL,
-    closed_at     TEXT NOT NULL,
-    for_human     INTEGER NOT NULL,
-    PRIMARY KEY (repository, number)
-  ) STRICT;
-
-  CREATE TABLE IF NOT EXISTS frontier_requests (
-    repository TEXT NOT NULL REFERENCES frontier_repositories (repository) ON DELETE CASCADE,
-    number     INTEGER NOT NULL,
-    title      TEXT NOT NULL,
-    url        TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (repository, number)
-  ) STRICT;
-`;
-
 type DispatchRow = {
   id: number;
   repository: string;
@@ -640,44 +331,6 @@ const insightParameters = (filter: InsightsFilter) => ({
   started_before: filter.startedBefore ?? null,
 });
 
-const HAS_DISPATCH_PULL_REQUEST = `
-  SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'pr_number'
-`;
-
-const ADD_DISPATCH_PULL_REQUEST = `
-  ALTER TABLE dispatches ADD COLUMN pr_number INTEGER;
-  ALTER TABLE dispatches ADD COLUMN pr_url TEXT;
-  ALTER TABLE dispatches ADD COLUMN pr_state TEXT;
-  ALTER TABLE dispatches ADD COLUMN pr_settled_at TEXT;
-  ALTER TABLE dispatches ADD COLUMN pr_rework INTEGER;
-`;
-
-const HAS_DISPATCH_FAILED_STARTS = `
-  SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'failed_starts'
-`;
-
-const ADD_DISPATCH_FAILED_STARTS = `
-  ALTER TABLE dispatches ADD COLUMN failed_starts INTEGER;
-`;
-
-const CREATE_DISPATCHES = `
-  CREATE TABLE IF NOT EXISTS dispatches (
-    id         INTEGER PRIMARY KEY,
-    repository TEXT NOT NULL,
-    number     INTEGER NOT NULL,
-    url        TEXT NOT NULL,
-    run_id     TEXT,
-    state      TEXT NOT NULL,
-    reason     TEXT,
-    detail     TEXT,
-    started_at TEXT NOT NULL,
-    alive_at   TEXT NOT NULL,
-    ended_at   TEXT
-  ) STRICT;
-
-  CREATE INDEX IF NOT EXISTS dispatches_ticket ON dispatches (repository, number, id);
-`;
-
 type RevisionRow = {
   id: number;
   repository: string;
@@ -694,126 +347,6 @@ type RevisionRow = {
   alive_at: string;
   ended_at: string | null;
 };
-
-const CREATE_REVISIONS = `
-  CREATE TABLE IF NOT EXISTS revisions (
-    id              INTEGER PRIMARY KEY,
-    repository      TEXT NOT NULL,
-    number          INTEGER NOT NULL,
-    url             TEXT NOT NULL,
-    run_id          TEXT,
-    dispatch_id     INTEGER,
-    state           TEXT NOT NULL,
-    reason          TEXT,
-    detail          TEXT,
-    failed_starts   INTEGER,
-    started_at      TEXT NOT NULL,
-    alive_at        TEXT NOT NULL,
-    ended_at        TEXT,
-    feedback_cursor TEXT,
-    pushed_sha      TEXT
-  ) STRICT;
-
-  CREATE INDEX IF NOT EXISTS revisions_pull_request ON revisions (repository, number, id);
-  CREATE UNIQUE INDEX IF NOT EXISTS revisions_run ON revisions (run_id);
-`;
-
-const HAS_REVISION_FAILURE = `
-  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'reason'
-`;
-
-const ADD_REVISION_FAILURE = `
-  ALTER TABLE revisions ADD COLUMN reason TEXT;
-  ALTER TABLE revisions ADD COLUMN detail TEXT;
-`;
-
-const HAS_REVISION_FAILED_STARTS = `
-  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'failed_starts'
-`;
-
-const ADD_REVISION_FAILED_STARTS = `
-  ALTER TABLE revisions ADD COLUMN failed_starts INTEGER;
-`;
-
-const HAS_REVISION_OPTIONAL_RUN = `
-  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'run_id' AND "notnull" = 0
-`;
-
-const MIGRATE_REVISION_RUN = `
-  ALTER TABLE revisions RENAME TO revisions_required_run;
-  DROP INDEX revisions_pull_request;
-  DROP INDEX revisions_run;
-  ${CREATE_REVISIONS}
-  INSERT INTO revisions (
-    id, repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
-    started_at, alive_at, ended_at, feedback_cursor
-  )
-  SELECT
-    id, repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
-    started_at, alive_at, ended_at, feedback_cursor
-  FROM revisions_required_run;
-  DROP TABLE revisions_required_run;
-`;
-
-const CREATE_CONFLICT_RESOLUTIONS = `
-  CREATE TABLE IF NOT EXISTS conflict_resolutions (
-    id            INTEGER PRIMARY KEY,
-    repository    TEXT NOT NULL,
-    number        INTEGER NOT NULL,
-    url           TEXT NOT NULL,
-    run_id        TEXT,
-    dispatch_id   INTEGER,
-    state         TEXT NOT NULL,
-    reason        TEXT,
-    detail        TEXT,
-    failed_starts INTEGER,
-    started_at    TEXT NOT NULL,
-    alive_at      TEXT NOT NULL,
-    ended_at      TEXT,
-    head_sha      TEXT,
-    default_sha   TEXT,
-    pushed_sha    TEXT
-  ) STRICT;
-
-  CREATE INDEX IF NOT EXISTS conflict_resolutions_pull_request ON conflict_resolutions (repository, number, id);
-  CREATE UNIQUE INDEX IF NOT EXISTS conflict_resolutions_run ON conflict_resolutions (run_id);
-`;
-
-const HAS_CONFLICT_RESOLUTION_FAILED_STARTS = `
-  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'failed_starts'
-`;
-
-const ADD_CONFLICT_RESOLUTION_FAILED_STARTS = `
-  ALTER TABLE conflict_resolutions ADD COLUMN failed_starts INTEGER;
-`;
-
-const HAS_CONFLICT_RESOLUTION_OPTIONAL_RUN = `
-  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'run_id' AND "notnull" = 0
-`;
-
-const MIGRATE_CONFLICT_RESOLUTION_RUN = `
-  ALTER TABLE conflict_resolutions RENAME TO conflict_resolutions_required_run;
-  DROP INDEX conflict_resolutions_pull_request;
-  DROP INDEX conflict_resolutions_run;
-  ${CREATE_CONFLICT_RESOLUTIONS}
-  INSERT INTO conflict_resolutions (
-    id, repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
-    started_at, alive_at, ended_at, head_sha, default_sha
-  )
-  SELECT
-    id, repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
-    started_at, alive_at, ended_at, head_sha, default_sha
-  FROM conflict_resolutions_required_run;
-  DROP TABLE conflict_resolutions_required_run;
-`;
-
-const HAS_CONFLICT_RESOLUTION_DISPATCH = `
-  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'dispatch_id'
-`;
-
-const ADD_CONFLICT_RESOLUTION_DISPATCH = `
-  ALTER TABLE conflict_resolutions ADD COLUMN dispatch_id INTEGER;
-`;
 
 type ConflictResolutionRow = {
   id: number;
@@ -848,284 +381,6 @@ const conflictResolutionFromRow = (row: ConflictResolutionRow): ConflictResoluti
   aliveAt: row.alive_at,
   endedAt: row.ended_at,
 });
-
-const OLD_WORKLOAD_TABLES = ['revisions', 'conflict_resolutions'];
-
-const HAS_OLD_WORKLOAD_STATES = `
-  SELECT 1 WHERE ${OLD_WORKLOAD_TABLES.map(
-    (table) => `EXISTS (SELECT 1 FROM ${table} WHERE state IN ('ok', 'error', 'exceeded', 'interrupted'))`,
-  ).join(' OR ')}
-`;
-
-const MIGRATE_WORKLOAD_STATES = OLD_WORKLOAD_TABLES.map(
-  (table) => `
-  UPDATE ${table} SET
-    reason = CASE state WHEN 'exceeded' THEN 'exceeded' WHEN 'interrupted' THEN 'interrupted' ELSE reason END,
-    detail = CASE WHEN state = 'exceeded' AND detail IS NULL
-      THEN (SELECT exceeded_limit FROM runs WHERE runs.id = ${table}.run_id)
-      ELSE detail END,
-    state = CASE state WHEN 'ok' THEN 'done' ELSE 'failed' END
-  WHERE state IN ('ok', 'error', 'exceeded', 'interrupted');
-`,
-).join('');
-
-const HAS_REVISION_FEEDBACK_CURSOR = `
-  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'feedback_cursor'
-`;
-
-const ADD_REVISION_FEEDBACK_CURSOR = `
-  ALTER TABLE revisions ADD COLUMN feedback_cursor TEXT;
-`;
-
-const HAS_CONFLICT_RESOLUTION_SHAS = `
-  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'head_sha'
-`;
-
-const ADD_CONFLICT_RESOLUTION_SHAS = `
-  ALTER TABLE conflict_resolutions ADD COLUMN head_sha TEXT;
-  ALTER TABLE conflict_resolutions ADD COLUMN default_sha TEXT;
-`;
-
-const HAS_REVISION_PUSHED_SHA = `
-  SELECT 1 FROM pragma_table_info('revisions') WHERE name = 'pushed_sha'
-`;
-
-const ADD_REVISION_PUSHED_SHA = `
-  ALTER TABLE revisions ADD COLUMN pushed_sha TEXT;
-`;
-
-const HAS_CONFLICT_RESOLUTION_PUSHED_SHA = `
-  SELECT 1 FROM pragma_table_info('conflict_resolutions') WHERE name = 'pushed_sha'
-`;
-
-const ADD_CONFLICT_RESOLUTION_PUSHED_SHA = `
-  ALTER TABLE conflict_resolutions ADD COLUMN pushed_sha TEXT;
-`;
-
-const HAS_GRADE_SUPERSEDE_CAUSE = `
-  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'supersede_cause'
-`;
-
-const ADD_GRADE_SUPERSEDE_CAUSE = `
-  ALTER TABLE risk_grades ADD COLUMN supersede_cause TEXT;
-  UPDATE risk_grades SET supersede_cause = 'unknown' WHERE outcome = 'superseded';
-`;
-
-const CONFLICT_RESOLUTION_SUPERSEDED_AS_OTHER = `
-  FROM risk_grades
-  WHERE outcome = 'superseded' AND supersede_cause = 'other'
-    AND EXISTS (
-      SELECT 1 FROM conflict_resolutions
-      WHERE conflict_resolutions.repository = risk_grades.repository
-        AND conflict_resolutions.number = risk_grades.number
-        AND conflict_resolutions.pushed_sha = (
-          SELECT next.head_sha FROM risk_grades AS next
-          WHERE next.repository = risk_grades.repository
-            AND next.number = risk_grades.number
-            AND next.graded_at > risk_grades.graded_at
-          ORDER BY next.graded_at LIMIT 1
-        )
-    )
-    AND NOT EXISTS (
-      SELECT 1 FROM revisions
-      WHERE revisions.repository = risk_grades.repository
-        AND revisions.number = risk_grades.number
-        AND revisions.pushed_sha = (
-          SELECT next.head_sha FROM risk_grades AS next
-          WHERE next.repository = risk_grades.repository
-            AND next.number = risk_grades.number
-            AND next.graded_at > risk_grades.graded_at
-          ORDER BY next.graded_at LIMIT 1
-        )
-    )
-`;
-
-const HAS_MISATTRIBUTED_CONFLICT_RESOLUTION_SUPERSEDE = `SELECT 1 ${CONFLICT_RESOLUTION_SUPERSEDED_AS_OTHER}`;
-
-const CORRECT_CONFLICT_RESOLUTION_SUPERSEDES = `
-  UPDATE risk_grades SET supersede_cause = 'conflict-resolution'
-  WHERE rowid IN (SELECT rowid ${CONFLICT_RESOLUTION_SUPERSEDED_AS_OTHER});
-`;
-
-const HAS_WATCH_MERGEABLE = `
-  SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'mergeable'
-`;
-
-const ADD_WATCH_MERGEABLE = `
-  ALTER TABLE feedback_watches ADD COLUMN mergeable TEXT;
-  ALTER TABLE feedback_watches ADD COLUMN head_sha TEXT;
-  ALTER TABLE feedback_watches ADD COLUMN default_sha TEXT;
-`;
-
-const HAS_WATCH_HELD = `
-  SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'held'
-`;
-
-const ADD_WATCH_HELD = `
-  ALTER TABLE feedback_watches ADD COLUMN held TEXT;
-`;
-
-const HAS_WATCH_DRAFT = `
-  SELECT 1 FROM pragma_table_info('feedback_watches') WHERE name = 'draft'
-`;
-
-const ADD_WATCH_DRAFT = `
-  ALTER TABLE feedback_watches ADD COLUMN draft INTEGER;
-`;
-
-const CREATE_RISK_GRADES = `
-  CREATE TABLE IF NOT EXISTS risk_grades (
-    repository    TEXT NOT NULL,
-    number        INTEGER NOT NULL,
-    head_sha      TEXT NOT NULL,
-    fingerprint   TEXT NOT NULL,
-    model         TEXT NOT NULL,
-    probabilities TEXT NOT NULL,
-    score         REAL NOT NULL,
-    confidence    REAL NOT NULL,
-    level         TEXT NOT NULL,
-    uncertain     INTEGER NOT NULL,
-    cost_usd      REAL NOT NULL,
-    graded_at     TEXT NOT NULL,
-    check_posted  INTEGER NOT NULL DEFAULT 0,
-    outcome       TEXT NOT NULL DEFAULT 'open',
-    outcome_at    TEXT,
-    revisions     INTEGER,
-    supersede_cause TEXT,
-    PRIMARY KEY (repository, number, head_sha)
-  ) STRICT;
-`;
-
-const CREATE_GRADING_ATTEMPTS = `
-  CREATE TABLE IF NOT EXISTS grading_attempts (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    repository   TEXT NOT NULL,
-    number       INTEGER NOT NULL,
-    head_sha     TEXT NOT NULL,
-    attempted_at TEXT NOT NULL,
-    category     TEXT NOT NULL,
-    message      TEXT NOT NULL,
-    check_posted INTEGER NOT NULL DEFAULT 0
-  ) STRICT;
-  CREATE INDEX IF NOT EXISTS grading_attempts_head
-    ON grading_attempts (repository, number, head_sha);
-`;
-
-const CREATE_PULL_REQUEST_HOLDS = `
-  CREATE TABLE IF NOT EXISTS pull_request_holds (
-    repository TEXT NOT NULL,
-    number     INTEGER NOT NULL,
-    PRIMARY KEY (repository, number)
-  );
-`;
-
-const CREATE_URGENCY_GRADES = `
-  CREATE TABLE IF NOT EXISTS urgency_grades (
-    repository     TEXT NOT NULL,
-    number         INTEGER NOT NULL,
-    version        TEXT NOT NULL,
-    fingerprint    TEXT NOT NULL,
-    model          TEXT NOT NULL,
-    probabilities  TEXT NOT NULL,
-    score          REAL NOT NULL,
-    confidence     REAL NOT NULL,
-    level          TEXT NOT NULL,
-    uncertain      INTEGER NOT NULL,
-    cost_usd       REAL NOT NULL,
-    graded_at      TEXT NOT NULL,
-    labels_applied INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (repository, number, version)
-  ) STRICT;
-
-  CREATE TABLE IF NOT EXISTS urgency_attempts (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    repository   TEXT NOT NULL,
-    number       INTEGER NOT NULL,
-    version      TEXT NOT NULL,
-    attempted_at TEXT NOT NULL,
-    category     TEXT NOT NULL,
-    message      TEXT NOT NULL
-  ) STRICT;
-  CREATE INDEX IF NOT EXISTS urgency_attempts_version
-    ON urgency_attempts (repository, number, version);
-`;
-
-const HAS_GRADE_LABELS = `
-  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'labels_applied'
-`;
-
-const ADD_GRADE_LABELS = `
-  ALTER TABLE risk_grades ADD COLUMN labels_applied INTEGER NOT NULL DEFAULT 0;
-`;
-
-const HAS_GRADE_UNCERTAIN = `
-  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'uncertain'
-`;
-
-const RENAME_GRADE_UNSETTLED = `
-  ALTER TABLE risk_grades RENAME COLUMN unsettled TO uncertain;
-`;
-
-const HAS_GRADE_AUTO_MERGE_STARTED = `
-  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'auto_merge_started_at'
-`;
-
-const ADD_GRADE_AUTO_MERGE_STARTED = `
-  ALTER TABLE risk_grades ADD COLUMN auto_merge_started_at TEXT;
-`;
-
-const HAS_RISK_GRADE_OUTCOME = `
-  SELECT 1 FROM pragma_table_info('risk_grades') WHERE name = 'outcome'
-`;
-
-const ADD_RISK_GRADE_OUTCOME = `
-  ALTER TABLE risk_grades ADD COLUMN outcome TEXT NOT NULL DEFAULT 'open';
-  ALTER TABLE risk_grades ADD COLUMN outcome_at TEXT;
-  ALTER TABLE risk_grades ADD COLUMN revisions INTEGER;
-`;
-
-const CREATE_AUTO_MERGE_SAMPLES = `
-  CREATE TABLE IF NOT EXISTS auto_merge_samples (
-    repository TEXT NOT NULL,
-    number     INTEGER NOT NULL,
-    sampled    INTEGER NOT NULL,
-    drawn_at   TEXT NOT NULL,
-    announced  INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (repository, number)
-  );
-`;
-
-const CREATE_AUTO_MERGE_VERDICTS = `
-  CREATE TABLE IF NOT EXISTS auto_merge_verdicts (
-    repository   TEXT NOT NULL,
-    number       INTEGER NOT NULL,
-    head_sha     TEXT NOT NULL,
-    verdict      TEXT NOT NULL,
-    conclusion   TEXT NOT NULL,
-    check_run_id INTEGER NOT NULL,
-    PRIMARY KEY (repository, number, head_sha)
-  ) STRICT;
-`;
-
-const CREATE_REVIEWER_APP_CHECKS = `
-  CREATE TABLE IF NOT EXISTS reviewer_app_checks (
-    repository TEXT PRIMARY KEY,
-    failures   TEXT NOT NULL,
-    checked_at TEXT NOT NULL
-  ) STRICT;
-`;
-
-const CREATE_FEEDBACK_WATCHES = `
-  CREATE TABLE IF NOT EXISTS feedback_watches (
-    repository TEXT NOT NULL,
-    number     INTEGER NOT NULL,
-    url        TEXT NOT NULL,
-    closes     TEXT NOT NULL,
-    cursor     TEXT,
-    newest     TEXT,
-    PRIMARY KEY (repository, number)
-  ) STRICT;
-`;
 
 export const RISK_LEVELS = ['trivial', 'low', 'moderate', 'high'] as const;
 
@@ -1455,34 +710,6 @@ type DiagnosisRow = {
   ended_at: string | null;
 };
 
-const CREATE_DIAGNOSES = `
-  CREATE TABLE IF NOT EXISTS diagnoses (
-    id            INTEGER PRIMARY KEY,
-    run_id        TEXT NOT NULL UNIQUE,
-    failed_run_id TEXT NOT NULL,
-    state         TEXT NOT NULL,
-    category      TEXT,
-    evidence      TEXT,
-    suggested_fix TEXT,
-    detail        TEXT,
-    started_at    TEXT NOT NULL,
-    alive_at      TEXT NOT NULL,
-    ended_at      TEXT
-  ) STRICT;
-
-  CREATE INDEX IF NOT EXISTS diagnoses_failed_run ON diagnoses (failed_run_id, id);
-`;
-
-const HAS_DIAGNOSIS_START = `
-  SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'diagnosis_start'
-`;
-
-const CREATE_DIAGNOSIS_START = `
-  CREATE TABLE IF NOT EXISTS diagnosis_start (
-    started_at TEXT NOT NULL
-  ) STRICT;
-`;
-
 const diagnosisFromRow = (row: DiagnosisRow): DiagnosisRecord => ({
   id: row.id,
   runId: row.run_id,
@@ -1533,52 +760,6 @@ const boundedDetail = (detail: string | null): string | null =>
 
 const liveSince = (now: string): string =>
   new Date(Date.parse(now) - STALE_AFTER_MS).toISOString();
-
-const HAS_OUTDATED_FRONTIER = `
-  SELECT 1 FROM sqlite_master
-  WHERE (
-    type = 'table' AND name = 'frontier_repositories'
-    AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_repositories') WHERE name = 'own_branch_rules'
-    )
-  ) OR (
-    type = 'table' AND name = 'frontier_tickets'
-    AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'version'
-    )
-  ) OR (
-    type = 'table' AND name = 'frontier_tickets'
-    AND NOT EXISTS (
-      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'awaiting_redispatch'
-    )
-  )
-`;
-
-const DROP_FRONTIER = `
-  DROP TABLE frontier_tickets;
-  DROP TABLE frontier_repositories;
-`;
-
-const HAS_COST_UNCERTAIN = `
-  SELECT 1 FROM pragma_table_info('runs') WHERE name = 'cost_uncertain'
-`;
-
-const MIGRATE_COST_UNCERTAIN = `
-  ALTER TABLE runs RENAME TO runs_cost_uncertain;
-  ${CREATE_RUNS}
-  INSERT INTO runs (
-    id, worker, harness, model, start_time, end_time, status,
-    cost_status, cost_usd, input_tokens, output_tokens,
-    transcript_ref, session_id, error
-  )
-  SELECT
-    id, worker, harness, model, start_time, end_time, status,
-    CASE WHEN cost_uncertain = 0 AND status != 'running' THEN 'billed' ELSE 'unconfirmed' END,
-    cost_usd, input_tokens, output_tokens,
-    transcript_ref, session_id, error
-  FROM runs_cost_uncertain;
-  DROP TABLE runs_cost_uncertain;
-`;
 
 const toRow = (run: RunRecord): RunRow => ({
   id: run.id,
@@ -1747,84 +928,10 @@ export interface WorkloadSpend {
 }
 
 export class Store {
-  readonly #db: DatabaseSync;
+  readonly #db: Connection;
 
-  private constructor(db: DatabaseSync) {
+  private constructor(db: Connection) {
     this.#db = db;
-  }
-
-  #migrate(): void {
-    const db = this.#db;
-    this.#useWriteAheadLog();
-    if (this.#hasCostUncertain()) {
-      this.#migrateCostUncertain();
-    }
-    db.exec(CREATE_RUNS);
-    this.#addColumnsOnce(HAS_RUN_TICKET, ADD_RUN_TICKET);
-    this.#addColumnsOnce(HAS_RUN_CACHE_TOKENS, ADD_RUN_CACHE_TOKENS);
-    this.#addColumnsOnce(HAS_RUN_ESTIMATE, ADD_RUN_ESTIMATE);
-    this.#addColumnsOnce(HAS_RUN_EFFORT, ADD_RUN_EFFORT);
-    this.#addColumnsOnce(HAS_RUN_HEARTBEAT, ADD_RUN_HEARTBEAT);
-    this.#addColumnsOnce(HAS_RUN_LIMITS, ADD_RUN_LIMITS);
-    this.#addColumnsOnce(HAS_RUN_BUDGET, ADD_RUN_BUDGET);
-    this.#addColumnsOnce(HAS_RUN_FINGERPRINT, ADD_RUN_FINGERPRINT);
-    this.#addColumnsOnce(HAS_RUN_COUNTERS, ADD_RUN_COUNTERS);
-    db.exec(CREATE_GENERATIONS);
-    db.exec(CREATE_SKILL_LOADS);
-    this.#addColumnsOnce(HAS_SKILL_LOAD_COVERAGE, ADD_SKILL_LOAD_COVERAGE);
-    this.#addColumnsOnce(HAS_RUN_SKILL_LOADS_RECORDED, ADD_RUN_SKILL_LOADS_RECORDED);
-    this.#addColumnsOnce(HAS_GENERATION_TOKENS, ADD_GENERATION_TOKENS);
-    this.#addColumnsOnce(HAS_GENERATION_BILLING, ADD_GENERATION_BILLING);
-    this.#addColumnsOnce(HAS_GENERATION_ESTIMATE, ADD_GENERATION_ESTIMATE);
-    this.#addColumnsOnce(
-      HAS_GENERATION_LIST_PRICE_EQUIVALENT,
-      ADD_GENERATION_LIST_PRICE_EQUIVALENT,
-    );
-    this.#addColumnsOnce(HAS_GENERATION_SERVED_MODEL, ADD_GENERATION_SERVED_MODEL);
-    this.#addColumnsOnce(HAS_GENERATION_KIND, ADD_GENERATION_KIND);
-    this.#addColumnsOnce(HAS_RUN_UNCONFIRMED_ESTIMATE, ADD_RUN_UNCONFIRMED_ESTIMATE);
-    if (this.#hasOutdatedFrontier()) {
-      this.#migrateOutdatedFrontier();
-    }
-    db.exec(CREATE_FRONTIER);
-    db.exec(CREATE_DISPATCHES);
-    db.exec(CREATE_REVISIONS);
-    this.#addColumnsOnce(HAS_REVISION_FAILURE, ADD_REVISION_FAILURE);
-    db.exec(CREATE_CONFLICT_RESOLUTIONS);
-    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_DISPATCH, ADD_CONFLICT_RESOLUTION_DISPATCH);
-    this.#addColumnsOnce(HAS_REVISION_FEEDBACK_CURSOR, ADD_REVISION_FEEDBACK_CURSOR);
-    this.#addColumnsOnce(HAS_REVISION_FAILED_STARTS, ADD_REVISION_FAILED_STARTS);
-    this.#addColumnsOnce(HAS_REVISION_OPTIONAL_RUN, MIGRATE_REVISION_RUN);
-    db.exec(CREATE_FEEDBACK_WATCHES);
-    db.exec(CREATE_AUTO_MERGE_SAMPLES);
-    db.exec(CREATE_AUTO_MERGE_VERDICTS);
-    db.exec(CREATE_REVIEWER_APP_CHECKS);
-    this.#addColumnsOnce(HAS_DIAGNOSIS_START, `${CREATE_DIAGNOSES}${CREATE_DIAGNOSIS_START}`);
-    this.#addColumnsOnce(HAS_WATCH_HELD, ADD_WATCH_HELD);
-    this.#addColumnsOnce(HAS_WATCH_DRAFT, ADD_WATCH_DRAFT);
-    db.exec(CREATE_RISK_GRADES);
-    db.exec(CREATE_GRADING_ATTEMPTS);
-    db.exec(CREATE_URGENCY_GRADES);
-    db.exec(CREATE_PULL_REQUEST_HOLDS);
-    this.#addColumnsOnce(HAS_GRADE_LABELS, ADD_GRADE_LABELS);
-    this.#addColumnsOnce(HAS_RISK_GRADE_OUTCOME, ADD_RISK_GRADE_OUTCOME);
-    this.#addColumnsOnce(HAS_GRADE_AUTO_MERGE_STARTED, ADD_GRADE_AUTO_MERGE_STARTED);
-    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_SHAS, ADD_CONFLICT_RESOLUTION_SHAS);
-    this.#addColumnsOnce(HAS_WATCH_MERGEABLE, ADD_WATCH_MERGEABLE);
-    this.#addColumnsOnce(HAS_DISPATCH_PULL_REQUEST, ADD_DISPATCH_PULL_REQUEST);
-    this.#addColumnsOnce(HAS_DISPATCH_FAILED_STARTS, ADD_DISPATCH_FAILED_STARTS);
-    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_FAILED_STARTS, ADD_CONFLICT_RESOLUTION_FAILED_STARTS);
-    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_OPTIONAL_RUN, MIGRATE_CONFLICT_RESOLUTION_RUN);
-    this.#addColumnsOnce(HAS_REVISION_PUSHED_SHA, ADD_REVISION_PUSHED_SHA);
-    this.#addColumnsOnce(HAS_CONFLICT_RESOLUTION_PUSHED_SHA, ADD_CONFLICT_RESOLUTION_PUSHED_SHA);
-    this.#addColumnsOnce(HAS_GRADE_SUPERSEDE_CAUSE, ADD_GRADE_SUPERSEDE_CAUSE);
-    this.#addColumnsOnce(HAS_GRADE_UNCERTAIN, RENAME_GRADE_UNSETTLED);
-    if (db.prepare(HAS_MISATTRIBUTED_CONFLICT_RESOLUTION_SUPERSEDE).get() !== undefined) {
-      this.#transaction(() => db.exec(CORRECT_CONFLICT_RESOLUTION_SUPERSEDES));
-    }
-    if (this.#hasOldWorkloadStates()) {
-      this.#migrateWorkloadStates();
-    }
   }
 
   armDiagnosis(at: string): void {
@@ -1833,86 +940,14 @@ export class Store {
       .run({ at });
   }
 
-  #useWriteAheadLog(): void {
-    const { journal_mode } = this.#db
-      .prepare('PRAGMA journal_mode')
-      .get() as { journal_mode: string };
-    if (journal_mode === 'wal') {
-      return;
-    }
-    this.#db.exec('BEGIN IMMEDIATE');
-    this.#db.exec('ROLLBACK');
-    this.#db.exec('PRAGMA journal_mode = WAL');
-  }
-
-  #hasOutdatedFrontier(): boolean {
-    return this.#db.prepare(HAS_OUTDATED_FRONTIER).get() !== undefined;
-  }
-
-  #migrateOutdatedFrontier(): void {
-    this.#transaction(() => {
-      if (this.#hasOutdatedFrontier()) {
-        this.#db.exec(DROP_FRONTIER);
-        this.#db.exec(CREATE_FRONTIER);
-      }
-    });
-  }
-
-  #addColumnsOnce(present: string, add: string): void {
-    const has = (): boolean => this.#db.prepare(present).get() !== undefined;
-    if (has()) {
-      return;
-    }
-    this.#transaction(() => {
-      if (!has()) {
-        this.#db.exec(add);
-      }
-    });
-  }
-
-  #hasOldWorkloadStates(): boolean {
-    return this.#db.prepare(HAS_OLD_WORKLOAD_STATES).get() !== undefined;
-  }
-
-  #migrateWorkloadStates(): void {
-    this.#transaction(() => {
-      if (this.#hasOldWorkloadStates()) {
-        this.#db.exec(MIGRATE_WORKLOAD_STATES);
-      }
-    });
-  }
-
-  #hasCostUncertain(): boolean {
-    return this.#db.prepare(HAS_COST_UNCERTAIN).get() !== undefined;
-  }
-
-  #migrateCostUncertain(): void {
-    this.#transaction(() => {
-      if (this.#hasCostUncertain()) {
-        this.#db.exec(MIGRATE_COST_UNCERTAIN);
-      }
-    });
-  }
-
-  #transaction(work: () => void): void {
-    this.#db.exec('BEGIN IMMEDIATE');
-    try {
-      work();
-      this.#db.exec('COMMIT');
-    } catch (error) {
-      this.#db.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
   static open(path: string): Store {
-    const store = new Store(new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS }));
-    store.#migrate();
-    return store;
+    const connection = openConnection(path);
+    migrate(connection);
+    return new Store(connection);
   }
 
   static openReadOnly(path: string): Store {
-    return new Store(new DatabaseSync(path, { readOnly: true, timeout: BUSY_TIMEOUT_MS }));
+    return new Store(openConnection(path, { readOnly: true }));
   }
 
   insertRun(run: RunRecord): void {
@@ -1947,7 +982,7 @@ export class Store {
   }
 
   finalizeRun(id: string, result: RunResult): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       this.#db
         .prepare(
           `UPDATE runs SET
@@ -2095,7 +1130,7 @@ export class Store {
     const lastError =
       generation.givenUpBecause ??
       (generation.generationId === null ? NO_GENERATION_ID : null);
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       this.#db
         .prepare(
           `INSERT INTO generations (
@@ -2160,7 +1195,7 @@ export class Store {
   }
 
   recordBackfilledSkillLoads(runId: string, loads: RunSkillLoad[] | null): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const marked = this.#db
         .prepare(
           `UPDATE runs SET skill_loads_recorded = $recorded
@@ -2247,7 +1282,7 @@ export class Store {
   }
 
   recordLookups(results: LookupResult[], attemptedAt: string): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const record = this.#db.prepare(
         `UPDATE generations SET
           attempts = attempts + 1,
@@ -2305,7 +1340,7 @@ export class Store {
 
   giveUpUnfinishedRuns(quietSince: string, givenUpAt: string): string[] {
     let runs: string[] = [];
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       runs = (
         this.#db
           .prepare(
@@ -2328,7 +1363,7 @@ export class Store {
 
   interruptStaleRuns(staleSince: string, interruptedAt: string): InterruptedRun[] {
     let runs: InterruptedRun[] = [];
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       runs = (
         this.#db
           .prepare(
@@ -2535,7 +1570,7 @@ export class Store {
   }
 
   replaceFrontier({ repository, github, polledAt, tickets, closed, requests }: PolledFrontier): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       this.#db
         .prepare(
           `INSERT INTO frontier_repositories (repository, github, polled_at, last_error, failed_at)
@@ -2828,7 +1863,7 @@ export class Store {
   }
 
   recordFailedStart(ticket: DispatchTicket, detail: string, at: string): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const latest = this.#latestDispatch(ticket);
       if (latest?.state === 'running') {
         if (latest.alive_at >= liveSince(at)) return;
@@ -2888,7 +1923,7 @@ export class Store {
     maxOpenPullRequests: number | null,
   ): DispatchStart {
     let start: DispatchStart = { refused: 'dispatching' };
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const latest = this.#latestDispatch(ticket);
       if (latest?.state === 'running' && latest.alive_at >= liveSince(startedAt)) return;
       const live = this.liveWorkloads(startedAt);
@@ -3006,7 +2041,7 @@ export class Store {
     maxConcurrent: number,
   ): RevisionStart {
     let start: RevisionStart = { refused: 'revising' };
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const latest = this.#latestRevision(pullRequest);
       if (this.#revisionLive(pullRequest, startedAt)) return;
       if (this.#conflictResolutionLive(pullRequest, startedAt)) {
@@ -3081,7 +2116,7 @@ export class Store {
     pair: ShaPair,
   ): ConflictResolutionStart {
     let start: ConflictResolutionStart = { refused: 'resolving' };
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const latest = this.#latestConflictResolution(pullRequest);
       if (this.#conflictResolutionLive(pullRequest, startedAt)) return;
       if (this.#revisionLive(pullRequest, startedAt)) {
@@ -3162,7 +2197,7 @@ export class Store {
   }
 
   failConflictResolutionStart(id: number, detail: string, at: string): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const row = this.#db
         .prepare(`SELECT * FROM conflict_resolutions WHERE id = $id`)
         .get({ id }) as ConflictResolutionRow | undefined;
@@ -3242,7 +2277,7 @@ export class Store {
   }
 
   recordWatchedPullRequests(repository: string, watched: readonly WatchedPullRequest[]): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       this.#db
         .prepare(
           `UPDATE feedback_watches SET newest = NULL, mergeable = NULL
@@ -3771,7 +2806,7 @@ export class Store {
     grade: Pick<RiskGrade, 'repository' | 'number' | 'headSha'>,
     applied: boolean,
   ): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       this.#db
         .prepare(
           `UPDATE risk_grades SET labels_applied = 0
@@ -4107,7 +3142,7 @@ export class Store {
   }
 
   recordRevisionStartFailure(pullRequest: RevisedPullRequest, detail: string, at: string): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       if (this.#revisionLive(pullRequest, at)) return;
       const latest = this.#latestRevision(pullRequest);
       if (latest?.reason === 'not-started') {
@@ -4144,7 +3179,7 @@ export class Store {
   }
 
   failRevisionStart(id: number, detail: string, at: string): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const row = this.#db.prepare(`SELECT * FROM revisions WHERE id = $id`).get({ id }) as
         | RevisionRow
         | undefined;
@@ -4198,7 +3233,7 @@ export class Store {
     endedAt: string,
     failure?: RevisionFailureRecord,
   ): void {
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const before = this.#db.prepare(`SELECT state FROM revisions WHERE id = $id`).get({ id }) as
         | { state: string }
         | undefined;
@@ -4262,7 +3297,7 @@ export class Store {
     now: string,
   ): Exclude<DispatchState, 'running'> | null {
     let settled: Exclude<DispatchState, 'running'> | null = null;
-    this.#transaction(() => {
+    this.#db.transaction(() => {
       const latest = this.#latestDispatch(ticket);
       if (latest === undefined) {
         this.#insertDispatch(ticket, null, 'failed', 'interrupted', now);

@@ -1,6 +1,6 @@
 import { ticketKey } from './dispatch.ts';
 import { oldestFirst, type RepositoryFrontier, type Ticket } from './frontier.ts';
-import { URGENCY_LEVELS, type Store, type UrgencyLevel } from './store.ts';
+import { URGENCY_LEVELS, type Store, type UrgencyLevel } from './store/store.ts';
 
 export type DispatchOrder = 'oldest' | 'urgency';
 

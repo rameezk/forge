@@ -2,7 +2,7 @@ import { FORGE_RUNNING } from './dispatch.ts';
 import { errorMessage } from './errors.ts';
 import { queryLabelled, type Fetch } from './frontier.ts';
 import { settleTicket } from './labels.ts';
-import type { Store } from './store.ts';
+import type { Store } from './store/store.ts';
 
 export interface SettleRunningOptions {
   store: Store;
