@@ -1556,7 +1556,7 @@ const urgencyBadgeOf = (card: string): string => /<p[^>]*>(?:(?!<\/p>)[\s\S])*da
 test('given tickets graded critical, high, normal and low, when the Board is requested, then each card shows its level', async () => {
   const levels: UrgencyLevel[] = ['critical', 'high', 'normal', 'low'];
   const app = appWith([frontierOf(levels.map((_, index) => ticket({ number: index + 1, forgeReady: true, version: `v${index + 1}` })))], (store) => {
-    levels.forEach((level, index) => store.recordUrgencyGrade(urgencyOf(index + 1, level)));
+    levels.forEach((level, index) => store.urgency.recordGrade(urgencyOf(index + 1, level)));
   });
 
   const body = await (await app.request('/')).text();
@@ -1571,7 +1571,7 @@ test('given tickets graded critical, high, normal and low, when the Board is req
 
 test('given an uncertain critical grade, when the Board is requested, then the card shows critical, marked uncertain, ordered as normal', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5' })])], (store) => {
-    store.recordUrgencyGrade(urgencyOf(5, 'critical', { uncertain: true, confidence: 0.4, probabilities: { critical: 0.4, high: 0.3, normal: 0.2, low: 0.1 } }));
+    store.urgency.recordGrade(urgencyOf(5, 'critical', { uncertain: true, confidence: 0.4, probabilities: { critical: 0.4, high: 0.3, normal: 0.2, low: 0.1 } }));
   });
 
   const badge = urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5));
@@ -1589,7 +1589,7 @@ test('given a forge:ready ticket with no grade yet, when the Board is requested,
 
 test('given a ticket regraded after an edit that has no grade for its new version yet, when the Board is requested, then its card keeps the earlier level', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5b' })])], (store) => {
-    store.recordUrgencyGrade(urgencyOf(5, 'high', { version: 'v5a' }));
+    store.urgency.recordGrade(urgencyOf(5, 'high', { version: 'v5a' }));
   });
 
   assert.match(urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5)), /data-urgency="high"/);
@@ -1605,7 +1605,7 @@ test('given a ticket whose grading produced no level, when the Board is requeste
   ];
   for (const [category, message, text] of cases) {
     const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5' })])], (store) => {
-      store.recordUrgencyAttempt({ repository: 'forge', number: 5, version: 'v5', attemptedAt: '2026-10-02T10:00:00.000Z', category, message });
+      store.urgency.recordAttempt({ repository: 'forge', number: 5, version: 'v5', attemptedAt: '2026-10-02T10:00:00.000Z', category, message });
     });
 
     const badge = urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5));
@@ -1618,7 +1618,7 @@ test('given a ticket whose grading produced no level, when the Board is requeste
 
 test('given a failed attempt on an earlier version of a ticket, when the Board is requested, then its card shows no urgency', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5b' })])], (store) => {
-    store.recordUrgencyAttempt({ repository: 'forge', number: 5, version: 'v5a', attemptedAt: '2026-10-02T10:00:00.000Z', category: 'declined', message: 'Jev declined to answer' });
+    store.urgency.recordAttempt({ repository: 'forge', number: 5, version: 'v5a', attemptedAt: '2026-10-02T10:00:00.000Z', category: 'declined', message: 'Jev declined to answer' });
   });
 
   assert.doesNotMatch(cardOf(await (await app.request('/')).text(), 5), /data-urgency/);
@@ -1626,8 +1626,8 @@ test('given a failed attempt on an earlier version of a ticket, when the Board i
 
 test('given a ticket edited after it was graded whose regrade failed, when the Board is requested, then its card shows the failed attempt instead of the earlier level', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true, version: 'v5b' })])], (store) => {
-    store.recordUrgencyGrade(urgencyOf(5, 'high', { version: 'v5a' }));
-    store.recordUrgencyAttempt({ repository: 'forge', number: 5, version: 'v5b', attemptedAt: '2026-10-02T10:00:00.000Z', category: 'declined', message: 'Jev declined to answer' });
+    store.urgency.recordGrade(urgencyOf(5, 'high', { version: 'v5a' }));
+    store.urgency.recordAttempt({ repository: 'forge', number: 5, version: 'v5b', attemptedAt: '2026-10-02T10:00:00.000Z', category: 'declined', message: 'Jev declined to answer' });
   });
 
   const badge = urgencyBadgeOf(cardOf(await (await app.request('/')).text(), 5));
@@ -1637,7 +1637,7 @@ test('given a ticket edited after it was graded whose regrade failed, when the B
 });
 
 const graded = (store: Store, repository: string, number: number, level: UrgencyLevel, uncertain = false): void =>
-  store.recordUrgencyGrade({
+  store.urgency.recordGrade({
     repository,
     number,
     version: `v${number}`,
