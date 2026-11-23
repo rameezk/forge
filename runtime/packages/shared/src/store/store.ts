@@ -2196,6 +2196,46 @@ export class Store {
       });
   }
 
+  recordConflictResolutionStartFailure(
+    pullRequest: RevisedPullRequest,
+    detail: string,
+    at: string,
+  ): void {
+    this.#transaction(() => {
+      if (this.#conflictResolutionLive(pullRequest, at)) return;
+      const latest = this.#latestConflictResolution(pullRequest);
+      if (latest?.reason === 'not-started') {
+        this.#db
+          .prepare(
+            `UPDATE conflict_resolutions SET
+              detail = $detail, failed_starts = COALESCE(failed_starts, 0) + 1,
+              started_at = $at, alive_at = $at, ended_at = $at
+            WHERE id = $id`,
+          )
+          .run({ id: latest.id, detail: boundedDetail(detail), at });
+        return;
+      }
+      this.#db
+        .prepare(
+          `INSERT INTO conflict_resolutions (
+            repository, number, url, run_id, dispatch_id, state, reason, detail, failed_starts,
+            started_at, alive_at, ended_at
+          ) VALUES (
+            $repository, $number, $url, NULL, $dispatch_id, 'failed', 'not-started', $detail, 1,
+            $at, $at, $at
+          )`,
+        )
+        .run({
+          repository: pullRequest.repository,
+          number: pullRequest.number,
+          url: pullRequest.url,
+          dispatch_id: this.#openingDispatchId(pullRequest),
+          detail: boundedDetail(detail),
+          at,
+        });
+    });
+  }
+
   failConflictResolutionStart(id: number, detail: string, at: string): void {
     this.#db.transaction(() => {
       const row = this.#db
