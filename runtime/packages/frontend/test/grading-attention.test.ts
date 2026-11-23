@@ -28,7 +28,7 @@ const appWith = (seed: (store: Store) => void, gradingRepositories: string[] = [
 };
 
 const succeeded = (store: Store, number: number, gradedAt: string): void =>
-  store.recordRiskGrade({
+  store.grades.recordRiskGrade({
     repository: 'forge',
     number,
     headSha: `head-${number}`,
@@ -44,7 +44,7 @@ const succeeded = (store: Store, number: number, gradedAt: string): void =>
   });
 
 const failed = (store: Store, category: GradingFailure, attemptedAt: string, message: string = category, number = 7): void =>
-  store.recordGradingAttempt({ repository: 'forge', number, headSha: `head-${number}`, attemptedAt, category, message });
+  store.grades.recordGradingAttempt({ repository: 'forge', number, headSha: `head-${number}`, attemptedAt, category, message });
 
 const bodyOf = async (app: ReturnType<typeof appWith>['app'], page: string): Promise<string> => (await app.request(page)).text();
 

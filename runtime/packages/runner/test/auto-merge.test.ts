@@ -8,6 +8,7 @@ import { main as autoMerge } from '../src/auto-merge-main.ts';
 import { APP_ID, BOT_LOGIN, fakeGithubApp, routedThrough } from '../../shared/test/fixtures/fake-github-app.ts';
 import { drawsSample } from '../src/auto-merge.ts';
 import { journaled } from './helpers.ts';
+import { riskGradeOf } from '../../shared/test/fixtures/risk-grades.ts';
 import { bypassable, PROTECTED, unreadable, withProtectedRepositories, type RepositoryRules } from '../../shared/test/fixtures/branch-rules.ts';
 
 const NOW = '2026-11-18T12:00:00.000Z';
@@ -80,9 +81,9 @@ const settleHistory = (store: Store, history: Settled[], fingerprint = COHORT): 
       gradedAt: '2026-11-17T09:00:00.000Z',
     };
     const at = new Date(Date.parse('2026-11-17T10:00:00.000Z') + tick * 1000).toISOString();
-    store.recordRiskGrade(grade);
+    store.grades.recordRiskGrade(grade);
     if (outcome === 'auto') store.markAutoMergeStarted(grade, at);
-    store.settleRiskGrade(grade, outcome === 'failed' ? 'closed' : 'merged', at);
+    store.grades.settleRiskGrade(grade, outcome === 'failed' ? 'closed' : 'merged', at);
   }
 };
 
@@ -148,7 +149,7 @@ const forge = (
       costUsd: 0,
       gradedAt: '2026-11-18T11:00:00.000Z',
     };
-    store.recordRiskGrade(grade);
+    store.grades.recordRiskGrade(grade);
     if (pull.revising === true) {
       store.startRevision(
         { repository, number: pull.number, url: `https://github.com/rameezk/${repository}/pull/${pull.number}` },
@@ -389,7 +390,7 @@ const forge = (
 };
 
 const outcomeOf = (f: ReturnType<typeof forge>, number: number, repository = 'forge'): string | undefined =>
-  f.withStore((store) => store.riskGrade(repository, number, HEAD(number))?.outcome);
+  f.withStore((store) => riskGradeOf(store, repository, number, HEAD(number))?.outcome);
 
 test('given an opted-in repository and a settled pull request graded low and certain with green checks and no feedback, when the pass runs, then the Reviewer App approves it, merges it at the graded head, comments with the grade, the head and the gates, and the grade settles as auto-merged', async () => {
   const f = forge([{ number: 7 }]);
@@ -459,7 +460,7 @@ test('given a pull request whose head changes after the pass checked it, when th
 
 test('given an auto-merged grade and a grade merged by a person, when the store settles a merge, then they stay distinct outcomes', async () => {
   const f = forge([{ number: 1 }, { number: 2 }]);
-  f.withStore((store) => store.settleRiskGrade({ repository: 'forge', number: 2, headSha: HEAD(2) }, 'merged', NOW));
+  f.withStore((store) => store.grades.settleRiskGrade({ repository: 'forge', number: 2, headSha: HEAD(2) }, 'merged', NOW));
   await f.run();
   assert.equal(outcomeOf(f, 1), 'auto-merged');
   assert.equal(outcomeOf(f, 2), 'merged');
@@ -470,7 +471,7 @@ test('given the pass started a merge, when frontier sync then sees the pull requ
   const f = forge([{ number: 1 }]);
   f.withStore((store) => {
     store.markAutoMergeStarted({ repository: 'forge', number: 1, headSha: HEAD(1) }, NOW);
-    store.settleRiskGrade({ repository: 'forge', number: 1, headSha: HEAD(1) }, 'merged', NOW);
+    store.grades.settleRiskGrade({ repository: 'forge', number: 1, headSha: HEAD(1) }, 'merged', NOW);
   });
   assert.equal(outcomeOf(f, 1), 'auto-merged');
 });
@@ -705,7 +706,7 @@ test('given a sampled pull request that receives a new head passing every gate, 
   f.dice.next = UNSAMPLED;
   f.changeHead(7);
   f.withStore((store) => {
-    store.recordRiskGrade({ ...store.riskGrade('forge', 7, HEAD(7))!, headSha: 'moved-7' });
+    store.grades.recordRiskGrade({ ...riskGradeOf(store, 'forge', 7, HEAD(7))!, headSha: 'moved-7' });
     store.recordWatchedPullRequests('forge', [{ number: 7, url: 'https://github.com/rameezk/forge/pull/7', closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'moved-7', draft: false, defaultSha: 'default-a' }]);
   });
   assert.equal(await f.run(), 0);
@@ -980,7 +981,7 @@ test('given a held-back candidate whose push brings it over the size cap and who
   (f.pulls[0] as Pull).draft = false;
   (f.pulls[0] as Pull).files = [edit('src/a.ts', 200, 101)];
   f.withStore((store) => {
-    store.recordRiskGrade({ ...(store.riskGrade('forge', 1, HEAD(1)) as RiskGrade), headSha: 'moved-1' });
+    store.grades.recordRiskGrade({ ...(riskGradeOf(store, 'forge', 1, HEAD(1)) as RiskGrade), headSha: 'moved-1' });
     store.recordWatchedPullRequests('forge', [
       {
         number: 1,

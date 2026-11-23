@@ -58,7 +58,7 @@ export const main = async (env: NodeJS.ProcessEnv, fetch: Fetch): Promise<number
     const pullRequestsGraded =
       Object.keys(graded).length === 0 ||
       (await gradePullRequests({
-        store,
+        grades: store.grades,
         fetch,
         tokens,
         decide: jevDecides(url, apiKey, model, globalThis.fetch),

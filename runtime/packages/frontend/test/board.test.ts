@@ -1116,8 +1116,8 @@ const doneMerged = (store: Store, number: number, outcome: 'merged' | 'auto-merg
   store.endDispatch(id, { state: 'done', pullRequest: pullRequest(100 + number) }, '2026-09-28T09:00:00.000Z');
   store.recordPullRequest(id, { state: 'merged', settledAt: '2026-09-28T10:00:00.000Z', rework: 0 });
   watchHead(store, 100 + number, 'head1');
-  store.recordRiskGrade(gradeOf(100 + number, 'head1', { level: 'low' }));
-  store.settleRiskGrade({ repository: 'forge', number: 100 + number, headSha: 'head1' }, outcome, '2026-09-28T10:00:00.000Z');
+  store.grades.recordRiskGrade(gradeOf(100 + number, 'head1', { level: 'low' }));
+  store.grades.settleRiskGrade({ repository: 'forge', number: 100 + number, headSha: 'head1' }, outcome, '2026-09-28T10:00:00.000Z');
 };
 
 test('given a done ticket whose pull request auto-merged and another merged by a person, when the Board is requested, then only the first carries an auto-merged pill', async () => {
@@ -1151,7 +1151,7 @@ test('given a ticket whose pull request is sampled and another whose is not, whe
     for (const number of [5, 6]) {
       inReview(store, number);
       watchHead(store, 100 + number, 'head1');
-      store.recordRiskGrade(gradeOf(100 + number, 'head1', { level: 'low' }));
+      store.grades.recordRiskGrade(gradeOf(100 + number, 'head1', { level: 'low' }));
     }
     drawSample(store, 'forge', 105, () => true, '2026-09-30T09:30:00.000Z');
     drawSample(store, 'forge', 106, () => false, '2026-09-30T09:30:00.000Z');
@@ -1167,7 +1167,7 @@ const gatedBoard = (gates: { key: GateKey; detail: string }[], verdictHead = 'he
   appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head1', { level: 'low' }));
+    store.grades.recordRiskGrade(gradeOf(105, 'head1', { level: 'low' }));
     store.recordAutoMergeVerdict('forge', 105, verdictHead, { verdict: { kind: 'waits', gates }, conclusion: 'neutral', checkRunId: 7 });
   }, undefined, undefined, GRADING, { autoMergeRepositories: optedIn });
 
@@ -1214,7 +1214,7 @@ test('given a pull request graded moderate with no verdict, when the Board is re
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head1', { level: 'moderate' }));
+    store.grades.recordRiskGrade(gradeOf(105, 'head1', { level: 'moderate' }));
   }, undefined, undefined, GRADING);
 
   assert.doesNotMatch(cardOf(await (await app.request('/')).text(), 5), /data-gate/);
@@ -1235,8 +1235,8 @@ test('given a verdict stored for a head the pull request moved past, when the Bo
 const settleHistory = (store: Store, held: number, failed: number): void => {
   for (let index = 0; index < held + failed; index += 1) {
     const number = 900 + index;
-    store.recordRiskGrade(gradeOf(number, `old-${number}`, { level: 'low', gradedAt: '2026-09-29T09:00:00.000Z' }));
-    store.settleRiskGrade(
+    store.grades.recordRiskGrade(gradeOf(number, `old-${number}`, { level: 'low', gradedAt: '2026-09-29T09:00:00.000Z' }));
+    store.grades.settleRiskGrade(
       { repository: 'forge', number, headSha: `old-${number}` },
       index < failed ? 'closed' : 'merged',
       `2026-09-29T10:${String(index).padStart(2, '0')}:00.000Z`,
@@ -1249,7 +1249,7 @@ const pausedBoard = (held: number, failed: number, optedIn = ['forge'], announce
     settleHistory(store, held, failed);
     for (const number of [5, 6, 7]) {
       inReview(store, number);
-      store.recordRiskGrade(gradeOf(100 + number, 'head1', { level: number === 7 ? 'moderate' : 'low' }));
+      store.grades.recordRiskGrade(gradeOf(100 + number, 'head1', { level: number === 7 ? 'moderate' : 'low' }));
     }
     store.recordWatchedPullRequests('forge', [105, 106, 107].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'head1', draft: false, defaultSha: 'main0' })));
     drawSample(store, 'forge', 106, () => true, '2026-09-30T09:30:00.000Z');
@@ -1288,7 +1288,7 @@ test('given a pull request in review whose current head is graded high at 83% co
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head1'));
+    store.grades.recordRiskGrade(gradeOf(105, 'head1'));
   }, undefined, undefined, GRADING);
 
   const risk = riskOf(cardOf(await (await app.request('/')).text(), 5));
@@ -1302,7 +1302,7 @@ test('given a current uncertain grade of low with high as runner-up, when the Bo
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head1', { probabilities: { trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, confidence: 0.41, level: 'low', uncertain: true }));
+    store.grades.recordRiskGrade(gradeOf(105, 'head1', { probabilities: { trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, confidence: 0.41, level: 'low', uncertain: true }));
   }, undefined, undefined, GRADING);
 
   const risk = riskOf(cardOf(await (await app.request('/')).text(), 5));
@@ -1318,7 +1318,7 @@ test('given a pull request in review whose current head has no grade, or only a 
     inReview(store, 5);
     inReview(store, 6);
     watchHead(store, 105, 'head2');
-    store.recordRiskGrade(gradeOf(105, 'head1'));
+    store.grades.recordRiskGrade(gradeOf(105, 'head1'));
   }, undefined, undefined, GRADING);
 
   const body = await (await app.request('/')).text();
@@ -1334,7 +1334,7 @@ test('given a repository with grading off, when the Board is requested, then its
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head1'));
+    store.grades.recordRiskGrade(gradeOf(105, 'head1'));
   });
 
   const body = await (await app.request('/')).text();
@@ -1346,8 +1346,8 @@ test('given grades recorded with costs, when the Board is requested, then it sho
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head1');
-    store.recordRiskGrade(gradeOf(105, 'head0', { costUsd: 0.002 }));
-    store.recordRiskGrade(gradeOf(105, 'head1', { costUsd: 0.004 }));
+    store.grades.recordRiskGrade(gradeOf(105, 'head0', { costUsd: 0.002 }));
+    store.grades.recordRiskGrade(gradeOf(105, 'head1', { costUsd: 0.004 }));
   }, undefined, undefined, GRADING);
 
   const body = await (await app.request('/')).text();
@@ -1378,7 +1378,7 @@ test('given heads whose grading produced no level, when the Board is requested, 
     const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
       inReview(store, 5);
       watchHead(store, 105, 'head1');
-      store.recordGradingAttempt(attemptOf(105, 'head1', category, message));
+      store.grades.recordGradingAttempt(attemptOf(105, 'head1', category, message));
     }, undefined, undefined, GRADING);
 
     const card = cardOf(await (await app.request('/')).text(), 5);
@@ -1394,7 +1394,7 @@ test('given a failure on an earlier head only, when the Board is requested, then
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
     watchHead(store, 105, 'head2');
-    store.recordGradingAttempt(attemptOf(105, 'head1', 'declined', 'Jev declined to answer'));
+    store.grades.recordGradingAttempt(attemptOf(105, 'head1', 'declined', 'Jev declined to answer'));
   }, undefined, undefined, GRADING);
 
   assert.match(riskOf(cardOf(await (await app.request('/')).text(), 5)), /data-risk="grading"/);
