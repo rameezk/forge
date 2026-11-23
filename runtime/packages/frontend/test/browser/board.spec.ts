@@ -733,7 +733,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
         if (!('started' in started)) throw new Error('dispatch refused');
         store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
       }
-      store.recordHold('forge', 101, true);
+      store.autoMerge.recordHold('forge', 101, true);
 
       await page.goto('/');
 
@@ -802,7 +802,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       for (const number of [1, 2]) {
         store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: number === 1 ? 'low' : 'moderate', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
       }
-      store.recordAutoMergeVerdict('forge', 101, 'head-1', {
+      store.autoMerge.recordAutoMergeVerdict('forge', 101, 'head-1', {
         verdict: {
           kind: 'waits',
           gates: [

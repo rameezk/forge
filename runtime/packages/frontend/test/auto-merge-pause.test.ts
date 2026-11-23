@@ -30,7 +30,7 @@ const settle = (store: Store, outcome: 'merged' | 'closed' | 'auto-merged', fing
     gradedAt: '2026-09-29T09:00:00.000Z',
   });
   const grade = { repository: 'forge', number: 500 + number, headSha: `old-${number}` };
-  if (outcome === 'auto-merged') store.markAutoMergeStarted(grade, '2026-09-29T10:00:00.000Z');
+  if (outcome === 'auto-merged') store.autoMerge.markAutoMergeStarted(grade, '2026-09-29T10:00:00.000Z');
   store.settleRiskGrade(grade, outcome === 'closed' ? 'closed' : 'merged', `2026-09-29T10:${String(number % 60).padStart(2, '0')}:00.000Z`);
 };
 

@@ -279,7 +279,7 @@ const publishVerdict = async (
   facts: DiffFacts | null,
 ): Promise<boolean> => {
   const conclusion: CheckRunConclusion = verdict.kind === 'auto-merged' ? 'success' : 'neutral';
-  const known = store.autoMergeVerdict(grade.repository, grade.number, grade.headSha);
+  const known = store.autoMerge.autoMergeVerdict(grade.repository, grade.number, grade.headSha);
   if (known !== null && known.conclusion === conclusion && JSON.stringify(known.verdict) === JSON.stringify(verdict)) {
     return false;
   }
@@ -292,7 +292,7 @@ const publishVerdict = async (
     : github(fetch, token, `/repos/${repository}/check-runs/${known.checkRunId}`, { method: 'PATCH', body }))) as {
     id: number;
   };
-  store.recordAutoMergeVerdict(grade.repository, grade.number, grade.headSha, {
+  store.autoMerge.recordAutoMergeVerdict(grade.repository, grade.number, grade.headSha, {
     verdict,
     conclusion,
     checkRunId: written.id,
@@ -328,7 +328,7 @@ const maintainerHolds = async (
     await removeLabel(fetch, token, repository, grade.number, FORGE_HOLD);
     log(`${grade.repository}#${grade.number}: removed ${FORGE_HOLD}, it was not applied by a maintainer`);
   }
-  store.recordHold(grade.repository, grade.number, hold === 'maintainer');
+  store.autoMerge.recordHold(grade.repository, grade.number, hold === 'maintainer');
   return hold === 'maintainer';
 };
 
@@ -370,7 +370,7 @@ const autoMergeOne = async (
       method: 'POST',
       body: { body: sampleComment(grade, facts, status) },
     });
-    store.markSampleAnnounced(grade.repository, grade.number);
+    store.autoMerge.markSampleAnnounced(grade.repository, grade.number);
     log(`${grade.repository}#${grade.number}: sampled for a maintainer's review at ${grade.headSha}`);
     return;
   }
@@ -381,14 +381,14 @@ const autoMergeOne = async (
       body: { commit_id: grade.headSha, event: 'APPROVE' },
     });
   }
-  store.markAutoMergeStarted(grade, now());
+  store.autoMerge.markAutoMergeStarted(grade, now());
   try {
     await github(fetch, token, `${path}/merge`, {
       method: 'PUT',
       body: { sha: grade.headSha, merge_method: MERGE_METHOD },
     });
   } catch (error) {
-    store.clearAutoMergeStarted(grade);
+    store.autoMerge.clearAutoMergeStarted(grade);
     throw error;
   }
   store.settleRiskGrade(grade, 'merged', now());
@@ -453,12 +453,12 @@ export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<
       succeeded = false;
     }
   }
-  const tracked = store.openGradedPullRequests(names);
+  const tracked = store.autoMerge.openGradedPullRequests(names);
   const candidates = new Map(
     candidatesWithFacts(store, names, now()).map((facts) => [`${facts.grade.repository}#${facts.grade.number}`, facts]),
   );
   for (const repository of names) {
-    store.keepHolds(
+    store.autoMerge.keepHolds(
       repository,
       tracked.filter((grade) => grade.repository === repository).map(({ number }) => number),
     );

@@ -260,6 +260,7 @@ export {
   SUPERSEDE_CAUSES,
   type RiskLevel,
 } from './store/store.ts';
+export { type AutoMerge } from './store/auto-merge.ts';
 export { type ListPriceEquivalent, type Runs, type WorkloadSpend } from './store/runs.ts';
 export {
   parseTranscript,
