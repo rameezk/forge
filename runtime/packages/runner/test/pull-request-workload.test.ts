@@ -2,10 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Store } from '@forge/shared';
 import type { LifecycleKind, LifecycleScenario } from './lifecycle.ts';
-import { revisionLifecycle } from './revise-driver.ts';
+import { PULL_REQUEST_URL, revisionLifecycle } from './revise-driver.ts';
 import { conflictResolutionLifecycle } from './resolve-conflicts-driver.ts';
-
-const PULL_REQUEST_URL = 'https://github.com/rameezk/forge/pull/143';
 
 const PUSHED = 'b'.repeat(40);
 
@@ -222,10 +220,14 @@ for (const kind of kinds) {
     assert.deepEqual(pushedHeads, [null]);
   });
 
-  test(`given a harness that runs past the worker's timeout, when the ${kind.name} runs, then the run ends exceeded, it fails as exceeded naming the timeout, and the command exits 1`, async () => {
-    const { code, runs, workloads } = await kind.run({ exceeds: true });
+  test(`given a harness that runs past the worker's timeout, when the ${kind.name} runs, then the run ends exceeded, it fails as exceeded naming the timeout, its pushed head is recorded, and the command exits 1`, async () => {
+    const { code, runs, workloads, pushedHeads } = await kind.run({
+      exceeds: true,
+      pushedHead: PUSHED,
+    });
 
     assert.equal(code, 1);
+    assert.deepEqual(pushedHeads, [PUSHED]);
     assert.equal(runs[0]?.status, 'exceeded');
     assert.deepEqual(
       workloads.map(({ state, reason, detail }) => ({ state, reason, detail })),

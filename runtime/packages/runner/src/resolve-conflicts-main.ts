@@ -109,10 +109,7 @@ const conflictResolution = (pause: Pause): PullRequestKind<'conflict'> => ({
   launch: { instruction: CONFLICT_INSTRUCTION, conflictResolution: true },
   prepare: ({ fetch, token, github, pullRequest }) =>
     queryPullRequestConflict(fetch, token, github, pullRequest.number),
-  before: async (
-    { env, config, app, gitEnv, github, pullRequest, runId },
-    target,
-  ) => {
+  before: async ({ env, config, app, gitEnv, github, pullRequest, runId }, target) => {
     const files = await inspectCheckout({
       env,
       github,
