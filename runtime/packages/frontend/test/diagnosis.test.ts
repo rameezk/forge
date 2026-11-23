@@ -42,11 +42,11 @@ const AT = '2026-11-01T11:00:00.000Z';
 
 const dashboard = (finish: 'valid' | 'invalid' | 'none') => {
   const store = Store.open(':memory:');
-  store.insertRun(aRun('failed', 'builder'));
+  store.runs.insertRun(aRun('failed', 'builder'));
   const dispatch = store.startDispatch({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/issues/7' }, 'failed', '2026-11-01T10:00:00.000Z', 10, null);
   assert.ok('started' in dispatch);
   store.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
-  store.insertRun(aRun('diagnosis', 'diagnoser'));
+  store.runs.insertRun(aRun('diagnosis', 'diagnoser'));
   if (finish !== 'none') {
     const id = store.startDiagnosis('failed', 'diagnosis', AT);
     if (finish === 'valid') {
@@ -106,12 +106,12 @@ test('given a diagnosis run, when /workloads is requested, then its row and card
 
 test('given a failed run diagnosed twice, when its page opens, then it shows the newer diagnosis and lists the older one', async () => {
   const store = Store.open(':memory:');
-  store.insertRun(aRun('failed', 'builder'));
+  store.runs.insertRun(aRun('failed', 'builder'));
   const dispatch = store.startDispatch({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/issues/7' }, 'failed', '2026-11-01T10:00:00.000Z', 10, null);
   assert.ok('started' in dispatch);
   store.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
-  store.insertRun(aRun('first', 'diagnoser'));
-  store.insertRun(aRun('second', 'other-diagnoser'));
+  store.runs.insertRun(aRun('first', 'diagnoser'));
+  store.runs.insertRun(aRun('second', 'other-diagnoser'));
   store.endDiagnosis(store.startDiagnosis('failed', 'first', AT), 'done', AT, {
     verdict: { category: 'worker', evidence: [{ turn: 2, note: 'older evidence' }], suggestedFix: 'Older fix' },
   });

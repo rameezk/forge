@@ -345,7 +345,7 @@ export const runPullRequestWorkload = async <K extends Trigger>(
       } catch (error) {
         if (error instanceof SetupTimedOut) {
           table.end(store, id, 'failed', now(), { reason: 'errored', detail: error.message });
-        } else if (store.getRun(runId)?.harnessStartTime == null) {
+        } else if (store.runs.getRun(runId)?.harnessStartTime == null) {
           table.failStart(store, id, errorMessage(error), now());
         } else {
           table.end(store, id, 'failed', now(), { reason: 'crashed', detail: errorMessage(error) });

@@ -43,7 +43,7 @@ const run = (id: string, startTime: string, overrides: Partial<RunRecord> = {}):
 
 const open = async (runs: RunRecord[], path: string, now = NOW): Promise<string> => {
   const store = Store.open(':memory:');
-  for (const record of runs) store.insertRun(record);
+  for (const record of runs) store.runs.insertRun(record);
   const app = createApp({
     store,
     transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))),

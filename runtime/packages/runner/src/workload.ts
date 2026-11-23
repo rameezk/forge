@@ -128,7 +128,7 @@ export const launchWorkload = async ({
 
   try {
     const { id, finalMessage, cause } = await runWorkload({
-      store,
+      runs: store.runs,
       harness,
       worker: told,
       openTranscript: (runId) => JsonLinesFile.transcript(transcriptsDir, runId),
@@ -144,7 +144,7 @@ export const launchWorkload = async ({
       forgeGitSha: env.FORGE_GIT_SHA === undefined || env.FORGE_GIT_SHA === '' ? null : env.FORGE_GIT_SHA,
       ...(ticket === undefined ? {} : { ticket }),
     });
-    const run = store.getRun(id);
+    const run = store.runs.getRun(id);
     if (run === undefined) throw new Error(`run ${id} was not recorded`);
     log(endLine(run, cause, transcriptPolicy(runSecrets).redact));
     return { run, finalMessage, cause };

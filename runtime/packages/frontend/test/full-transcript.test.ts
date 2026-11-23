@@ -72,7 +72,7 @@ const appWith = (events: HarnessEvent[], run: Partial<RunRecord> = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   writeFileSync(join(dir, 'run-01.jsonl'), events.map(transcriptLine).join(''));
   const store = Store.open(':memory:');
-  store.insertRun(sampleRun(run));
+  store.runs.insertRun(sampleRun(run));
   return createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '' });
 };
 
