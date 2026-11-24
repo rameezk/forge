@@ -10,7 +10,7 @@ const seedGrades = (store: Store): void => {
   for (const level of LEVELS) {
     for (const [outcome, uncertain] of [['merged', false], ['superseded', false], ['closed', false], ['open', false], ['merged', true], ['auto-merged', false]] as const) {
       number += 1;
-      store.recordRiskGrade({
+      store.grades.recordRiskGrade({
         repository: 'forge',
         number,
         headSha: `sha-${number}`,
@@ -24,7 +24,7 @@ const seedGrades = (store: Store): void => {
         costUsd: 0.01,
         gradedAt: '2026-09-21T10:00:00.000Z',
       });
-      if (outcome !== 'open') store.settleRiskGrade({ repository: 'forge', number, headSha: `sha-${number}` }, outcome, '2026-09-22T10:00:00.000Z');
+      if (outcome !== 'open') store.grades.settleRiskGrade({ repository: 'forge', number, headSha: `sha-${number}` }, outcome, '2026-09-22T10:00:00.000Z');
     }
   }
 };
@@ -55,7 +55,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 const seedPause = (store: Store): void => {
   for (let index = 0; index < 20; index += 1) {
     const number = 700 + index;
-    store.recordRiskGrade({
+    store.grades.recordRiskGrade({
       repository: 'forge',
       number,
       headSha: `paused-${number}`,
@@ -69,7 +69,7 @@ const seedPause = (store: Store): void => {
       costUsd: 0.01,
       gradedAt: '2026-09-21T10:00:00.000Z',
     });
-    store.settleRiskGrade({ repository: 'forge', number, headSha: `paused-${number}` }, index < 3 ? 'closed' : 'merged', `2026-09-22T10:${String(index).padStart(2, '0')}:00.000Z`);
+    store.grades.settleRiskGrade({ repository: 'forge', number, headSha: `paused-${number}` }, index < 3 ? 'closed' : 'merged', `2026-09-22T10:${String(index).padStart(2, '0')}:00.000Z`);
   }
 };
 

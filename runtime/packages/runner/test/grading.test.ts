@@ -18,6 +18,7 @@ import {
 } from '../../shared/test/fixtures/fake-github-app.ts';
 import { withProtectedRepositories } from '../../shared/test/fixtures/branch-rules.ts';
 import { journaled } from './helpers.ts';
+import { riskGradeOf } from '../../shared/test/fixtures/risk-grades.ts';
 
 interface FakePull {
   number: number;
@@ -425,7 +426,7 @@ test('given grading is on and a ready forge pull request, when frontier sync and
   assert.equal(Object.values(questions)[0]?.type, 'score');
   assert.equal(Object.values(questions)[0]?.criteria.length, 4);
 
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.level, 'low');
   assert.equal(grade?.uncertain, false);
   assert.equal(grade?.confidence, 0.9);
@@ -472,7 +473,7 @@ test('given Jev puts most probability on low, some on high and confidence below 
   t.after(f.close);
   f.answerWith(decision({ trivial: 0.05, low: 0.5, moderate: 0.1, high: 0.35 }, 0.4));
   await f.syncAndGrade([READY]);
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.level, 'low');
   assert.equal(grade?.uncertain, true);
   const check = f.checkRuns[0]?.body as { output: { summary: string } };
@@ -525,8 +526,8 @@ test('given grades under one model, when the configured model changes, then new 
   f.changeModel('typesafe/jev-1.14');
   await f.syncAndGrade([{ ...READY, number: 11 }]);
   const [first, second] = f.withStore((store) => [
-    store.riskGrade('forge', 7, 'head-7')?.fingerprint,
-    store.riskGrade('forge', 11, 'head-11')?.fingerprint,
+    riskGradeOf(store, 'forge', 7, 'head-7')?.fingerprint,
+    riskGradeOf(store, 'forge', 11, 'head-11')?.fingerprint,
   ]);
   assert.ok(first !== undefined && second !== undefined && first !== second);
 });
@@ -541,7 +542,7 @@ test('given the check run is refused after Jev graded the head, when forge-gradi
   assert.equal(await f.grade(), 1);
   assert.equal(f.jevRequests.length, 1);
   assert.equal(f.checkRuns.length, 0);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.level), 'low');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7')?.level), 'low');
 
   f.acceptCheckRuns(true);
   assert.equal(await f.grade(), 0);
@@ -623,7 +624,7 @@ test('given removing the stale labels failed once, when the new head is graded a
   assert.equal(await f.grade(), 0);
   assert.deepEqual(f.labelsOf(7), ['bug', 'forge:risk-low']);
   assert.equal(f.jevRequests.length, 2);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7-revised')?.level), 'low');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7-revised')?.level), 'low');
 });
 
 const revise = (store: Store, number: number, startedAt: string, pushed?: string): void => {
@@ -675,12 +676,12 @@ test('given a pull request with a completed revision before its head was graded 
   t.after(f.close);
   f.withStore((store) => revise(store, 7, '2026-01-01T00:00:00.000Z'));
   await f.syncAndGrade([READY]);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7')?.outcome), 'open');
   f.withStore((store) => revise(store, 7, new Date().toISOString()));
 
   f.end(7, 'MERGED', 'head-7');
   await f.syncAndGrade([]);
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'merged');
   assert.equal(grade?.revisions, 1);
   assert.equal(grade?.supersedeCause, null);
@@ -697,7 +698,7 @@ test('given a graded head followed by two revisions that failed, when sync sees 
     }
   });
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'superseded');
   assert.equal(grade?.revisions, 0);
 });
@@ -708,8 +709,8 @@ test('given a graded commit, when the pull request receives a new head, then the
   await f.syncAndGrade([READY]);
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
   const [earlier, later] = f.withStore((store) => [
-    store.riskGrade('forge', 7, 'head-7'),
-    store.riskGrade('forge', 7, 'head-7b'),
+    riskGradeOf(store, 'forge', 7, 'head-7'),
+    riskGradeOf(store, 'forge', 7, 'head-7b'),
   ]);
   assert.equal(earlier?.outcome, 'superseded');
   assert.equal(earlier?.supersedeCause, 'other');
@@ -723,7 +724,7 @@ test('given a graded commit and a forge revision that pushed a new head, when sy
   await f.syncAndGrade([READY]);
   f.withStore((store) => revise(store, 7, new Date().toISOString(), 'head-7b'));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'superseded');
   assert.equal(grade?.supersedeCause, 'revision');
   assert.equal(grade?.revisions, 1);
@@ -735,7 +736,7 @@ test('given a graded commit and a forge conflict resolution that pushed a new he
   await f.syncAndGrade([READY]);
   f.withStore((store) => resolveConflicts(store, 7, new Date().toISOString(), 'head-7b'));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'superseded');
   assert.equal(grade?.supersedeCause, 'conflict-resolution');
 });
@@ -746,12 +747,12 @@ test('given a graded commit and a running conflict resolution that pushed a new 
   await f.syncAndGrade([READY]);
   const id = f.withStore((store) => startResolvingConflicts(store, 7, new Date().toISOString(), 'head-7b'));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  const running = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const running = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(running?.outcome, 'open');
   assert.equal(running?.supersedeCause, null);
   f.withStore((store) => store.workloads.endConflictResolution(id, 'done', new Date().toISOString()));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  const ended = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const ended = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(ended?.outcome, 'superseded');
   assert.equal(ended?.supersedeCause, 'conflict-resolution');
 });
@@ -762,10 +763,10 @@ test('given a graded commit and a running revision that pushed a new head, when 
   await f.syncAndGrade([READY]);
   const id = f.withStore((store) => startRevising(store, 7, new Date().toISOString(), 'head-7b'));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7')?.outcome), 'open');
   f.withStore((store) => store.workloads.endRevision(id, 'done', new Date().toISOString()));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'superseded');
   assert.equal(grade?.supersedeCause, 'revision');
   assert.equal(grade?.revisions, 1);
@@ -777,10 +778,10 @@ test('given a graded commit, a running revision and a new head that revision did
   await f.syncAndGrade([READY]);
   const id = f.withStore((store) => startRevising(store, 7, new Date().toISOString(), 'head-7c'));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'open');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7')?.outcome), 'open');
   f.withStore((store) => store.workloads.endRevision(id, 'done', new Date().toISOString()));
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'superseded');
   assert.equal(grade?.supersedeCause, 'other');
 });
@@ -792,7 +793,7 @@ test('given a graded commit that is merged at a newer head by a forge revision, 
   f.withStore((store) => revise(store, 7, new Date().toISOString(), 'head-7b'));
   f.end(7, 'MERGED', 'head-7b');
   await f.syncAndGrade([]);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.supersedeCause), 'revision');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7')?.supersedeCause), 'revision');
 });
 
 test('given a graded commit and a running revision, when the pull request is merged at the graded head, then the grade reads merged without waiting for the revision', async (t) => {
@@ -802,7 +803,7 @@ test('given a graded commit and a running revision, when the pull request is mer
   f.withStore((store) => startRevising(store, 7, new Date().toISOString()));
   f.end(7, 'MERGED', 'head-7');
   await f.syncAndGrade([]);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'merged');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7')?.outcome), 'merged');
 });
 
 test('given a graded commit, when the pull request is closed without merging, then the grade reads closed', async (t) => {
@@ -811,7 +812,7 @@ test('given a graded commit, when the pull request is closed without merging, th
   await f.syncAndGrade([READY]);
   f.end(7, 'CLOSED', 'head-7');
   await f.syncAndGrade([]);
-  const grade = f.withStore((store) => store.riskGrade('forge', 7, 'head-7'));
+  const grade = f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7'));
   assert.equal(grade?.outcome, 'closed');
   assert.equal(grade?.supersedeCause, null);
 });
@@ -822,7 +823,7 @@ test('given a graded commit, when the pull request merges at a newer head, then 
   await f.syncAndGrade([READY]);
   f.end(7, 'MERGED', 'head-7b');
   await f.syncAndGrade([]);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')?.outcome), 'superseded');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7')?.outcome), 'superseded');
 });
 
 const SCORE_BODY = {
@@ -917,12 +918,12 @@ test('given Jev answers with a server error, when forge-grading runs, then the a
   await f.syncAndGrade([READY]);
 
   assert.equal(f.jevRequests.length, 1);
-  const attempts = f.withStore((store) => store.currentGradingAttempts());
+  const attempts = f.withStore((store) => store.grades.currentGradingAttempts());
   assert.equal(attempts.length, 1);
   assert.equal(attempts[0]?.category, 'temporary');
   assert.equal(attempts[0]?.headSha, 'head-7');
   assert.equal(attempts[0]?.message, 'OpenRouter answered 503');
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7')), null);
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7')), null);
 
   assert.equal(f.checkRuns.length, 1);
   const check = f.checkRuns[0]?.body as { name: string; conclusion: string; output: { title: string } };
@@ -942,7 +943,7 @@ test('given OpenRouter rejects the key, when forge-grading runs, then the attemp
   f.answerWith({ status: 401, body: { error: { code: 401, message: 'No auth credentials found' } } });
   await f.syncAndGrade([READY]);
 
-  const status = f.withStore((store) => store.gradingStatus());
+  const status = f.withStore((store) => store.grades.gradingStatus());
   assert.equal(status.failure?.category, 'setup');
   assert.match(status.failure?.message ?? '', /OpenRouter rejected the key/);
   const check = f.checkRuns[0]?.body as { output: { title: string } };
@@ -962,10 +963,10 @@ test('given Jev declines or the input is too large, when forge-grading runs agai
     await f.syncAndGrade([READY]);
 
     assert.equal(f.jevRequests.length, 1, category);
-    assert.equal(f.withStore((store) => store.currentGradingAttempts()[0]?.category), category);
+    assert.equal(f.withStore((store) => store.grades.currentGradingAttempts()[0]?.category), category);
     assert.equal(f.checkRuns.length, 1, category);
     assert.equal((f.checkRuns[0]?.body as { output: { title: string } }).output.title, title);
-    assert.equal(f.withStore((store) => store.gradingStatus().failure), null, category);
+    assert.equal(f.withStore((store) => store.grades.gradingStatus().failure), null, category);
   }
 });
 
@@ -978,7 +979,7 @@ test('given a failure on a head and a new head after a revision, when forge-grad
   await f.syncAndGrade([{ ...READY, head: 'head-7b' }]);
 
   assert.equal(f.jevRequests.length, 2);
-  assert.equal(f.withStore((store) => store.riskGrade('forge', 7, 'head-7b')?.level), 'low');
+  assert.equal(f.withStore((store) => riskGradeOf(store, 'forge', 7, 'head-7b')?.level), 'low');
 });
 
 test('given the check run for a failure is refused, when forge-grading runs again once it is accepted, then it is posted without asking Jev again', async (t) => {

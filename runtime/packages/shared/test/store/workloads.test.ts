@@ -402,7 +402,7 @@ const watch = (store: Store, closes: number[] = [10]): void => {
 };
 
 const dueNumbers = (store: Store, now: string): number[] =>
-  store.gradingDue(['forge'], now).map(({ number }) => number);
+  store.grades.gradingDue(['forge'], now).map(({ number }) => number);
 
 test('given a pull request with a live revision, when a conflict resolution or another revision tries to start on it, then each start is refused', () => {
   const store = Store.open(':memory:');
