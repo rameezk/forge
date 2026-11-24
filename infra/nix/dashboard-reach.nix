@@ -14,7 +14,7 @@ let
     import { Store } from '${forge-runner}/lib/forge-runtime/packages/shared/src/index.ts';
     const store = Store.openReadOnly('/var/lib/forge/forge.db');
     try {
-      store.replaceFrontier({
+      store.frontier.replaceFrontier({
         repository: 'forge',
         github: 'rameezk/forge',
         polledAt: '2026-09-29T08:00:00.000Z',
