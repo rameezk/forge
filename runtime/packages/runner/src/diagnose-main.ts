@@ -31,8 +31,8 @@ const briefOf = (
   stateDir: string,
 ): { brief: DiagnosisBrief; readOnlyPaths: string[] } | null => {
   const at = now();
-  const dispatch = store.dispatchOfRun(failed.id, at);
-  const pullRequestWorkload = store.pullRequestWorkloadOfRun(failed.id, at);
+  const dispatch = store.workloads.dispatchOfRun(failed.id, at);
+  const pullRequestWorkload = store.workloads.pullRequestWorkloadOfRun(failed.id, at);
   const workload =
     dispatch !== null
       ? { kind: 'dispatch', ...dispatch }

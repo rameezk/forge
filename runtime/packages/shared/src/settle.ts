@@ -2,10 +2,10 @@ import { FORGE_RUNNING } from './dispatch.ts';
 import { errorMessage } from './errors.ts';
 import { queryLabelled, type Fetch } from './frontier.ts';
 import { settleTicket } from './labels.ts';
-import type { Store } from './store/store.ts';
+import type { Workloads } from './store/workloads.ts';
 
 export interface SettleRunningOptions {
-  store: Store;
+  workloads: Workloads;
   fetch: Fetch;
   token: () => Promise<string>;
   repository: string;
@@ -15,7 +15,7 @@ export interface SettleRunningOptions {
 }
 
 export const settleRunningTickets = async ({
-  store,
+  workloads,
   fetch,
   token,
   repository,
@@ -26,7 +26,7 @@ export const settleRunningTickets = async ({
   try {
     const writeToken = await token();
     for (const issue of await queryLabelled(fetch, writeToken, github, FORGE_RUNNING)) {
-      const settled = store.reconcileDispatch({ repository, ...issue }, now());
+      const settled = workloads.reconcileDispatch({ repository, ...issue }, now());
       if (settled === null) continue;
       await settleTicket(fetch, writeToken, github, issue.number, settled);
       log(`${repository}#${issue.number} was settled as ${settled}`);

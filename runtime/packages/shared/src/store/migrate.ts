@@ -5,7 +5,7 @@ import { migrateFrontier } from './migrations/frontier.ts';
 import { migrateGrades } from './migrations/grades.ts';
 import { migrateRuns } from './migrations/runs.ts';
 import { migrateUrgency } from './urgency.ts';
-import { migrateWorkloads } from './migrations/workloads.ts';
+import { Workloads } from './workloads.ts';
 
 interface ConcernMigration {
   readonly name: string;
@@ -15,7 +15,7 @@ interface ConcernMigration {
 export const CONCERNS: readonly ConcernMigration[] = [
   { name: 'runs', migrate: migrateRuns },
   { name: 'frontier', migrate: migrateFrontier },
-  { name: 'workloads', migrate: migrateWorkloads },
+  { name: 'workloads', migrate: Workloads.migrate },
   { name: 'grades', migrate: migrateGrades },
   { name: 'urgency', migrate: migrateUrgency },
   { name: 'autoMerge', migrate: migrateAutoMerge },

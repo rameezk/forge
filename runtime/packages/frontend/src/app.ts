@@ -147,9 +147,9 @@ export const createApp = ({
   app.get('/', (c) => {
     const shown = displayOf(c);
     const now = new Date().toISOString();
-    const dispatches = store.listDispatches(now);
-    const revisions = store.listRevisions(now);
-    const conflictResolutions = store.listConflictResolutions(now);
+    const dispatches = store.workloads.listDispatches(now);
+    const revisions = store.workloads.listRevisions(now);
+    const conflictResolutions = store.workloads.listConflictResolutions(now);
     const runs = new Map<string, RunRecord>();
     for (const runId of [...dispatches, ...[...revisions, ...conflictResolutions].filter(({ state }) => state === 'running')].map(({ runId }) => runId)) {
       const run = runId === null ? undefined : store.runs.getRun(runId);
@@ -157,7 +157,7 @@ export const createApp = ({
     }
     const frontier = store.listFrontier();
     const ordering = { order: dispatchOrder, priorities: new Map(Object.entries(repositoryPriorities)), urgencies: certainUrgencies(store.urgency, frontier, dispatchOrder) };
-    return c.html(renderBoard(frontier, dispatches, revisions, conflictResolutions, store.closesByPullRequest(), runs, store.attemptedTickets(), { running: store.liveWorkloads(now), limit: maxConcurrent }, { ...store.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])), holds: new Set(store.heldPullRequests().map(({ repository, number }) => ticketKey(repository, number))), sampled: new Set(store.sampledPullRequests().map(({ repository, number }) => ticketKey(repository, number))), paused: new Set(pausedPullRequests(now).map(({ repository, number }) => ticketKey(repository, number))), gates: new Map(store.currentFailingGates().filter(({ repository }) => autoMergeRepositories.includes(repository)).map(({ repository, number, gates }) => [ticketKey(repository, number), gates])) }, { grades: new Map(store.urgency.currentGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.urgency.currentAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }, ordering));
+    return c.html(renderBoard(frontier, dispatches, revisions, conflictResolutions, store.workloads.closesByPullRequest(), runs, store.workloads.attemptedTickets(), { running: store.workloads.liveWorkloads(now), limit: maxConcurrent }, { ...store.workloads.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])), holds: new Set(store.heldPullRequests().map(({ repository, number }) => ticketKey(repository, number))), sampled: new Set(store.sampledPullRequests().map(({ repository, number }) => ticketKey(repository, number))), paused: new Set(pausedPullRequests(now).map(({ repository, number }) => ticketKey(repository, number))), gates: new Map(store.currentFailingGates().filter(({ repository }) => autoMergeRepositories.includes(repository)).map(({ repository, number, gates }) => [ticketKey(repository, number), gates])) }, { grades: new Map(store.urgency.currentGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.urgency.currentAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }, ordering));
   });
 
   app.get('/work', (c) => c.redirect('/'));
@@ -168,16 +168,16 @@ export const createApp = ({
     const shown = displayOf(c);
     const now = new Date().toISOString();
     const pullRequestWorkloads = new Map<string, RunPullRequestWorkload>([
-      ...store.listRevisions(now).flatMap((workload): [string, RunPullRequestWorkload][] =>
+      ...store.workloads.listRevisions(now).flatMap((workload): [string, RunPullRequestWorkload][] =>
         workload.runId === null ? [] : [[workload.runId, { kind: 'revision', workload }]],
       ),
-      ...store.listConflictResolutions(now).flatMap((workload): [string, RunPullRequestWorkload][] =>
+      ...store.workloads.listConflictResolutions(now).flatMap((workload): [string, RunPullRequestWorkload][] =>
         workload.runId === null ? [] : [[workload.runId, { kind: 'conflict-resolution', workload }]],
       ),
     ]);
     const diagnoses = store.diagnoses.listDiagnoses(now);
     const categories = store.diagnoses.latestDiagnosisCategories(now);
-    return c.html(renderList(store.runs.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.runs.listPriceEquivalents(), pullRequestWorkloads, store.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runs.runCohorts(), shown, clock().getTime()));
+    return c.html(renderList(store.runs.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.runs.listPriceEquivalents(), pullRequestWorkloads, store.workloads.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runs.runCohorts(), shown, clock().getTime()));
   });
 
   const queryOf = (query: Record<string, string>): InsightsQuery => {
@@ -244,7 +244,7 @@ export const createApp = ({
     const number = Number(c.req.param('number'));
     if (!TICKET_NUMBER.test(c.req.param('number')) || !Number.isSafeInteger(number)) return c.notFound();
     const ticket = { repository: c.req.param('repository'), number };
-    return c.html(renderTicketAttempts(ticket, store.listAttempts(ticket, new Date().toISOString()), shown));
+    return c.html(renderTicketAttempts(ticket, store.workloads.listAttempts(ticket, new Date().toISOString()), shown));
   });
 
   const downloadable = (ref: string | null): ref is string =>
@@ -263,7 +263,7 @@ export const createApp = ({
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.pullRequestOfRun(run.id), store.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.dispatchOfRun(run.id, new Date().toISOString()), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnoses.diagnosesOf(run.id, new Date().toISOString()), store.diagnoses.diagnosisOfRun(run.id, new Date().toISOString()), shown));
+    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.workloads.pullRequestOfRun(run.id), store.workloads.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.workloads.dispatchOfRun(run.id, new Date().toISOString()), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnoses.diagnosesOf(run.id, new Date().toISOString()), store.diagnoses.diagnosisOfRun(run.id, new Date().toISOString()), shown));
   });
 
   app.get('/runs/:id/transcript', (c) => {

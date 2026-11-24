@@ -210,7 +210,7 @@ test('given maxConcurrent = 1 and two dispatchable tickets, when the pass runs, 
     frontier: [forge([]), dotfiles],
     seed: (store) => {
       const at = new Date().toISOString();
-      store.endDispatch(startedDispatch(store, 'forge', 113, 'run-113', at), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);
+      store.workloads.endDispatch(startedDispatch(store, 'forge', 113, 'run-113', at), { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } }, at);
     },
   });
   assert.deepEqual(finished.started, ['start --no-block --no-ask-password -- forge-dispatch@dotfiles:5.service']);
@@ -266,7 +266,7 @@ test('given maxConcurrent = 1, a revision of a pull request still running and a 
     maxConcurrent: 1,
     frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113)])],
     seed: (store) => {
-      const start = store.startRevision(
+      const start = store.workloads.startRevision(
         { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
         [],
         'run-revision',
@@ -394,7 +394,7 @@ const failedWith = (reason: 'check-failed' | 'interrupted' | 'no-pull-request') 
   store.diagnoses.armDiagnosis('2000-01-01T00:00:00.000Z');
   const at = new Date().toISOString();
   const id = startedDispatch(store, 'forge', 31, 'failed-run', at);
-  store.endDispatch(id, { state: 'failed', reason, detail: null }, at);
+  store.workloads.endDispatch(id, { state: 'failed', reason, detail: null }, at);
 };
 
 const diagnosisUnits = (started: string[]): string[] =>
@@ -424,7 +424,7 @@ test('given a dispatch whose harness died from a signal and a ticket that is now
     seed: (store) => {
       const at = new Date().toISOString();
       const id = startedDispatch(store, 'forge', 31, 'killed-run', at);
-      store.endDispatch(
+      store.workloads.endDispatch(
         id,
         { state: 'failed', reason: 'errored', detail: 'claude was killed by SIGTERM while tool call toolu_1 (Bash) was in flight' },
         at,

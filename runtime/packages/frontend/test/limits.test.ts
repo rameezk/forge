@@ -80,9 +80,9 @@ test('given a dispatch that ended exceeded on its timeout, when the Board render
       closed: [], requests: [],
       tickets: [{ number: 56, title: 'Slow ticket', url, parent: null, createdAt: '2026-09-28T10:00:00Z', forgeReady: false, forHuman: false, blocked: false, blockedBy: [] }],
     });
-    const start = store.startDispatch({ repository: 'forge', number: 56, url }, 'run-56', '2026-09-29T08:00:00.000Z', Number.POSITIVE_INFINITY, null);
+    const start = store.workloads.startDispatch({ repository: 'forge', number: 56, url }, 'run-56', '2026-09-29T08:00:00.000Z', Number.POSITIVE_INFINITY, null);
     assert.ok('started' in start);
-    store.endDispatch(start.started, { state: 'failed', reason: 'exceeded', detail: 'timeout' }, '2026-09-29T10:00:00.000Z');
+    store.workloads.endDispatch(start.started, { state: 'failed', reason: 'exceeded', detail: 'timeout' }, '2026-09-29T10:00:00.000Z');
   });
 
   const cell = (await bodyOf(app, '/')).match(/<article[^>]*\sdata-ticket="56"[\s\S]*?<\/article>/)?.[0] ?? '';
@@ -165,9 +165,9 @@ test('given a dispatch that ended exceeded on its budget, when the Board renders
       closed: [], requests: [],
       tickets: [{ number: 57, title: 'Costly ticket', url, parent: null, createdAt: '2026-09-28T10:00:00Z', forgeReady: false, forHuman: false, blocked: false, blockedBy: [] }],
     });
-    const start = store.startDispatch({ repository: 'forge', number: 57, url }, 'run-57', '2026-09-29T08:00:00.000Z', Number.POSITIVE_INFINITY, null);
+    const start = store.workloads.startDispatch({ repository: 'forge', number: 57, url }, 'run-57', '2026-09-29T08:00:00.000Z', Number.POSITIVE_INFINITY, null);
     assert.ok('started' in start);
-    store.endDispatch(start.started, { state: 'failed', reason: 'exceeded', detail: 'budget' }, '2026-09-29T10:00:00.000Z');
+    store.workloads.endDispatch(start.started, { state: 'failed', reason: 'exceeded', detail: 'budget' }, '2026-09-29T10:00:00.000Z');
   });
 
   const cell = (await bodyOf(app, '/')).match(/<article[^>]*\sdata-ticket="57"[\s\S]*?<\/article>/)?.[0] ?? '';

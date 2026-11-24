@@ -46,9 +46,9 @@ const grade = (store: Store, grading: Grading = {}): void => {
     gradedAt: at,
   });
   for (let index = 0; index < revisions; index += 1) {
-    const start = store.startRevision({ repository, number, url: `https://github.com/rameezk/${repository}/pull/${number}` }, [], `run-${heads}-${index}`, at, Number.POSITIVE_INFINITY);
+    const start = store.workloads.startRevision({ repository, number, url: `https://github.com/rameezk/${repository}/pull/${number}` }, [], `run-${heads}-${index}`, at, Number.POSITIVE_INFINITY);
     assert.ok('started' in start);
-    store.endRevision(start.started, 'done', at);
+    store.workloads.endRevision(start.started, 'done', at);
   }
   if (outcome === 'open') return;
   const settling = { repository, number, headSha: head };
@@ -63,16 +63,16 @@ const pushedBy = (store: Store, kind: 'revision' | 'conflict-resolution', reposi
   const pullRequest = { repository, number, url: `https://github.com/rameezk/${repository}/pull/${number}` };
   const startedAt = '2026-09-21T11:00:00.000Z';
   if (kind === 'revision') {
-    const start = store.startRevision(pullRequest, [], `run-${pushed}`, startedAt, Number.POSITIVE_INFINITY);
+    const start = store.workloads.startRevision(pullRequest, [], `run-${pushed}`, startedAt, Number.POSITIVE_INFINITY);
     assert.ok('started' in start);
-    store.recordRevisionPush(start.started, pushed);
-    store.endRevision(start.started, 'done', startedAt);
+    store.workloads.recordRevisionPush(start.started, pushed);
+    store.workloads.endRevision(start.started, 'done', startedAt);
     return;
   }
-  const start = store.startConflictResolution(pullRequest, [], `run-${pushed}`, startedAt, Number.POSITIVE_INFINITY, { headSha: 'before', defaultSha: 'default' });
+  const start = store.workloads.startConflictResolution(pullRequest, [], `run-${pushed}`, startedAt, Number.POSITIVE_INFINITY, { headSha: 'before', defaultSha: 'default' });
   assert.ok('started' in start);
-  store.recordConflictResolutionPush(start.started, pushed);
-  store.endConflictResolution(start.started, 'done', startedAt);
+  store.workloads.recordConflictResolutionPush(start.started, pushed);
+  store.workloads.endConflictResolution(start.started, 'done', startedAt);
 };
 
 const many = (store: Store, count: number, grading: Grading): void => {

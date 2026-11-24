@@ -432,7 +432,7 @@ export const startedDispatch = (
   runId: string,
   at: string,
 ): number => {
-  const start = store.startDispatch(
+  const start = store.workloads.startDispatch(
     { repository, number, url: `https://github.com/rameezk/${repository}/issues/${number}` },
     runId,
     at,
@@ -456,13 +456,13 @@ export const leaveOpenPullRequests = (
     nextPullRequest += 1;
     const at = new Date().toISOString();
     const id = startedDispatch(store, repository, number, `run-${repository}-${number}`, at);
-    store.endDispatch(
+    store.workloads.endDispatch(
       id,
       { state: 'done', pullRequest: { number, url: `https://github.com/rameezk/${repository}/pull/${number}` } },
       at,
     );
     const state = settled[index];
-    if (state !== undefined) store.recordPullRequest(id, { state, settledAt: at, rework: 0 });
+    if (state !== undefined) store.workloads.recordPullRequest(id, { state, settledAt: at, rework: 0 });
   }
 };
 

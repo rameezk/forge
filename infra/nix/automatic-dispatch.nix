@@ -41,15 +41,15 @@ let
     store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
     store.diagnoses.armDiagnosis('2000-01-01T00:00:00.000Z');
     const failedAt = new Date().toISOString();
-    if (store.dispatchOfRun('failed-run', failedAt) === null) {
-      const failed = store.startDispatch(
+    if (store.workloads.dispatchOfRun('failed-run', failedAt) === null) {
+      const failed = store.workloads.startDispatch(
         { repository: 'forge', number: 99, url: 'https://github.com/rameezk/forge/issues/99' },
         'failed-run',
         failedAt,
         Number.POSITIVE_INFINITY,
         null,
       );
-      store.endDispatch(failed.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, failedAt);
+      store.workloads.endDispatch(failed.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, failedAt);
     }
     store.close();
   '';

@@ -43,7 +43,7 @@ const aRun = (id: string, overrides: Partial<RunRecord> = {}): RunRecord => ({
 });
 
 const failedDispatch = (store: Store, runId: string, reason: DispatchFailure, number = 1, at = new Date().toISOString()): void => {
-  const start = store.startDispatch(
+  const start = store.workloads.startDispatch(
     { repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` },
     runId,
     at,
@@ -51,7 +51,7 @@ const failedDispatch = (store: Store, runId: string, reason: DispatchFailure, nu
     null,
   );
   assert.ok('started' in start);
-  store.endDispatch(start.started, { state: 'failed', reason, detail: null }, at);
+  store.workloads.endDispatch(start.started, { state: 'failed', reason, detail: null }, at);
 };
 
 test('every failure reason sits in exactly one of the diagnosed and undiagnosed lists', () => {
@@ -66,10 +66,10 @@ test('given failed workloads of each kind and reason, when the undiagnosed failu
   failedDispatch(store, 'stopped', 'interrupted', 2);
   failedDispatch(store, 'noshell', 'devshell-failed', 3);
   const at = new Date().toISOString();
-  const revision = store.startRevision(PR, [], 'revision', at, Number.POSITIVE_INFINITY);
+  const revision = store.workloads.startRevision(PR, [], 'revision', at, Number.POSITIVE_INFINITY);
   assert.ok('started' in revision);
-  store.endRevision(revision.started, 'failed', at, { reason: 'unanswered', detail: null });
-  const resolution = store.startConflictResolution(
+  store.workloads.endRevision(revision.started, 'failed', at, { reason: 'unanswered', detail: null });
+  const resolution = store.workloads.startConflictResolution(
     { ...PR, number: 8 },
     [],
     'resolution',
@@ -78,7 +78,7 @@ test('given failed workloads of each kind and reason, when the undiagnosed failu
     { headSha: 'a', defaultSha: 'b' },
   );
   assert.ok('started' in resolution);
-  store.endConflictResolution(resolution.started, 'failed', at, { reason: 'still-conflicting', detail: null });
+  store.workloads.endConflictResolution(resolution.started, 'failed', at, { reason: 'still-conflicting', detail: null });
 
   assert.deepEqual(
     store.diagnoses.undiagnosedFailures().map(({ runId }) => runId).toSorted(),
@@ -123,8 +123,8 @@ test('given a running diagnosis, when workloads are counted, then it holds no co
   failedDispatch(store, 'checks', 'check-failed');
   const at = new Date().toISOString();
   store.diagnoses.startDiagnosis('checks', 'diagnosis-1', at);
-  assert.equal(store.liveWorkloads(at), 0);
-  assert.equal(store.dispatchesInReview(at), 0);
+  assert.equal(store.workloads.liveWorkloads(at), 0);
+  assert.equal(store.workloads.dispatchesInReview(at), 0);
 });
 
 test('given diagnosis runs in the store, when insights load with manual workloads included, then no diagnosis cohort or spend is counted', () => {

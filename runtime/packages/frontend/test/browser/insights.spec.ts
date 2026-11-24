@@ -116,9 +116,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
       const run = workload(id, { startTime, endTime, ticket: { repository: 'forge', number: Number(id.slice(-1)), url: 'https://github.com/rameezk/forge/issues/1' } });
       dashboard.store.runs.insertRun(run);
       dashboard.store.runs.recordFingerprint(id, { fingerprint: config, hash: hashOf(config), forgeGitSha: null, baseCommit: null });
-      const started = dashboard.store.startDispatch(run.ticket!, id, startTime, 100, null);
+      const started = dashboard.store.workloads.startDispatch(run.ticket!, id, startTime, 100, null);
       if (!('started' in started)) throw new Error('dispatch did not start');
-      dashboard.store.endDispatch(started.started, { state: 'failed', reason: 'no-pull-request', detail: null }, endTime);
+      dashboard.store.workloads.endDispatch(started.started, { state: 'failed', reason: 'no-pull-request', detail: null }, endTime);
     };
     dispatched('old1', '2026-09-20T10:00:00.000Z', '2026-09-20T10:03:00.000Z', previous);
     dispatched('new2', '2026-09-21T10:00:00.000Z', '2026-09-21T10:03:00.000Z', fingerprint);
