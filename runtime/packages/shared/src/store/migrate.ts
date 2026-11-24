@@ -1,7 +1,7 @@
 import type { Connection } from './connection.ts';
 import { migrateAutoMerge } from './migrations/auto-merge.ts';
 import { migrateDiagnoses } from './migrations/diagnoses.ts';
-import { migrateFrontier } from './migrations/frontier.ts';
+import { Frontier } from './frontier.ts';
 import { migrateGrades } from './migrations/grades.ts';
 import { migrateRuns } from './migrations/runs.ts';
 import { migrateUrgency } from './urgency.ts';
@@ -14,7 +14,7 @@ interface ConcernMigration {
 
 export const CONCERNS: readonly ConcernMigration[] = [
   { name: 'runs', migrate: migrateRuns },
-  { name: 'frontier', migrate: migrateFrontier },
+  { name: 'frontier', migrate: Frontier.migrate },
   { name: 'workloads', migrate: Workloads.migrate },
   { name: 'grades', migrate: migrateGrades },
   { name: 'urgency', migrate: migrateUrgency },

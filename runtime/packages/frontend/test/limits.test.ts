@@ -73,7 +73,7 @@ test('given a run that ended exceeded on a 2 hour timeout, when its page and the
 test('given a dispatch that ended exceeded on its timeout, when the Board renders, then the failed card reads Exceeded timeout', async () => {
   const url = 'https://github.com/rameezk/forge/issues/56';
   const app = appWith((store) => {
-    store.replaceFrontier({
+    store.frontier.replaceFrontier({
       repository: 'forge',
       github: 'rameezk/forge',
       polledAt: '2026-09-29T08:15:00.000Z',
@@ -158,7 +158,7 @@ test('given a run that ended exceeded on its 5 USD budget at 5.21 USD, when its 
 test('given a dispatch that ended exceeded on its budget, when the Board renders, then the failed card reads Exceeded budget', async () => {
   const url = 'https://github.com/rameezk/forge/issues/57';
   const app = appWith((store) => {
-    store.replaceFrontier({
+    store.frontier.replaceFrontier({
       repository: 'forge',
       github: 'rameezk/forge',
       polledAt: '2026-09-29T08:15:00.000Z',

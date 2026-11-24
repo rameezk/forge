@@ -262,7 +262,7 @@ const sync = async (
   const store = Store.open(join(stateDir, 'forge.db'));
 
   try {
-    store.pruneFrontier(Object.keys(config.repositories));
+    store.frontier.pruneFrontier(Object.keys(config.repositories));
     let failed = false;
     for (const [name, repository] of Object.entries(config.repositories)) {
       const { github, on } = repository;
@@ -278,7 +278,7 @@ const sync = async (
         }
         const closed = await pollClosed(github);
         const requests = await pollRequests(github);
-        store.replaceFrontier({
+        store.frontier.replaceFrontier({
           repository: name,
           github,
           polledAt: new Date().toISOString(),
@@ -289,7 +289,7 @@ const sync = async (
       } catch (error) {
         const message = errorMessage(error);
         console.error(`${name}: ${message}`);
-        store.recordFrontierError({
+        store.frontier.recordFrontierError({
           repository: name,
           github,
           message,
@@ -298,8 +298,8 @@ const sync = async (
         failed = true;
       }
       const failures = await checkRules(github);
-      const reviewerApp = repository.autoMerge === true ? store.reviewerAppFailures(name) : [];
-      store.recordBranchRules({ repository: name, github, failures, reviewerApp });
+      const reviewerApp = repository.autoMerge === true ? store.frontier.reviewerAppFailures(name) : [];
+      store.frontier.recordBranchRules({ repository: name, github, failures, reviewerApp });
       if (failures.length + reviewerApp.length > 0) {
         console.error(`${name}: no new work, ${[...failures, ...reviewerApp].join('; ')}`);
       }

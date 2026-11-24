@@ -29,12 +29,12 @@ const appWith = (frontier: Seed[], dispatch: (store: Store) => void = () => {}, 
   const store = Store.open(':memory:');
   dispatch(store);
   for (const seed of frontier) {
-    if (seed.polledAt !== null) store.replaceFrontier(seed);
+    if (seed.polledAt !== null) store.frontier.replaceFrontier(seed);
     if ('branchRules' in seed && seed.branchRules !== undefined) {
-      store.recordBranchRules({ repository: seed.repository, github: seed.github, failures: seed.branchRules });
+      store.frontier.recordBranchRules({ repository: seed.repository, github: seed.github, failures: seed.branchRules });
     }
     if (seed.lastError !== undefined) {
-      store.recordFrontierError({ repository: seed.repository, github: seed.github, ...seed.lastError });
+      store.frontier.recordFrontierError({ repository: seed.repository, github: seed.github, ...seed.lastError });
     }
   }
   return createApp({

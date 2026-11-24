@@ -128,7 +128,7 @@ export const createApp = ({
     const deploy = deployStatus();
     const grading = gradingAttention();
     const pause = autoMergePause();
-    const repositories = store.listRepositoryProblems();
+    const repositories = store.frontier.listRepositoryProblems();
     return version === undefined ? { ...display, deploy, grading, autoMergePause: pause, repositories } : { ...display, version, deploy, grading, autoMergePause: pause, repositories };
   };
 
@@ -155,7 +155,7 @@ export const createApp = ({
       const run = runId === null ? undefined : store.runs.getRun(runId);
       if (run !== undefined) runs.set(run.id, run);
     }
-    const frontier = store.listFrontier();
+    const frontier = store.frontier.listFrontier();
     const ordering = { order: dispatchOrder, priorities: new Map(Object.entries(repositoryPriorities)), urgencies: certainUrgencies(store.urgency, frontier, dispatchOrder) };
     return c.html(renderBoard(frontier, dispatches, revisions, conflictResolutions, store.workloads.closesByPullRequest(), runs, store.workloads.attemptedTickets(), { running: store.workloads.liveWorkloads(now), limit: maxConcurrent }, { ...store.workloads.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])), holds: new Set(store.heldPullRequests().map(({ repository, number }) => ticketKey(repository, number))), sampled: new Set(store.sampledPullRequests().map(({ repository, number }) => ticketKey(repository, number))), paused: new Set(pausedPullRequests(now).map(({ repository, number }) => ticketKey(repository, number))), gates: new Map(store.currentFailingGates().filter(({ repository }) => autoMergeRepositories.includes(repository)).map(({ repository, number, gates }) => [ticketKey(repository, number), gates])) }, { grades: new Map(store.urgency.currentGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.urgency.currentAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }, ordering));
   });

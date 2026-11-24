@@ -224,7 +224,7 @@ test('given the Board open in a browser, when a frontier poll writes new tickets
 }) => {
   await openLive(page, '/');
 
-  dashboard.store.replaceFrontier(polledFrontier);
+  dashboard.store.frontier.replaceFrontier(polledFrontier);
 
   await expect(page.locator('article', { hasText: 'Live runs list and Board' })).toBeVisible();
   await expectNotReloaded(page);
@@ -444,7 +444,7 @@ test.describe('with JS disabled', () => {
   }) => {
     dashboard.store.runs.insertRun(transcribedRun);
     dashboard.appendEvents('run-01.jsonl', say('Reading the ticket.'));
-    dashboard.store.replaceFrontier(polledFrontier);
+    dashboard.store.frontier.replaceFrontier(polledFrontier);
 
     await page.goto('/workloads');
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();

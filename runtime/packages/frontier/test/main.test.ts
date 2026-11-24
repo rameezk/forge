@@ -133,7 +133,7 @@ const run = (
 const storedFrontier = (stateDir: string) => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    return store.listFrontier();
+    return store.frontier.listFrontier();
   } finally {
     store.close();
   }
@@ -472,7 +472,7 @@ test('given a declared repository whose recorded response spans several pages, w
 const seeding = (stateDir: string, frontier: PolledFrontier[]) => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    for (const repository of frontier) store.replaceFrontier(repository);
+    for (const repository of frontier) store.frontier.replaceFrontier(repository);
   } finally {
     store.close();
   }

@@ -69,7 +69,7 @@ test('given a store file from before the frontier where another connection brief
   try {
     const store = Store.open(path);
     assert.equal(Atomics.load(new Int32Array(released), 0), 1, 'the store should open only once the writer lets go');
-    assert.deepEqual(store.listFrontier(), []);
+    assert.deepEqual(store.frontier.listFrontier(), []);
     store.close();
   } finally {
     await once(writer, 'exit');

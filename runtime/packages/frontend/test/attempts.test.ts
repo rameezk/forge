@@ -192,7 +192,7 @@ test('given a ticket with no attempts, when its attempts view is requested, then
 
 test('given a dispatched workload, when its run detail page and the Board are requested, then both link to its ticket attempts view', async () => {
   const { app, store } = dashboard(THREE.slice(0, 1));
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: '2026-09-29T08:15:00.000Z',
@@ -238,7 +238,7 @@ test('given a ticket number that is not a plain positive integer, when its attem
 test('given a ticket whose only dispatch never started a workload, when the Board is requested, then it does not link to an attempts view with nothing in it', async () => {
   const { app, store } = dashboard([]);
   store.workloads.reconcileDispatch(TICKET, '2026-09-29T08:00:00.000Z');
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: '2026-09-29T08:15:00.000Z',
@@ -258,7 +258,7 @@ test('given a ticket with an earlier attempt that was dispatched again with no w
   const { app, store } = dashboard(THREE.slice(0, 1));
   const again = store.workloads.startDispatch(TICKET, 'not-started', '2026-09-30T08:00:00.000Z', 100, null);
   assert.ok('started' in again);
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: '2026-09-30T08:15:00.000Z',
@@ -476,7 +476,7 @@ test('given a dispatch whose pull request had a conflict resolution that failed 
 
 test('given a dispatch whose pull request has a conflict resolution that failed to start, when the Board is requested, then the ticket card is flagged with the failed-start count', async () => {
   const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: '2026-09-29T08:15:00.000Z',
@@ -497,7 +497,7 @@ test('given a dispatch whose pull request has a conflict resolution that failed 
 
 test('given a conflict resolution that failed to start and is now running again, when the Board is requested, then the ticket card is in Running without the failed-start flag', async () => {
   const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: '2026-09-29T08:15:00.000Z',
@@ -537,7 +537,7 @@ const failRevisionToStart = (store: Store, at: string, detail: string, pullReque
 };
 
 const frontierWithTicket = (store: Store): void =>
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: '2026-09-29T08:15:00.000Z',

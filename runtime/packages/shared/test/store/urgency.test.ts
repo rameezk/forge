@@ -18,7 +18,7 @@ const ticket = (number: number, version: string): Ticket => ({
 
 const withFrontier = (tickets: Ticket[]): Store => {
   const store = Store.open(':memory:');
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: '2026-09-29T08:15:00.000Z',

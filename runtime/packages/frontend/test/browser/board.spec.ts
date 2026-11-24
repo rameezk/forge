@@ -16,7 +16,7 @@ const ticket = (number: number): Ticket => ({
 });
 
 const seed = (store: Store, tickets: Ticket[]) =>
-  store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets });
+  store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets });
 
 const spec = (number: number) => ({ number, title: `Spec ${number}`, url: `https://github.com/rameezk/forge/issues/${number}` });
 
@@ -122,7 +122,7 @@ test.describe('on a desktop screen', () => {
   test.use({ viewport: { width: 1600, height: 800 } });
 
   test('given the Board on a desktop screen, when it is opened, then the page title sits clear of the header', async ({ dashboard, page }) => {
-    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
+    dashboard.store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
 
@@ -134,7 +134,7 @@ test.describe('on a desktop screen', () => {
   });
 
   test('given the Board on a desktop screen, when it is opened, then the headers read as one set, the mockup height: counts flush right, icons 6px left of the count and centred on the title, titles at the left padding', async ({ dashboard, page }) => {
-    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
+    dashboard.store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [ticket(1)] });
 
     await page.goto('/');
 
@@ -257,7 +257,7 @@ test.describe('grouping by spec', () => {
 });
 
 const crowd = (store: Store, repository: string, count: number, title = 'Ticket') =>
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository,
     github: `rameezk/${repository}`,
     polledAt: '2026-09-21T10:00:00.000Z',
@@ -635,7 +635,7 @@ test.describe('the review limit on a phone-width screen', () => {
     seed(dashboard.store, [1, 2, 3, 4, 5].map((number) => ({ ...ticket(number), forgeReady: true })));
     for (const number of [1, 2, 3, 4]) openPullRequest(dashboard.store, number);
     runningDispatch(dashboard.store, 5, true);
-    dashboard.store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [1, 2, 3, 4, 5].map(ticket) });
+    dashboard.store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-21T10:00:00.000Z', closed: [], requests: [], tickets: [1, 2, 3, 4, 5].map(ticket) });
     await page.goto('/');
 
     const badge = page.locator('[data-stage-header] [data-review-limit]');
@@ -694,7 +694,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     test('given a done ticket whose pull request auto-merged and another merged by a person, when the Board is opened, then only the first carries an auto-merged pill, inside its card and without sideways scrolling', async ({ dashboard, page }) => {
       const { store } = dashboard;
       const closedTicket = (number: number) => ({ ...ticket(number), closedAt: new Date().toISOString() });
-      store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [closedTicket(1), closedTicket(2)], requests: [], tickets: [] });
+      store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [closedTicket(1), closedTicket(2)], requests: [], tickets: [] });
       for (const [number, outcome] of [[1, 'auto-merged'], [2, 'merged']] as const) {
         const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
         if (!('started' in started)) throw new Error('dispatch refused');
@@ -757,7 +757,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     test('given a ticket in review whose pull request is sampled and another whose is not, when the Board is opened, then only the first carries a sampled pill, inside its card and without sideways scrolling', async ({ dashboard, page }) => {
       const { store } = dashboard;
-      store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1), ticket(2)] });
+      store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1), ticket(2)] });
       for (const number of [1, 2]) {
         const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
         if (!('started' in started)) throw new Error('dispatch refused');
@@ -792,7 +792,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     test('given a ticket in review whose pull request fails several gates and another that is graded moderate, when the Board is opened, then the first carries a pill per gate with its detail inside its card, the second none, and nothing scrolls sideways', async ({ dashboard, page }) => {
       const { store } = dashboard;
-      store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1), ticket(2)] });
+      store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1), ticket(2)] });
       for (const number of [1, 2]) {
         const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
         if (!('started' in started)) throw new Error('dispatch refused');
@@ -842,7 +842,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     test('given a pause and a ticket in review whose pull request would have auto-merged, when the Board is opened, then its card carries a paused pill inside it, the band names the pause and nothing scrolls sideways', async ({ dashboard, page }) => {
       const { store } = dashboard;
-      store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1)] });
+      store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1)] });
       const started = store.workloads.startDispatch({ repository: 'forge', number: 1, url: 'https://github.com/rameezk/forge/issues/1' }, 'run-1', new Date().toISOString(), 100, null);
       if (!('started' in started)) throw new Error('dispatch refused');
       store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 101, url: 'https://github.com/rameezk/forge/pull/101' } }, new Date().toISOString());

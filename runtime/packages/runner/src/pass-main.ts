@@ -38,7 +38,7 @@ const dispatchable = (
   store: Store,
   running: ReadonlySet<string>,
 ): Dispatchable[] => {
-  const frontier = store.listFrontier();
+  const frontier = store.frontier.listFrontier();
   const order = dispatchOrderOf(config);
   const byOrder = dispatchOrder(frontier, {
     order,
@@ -125,7 +125,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv): Promise<numb
       .filter(({ repository }) => declaresConflictWorker(config, repository));
     const resolving = new Set(conflicts.map(({ repository, number }) => ticketKey(repository, number)));
     const rules = new Map(
-      store.listFrontier().map(({ repository, branchRules }) => [repository, branchRules]),
+      store.frontier.listFrontier().map(({ repository, branchRules }) => [repository, branchRules]),
     );
     const everything: Pending[] = [
       ...conflicts.map((pull): Pending => ({ kind: 'conflict-resolution', ...pull })),

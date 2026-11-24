@@ -129,7 +129,7 @@ const forge = (
 
   const store = Store.open(join(stateDir, 'forge.db'));
   if (reviewerApp.storedRuleFailures !== undefined) {
-    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: reviewerApp.storedRuleFailures });
+    store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: reviewerApp.storedRuleFailures });
   }
   settleHistory(store, history);
   for (const pull of pulls) {
@@ -763,7 +763,7 @@ test('given many draws from a seeded random source, when each is drawn, then the
 });
 
 const reviewerFailures = (f: ReturnType<typeof forge>): string[] =>
-  f.withStore((store) => store.reviewerAppFailures('forge'));
+  f.withStore((store) => store.frontier.reviewerAppFailures('forge'));
 
 test('given an opted-in repository whose rules pass and where the Reviewer App is not installed, when the pass runs, then it merges nothing there, logs why and records that the App is not installed', async () => {
   const f = forge([{ number: 7 }], ['forge'], {}, { installed: ['rameezk/other'] });
@@ -849,8 +849,8 @@ test('given a repository that is not opted in, when the pass runs, then its Revi
 test('given frontier sync last stored a Reviewer App failure that the App has since cleared, when the pass runs, then the stale failure does not stop the merge', async () => {
   const f = forge([{ number: 7 }], ['forge'], {}, { rules: { 'rameezk/forge': PROTECTED } });
   f.withStore((store) => {
-    store.recordReviewerAppFailures('forge', ['the Reviewer App is not installed on it'], NOW);
-    store.recordBranchRules({
+    store.frontier.recordReviewerAppFailures('forge', ['the Reviewer App is not installed on it'], NOW);
+    store.frontier.recordBranchRules({
       repository: 'forge',
       github: 'rameezk/forge',
       failures: [],

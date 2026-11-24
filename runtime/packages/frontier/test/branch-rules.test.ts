@@ -42,7 +42,7 @@ const syncing = async (
   const dir = stateDir ?? mkdtempSync(join(tmpdir(), 'forge-branch-rules-'));
   if (reviewerApp !== undefined) {
     const seeded = Store.open(join(dir, 'forge.db'));
-    seeded.recordReviewerAppFailures('forge', reviewerApp, '2026-11-18T12:00:00.000Z');
+    seeded.frontier.recordReviewerAppFailures('forge', reviewerApp, '2026-11-18T12:00:00.000Z');
     seeded.close();
   }
   const app = fakeGithubApp(['rameezk/forge']);
@@ -89,7 +89,7 @@ const syncing = async (
   }
   const store = Store.open(join(dir, 'forge.db'));
   try {
-    return { code, dir, app, requests, logged, branchRules: store.listFrontier()[0]?.branchRules };
+    return { code, dir, app, requests, logged, branchRules: store.frontier.listFrontier()[0]?.branchRules };
   } finally {
     store.close();
   }

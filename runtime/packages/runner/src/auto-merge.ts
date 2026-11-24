@@ -412,8 +412,8 @@ const checkReviewerAppRules = async (
   config: RepositoryConfig,
 ): Promise<string[]> => {
   const failures = await checkReviewerApp(fetch, config.github, () => tokens(config.github, 'review'));
-  store.recordReviewerAppFailures(repository, failures, now());
-  return [...store.ownRuleFailures(repository), ...failures];
+  store.frontier.recordReviewerAppFailures(repository, failures, now());
+  return [...store.frontier.ownRuleFailures(repository), ...failures];
 };
 
 const publishMergesNothing = async (
