@@ -104,7 +104,7 @@ export const createApp = ({
   };
 
   const gradingAttention = (): GradingAttention | null =>
-    gradingRepositories.length === 0 ? null : { status: store.gradingStatus(), now: clock().getTime() };
+    gradingRepositories.length === 0 ? null : { status: store.grades.gradingStatus(), now: clock().getTime() };
 
   const autoMergePause = (): AutoMergeStatus | null => {
     if (autoMergeRepositories.length === 0) return null;
@@ -157,7 +157,7 @@ export const createApp = ({
     }
     const frontier = store.listFrontier();
     const ordering = { order: dispatchOrder, priorities: new Map(Object.entries(repositoryPriorities)), urgencies: certainUrgencies(store.urgency, frontier, dispatchOrder) };
-    return c.html(renderBoard(frontier, dispatches, revisions, conflictResolutions, store.workloads.closesByPullRequest(), runs, store.workloads.attemptedTickets(), { running: store.workloads.liveWorkloads(now), limit: maxConcurrent }, { ...store.workloads.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])), holds: new Set(store.heldPullRequests().map(({ repository, number }) => ticketKey(repository, number))), sampled: new Set(store.sampledPullRequests().map(({ repository, number }) => ticketKey(repository, number))), paused: new Set(pausedPullRequests(now).map(({ repository, number }) => ticketKey(repository, number))), gates: new Map(store.currentFailingGates().filter(({ repository }) => autoMergeRepositories.includes(repository)).map(({ repository, number, gates }) => [ticketKey(repository, number), gates])) }, { grades: new Map(store.urgency.currentGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.urgency.currentAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }, ordering));
+    return c.html(renderBoard(frontier, dispatches, revisions, conflictResolutions, store.workloads.closesByPullRequest(), runs, store.workloads.attemptedTickets(), { running: store.workloads.liveWorkloads(now), limit: maxConcurrent }, { ...store.workloads.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.grades.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.grades.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])), holds: new Set(store.heldPullRequests().map(({ repository, number }) => ticketKey(repository, number))), sampled: new Set(store.sampledPullRequests().map(({ repository, number }) => ticketKey(repository, number))), paused: new Set(pausedPullRequests(now).map(({ repository, number }) => ticketKey(repository, number))), gates: new Map(store.currentFailingGates().filter(({ repository }) => autoMergeRepositories.includes(repository)).map(({ repository, number, gates }) => [ticketKey(repository, number), gates])) }, { grades: new Map(store.urgency.currentGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.urgency.currentAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }, ordering));
   });
 
   app.get('/work', (c) => c.redirect('/'));
@@ -209,7 +209,7 @@ export const createApp = ({
     const shown = displayOf(c);
     const query = queryOf(c.req.query());
     if (query.tab === 'risk') {
-      const options = store.riskOptions();
+      const options = store.grades.riskOptions();
       const fingerprint = query.cohort ?? options.cohorts[0];
       const { startedFrom, startedBefore } = dayRange(query.from, query.to, timeZone);
       const range = {
@@ -217,8 +217,8 @@ export const createApp = ({
         ...(startedFrom === undefined ? {} : { gradedFrom: new Date(startedFrom).toISOString() }),
         ...(startedBefore === undefined ? {} : { gradedBefore: new Date(startedBefore).toISOString() }),
       };
-      const grades = fingerprint === undefined ? [] : store.listRiskGrades({ fingerprint, ...range });
-      return c.html(renderRisk(aggregateRisk(grades), summarizeRisk(grades, store.listFailedGradingHeads(range)), { ...query, ...(fingerprint === undefined ? {} : { cohort: fingerprint }) }, options, shown, autoMergeStatus(store), store.autoMergeCounts(range), autoMergeRepositories));
+      const grades = fingerprint === undefined ? [] : store.grades.listRiskGrades({ fingerprint, ...range });
+      return c.html(renderRisk(aggregateRisk(grades), summarizeRisk(grades, store.grades.listFailedGradingHeads(range)), { ...query, ...(fingerprint === undefined ? {} : { cohort: fingerprint }) }, options, shown, autoMergeStatus(store), store.autoMergeCounts(range), autoMergeRepositories));
     }
     const filter = filterOf(query);
     return c.html(renderInsights(store.insights.listCohorts(filter), store.insights.listPoints(filter), store.insights.listProviderShares(filter), query, store.insights.options(), shown));
