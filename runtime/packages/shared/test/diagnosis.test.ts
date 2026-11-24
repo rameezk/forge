@@ -61,7 +61,7 @@ test('every failure reason sits in exactly one of the diagnosed and undiagnosed 
 
 test('given failed workloads of each kind and reason, when the undiagnosed failures are listed, then only those in scope appear, each once its diagnosis starts', () => {
   const store = Store.open(':memory:');
-  store.armDiagnosis('2000-01-01T00:00:00.000Z');
+  store.diagnoses.armDiagnosis('2000-01-01T00:00:00.000Z');
   failedDispatch(store, 'checks', 'check-failed', 1);
   failedDispatch(store, 'stopped', 'interrupted', 2);
   failedDispatch(store, 'noshell', 'devshell-failed', 3);
@@ -81,48 +81,48 @@ test('given failed workloads of each kind and reason, when the undiagnosed failu
   store.workloads.endConflictResolution(resolution.started, 'failed', at, { reason: 'still-conflicting', detail: null });
 
   assert.deepEqual(
-    store.undiagnosedFailures().map(({ runId }) => runId).toSorted(),
+    store.diagnoses.undiagnosedFailures().map(({ runId }) => runId).toSorted(),
     ['checks', 'resolution', 'revision'],
   );
 
-  store.startDiagnosis('checks', 'diagnosis-1', at);
+  store.diagnoses.startDiagnosis('checks', 'diagnosis-1', at);
   assert.deepEqual(
-    store.undiagnosedFailures().map(({ runId }) => runId).toSorted(),
+    store.diagnoses.undiagnosedFailures().map(({ runId }) => runId).toSorted(),
     ['resolution', 'revision'],
   );
 });
 
 test('given a failed diagnosis, when the undiagnosed failures are listed, then the failed run is not offered again and the diagnosis is not itself a failure to diagnose', () => {
   const store = Store.open(':memory:');
-  store.armDiagnosis('2000-01-01T00:00:00.000Z');
+  store.diagnoses.armDiagnosis('2000-01-01T00:00:00.000Z');
   failedDispatch(store, 'checks', 'check-failed');
   const at = new Date().toISOString();
-  const id = store.startDiagnosis('checks', 'diagnosis-1', at);
-  store.endDiagnosis(id, 'failed', at, { detail: 'no diagnosis.json' });
-  assert.deepEqual(store.undiagnosedFailures(), []);
-  assert.equal(store.diagnosesOf('checks', at)[0]?.state, 'failed');
+  const id = store.diagnoses.startDiagnosis('checks', 'diagnosis-1', at);
+  store.diagnoses.endDiagnosis(id, 'failed', at, { detail: 'no diagnosis.json' });
+  assert.deepEqual(store.diagnoses.undiagnosedFailures(), []);
+  assert.equal(store.diagnoses.diagnosesOf('checks', at)[0]?.state, 'failed');
 });
 
 test('given a diagnosis that recorded a verdict, when the failed run is looked up, then it carries the verdict, newest first', () => {
   const store = Store.open(':memory:');
   failedDispatch(store, 'checks', 'check-failed');
-  const first = store.startDiagnosis('checks', 'diagnosis-1', '2026-11-01T10:00:00.000Z');
-  store.endDiagnosis(first, 'done', '2026-11-01T10:05:00.000Z', {
+  const first = store.diagnoses.startDiagnosis('checks', 'diagnosis-1', '2026-11-01T10:00:00.000Z');
+  store.diagnoses.endDiagnosis(first, 'done', '2026-11-01T10:05:00.000Z', {
     verdict: { category: 'skill', evidence: [{ turn: 3, note: 'skipped the skill' }], suggestedFix: 'Fix the skill' },
   });
-  const second = store.startDiagnosis('checks', 'diagnosis-2', '2026-11-02T10:00:00.000Z');
-  store.endDiagnosis(second, 'failed', '2026-11-02T10:01:00.000Z', { detail: 'missing' });
-  const diagnoses = store.diagnosesOf('checks', '2026-11-03T00:00:00.000Z');
+  const second = store.diagnoses.startDiagnosis('checks', 'diagnosis-2', '2026-11-02T10:00:00.000Z');
+  store.diagnoses.endDiagnosis(second, 'failed', '2026-11-02T10:01:00.000Z', { detail: 'missing' });
+  const diagnoses = store.diagnoses.diagnosesOf('checks', '2026-11-03T00:00:00.000Z');
   assert.deepEqual(diagnoses.map(({ runId }) => runId), ['diagnosis-2', 'diagnosis-1']);
   assert.equal(diagnoses[1]?.verdict?.category, 'skill');
-  assert.equal(store.diagnosisOfRun('diagnosis-1', '2026-11-03T00:00:00.000Z')?.failedRunId, 'checks');
+  assert.equal(store.diagnoses.diagnosisOfRun('diagnosis-1', '2026-11-03T00:00:00.000Z')?.failedRunId, 'checks');
 });
 
 test('given a running diagnosis, when workloads are counted, then it holds no concurrency or review slot', () => {
   const store = Store.open(':memory:');
   failedDispatch(store, 'checks', 'check-failed');
   const at = new Date().toISOString();
-  store.startDiagnosis('checks', 'diagnosis-1', at);
+  store.diagnoses.startDiagnosis('checks', 'diagnosis-1', at);
   assert.equal(store.workloads.liveWorkloads(at), 0);
   assert.equal(store.workloads.dispatchesInReview(at), 0);
 });
@@ -132,7 +132,7 @@ test('given diagnosis runs in the store, when insights load with manual workload
   store.runs.insertRun(aRun('diagnosis-1', { costUsd: 9 }));
   const at = new Date().toISOString();
   failedDispatch(store, 'checks', 'check-failed');
-  store.startDiagnosis('checks', 'diagnosis-1', at);
+  store.diagnoses.startDiagnosis('checks', 'diagnosis-1', at);
   const filter = { includeManual: true, kind: 'all' as const };
   assert.deepEqual(store.insights.listCohorts(filter), []);
   assert.deepEqual(store.insights.listPoints(filter), []);
@@ -159,11 +159,11 @@ test('given a verdict file, when it is parsed, then a valid one yields the verdi
 test('given failures from before a diagnosis worker was first configured and one after, when the undiagnosed failures are listed, then only the later one is offered, and arming again moves nothing', () => {
   const store = Store.open(':memory:');
   failedDispatch(store, 'before', 'check-failed', 1, '2026-11-01T10:00:00.000Z');
-  assert.deepEqual(store.undiagnosedFailures(), []);
-  store.armDiagnosis('2026-11-02T00:00:00.000Z');
+  assert.deepEqual(store.diagnoses.undiagnosedFailures(), []);
+  store.diagnoses.armDiagnosis('2026-11-02T00:00:00.000Z');
   failedDispatch(store, 'after', 'check-failed', 2, '2026-11-03T10:00:00.000Z');
-  store.armDiagnosis('2026-11-01T00:00:00.000Z');
-  assert.deepEqual(store.undiagnosedFailures().map(({ runId }) => runId), ['after']);
+  store.diagnoses.armDiagnosis('2026-11-01T00:00:00.000Z');
+  assert.deepEqual(store.diagnoses.undiagnosedFailures().map(({ runId }) => runId), ['after']);
 });
 
 test('given a verdict with more evidence than the contract allows, when it is parsed, then it is refused', () => {
@@ -174,12 +174,12 @@ test('given a verdict with more evidence than the contract allows, when it is pa
 test('given a diagnosis of a run is running, when another is started by hand, then it is refused, and once the first ends or goes stale it is accepted', () => {
   const store = Store.open(':memory:');
   const at = '2026-11-01T10:00:00.000Z';
-  const first = store.startDiagnosisUnlessRunning('checks', 'diagnosis-1', at);
+  const first = store.diagnoses.startDiagnosisUnlessRunning('checks', 'diagnosis-1', at);
   assert.equal(typeof first, 'number');
-  assert.equal(store.startDiagnosisUnlessRunning('checks', 'diagnosis-2', at), null);
-  assert.ok(store.startDiagnosisUnlessRunning('other', 'diagnosis-3', at) !== null);
-  store.endDiagnosis(first as number, 'done', at, { detail: null });
-  assert.ok(store.startDiagnosisUnlessRunning('checks', 'diagnosis-4', at) !== null);
-  assert.equal(store.startDiagnosisUnlessRunning('checks', 'diagnosis-5', at), null);
-  assert.ok(store.startDiagnosisUnlessRunning('checks', 'diagnosis-6', '2026-11-01T11:00:00.000Z') !== null);
+  assert.equal(store.diagnoses.startDiagnosisUnlessRunning('checks', 'diagnosis-2', at), null);
+  assert.ok(store.diagnoses.startDiagnosisUnlessRunning('other', 'diagnosis-3', at) !== null);
+  store.diagnoses.endDiagnosis(first as number, 'done', at, { detail: null });
+  assert.ok(store.diagnoses.startDiagnosisUnlessRunning('checks', 'diagnosis-4', at) !== null);
+  assert.equal(store.diagnoses.startDiagnosisUnlessRunning('checks', 'diagnosis-5', at), null);
+  assert.ok(store.diagnoses.startDiagnosisUnlessRunning('checks', 'diagnosis-6', '2026-11-01T11:00:00.000Z') !== null);
 });

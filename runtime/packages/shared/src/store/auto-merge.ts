@@ -1,5 +1,5 @@
 import type { Connection } from './connection.ts';
-import { liveSince } from './liveness.ts';
+import { liveSince } from './fragments.ts';
 import { riskGradeFromRow, type RecordedRiskGrade, type RiskGrade, type RiskGradeRow } from './grades.ts';
 import type { RiskFilter } from '../risk.ts';
 import type { AutoMergeVerdict, CheckRunConclusion, FailingGate, RecordedAutoMergeVerdict } from '../auto-merge-verdict.ts';

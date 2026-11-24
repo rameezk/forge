@@ -1517,7 +1517,7 @@ test('given a live workload on an older ticket that started after a live workloa
 test('given a live diagnosis workload, when the Board is requested, then Running holds no card for it and the running count does not include it', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     store.runs.insertRun({ ...runOf(5), status: 'error' });
-    store.startDiagnosis('run-5', 'diagnosis-5', new Date().toISOString());
+    store.diagnoses.startDiagnosis('run-5', 'diagnosis-5', new Date().toISOString());
   });
 
   const body = await (await app.request('/')).text();
