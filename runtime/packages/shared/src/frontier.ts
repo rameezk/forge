@@ -275,7 +275,6 @@ export const PULL_REQUEST_CONFLICT_QUERY = `
       pullRequest(number: $number) {
         mergeable
         headRefOid
-        baseRefOid
       }
     }
   }
@@ -1005,7 +1004,6 @@ export interface PullRequestConflict {
   defaultSha: string;
   mergeable: Mergeable;
   headSha: string;
-  baseSha: string;
 }
 
 interface PullRequestConflictResponse {
@@ -1014,7 +1012,6 @@ interface PullRequestConflictResponse {
     pullRequest: {
       mergeable: Mergeable;
       headRefOid: string;
-      baseRefOid: string;
     } | null;
   } | null;
 }
@@ -1043,7 +1040,6 @@ export const queryPullRequestConflict = async (
     defaultSha: branch.target.oid,
     mergeable: pullRequest.mergeable,
     headSha: pullRequest.headRefOid,
-    baseSha: pullRequest.baseRefOid,
   };
 };
 
