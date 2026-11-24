@@ -23,15 +23,19 @@ const MERGEABLE_DELAY_MS = 2000;
 
 const settledMergeable = async (
   read: () => Promise<PullRequestConflict>,
-  first: Mergeable,
+  first: PullRequestConflict,
+  sha: string,
   pause: Pause,
-): Promise<Mergeable> => {
-  let mergeable = first;
-  for (let attempt = 1; mergeable !== 'MERGEABLE' && attempt < MERGEABLE_ATTEMPTS; attempt++) {
+): Promise<Mergeable | undefined> => {
+  let current = first;
+  for (let attempt = 1; ; attempt++) {
+    if (current.defaultSha !== sha) return undefined;
+    if (current.mergeable === 'MERGEABLE' || attempt >= MERGEABLE_ATTEMPTS) {
+      return current.mergeable;
+    }
     await pause(MERGEABLE_DELAY_MS);
-    mergeable = (await read()).mergeable;
+    current = await read();
   }
-  return mergeable;
 };
 
 interface Resolved {
@@ -62,7 +66,7 @@ const unmetCondition = async ({
   const read = async () =>
     queryPullRequestConflict(fetch, (await app.mint(github, 'read')).token, github, number);
   const first = await read();
-  const { headSha, baseSha } = first;
+  const { headSha } = first;
   const merged = await inspectCheckout({
     env,
     github,
@@ -78,17 +82,15 @@ const unmetCondition = async ({
       detail: `the pull request's head ${headSha} does not contain ${sha}`,
     };
   }
-  if (baseSha === sha) {
-    const mergeable = await settledMergeable(read, first.mergeable, pause);
-    if (mergeable !== 'MERGEABLE') {
-      return {
-        reason: 'still-conflicting',
-        detail:
-          mergeable === 'CONFLICTING'
-            ? `GitHub still reports the pull request as conflicting with ${sha}`
-            : `GitHub did not say whether the pull request still conflicts with ${sha}`,
-      };
-    }
+  const mergeable = await settledMergeable(read, first, sha, pause);
+  if (mergeable !== undefined && mergeable !== 'MERGEABLE') {
+    return {
+      reason: 'still-conflicting',
+      detail:
+        mergeable === 'CONFLICTING'
+          ? `GitHub still reports the pull request as conflicting with ${sha}`
+          : `GitHub did not say whether the pull request still conflicts with ${sha}`,
+    };
   }
   const { failing, pending } = await queryPullRequestReadiness(
     fetch,

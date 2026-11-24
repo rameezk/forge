@@ -203,6 +203,35 @@ test('given the default branch gains a conflicting commit while the conflict res
   assert.notEqual(git(origin.path, 'rev-parse', 'main'), origin.mainTip);
 });
 
+test('given the default branch gains a commit that conflicts with the pushed head after the push and GitHub reports the pull request as conflicting, when the run ends with every required check green, then the conflict resolution ends ok', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions } = await resolve({
+    origin,
+    worker: mergeAndPush,
+    moveMainOnConflictRead: 2,
+    mergeable: ['CONFLICTING'],
+    checks: [checkRun('build', 'SUCCESS')],
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'done', reason: null }]);
+});
+
+test('given GitHub is still settling mergeable after the push and the default branch moves before a later read, when the run ends with every required check green, then the conflict resolution stops waiting and ends ok', async () => {
+  const origin = originWhere('conflicts');
+  const { code, resolutions, pauses } = await resolve({
+    origin,
+    worker: mergeAndPush,
+    moveMainOnConflictRead: 4,
+    mergeable: ['CONFLICTING', 'CONFLICTING', 'UNKNOWN', 'CONFLICTING'],
+    checks: [checkRun('build', 'SUCCESS')],
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(resolutions.map(({ state, reason }) => ({ state, reason })), [{ state: 'done', reason: null }]);
+  assert.equal(pauses.length, 2);
+});
+
 test('given a harness that fails, when the conflict resolution ends, then it ends in error and the pull request is left untouched', async () => {
   const { code, resolutions, runs, requests } = await resolve({ harnessEnv: { FAKE_PI_EXIT: '1' } });
 

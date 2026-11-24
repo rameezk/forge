@@ -94,6 +94,7 @@ export interface Scenario {
   checks?: CheckContext[] | null;
   worker?: (origin: Origin) => string;
   mergeable?: string[];
+  moveMainOnConflictRead?: number;
   failingQuery?: string;
   botLookupFails?: boolean;
   failingClone?: number;
@@ -126,6 +127,13 @@ export interface Outcome {
   thrown: string | null;
   hungChild: number | null;
 }
+
+export const moveMainOn = (path: string): string => {
+  git(path, 'switch', '--quiet', 'main');
+  writeFileSync(join(path, 'a.txt'), 'moved\n');
+  git(path, '-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '--quiet', '--all', '-m', 'moved');
+  return git(path, 'rev-parse', 'HEAD');
+};
 
 export const conflictsWith = (origin: Origin, target: string): boolean => {
   try {
@@ -223,7 +231,10 @@ export const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
     if (scenario.failingQuery !== undefined && query.includes(scenario.failingQuery)) {
       throw new Error('GitHub is down');
     }
-    if (query.includes('query PullRequestConflict')) conflictReads += 1;
+    if (query.includes('query PullRequestConflict')) {
+      conflictReads += 1;
+      if (conflictReads === scenario.moveMainOnConflictRead) moveMainOn(origin.path);
+    }
     if (query.includes('query PullRequestHead')) headReads += 1;
     const answer = query.includes('query PullRequestReadiness')
       ? {
@@ -265,7 +276,7 @@ export const resolve = async (scenario: Scenario = {}): Promise<Outcome> => {
                   scenario.mergeable?.[Math.min(conflictReads - 1, scenario.mergeable.length - 1)] ??
                   (conflictsWith(origin, 'main') ? 'CONFLICTING' : 'MERGEABLE'),
                 headRefOid: git(origin.path, 'rev-parse', 'feature'),
-                baseRefOid: git(origin.path, 'rev-parse', 'main'),
+                baseRefOid: git(origin.path, 'merge-base', 'main', 'feature'),
               },
             },
           },
