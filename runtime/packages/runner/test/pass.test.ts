@@ -51,7 +51,7 @@ const gradeTickets = (store: Store, frontier: PolledFrontier[], grades: NonNulla
     for (const { number, version } of tickets) {
       const grade = grades[`${repository}#${number}`];
       if (grade === undefined || version === undefined) continue;
-      store.recordUrgencyGrade({
+      store.urgency.recordGrade({
         repository,
         number,
         version,

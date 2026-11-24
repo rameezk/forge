@@ -43,7 +43,7 @@ const dispatchable = (
   const byOrder = dispatchOrder(frontier, {
     order,
     priorities: repositoryPrioritiesOf(config),
-    urgencies: certainUrgencies(store, frontier, order),
+    urgencies: certainUrgencies(store.urgency, frontier, order),
   });
   return frontier
     .filter(({ repository, lastError }) => lastError === null && declaresTicketWorker(config, repository))
