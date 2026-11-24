@@ -236,10 +236,9 @@ export {
   type TokenAccess,
 } from './github-app.ts';
 export { checkBranchRules, checkReviewerApp, type BranchRulesTokens } from './branch-rules.ts';
+export { GRADING_FAILURES, RETRIED_GRADING_FAILURES, type GradingFailure } from './store/grading-policy.ts';
 export {
-  GRADING_FAILURES,
   notGradedTitle,
-  RETRIED_GRADING_FAILURES,
   RISK_LEVELS,
   SUPERSEDE_CAUSES,
   type DisplayedGrade,
@@ -247,7 +246,6 @@ export {
   type Grades,
   type GradingAttempt,
   type GradingDue,
-  type GradingFailure,
   type GradingStatus,
   type RecordedRiskGrade,
   type RiskGrade,
@@ -255,14 +253,15 @@ export {
   type SupersedeCause,
 } from './store/grades.ts';
 export {
-  Store,
   URGENCY_LEVELS,
   type DisplayedUrgencyGrade,
+  type Urgency,
   type UrgencyAttempt,
   type UrgencyDue,
   type UrgencyGrade,
   type UrgencyLevel,
-} from './store/store.ts';
+} from './store/urgency.ts';
+export { Store } from './store/store.ts';
 export { type ListPriceEquivalent, type Runs, type WorkloadSpend } from './store/runs.ts';
 export {
   parseTranscript,

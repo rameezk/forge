@@ -1015,7 +1015,7 @@ test('given a ticket that just got forge:ready and Jev answering high above the 
   await f.syncAndGradeTickets([APPROVED]);
 
   assert.equal(f.jevRequests.length, 1);
-  const grade = f.withStore((store) => store.currentUrgencyGrade('forge', 10));
+  const grade = f.withStore((store) => store.urgency.currentGrade('forge', 10));
   assert.equal(grade?.level, 'high');
   assert.equal(grade?.uncertain, false);
   assert.match(grade?.fingerprint ?? '', /^typesafe\/jev-1\.13:[0-9a-f]{64}$/);
@@ -1056,7 +1056,7 @@ test('given Jev answering critical below the confidence threshold, when the tick
   f.answerWithUrgency('critical', 0.3);
   await f.syncAndGradeTickets([APPROVED]);
 
-  assert.equal(f.withStore((store) => store.currentUrgencyGrade('forge', 10))?.uncertain, true);
+  assert.equal(f.withStore((store) => store.urgency.currentGrade('forge', 10))?.uncertain, true);
   assert.deepEqual(f.labelsOf(10), [
     'forge:ready',
     'forge:urgency-critical',
@@ -1077,7 +1077,7 @@ test('given a ticket graded normal, when its body changes and Jev answers critic
 
   assert.equal(f.jevRequests.length, 2);
   assert.deepEqual(f.labelsOf(10), ['forge:ready', 'forge:urgency-critical', 'ready-for-agent']);
-  assert.equal(f.withStore((store) => store.currentUrgencyGrade('forge', 10))?.level, 'critical');
+  assert.equal(f.withStore((store) => store.urgency.currentGrade('forge', 10))?.level, 'critical');
 });
 
 test('given a ready-for-agent ticket without forge:ready, when forge-grading runs, then no request is sent to Jev', async (t) => {
@@ -1096,10 +1096,10 @@ test('given Jev failing with a server error, when forge-grading runs and again a
   f.answerWith({ status: 503, body: { error: { code: 503, message: 'Service unavailable' } } });
   await f.syncAndGradeTickets([APPROVED]);
 
-  const [attempt] = f.withStore((store) => store.urgencyAttempts('forge', 10));
+  const [attempt] = f.withStore((store) => store.urgency.currentAttempts().filter((attempt) => attempt.number === 10));
   assert.equal(attempt?.category, 'temporary');
   assert.equal(attempt?.message, 'OpenRouter answered 503');
-  assert.equal(f.withStore((store) => store.currentUrgencyGrade('forge', 10)), null);
+  assert.equal(f.withStore((store) => store.urgency.currentGrade('forge', 10)), null);
   assert.equal(f.jevRequests.length, 1);
 
   await f.syncAndGradeTickets([APPROVED]);
@@ -1109,7 +1109,7 @@ test('given Jev failing with a server error, when forge-grading runs and again a
   t.mock.timers.tick(60_000);
   await f.syncAndGradeTickets([APPROVED]);
   assert.equal(f.jevRequests.length, 2);
-  assert.equal(f.withStore((store) => store.currentUrgencyGrade('forge', 10))?.level, 'high');
+  assert.equal(f.withStore((store) => store.urgency.currentGrade('forge', 10))?.level, 'high');
   assert.ok(f.labelsOf(10).includes('forge:urgency-high'));
 });
 
@@ -1119,7 +1119,7 @@ test('given a ticket whose grading attempt was too large, when forge-grading run
   f.answerWith({ status: 413, body: { error: { code: 413, message: 'too large' } } });
   await f.syncAndGradeTickets([APPROVED]);
   assert.equal(f.jevRequests.length, 1);
-  assert.equal(f.withStore((store) => store.urgencyAttempts('forge', 10))[0]?.category, 'too-large');
+  assert.equal(f.withStore((store) => store.urgency.currentAttempts().filter((attempt) => attempt.number === 10))[0]?.category, 'too-large');
 
   await f.syncAndGradeTickets([APPROVED]);
   assert.equal(f.jevRequests.length, 1);
@@ -1142,7 +1142,7 @@ test('given a ticket graded normal then critical, when its body is edited back t
   await f.syncAndGradeTickets([APPROVED]);
   assert.equal(f.jevRequests.length, 2);
   assert.deepEqual(f.labelsOf(10), ['forge:ready', 'forge:urgency-normal', 'ready-for-agent']);
-  assert.equal(f.withStore((store) => store.currentUrgencyGrade('forge', 10))?.level, 'normal');
+  assert.equal(f.withStore((store) => store.urgency.currentGrade('forge', 10))?.level, 'normal');
 });
 
 test('given a ticket edited between the frontier sync and the grading call, when forge-grading runs, then the text Jev read is not stored as the synced version and the next sync grades the edit', async (t) => {
@@ -1153,7 +1153,7 @@ test('given a ticket edited between the frontier sync and the grading call, when
   assert.equal(await f.grade(), 0);
 
   assert.equal(f.jevRequests.length, 0);
-  assert.equal(f.withStore((store) => store.currentUrgencyGrade('forge', 10)), null);
+  assert.equal(f.withStore((store) => store.urgency.currentGrade('forge', 10)), null);
 
   f.answerWithUrgency('high', 0.9);
   await f.syncAndGradeTickets([{ ...APPROVED, body: 'edited after the sync' }]);

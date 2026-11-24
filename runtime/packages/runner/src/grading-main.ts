@@ -69,7 +69,7 @@ export const main = async (env: NodeJS.ProcessEnv, fetch: Fetch): Promise<number
         log,
       }));
     const urgencyGraded = await gradeUrgency({
-      store,
+      urgency: store.urgency,
       fetch,
       tokens,
       decide: jevDecides(url, apiKey, model, globalThis.fetch, URGENCY_QUESTION),

@@ -1,4 +1,5 @@
 import type { Connection } from './connection.ts';
+import { attemptHoldsOff, RETRIED_GRADING_FAILURES, type GradingFailure, type LatestAttempt } from './grading-policy.ts';
 import type { RevisedPullRequest } from '../revision.ts';
 import type { RiskFilter, RiskOptions } from '../risk.ts';
 
@@ -41,12 +42,6 @@ export interface RecordedRiskGrade extends RiskGrade {
   supersedeCause: SupersedeCause | null;
 }
 
-export const GRADING_FAILURES = ['temporary', 'setup', 'too-large', 'declined', 'bug'] as const;
-
-export type GradingFailure = (typeof GRADING_FAILURES)[number];
-
-export const RETRIED_GRADING_FAILURES: readonly GradingFailure[] = ['temporary', 'setup', 'bug'];
-
 export interface GradingAttempt {
   repository: string;
   number: number;
@@ -64,28 +59,11 @@ export interface GradingStatus {
 
 const GRADING_FAILURE_SEVERITY: readonly GradingFailure[] = ['setup', 'bug', 'temporary'];
 
-const GRADING_RETRY_BASE_MS = 30_000;
-
-const GRADING_RETRY_CAP_MS = 3_600_000;
-
 export const notGradedTitle = ({
   category,
   message,
 }: Pick<GradingAttempt, 'category' | 'message'>): string =>
   `Not graded: ${message}${RETRIED_GRADING_FAILURES.includes(category) ? ', retrying' : ''}`;
-
-export const gradingRetryDelayMs = (failures: number): number =>
-  Math.min(GRADING_RETRY_BASE_MS * 2 ** Math.min(failures - 1, 16), GRADING_RETRY_CAP_MS);
-
-export interface LatestAttempt {
-  category: string;
-  attempted_at: string;
-  failures: number;
-}
-
-export const attemptHoldsOff = (latest: LatestAttempt, now: string): boolean =>
-  !RETRIED_GRADING_FAILURES.includes(latest.category as GradingFailure) ||
-  Date.parse(now) < Date.parse(latest.attempted_at) + gradingRetryDelayMs(latest.failures);
 
 type GradingAttemptRow = {
   repository: string;
