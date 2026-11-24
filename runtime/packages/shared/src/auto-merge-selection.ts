@@ -40,7 +40,7 @@ export const candidatesWithFacts = (store: Store, repositories: readonly string[
         draft: row.watch_draft === 1,
         mergeable: row.watch_mergeable !== null && row.watch_draft !== null,
         feedbackOpen: row.watch_newest !== null,
-        workloadRunning: store.workloadRunning(grade.repository, grade.number, now),
+        workloadRunning: store.autoMerge.workloadRunning(grade.repository, grade.number, now),
       };
     });
 
@@ -68,7 +68,7 @@ export const drawSample = (
   const known = pullRequestSampled(store, repository, number);
   if (known === true || (known === false && !forced)) return known;
   const sampled = forced || draw();
-  store.recordSample(repository, number, sampled, at);
+  store.autoMerge.recordSample(repository, number, sampled, at);
   return sampled;
 };
 

@@ -6,7 +6,7 @@ import type { RevisedPullRequest, RevisionFailure, RevisionFailureRecord, Revisi
 import type { WatchedPullRequest } from '../feedback.ts';
 import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from '../attempts.ts';
 import type { RunFingerprint } from '../fingerprint.ts';
-import { STALE_AFTER_MS } from '../heartbeat.ts';
+import { liveSince } from './liveness.ts';
 import type { RunRecord } from '../run.ts';
 
 
@@ -134,9 +134,6 @@ export const boundedDetail = (detail: string | null): string | null =>
   detail === null || detail.length <= DISPATCH_DETAIL_LIMIT
     ? detail
     : `${detail.slice(0, DISPATCH_DETAIL_LIMIT - 1)}…`;
-
-export const liveSince = (now: string): string =>
-  new Date(Date.parse(now) - STALE_AFTER_MS).toISOString();
 
 export const CURRENT_HEAD_OF_WATCH = `JOIN feedback_watches USING (repository, number, head_sha)`;
 
