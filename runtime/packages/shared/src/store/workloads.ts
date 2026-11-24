@@ -365,6 +365,14 @@ export class Workloads {
       | undefined;
   }
 
+  pullRequestLive(pullRequest: RevisedPullRequest, closes: readonly number[], now: string): boolean {
+    return (
+      this.#revisionLive(pullRequest, now) ||
+      this.#conflictResolutionLive(pullRequest, now) ||
+      this.#openingDispatchLive(pullRequest, closes, now)
+    );
+  }
+
   #revisionLive(pullRequest: Pick<RevisedPullRequest, 'repository' | 'number'>, now: string): boolean {
     const latest = this.#latestRevision(pullRequest);
     return latest?.state === 'running' && latest.alive_at >= liveSince(now);

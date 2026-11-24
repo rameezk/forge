@@ -391,7 +391,7 @@ const autoMergeOne = async (
     store.autoMerge.clearAutoMergeStarted(grade);
     throw error;
   }
-  store.settleRiskGrade(grade, 'merged', now());
+  store.grades.settleRiskGrade(grade, 'merged', now());
   log(`${grade.repository}#${grade.number}: auto-merged at ${grade.headSha}`);
   const checkRunFailure = await publishVerdict(options, token, grade, repository, { kind: 'auto-merged' }, facts).then(
     () => null,

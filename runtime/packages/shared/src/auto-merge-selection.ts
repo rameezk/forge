@@ -1,6 +1,6 @@
 import { autoMergeStateOf, PAUSE_WINDOW, type AutoMergeStatus } from './auto-merge-status.ts';
-import { riskGradeFromRow, type RiskGradeRow } from './store/risk-grade-row.ts';
-import type { RecordedRiskGrade, Store } from './store/store.ts';
+import { riskGradeFromRow, type RecordedRiskGrade, type RiskGradeRow } from './store/grades.ts';
+import type { Store } from './store/store.ts';
 
 export interface CandidateFacts {
   grade: RecordedRiskGrade;

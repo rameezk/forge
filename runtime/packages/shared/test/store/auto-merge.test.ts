@@ -36,7 +36,7 @@ const grade = (number: number, headSha: string): RiskGrade => ({
 test('given a candidate held back by a gate, when its verdict is recorded, then the dashboard reads the failing gate', () => {
   const store = Store.open(':memory:');
   watched(store, 7, 'head-7');
-  store.recordRiskGrade(grade(7, 'head-7'));
+  store.grades.recordRiskGrade(grade(7, 'head-7'));
   const gates = [{ key: 'draft' as const, detail: 'it is a draft' }];
 
   store.autoMerge.recordAutoMergeVerdict('forge', 7, 'head-7', {
@@ -75,16 +75,16 @@ test('given a sample drawn for a pull request, when it is announced and counted,
 test('given an open graded pull request, when auto-merge starts and is cleared, then the grade settles as merged and not auto-merged', () => {
   const store = Store.open(':memory:');
   watched(store, 7, 'head-7');
-  store.recordRiskGrade(grade(7, 'head-7'));
+  store.grades.recordRiskGrade(grade(7, 'head-7'));
   const pullRequest = { repository: 'forge', number: 7, headSha: 'head-7' };
 
   assert.equal(store.autoMerge.openGradedPullRequests(['forge']).length, 1);
   assert.deepEqual(store.autoMerge.openGradedPullRequests(['other']), []);
   store.autoMerge.markAutoMergeStarted(pullRequest, '2026-10-01T10:01:00.000Z');
   store.autoMerge.clearAutoMergeStarted(pullRequest);
-  store.settleRiskGrade(pullRequest, 'merged', '2026-10-01T10:02:00.000Z');
+  store.grades.settleRiskGrade(pullRequest, 'merged', '2026-10-01T10:02:00.000Z');
 
-  assert.equal(store.listRiskGrades({ fingerprint: 'm:abc' })[0]?.outcome, 'merged');
+  assert.equal(store.grades.listRiskGrades({ fingerprint: 'm:abc' })[0]?.outcome, 'merged');
 });
 
 test('given a pull request with no workload, when a revision starts on it, then a workload is running until its heartbeat goes stale', () => {

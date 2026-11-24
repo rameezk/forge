@@ -175,12 +175,12 @@ const settleGradeOutcomes = async (
 ): Promise<boolean> => {
   const snapshots = new Map<number, PullRequestSnapshot>();
   let settled = true;
-  for (const grade of store.openRiskGrades(name)) {
+  for (const grade of store.grades.openRiskGrades(name)) {
     const head = watched.find(({ number }) => number === grade.number)?.headSha;
     if (head === grade.headSha) continue;
     const workloadRunning = store.autoMerge.workloadRunning(name, grade.number, at);
     if (head !== undefined) {
-      if (!workloadRunning) store.settleRiskGrade(grade, 'superseded', at, head);
+      if (!workloadRunning) store.grades.settleRiskGrade(grade, 'superseded', at, head);
       continue;
     }
     try {
@@ -190,9 +190,9 @@ const settleGradeOutcomes = async (
         snapshots.set(grade.number, snapshot);
       }
       if (snapshot.headSha !== grade.headSha) {
-        if (!workloadRunning) store.settleRiskGrade(grade, 'superseded', at, snapshot.headSha);
+        if (!workloadRunning) store.grades.settleRiskGrade(grade, 'superseded', at, snapshot.headSha);
       } else if (snapshot.state !== 'open') {
-        store.settleRiskGrade(grade, snapshot.state, at);
+        store.grades.settleRiskGrade(grade, snapshot.state, at);
       }
     } catch (error) {
       console.error(`${name}#${grade.number}: could not settle the grade's outcome: ${errorMessage(error)}`);

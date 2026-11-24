@@ -15,7 +15,7 @@ let number = 0;
 
 const settle = (store: Store, outcome: 'merged' | 'closed' | 'auto-merged', fingerprint = COHORT): void => {
   number += 1;
-  store.recordRiskGrade({
+  store.grades.recordRiskGrade({
     repository: 'forge',
     number: 500 + number,
     headSha: `old-${number}`,
@@ -31,7 +31,7 @@ const settle = (store: Store, outcome: 'merged' | 'closed' | 'auto-merged', fing
   });
   const grade = { repository: 'forge', number: 500 + number, headSha: `old-${number}` };
   if (outcome === 'auto-merged') store.autoMerge.markAutoMergeStarted(grade, '2026-09-29T10:00:00.000Z');
-  store.settleRiskGrade(grade, outcome === 'closed' ? 'closed' : 'merged', `2026-09-29T10:${String(number % 60).padStart(2, '0')}:00.000Z`);
+  store.grades.settleRiskGrade(grade, outcome === 'closed' ? 'closed' : 'merged', `2026-09-29T10:${String(number % 60).padStart(2, '0')}:00.000Z`);
 };
 
 const app = (seed: (store: Store) => void, autoMergeRepositories: string[] = ['forge']) => {

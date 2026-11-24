@@ -1,7 +1,6 @@
 import type { Connection } from './connection.ts';
 import { liveSince } from './liveness.ts';
-import { riskGradeFromRow, type RiskGradeRow } from './risk-grade-row.ts';
-import type { RecordedRiskGrade, RiskGrade } from './store.ts';
+import { riskGradeFromRow, type RecordedRiskGrade, type RiskGrade, type RiskGradeRow } from './grades.ts';
 import type { RiskFilter } from '../risk.ts';
 import type { AutoMergeVerdict, CheckRunConclusion, FailingGate, RecordedAutoMergeVerdict } from '../auto-merge-verdict.ts';
 import type { AutoMergeCounts } from '../auto-merge-status.ts';
