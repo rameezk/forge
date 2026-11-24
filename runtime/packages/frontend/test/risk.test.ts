@@ -31,7 +31,7 @@ let heads = 0;
 const grade = (store: Store, grading: Grading = {}): void => {
   heads += 1;
   const { repository = 'forge', number = heads, head = `sha-${heads}`, level = 'low', uncertain = false, confidence = 0.9, fingerprint = CURRENT, at = '2026-09-21T10:00:00.000Z', outcome = 'open', cause = 'unknown', cost = 0.01, revisions = 0 } = grading;
-  store.recordRiskGrade({
+  store.grades.recordRiskGrade({
     repository,
     number,
     headSha: head,
@@ -52,11 +52,11 @@ const grade = (store: Store, grading: Grading = {}): void => {
   }
   if (outcome === 'open') return;
   const settling = { repository, number, headSha: head };
-  if (outcome !== 'superseded' || cause === 'unknown') return store.settleRiskGrade(settling, outcome, at);
+  if (outcome !== 'superseded' || cause === 'unknown') return store.grades.settleRiskGrade(settling, outcome, at);
   const superseding = `${head}-superseding`;
   if (cause === 'revision') pushedBy(store, 'revision', repository, number, superseding);
   if (cause === 'conflict-resolution') pushedBy(store, 'conflict-resolution', repository, number, superseding);
-  store.settleRiskGrade(settling, outcome, at, superseding);
+  store.grades.settleRiskGrade(settling, outcome, at, superseding);
 };
 
 const pushedBy = (store: Store, kind: 'revision' | 'conflict-resolution', repository: string, number: number, pushed: string): void => {
@@ -283,7 +283,7 @@ const cardOf = (page: string, name: string): string =>
   textOf(page.match(new RegExp(`<section[^>]*\\sdata-risk-card="${name}"[^>]*>[\\s\\S]*?</section>`))?.[0] ?? '');
 
 const fail = (store: Store, category: GradingFailure, head: string, repository = 'forge', number = 900, attemptedAt = '2026-09-21T09:00:00.000Z'): void =>
-  store.recordGradingAttempt({ repository, number, headSha: head, attemptedAt, category, message: category });
+  store.grades.recordGradingAttempt({ repository, number, headSha: head, attemptedAt, category, message: category });
 
 test('given 9 graded heads and 1 head with only a too-large attempt, when the Risk tab loads, then coverage shows 90.0% with too large 1', async () => {
   const { store, page } = dashboard([]);

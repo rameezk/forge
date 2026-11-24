@@ -701,8 +701,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
         store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
         store.workloads.recordPullRequest(started.started, { state: 'merged', settledAt: new Date().toISOString(), rework: 0 });
         store.workloads.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
-        store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
-        store.settleRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}` }, outcome, new Date().toISOString());
+        store.grades.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
+        store.grades.settleRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}` }, outcome, new Date().toISOString());
       }
 
       await page.goto('/');
@@ -765,7 +765,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       }
       store.workloads.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
       for (const number of [1, 2]) {
-        store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
+        store.grades.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
       }
       drawSample(store, 'forge', 101, () => true, new Date().toISOString());
       drawSample(store, 'forge', 102, () => false, new Date().toISOString());
@@ -800,7 +800,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       }
       store.workloads.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
       for (const number of [1, 2]) {
-        store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: number === 1 ? 'low' : 'moderate', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
+        store.grades.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: number === 1 ? 'low' : 'moderate', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
       }
       store.recordAutoMergeVerdict('forge', 101, 'head-1', {
         verdict: {
@@ -848,10 +848,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
       store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 101, url: 'https://github.com/rameezk/forge/pull/101' } }, new Date().toISOString());
       store.workloads.recordWatchedPullRequests('forge', [{ number: 101, url: 'https://github.com/rameezk/forge/pull/101', closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head-1', draft: false, defaultSha: 'main0' }]);
       const grade = (number: number, headSha: string, gradedAt: string): void =>
-        store.recordRiskGrade({ repository: 'forge', number, headSha, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt });
+        store.grades.recordRiskGrade({ repository: 'forge', number, headSha, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt });
       for (let index = 0; index < 20; index += 1) {
         grade(900 + index, `old-${index}`, '2026-09-20T10:00:00.000Z');
-        store.settleRiskGrade({ repository: 'forge', number: 900 + index, headSha: `old-${index}` }, index < 3 ? 'closed' : 'merged', `2026-09-21T10:${String(index).padStart(2, '0')}:00.000Z`);
+        store.grades.settleRiskGrade({ repository: 'forge', number: 900 + index, headSha: `old-${index}` }, index < 3 ? 'closed' : 'merged', `2026-09-21T10:${String(index).padStart(2, '0')}:00.000Z`);
       }
       grade(101, 'head-1', new Date().toISOString());
 
