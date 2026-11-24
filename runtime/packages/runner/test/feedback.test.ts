@@ -219,7 +219,7 @@ const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true, rules
 
   const revise = (number: number, startedMinutesAgo: number, state: 'done' | 'failed' = 'done'): void =>
     withStore((store) => {
-      const start = store.startRevision(
+      const start = store.workloads.startRevision(
         { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
         [],
         randomUUID(),
@@ -227,7 +227,7 @@ const forge = ({ quietPeriodSeconds, maxConcurrent, feedbackWorker = true, rules
         Number.POSITIVE_INFINITY,
       );
       assert.ok('started' in start);
-      store.endRevision(start.started, state, new Date().toISOString());
+      store.workloads.endRevision(start.started, state, new Date().toISOString());
     });
 
   return { stateDir, env, withStore, syncAndPass, revise, permissionRequests };
@@ -380,7 +380,7 @@ test('given feedback past its quiet period on a pull request whose opening dispa
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 
   setup.withStore((store) =>
-    store.endDispatch(
+    store.workloads.endDispatch(
       dispatch,
       { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } },
       new Date().toISOString(),
@@ -394,7 +394,7 @@ test('given feedback past its quiet period while a revision of the pull request 
   const first = [pullRequest(143, { reviews: [review(ago(60))] })];
   assert.deepEqual(await setup.syncAndPass(first), [REVISE_UNIT]);
   const running = setup.withStore((store) => {
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
       [],
       'run-revision',
@@ -402,14 +402,14 @@ test('given feedback past its quiet period while a revision of the pull request 
       5,
     );
     assert.ok('started' in start);
-    store.touchRevision(start.started, new Date().toISOString());
+    store.workloads.touchRevision(start.started, new Date().toISOString());
     return start.started;
   });
 
   const held = [pullRequest(143, { reviews: [review(ago(60)), review(ago(30))] })];
   assert.deepEqual(await setup.syncAndPass(held), []);
 
-  setup.withStore((store) => store.endRevision(running, 'done', new Date().toISOString()));
+  setup.withStore((store) => store.workloads.endRevision(running, 'done', new Date().toISOString()));
   assert.deepEqual(await setup.syncAndPass(held), [REVISE_UNIT]);
 });
 
@@ -417,7 +417,7 @@ test('given feedback past its quiet period while a conflict resolution of the pu
   const setup = forge({ maxConcurrent: 5 });
   const pulls = [pullRequest(143, { reviews: [review(ago(60))] })];
   const running = setup.withStore((store) => {
-    const start = store.startConflictResolution(
+    const start = store.workloads.startConflictResolution(
       { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
       [],
       'run-conflict',
@@ -431,7 +431,7 @@ test('given feedback past its quiet period while a conflict resolution of the pu
 
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 
-  setup.withStore((store) => store.endConflictResolution(running, 'done', new Date().toISOString()));
+  setup.withStore((store) => store.workloads.endConflictResolution(running, 'done', new Date().toISOString()));
   assert.deepEqual(await setup.syncAndPass(pulls), [REVISE_UNIT]);
 });
 
@@ -445,7 +445,7 @@ test('given dispatch.maxConcurrent live workloads, when a pull request\'s feedba
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 
   setup.withStore((store) =>
-    store.endDispatch(dispatch, { state: 'failed', reason: 'errored', detail: null }, new Date().toISOString()),
+    store.workloads.endDispatch(dispatch, { state: 'failed', reason: 'errored', detail: null }, new Date().toISOString()),
   );
   assert.deepEqual(await setup.syncAndPass(pulls), [REVISE_UNIT]);
 });
@@ -517,7 +517,7 @@ test('given a revision started by hand before any sync recorded the pull request
 
 const failToStart = (setup: ReturnType<typeof forge>, startedMinutesAgo: number): void =>
   setup.withStore((store) => {
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
       [],
       randomUUID(),
@@ -525,7 +525,7 @@ const failToStart = (setup: ReturnType<typeof forge>, startedMinutesAgo: number)
       Number.POSITIVE_INFINITY,
     );
     assert.ok('started' in start);
-    store.failRevisionStart(start.started, 'clone failed', new Date().toISOString());
+    store.workloads.failRevisionStart(start.started, 'clone failed', new Date().toISOString());
   });
 
 test('given a revision whose latest record is a failed start and feedback the pass already saw, when sync and the pass run again, then the revision starts again', async () => {

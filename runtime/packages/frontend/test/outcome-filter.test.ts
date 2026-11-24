@@ -45,11 +45,11 @@ const appOver = (store: Store) =>
 
 const dashboard = () => {
   const store = Store.open(':memory:');
-  const dispatch = (id: string, status: RunStatus, number: number, outcome?: Parameters<Store['endDispatch']>[1]) => {
+  const dispatch = (id: string, status: RunStatus, number: number, outcome?: Parameters<Store['workloads']['endDispatch']>[1]) => {
     store.runs.insertRun(sampleRun(id, status));
-    const started = store.startDispatch(issue(number), id, outcome === undefined ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10, null);
+    const started = store.workloads.startDispatch(issue(number), id, outcome === undefined ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10, null);
     assert.ok('started' in started);
-    if (outcome !== undefined) store.endDispatch(started.started, outcome, '2026-09-21T10:03:20.000Z');
+    if (outcome !== undefined) store.workloads.endDispatch(started.started, outcome, '2026-09-21T10:03:20.000Z');
   };
   dispatch('done-dispatch', 'success', 1, { state: 'done', pullRequest: { number: 101, url: 'https://github.com/rameezk/forge/pull/101' } });
   dispatch('draft-dispatch', 'success', 2, { state: 'failed', reason: 'draft', detail: null });
@@ -89,17 +89,17 @@ test('given successful runs whose revision failed, whose conflict resolution fai
   const store = Store.open(':memory:');
   const pull = (number: number) => ({ repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` });
   store.runs.insertRun(sampleRun('revision-failed', 'success'));
-  const failedRevision = store.startRevision(pull(1), [], 'revision-failed', '2026-09-21T10:00:00.000Z', 10);
+  const failedRevision = store.workloads.startRevision(pull(1), [], 'revision-failed', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in failedRevision);
-  store.endRevision(failedRevision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'unanswered', detail: null });
+  store.workloads.endRevision(failedRevision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'unanswered', detail: null });
   store.runs.insertRun(sampleRun('resolution-failed', 'success'));
-  const failedResolution = store.startConflictResolution(pull(2), [], 'resolution-failed', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head', defaultSha: 'default' });
+  const failedResolution = store.workloads.startConflictResolution(pull(2), [], 'resolution-failed', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head', defaultSha: 'default' });
   assert.ok('started' in failedResolution);
-  store.endConflictResolution(failedResolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'still-conflicting', detail: null });
+  store.workloads.endConflictResolution(failedResolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'still-conflicting', detail: null });
   store.runs.insertRun(sampleRun('revision-done', 'success'));
-  const doneRevision = store.startRevision(pull(3), [], 'revision-done', '2026-09-21T10:00:00.000Z', 10);
+  const doneRevision = store.workloads.startRevision(pull(3), [], 'revision-done', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in doneRevision);
-  store.endRevision(doneRevision.started, 'done', '2026-09-21T10:03:20.000Z');
+  store.workloads.endRevision(doneRevision.started, 'done', '2026-09-21T10:03:20.000Z');
 
   const page = await (await appOver(store).request('/workloads?status=failed')).text();
 

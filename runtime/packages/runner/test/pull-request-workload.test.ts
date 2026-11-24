@@ -10,7 +10,7 @@ const PUSHED = 'b'.repeat(40);
 const OTHER_PULL_REQUEST = { repository: 'forge', url: 'https://github.com/rameezk/forge/pull/99' };
 
 const liveDispatch = (store: Store): void => {
-  const start = store.startDispatch(
+  const start = store.workloads.startDispatch(
     { repository: 'forge', number: 113, url: 'https://github.com/rameezk/forge/issues/113' },
     'opening-run',
     new Date().toISOString(),
@@ -21,7 +21,7 @@ const liveDispatch = (store: Store): void => {
 };
 
 const liveRevision = (store: Store): void => {
-  const start = store.startRevision(
+  const start = store.workloads.startRevision(
     { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
     [],
     'earlier',
@@ -32,7 +32,7 @@ const liveRevision = (store: Store): void => {
 };
 
 const liveConflictResolution = (store: Store): void => {
-  const start = store.startConflictResolution(
+  const start = store.workloads.startConflictResolution(
     { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
     [],
     'earlier',
@@ -44,7 +44,7 @@ const liveConflictResolution = (store: Store): void => {
 };
 
 const livePoolFiller = (store: Store): void => {
-  const start = store.startRevision(
+  const start = store.workloads.startRevision(
     { ...OTHER_PULL_REQUEST, number: 99 },
     [],
     'other',

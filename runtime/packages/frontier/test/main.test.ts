@@ -901,7 +901,7 @@ const dispatchedEarlier = (stateDir: string, numbers: Record<number, string>): v
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     for (const [number, startedAt] of Object.entries(numbers)) {
-      store.startDispatch(
+      store.workloads.startDispatch(
         { repository: 'forge', number: Number(number), url: `https://github.com/rameezk/forge/issues/${number}` },
         `run-${number}`,
         startedAt,
@@ -918,7 +918,7 @@ const storedDispatches = (stateDir: string) => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     return store
-      .listDispatches(new Date().toISOString())
+      .workloads.listDispatches(new Date().toISOString())
       .map(({ number, state, reason }) => ({ number, state, reason }));
   } finally {
     store.close();
@@ -1092,7 +1092,7 @@ const dispatchedWithPullRequest = (
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     const at = '2026-10-05T10:00:00.000Z';
-    const start = store.startDispatch(
+    const start = store.workloads.startDispatch(
       { repository: 'forge', number: ticket, url: `https://github.com/rameezk/forge/issues/${ticket}` },
       `run-${ticket}`,
       at,
@@ -1100,7 +1100,7 @@ const dispatchedWithPullRequest = (
       null,
     );
     assert.ok('started' in start);
-    store.endDispatch(start.started, { state: 'done', pullRequest: pullRequestOf(pullRequest) }, at);
+    store.workloads.endDispatch(start.started, { state: 'done', pullRequest: pullRequestOf(pullRequest) }, at);
     settle?.(store, start.started);
   } finally {
     store.close();
@@ -1111,7 +1111,7 @@ const storedPullRequests = (stateDir: string) => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     return store
-      .listDispatches(new Date().toISOString())
+      .workloads.listDispatches(new Date().toISOString())
       .map(({ number, pullRequest }) => ({ number, pullRequest }));
   } finally {
     store.close();

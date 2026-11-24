@@ -237,7 +237,7 @@ const FEEDBACK_REPOSITORY = { forge: { github: 'rameezk/forge', on: { feedback: 
 const revised = (stateDir: string, number: number, startedMinutesAgo: number, end: boolean): void => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    const started = store.startRevision(
+    const started = store.workloads.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
       [],
       randomUUID(),
@@ -245,7 +245,7 @@ const revised = (stateDir: string, number: number, startedMinutesAgo: number, en
       Number.POSITIVE_INFINITY,
     );
     assert.ok('started' in started);
-    if (end) store.endRevision(started.started, 'done', ago(startedMinutesAgo - 1));
+    if (end) store.workloads.endRevision(started.started, 'done', ago(startedMinutesAgo - 1));
   } finally {
     store.close();
   }
@@ -254,7 +254,7 @@ const revised = (stateDir: string, number: number, startedMinutesAgo: number, en
 const watchedFeedback = (stateDir: string, number: number): string | null => {
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
-    const due = store.feedbackDue(new Date(Date.now() + 365 * 24 * 60 * MINUTE).toISOString(), 0);
+    const due = store.workloads.feedbackDue(new Date(Date.now() + 365 * 24 * 60 * MINUTE).toISOString(), 0);
     return due.some((pullRequest) => pullRequest.number === number) ? 'due' : null;
   } finally {
     store.close();

@@ -53,14 +53,14 @@ const attempt = (store: Store, id: string, start: string, merged: boolean): void
     forgeGitSha: null,
     baseCommit: 'aaaaaaa1111111111111111111111111111111aa',
   });
-  const started = store.startDispatch(ticket, id, start, 100, null);
+  const started = store.workloads.startDispatch(ticket, id, start, 100, null);
   if (!('started' in started)) throw new Error('dispatch refused');
-  store.endDispatch(
+  store.workloads.endDispatch(
     started.started,
     { state: 'done', pullRequest: { number: 7, url: 'https://github.com/rameezk/forge/pull/7' } },
     run.endTime!,
   );
-  if (merged) store.recordPullRequest(started.started, { state: 'merged', settledAt: run.endTime, rework: 0 });
+  if (merged) store.workloads.recordPullRequest(started.started, { state: 'merged', settledAt: run.endTime, rework: 0 });
 };
 
 test('given a run detail page of a dispatched workload, when its attempts link is followed at phone width, then the attempts view lists the attempts without the page scrolling sideways', async ({
@@ -126,7 +126,7 @@ const revise = (store: Store, runId: string, start: string, state: 'done' | 'fai
     exceededLimit: null,
     counters: null,
   });
-  const started = store.startRevision(
+  const started = store.workloads.startRevision(
     { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
     [ticket.number],
     runId,
@@ -135,7 +135,7 @@ const revise = (store: Store, runId: string, start: string, state: 'done' | 'fai
   );
   if (!('started' in started)) throw new Error('revision refused');
   const stopped = state === 'exceeded' || state === 'interrupted';
-  store.endRevision(
+  store.workloads.endRevision(
     started.started,
     stopped ? 'failed' : state,
     new Date(Date.parse(start) + 150_000).toISOString(),
@@ -171,7 +171,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 const failRevisionStart = (store: Store, at: string): void => {
-  const started = store.startRevision(
+  const started = store.workloads.startRevision(
     { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
     [ticket.number],
     'never-started',
@@ -179,7 +179,7 @@ const failRevisionStart = (store: Store, at: string): void => {
     10,
   );
   if (!('started' in started)) throw new Error('revision refused');
-  store.failRevisionStart(started.started, 'clone failed', at);
+  store.workloads.failRevisionStart(started.started, 'clone failed', at);
 };
 
 const seedClickableRows = (store: Store): void => {

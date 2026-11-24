@@ -42,9 +42,9 @@ const sampleRun = (id: string, status: RunStatus, ticketNumber: number | null): 
 
 const dispatchRun = (store: Store, id: string, status: RunStatus, number: number, outcome?: DispatchOutcome): void => {
   store.runs.insertRun(sampleRun(id, status, number));
-  const started = store.startDispatch({ repository: 'forge', number, url: `${GITHUB}forge/issues/${number}` }, id, status === 'running' ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10, null);
+  const started = store.workloads.startDispatch({ repository: 'forge', number, url: `${GITHUB}forge/issues/${number}` }, id, status === 'running' ? new Date().toISOString() : '2026-09-21T10:00:00.000Z', 10, null);
   assert.ok('started' in started);
-  if (outcome !== undefined) store.endDispatch(started.started, outcome, '2026-09-21T10:03:20.000Z');
+  if (outcome !== undefined) store.workloads.endDispatch(started.started, outcome, '2026-09-21T10:03:20.000Z');
 };
 
 const dashboard = () => {
@@ -55,13 +55,13 @@ const dashboard = () => {
   dispatchRun(store, 'errored', 'error', 4, { state: 'failed', reason: 'errored', detail: null });
   dispatchRun(store, 'going', 'running', 5);
   store.runs.insertRun(sampleRun('over', 'exceeded', null));
-  const revision = store.startRevision({ repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` }, [], 'over', '2026-09-21T10:00:00.000Z', 10);
+  const revision = store.workloads.startRevision({ repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` }, [], 'over', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in revision);
-  store.endRevision(revision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'exceeded', detail: 'budget' });
+  store.workloads.endRevision(revision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'exceeded', detail: 'budget' });
   store.runs.insertRun(sampleRun('conflicted', 'success', null));
-  const resolution = store.startConflictResolution({ repository: 'forge', number: 8, url: `${GITHUB}forge/pull/8` }, [], 'conflicted', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head', defaultSha: 'default' });
+  const resolution = store.workloads.startConflictResolution({ repository: 'forge', number: 8, url: `${GITHUB}forge/pull/8` }, [], 'conflicted', '2026-09-21T10:00:00.000Z', 10, { headSha: 'head', defaultSha: 'default' });
   assert.ok('started' in resolution);
-  store.endConflictResolution(resolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'still-conflicting', detail: null });
+  store.workloads.endConflictResolution(resolution.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'still-conflicting', detail: null });
   store.runs.insertRun(sampleRun('plain', 'success', null));
   store.runs.insertRun(sampleRun('plain-stopped', 'interrupted', null));
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
@@ -137,9 +137,9 @@ test('given a ticket whose dispatch run ended success and whose revision run was
   const store = Store.open(':memory:');
   dispatchRun(store, 'built', 'success', 21, { state: 'done', pullRequest: { number: 31, url: `${GITHUB}forge/pull/31` } });
   store.runs.insertRun(sampleRun('revised', 'interrupted', null));
-  const revision = store.startRevision({ repository: 'forge', number: 31, url: `${GITHUB}forge/pull/31` }, [], 'revised', '2026-09-21T10:00:00.000Z', 10);
+  const revision = store.workloads.startRevision({ repository: 'forge', number: 31, url: `${GITHUB}forge/pull/31` }, [], 'revised', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in revision);
-  store.endRevision(revision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'interrupted', detail: null });
+  store.workloads.endRevision(revision.started, 'failed', '2026-09-21T10:03:20.000Z', { reason: 'interrupted', detail: null });
   const app = createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
   const page = await (await app.request('/tickets/forge/21')).text();
   const revisionRow = page.match(/<tr[^>]*\sdata-revision="revised"[\s\S]*?<\/tr>/)?.[0] ?? 'missing';

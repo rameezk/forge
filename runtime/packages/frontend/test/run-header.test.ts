@@ -115,7 +115,7 @@ test('given a finished workload, when its run page is opened, then Run details i
 const REPORT = 'The build could not finish.\n\nRan `npm test` and it exited 1.\n\n<script>alert(1)</script>';
 
 const dispatchFailed = (store: Store, detail: string): void => {
-  const start = store.startDispatch(
+  const start = store.workloads.startDispatch(
     { repository: 'forge', number: 381, url: 'https://github.com/rameezk/forge/issues/381' },
     'run-01',
     '2026-09-21T10:00:00.000Z',
@@ -123,7 +123,7 @@ const dispatchFailed = (store: Store, detail: string): void => {
     null,
   );
   assert.ok('started' in start);
-  store.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail }, '2026-09-21T10:03:20.000Z');
+  store.workloads.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail }, '2026-09-21T10:03:20.000Z');
 };
 
 const reasonOf = (body: string): string => element(body, 'details', 'data-reason');
@@ -181,9 +181,9 @@ test('given a run that stopped at its budget and an interrupted one, when their 
 
 test('given a run that errored while its dispatch is done, when its run page is opened, then the reason block is in the failed tone and an empty error shows no block', async () => {
   const done = await page({ status: 'error', error: 'provider exploded' }, (store) => {
-    const start = store.startDispatch({ repository: 'forge', number: 381, url: 'https://github.com/rameezk/forge/issues/381' }, 'run-01', '2026-09-21T10:00:00.000Z', 10, null);
+    const start = store.workloads.startDispatch({ repository: 'forge', number: 381, url: 'https://github.com/rameezk/forge/issues/381' }, 'run-01', '2026-09-21T10:00:00.000Z', 10, null);
     assert.ok('started' in start);
-    store.endDispatch(start.started, { state: 'done', pullRequest: { number: 302, url: 'https://github.com/rameezk/forge/pull/302' } }, '2026-09-21T10:03:20.000Z');
+    store.workloads.endDispatch(start.started, { state: 'done', pullRequest: { number: 302, url: 'https://github.com/rameezk/forge/pull/302' } }, '2026-09-21T10:03:20.000Z');
   });
   const empty = await page({ status: 'error', error: '  ', ticket: null });
 
