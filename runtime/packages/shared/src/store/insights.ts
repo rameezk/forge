@@ -71,7 +71,6 @@ const insightParameters = (filter: InsightsFilter) => ({
   started_before: filter.startedBefore ?? null,
 });
 
-
 export class Insights {
   readonly #db: Connection;
 

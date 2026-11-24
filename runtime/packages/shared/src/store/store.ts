@@ -54,7 +54,6 @@ import type {
 import type { WatchedPullRequest } from '../feedback.ts';
 import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from '../attempts.ts';
 import type { AutoMergeCounts } from '../auto-merge-status.ts';
-import type { ConfigFingerprint } from '../fingerprint.ts';
 import { STALE_AFTER_MS } from '../heartbeat.ts';
 import { DIAGNOSED_FAILURES } from '../diagnosis.ts';
 import type { DiagnosisCategory, DiagnosisRecord, DiagnosisState, DiagnosisVerdict } from '../diagnosis.ts';
