@@ -240,6 +240,21 @@ export type { Frontier } from './store/frontier.ts';
 export { checkBranchRules, checkReviewerApp, type BranchRulesTokens } from './branch-rules.ts';
 export { GRADING_FAILURES, RETRIED_GRADING_FAILURES, type GradingFailure } from './store/grading-policy.ts';
 export {
+  notGradedTitle,
+  RISK_LEVELS,
+  SUPERSEDE_CAUSES,
+  type DisplayedGrade,
+  type GradeOutcome,
+  type Grades,
+  type GradingAttempt,
+  type GradingDue,
+  type GradingStatus,
+  type RecordedRiskGrade,
+  type RiskGrade,
+  type RiskLevel,
+  type SupersedeCause,
+} from './store/grades.ts';
+export {
   URGENCY_LEVELS,
   type DisplayedUrgencyGrade,
   type Urgency,
@@ -248,21 +263,7 @@ export {
   type UrgencyGrade,
   type UrgencyLevel,
 } from './store/urgency.ts';
-export {
-  notGradedTitle,
-  RISK_LEVELS,
-  Store,
-  type GradingAttempt,
-  type GradingStatus,
-  type GradingDue,
-  type DisplayedGrade,
-  type RecordedRiskGrade,
-  type RiskGrade,
-  type GradeOutcome,
-  type SupersedeCause,
-  SUPERSEDE_CAUSES,
-  type RiskLevel,
-} from './store/store.ts';
+export { Store } from './store/store.ts';
 export { type ListPriceEquivalent, type Runs, type WorkloadSpend } from './store/runs.ts';
 export {
   parseTranscript,
