@@ -466,7 +466,7 @@ const runRecord = (id: string): RunRecord => ({
 const runningDispatch = (store: Store, number: number, runExists: boolean): void => {
   seed(store, [{ ...ticket(number), forgeReady: true }]);
   if (runExists) store.runs.insertRun(runRecord(`run-${number}`));
-  const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+  const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
   if (!('started' in started)) throw new Error('dispatch refused');
 };
 
@@ -623,9 +623,9 @@ test.describe('column dividers on a narrow screen', () => {
 });
 
 const openPullRequest = (store: Store, number: number): void => {
-  const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+  const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
   if (!('started' in started)) throw new Error('dispatch refused');
-  store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+  store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
 };
 
 test.describe('the review limit on a phone-width screen', () => {
@@ -696,11 +696,11 @@ for (const colorScheme of ['light', 'dark'] as const) {
       const closedTicket = (number: number) => ({ ...ticket(number), closedAt: new Date().toISOString() });
       store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [closedTicket(1), closedTicket(2)], requests: [], tickets: [] });
       for (const [number, outcome] of [[1, 'auto-merged'], [2, 'merged']] as const) {
-        const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+        const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
         if (!('started' in started)) throw new Error('dispatch refused');
-        store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
-        store.recordPullRequest(started.started, { state: 'merged', settledAt: new Date().toISOString(), rework: 0 });
-        store.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
+        store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+        store.workloads.recordPullRequest(started.started, { state: 'merged', settledAt: new Date().toISOString(), rework: 0 });
+        store.workloads.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
         store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
         store.settleRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}` }, outcome, new Date().toISOString());
       }
@@ -729,9 +729,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
       const { store } = dashboard;
       seed(store, [{ ...ticket(1), forgeReady: true }, { ...ticket(2), forgeReady: true }]);
       for (const number of [1, 2]) {
-        const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+        const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
         if (!('started' in started)) throw new Error('dispatch refused');
-        store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+        store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
       }
       store.autoMerge.recordHold('forge', 101, true);
 
@@ -759,11 +759,11 @@ for (const colorScheme of ['light', 'dark'] as const) {
       const { store } = dashboard;
       store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1), ticket(2)] });
       for (const number of [1, 2]) {
-        const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+        const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
         if (!('started' in started)) throw new Error('dispatch refused');
-        store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+        store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
       }
-      store.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
+      store.workloads.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
       for (const number of [1, 2]) {
         store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
       }
@@ -794,11 +794,11 @@ for (const colorScheme of ['light', 'dark'] as const) {
       const { store } = dashboard;
       store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1), ticket(2)] });
       for (const number of [1, 2]) {
-        const started = store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
+        const started = store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, `run-${number}`, new Date().toISOString(), 100, null);
         if (!('started' in started)) throw new Error('dispatch refused');
-        store.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
+        store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 100 + number, url: `https://github.com/rameezk/forge/pull/${100 + number}` } }, new Date().toISOString());
       }
-      store.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
+      store.workloads.recordWatchedPullRequests('forge', [1, 2].map((each) => ({ number: 100 + each, url: `https://github.com/rameezk/forge/pull/${100 + each}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${each}`, draft: false, defaultSha: 'main0' })));
       for (const number of [1, 2]) {
         store.recordRiskGrade({ repository: 'forge', number: 100 + number, headSha: `head-${number}`, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: number === 1 ? 'low' : 'moderate', uncertain: false, costUsd: 0.01, gradedAt: new Date().toISOString() });
       }
@@ -843,10 +843,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     test('given a pause and a ticket in review whose pull request would have auto-merged, when the Board is opened, then its card carries a paused pill inside it, the band names the pause and nothing scrolls sideways', async ({ dashboard, page }) => {
       const { store } = dashboard;
       store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [ticket(1)] });
-      const started = store.startDispatch({ repository: 'forge', number: 1, url: 'https://github.com/rameezk/forge/issues/1' }, 'run-1', new Date().toISOString(), 100, null);
+      const started = store.workloads.startDispatch({ repository: 'forge', number: 1, url: 'https://github.com/rameezk/forge/issues/1' }, 'run-1', new Date().toISOString(), 100, null);
       if (!('started' in started)) throw new Error('dispatch refused');
-      store.endDispatch(started.started, { state: 'done', pullRequest: { number: 101, url: 'https://github.com/rameezk/forge/pull/101' } }, new Date().toISOString());
-      store.recordWatchedPullRequests('forge', [{ number: 101, url: 'https://github.com/rameezk/forge/pull/101', closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head-1', draft: false, defaultSha: 'main0' }]);
+      store.workloads.endDispatch(started.started, { state: 'done', pullRequest: { number: 101, url: 'https://github.com/rameezk/forge/pull/101' } }, new Date().toISOString());
+      store.workloads.recordWatchedPullRequests('forge', [{ number: 101, url: 'https://github.com/rameezk/forge/pull/101', closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head-1', draft: false, defaultSha: 'main0' }]);
       const grade = (number: number, headSha: string, gradedAt: string): void =>
         store.recordRiskGrade({ repository: 'forge', number, headSha, fingerprint: 'model:aaaa', model: 'model', probabilities: { trivial: 0.1, low: 0.7, moderate: 0.1, high: 0.1 }, score: 1, confidence: 0.9, level: 'low', uncertain: false, costUsd: 0.01, gradedAt });
       for (let index = 0; index < 20; index += 1) {

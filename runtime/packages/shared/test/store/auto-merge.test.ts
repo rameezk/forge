@@ -4,7 +4,7 @@ import { Store } from '../../src/index.ts';
 import type { RiskGrade } from '../../src/index.ts';
 
 const watched = (store: Store, number: number, headSha: string): void => {
-  store.recordWatchedPullRequests('forge', [
+  store.workloads.recordWatchedPullRequests('forge', [
     {
       number,
       url: `https://github.com/rameezk/forge/pull/${number}`,
@@ -93,7 +93,7 @@ test('given a pull request with no workload, when a revision starts on it, then 
   const now = '2026-10-01T10:00:00.000Z';
   assert.equal(store.autoMerge.workloadRunning('forge', 7, now), false);
 
-  store.startRevision(pullRequest, [], 'run-1', now, 5);
+  store.workloads.startRevision(pullRequest, [], 'run-1', now, 5);
 
   assert.equal(store.autoMerge.workloadRunning('forge', 7, now), true);
   assert.equal(store.autoMerge.workloadRunning('forge', 8, now), false);

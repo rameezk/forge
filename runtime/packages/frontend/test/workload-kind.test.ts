@@ -41,14 +41,14 @@ const sampleRun = (id: string, ticketNumber: number | null = null): RunRecord =>
 const dashboard = () => {
   const store = Store.open(':memory:');
   store.runs.insertRun(sampleRun('dispatched', 7));
-  const dispatch = store.startDispatch({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/issues/7' }, 'dispatched', '2026-09-21T10:00:00.000Z', 10, null);
+  const dispatch = store.workloads.startDispatch({ repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/issues/7' }, 'dispatched', '2026-09-21T10:00:00.000Z', 10, null);
   assert.ok('started' in dispatch);
   store.runs.insertRun(sampleRun('revised'));
-  const revision = store.startRevision({ repository: 'forge', number: 489, url: 'https://github.com/rameezk/forge/pull/489' }, [], 'revised', '2026-09-21T10:00:00.000Z', 10);
+  const revision = store.workloads.startRevision({ repository: 'forge', number: 489, url: 'https://github.com/rameezk/forge/pull/489' }, [], 'revised', '2026-09-21T10:00:00.000Z', 10);
   assert.ok('started' in revision);
-  store.endRevision(revision.started, 'done', '2026-09-21T10:03:20.000Z');
+  store.workloads.endRevision(revision.started, 'done', '2026-09-21T10:03:20.000Z');
   store.runs.insertRun(sampleRun('resolved'));
-  store.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', new Date().toISOString(), 10, { headSha: 'head', defaultSha: 'default' });
+  store.workloads.startConflictResolution({ repository: 'forge', number: 5, url: 'https://github.com/rameezk/forge/pull/5' }, [], 'resolved', new Date().toISOString(), 10, { headSha: 'head', defaultSha: 'default' });
   store.runs.insertRun(sampleRun('manual'));
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
 };

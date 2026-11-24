@@ -40,9 +40,9 @@ test('given failed runs diagnosed as skill, skill and forge, when Workloads is f
 }) => {
   const failed = (id: string, number: number, categories: DiagnosisCategory[]) => {
     dashboard.store.runs.insertRun(aRun(id, 'builder', number));
-    const dispatch = dashboard.store.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, id, '2026-11-01T10:00:00.000Z', 10, null);
+    const dispatch = dashboard.store.workloads.startDispatch({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` }, id, '2026-11-01T10:00:00.000Z', 10, null);
     if (!('started' in dispatch)) throw new Error('dispatch did not start');
-    dashboard.store.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
+    dashboard.store.workloads.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
     categories.forEach((category, index) => {
       dashboard.store.runs.insertRun(aRun(`${id}-diagnosis-${index}`, 'diagnoser', number));
       dashboard.store.endDiagnosis(dashboard.store.startDiagnosis(id, `${id}-diagnosis-${index}`, AT), 'done', AT, {
