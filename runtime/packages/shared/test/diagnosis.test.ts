@@ -134,10 +134,10 @@ test('given diagnosis runs in the store, when insights load with manual workload
   failedDispatch(store, 'checks', 'check-failed');
   store.startDiagnosis('checks', 'diagnosis-1', at);
   const filter = { includeManual: true, kind: 'all' as const };
-  assert.deepEqual(store.listCohorts(filter), []);
-  assert.deepEqual(store.listPoints(filter), []);
-  assert.deepEqual(store.listProviderShares(filter), []);
-  assert.deepEqual(store.insightsOptions(), { workers: [], repositories: [] });
+  assert.deepEqual(store.insights.listCohorts(filter), []);
+  assert.deepEqual(store.insights.listPoints(filter), []);
+  assert.deepEqual(store.insights.listProviderShares(filter), []);
+  assert.deepEqual(store.insights.options(), { workers: [], repositories: [] });
 });
 
 test('given a verdict file, when it is parsed, then a valid one yields the verdict and each contract breach is refused', () => {
