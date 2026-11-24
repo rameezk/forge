@@ -82,9 +82,9 @@ const seed = (store: Store, attempts: Attempt[]): void => {
       forgeGitSha: null,
       baseCommit: attempt.baseCommit,
     });
-    const started = store.startDispatch(run.ticket!, attempt.id, run.startTime, 100, null);
+    const started = store.workloads.startDispatch(run.ticket!, attempt.id, run.startTime, 100, null);
     assert.ok('started' in started);
-    store.endDispatch(
+    store.workloads.endDispatch(
       started.started,
       attempt.pullRequest === undefined
         ? { state: 'failed', reason: 'no-pull-request', detail: null }
@@ -92,7 +92,7 @@ const seed = (store: Store, attempts: Attempt[]): void => {
       run.endTime!,
     );
     if (attempt.pullRequest !== undefined && attempt.pullRequest.state !== 'open') {
-      store.recordPullRequest(started.started, { state: attempt.pullRequest.state, settledAt: run.endTime, rework: 0 });
+      store.workloads.recordPullRequest(started.started, { state: attempt.pullRequest.state, settledAt: run.endTime, rework: 0 });
     }
   }
 };
@@ -237,7 +237,7 @@ test('given a ticket number that is not a plain positive integer, when its attem
 
 test('given a ticket whose only dispatch never started a workload, when the Board is requested, then it does not link to an attempts view with nothing in it', async () => {
   const { app, store } = dashboard([]);
-  store.reconcileDispatch(TICKET, '2026-09-29T08:00:00.000Z');
+  store.workloads.reconcileDispatch(TICKET, '2026-09-29T08:00:00.000Z');
   store.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
@@ -256,7 +256,7 @@ test('given a ticket whose only dispatch never started a workload, when the Boar
 
 test('given a ticket with an earlier attempt that was dispatched again with no workload yet, when the Board is requested, then it still links to the attempts view', async () => {
   const { app, store } = dashboard(THREE.slice(0, 1));
-  const again = store.startDispatch(TICKET, 'not-started', '2026-09-30T08:00:00.000Z', 100, null);
+  const again = store.workloads.startDispatch(TICKET, 'not-started', '2026-09-30T08:00:00.000Z', 100, null);
   assert.ok('started' in again);
   store.replaceFrontier({
     repository: 'forge',
@@ -287,7 +287,7 @@ const revise = (
     worker: 'reviser',
     ticket: null,
   });
-  const started = store.startRevision(
+  const started = store.workloads.startRevision(
     { repository: 'forge', number: pullRequest, url: `${GITHUB}forge/pull/${pullRequest}` },
     [TICKET.number],
     runId,
@@ -295,7 +295,7 @@ const revise = (
     10,
   );
   assert.ok('started' in started);
-  store.endRevision(started.started, state, new Date(Date.parse(start) + 120_000).toISOString(), failure);
+  store.workloads.endRevision(started.started, state, new Date(Date.parse(start) + 120_000).toISOString(), failure);
 };
 
 const revisionRows = (page: string): Map<string, Record<string, string>> =>
@@ -388,7 +388,7 @@ const resolve = (
     worker: 'resolver',
     ticket: null,
   });
-  const started = store.startConflictResolution(
+  const started = store.workloads.startConflictResolution(
     { repository: 'forge', number: pullRequest, url: `${GITHUB}forge/pull/${pullRequest}` },
     [TICKET.number],
     runId,
@@ -397,7 +397,7 @@ const resolve = (
     { headSha: 'head-a', defaultSha: 'default-a' },
   );
   assert.ok('started' in started);
-  store.endConflictResolution(started.started, state, new Date(Date.parse(start) + 120_000).toISOString(), failure);
+  store.workloads.endConflictResolution(started.started, state, new Date(Date.parse(start) + 120_000).toISOString(), failure);
 };
 
 const conflictResolutionRows = (page: string): Map<string, Record<string, string>> =>
@@ -440,7 +440,7 @@ test('given a dispatch whose pull request had a revision and failed and ok confl
 });
 
 const failToStart = (store: Store, at: string, detail: string, pullRequest = 9): void => {
-  const started = store.startConflictResolution(
+  const started = store.workloads.startConflictResolution(
     { repository: 'forge', number: pullRequest, url: `${GITHUB}forge/pull/${pullRequest}` },
     [TICKET.number],
     `unused-${at}`,
@@ -449,7 +449,7 @@ const failToStart = (store: Store, at: string, detail: string, pullRequest = 9):
     { headSha: 'head-a', defaultSha: 'default-a' },
   );
   assert.ok('started' in started);
-  store.failConflictResolutionStart(started.started, detail, at);
+  store.workloads.failConflictResolutionStart(started.started, detail, at);
 };
 
 const failedStartRows = (page: string): string[] =>
@@ -507,8 +507,8 @@ test('given a conflict resolution that failed to start and is now running again,
     ],
   });
   failToStart(store, '2026-09-25T10:00:00.000Z', 'fatal: unable to access the repository');
-  store.recordWatchedPullRequests('forge', [{ number: 9, url: `${GITHUB}forge/pull/9`, closes: [TICKET.number], newestFeedbackAt: null, mergeable: 'CONFLICTING', headSha: 'head-a', draft: false, defaultSha: 'default-a' }]);
-  const again = store.startConflictResolution(
+  store.workloads.recordWatchedPullRequests('forge', [{ number: 9, url: `${GITHUB}forge/pull/9`, closes: [TICKET.number], newestFeedbackAt: null, mergeable: 'CONFLICTING', headSha: 'head-a', draft: false, defaultSha: 'default-a' }]);
+  const again = store.workloads.startConflictResolution(
     { repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` },
     [TICKET.number],
     'retry-run',
@@ -525,7 +525,7 @@ test('given a conflict resolution that failed to start and is now running again,
 });
 
 const failRevisionToStart = (store: Store, at: string, detail: string, pullRequest = 9): void => {
-  const started = store.startRevision(
+  const started = store.workloads.startRevision(
     { repository: 'forge', number: pullRequest, url: `${GITHUB}forge/pull/${pullRequest}` },
     [TICKET.number],
     `unused-${at}`,
@@ -533,7 +533,7 @@ const failRevisionToStart = (store: Store, at: string, detail: string, pullReque
     10,
   );
   assert.ok('started' in started);
-  store.failRevisionStart(started.started, detail, at);
+  store.workloads.failRevisionStart(started.started, detail, at);
 };
 
 const frontierWithTicket = (store: Store): void =>
@@ -584,9 +584,9 @@ test('given a revision that failed to start and then ran, when the Board is requ
   const { app, store } = dashboard([{ ...THREE[2]!, id: 'second', pullRequest: { number: 9, state: 'open' } }]);
   frontierWithTicket(store);
   failRevisionToStart(store, '2026-09-25T10:00:00.000Z', 'clone failed');
-  const ran = store.startRevision({ repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` }, [TICKET.number], 'ran', '2026-09-25T11:00:00.000Z', 10);
+  const ran = store.workloads.startRevision({ repository: 'forge', number: 9, url: `${GITHUB}forge/pull/9` }, [TICKET.number], 'ran', '2026-09-25T11:00:00.000Z', 10);
   assert.ok('started' in ran);
-  store.endRevision(ran.started, 'done', '2026-09-25T11:05:00.000Z');
+  store.workloads.endRevision(ran.started, 'done', '2026-09-25T11:05:00.000Z');
 
   assert.doesNotMatch(await (await app.request('/')).text(), /data-revision-failed-start/);
 });

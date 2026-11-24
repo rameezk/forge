@@ -21,7 +21,7 @@ let current = NOW;
 
 const appWith = (seed: (store: Store) => void, gradingRepositories: string[] = ['forge']) => {
   const store = Store.open(':memory:');
-  store.recordWatchedPullRequests('forge', [7, 8].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${number}`, draft: false, defaultSha: 'main0' })));
+  store.workloads.recordWatchedPullRequests('forge', [7, 8].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: `head-${number}`, draft: false, defaultSha: 'main0' })));
   seed(store);
   current = NOW;
   return { store, app: createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '', gradingRepositories, clock: () => new Date(current), checkIntervalMs: 5 }) };
@@ -112,7 +112,7 @@ test('given a temporary failure under two hours on one pull request and a bug fa
   const { app } = appWith((store) => {
     succeeded(store, 8, minutesAgo(30));
     failed(store, 'bug', minutesAgo(20), 'OpenRouter rejected the request with 400', 7);
-    store.recordWatchedPullRequests('forge', [{ number: 9, url: 'https://github.com/rameezk/forge/pull/9', closes: [11], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head-9', draft: false, defaultSha: 'main0' }]);
+    store.workloads.recordWatchedPullRequests('forge', [{ number: 9, url: 'https://github.com/rameezk/forge/pull/9', closes: [11], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head-9', draft: false, defaultSha: 'main0' }]);
     failed(store, 'temporary', minutesAgo(1), 'Jev timed out', 9);
   });
 

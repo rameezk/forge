@@ -7,7 +7,7 @@ const LONG_ERROR = `error: builder for '/nix/store/${'a'.repeat(32)}-forge-syste
 const LONG_MESSAGE = `OpenRouter rejected the request with 400: ${'the prompt was refused '.repeat(12)}${'c'.repeat(120)}`;
 
 const watch = (store: Store, number: number): void =>
-  store.recordWatchedPullRequests('forge', [{ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: `head-${number}`, draft: false, defaultSha: 'main0' }]);
+  store.workloads.recordWatchedPullRequests('forge', [{ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: `head-${number}`, draft: false, defaultSha: 'main0' }]);
 
 const fail = (store: Store, category: GradingFailure, message: string, number = 7): void =>
   store.grades.recordGradingAttempt({ repository: 'forge', number, headSha: `head-${number}`, attemptedAt: new Date().toISOString(), category, message });

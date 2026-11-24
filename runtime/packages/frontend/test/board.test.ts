@@ -117,7 +117,7 @@ test('given a stored frontier, when the Board is requested, then it shows the ni
 const forgeTicket = (number: number) => ({ repository: 'forge', number, url: `https://github.com/rameezk/forge/issues/${number}` });
 
 const dispatched = (store: Store, number: number, startedAt = '2026-09-30T08:00:00.000Z'): number => {
-  const start = store.startDispatch(forgeTicket(number), `run-${number}`, startedAt, Number.POSITIVE_INFINITY, null);
+  const start = store.workloads.startDispatch(forgeTicket(number), `run-${number}`, startedAt, Number.POSITIVE_INFINITY, null);
   assert.ok('started' in start);
   return start.started;
 };
@@ -165,8 +165,8 @@ test('given a queued ticket, an unblocked ready-for-agent ticket not handed off,
     ],
     (store) => {
       dispatched(store, 4, new Date().toISOString());
-      store.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
-      store.endDispatch(dispatched(store, 6), { state: 'failed', reason: 'errored', detail: null }, '2026-09-30T09:00:00.000Z');
+      store.workloads.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
+      store.workloads.endDispatch(dispatched(store, 6), { state: 'failed', reason: 'errored', detail: null }, '2026-09-30T09:00:00.000Z');
     },
   );
 
@@ -188,8 +188,8 @@ const cardOf = (body: string, number: number): string =>
 test('given a done dispatch whose pull request was closed without merging while the ticket stays open, when the Board is requested, then the ticket is in Failed with the reason "Pull request closed"', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     const id = dispatched(store, 5);
-    store.endDispatch(id, { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
-    store.recordPullRequest(id, { state: 'closed', settledAt: '2026-09-30T10:00:00.000Z', rework: 0 });
+    store.workloads.endDispatch(id, { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
+    store.workloads.recordPullRequest(id, { state: 'closed', settledAt: '2026-09-30T10:00:00.000Z', rework: 0 });
   });
 
   const body = await (await app.request('/')).text();
@@ -258,8 +258,8 @@ test('given a ready-for-human ticket and a forge-dispatched ticket whose pull re
     ],
     (store) => {
       const id = dispatched(store, 11);
-      store.endDispatch(id, { state: 'done', pullRequest: pullRequest(111) }, '2026-09-28T09:00:00.000Z');
-      store.recordPullRequest(id, { state: 'merged', settledAt: '2026-09-28T10:00:00.000Z', rework: 0 });
+      store.workloads.endDispatch(id, { state: 'done', pullRequest: pullRequest(111) }, '2026-09-28T09:00:00.000Z');
+      store.workloads.recordPullRequest(id, { state: 'merged', settledAt: '2026-09-28T10:00:00.000Z', rework: 0 });
     },
   );
 
@@ -321,8 +321,8 @@ test('given tickets with attempts, a parent spec, and dispatches in each state, 
     (store) => {
       store.runs.insertRun(runOf(4));
       dispatched(store, 4, new Date().toISOString());
-      store.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
-      store.endDispatch(dispatched(store, 6), { state: 'failed', reason: 'no-pull-request', detail: 'Should the check use <b>REST</b>?' }, '2026-09-30T09:00:00.000Z');
+      store.workloads.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
+      store.workloads.endDispatch(dispatched(store, 6), { state: 'failed', reason: 'no-pull-request', detail: 'Should the check use <b>REST</b>?' }, '2026-09-30T09:00:00.000Z');
     },
   );
 
@@ -360,9 +360,9 @@ test('given tickets whose dispatches failed because their pull request is still 
       ]),
     ],
     (store) => {
-      store.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'draft', detail: null }, '2026-09-30T09:00:00.000Z');
-      store.endDispatch(dispatched(store, 6), { state: 'failed', reason: 'check-failed', detail: 'lint, vm' }, '2026-09-30T09:00:00.000Z');
-      store.endDispatch(dispatched(store, 7), { state: 'failed', reason: 'check-pending', detail: 'build' }, '2026-09-30T09:00:00.000Z');
+      store.workloads.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'draft', detail: null }, '2026-09-30T09:00:00.000Z');
+      store.workloads.endDispatch(dispatched(store, 6), { state: 'failed', reason: 'check-failed', detail: 'lint, vm' }, '2026-09-30T09:00:00.000Z');
+      store.workloads.endDispatch(dispatched(store, 7), { state: 'failed', reason: 'check-pending', detail: 'build' }, '2026-09-30T09:00:00.000Z');
     },
   );
 
@@ -438,8 +438,8 @@ test('given a limit of 2 with one dispatch and one revision running, when the Bo
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
     const now = new Date().toISOString();
     dispatched(store, 4, now);
-    store.endDispatch(dispatched(store, 5, now), { state: 'done', pullRequest: pullRequest(105) }, now);
-    const start = store.startRevision({ repository: 'forge', ...pullRequest(105) }, [5], 'revision-105', now, Number.POSITIVE_INFINITY);
+    store.workloads.endDispatch(dispatched(store, 5, now), { state: 'done', pullRequest: pullRequest(105) }, now);
+    const start = store.workloads.startRevision({ repository: 'forge', ...pullRequest(105) }, [5], 'revision-105', now, Number.POSITIVE_INFINITY);
     assert.ok('started' in start);
   }, 2);
 
@@ -527,7 +527,7 @@ test('given two stored requests stored newest first and a ticket, when the Board
 
 test('given a done dispatch with an open pull request and no running revision, when the Board is requested, then its In review card shows the PR link and no elapsed time', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
-    store.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
+    store.workloads.endDispatch(dispatched(store, 5), { state: 'done', pullRequest: pullRequest(105) }, '2026-09-30T09:00:00.000Z');
   });
 
   const card = cardOf(await (await app.request('/')).text(), 5);
@@ -537,18 +537,18 @@ test('given a done dispatch with an open pull request and no running revision, w
 });
 
 const startRevisionOn = (store: Store, ticketNumber: number, prNumber: number, startedAt = new Date().toISOString()): number => {
-  const start = store.startRevision({ repository: 'forge', ...pullRequest(prNumber) }, [ticketNumber], `revision-${prNumber}`, startedAt, Number.POSITIVE_INFINITY);
+  const start = store.workloads.startRevision({ repository: 'forge', ...pullRequest(prNumber) }, [ticketNumber], `revision-${prNumber}`, startedAt, Number.POSITIVE_INFINITY);
   assert.ok('started' in start);
   return start.started;
 };
 
 const watchPullRequest = (store: Store, number: number, closes: number[]): void => {
-  store.recordWatchedPullRequests('forge', [{ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes, newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head', draft: false, defaultSha: 'main0' }]);
+  store.workloads.recordWatchedPullRequests('forge', [{ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes, newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'head', draft: false, defaultSha: 'main0' }]);
 };
 
 const startResolutionClosing = (store: Store, prNumber: number, closes: number[], startedAt = new Date().toISOString()): number => {
   watchPullRequest(store, prNumber, closes);
-  const start = store.startConflictResolution({ repository: 'forge', ...pullRequest(prNumber) }, closes, `resolution-${prNumber}`, startedAt, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
+  const start = store.workloads.startConflictResolution({ repository: 'forge', ...pullRequest(prNumber) }, closes, `resolution-${prNumber}`, startedAt, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
   assert.ok('started' in start);
   return start.started;
 };
@@ -557,7 +557,7 @@ const startResolutionOn = (store: Store, ticketNumber: number, prNumber: number,
   startResolutionClosing(store, prNumber, [ticketNumber], startedAt);
 
 const inReview = (store: Store, number: number, startedAt = '2026-09-30T08:00:00.000Z'): void => {
-  store.endDispatch(dispatched(store, number, startedAt), { state: 'done', pullRequest: pullRequest(100 + number) }, '2026-09-30T09:00:00.000Z');
+  store.workloads.endDispatch(dispatched(store, number, startedAt), { state: 'done', pullRequest: pullRequest(100 + number) }, '2026-09-30T09:00:00.000Z');
 };
 
 const pillsOf = (card: string): string[] => [...card.matchAll(/<span[^>]*class="[^"]*rounded-full[^"]*"[^>]*>([^<]*)<\/span>/g)].map(([, text]) => text ?? '');
@@ -636,8 +636,8 @@ test('given a done dispatch with an open pull request whose latest revision has 
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
     inReview(store, 5);
     inReview(store, 6);
-    store.endRevision(startRevisionOn(store, 5, 105), 'done', new Date().toISOString());
-    store.endConflictResolution(startResolutionOn(store, 6, 106), 'done', new Date().toISOString());
+    store.workloads.endRevision(startRevisionOn(store, 5, 105), 'done', new Date().toISOString());
+    store.workloads.endConflictResolution(startResolutionOn(store, 6, 106), 'done', new Date().toISOString());
   });
 
   const body = await (await app.request('/')).text();
@@ -665,10 +665,10 @@ test('given a limit of 4 with one running dispatch, one live revision and one li
     dispatched(store, 4, now);
     inReview(store, 5);
     startRevisionOn(store, 5, 105);
-    const dispatch = store.startDispatch({ repository: 'other', number: 9, url: 'https://github.com/rameezk/other/issues/9' }, 'run-9', now, Number.POSITIVE_INFINITY, null);
+    const dispatch = store.workloads.startDispatch({ repository: 'other', number: 9, url: 'https://github.com/rameezk/other/issues/9' }, 'run-9', now, Number.POSITIVE_INFINITY, null);
     assert.ok('started' in dispatch);
-    store.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 109, url: 'https://github.com/rameezk/other/pull/109' } }, now);
-    const start = store.startConflictResolution({ repository: 'other', number: 109, url: 'https://github.com/rameezk/other/pull/109' }, [9], 'resolution-109', now, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
+    store.workloads.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 109, url: 'https://github.com/rameezk/other/pull/109' } }, now);
+    const start = store.workloads.startConflictResolution({ repository: 'other', number: 109, url: 'https://github.com/rameezk/other/pull/109' }, [9], 'resolution-109', now, Number.POSITIVE_INFINITY, { headSha: 'head', defaultSha: 'default' });
     assert.ok('started' in start);
   }, 4);
 
@@ -682,7 +682,7 @@ test('given a limit of 4 with one running dispatch, one live revision and one li
 test('given a done dispatch with an open pull request whose latest revision did not start and no live workload, when the Board is requested, then the card is in In review with its Revision did not start line', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
-    store.failRevisionStart(startRevisionOn(store, 5, 105), 'clone failed', new Date().toISOString());
+    store.workloads.failRevisionStart(startRevisionOn(store, 5, 105), 'clone failed', new Date().toISOString());
   });
 
   const body = await (await app.request('/')).text();
@@ -840,13 +840,13 @@ test('given a running dispatch whose run exists, a running revision, a running c
 
 const failedAttempt = (store: Store, number: number, runId: string | null, startedAt: string): void => {
   if (runId === null) {
-    store.recordFailedStart(forgeTicket(number), 'harness missing', startedAt);
+    store.workloads.recordFailedStart(forgeTicket(number), 'harness missing', startedAt);
     return;
   }
   store.runs.insertRun({ ...runOf(number), id: runId });
-  const start = store.startDispatch(forgeTicket(number), runId, startedAt, Number.POSITIVE_INFINITY, null);
+  const start = store.workloads.startDispatch(forgeTicket(number), runId, startedAt, Number.POSITIVE_INFINITY, null);
   assert.ok('started' in start);
-  store.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail: null }, startedAt);
+  store.workloads.endDispatch(start.started, { state: 'failed', reason: 'no-pull-request', detail: null }, startedAt);
 };
 
 const everyColumn = (): { tickets: Ticket[]; requests: RefinementRequest[]; closed: ClosedTicket[] } => ({
@@ -864,8 +864,8 @@ const everyColumn = (): { tickets: Ticket[]; requests: RefinementRequest[]; clos
 const seedEveryColumn = (store: Store): void => {
   inReview(store, 10);
   const merged = dispatched(store, 18);
-  store.endDispatch(merged, { state: 'done', pullRequest: pullRequest(118) }, '2026-09-30T09:00:00.000Z');
-  store.recordPullRequest(merged, { state: 'merged', settledAt: '2026-09-30T10:00:00.000Z', rework: 0 });
+  store.workloads.endDispatch(merged, { state: 'done', pullRequest: pullRequest(118) }, '2026-09-30T09:00:00.000Z');
+  store.workloads.recordPullRequest(merged, { state: 'merged', settledAt: '2026-09-30T10:00:00.000Z', rework: 0 });
   failedAttempt(store, 11, 'run-11a', '2026-09-30T06:00:00.000Z');
   failedAttempt(store, 11, 'run-11b', '2026-09-30T08:00:00.000Z');
   failedAttempt(store, 12, null, '2026-09-30T08:00:00.000Z');
@@ -1092,7 +1092,7 @@ test('given a repository whose default-branch rules failed at the last sync and 
 });
 
 const watchHead = (store: Store, number: number, headSha: string): void => {
-  store.recordWatchedPullRequests('forge', [{ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha, draft: false, defaultSha: 'main0' }]);
+  store.workloads.recordWatchedPullRequests('forge', [{ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha, draft: false, defaultSha: 'main0' }]);
 };
 
 const gradeOf = (number: number, headSha: string, overrides: Partial<RiskGrade> = {}): RiskGrade => ({
@@ -1113,8 +1113,8 @@ const gradeOf = (number: number, headSha: string, overrides: Partial<RiskGrade> 
 
 const doneMerged = (store: Store, number: number, outcome: 'merged' | 'auto-merged'): void => {
   const id = dispatched(store, number);
-  store.endDispatch(id, { state: 'done', pullRequest: pullRequest(100 + number) }, '2026-09-28T09:00:00.000Z');
-  store.recordPullRequest(id, { state: 'merged', settledAt: '2026-09-28T10:00:00.000Z', rework: 0 });
+  store.workloads.endDispatch(id, { state: 'done', pullRequest: pullRequest(100 + number) }, '2026-09-28T09:00:00.000Z');
+  store.workloads.recordPullRequest(id, { state: 'merged', settledAt: '2026-09-28T10:00:00.000Z', rework: 0 });
   watchHead(store, 100 + number, 'head1');
   store.grades.recordRiskGrade(gradeOf(100 + number, 'head1', { level: 'low' }));
   store.grades.settleRiskGrade({ repository: 'forge', number: 100 + number, headSha: 'head1' }, outcome, '2026-09-28T10:00:00.000Z');
@@ -1251,7 +1251,7 @@ const pausedBoard = (held: number, failed: number, optedIn = ['forge'], announce
       inReview(store, number);
       store.grades.recordRiskGrade(gradeOf(100 + number, 'head1', { level: number === 7 ? 'moderate' : 'low' }));
     }
-    store.recordWatchedPullRequests('forge', [105, 106, 107].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'head1', draft: false, defaultSha: 'main0' })));
+    store.workloads.recordWatchedPullRequests('forge', [105, 106, 107].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'head1', draft: false, defaultSha: 'main0' })));
     drawSample(store, 'forge', 106, () => true, '2026-09-30T09:30:00.000Z');
     if (announced) store.markSampleAnnounced('forge', 106);
   }, undefined, undefined, GRADING, { autoMergeRepositories: optedIn });
@@ -1411,7 +1411,7 @@ const runningLimitOf = (body: string): string => textOf(/<span[^>]*data-running-
 
 test('given a ticket whose dispatch failed leaving an open pull request with a live conflict resolution, when the Board is requested, then the ticket is in Running with a conflict resolution card, not in Failed, and the running count equals the Running cards', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
-    store.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'no-pull-request', detail: null }, '2026-09-30T09:00:00.000Z');
+    store.workloads.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'no-pull-request', detail: null }, '2026-09-30T09:00:00.000Z');
     startResolutionClosing(store, 105, [5]);
   });
 
@@ -1425,7 +1425,7 @@ test('given a ticket whose dispatch failed leaving an open pull request with a l
 test('given a done dispatch that opened a pull request, a newer dispatch that failed to start and a live revision on the pull request, when the Board is requested, then the ticket is in Running with a revision card', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
     inReview(store, 5);
-    store.recordFailedStart(forgeTicket(5), 'clone failed', '2026-09-30T09:30:00.000Z');
+    store.workloads.recordFailedStart(forgeTicket(5), 'clone failed', '2026-09-30T09:30:00.000Z');
     startRevisionOn(store, 5, 105);
   });
 
@@ -1528,8 +1528,8 @@ test('given a live diagnosis workload, when the Board is requested, then Running
 
 test('given a ticket whose only live workload ends, when the Board is requested, then the ticket is in its usual column and not in Running', async () => {
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true })])], (store) => {
-    store.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'no-pull-request', detail: null }, '2026-09-30T09:00:00.000Z');
-    store.endConflictResolution(startResolutionClosing(store, 105, [5]), 'done', new Date().toISOString());
+    store.workloads.endDispatch(dispatched(store, 5), { state: 'failed', reason: 'no-pull-request', detail: null }, '2026-09-30T09:00:00.000Z');
+    store.workloads.endConflictResolution(startResolutionClosing(store, 105, [5]), 'done', new Date().toISOString());
   });
 
   assert.deepEqual(populated(cardsByColumn(laneOf(await (await app.request('/')).text(), 'forge'))), { failed: ['5'] });

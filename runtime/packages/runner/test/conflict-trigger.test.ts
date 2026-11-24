@@ -175,7 +175,7 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true, ru
     state: Exclude<ConflictResolutionState, 'running'> | 'running' | 'not-started' = 'failed',
   ): number =>
     withStore((store) => {
-      const start = store.startConflictResolution(
+      const start = store.workloads.startConflictResolution(
         { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
         [],
         randomUUID(),
@@ -185,9 +185,9 @@ const forge = ({ maxConcurrent, conflictWorker = true, feedbackWorker = true, ru
       );
       assert.ok('started' in start);
       if (state === 'not-started') {
-        store.failConflictResolutionStart(start.started, 'clone failed', new Date().toISOString());
+        store.workloads.failConflictResolutionStart(start.started, 'clone failed', new Date().toISOString());
       } else if (state !== 'running') {
-        store.endConflictResolution(
+        store.workloads.endConflictResolution(
           start.started,
           state,
           new Date().toISOString(),
@@ -252,7 +252,7 @@ test('given a conflicting pull request whose opening dispatch is running, when t
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 
   setup.withStore((store) =>
-    store.endDispatch(
+    store.workloads.endDispatch(
       dispatch,
       { state: 'done', pullRequest: { number: 143, url: 'https://github.com/rameezk/forge/pull/143' } },
       new Date().toISOString(),
@@ -265,7 +265,7 @@ test('given a conflicting pull request with a running revision, when the pass ru
   const setup = forge({ maxConcurrent: 5 });
   const pulls = [pullRequest(143)];
   const running = setup.withStore((store) => {
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number: 143, url: 'https://github.com/rameezk/forge/pull/143' },
       [],
       'run-revision',
@@ -277,7 +277,7 @@ test('given a conflicting pull request with a running revision, when the pass ru
   });
   assert.deepEqual(await setup.syncAndPass(pulls), []);
 
-  setup.withStore((store) => store.endRevision(running, 'done', new Date().toISOString()));
+  setup.withStore((store) => store.workloads.endRevision(running, 'done', new Date().toISOString()));
   assert.deepEqual(await setup.syncAndPass(pulls), [unit(143)]);
 });
 
@@ -286,7 +286,7 @@ test('given a conflicting pull request with a running conflict resolution for an
   const running = setup.resolve(143, { headSha: 'head-143-old', defaultSha: 'default-a' }, 'running');
   assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), []);
 
-  setup.withStore((store) => store.endConflictResolution(running, 'done', new Date().toISOString()));
+  setup.withStore((store) => store.workloads.endConflictResolution(running, 'done', new Date().toISOString()));
   assert.deepEqual(await setup.syncAndPass([pullRequest(143)]), [unit(143)]);
 });
 
@@ -298,7 +298,7 @@ test('given a conflicting pull request that also has feedback past its quiet per
 test('given the review limit is reached by 5 open dispatch pull requests, one conflicting and one with feedback past its quiet period, when the pass runs, then a conflict resolution and a revision start', async () => {
   const setup = forge({ maxConcurrent: 5 });
   setup.withStore((store) => leaveOpenPullRequests(store, 'forge', 5));
-  const numbers = setup.withStore((store) => store.unsettledPullRequests('forge').map(({ number }) => number));
+  const numbers = setup.withStore((store) => store.workloads.unsettledPullRequests('forge').map(({ number }) => number));
   const [conflicting, revised, ...others] = numbers;
   assert.ok(conflicting !== undefined && revised !== undefined);
   assert.deepEqual(

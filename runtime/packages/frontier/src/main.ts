@@ -18,6 +18,7 @@ import {
   reworkOf,
   settleRunningTickets,
   Store,
+  type Workloads,
   type BotIdentity,
   type ClosedTicket,
   type Fetch,
@@ -138,7 +139,7 @@ const refreshPullRequests = async (
   forgeEmail: (github: string) => Promise<string>,
   pullRequest: PullRequestPoll,
 ): Promise<boolean> => {
-  const unsettled = store.unsettledPullRequests(name);
+  const unsettled = store.workloads.unsettledPullRequests(name);
   if (unsettled.length === 0) return true;
   let email: string;
   try {
@@ -151,7 +152,7 @@ const refreshPullRequests = async (
   for (const { id, number } of unsettled) {
     try {
       const { state, settledAt, commitAuthors } = await pullRequest(github, number);
-      store.recordPullRequest(id, {
+      store.workloads.recordPullRequest(id, {
         state,
         settledAt,
         rework: reworkOf(commitAuthors, email),
@@ -204,7 +205,7 @@ const settleGradeOutcomes = async (
 interface GithubWrites {
   ensure: (github: string) => Promise<void>;
   approve: (github: string, tickets: readonly PolledTicket[]) => ReturnType<typeof autoApproveTickets>;
-  settle: (store: Store, repository: string, github: string) => Promise<boolean>;
+  settle: (workloads: Workloads, repository: string, github: string) => Promise<boolean>;
 }
 
 const githubWrites = (
@@ -226,9 +227,9 @@ const githubWrites = (
             tickets,
             log: (line) => console.error(line),
           }),
-        settle: (store, repository, github) =>
+        settle: (workloads, repository, github) =>
           settleRunningTickets({
-            store,
+            workloads,
             fetch,
             token: () => tokens(github, 'write'),
             repository,
@@ -317,14 +318,14 @@ const sync = async (
       if (watches(repository)) {
         try {
           pulls = await watched(github);
-          store.recordWatchedPullRequests(name, pulls);
+          store.workloads.recordWatchedPullRequests(name, pulls);
         } catch (error) {
           console.error(`${name}: could not poll watched pull requests: ${errorMessage(error)}`);
           failed = true;
         }
         if (
           on?.feedback !== undefined &&
-          !(await acknowledge(name, github, pulls, store.feedbackCursors(name)))
+          !(await acknowledge(name, github, pulls, store.workloads.feedbackCursors(name)))
         ) {
           failed = true;
         }
@@ -348,7 +349,7 @@ const sync = async (
         console.error(`${name}: could not ensure the forge labels: ${errorMessage(error)}`);
         failed = true;
       }
-      if (on?.ticket !== undefined && !(await writes.settle(store, name, github))) {
+      if (on?.ticket !== undefined && !(await writes.settle(store.workloads, name, github))) {
         failed = true;
       }
     }

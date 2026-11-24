@@ -151,7 +151,7 @@ const forge = (
     };
     store.grades.recordRiskGrade(grade);
     if (pull.revising === true) {
-      store.startRevision(
+      store.workloads.startRevision(
         { repository, number: pull.number, url: `https://github.com/rameezk/${repository}/pull/${pull.number}` },
         [10],
         `run-${pull.number}`,
@@ -161,7 +161,7 @@ const forge = (
     }
   }
   for (const repository of new Set(pulls.map((pull) => pull.repository ?? 'forge'))) {
-    store.recordWatchedPullRequests(
+    store.workloads.recordWatchedPullRequests(
       repository,
       pulls
         .filter((pull) => (pull.repository ?? 'forge') === repository)
@@ -548,7 +548,7 @@ test('given a held pull request whose head then moves past its graded head, when
   await f.run();
   assert.deepEqual(f.withStore((store) => store.heldPullRequests()), [{ repository: 'forge', number: 7 }]);
   f.withStore((store) =>
-    store.recordWatchedPullRequests('forge', [
+    store.workloads.recordWatchedPullRequests('forge', [
       { number: 7, url: 'https://github.com/rameezk/forge/pull/7', closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'moved-7', draft: false, defaultSha: 'default-a' },
     ]),
   );
@@ -707,7 +707,7 @@ test('given a sampled pull request that receives a new head passing every gate, 
   f.changeHead(7);
   f.withStore((store) => {
     store.grades.recordRiskGrade({ ...riskGradeOf(store, 'forge', 7, HEAD(7))!, headSha: 'moved-7' });
-    store.recordWatchedPullRequests('forge', [{ number: 7, url: 'https://github.com/rameezk/forge/pull/7', closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'moved-7', draft: false, defaultSha: 'default-a' }]);
+    store.workloads.recordWatchedPullRequests('forge', [{ number: 7, url: 'https://github.com/rameezk/forge/pull/7', closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'moved-7', draft: false, defaultSha: 'default-a' }]);
   });
   assert.equal(await f.run(), 0);
   assert.deepEqual([f.reviews, f.merges], [[], []]);
@@ -982,7 +982,7 @@ test('given a held-back candidate whose push brings it over the size cap and who
   (f.pulls[0] as Pull).files = [edit('src/a.ts', 200, 101)];
   f.withStore((store) => {
     store.grades.recordRiskGrade({ ...(riskGradeOf(store, 'forge', 1, HEAD(1)) as RiskGrade), headSha: 'moved-1' });
-    store.recordWatchedPullRequests('forge', [
+    store.workloads.recordWatchedPullRequests('forge', [
       {
         number: 1,
         url: 'https://github.com/rameezk/forge/pull/1',

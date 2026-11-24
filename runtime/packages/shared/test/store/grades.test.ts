@@ -8,7 +8,7 @@ import { Store } from '../../src/index.ts';
 import type { GradingAttempt, GradingFailure } from '../../src/index.ts';
 import { riskGradeOf } from '../fixtures/risk-grades.ts';
 const watchedHead = (store: Store, number: number, headSha: string): void => {
-  store.recordWatchedPullRequests('forge', [
+  store.workloads.recordWatchedPullRequests('forge', [
     {
       number,
       url: `https://github.com/rameezk/forge/pull/${number}`,
@@ -167,9 +167,9 @@ test('given grading is failing for every pull request, when a dispatch is counte
   const store = Store.open(':memory:');
   watchedHead(store, 7, 'head-7');
   const now = '2026-10-01T10:00:00.000Z';
-  const before = JSON.stringify([store.reviewSlotsTaken(now), store.liveWorkloads(now)]);
+  const before = JSON.stringify([store.workloads.reviewSlotsTaken(now), store.workloads.liveWorkloads(now)]);
   store.grades.recordGradingAttempt(failure('setup', now));
-  assert.equal(JSON.stringify([store.reviewSlotsTaken(now), store.liveWorkloads(now)]), before);
+  assert.equal(JSON.stringify([store.workloads.reviewSlotsTaken(now), store.workloads.liveWorkloads(now)]), before);
   store.close();
 });
 
@@ -248,7 +248,7 @@ test('given a store holding a grade settled as other by a conflict resolution pu
   first.grades.recordRiskGrade(grade(8, 'four', '2026-09-21T11:00:00.000Z'));
   first.grades.settleRiskGrade({ repository: 'forge', number: 7, headSha: 'one' }, 'superseded', '2026-09-21T11:30:00.000Z', 'unmatched');
   first.grades.settleRiskGrade({ repository: 'forge', number: 8, headSha: 'three' }, 'superseded', '2026-09-21T11:30:00.000Z');
-  const start = first.startConflictResolution(
+  const start = first.workloads.startConflictResolution(
     { repository: 'forge', number: 7, url: 'https://github.com/rameezk/forge/pull/7' },
     [],
     'run-1',
@@ -257,8 +257,8 @@ test('given a store holding a grade settled as other by a conflict resolution pu
     { headSha: 'one', defaultSha: 'default-1' },
   );
   assert.ok('started' in start);
-  first.recordConflictResolutionPush(start.started, 'two');
-  first.endConflictResolution(start.started, 'done', '2026-09-21T10:40:00.000Z');
+  first.workloads.recordConflictResolutionPush(start.started, 'two');
+  first.workloads.endConflictResolution(start.started, 'done', '2026-09-21T10:40:00.000Z');
   first.close();
   const old = new DatabaseSync(path);
   old.exec(`UPDATE risk_grades SET supersede_cause = 'unknown' WHERE head_sha = 'three'`);
