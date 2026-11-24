@@ -1137,7 +1137,7 @@ test('given a ticket in review whose pull request is held and another whose is n
   const app = appWith([frontierOf([ticket({ number: 5, forgeReady: true }), ticket({ number: 6, forgeReady: true })])], (store) => {
     inReview(store, 5);
     inReview(store, 6);
-    store.recordHold('forge', 105, true);
+    store.autoMerge.recordHold('forge', 105, true);
   }, undefined, undefined, GRADING);
 
   const body = await (await app.request('/')).text();
@@ -1168,7 +1168,7 @@ const gatedBoard = (gates: { key: GateKey; detail: string }[], verdictHead = 'he
     inReview(store, 5);
     watchHead(store, 105, 'head1');
     store.grades.recordRiskGrade(gradeOf(105, 'head1', { level: 'low' }));
-    store.recordAutoMergeVerdict('forge', 105, verdictHead, { verdict: { kind: 'waits', gates }, conclusion: 'neutral', checkRunId: 7 });
+    store.autoMerge.recordAutoMergeVerdict('forge', 105, verdictHead, { verdict: { kind: 'waits', gates }, conclusion: 'neutral', checkRunId: 7 });
   }, undefined, undefined, GRADING, { autoMergeRepositories: optedIn });
 
 const gatePills = (card: string): { label: string; title: string }[] =>
@@ -1253,7 +1253,7 @@ const pausedBoard = (held: number, failed: number, optedIn = ['forge'], announce
     }
     store.workloads.recordWatchedPullRequests('forge', [105, 106, 107].map((number) => ({ number, url: `https://github.com/rameezk/forge/pull/${number}`, closes: [], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'head1', draft: false, defaultSha: 'main0' })));
     drawSample(store, 'forge', 106, () => true, '2026-09-30T09:30:00.000Z');
-    if (announced) store.markSampleAnnounced('forge', 106);
+    if (announced) store.autoMerge.markSampleAnnounced('forge', 106);
   }, undefined, undefined, GRADING, { autoMergeRepositories: optedIn });
 
 test('given a pause, when the Board is requested, then an eligible card in review carries a paused pill, and a sampled one and a moderate one do not', async () => {
