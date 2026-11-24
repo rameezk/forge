@@ -42,9 +42,9 @@ const seedDispatch = (store: Store, id: string, fingerprint: ConfigFingerprint, 
     [{ id: generation.id, billing: { costUsd, usage: null, reasoningTokens: null, provider: 'anthropic', model: null } }],
     run.endTime!,
   );
-  const started = store.startDispatch(run.ticket!, id, run.startTime, 100, null);
+  const started = store.workloads.startDispatch(run.ticket!, id, run.startTime, 100, null);
   assert.ok('started' in started);
-  store.endDispatch(
+  store.workloads.endDispatch(
     started.started,
     { state: 'done', pullRequest: { number: 7, url: 'https://github.com/rameezk/forge/pull/7' } },
     run.endTime!,
