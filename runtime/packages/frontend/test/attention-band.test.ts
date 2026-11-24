@@ -136,7 +136,7 @@ test('given a bump error with markup and a long multi-line deploy error, when a 
 });
 
 const polled = (store: Store, repository: string): void =>
-  store.replaceFrontier({ repository, github: `rameezk/${repository}`, polledAt: '2026-09-29T08:10:00.000Z', closed: [], requests: [], tickets: [] });
+  store.frontier.replaceFrontier({ repository, github: `rameezk/${repository}`, polledAt: '2026-09-29T08:10:00.000Z', closed: [], requests: [], tickets: [] });
 
 const twoRepositories = (store: Store): void => {
   polled(store, 'forge');
@@ -146,7 +146,7 @@ const twoRepositories = (store: Store): void => {
 test('given a repository whose last poll failed, when the Workloads page and the Board are requested, then the band names it with the failure and a See lane link and the lane keeps its callout', async () => {
   const seed = (store: Store): void => {
     twoRepositories(store);
-    store.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'GitHub answered 401 for rameezk/forge', failedAt: '2026-09-29T08:20:00.000Z' });
+    store.frontier.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'GitHub answered 401 for rameezk/forge', failedAt: '2026-09-29T08:20:00.000Z' });
   };
 
   for (const page of ['/workloads', '/']) {
@@ -165,8 +165,8 @@ test('given a repository whose last poll failed, when the Workloads page and the
 test('given a repository whose default branch rules are not passing, when any page is requested, then the band names it with the failing rules and a See lane link and the lane keeps its callout', async () => {
   const seed = (store: Store): void => {
     twoRepositories(store);
-    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['GitHub Actions can approve pull requests', 'its default branch does not require an approving review'] });
-    store.recordBranchRules({ repository: 'dotfiles', github: 'rameezk/dotfiles', failures: [] });
+    store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['GitHub Actions can approve pull requests', 'its default branch does not require an approving review'] });
+    store.frontier.recordBranchRules({ repository: 'dotfiles', github: 'rameezk/dotfiles', failures: [] });
   };
 
   for (const page of PAGES) {
@@ -182,8 +182,8 @@ test('given a repository whose default branch rules are not passing, when any pa
 test('given a repository whose rules fail and whose poll failed, when a run page is requested, then the band has one row for each', async () => {
   const body = await pageWith('/runs/run-01', null, (store) => {
     polled(store, 'forge');
-    store.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'boom', failedAt: '2026-09-29T08:20:00.000Z' });
-    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['no review'] });
+    store.frontier.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'boom', failedAt: '2026-09-29T08:20:00.000Z' });
+    store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['no review'] });
   });
 
   const band = bandOf(body) ?? '';
@@ -195,7 +195,7 @@ test('given every repository polling with passing rules, when any page is reques
   for (const page of PAGES) {
     const body = await pageWith(page, null, (store) => {
       twoRepositories(store);
-      store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
+      store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
     });
     assert.doesNotMatch(body, /data-attention-band|data-poll-failed|data-branch-rules-failing/, page);
   }
@@ -204,7 +204,7 @@ test('given every repository polling with passing rules, when any page is reques
 test('given a repository name and a failure with markup, when a page is requested, then the row is escaped', async () => {
   const body = await pageWith('/workloads', null, (store) => {
     polled(store, 'forge');
-    store.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: '<script>alert(1)</script>', failedAt: '2026-09-29T08:20:00.000Z' });
+    store.frontier.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: '<script>alert(1)</script>', failedAt: '2026-09-29T08:20:00.000Z' });
   });
 
   assert.doesNotMatch(body, /<script>alert/);

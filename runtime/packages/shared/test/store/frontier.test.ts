@@ -35,8 +35,8 @@ test('given a store file whose frontier predates last errors, when the store is 
   const store = Store.open(path);
   try {
     const failedAt = '2026-09-29T08:20:00.000Z';
-    store.recordFrontierError({ repository: 'fresh', github: 'rameezk/fresh', message: 'GitHub token missing', failedAt });
-    assert.deepEqual(store.listFrontier(), [
+    store.frontier.recordFrontierError({ repository: 'fresh', github: 'rameezk/fresh', message: 'GitHub token missing', failedAt });
+    assert.deepEqual(store.frontier.listFrontier(), [
       { repository: 'fresh', github: 'rameezk/fresh', polledAt: null, lastError: { message: 'GitHub token missing', failedAt }, branchRules: null, tickets: [], closed: [], requests: [] },
     ]);
   } finally {
@@ -67,7 +67,7 @@ test('given a store file whose frontier snapshot predates queued tickets, when t
 
   const store = Store.open(path);
   try {
-    assert.deepEqual(store.listFrontier(), []);
+    assert.deepEqual(store.frontier.listFrontier(), []);
     const queued = {
       number: 64,
       title: 'Pinned host key and just ssh',
@@ -79,8 +79,8 @@ test('given a store file whose frontier snapshot predates queued tickets, when t
       forHuman: false,
       blockedBy: [],
     };
-    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', closed: [], requests: [], tickets: [queued] });
-    assert.deepEqual(store.listFrontier()[0]?.tickets, [queued]);
+    store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', closed: [], requests: [], tickets: [queued] });
+    assert.deepEqual(store.frontier.listFrontier()[0]?.tickets, [queued]);
   } finally {
     store.close();
   }
@@ -111,7 +111,7 @@ test('given a store file whose frontier snapshot predates spec URLs, when the st
 
   const store = Store.open(path);
   try {
-    assert.deepEqual(store.listFrontier(), []);
+    assert.deepEqual(store.frontier.listFrontier(), []);
     const specced = {
       number: 64,
       title: 'Pinned host key and just ssh',
@@ -123,8 +123,8 @@ test('given a store file whose frontier snapshot predates spec URLs, when the st
       forHuman: false,
       blockedBy: [],
     };
-    store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', closed: [], requests: [], tickets: [specced] });
-    assert.deepEqual(store.listFrontier()[0]?.tickets, [specced]);
+    store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T08:20:00.000Z', closed: [], requests: [], tickets: [specced] });
+    assert.deepEqual(store.frontier.listFrontier()[0]?.tickets, [specced]);
   } finally {
     store.close();
   }
@@ -136,10 +136,10 @@ test('given a repository with stored requests, when its frontier is replaced, th
     const request = (number: number) => ({ number, title: `Request ${number}`, url: `https://github.com/rameezk/forge/issues/${number}`, createdAt: '2026-10-01T06:17:03Z' });
     const polled = (requests: ReturnType<typeof request>[]) => ({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-10-01T07:00:00.000Z', tickets: [], closed: [], requests });
 
-    store.replaceFrontier(polled([request(1), request(2)]));
-    store.replaceFrontier(polled([request(2), request(3)]));
+    store.frontier.replaceFrontier(polled([request(1), request(2)]));
+    store.frontier.replaceFrontier(polled([request(2), request(3)]));
 
-    assert.deepEqual(store.listFrontier()[0]?.requests, [request(2), request(3)]);
+    assert.deepEqual(store.frontier.listFrontier()[0]?.requests, [request(2), request(3)]);
   } finally {
     store.close();
   }
@@ -164,11 +164,11 @@ test('given a store file whose frontier predates branch rules, when the store is
 
   const store = Store.open(path);
   try {
-    assert.deepEqual(store.listFrontier(), []);
-    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['GitHub Actions can approve pull requests'] });
-    assert.deepEqual(store.listFrontier()[0]?.branchRules, ['GitHub Actions can approve pull requests']);
-    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
-    assert.deepEqual(store.listFrontier()[0]?.branchRules, []);
+    assert.deepEqual(store.frontier.listFrontier(), []);
+    store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['GitHub Actions can approve pull requests'] });
+    assert.deepEqual(store.frontier.listFrontier()[0]?.branchRules, ['GitHub Actions can approve pull requests']);
+    store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
+    assert.deepEqual(store.frontier.listFrontier()[0]?.branchRules, []);
   } finally {
     store.close();
   }
@@ -178,16 +178,70 @@ test('given repositories with a failed poll, failing branch rules and neither, w
   const store = Store.open(':memory:');
   try {
     for (const [repository, github] of [['forge', 'rameezk/forge'], ['dotfiles', 'rameezk/dotfiles'], ['healthy', 'rameezk/healthy']] as const) {
-      store.replaceFrontier({ repository, github, polledAt: '2026-09-29T08:10:00.000Z', closed: [], requests: [], tickets: [] });
+      store.frontier.replaceFrontier({ repository, github, polledAt: '2026-09-29T08:10:00.000Z', closed: [], requests: [], tickets: [] });
     }
-    store.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'GitHub answered 401', failedAt: '2026-09-29T08:20:00.000Z' });
-    store.recordBranchRules({ repository: 'dotfiles', github: 'rameezk/dotfiles', failures: ['no review'] });
-    store.recordBranchRules({ repository: 'healthy', github: 'rameezk/healthy', failures: [] });
+    store.frontier.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'GitHub answered 401', failedAt: '2026-09-29T08:20:00.000Z' });
+    store.frontier.recordBranchRules({ repository: 'dotfiles', github: 'rameezk/dotfiles', failures: ['no review'] });
+    store.frontier.recordBranchRules({ repository: 'healthy', github: 'rameezk/healthy', failures: [] });
 
-    assert.deepEqual(store.listRepositoryProblems(), [
+    assert.deepEqual(store.frontier.listRepositoryProblems(), [
       { repository: 'dotfiles', github: 'rameezk/dotfiles', lastError: null, branchRules: ['no review'] },
       { repository: 'forge', github: 'rameezk/forge', lastError: { message: 'GitHub answered 401', failedAt: '2026-09-29T08:20:00.000Z' }, branchRules: null },
     ]);
+  } finally {
+    store.close();
+  }
+});
+
+const seedRepository = (store: Store, repository: string): void => {
+  store.frontier.replaceFrontier({ repository, github: `rameezk/${repository}`, polledAt: '2026-09-29T08:10:00.000Z', closed: [], requests: [], tickets: [] });
+  store.frontier.recordReviewerAppFailures(repository, ['the Reviewer App is not installed on it'], '2026-09-29T08:11:00.000Z');
+  store.workloads.recordWatchedPullRequests(repository, [
+    { number: 7, url: `https://github.com/rameezk/${repository}/pull/7`, closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'h', draft: false, defaultSha: 'm' },
+  ]);
+};
+
+test('given a repository that is no longer managed, when the frontier prunes it, then its frontier rows, feedback watches and Reviewer App rule failures are all gone and the managed repository keeps its own', () => {
+  const store = Store.open(':memory:');
+  try {
+    seedRepository(store, 'forge');
+    seedRepository(store, 'gone');
+
+    store.frontier.pruneFrontier(['forge']);
+
+    assert.deepEqual(store.frontier.listFrontier().map(({ repository }) => repository), ['forge']);
+    assert.deepEqual([...store.workloads.closesByPullRequest().keys()], ['forge#7']);
+    assert.deepEqual(store.frontier.reviewerAppFailures('forge'), ['the Reviewer App is not installed on it']);
+    assert.deepEqual(store.frontier.reviewerAppFailures('gone'), []);
+  } finally {
+    store.close();
+  }
+});
+
+test('given a repository that is no longer managed, when the frontier prunes it and the feedback watch removal fails, then none of its rows are removed', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'forge-store-')), 'forge.db');
+  const store = Store.open(path);
+  try {
+    seedRepository(store, 'gone');
+    const sabotage = new DatabaseSync(path);
+    sabotage.exec(`CREATE TRIGGER refuse_prune BEFORE DELETE ON feedback_watches BEGIN SELECT RAISE(ABORT, 'feedback watches cannot be removed'); END`);
+    sabotage.close();
+
+    assert.throws(() => store.frontier.pruneFrontier([]), /feedback watches cannot be removed/);
+
+    assert.deepEqual(store.frontier.listFrontier().map(({ repository }) => repository), ['gone']);
+    assert.deepEqual(store.frontier.reviewerAppFailures('gone'), ['the Reviewer App is not installed on it']);
+    assert.deepEqual([...store.workloads.closesByPullRequest().keys()], ['gone#7']);
+  } finally {
+    store.close();
+  }
+});
+
+test('given the store, when its public interface is inspected, then no frontier snapshot or Reviewer App rule failure method remains on it', () => {
+  const store = Store.open(':memory:');
+  try {
+    const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(store));
+    assert.deepEqual(methods.filter((name) => /frontier|repositoryProblems|branchRules|ruleFailures|reviewerApp/i.test(name)), []);
   } finally {
     store.close();
   }

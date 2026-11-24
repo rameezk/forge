@@ -104,16 +104,16 @@ const pass = async ({ frontier, maxConcurrent, maxOpenPullRequests, seed, failin
   const store = Store.open(join(stateDir, 'forge.db'));
   try {
     for (const repository of frontier) {
-      store.replaceFrontier(repository);
+      store.frontier.replaceFrontier(repository);
       const failures = Object.hasOwn(branchRules, repository.repository)
         ? branchRules[repository.repository]
         : [];
       if (failures !== null && failures !== undefined) {
-        store.recordBranchRules({ repository: repository.repository, github: repository.github, failures });
+        store.frontier.recordBranchRules({ repository: repository.repository, github: repository.github, failures });
       }
     }
     for (const repository of failedPolls) {
-      store.recordFrontierError({ repository, github: `rameezk/${repository}`, message: 'GitHub answered 502', failedAt: '2026-09-29T08:05:00.000Z' });
+      store.frontier.recordFrontierError({ repository, github: `rameezk/${repository}`, message: 'GitHub answered 502', failedAt: '2026-09-29T08:05:00.000Z' });
     }
     gradeTickets(store, frontier, grades);
     seed?.(store);

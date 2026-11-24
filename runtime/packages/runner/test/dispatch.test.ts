@@ -3140,7 +3140,7 @@ test('given a checkout whose skills directory holds a dangling symlink, when the
 });
 
 const polledTicket = (store: Store): void =>
-  store.replaceFrontier({
+  store.frontier.replaceFrontier({
     repository: 'forge',
     github: 'rameezk/forge',
     polledAt: new Date().toISOString(),

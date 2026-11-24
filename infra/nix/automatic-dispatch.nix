@@ -24,7 +24,7 @@ let
   snapshot = writeText "snapshot.mjs" ''
     import { Store } from '${forge-runner}/lib/forge-runtime/packages/shared/src/index.ts';
     const store = Store.open('/var/lib/forge/forge.db');
-    store.replaceFrontier(${
+    store.frontier.replaceFrontier(${
       builtins.toJSON {
         repository = "forge";
         github = "rameezk/forge";
@@ -38,7 +38,7 @@ let
         ];
       }
     });
-    store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
+    store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
     store.diagnoses.armDiagnosis('2000-01-01T00:00:00.000Z');
     const failedAt = new Date().toISOString();
     if (store.workloads.dispatchOfRun('failed-run', failedAt) === null) {

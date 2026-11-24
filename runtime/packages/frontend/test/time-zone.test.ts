@@ -70,8 +70,8 @@ const dashboard = (timeZone?: string) => {
   const started = store.workloads.startDispatch(TICKET, run.id, run.startTime, 100, null);
   assert.ok('started' in started);
   store.workloads.endDispatch(started.started, { state: 'failed', reason: 'no-pull-request', detail: null }, run.endTime!);
-  store.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T23:15:00.000Z', closed: [], requests: [], tickets: [ticket] });
-  store.recordFrontierError({ repository: 'dotfiles', github: 'rameezk/dotfiles', message: 'boom', failedAt: '2026-09-29T23:20:00.000Z' });
+  store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: '2026-09-29T23:15:00.000Z', closed: [], requests: [], tickets: [ticket] });
+  store.frontier.recordFrontierError({ repository: 'dotfiles', github: 'rameezk/dotfiles', message: 'boom', failedAt: '2026-09-29T23:20:00.000Z' });
   const app = createApp({
     store,
     transcripts: new FileTranscriptSource(dir),

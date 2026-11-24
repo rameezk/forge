@@ -141,7 +141,7 @@ const finishedRun: RunRecord = {
 };
 
 const poll = (store: Store, repository: string): void =>
-  store.replaceFrontier({ repository, github: `rameezk/${repository}`, polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [] });
+  store.frontier.replaceFrontier({ repository, github: `rameezk/${repository}`, polledAt: new Date().toISOString(), closed: [], requests: [], tickets: [] });
 
 test('given an open Workloads page, when a repository poll fails and its branch rules fail and both later recover, then the band shows each row and clears without a reload', async ({ dashboard, page }) => {
   poll(dashboard.store, 'forge');
@@ -152,22 +152,22 @@ test('given an open Workloads page, when a repository poll fails and its branch 
   });
   await expect(page.locator('[data-attention-band]')).toHaveCount(0);
 
-  dashboard.store.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'GitHub answered 401', failedAt: new Date().toISOString() });
+  dashboard.store.frontier.recordFrontierError({ repository: 'forge', github: 'rameezk/forge', message: 'GitHub answered 401', failedAt: new Date().toISOString() });
   await expect(page.locator('[data-poll-failed]')).toContainText('rameezk/forge: last poll failed');
   await expect(page.locator('[data-poll-failed]')).toContainText('GitHub answered 401');
 
-  dashboard.store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['no approving review'] });
+  dashboard.store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: ['no approving review'] });
   await expect(page.locator('[data-branch-rules-failing]')).toContainText('no approving review');
 
   poll(dashboard.store, 'forge');
-  dashboard.store.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
+  dashboard.store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
   await expect(page.locator('[data-attention-band]')).toHaveCount(0);
   expect(await page.evaluate(() => (globalThis as unknown as { unreloaded?: boolean }).unreloaded)).toBe(true);
 });
 
 test('given two repositories, the second with a failed poll, when See lane is followed from a run page, then the Board opens at the second lane', async ({ dashboard, page }) => {
   for (const repository of ['alpha', 'zulu']) poll(dashboard.store, repository);
-  dashboard.store.recordFrontierError({ repository: 'zulu', github: 'rameezk/zulu', message: 'GitHub answered 401', failedAt: new Date().toISOString() });
+  dashboard.store.frontier.recordFrontierError({ repository: 'zulu', github: 'rameezk/zulu', message: 'GitHub answered 401', failedAt: new Date().toISOString() });
   dashboard.store.runs.insertRun(finishedRun);
   await page.goto('/runs/run-01');
   await page.getByRole('link', { name: 'See lane' }).click();

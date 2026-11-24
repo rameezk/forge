@@ -486,7 +486,7 @@ test('given feedback watches of a repository that is no longer declared, when th
       { number: 7, url: pull.url, closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE', headSha: 'h', draft: false, defaultSha: 'm' },
     ]);
   }
-  store.pruneFrontier(['forge']);
+  store.frontier.pruneFrontier(['forge']);
   assert.deepEqual([...store.workloads.closesByPullRequest().keys()], ['forge#7']);
   store.close();
 });

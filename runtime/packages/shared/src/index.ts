@@ -236,6 +236,7 @@ export {
   type TokenAccess,
 } from './github-app.ts';
 export type { Workloads } from './store/workloads.ts';
+export type { Frontier } from './store/frontier.ts';
 export { checkBranchRules, checkReviewerApp, type BranchRulesTokens } from './branch-rules.ts';
 export { GRADING_FAILURES, RETRIED_GRADING_FAILURES, type GradingFailure } from './store/grading-policy.ts';
 export {
