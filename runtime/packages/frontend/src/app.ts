@@ -221,7 +221,7 @@ export const createApp = ({
       return c.html(renderRisk(aggregateRisk(grades), summarizeRisk(grades, store.grades.listFailedGradingHeads(range)), { ...query, ...(fingerprint === undefined ? {} : { cohort: fingerprint }) }, options, shown, autoMergeStatus(store), store.autoMerge.autoMergeCounts(range), autoMergeRepositories));
     }
     const filter = filterOf(query);
-    return c.html(renderInsights(store.listCohorts(filter), store.listPoints(filter), store.listProviderShares(filter), query, store.insightsOptions(), shown));
+    return c.html(renderInsights(store.insights.listCohorts(filter), store.insights.listPoints(filter), store.insights.listProviderShares(filter), query, store.insights.options(), shown));
   });
 
   app.get(`/cohorts/${UNKNOWN_COHORT}`, (c) => {
@@ -236,7 +236,7 @@ export const createApp = ({
     if (fingerprint === null) return c.notFound();
     const againstHash = c.req.query('against') ?? '';
     const against = againstHash === hash ? null : store.runs.getCohortFingerprint(againstHash);
-    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.runs.listCohortFingerprints(), store.listCohorts({ kind: 'all', includeManual: false }).find((cohort) => cohort.hash === hash)?.failures ?? noFailures(), shown));
+    return c.html(renderCohortPage({ hash, fingerprint }, against === null ? null : { hash: againstHash, fingerprint: against }, store.runs.listCohortFingerprints(), store.insights.listCohorts({ kind: 'all', includeManual: false }).find((cohort) => cohort.hash === hash)?.failures ?? noFailures(), shown));
   });
 
   app.get('/tickets/:repository/:number', (c) => {
