@@ -1,6 +1,6 @@
 import { ticketKey } from './dispatch.ts';
 import { oldestFirst, type RepositoryFrontier, type Ticket } from './frontier.ts';
-import { URGENCY_LEVELS, type Store, type UrgencyLevel } from './store/store.ts';
+import { URGENCY_LEVELS, type Urgency, type UrgencyLevel } from './store/urgency.ts';
 
 export type DispatchOrder = 'oldest' | 'urgency';
 
@@ -26,7 +26,7 @@ export const OLDEST_FIRST: DispatchOrdering = {
 };
 
 export const certainUrgencies = (
-  store: Pick<Store, 'currentUrgencyGrade'>,
+  urgency: Pick<Urgency, 'currentGrade'>,
   frontier: readonly RepositoryFrontier[],
   order: DispatchOrder,
 ): Map<string, UrgencyLevel> => {
@@ -34,7 +34,7 @@ export const certainUrgencies = (
   if (order === 'oldest') return urgencies;
   for (const { repository, tickets } of frontier) {
     for (const { number } of tickets) {
-      const grade = store.currentUrgencyGrade(repository, number);
+      const grade = urgency.currentGrade(repository, number);
       if (grade !== null && !grade.uncertain) urgencies.set(ticketKey(repository, number), grade.level);
     }
   }

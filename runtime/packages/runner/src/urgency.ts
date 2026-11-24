@@ -7,7 +7,7 @@ import {
   type DisplayedUrgencyGrade,
   type Fetch,
   type InstallationTokens,
-  type Store,
+  type Urgency,
   type UrgencyDue,
   type UrgencyGrade,
   type UrgencyLevel,
@@ -94,7 +94,7 @@ export interface UrgencyRepository {
 }
 
 export interface GradeUrgencyOptions {
-  store: Store;
+  urgency: Urgency;
   fetch: Fetch;
   tokens: InstallationTokens;
   decide: Decide;
@@ -106,7 +106,7 @@ export interface GradeUrgencyOptions {
 }
 
 const applyLabels = async (
-  { store, fetch, tokens, repositories }: GradeUrgencyOptions,
+  { urgency, fetch, tokens, repositories }: GradeUrgencyOptions,
   grade: DisplayedUrgencyGrade,
 ): Promise<void> => {
   const { github } = repositories[grade.repository] as UrgencyRepository;
@@ -118,11 +118,11 @@ const applyLabels = async (
     URGENCY_LABEL_PREFIX,
     urgencyLabels(grade),
   );
-  store.markUrgencyLabelsApplied(grade);
+  urgency.markLabelsApplied(grade);
 };
 
 const gradeOne = async (options: GradeUrgencyOptions, due: UrgencyDue): Promise<void> => {
-  const { store, fetch, tokens, decide, model, threshold, now, repositories } = options;
+  const { urgency, fetch, tokens, decide, model, threshold, now, repositories } = options;
   const { github, description } = repositories[due.repository] as UrgencyRepository;
   const { ticket, spec } = await queryTicketContext(
     fetch,
@@ -136,7 +136,7 @@ const gradeOne = async (options: GradeUrgencyOptions, due: UrgencyDue): Promise<
     decision = await decide(urgencyInput(ticket, spec, description));
   } catch (error) {
     if (!(error instanceof GradingFailed)) throw error;
-    store.recordUrgencyAttempt({
+    urgency.recordAttempt({
       repository: due.repository,
       number: due.number,
       version: due.version,
@@ -150,7 +150,7 @@ const gradeOne = async (options: GradeUrgencyOptions, due: UrgencyDue): Promise<
     return;
   }
   const grade = decideUrgency(decision, due, model, threshold, now());
-  store.recordUrgencyGrade(grade);
+  urgency.recordGrade(grade);
   await applyLabels(options, { ...grade, labelsApplied: false });
 };
 
@@ -170,15 +170,15 @@ const attempt = async (
 };
 
 export const gradeUrgency = async (options: GradeUrgencyOptions): Promise<boolean> => {
-  const { store, repositories } = options;
+  const { urgency, repositories } = options;
   const names = Object.keys(repositories);
   const outcomes: boolean[] = [];
-  for (const grade of store.urgencyGradesAwaitingLabels(names)) {
+  for (const grade of urgency.gradesAwaitingLabels(names)) {
     outcomes.push(
       await attempt(options, 'apply the urgency labels', grade, () => applyLabels(options, grade)),
     );
   }
-  for (const due of store.urgencyDue(names, options.now())) {
+  for (const due of urgency.due(names, options.now())) {
     outcomes.push(await attempt(options, 'grade the urgency', due, () => gradeOne(options, due)));
   }
   return outcomes.every(Boolean);

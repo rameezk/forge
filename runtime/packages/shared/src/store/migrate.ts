@@ -4,7 +4,7 @@ import { migrateDiagnoses } from './migrations/diagnoses.ts';
 import { migrateFrontier } from './migrations/frontier.ts';
 import { migrateGrades } from './migrations/grades.ts';
 import { migrateRuns } from './migrations/runs.ts';
-import { migrateUrgency } from './migrations/urgency.ts';
+import { migrateUrgency } from './urgency.ts';
 import { migrateWorkloads } from './migrations/workloads.ts';
 
 interface ConcernMigration {
