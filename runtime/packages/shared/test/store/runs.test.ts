@@ -769,7 +769,7 @@ for (const [table, list] of [['revisions', 'listRevisions'], ['conflict_resoluti
     const store = Store.open(path);
 
     assert.deepEqual(
-      store[list]('2026-09-21T09:06:00.000Z').map(({ state, reason, detail }) => ({ state, reason, detail })),
+      store.workloads[list]('2026-09-21T09:06:00.000Z').map(({ state, reason, detail }) => ({ state, reason, detail })),
       [
         { state: 'done', reason: null, detail: null },
         { state: 'failed', reason: 'crashed', detail: 'boom' },

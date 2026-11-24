@@ -184,7 +184,7 @@ test('given a run dispatched for a ticket and a run started by hand, when the li
 
 test('given a succeeded run whose revision crashed with a multi-line detail and an errored run whose revision has no reason, when the list is requested, then the first row shows its success pill with one Label: first line text under it and the second shows the run\'s own error, with no separate error line', async () => {
   const revised = (store: Store, runId: string, number: number, failure?: { reason: 'crashed'; detail: string }): void => {
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
       [],
       runId,
@@ -192,7 +192,7 @@ test('given a succeeded run whose revision crashed with a multi-line detail and 
       10,
     );
     assert.ok('started' in start);
-    store.endRevision(start.started, 'failed', '2026-09-21T10:03:20.000Z', failure);
+    store.workloads.endRevision(start.started, 'failed', '2026-09-21T10:03:20.000Z', failure);
   };
   const app = appWith(
     [
@@ -226,7 +226,7 @@ test('given a succeeded run whose revision crashed with a multi-line detail and 
 
 test('given a revision that ended ok and one that ended in error, when the list is requested, then both rows show their repository and pull request linked to it, and their outcome', async () => {
   const revised = (store: Store, runId: string, number: number, state: 'done' | 'failed'): void => {
-    const start = store.startRevision(
+    const start = store.workloads.startRevision(
       { repository: 'forge', number, url: `https://github.com/rameezk/forge/pull/${number}` },
       [],
       runId,
@@ -234,7 +234,7 @@ test('given a revision that ended ok and one that ended in error, when the list 
       10,
     );
     assert.ok('started' in start);
-    store.endRevision(start.started, state, '2026-09-21T10:03:20.000Z');
+    store.workloads.endRevision(start.started, state, '2026-09-21T10:03:20.000Z');
   };
   const app = appWith(
     [
@@ -261,7 +261,7 @@ test('given a revision that ended ok and one that ended in error, when the list 
 
 const dispatchedFor = (store: Store, runId: string, ticket: number, outcome?: DispatchOutcome): void => {
   const at = outcome === undefined ? new Date().toISOString() : '2026-09-21T10:03:20.000Z';
-  const start = store.startDispatch(
+  const start = store.workloads.startDispatch(
     { repository: 'forge', number: ticket, url: `https://github.com/rameezk/forge/issues/${ticket}` },
     runId,
     at,
@@ -269,7 +269,7 @@ const dispatchedFor = (store: Store, runId: string, ticket: number, outcome?: Di
     null,
   );
   assert.ok('started' in start);
-  if (outcome !== undefined) store.endDispatch(start.started, outcome, at);
+  if (outcome !== undefined) store.workloads.endDispatch(start.started, outcome, at);
 };
 
 const dispatchOutcomeApp = () =>
@@ -327,7 +327,7 @@ const PULL_REQUEST_URL = 'https://github.com/rameezk/forge/pull/143';
 
 const dispatchedWithPullRequest = (store: Store, runId: string, ticket: number, pullRequest: number): number => {
   const at = '2026-09-21T10:03:20.000Z';
-  const start = store.startDispatch(
+  const start = store.workloads.startDispatch(
     { repository: 'forge', number: ticket, url: `https://github.com/rameezk/forge/issues/${ticket}` },
     runId,
     at,
@@ -335,7 +335,7 @@ const dispatchedWithPullRequest = (store: Store, runId: string, ticket: number, 
     null,
   );
   assert.ok('started' in start);
-  store.endDispatch(
+  store.workloads.endDispatch(
     start.started,
     { state: 'done', pullRequest: { number: pullRequest, url: `https://github.com/rameezk/forge/pull/${pullRequest}` } },
     at,
@@ -355,7 +355,7 @@ test('given a dispatched workload whose pull request was merged with a rework co
     ],
     undefined,
     (store) => {
-      store.recordPullRequest(dispatchedWithPullRequest(store, 'merged', 113, 143), {
+      store.workloads.recordPullRequest(dispatchedWithPullRequest(store, 'merged', 113, 143), {
         state: 'merged',
         settledAt: '2026-09-22T09:00:00Z',
         rework: 1,

@@ -98,7 +98,7 @@ test('given a revision handed one item, when the worker replies on the pull requ
 test('given a revision that ends ok, when it is recorded, then it is against its pull request and run and linked to the dispatch that opened the pull request', async () => {
   const { code, runs, revisions } = await revise({
     seed: (store) => {
-      const start = store.startDispatch(
+      const start = store.workloads.startDispatch(
         { repository: 'forge', number: 113, url: 'https://github.com/rameezk/forge/issues/113' },
         'opening-run',
         '2026-09-21T10:00:00.000Z',
@@ -106,7 +106,7 @@ test('given a revision that ends ok, when it is recorded, then it is against its
         null,
       );
       assert.ok('started' in start);
-      store.endDispatch(
+      store.workloads.endDispatch(
         start.started,
         { state: 'done', pullRequest: { number: 143, url: PULL_REQUEST_URL } },
         '2026-09-21T10:30:00.000Z',
@@ -124,7 +124,7 @@ test('given a revision that ends ok, when it is recorded, then it is against its
 });
 
 const previousRevisionAt = (startedAt: string) => (store: Store) => {
-  const start = store.startRevision(
+  const start = store.workloads.startRevision(
     { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
     [],
     'previous-run',
@@ -132,7 +132,7 @@ const previousRevisionAt = (startedAt: string) => (store: Store) => {
     10,
   );
   assert.ok('started' in start);
-  store.endRevision(start.started, 'done', startedAt);
+  store.workloads.endRevision(start.started, 'done', startedAt);
 };
 
 test('given a window holding a review summary, an inline review comment and a conversation comment by the owner, when the revision runs, then the instruction lists all three with their kind, author, URL and body, and the inline comment with its file and line', async () => {
@@ -193,7 +193,7 @@ test('given a revision that ended in error over a comment, when forge-revise run
   const { pi, code } = await revise({
     seed: (store) => {
       previousRevisionAt('2026-09-21T10:00:00.000Z')(store);
-      const failed = store.startRevision(
+      const failed = store.workloads.startRevision(
         { repository: 'forge', number: 143, url: PULL_REQUEST_URL },
         [],
         'failed-run',
@@ -201,7 +201,7 @@ test('given a revision that ended in error over a comment, when forge-revise run
         10,
       );
       assert.ok('started' in failed);
-      store.endRevision(failed.started, 'failed', '2026-09-21T10:11:00.000Z');
+      store.workloads.endRevision(failed.started, 'failed', '2026-09-21T10:11:00.000Z');
     },
     feedback: feedbackWindow({
       comments: [conversationComment({ body: 'Raised before the failure.', createdAt: '2026-09-21T10:05:00Z' })],
