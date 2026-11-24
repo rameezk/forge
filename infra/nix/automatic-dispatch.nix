@@ -39,7 +39,7 @@ let
       }
     });
     store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
-    store.armDiagnosis('2000-01-01T00:00:00.000Z');
+    store.diagnoses.armDiagnosis('2000-01-01T00:00:00.000Z');
     const failedAt = new Date().toISOString();
     if (store.workloads.dispatchOfRun('failed-run', failedAt) === null) {
       const failed = store.workloads.startDispatch(

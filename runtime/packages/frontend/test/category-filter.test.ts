@@ -53,7 +53,7 @@ const dashboard = () => {
     store.workloads.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
     categories.forEach((category, index) => {
       store.runs.insertRun(aRun(`${id}-diagnosis-${index}`, 'diagnoser', number));
-      store.endDiagnosis(store.startDiagnosis(id, `${id}-diagnosis-${index}`, AT), 'done', AT, { verdict: verdictOf(category) });
+      store.diagnoses.endDiagnosis(store.diagnoses.startDiagnosis(id, `${id}-diagnosis-${index}`, AT), 'done', AT, { verdict: verdictOf(category) });
     });
   };
   failed('skill-a', 'builder', ['skill']);

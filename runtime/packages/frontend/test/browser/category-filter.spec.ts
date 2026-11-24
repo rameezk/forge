@@ -45,7 +45,7 @@ test('given failed runs diagnosed as skill, skill and forge, when Workloads is f
     dashboard.store.workloads.endDispatch(dispatch.started, { state: 'failed', reason: 'check-failed', detail: 'build' }, '2026-11-01T10:03:20.000Z');
     categories.forEach((category, index) => {
       dashboard.store.runs.insertRun(aRun(`${id}-diagnosis-${index}`, 'diagnoser', number));
-      dashboard.store.endDiagnosis(dashboard.store.startDiagnosis(id, `${id}-diagnosis-${index}`, AT), 'done', AT, {
+      dashboard.store.diagnoses.endDiagnosis(dashboard.store.diagnoses.startDiagnosis(id, `${id}-diagnosis-${index}`, AT), 'done', AT, {
         verdict: { category, evidence: [{ turn: 1, note: 'seen' }], suggestedFix: 'fix it' },
       });
     });

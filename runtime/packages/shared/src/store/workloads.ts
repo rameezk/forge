@@ -1,12 +1,12 @@
 import type { Connection } from './connection.ts';
 import { migrateWorkloads } from './migrations/workloads.ts';
-import { DISPATCH_DETAIL_LIMIT, ticketKey, type DispatchFailure, type DispatchOutcome, type DispatchRecord, type DispatchStart, type DispatchState, type DispatchTicket, type PullRequestRecord, type PullRequestState } from '../dispatch.ts';
+import { boundedDetail, liveSince } from './fragments.ts';
+import { ticketKey, type DispatchFailure, type DispatchOutcome, type DispatchRecord, type DispatchStart, type DispatchState, type DispatchTicket, type PullRequestRecord, type PullRequestState } from '../dispatch.ts';
 import type { ConflictResolutionFailure, ConflictResolutionFailureRecord, ConflictResolutionRecord, ConflictResolutionStart, ConflictResolutionState, RunPullRequestWorkload, ShaPair } from '../conflict-resolution.ts';
 import type { RevisedPullRequest, RevisionFailure, RevisionFailureRecord, RevisionRecord, RevisionStart, RevisionState } from '../revision.ts';
 import type { WatchedPullRequest } from '../feedback.ts';
 import type { AttemptConflictResolution, AttemptRevision, TicketAttempt } from '../attempts.ts';
 import type { RunFingerprint } from '../fingerprint.ts';
-import { STALE_AFTER_MS } from '../heartbeat.ts';
 import type { RunRecord } from '../run.ts';
 
 
@@ -129,14 +129,6 @@ const dispatchFromRow = (row: DispatchRow): DispatchRecord => ({
           rework: row.pr_rework,
         },
 });
-
-export const boundedDetail = (detail: string | null): string | null =>
-  detail === null || detail.length <= DISPATCH_DETAIL_LIMIT
-    ? detail
-    : `${detail.slice(0, DISPATCH_DETAIL_LIMIT - 1)}…`;
-
-export const liveSince = (now: string): string =>
-  new Date(Date.parse(now) - STALE_AFTER_MS).toISOString();
 
 export const CURRENT_HEAD_OF_WATCH = `JOIN feedback_watches USING (repository, number, head_sha)`;
 

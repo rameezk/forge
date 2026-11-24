@@ -130,7 +130,7 @@ const startRerun = (
   if (workerName === null) throw new Error(NO_WORKER);
   resolveWorker(config, workerName);
   const at = now();
-  if (store.diagnosisOfRun(failedRunId, at) !== null) throw new Error(`${failedRunId} is a diagnosis, which is never diagnosed`);
+  if (store.diagnoses.diagnosisOfRun(failedRunId, at) !== null) throw new Error(`${failedRunId} is a diagnosis, which is never diagnosed`);
   const failed = store.runs.getRun(failedRunId);
   if (failed === undefined) throw new Error(`${failedRunId} is not recorded`);
   if (briefOf(store, failed, stateDir) === null) {
@@ -140,10 +140,10 @@ const startRerun = (
     throw new Error(`${failedRunId} has no transcript left to diagnose`);
   }
   const runId = randomUUID();
-  if (store.startDiagnosisUnlessRunning(failedRunId, runId, at) === null) {
+  if (store.diagnoses.startDiagnosisUnlessRunning(failedRunId, runId, at) === null) {
     throw new Error(`${failedRunId} is already being diagnosed`);
   }
-  return { diagnosis: store.diagnosisOfRun(runId, at) as DiagnosisRecord, workerName };
+  return { diagnosis: store.diagnoses.diagnosisOfRun(runId, at) as DiagnosisRecord, workerName };
 };
 
 export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch): Promise<number> => {
@@ -152,7 +152,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
   const store = Store.open(join(stateDir, 'forge.db'));
   let diagnosis: DiagnosisRecord | null = null;
   const fail = (detail: string): void => {
-    if (diagnosis !== null) store.endDiagnosis(diagnosis.id, 'failed', now(), { detail });
+    if (diagnosis !== null) store.diagnoses.endDiagnosis(diagnosis.id, 'failed', now(), { detail });
   };
   try {
     let config: RuntimeConfig;
@@ -161,7 +161,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
       config = readRuntimeConfig(env);
       ({ diagnosis, workerName } = startRerun(store, config, stateDir, invocation.failedRunId, invocation.workerName));
     } else {
-      diagnosis = store.diagnosisOfRun(invocation.runId, now());
+      diagnosis = store.diagnoses.diagnosisOfRun(invocation.runId, now());
       if (diagnosis === null || diagnosis.state !== 'running') {
         throw new Error(`${invocation.runId} is not a running diagnosis`);
       }
@@ -177,7 +177,7 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
     }
     const { id, runId } = diagnosis;
     const stopHeartbeat = startHeartbeat(
-      () => store.touchDiagnosis(id, now()),
+      () => store.diagnoses.touchDiagnosis(id, now()),
       (error) => console.error(`${runId}: could not refresh its diagnosis heartbeat: ${errorMessage(error)}`),
     );
     try {
@@ -232,10 +232,10 @@ export const main = async (argv: string[], env: NodeJS.ProcessEnv, fetch: Fetch)
       }
       const ended = endOf(launched, stateDir);
       if ('verdict' in ended) {
-        store.endDiagnosis(id, 'done', now(), { verdict: ended.verdict });
+        store.diagnoses.endDiagnosis(id, 'done', now(), { verdict: ended.verdict });
         return 0;
       }
-      store.endDiagnosis(id, 'failed', now(), ended);
+      store.diagnoses.endDiagnosis(id, 'failed', now(), ended);
       return 1;
     } catch (error) {
       fail(errorMessage(error));

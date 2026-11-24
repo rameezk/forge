@@ -82,7 +82,7 @@ const settleHistory = (store: Store, history: Settled[], fingerprint = COHORT): 
     };
     const at = new Date(Date.parse('2026-11-17T10:00:00.000Z') + tick * 1000).toISOString();
     store.grades.recordRiskGrade(grade);
-    if (outcome === 'auto') store.markAutoMergeStarted(grade, at);
+    if (outcome === 'auto') store.autoMerge.markAutoMergeStarted(grade, at);
     store.grades.settleRiskGrade(grade, outcome === 'failed' ? 'closed' : 'merged', at);
   }
 };
@@ -470,7 +470,7 @@ test('given an auto-merged grade and a grade merged by a person, when the store 
 test('given the pass started a merge, when frontier sync then sees the pull request merged, then the grade settles as auto-merged and not merged', async () => {
   const f = forge([{ number: 1 }]);
   f.withStore((store) => {
-    store.markAutoMergeStarted({ repository: 'forge', number: 1, headSha: HEAD(1) }, NOW);
+    store.autoMerge.markAutoMergeStarted({ repository: 'forge', number: 1, headSha: HEAD(1) }, NOW);
     store.grades.settleRiskGrade({ repository: 'forge', number: 1, headSha: HEAD(1) }, 'merged', NOW);
   });
   assert.equal(outcomeOf(f, 1), 'auto-merged');
@@ -535,7 +535,7 @@ test('given held pull requests that are running a revision, graded moderate or c
     { number: 3, hold: 'outsider', level: 'moderate' },
   ]);
   assert.equal(await f.run(), 0);
-  assert.deepEqual(f.withStore((store) => store.heldPullRequests()), [
+  assert.deepEqual(f.withStore((store) => store.autoMerge.heldPullRequests()), [
     { repository: 'forge', number: 1 },
     { repository: 'forge', number: 2 },
   ]);
@@ -546,14 +546,14 @@ test('given held pull requests that are running a revision, graded moderate or c
 test('given a held pull request whose head then moves past its graded head, when the pass runs again, then the store no longer records it as held', async () => {
   const f = forge([{ number: 7, hold: 'maintainer' }]);
   await f.run();
-  assert.deepEqual(f.withStore((store) => store.heldPullRequests()), [{ repository: 'forge', number: 7 }]);
+  assert.deepEqual(f.withStore((store) => store.autoMerge.heldPullRequests()), [{ repository: 'forge', number: 7 }]);
   f.withStore((store) =>
     store.workloads.recordWatchedPullRequests('forge', [
       { number: 7, url: 'https://github.com/rameezk/forge/pull/7', closes: [10], newestFeedbackAt: null, mergeable: 'MERGEABLE' as const, headSha: 'moved-7', draft: false, defaultSha: 'default-a' },
     ]),
   );
   await f.run();
-  assert.deepEqual(f.withStore((store) => store.heldPullRequests()), []);
+  assert.deepEqual(f.withStore((store) => store.autoMerge.heldPullRequests()), []);
 });
 
 const merged = (f: ReturnType<typeof forge>): number[] => f.merges.map(({ number }) => number);

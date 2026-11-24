@@ -320,3 +320,14 @@ test('given an opened store, when its interface is inspected, then runs are reac
   assert.equal(typeof store.runs.insertRun, 'function');
   store.close();
 });
+
+test('given an opened store, when its interface is inspected, then diagnoses are reached only through the diagnoses concern', () => {
+  const store = Store.open(':memory:');
+  const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(store));
+  assert.deepEqual(
+    methods.filter((name) => /diagnos/i.test(name)),
+    [],
+  );
+  assert.equal(typeof store.diagnoses.startDiagnosis, 'function');
+  store.close();
+});

@@ -264,7 +264,9 @@ export {
   type UrgencyLevel,
 } from './store/urgency.ts';
 export { Store } from './store/store.ts';
+export { type AutoMerge } from './store/auto-merge.ts';
 export { type ListPriceEquivalent, type Runs, type WorkloadSpend } from './store/runs.ts';
+export { type Diagnoses } from './store/diagnoses.ts';
 export {
   parseTranscript,
   parseTranscriptLines,
