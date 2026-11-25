@@ -116,6 +116,10 @@ _Avoid_: child workload, sub-workload
 The short prose a workload's agent and each of its subagents write between tool calls, saying what they are about to do and why, before their first tool call and whenever their plan changes.
 _Avoid_: commentary, thinking, status updates
 
+**Trace**:
+The tree of a workload's steps - its setup, generations, tool runs, subagents and compactions - each with when it ran and what it cost, derived from the workload's transcript (ADR-0124).
+_Avoid_: span tree, waterfall, call list
+
 **Skill load**:
 A workload's agent taking in one skill within one scope - the workload itself or one subagent - either through the worker's starting `/skill` prompt or by reading the skill's listed `SKILL.md`, counted once per scope however many reads it took. On Claude Code the skill is taken in through its `Skill` tool, which reads the whole file. Its coverage is how much of the file those reads spanned, so a load on `pi` may be partial. A subagent's kind is the skills it loaded (ADR-0037).
 _Avoid_: skill invocation, skill call, skill use
