@@ -201,3 +201,19 @@ test('given a transcript with no arrival times, when the trace is built, then it
   assert.equal(untimed.timed, false);
   assert.equal(timed.timed, true);
 });
+
+test('given a retry no generation followed and a generation the transcript does not mention, when the trace is built, then the retry marks the last generation once', () => {
+  const trace = traceOf([message('gen-1'), retry()], [generation('gen-1'), generation('gen-2')], false);
+
+  assert.deepEqual(trace.steps.map(({ retries }) => retries), [1, 0]);
+});
+
+test('given a subagent whose own events precede the tool call that started it, when the trace is built, then it is a single branch', () => {
+  const trace = traceOf(
+    [message('gen-1', 'call_a'), toolCall('call_a', 'subagent')],
+    [generation('gen-1', { subagent: 'call_a' })],
+    false,
+  );
+
+  assert.deepEqual(shape(trace.steps), [['subagent', 'call_a', [['generation', '']]]]);
+});

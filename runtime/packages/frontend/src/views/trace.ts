@@ -15,8 +15,16 @@ const KIND_LABELS: Record<StepKind, string> = {
   cache_warm: 'cache warm',
 };
 
+const KIND_TITLES: Record<StepKind, string> = {
+  generation: 'A model call',
+  tool: 'A tool run asked for by the generation above it',
+  subagent: 'A subagent started by the generation above it',
+  compaction: 'The summary model call behind a context compaction',
+  cache_warm: 'A request that kept the prompt cache warm',
+};
+
 const kindBadge = (kind: StepKind): Rendered =>
-  html`<span class="${BADGE} bg-line text-fg" data-badge="${kind === 'cache_warm' ? 'cache-warm' : kind}">${KIND_LABELS[kind]}</span>`;
+  html`<span class="${BADGE} bg-line text-fg" data-badge="${kind === 'cache_warm' ? 'cache-warm' : kind}" title="${KIND_TITLES[kind]}">${KIND_LABELS[kind]}</span>`;
 
 const retryBadge = (retries: number): Rendered =>
   retries === 0
@@ -92,7 +100,7 @@ const renderViews = (trace: Trace): Rendered =>
     </div>`;
 
 export const renderTrace = (trace: Trace, subscription: boolean): Rendered => {
-  if (trace.steps.length === 0) return '';
+  if (trace.calls === 0) return '';
   return html`<details class="${BLOCK} mb-4 border-line" data-trace-section>
     ${renderSummary(trace, subscription)}
     <div class="${CARD} rounded-t-none border-x-0 border-b-0" data-trace>

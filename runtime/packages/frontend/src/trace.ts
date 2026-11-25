@@ -137,6 +137,7 @@ export const traceOf = (
       }
       case 'tool_call': {
         const isBranch = scopes.has(event.id);
+        if (isBranch && branches.has(event.id)) break;
         const step = newStep(isBranch ? 'subagent' : 'tool', event.name);
         if (isBranch) branches.set(event.id, step);
         (lastGeneration.get(scope)?.children ?? containerOf(scope)).push(step);
@@ -165,6 +166,7 @@ export const traceOf = (
     const last = lastGeneration.get(scope);
     if (last !== undefined) last.retries += retries;
   }
+  pendingRetries.clear();
 
   for (const record of calls) {
     if (!joined.has(record)) place(record, record.subagent);
