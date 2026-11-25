@@ -48,7 +48,7 @@ const renderCost = ({ cost, usd, kind }: Step): Rendered => {
   }
 };
 
-const TRACK = 'block h-2 min-w-8 flex-1 rounded-sm bg-raised @lg:w-48 @lg:flex-none';
+const TRACK = 'block h-2 w-24 flex-none rounded-sm bg-raised';
 
 const toneOf = (step: Step): string => (step.cacheMiss ? 'bg-warning' : step.kind === 'subagent' ? 'bg-fg' : 'bg-accent');
 
@@ -85,7 +85,7 @@ interface Axis {
   live: boolean;
 }
 
-const DURATION = 'shrink-0 text-right text-[0.85rem] tabular-nums text-muted @lg:w-16';
+const DURATION = 'shrink-0 text-right text-[0.85rem] tabular-nums text-muted w-14';
 
 const axisOf = (trace: Trace, live: boolean): Axis | null =>
   trace.start === null || trace.end === null
