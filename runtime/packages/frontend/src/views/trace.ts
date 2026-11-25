@@ -53,8 +53,10 @@ const renderBar = (step: Step, maxUsd: number): Rendered => {
   return html`<span aria-hidden="true" class="block h-2 min-w-16 flex-1 rounded-sm bg-raised sm:w-48 sm:flex-none" data-step-track><span class="block h-2 rounded-sm ${tone}" data-step-bar style="width: ${share}%"></span></span>`;
 };
 
+const UNNAMED = html`<span class="min-w-0 truncate text-[0.9rem] italic text-muted" data-step-name>model not recorded</span>`;
+
 const renderRow = (step: Step, maxUsd: number): Rendered =>
-  html`<span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1"><span class="flex min-w-0 basis-full items-center gap-2 sm:basis-0 sm:flex-1">${step.cacheMiss ? CACHE_MISS_BADGE : ''}${kindBadge(step.kind)}${retryBadge(step.retries)}<span class="min-w-0 truncate text-[0.9rem]" data-step-name title="${step.name}">${step.name}</span></span>${renderBar(step, maxUsd)}<span class="shrink-0 text-right text-[0.85rem] tabular-nums sm:w-44" data-step-cost>${renderCost(step)}</span></span>`;
+  html`<span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1"><span class="flex min-w-0 basis-full items-center gap-2 sm:basis-0 sm:flex-1">${step.cacheMiss ? CACHE_MISS_BADGE : ''}${kindBadge(step.kind)}${retryBadge(step.retries)}${step.name === '' ? UNNAMED : html`<span class="min-w-0 truncate text-[0.9rem]" data-step-name title="${step.name}">${step.name}</span>`}</span>${renderBar(step, maxUsd)}<span class="shrink-0 text-right text-[0.85rem] tabular-nums sm:w-44" data-step-cost>${renderCost(step)}</span></span>`;
 
 const ROW = 'flex items-start rounded py-1.5 pr-2';
 

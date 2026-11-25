@@ -182,7 +182,7 @@ export const traceOf = (
   return {
     steps,
     total: sum(steps.map(spent)),
-    maxUsd: Math.max(0, ...flatten(steps).map(({ usd }) => usd)),
+    maxUsd: flatten(steps).reduce((widest, { usd }) => Math.max(widest, usd), 0),
     calls: calls.length,
     misses: misses.size,
     usage: {
