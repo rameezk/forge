@@ -131,20 +131,23 @@ const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests =
   }
 };
 
-const dashboardOf = (runs: Seeded[], timeZone?: string, transcripts: Record<string, HarnessEvent[]> = {}) => {
+const dashboardOf = (runs: Seeded[], timeZone?: string, transcripts: Record<string, HarnessEvent[]> = {}, clock?: () => Date) => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const store = Store.open(':memory:');
   for (const run of runs) seed(store, dir, run);
   for (const [ref, events] of Object.entries(transcripts)) writeFileSync(join(dir, ref), events.map(transcriptLine).join(''));
-  const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '', ...(timeZone === undefined ? {} : { timeZone }) });
+  const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '', ...(timeZone === undefined ? {} : { timeZone }), ...(clock === undefined ? {} : { clock }) });
   return async (path: string): Promise<string> => (await app.request(path)).text();
 };
 
 const callsPage = async (
   run: Partial<RunRecord>,
   calls: Call[],
-  options: { recordRequests?: boolean; transcript?: object[] } = {},
-): Promise<string> => dashboardOf([{ id: 'run-01', run, calls, ...options }])('/runs/run-01');
+  options: { recordRequests?: boolean; transcript?: object[]; clock?: () => Date } = {},
+): Promise<string> => {
+  const { clock, ...seeded } = options;
+  return dashboardOf([{ id: 'run-01', run, calls, ...seeded }], undefined, {}, clock)('/runs/run-01');
+};
 
 const cellOf = (row: string, name: string): string =>
   textOf(row.match(new RegExp(`<td[^>]*\\s${name}(?=[\\s>])[^>]*>([\\s\\S]*?)</td>`))?.[1] ?? 'missing');
@@ -211,13 +214,35 @@ test('given a workload whose transcript carries arrival times, when its page is 
   assert.deepEqual(timeBars(body), ['left: 0%; width: 30%', 'left: 30%; width: 20%', 'left: 30%; width: 50%', 'left: 80%; width: 20%']);
 });
 
-test('given a running workload whose tool run has no result yet, when its page is requested, then that step is an open-ended bar running to the latest event', async () => {
-  const body = await callsPage({ status: 'running', endTime: null }, [{}], { transcript: timedTranscript(false) });
+const clockAt = (seconds: number) => (): Date => new Date(at(seconds));
+
+test('given a running workload whose tool run has no result yet, when its page is requested, then that step is an open-ended bar running to the current time', async () => {
+  const body = await callsPage({ status: 'running', endTime: null }, [{}], { transcript: timedTranscript(false), clock: clockAt(10) });
 
   const rows = stepRows(body);
   assert.deepEqual(rows.map((row) => /\sdata-step-open/.test(row)), [false, false, true]);
   assert.equal(durationOf(rows[2] as string), 'running');
-  assert.deepEqual(timeBars(body), ['left: 0%; width: 60%', 'left: 60%; width: 40%', 'left: 60%; width: 40%']);
+  assert.deepEqual(timeBars(body), ['left: 0%; width: 30%', 'left: 30%; width: 20%', 'left: 30%; width: 70%']);
+});
+
+test('given a running workload whose latest generation has not arrived, when its page is requested, then the step in progress is an open-ended bar from the last event to the current time, marked as running', async () => {
+  const transcript = timedTranscript(false).slice(0, 4);
+  transcript.push({ type: 'tool_result', id: 't1', isError: false, text: '', at: at(5) }, { type: 'tool_result', id: 't2', isError: false, text: '', at: at(6) });
+  const body = await callsPage({ status: 'running', endTime: null }, [{}], { transcript, clock: clockAt(10) });
+
+  const rows = stepRows(body);
+  assert.equal(rows.length, 4);
+  assert.deepEqual(rows.map((row) => /\sdata-step-open/.test(row)), [false, false, false, true]);
+  assert.equal(durationOf(rows[3] as string), 'running');
+  assert.equal(timeBars(body)[3], 'left: 60%; width: 40%');
+});
+
+test('given a finished workload whose transcript ends on a tool result, when its page is requested, then no step is in progress', async () => {
+  const transcript = [...timedTranscript(false).slice(0, 4), { type: 'tool_result', id: 't1', isError: false, text: '', at: at(5) }, { type: 'tool_result', id: 't2', isError: false, text: '', at: at(6) }];
+  const body = await callsPage({}, [{}], { transcript, clock: clockAt(60) });
+
+  assert.equal(stepRows(body).length, 3);
+  assert.doesNotMatch(body, /data-step-open/);
 });
 
 test('given billed, estimated, unbilled and cache-missing generations, when its page is requested, then each step shows its kind, its cost and badge, and the cache miss is flagged', async () => {

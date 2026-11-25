@@ -331,13 +331,15 @@ export const renderDetail = (
   diagnoses: DiagnosisRecord[],
   diagnosisOf: DiagnosisRecord | null,
   display: Display,
+  now: number,
 ): HtmlEscapedString | Promise<HtmlEscapedString> => {
   const live = !isSettled(run);
+  const running = run.endTime === null;
   const stopped = renderExceeded(run);
   const outcome = runOutcomeOf(workload?.workload, dispatch ?? undefined);
   const reason = withInFlightCall(run.id, runReasonOf(run, outcome), events);
   const subscription = run.costStatus === 'subscription';
-  const trace = traceOf(events, generations, subscription);
+  const trace = traceOf(events, generations, subscription, running ? now : null);
   const efforts = sentEfforts(generations.filter(isCall), recordedEfforts);
   const body = html`<div class="flex flex-col gap-2 lg:grid lg:gap-x-6 lg:h-full lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[auto_minmax(0,1fr)]">
       <header class="min-w-0 lg:col-span-2" data-run-head>
@@ -354,7 +356,7 @@ export const renderDetail = (
         ${renderUnbillableIds(run, generations)}
         ${renderRunDetails(run, generations, workload, skillLoads, downloads, config)}
         ${renderContext(context)}
-        ${renderTrace(trace, subscription, run.id, live)}
+        ${renderTrace(trace, subscription, run.id, running)}
       </div>
       <div class="min-w-0 lg:min-h-0">${renderWidget(run, events, display.timeZone)}</div>
     </div>`;

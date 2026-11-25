@@ -421,3 +421,84 @@ test('given a subagent branch, when the trace is built, then its anchor is the t
   assert.equal(branch.response, 'looks fine');
   assert.equal(branch.anchor, 1);
 });
+
+const sinceBase = (seconds: number): number => BASE + seconds * 1000;
+
+test('given a running workload whose latest generation has not arrived, when the trace is built at the current time, then a generation step opens where the last event arrived and the axis reaches the current time', () => {
+  const trace = traceOf(
+    [arriving(userPrompt, 0), arriving(message('gen-1'), 3), arriving(toolCall('t1', 'bash'), 3), arriving(toolResult('t1'), 5)],
+    [generation('gen-1')],
+    false,
+    sinceBase(9),
+  );
+
+  const [first, waiting] = trace.steps;
+  assert.equal(trace.steps.length, 2);
+  assert.deepEqual(seconds(first as Step), [0, 3]);
+  assert.equal(waiting?.kind, 'generation');
+  assert.equal(waiting?.generation, null);
+  assert.deepEqual(seconds(waiting as Step), [5, null]);
+  assert.equal(trace.end, sinceBase(9));
+  assert.equal(trace.calls, 1);
+});
+
+test('given the same transcript once its generation has arrived, when the trace is built at the current time, then the step is that generation and none is in progress', () => {
+  const trace = traceOf(
+    [arriving(userPrompt, 0), arriving(message('gen-1'), 3)],
+    [generation('gen-1')],
+    false,
+    sinceBase(9),
+  );
+
+  assert.equal(trace.steps.length, 1);
+  assert.deepEqual(seconds(trace.steps[0] as Step), [0, 3]);
+  assert.equal(trace.end, sinceBase(9));
+});
+
+test('given a tool run still waiting on its result or a second one still running, when the trace is built at the current time, then no generation is in progress', () => {
+  const waitingOnTool = traceOf(
+    [arriving(userPrompt, 0), arriving(message('gen-1'), 2), arriving(toolCall('t1', 'bash'), 2)],
+    [generation('gen-1')],
+    false,
+    sinceBase(9),
+  );
+  const parallel = traceOf(
+    [arriving(userPrompt, 0), arriving(message('gen-1'), 2), arriving(toolCall('t1', 'read'), 2), arriving(toolCall('t2', 'bash'), 2), arriving(toolResult('t1'), 4)],
+    [generation('gen-1')],
+    false,
+    sinceBase(9),
+  );
+
+  assert.equal(waitingOnTool.steps.length, 1);
+  assert.equal(parallel.steps.length, 1);
+  assert.deepEqual(parallel.steps[0]?.children.map(seconds), [[2, 4], [2, null]]);
+});
+
+test('given a subagent whose latest generation has not arrived, when the trace is built at the current time, then the step in progress sits in its branch', () => {
+  const trace = traceOf(
+    [
+      arriving(userPrompt, 0),
+      arriving(message('gen-1'), 2),
+      arriving(toolCall('call_a', 'subagent'), 2),
+      arriving({ ...userPrompt, subagent: 'call_a' }, 3),
+    ],
+    [generation('gen-1')],
+    false,
+    sinceBase(8),
+  );
+
+  const [branch] = trace.steps[0]?.children ?? [];
+  assert.equal(trace.steps.length, 1);
+  assert.deepEqual(branch?.children.map(seconds), [[3, null]]);
+});
+
+test('given no current time or a transcript with no arrival times, when the trace is built, then no step is in progress', () => {
+  const settled = traceOf([arriving(userPrompt, 0), arriving(message('gen-1'), 3), arriving(toolResult('t1'), 4)], [generation('gen-1')], false);
+  const untimed = traceOf([userPrompt, message('gen-1'), toolResult('t1')], [generation('gen-1')], false, sinceBase(9));
+
+  assert.equal(settled.steps.length, 1);
+  assert.equal(settled.end, sinceBase(4));
+  assert.equal(untimed.steps.length, 1);
+  assert.equal(untimed.timed, false);
+  assert.equal(untimed.end, null);
+});
