@@ -166,6 +166,109 @@ document.addEventListener('click', (event) => {
   showGroup(body, expandedGroups.has(group));
 });
 
+let selectedStep = null;
+
+let stoppedStep = null;
+
+const traceSteps = () => [...document.querySelectorAll('[data-trace] [data-step]')];
+
+const visibleSteps = () => traceSteps().filter((step) => step.checkVisibility());
+
+const branchOf = (step) => (step.tagName === 'SUMMARY' ? step.parentElement : null);
+
+const parentStep = (step) => {
+  const holder = (branchOf(step) ?? step).parentElement.closest('details[data-step-branch]');
+  return holder === null ? null : holder.firstElementChild;
+};
+
+const applyTrace = () => {
+  const steps = traceSteps();
+  if (steps.length === 0) return;
+  const selected = steps.find((step) => step.dataset.stepKey === selectedStep);
+  if (selected === undefined) selectedStep = null;
+  const stop = steps.find((step) => step.dataset.stepKey === stoppedStep) ?? selected ?? steps[0];
+  for (const step of steps) {
+    step.setAttribute('aria-selected', String(step === selected));
+    step.tabIndex = step === stop ? 0 : -1;
+    const branch = branchOf(step);
+    if (branch !== null) step.setAttribute('aria-expanded', String(branch.open));
+  }
+  for (const detail of document.querySelectorAll('[data-step-detail]')) {
+    detail.hidden = detail.dataset.stepDetail !== selectedStep;
+  }
+  const empty = document.querySelector('[data-detail-empty]');
+  if (empty !== null) empty.hidden = selected !== undefined;
+};
+
+applyTrace();
+
+const selectStep = (step) => {
+  selectedStep = step.dataset.stepKey;
+  stoppedStep = selectedStep;
+  applyTrace();
+};
+
+document.addEventListener('click', (event) => {
+  const step = event.target.closest?.('[data-trace] [data-step]');
+  if (step === null || step === undefined || event.target.closest('a, [data-step-toggle]')) return;
+  event.preventDefault();
+  step.focus();
+  selectStep(step);
+});
+
+document.addEventListener('focusin', (event) => {
+  const step = event.target.closest?.('[data-trace] [data-step]');
+  if (step === null || step === undefined) return;
+  stoppedStep = step.dataset.stepKey;
+  applyTrace();
+});
+
+document.addEventListener(
+  'toggle',
+  (event) => {
+    if (event.target.matches?.('details[data-step-branch]')) applyTrace();
+  },
+  true,
+);
+
+const moveFrom = (step, offset) => {
+  const steps = visibleSteps();
+  const target = steps[Math.min(steps.length - 1, Math.max(0, steps.indexOf(step) + offset))];
+  target?.focus();
+};
+
+const traceKeys = {
+  ArrowDown: (step) => moveFrom(step, 1),
+  ArrowUp: (step) => moveFrom(step, -1),
+  Home: (step) => visibleSteps()[0]?.focus(),
+  End: (step) => visibleSteps().at(-1)?.focus(),
+  Enter: selectStep,
+  ' ': selectStep,
+  ArrowRight: (step) => {
+    const branch = branchOf(step);
+    if (branch === null) return;
+    if (branch.open) moveFrom(step, 1);
+    else branch.open = true;
+  },
+  ArrowLeft: (step) => {
+    const branch = branchOf(step);
+    if (branch?.open) branch.open = false;
+    else parentStep(step)?.focus();
+  },
+};
+
+document.addEventListener('keydown', (event) => {
+  const step = event.target.closest?.('[data-trace] [data-step]');
+  const handle = traceKeys[event.key];
+  if (step !== event.target || handle === undefined || event.altKey || event.ctrlKey || event.metaKey) return;
+  event.preventDefault();
+  handle(step);
+});
+
+document.addEventListener('keyup', (event) => {
+  if (event.key === ' ' && event.target.matches?.('[data-trace] [data-step]')) event.preventDefault();
+});
+
 const scroller = document.scrollingElement;
 
 const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
@@ -207,6 +310,7 @@ const refresh = async () => {
   });
   applyLanes();
   applyGroups();
+  applyTrace();
   rememberRendered();
   rememberControls(edits);
   tick();
