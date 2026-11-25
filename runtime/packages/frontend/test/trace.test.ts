@@ -305,3 +305,18 @@ test('given a transcript with no arrival times, when the trace is built, then no
   assert.deepEqual(trace.steps[0]?.children.map(seconds), [[null, null]]);
   assert.deepEqual([trace.start, trace.end], [null, null]);
 });
+
+test('given a subagent that made a very large number of tool runs, when the trace is built, then the branch starts at its earliest step', () => {
+  const runs = Array.from({ length: 150_000 }, (_, index) => `t${index}`);
+  const trace = traceOf(
+    [
+      arriving(userPrompt, 0),
+      ...runs.map((id) => arriving(toolCall(id, 'bash', 'call_a'), 5)),
+    ],
+    [],
+    false,
+  );
+
+  assert.equal(trace.steps.length, 1);
+  assert.deepEqual(seconds(trace.steps[0] as Step), [5, null]);
+});

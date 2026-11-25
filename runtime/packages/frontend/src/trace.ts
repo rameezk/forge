@@ -83,9 +83,12 @@ const arrivalOf = ({ at }: HarnessEvent): number | null => {
   return Number.isNaN(time) ? null : time;
 };
 
-const earliest = (times: (number | null)[]): number | null => {
-  const known = times.filter((time) => time !== null);
-  return known.length === 0 ? null : Math.min(...known);
+const earliestOf = (times: (number | null)[]): number | null => {
+  let earliest: number | null = null;
+  for (const time of times) {
+    if (time !== null && (earliest === null || time < earliest)) earliest = time;
+  }
+  return earliest;
 };
 
 const spent = (step: Step): number =>
@@ -214,7 +217,7 @@ export const traceOf = (
     step.children.forEach(settle);
     if (step.kind === 'subagent') {
       step.usd = sum(step.children.map(spent));
-      step.start ??= earliest(step.children.map(({ start }) => start));
+      step.start ??= earliestOf(step.children.map(({ start }) => start));
     }
   };
   steps.forEach(settle);
