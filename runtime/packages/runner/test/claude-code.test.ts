@@ -31,6 +31,7 @@ import {
   FAKE_BROKER_CLIENT,
   FAKE_GIT_SHIM_DIR,
   withResourceNote,
+  withoutArrivals,
 } from './helpers.ts';
 import { CLAUDE_SKILL_FILES, CLAUDE_TOKEN } from './fixtures/fake-anthropic.ts';
 
@@ -196,7 +197,7 @@ const runClaude = async ({
       stateDir,
       run,
       generations: store.runs.listGenerations(run.id),
-      transcript: readFileSync(join(stateDir, 'transcripts', `${run.id}.jsonl`), 'utf8'),
+      transcript: withoutArrivals(readFileSync(join(stateDir, 'transcripts', `${run.id}.jsonl`), 'utf8')),
       requestRecord: parseRecord(
         join(stateDir, 'transcripts', requestRecordRef(run.id)),
       ),

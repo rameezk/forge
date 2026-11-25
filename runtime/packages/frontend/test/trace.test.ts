@@ -59,6 +59,26 @@ const retry = (subagent?: string): HarnessEvent => ({
   ...(subagent === undefined ? {} : { subagent }),
 });
 
+const BASE = Date.parse('2026-09-21T10:00:00.000Z');
+
+const arriving = (event: HarnessEvent, seconds: number): HarnessEvent => ({
+  ...event,
+  at: new Date(BASE + seconds * 1000).toISOString(),
+});
+
+const userPrompt: HarnessEvent = {
+  type: 'message',
+  role: 'user',
+  text: 'go',
+  usage: NO_USAGE,
+  generationId: null,
+};
+
+const seconds = ({ start, end }: Step): [number | null, number | null] => [
+  start === null ? null : (start - BASE) / 1000,
+  end === null ? null : (end - BASE) / 1000,
+];
+
 const shape = (steps: Step[]): unknown[] =>
   steps.map(({ kind, name, children }) => (children.length === 0 ? [kind, name] : [kind, name, shape(children)]));
 
@@ -196,7 +216,7 @@ test('given generations the transcript does not mention, when the trace is built
 
 test('given a transcript with no arrival times, when the trace is built, then it is untimed, and with them it is timed', () => {
   const untimed = traceOf([message('gen-1')], [generation('gen-1')], false);
-  const timed = traceOf([{ ...message('gen-1'), at: 1_000 } as unknown as HarnessEvent], [generation('gen-1')], false);
+  const timed = traceOf([arriving(message('gen-1'), 1)], [generation('gen-1')], false);
 
   assert.equal(untimed.timed, false);
   assert.equal(timed.timed, true);
@@ -216,6 +236,89 @@ test('given a subagent whose own events precede the tool call that started it, w
   );
 
   assert.deepEqual(shape(trace.steps), [['subagent', 'call_a', [['generation', '']]]]);
+});
+
+test('given stamped events for a generation that asked for two tool runs followed by their results, when the trace is built, then the generation spans the event before it to its own arrival and both tool runs start when it ended and end at their own results', () => {
+  const trace = traceOf(
+    [
+      arriving(userPrompt, 0),
+      arriving(message('gen-1'), 3),
+      arriving(toolCall('t1', 'read'), 3),
+      arriving(toolCall('t2', 'bash'), 3),
+      arriving(toolResult('t1'), 5),
+      arriving(toolResult('t2'), 8),
+      arriving(message('gen-2'), 10),
+    ],
+    [generation('gen-1'), generation('gen-2')],
+    false,
+  );
+
+  const [first, second] = trace.steps;
+  assert.deepEqual(seconds(first as Step), [0, 3]);
+  assert.deepEqual(first?.children.map(seconds), [[3, 5], [3, 8]]);
+  assert.deepEqual(seconds(second as Step), [8, 10]);
+  assert.deepEqual([trace.start, trace.end].map((time) => (time === null ? null : (time - BASE) / 1000)), [0, 10]);
+});
+
+test('given a subagent and a tool run still waiting on their results, when the trace is built, then both are open-ended and the branch starts when the generation that started it ended', () => {
+  const trace = traceOf(
+    [
+      arriving(userPrompt, 0),
+      arriving(message('gen-1'), 2),
+      arriving(toolCall('call_a', 'subagent'), 2),
+      arriving(message('gen-2', 'call_a'), 5),
+      arriving(toolCall('t1', 'bash', 'call_a'), 5),
+    ],
+    [generation('gen-1'), generation('gen-2', { subagent: 'call_a' })],
+    false,
+  );
+
+  const [parent] = trace.steps;
+  const [branch] = parent?.children ?? [];
+  assert.deepEqual(seconds(branch as Step), [2, null]);
+  const [inner] = branch?.children ?? [];
+  assert.deepEqual(seconds(inner as Step), [2, 5]);
+  assert.deepEqual(inner?.children.map(seconds), [[5, null]]);
+});
+
+test('given stamped compaction and cache-warm events, when the trace is built, then each spans the event before it to its own arrival', () => {
+  const trace = traceOf(
+    [
+      arriving(userPrompt, 0),
+      arriving({ type: 'cache_warm', generationId: 'warm-1', usage: NO_USAGE }, 4),
+      arriving(
+        { type: 'compaction', reason: null, tokensBefore: null, tokensAfter: null, summary: null, error: null, calls: [{ generationId: 'compact-1', usage: NO_USAGE }] },
+        9,
+      ),
+    ],
+    [generation('warm-1', { kind: 'cache_warm' }), generation('compact-1', { kind: 'compaction' })],
+    false,
+  );
+
+  assert.deepEqual(trace.steps.map(seconds), [[0, 4], [4, 9]]);
+});
+
+test('given a transcript with no arrival times, when the trace is built, then no step has a start or an end', () => {
+  const trace = traceOf([message('gen-1'), toolCall('t1', 'read'), toolResult('t1')], [generation('gen-1')], false);
+
+  assert.deepEqual(seconds(trace.steps[0] as Step), [null, null]);
+  assert.deepEqual(trace.steps[0]?.children.map(seconds), [[null, null]]);
+  assert.deepEqual([trace.start, trace.end], [null, null]);
+});
+
+test('given a subagent that made a very large number of tool runs, when the trace is built, then the branch starts at its earliest step', () => {
+  const runs = Array.from({ length: 150_000 }, (_, index) => `t${index}`);
+  const trace = traceOf(
+    [
+      arriving(userPrompt, 0),
+      ...runs.map((id) => arriving(toolCall(id, 'bash', 'call_a'), 5)),
+    ],
+    [],
+    false,
+  );
+
+  assert.equal(trace.steps.length, 1);
+  assert.deepEqual(seconds(trace.steps[0] as Step), [5, null]);
 });
 
 const userMessage = (text: string, subagent?: string): HarnessEvent => ({

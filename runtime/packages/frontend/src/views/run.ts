@@ -354,7 +354,7 @@ export const renderDetail = (
         ${renderUnbillableIds(run, generations)}
         ${renderRunDetails(run, generations, workload, skillLoads, downloads, config)}
         ${renderContext(context)}
-        ${renderTrace(trace, subscription, run.id)}
+        ${renderTrace(trace, subscription, run.id, live)}
       </div>
       <div class="min-w-0 lg:min-h-0">${renderWidget(run, events, display.timeZone)}</div>
     </div>`;

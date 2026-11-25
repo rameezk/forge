@@ -445,6 +445,55 @@ test('given a finished workload, when its page is opened at laptop width, then R
   await expect(page.locator('[data-trace-view="time"]')).toBeDisabled();
 });
 
+test('given a workload whose transcript carries arrival times, when its trace is opened and the operator switches to Cost and back, then the bars are a waterfall in Time and each step\'s cost against the most expensive step in Cost', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.runs.insertRun(recordedRun);
+  const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const at = (seconds: number): string => new Date(Date.parse('2026-09-21T10:00:00.000Z') + seconds * 1000).toISOString();
+  const assistant = (generationId: string, seconds: number): HarnessEvent => ({ type: 'message', role: 'assistant', text: '', usage, generationId, at: at(seconds) });
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'message', role: 'user', text: 'go', usage, generationId: null, at: at(0) },
+    assistant('gen-01', 4),
+    { type: 'tool_call', id: 'read-1', name: 'read', arguments: {}, at: at(4) },
+    { type: 'tool_result', id: 'read-1', isError: false, text: '', at: at(6) },
+    assistant('gen-02', 10),
+  );
+  (['gen-01', 'gen-02'] as const).forEach((generationId, index) =>
+    dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId, subagent: null, kind: 'message', usage, estimatedCostUsd: 0.01 * (index + 1), createdAt: '2026-09-21T10:01:00.000Z' }),
+  );
+
+  await page.goto('/runs/run-01');
+  await page.locator('[data-trace-summary]').click();
+  const bar = (kind: 'time' | 'cost', index: number) => page.locator('[data-trace] [data-step]').nth(index).locator(kind === 'time' ? '[data-step-time-bar]' : '[data-step-bar]');
+  const share = async (kind: 'time' | 'cost', index: number): Promise<number> => {
+    const [track, filled] = await Promise.all([bar(kind, index).locator('..').boundingBox(), bar(kind, index).boundingBox()]);
+    return Math.round((filled!.width / track!.width) * 100);
+  };
+
+  await expect(page.locator('[data-trace-view="time"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-trace-note]')).toHaveCount(0);
+  await expect(bar('time', 0)).toBeVisible();
+  await expect(bar('cost', 0)).toBeHidden();
+  expect([await share('time', 0), await share('time', 1), await share('time', 2)]).toEqual([40, 20, 40]);
+  await expect(page.locator('[data-trace] [data-step-duration]')).toHaveText(['4.0s', '2.0s', '4.0s']);
+
+  await page.locator('[data-trace-view="cost"]').click();
+
+  await expect(page.locator('[data-trace-view="cost"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-trace-view="time"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect(bar('cost', 0)).toBeVisible();
+  await expect(bar('time', 0)).toBeHidden();
+  expect([await share('cost', 0), await share('cost', 2)]).toEqual([50, 100]);
+
+  await page.locator('[data-trace-view="time"]').click();
+
+  await expect(bar('time', 0)).toBeVisible();
+  await expect(bar('cost', 0)).toBeHidden();
+});
+
 test('given a workload whose generation started a subagent, when its trace is opened and the subagent branch is collapsed and expanded, then its steps are hidden and shown again', async ({
   dashboard,
   page,

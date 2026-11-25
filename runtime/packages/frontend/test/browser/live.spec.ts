@@ -503,6 +503,39 @@ test('given a running workload\'s detail page open in a browser, when its genera
   await expectNotReloaded(page);
 });
 
+test('given a running workload\'s trace open on Cost, when its agent asks for a tool run and the result then arrives, then the step in progress is an open-ended bar that closes with its duration, and the operator\'s choice of bars stays', async ({
+  dashboard,
+  page,
+}) => {
+  const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const at = (seconds: number): string => new Date(Date.parse('2026-09-21T10:00:00.000Z') + seconds * 1000).toISOString();
+  dashboard.store.runs.insertRun(transcribedRun);
+  dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId: 'gen-01', subagent: null, kind: 'message', usage, estimatedCostUsd: 0.01, createdAt: '2026-09-21T10:00:03.000Z' });
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'message', role: 'user', text: 'go', usage, generationId: null, at: at(0) },
+    { type: 'message', role: 'assistant', text: '', usage, generationId: 'gen-01', at: at(3) },
+  );
+  await openLive(page, '/runs/run-01');
+  await page.locator('[data-trace-summary]').click();
+  await page.locator('[data-trace-view="cost"]').click();
+  const steps = page.locator('[data-trace] [data-step]');
+  await expect(steps).toHaveCount(1);
+
+  dashboard.appendEvents('run-01.jsonl', { type: 'tool_call', id: 'bash-1', name: 'bash', arguments: {}, at: at(3) });
+  await expect(steps).toHaveCount(2);
+  await expect(steps.nth(1)).toHaveAttribute('data-step-open', '');
+  await expect(steps.nth(1).locator('[data-step-duration]')).toHaveText('running');
+  await expect(page.locator('[data-trace-view="cost"]')).toHaveAttribute('aria-pressed', 'true');
+
+  dashboard.appendEvents('run-01.jsonl', { type: 'tool_result', id: 'bash-1', isError: false, text: '', at: at(9) });
+  await expect(steps.nth(1)).not.toHaveAttribute('data-step-open', '');
+  await expect(steps.nth(1).locator('[data-step-duration]')).toHaveText('6.0s');
+  await expect(page.locator('[data-trace-view="cost"]')).toHaveAttribute('aria-pressed', 'true');
+
+  await expectNotReloaded(page);
+});
+
 const cohortFingerprint = (skills: string): ConfigFingerprint => ({
   model: 'anthropic/claude-sonnet-5.5',
   reasoningEffort: 'high',

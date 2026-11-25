@@ -700,3 +700,13 @@ export const assertRepositoryNeutralCheckRule = (instruction: string): void => {
   );
   assert.doesNotMatch(instruction, /choose a narrower check/);
 };
+
+export const withoutArrivals = (transcript: string): string =>
+  transcript
+    .split('\n')
+    .map((line) => {
+      if (line === '') return line;
+      const { at: _at, ...event } = JSON.parse(line) as Record<string, unknown>;
+      return JSON.stringify(event);
+    })
+    .join('\n');

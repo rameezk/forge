@@ -166,6 +166,33 @@ document.addEventListener('click', (event) => {
   showGroup(body, expandedGroups.has(group));
 });
 
+let traceBars = null;
+
+const applyTraceBars = () => {
+  const trace = document.querySelector('[data-trace]');
+  if (trace === null) return;
+  const buttons = [...trace.querySelectorAll('[data-trace-view]')];
+  if (traceBars !== null && !buttons.some((button) => button.dataset.traceView === traceBars && !button.disabled)) traceBars = null;
+  const bars = traceBars ?? trace.dataset.bars;
+  trace.dataset.bars = bars;
+  for (const button of buttons) {
+    const selected = button.dataset.traceView === bars;
+    button.setAttribute('aria-pressed', String(selected));
+    button.classList.toggle('bg-surface', selected);
+    button.classList.toggle('text-fg', selected);
+    button.classList.toggle('shadow-sm', selected);
+  }
+};
+
+applyTraceBars();
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest?.('[data-trace-view]');
+  if (button === null || button === undefined || button.disabled) return;
+  traceBars = button.dataset.traceView;
+  applyTraceBars();
+});
+
 let selectedStep = null;
 
 let stoppedStep = null;
@@ -310,6 +337,7 @@ const refresh = async () => {
   });
   applyLanes();
   applyGroups();
+  applyTraceBars();
   applyTrace();
   rememberRendered();
   rememberControls(edits);

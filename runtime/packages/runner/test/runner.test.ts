@@ -245,9 +245,42 @@ test('given a harness emitting a multi-event stream, when the worker runs, then 
   });
 
   assert.deepEqual(seenCounts, [2, 3]);
-  assert.deepEqual(transcripts.events('run-1').slice(1), events);
+  assert.deepEqual(
+    transcripts.events('run-1').slice(1).map(({ at: _at, ...event }) => event),
+    events,
+  );
   assert.equal(transcripts.closed('run-1'), true);
   assert.equal(store.runs.getRun(id)?.transcriptRef, 'run-1.jsonl');
+});
+
+test('given a harness emitting several events, when the worker runs, then every transcript line carries the time the runner\'s clock read as that event arrived', async () => {
+  const store = Store.open(':memory:');
+  const transcripts = arrayTranscripts();
+  let ticks = 0;
+  const harness = fakeHarness([
+    message({ text: 'first' }),
+    message({ text: 'second' }),
+    result({ status: 'success' }),
+  ]);
+
+  await runWorkload({
+    runs: store.runs,
+    harness,
+    worker: aWorker(),
+    openTranscript: transcripts.open,
+    openRawEvents: discardLines,
+    openRequestRecord: discardLines,
+    openWorkspace: () => ({ workDir: '/work/run-1' }),
+    now: () => new Date(Date.UTC(2026, 8, 21, 10, 0, ticks++)).toISOString(),
+    newId: () => 'run-1',
+    ...withoutModelEntry,
+  });
+
+  const stamps = transcripts.events('run-1').map((event) => event.at);
+  assert.equal(stamps.length, 4);
+  assert.ok(stamps.every((at) => typeof at === 'string'));
+  assert.deepEqual([...stamps].sort(), stamps);
+  assert.equal(new Set(stamps).size, stamps.length);
 });
 
 test('given a worker declared with a reasoning effort, when it runs, then the harness is invoked with that effort', async () => {
@@ -304,6 +337,7 @@ test('given a worker whose prompt contains a secret, when it is run, then the fi
     timestamp: '2026-09-21T10:00:00.000Z',
     usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
     generationId: null,
+    at: '2026-09-21T10:00:00.000Z',
   });
   assert.equal(second?.type, 'message');
 });

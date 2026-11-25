@@ -85,6 +85,12 @@ export const formatElapsed = (milliseconds: number): string => {
   return minutes === 0 ? `${seconds}s` : `${minutes}m ${seconds}s`;
 };
 
+export const formatStepDuration = (milliseconds: number): string => {
+  if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
+  if (milliseconds < 10_000) return `${(milliseconds / 1000).toFixed(1)}s`;
+  return formatElapsed(milliseconds);
+};
+
 export const formatSpan = (totalSeconds: number): string => {
   const seconds = Math.max(0, Math.round(totalSeconds));
   const hours = Math.floor(seconds / 3600);
