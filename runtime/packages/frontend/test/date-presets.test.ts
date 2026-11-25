@@ -109,6 +109,15 @@ test('given workloads that started today and yesterday, when /workloads is opene
   assert.equal(textOf(tile(body, 'workloads')), 'Workloads 1');
 });
 
+test('given the bare page, when its links and form are read, then status chips and the form keep Today and Any time links to range=any', async () => {
+  const body = await open(spread, '/workloads');
+  const chips = [...body.matchAll(/<a[^>]*\sdata-status-chip="[^"]*"[^>]*>/g)].map(([tag]) => hrefOf(tag));
+
+  assert.ok(chips.every((href) => href.includes('range=today')), chips.join(' '));
+  assert.match(input(body, 'range'), /type="hidden"[^>]*value="today"/);
+  assert.equal(hrefOf(preset(body, 'any')), '/workloads?range=any');
+});
+
 test('given workloads that started today and last month, when opened with range=any, then every workload lists, Any time is highlighted and Clear filters leads to the bare page', async () => {
   const body = await open(spread, '/workloads?range=any');
 
