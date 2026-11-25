@@ -664,3 +664,50 @@ test('given a running workload\'s open trace with a step selected, when the trac
   await expect(rows.first()).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('[data-step-detail]:visible [data-detail-generation]')).toHaveText('gen-01');
 });
+
+test('given a running workload\'s trace with a subagent branch expanded and a step inside it selected, when the agent\'s next generation is awaited and then arrives, then the step in progress shows as running, and the branch stays expanded with the same step selected', async ({
+  dashboard,
+  page,
+}) => {
+  const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const stamp = (seconds: number): string => new Date(Date.now() - 60_000 + seconds * 1000).toISOString();
+  dashboard.store.runs.insertRun(transcribedRun);
+  const record = (generationId: string, subagent: string | null) =>
+    dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId, subagent, kind: 'message', usage, estimatedCostUsd: 0.01, createdAt: stamp(0) });
+  record('gen-01', null);
+  record('gen-02', 'call_a');
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'message', role: 'user', text: 'go', usage, generationId: null, at: stamp(0) },
+    { type: 'message', role: 'assistant', text: '', usage, generationId: 'gen-01', at: stamp(2) },
+    { type: 'tool_call', id: 'call_a', name: 'subagent', arguments: {}, at: stamp(2) },
+    { type: 'message', role: 'assistant', text: '', usage, generationId: 'gen-02', subagent: 'call_a', at: stamp(5) },
+    { type: 'tool_call', id: 'bash-1', name: 'bash', arguments: {}, subagent: 'call_a', at: stamp(5) },
+    { type: 'tool_result', id: 'bash-1', isError: false, text: 'ok', subagent: 'call_a', at: stamp(7) },
+  );
+  await openLive(page, '/runs/run-01');
+  await page.locator('[data-trace-summary]').click();
+  const steps = page.locator('[data-trace] [data-step]');
+  await expect(steps).toHaveCount(5);
+  await expect(steps.nth(4)).toHaveAttribute('data-step-open', '');
+  const branch = page.locator('[data-step-branch]').nth(1);
+  await expect(branch).toHaveJSProperty('open', true);
+  await steps.nth(3).click();
+  const selectedKey = await steps.nth(3).getAttribute('data-step-key');
+  await expect(steps.nth(3)).toHaveAttribute('aria-selected', 'true');
+
+  dashboard.appendEvents('run-01.jsonl', { type: 'tool_result', id: 'call_a', isError: false, text: 'done', at: stamp(8) });
+  await expect(steps.nth(4)).toHaveAttribute('data-step-key', '1');
+  await expect(steps.nth(4)).toHaveAttribute('data-step-open', '');
+  await expect(steps.nth(4).locator('[data-step-duration]')).toHaveText('running');
+
+  record('gen-03', null);
+  dashboard.appendEvents('run-01.jsonl', { type: 'message', role: 'assistant', text: '', usage, generationId: 'gen-03', at: stamp(12) });
+  await expect(steps.nth(4)).not.toHaveAttribute('data-step-open', '');
+  await expect(steps).toHaveCount(5);
+  await expect(steps.nth(4)).toHaveAttribute('data-step-key', '1');
+  await expect(branch).toHaveJSProperty('open', true);
+  await expect(page.locator(`[data-step-key="${selectedKey}"]`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-step-detail]:visible')).toHaveAttribute('data-step-detail', selectedKey!);
+  await expectNotReloaded(page);
+});

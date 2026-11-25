@@ -125,6 +125,7 @@ export const traceOf = (
   events: HarnessEvent[],
   generations: GenerationRecord[],
   subscription: boolean,
+  now: number | null = null,
 ): Trace => {
   const calls = generations.filter(isCall);
   const misses = cacheMisses(calls);
@@ -184,6 +185,7 @@ export const traceOf = (
   let previous: number | null = null;
   let first: number | null = null;
   let last: number | null = null;
+  let awaiting: { scope: string | null; since: number } | null = null;
 
   for (const event of events) {
     const arrived = arrivalOf(event);
@@ -195,6 +197,10 @@ export const traceOf = (
     }
     if (event.type === 'result') continue;
     const scope = event.subagent ?? null;
+    if (event.type !== 'retry') {
+      const input = event.type === 'tool_result' || (event.type === 'message' && event.role !== 'assistant');
+      awaiting = input && arrived !== null ? { scope, since: arrived } : null;
+    }
     switch (event.type) {
       case 'message': {
         const record = event.role === 'assistant' && event.generationId !== null ? byId.get(event.generationId) : undefined;
@@ -261,6 +267,12 @@ export const traceOf = (
     if (!joined.has(record)) place(record, record.subagent, null, null);
   }
 
+  const modelBusy =
+    awaiting !== null && now !== null && ![...unanswered.keys()].some((key) => (JSON.parse(key) as [string | null, string])[0] === awaiting?.scope);
+  if (awaiting !== null && modelBusy) {
+    containerOf(awaiting.scope).push({ ...newStep('generation', 'generating'), start: awaiting.since });
+  }
+
   const settle = (step: Step): void => {
     step.children.forEach(settle);
     if (step.kind === 'subagent') {
@@ -285,7 +297,7 @@ export const traceOf = (
     },
     timed: first !== null,
     start: first,
-    end: last,
+    end: last === null || now === null ? last : Math.max(last, now),
   };
 };
 

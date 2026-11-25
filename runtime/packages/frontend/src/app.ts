@@ -263,7 +263,7 @@ export const createApp = ({
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.workloads.pullRequestOfRun(run.id), store.workloads.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.workloads.dispatchOfRun(run.id, new Date().toISOString()), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnoses.diagnosesOf(run.id, new Date().toISOString()), store.diagnoses.diagnosisOfRun(run.id, new Date().toISOString()), shown));
+    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.workloads.pullRequestOfRun(run.id), store.workloads.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.workloads.dispatchOfRun(run.id, new Date().toISOString()), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnoses.diagnosesOf(run.id, new Date().toISOString()), store.diagnoses.diagnosisOfRun(run.id, new Date().toISOString()), shown, clock().getTime()));
   });
 
   app.get('/runs/:id/transcript', (c) => {
