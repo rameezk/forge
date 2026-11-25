@@ -265,6 +265,10 @@ document.addEventListener('keydown', (event) => {
   handle(step);
 });
 
+document.addEventListener('keyup', (event) => {
+  if (event.key === ' ' && event.target.matches?.('[data-trace] [data-step]')) event.preventDefault();
+});
+
 const scroller = document.scrollingElement;
 
 const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;

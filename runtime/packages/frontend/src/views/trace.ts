@@ -90,7 +90,13 @@ const renderStep = (step: Step, maxUsd: number, { key, depth, first, branch }: P
     </details></li>`;
 };
 
-const flatten = (steps: Step[], prefix: string, branch: string | null): { step: Step; key: string; branch: string | null }[] =>
+interface Placed {
+  step: Step;
+  key: string;
+  branch: string | null;
+}
+
+const flatten = (steps: Step[], prefix: string, branch: string | null): Placed[] =>
   steps.flatMap((step, index) => {
     const key = `${prefix}${index}`;
     return [{ step, key, branch }, ...flatten(step.children, `${key}-`, step.kind === 'subagent' ? step.id : branch)];
@@ -163,7 +169,7 @@ const renderExcerpts = (step: Step): Rendered => {
 const transcriptHref = (runId: string, anchor: number | null): string =>
   `/runs/${encodeURIComponent(runId)}/transcript${anchor === null ? '' : `#${anchorId(anchor)}`}`;
 
-const renderDetail = ({ step, key, branch }: { step: Step; key: string; branch: string | null }, runId: string): Rendered =>
+const renderDetail = ({ step, key, branch }: Placed, runId: string): Rendered =>
   html`<section class="flex flex-col gap-4" hidden data-step-detail="${key}" data-step-detail-kind="${step.kind}">
       <header class="flex min-w-0 flex-wrap items-center gap-2">${kindBadge(step.kind)}${retryBadge(step.retries)}${step.name === '' ? UNNAMED : html`<span class="min-w-0 break-words text-[0.9rem] font-semibold">${step.name}</span>`}</header>
       ${renderMetadata(step, branch)}
@@ -172,7 +178,7 @@ const renderDetail = ({ step, key, branch }: { step: Step; key: string; branch: 
       <a href="${transcriptHref(runId, step.anchor)}" class="${LINK} text-[0.9rem]" data-detail-transcript>Open in the full transcript</a>
     </section>`;
 
-const renderDetails = (steps: { step: Step; key: string; branch: string | null }[], runId: string): Rendered =>
+const renderDetails = (steps: Placed[], runId: string): Rendered =>
   html`<aside class="${CARD} min-w-0 p-4 @2xl:sticky @2xl:top-2 @2xl:self-start" aria-label="Step details" data-trace-detail>
       <p class="m-0 text-[0.9rem] text-muted" data-detail-empty>Select a step to see its details.</p>
       ${steps.map((entry) => renderDetail(entry, runId))}
