@@ -1,4 +1,5 @@
 import type { GenerationKind, GenerationRecord, HarnessEvent, TokenUsage } from '@forge/shared';
+import { eventAnchors } from './views/transcript.ts';
 
 export const isCall = ({ generationId, usage }: GenerationRecord): boolean =>
   generationId !== null || usage !== null;
@@ -42,6 +43,11 @@ export interface Step {
   start: number | null;
   end: number | null;
   generation: GenerationRecord | null;
+  id: string | null;
+  anchor: number | null;
+  request: string | null;
+  response: string | null;
+  failed: boolean;
   children: Step[];
 }
 
@@ -91,6 +97,23 @@ const earliestOf = (times: (number | null)[]): number | null => {
   return earliest;
 };
 
+const EXCERPT_CHARS = 600;
+
+const excerpt = (text: string | null | undefined): string | null => {
+  const trimmed = text?.trim() ?? '';
+  if (trimmed === '') return null;
+  return trimmed.length > EXCERPT_CHARS ? `${trimmed.slice(0, EXCERPT_CHARS)}…` : trimmed;
+};
+
+const commandOf = (args: unknown): string | null => {
+  if (typeof args === 'string') return excerpt(args);
+  if (typeof args !== 'object' || args === null) return null;
+  const fields = args as Record<string, unknown>;
+  const given = [fields['command'], fields['task'], fields['prompt']].find((value): value is string => typeof value === 'string');
+  if (given !== undefined) return excerpt(given);
+  return Object.keys(fields).length === 0 ? null : excerpt(JSON.stringify(fields, null, 2));
+};
+
 const spent = (step: Step): number =>
   (step.kind === 'subagent' ? 0 : (step.cost?.usd ?? 0)) + step.children.reduce((sum, child) => sum + spent(child), 0);
 
@@ -107,6 +130,9 @@ export const traceOf = (
   const misses = cacheMisses(calls);
   const byId = new Map(calls.flatMap((call) => (call.generationId === null ? [] : [[call.generationId, call] as const])));
   const joined = new Set<GenerationRecord>();
+  const anchorOf = eventAnchors(events);
+  const lastInput = new Map<string | null, string>();
+  const unanswered = new Map<string, Step>();
   const scopes = new Set(events.flatMap((event) => (event.type !== 'result' && event.subagent !== undefined ? [event.subagent] : [])));
 
   const steps: Step[] = [];
@@ -121,13 +147,20 @@ export const traceOf = (
   const branchOf = (scope: string): Step => {
     const known = branches.get(scope);
     if (known !== undefined) return known;
-    const branch = newStep('subagent', scope);
+    const branch = { ...newStep('subagent', scope), id: scope };
     branches.set(scope, branch);
     steps.push(branch);
     return branch;
   };
 
-  const place = (record: GenerationRecord, scope: string | null, start: number | null, end: number | null): void => {
+  const place = (
+    record: GenerationRecord,
+    scope: string | null,
+    start: number | null,
+    end: number | null,
+    source?: HarnessEvent,
+    response?: string | null,
+  ): void => {
     joined.add(record);
     const cost = costOf(record, subscription);
     const step: Step = {
@@ -139,6 +172,9 @@ export const traceOf = (
       start: end === null ? null : start,
       end,
       generation: record,
+      anchor: source === undefined ? null : anchorOf(source),
+      request: source === undefined ? null : excerpt(lastInput.get(scope)),
+      response: excerpt(response),
     };
     pendingRetries.delete(scope);
     containerOf(scope).push(step);
@@ -162,7 +198,8 @@ export const traceOf = (
     switch (event.type) {
       case 'message': {
         const record = event.role === 'assistant' && event.generationId !== null ? byId.get(event.generationId) : undefined;
-        if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived);
+        if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived, event, event.text || event.thinking || event.error);
+        else if (event.role !== 'assistant') lastInput.set(scope, event.text);
         break;
       }
       case 'tool_call': {
@@ -170,12 +207,15 @@ export const traceOf = (
         const asker = lastGeneration.get(scope);
         const start = asker?.end ?? arrived;
         const known = isBranch ? branches.get(event.id) : undefined;
+        const step = known ?? { ...newStep(isBranch ? 'subagent' : 'tool', event.name), id: event.id, start };
+        step.anchor = anchorOf(event);
+        step.request = commandOf(event.arguments);
+        unanswered.set(JSON.stringify([scope, event.id]), step);
         if (known !== undefined) {
           known.start = start ?? known.start;
           asked.set(event.id, known);
           break;
         }
-        const step = { ...newStep(isBranch ? 'subagent' : 'tool', event.name), start };
         if (isBranch) branches.set(event.id, step);
         asked.set(event.id, step);
         (asker?.children ?? containerOf(scope)).push(step);
@@ -187,17 +227,25 @@ export const traceOf = (
       case 'compaction':
         for (const { generationId } of event.calls ?? []) {
           const record = generationId === null ? undefined : byId.get(generationId);
-          if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived);
+          if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived, event, event.summary);
         }
         break;
       case 'cache_warm': {
         const record = event.generationId === null ? undefined : byId.get(event.generationId);
-        if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived);
+        if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived, event);
         break;
       }
       case 'tool_result': {
-        const step = asked.get(event.id);
-        if (step !== undefined) step.end = arrived;
+        const answered = asked.get(event.id);
+        if (answered !== undefined) answered.end = arrived;
+        const key = JSON.stringify([scope, event.id]);
+        const step = unanswered.get(key);
+        if (step !== undefined) {
+          step.response = excerpt(event.text);
+          step.failed = event.isError;
+          unanswered.delete(key);
+        }
+        lastInput.set(scope, event.text);
         break;
       }
     }
@@ -251,5 +299,10 @@ const newStep = (kind: StepKind, name: string): Step => ({
   start: null,
   end: null,
   generation: null,
+  id: null,
+  anchor: null,
+  request: null,
+  response: null,
+  failed: false,
   children: [],
 });

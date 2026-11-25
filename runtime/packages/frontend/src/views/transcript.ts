@@ -558,6 +558,22 @@ export const toolCallAnchor = (events: HarnessEvent[], id: string): number | nul
   return holder === undefined ? null : anchorOf(holder, positions);
 };
 
+export const eventAnchors = (events: HarnessEvent[]): ((event: HarnessEvent) => number | null) => {
+  const { entries, positions } = listedEntries(events);
+  const listed = new Map<HarnessEvent, number>();
+  for (const entry of entries) {
+    const anchor = anchorOf(entry, positions);
+    if (entry.type === 'subagent') {
+      if (entry.call !== undefined) listed.set(entry.call, anchor);
+      for (const inner of entry.events) listed.set(inner, anchor);
+    } else {
+      listed.set(entry, anchor);
+    }
+  }
+  const anchors = [...new Set(listed.values())].sort((a, b) => a - b);
+  return (event) => listed.get(event) ?? anchors.find((anchor) => anchor >= (positions.get(event) ?? Infinity)) ?? null;
+};
+
 export const anchorId = (anchor: number): string => `event-${anchor}`;
 
 const renderAnchored = (anchor: number, rendered: Rendered): Rendered =>
