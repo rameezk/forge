@@ -71,7 +71,7 @@ test.describe('with JS disabled', () => {
 
     await expect(page.getByRole('heading', { name: 'Workloads' })).toBeVisible();
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
-    await expect(page.locator('[data-tile="workloads"]')).toHaveText(/^\s*Workloads\s+1 of 1\s*$/);
+    await expect(page.locator('[data-tile="workloads"]')).toHaveText(/^\s*Workloads\s+1\s+of\s+1\s*$/);
     await expect(page.locator('[data-tile="cost"]')).toContainText('$0.12');
   });
 });
