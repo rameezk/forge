@@ -53,7 +53,7 @@ const dashboard = () => {
   return createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' });
 };
 
-const body = async (): Promise<string> => (await dashboard().request('/workloads')).text();
+const body = async (): Promise<string> => (await dashboard().request('/workloads?range=any')).text();
 const row = (page: string, id: string): string => page.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? 'missing';
 const card = (page: string, id: string): string => page.match(new RegExp(`<article[^>]*\\sdata-run-card="${id}"[\\s\\S]*?</article>`))?.[0] ?? 'missing';
 const kindOf = (html: string): string | undefined => html.match(/<div[^>]*\sdata-workload-kind[^>]*>[\s\S]*?<\/div>/)?.[0];

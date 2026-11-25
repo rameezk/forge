@@ -37,7 +37,7 @@ test('given a dashboard serving a real store with one recorded run, when the run
 }) => {
   dashboard.store.runs.insertRun(recordedRun);
 
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
 
   const row = page.getByRole('row', { name: /refiner/ });
   await expect(row).toBeVisible();
@@ -53,7 +53,7 @@ test('given a running workload with an estimated cost and a finished one whose c
   dashboard.store.runs.insertRun({ ...recordedRun, id: 'running', status: 'running', endTime: null, costStatus: 'pending', costUsd: 1.234567, costEstimated: true });
   dashboard.store.runs.insertRun({ ...recordedRun, id: 'given-up', model: 'anthropic/claude-opus-5.5', costStatus: 'unconfirmed', costUsd: 0.5, costEstimated: true, ticket: { repository: 'forge', number: 158, url: 'https://github.com/rameezk/forge/issues/158' } });
 
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
 
   await expect(page.locator('table [data-badge="estimated"]')).toHaveCount(2);
   await expect(page.locator('table [data-badge="unconfirmed"]')).toBeVisible();
@@ -67,7 +67,7 @@ test.describe('with JS disabled', () => {
   test('given the same dashboard, when the runs list is opened, then it renders fully', async ({ dashboard, page }) => {
     dashboard.store.runs.insertRun(recordedRun);
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     await expect(page.getByRole('heading', { name: 'Workloads' })).toBeVisible();
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
@@ -267,7 +267,7 @@ test.describe('on a phone screen', () => {
   test('given recorded workloads, when Workloads is opened, then each is a card with its fields linking to the run and no table is shown', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     await expect(page.locator('table')).toBeHidden();
     const cards = page.locator('[data-run-card]');
@@ -292,7 +292,7 @@ test.describe('on a phone screen', () => {
   test('given the status chips, when Workloads is opened, then they sit in one row and the page does not scroll sideways', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     const tops = await page.locator('[data-status-chip]').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
     expect(new Set(tops).size).toBe(1);
@@ -302,7 +302,7 @@ test.describe('on a phone screen', () => {
   test('given recorded workloads, when Workloads is opened, then each status chip lies fully within the visible area of the chip row', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     const row = await page.locator('[data-status-chips]').evaluate((element) => {
       const { top } = element.getBoundingClientRect();
@@ -319,7 +319,7 @@ test.describe('on a phone screen', () => {
   test('given recorded workloads, when Workloads is opened, then the Status chips are outside the closed Filters drawer, which opens to the Started chips, the stacked inputs and a full-width Apply', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     const drawer = page.locator('details[data-filters]');
     await expect(page.locator('[data-status-chips]')).toBeVisible();
@@ -369,7 +369,7 @@ test.describe('on a laptop screen', () => {
   test('given recorded workloads, when Workloads is opened, then they are in the table and not cards, with the filters open', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     await expect(page.locator('table')).toBeVisible();
     await expect(page.locator('[data-run-card]').first()).toBeHidden();
@@ -382,7 +382,7 @@ test.describe('on a laptop screen', () => {
     const model = 'anthropic/claude-opus-4-with-a-remarkably-long-model-name-for-testing-the-select-width';
     dashboard.store.runs.insertRun({ ...recordedRun, id: 'run-long', model, startTime: '2026-09-23T10:00:00.000Z' });
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     const row = page.locator('[data-filters] form');
     const tops = await row.locator('input:not([type=hidden]), select, button').evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
@@ -401,7 +401,7 @@ test.describe('on a laptop screen', () => {
   test('given recorded workloads, when Workloads is opened, then both chip rows come before the inputs and each carries its label', async ({ dashboard, page }) => {
     seedWorkloads(dashboard);
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     const top = (selector: string) => page.locator(selector).first().evaluate((element) => element.getBoundingClientRect().top);
     const order = [await top('[data-showing]'), await top('[data-chip-label="status"]'), await top('[data-status-chips]'), await top('[data-chip-label="started"]'), await top('[data-range-presets]'), await top('[data-filters] form'), await top('table')];
@@ -533,7 +533,7 @@ test('given billed workloads, when the list is opened on a desktop screen and at
 
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 800 });
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     const tiles = page.locator('[data-showing] [data-tile]');
     await expect(tiles).toHaveCount(2);
@@ -554,7 +554,7 @@ test('given a subscription workload whose list price puts a note under the Cost 
   dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId: 'gen-01', subagent: null, kind: 'message', usage: { inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheWriteTokens: 0 }, estimatedCostUsd: null, listPriceEquivalentUsd: 0.05, createdAt: '2026-09-21T10:01:00.000Z' });
   await page.setViewportSize({ width: 1280, height: 800 });
 
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
 
   await expect(page.locator('[data-tile="cost"] [data-total="list-price-equivalent"]')).toBeVisible();
   const heights = await page.locator('[data-showing] [data-tile]').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
@@ -587,7 +587,7 @@ test('given a workload with an unconfirmed estimate, when the list is opened at 
   dashboard.store.runs.insertRun(unconfirmedRun);
   await page.setViewportSize({ width: 390, height: 800 });
 
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
 
   const card = page.locator('[data-run-card]');
   const box = (await card.boundingBox())!;

@@ -73,7 +73,7 @@ test('given the runs list open in a browser, when a run is recorded, changes sta
   dashboard,
   page,
 }) => {
-  await openLive(page, '/workloads');
+  await openLive(page, '/workloads?range=any');
   await expect(page.getByText('No workloads have run yet.')).toBeVisible();
 
   dashboard.store.runs.insertRun(runningRun);
@@ -132,7 +132,7 @@ test('given a live page whose data has not changed since it was rendered, when i
     if (request.resourceType() === 'fetch') refetched.push(request.url());
   });
 
-  await openLive(page, '/workloads');
+  await openLive(page, '/workloads?range=any');
   await page.waitForTimeout(500);
 
   expect(refetched).toEqual([]);
@@ -150,7 +150,7 @@ test('given the runs list loaded before its stream connects, when a run is recor
     await held;
     await route.continue();
   });
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
   await expect(page.getByText('No workloads have run yet.')).toBeVisible();
 
   dashboard.store.runs.insertRun(runningRun);
@@ -163,10 +163,10 @@ test('given the runs list open in a browser, when the dashboard starts serving d
   dashboard,
   page,
 }) => {
-  await openLive(page, '/workloads');
+  await openLive(page, '/workloads?range=any');
   const reloaded = page.waitForEvent('load');
   await page.route(
-    '/workloads',
+    '/workloads?range=any',
     async (route) => {
       if (route.request().resourceType() !== 'fetch') return route.fallback();
       const response = await route.fetch();
@@ -187,9 +187,9 @@ test('given the runs list whose refresh after a change failed, when its stream d
   dashboard,
   page,
 }) => {
-  await openLive(page, '/workloads');
+  await openLive(page, '/workloads?range=any');
   const failed = page.waitForEvent('requestfailed');
-  await page.route('/workloads', (route) => (route.request().resourceType() === 'fetch' ? route.abort() : route.fallback()), { times: 1 });
+  await page.route('/workloads?range=any', (route) => (route.request().resourceType() === 'fetch' ? route.abort() : route.fallback()), { times: 1 });
 
   dashboard.store.runs.insertRun(runningRun);
   await failed;
@@ -203,7 +203,7 @@ test('given the runs list open in a browser with an extension that added its own
   dashboard,
   page,
 }) => {
-  await openLive(page, '/workloads');
+  await openLive(page, '/workloads?range=any');
   await page.evaluate(() => {
     const doc = (globalThis as unknown as { document: { head: { append(node: unknown): void }; createElement(tag: string): { rel: string; href: string } } }).document;
     const injected = doc.createElement('link');
@@ -234,7 +234,7 @@ test('given the runs list open in a browser, when the stream is connected, then 
   dashboard,
   page,
 }) => {
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
   const indicator = page.getByRole('status');
   await expect(indicator).toHaveText('Live');
 
@@ -247,7 +247,7 @@ test('given the runs list open in a browser, when its stream drops and the recon
   dashboard,
   page,
 }) => {
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
   await expect(page.getByRole('status')).toHaveText('Live');
   await page.route('**/events?*', (route) => route.fulfill({ status: 502 }));
 
@@ -446,7 +446,7 @@ test.describe('with JS disabled', () => {
     dashboard.appendEvents('run-01.jsonl', say('Reading the ticket.'));
     dashboard.store.frontier.replaceFrontier(polledFrontier);
 
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
     await expect(page.getByRole('row', { name: /refiner/ })).toBeVisible();
     await expect(page.getByRole('status')).toHaveCount(0);
     await expect(page.getByText('Live', { exact: true })).toHaveCount(0);

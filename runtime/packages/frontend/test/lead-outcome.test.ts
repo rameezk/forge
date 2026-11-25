@@ -73,7 +73,7 @@ const statusCell = (page: string, id: string): string => row(page, id).match(/<t
 const pills = (html: string): string[] => [...html.matchAll(/<span[^>]*\sdata-(?:outcome|status)="[^"]*"[^>]*>[\s\S]*?<\/span>/g)].map(([pill]) => textOf(pill));
 
 test('given runs ending success, interrupted, error and exceeded with their workloads, when the list is requested, then each run leads with its outcome and shows its run status beside it only when not success', async () => {
-  const page = await (await dashboard().request('/workloads')).text();
+  const page = await (await dashboard().request('/workloads?range=any')).text();
 
   assert.deepEqual(pills(statusCell(page, 'clean')), ['done']);
   assert.deepEqual(pills(statusCell(page, 'draft')), ['failed']);
@@ -87,14 +87,14 @@ test('given runs ending success, interrupted, error and exceeded with their work
 });
 
 test('given a run with no workload that ended success, when the list is requested, then it shows a single success pill whose tooltip says the harness finished cleanly', async () => {
-  const page = await (await dashboard().request('/workloads')).text();
+  const page = await (await dashboard().request('/workloads?range=any')).text();
 
   assert.deepEqual(pills(statusCell(page, 'plain')), ['success']);
   assert.match(statusCell(page, 'plain'), /title="The harness finished cleanly"/);
 });
 
 test('given runs covering each outcome and run status, when the list is requested, then every pill carries a tooltip', async () => {
-  const page = await (await dashboard().request('/workloads')).text();
+  const page = await (await dashboard().request('/workloads?range=any')).text();
   const tags = [...page.matchAll(/<span[^>]*\sdata-(?:outcome|status)="[^"]*"[^>]*>/g)].map(([tag]) => tag);
 
   assert.ok(tags.length > 0);
@@ -103,7 +103,7 @@ test('given runs covering each outcome and run status, when the list is requeste
 });
 
 test('given a conflict resolution run that ended success, when the card is read at phone width, then it matches the table', async () => {
-  const page = await (await dashboard().request('/workloads')).text();
+  const page = await (await dashboard().request('/workloads?range=any')).text();
 
   assert.deepEqual(pills(card(page, 'conflicted')), ['failed']);
   assert.match(textOf(card(page, 'conflicted')), /Still conflicting/);

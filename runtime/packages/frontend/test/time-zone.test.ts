@@ -92,12 +92,12 @@ test('given a run that started at 2026-10-14T23:30:00Z and a display time zone o
   const get = dashboard(JOHANNESBURG);
   const started = /<time datetime="2026-10-14T23:30:00\.000Z" title="2026-10-14T23:30:00\.000Z"[^>]*>2026-10-15 01:30:00<\/time>/;
 
-  assert.match(await get('/workloads'), started);
+  assert.match(await get('/workloads?range=any'), started);
   assert.match(await get('/runs/run-01'), started);
 });
 
 test('given no display time zone, when the runs list is requested, then the start reads in UTC with no suffix', async () => {
-  const body = await dashboard()('/workloads');
+  const body = await dashboard()('/workloads?range=any');
 
   assert.match(body, /<time datetime="2026-10-14T23:30:00\.000Z"[^>]*>2026-10-14 23:30:00<\/time>/);
   assert.doesNotMatch(body, /\bUTC<\/time>/);

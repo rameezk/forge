@@ -48,7 +48,7 @@ test('given a running workload, when time passes in the browser, then its elapse
   page,
 }) => {
   dashboard.store.runs.insertRun(runningRun);
-  await openAt(page, minutesAfterStart(45), '/workloads');
+  await openAt(page, minutesAfterStart(45), '/workloads?range=any');
   const listed = page.getByRole('row', { name: /builder/ }).locator('[data-duration]');
   await expect(listed).toHaveText('45m 0s');
 
@@ -130,7 +130,7 @@ test('given running workloads at several elapsed times, when the browser counts 
     dashboard.store.runs.insertRun({ ...runningRun, id: `run-${seconds}`, worker: `worker-${seconds}s`, startTime: startedAt(seconds) });
   }
 
-  await openAt(page, now, '/workloads');
+  await openAt(page, now, '/workloads?range=any');
 
   for (const seconds of elapsedSeconds) {
     await expect(page.getByRole('row', { name: new RegExp(`worker-${seconds}s `) }).locator('[data-duration]')).toHaveText(
@@ -148,7 +148,7 @@ test('given a running workload with a 2 hour timeout whose harness started 45 mi
     timeoutSeconds: 7200,
     harnessStartTime: '2026-09-21T10:10:00.000Z',
   });
-  await openAt(page, minutesAfterStart(55), '/workloads');
+  await openAt(page, minutesAfterStart(55), '/workloads?range=any');
   const listed = page.getByRole('row', { name: /builder/ }).locator('[data-duration]');
   await expect(listed).toHaveText('45m / 2h');
 

@@ -96,7 +96,7 @@ test('given a diagnosis run, when its page opens, then it links back to the run 
 });
 
 test('given a diagnosis run, when /workloads is requested, then its row and card carry the kind diagnosis', async () => {
-  const body = await page('valid', '/workloads');
+  const body = await page('valid', '/workloads?range=any');
   const row = body.match(/<tr[^>]*\sdata-run="diagnosis"[\s\S]*?<\/tr>/)?.[0] ?? 'missing';
   const card = body.match(/<article[^>]*\sdata-run-card="diagnosis"[\s\S]*?<\/article>/)?.[0] ?? 'missing';
   for (const html of [row, card]) {

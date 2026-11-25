@@ -59,14 +59,14 @@ test('given several finished runs, when the list is requested, then they render 
     sampleRun({ id: 'oldest', worker: 'oldest-worker', startTime: '2026-09-21T09:00:00.000Z', costUsd: 0.3 }),
   ]);
 
-  const res = await app.request('/workloads');
+  const res = await app.request('/workloads?range=any');
   assert.equal(res.status, 200);
   const body = await res.text();
 
   assert.deepEqual([...body.matchAll(/<tr[^>]*\sdata-run="([^"]+)"/g)].map((match) => match[1]), ['newest', 'mid', 'oldest']);
   assert.match(body, /anthropic\/claude-opus-4/);
   assert.match(body, /success/);
-  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 3');
+  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 3 of 3');
   assert.equal(textOf(tile(body, 'cost')), 'Cost $0.60');
 });
 
@@ -86,7 +86,7 @@ test('given a billed run costing $0.00093252, an unconfirmed run, a pending run 
     sampleRun({ id: 'unbilled', worker: 'unbilled-worker', costStatus: 'pending', costUsd: 0 }),
   ]);
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
   const cost = (id: string): string =>
     textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '');
 
@@ -110,7 +110,7 @@ test('given one workload fully billed, one with an unbilled generation and one u
     sampleRun({ id: 'given-up', costStatus: 'unconfirmed', costUsd: 0.01, costEstimated: true, transcriptRef: null }),
   ]);
 
-  const list = await (await app.request('/workloads')).text();
+  const list = await (await app.request('/workloads?range=any')).text();
   const listed = (id: string): string =>
     rowFor(list, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '';
   const detailed = async (id: string): Promise<string> =>
@@ -139,7 +139,7 @@ test('given a successful, a failed, a running and an interrupted run, when the l
     sampleRun({ id: 'interrupted', status: 'interrupted', costStatus: 'unconfirmed' }),
   ]);
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
   for (const [id, status] of [['ok', 'success'], ['failed', 'error'], ['running', 'running'], ['interrupted', 'interrupted']] as const) {
     const badge = statusIn(rowFor(body, id));
     assert.match(badge, new RegExp(`\\sdata-status="${status}"`));
@@ -172,7 +172,7 @@ test('given a run dispatched for a ticket and a run started by hand, when the li
     sampleRun({ id: 'by-hand' }),
   ]);
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
   const ticketCell = (id: string): string =>
     rowFor(body, id).match(/<td[^>]*\sdata-run-ticket(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? 'missing';
 
@@ -206,7 +206,7 @@ test('given a succeeded run whose revision crashed with a multi-line detail and 
     },
   );
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
   const statusCell = (id: string): string =>
     rowFor(body, id).match(/<td[^>]*>(?:(?!<\/td>)[\s\S])*data-(?:status|outcome)[\s\S]*?<\/td>/)?.[0] ?? 'missing';
 
@@ -248,7 +248,7 @@ test('given a revision that ended ok and one that ended in error, when the list 
     },
   );
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
   const ticketCell = (id: string): string =>
     rowFor(body, id).match(/<td[^>]*\sdata-run-ticket(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? 'missing';
 
@@ -294,7 +294,7 @@ const summaryOf = async (app: ReturnType<typeof appWith>, id: string): Promise<s
 
 test('given a successful run whose dispatch failed with a reason, when the list and the run page are requested, then both lead with the failed outcome and no success pill, and the list shows the dispatch failure label with its detail as one line', async () => {
   const app = dispatchOutcomeApp();
-  const list = rowFor(await (await app.request('/workloads')).text(), 'failed');
+  const list = rowFor(await (await app.request('/workloads?range=any')).text(), 'failed');
 
   for (const found of [outcomesIn(list), outcomesIn(await summaryOf(app, 'failed'))]) {
     assert.equal(found.status, 'none');
@@ -306,7 +306,7 @@ test('given a successful run whose dispatch failed with a reason, when the list 
 
 test('given a successful run whose dispatch is done, when the list and the run page are requested, then both show the done outcome alone', async () => {
   const app = dispatchOutcomeApp();
-  const list = rowFor(await (await app.request('/workloads')).text(), 'done');
+  const list = rowFor(await (await app.request('/workloads?range=any')).text(), 'done');
 
   for (const found of [outcomesIn(list), outcomesIn(await summaryOf(app, 'done'))]) {
     assert.equal(found.status, 'none');
@@ -317,7 +317,7 @@ test('given a successful run whose dispatch is done, when the list and the run p
 
 test('given a run whose dispatch is still running, when the list and the run page are requested, then neither shows an outcome', async () => {
   const app = dispatchOutcomeApp();
-  const list = rowFor(await (await app.request('/workloads')).text(), 'running');
+  const list = rowFor(await (await app.request('/workloads?range=any')).text(), 'running');
 
   assert.equal(outcomesIn(list).outcome, 'none');
   assert.equal(outcomesIn(await summaryOf(app, 'running')).outcome, 'none');
@@ -379,9 +379,9 @@ test('given only settled runs, when the list is requested, then the total carrie
     sampleRun({ id: 'unconfirmed', costStatus: 'unconfirmed', costUsd: 0.1 }),
   ]);
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
 
-  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 2');
+  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 2 of 2');
   assert.equal(textOf(tile(body, 'cost')), 'Cost $0.30');
 });
 
@@ -391,7 +391,7 @@ test('given a billed run and a finished subscription run, when the list is reque
     sampleRun({ id: 'subscribed', costStatus: 'subscription', costUsd: 0 }),
   ]);
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
   const cost = textOf(
     rowFor(body, 'subscribed').match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '',
   );
@@ -399,7 +399,7 @@ test('given a billed run and a finished subscription run, when the list is reque
   assert.equal(cost, 'subscription');
   assert.match(rowFor(body, 'subscribed'), /<span[^>]*\sdata-badge="subscription"[^>]*\stitle="[^"]*not billed[^"]*"[^>]*>subscription<\/span>/);
   assert.doesNotMatch(rowFor(body, 'subscribed'), /\$0/);
-  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 2');
+  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 2 of 2');
   assert.equal(textOf(tile(body, 'cost')), 'Cost $0.20');
 });
 
@@ -433,7 +433,7 @@ test('given billed OpenRouter runs, a subscription run and a subscription run wi
     },
   );
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
   const cell = (id: string): string =>
     textOf(rowFor(body, id).match(/<td[^>]*\sdata-cost(?=[\s>])[^>]*>[\s\S]*?<\/td>/)?.[0] ?? '');
 
@@ -447,7 +447,7 @@ test('given billed OpenRouter runs, a subscription run and a subscription run wi
 });
 
 test('given only billed runs, when the list is requested, then the Cost tile carries no list-price note, pending badge or unconfirmed estimate', async () => {
-  const body = await (await appWith([sampleRun({ id: 'billed', costUsd: 0.2 })]).request('/workloads')).text();
+  const body = await (await appWith([sampleRun({ id: 'billed', costUsd: 0.2 })]).request('/workloads?range=any')).text();
 
   assert.doesNotMatch(body, /list-price-equivalent/);
   assert.equal(textOf(tile(body, 'cost')), 'Cost $0.20');
@@ -476,7 +476,7 @@ test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and it
   const app = appWith([sampleRun({ id: 'run-01', startTime: '2026-09-28T14:43:24.584Z', transcriptRef: null })]);
   const started = /^<time datetime="2026-09-28T14:43:24\.584Z" title="2026-09-28T14:43:24\.584Z"[^>]*>2026-09-28 14:43:24<\/time>$/;
 
-  const list = await (await app.request('/workloads')).text();
+  const list = await (await app.request('/workloads?range=any')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
   assert.match(rowFor(list, 'run-01').match(/<td[^>]*>(<time[\s\S]*?<\/time>)<\/td>/)?.[1] ?? '', started);
@@ -486,7 +486,7 @@ test('given a run that started at 2026-09-28T14:43:24.584Z, when the list and it
 test('given a run whose recorded start time is not a date, when the list and its run page are requested, then both render and show the recorded value as is', async () => {
   const app = appWith([sampleRun({ id: 'run-01', startTime: 'not-a-date', transcriptRef: null })]);
 
-  const list = await app.request('/workloads');
+  const list = await app.request('/workloads?range=any');
   const detail = await app.request('/runs/run-01');
 
   assert.equal(list.status, 200);
@@ -548,7 +548,7 @@ test('given runs with cache reads and writes, from before the cache split was ke
     sampleRun({ id: 'fresh', startTime: '2026-09-21T10:00:00.000Z', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }),
   ]);
 
-  const body = await (await app.request('/workloads')).text();
+  const body = await (await app.request('/workloads?range=any')).text();
   const cell = (id: string, name: string): string =>
     textOf(rowFor(body, id).match(new RegExp(`<td[^>]*\\s${name}(?=[\\s>])[^>]*>([\\s\\S]*?)</td>`))?.[1] ?? 'missing');
 
@@ -626,7 +626,7 @@ test('given a successful run and a failed run, when each run page is requested, 
     sampleRun({ id: 'ok', worker: 'ok-worker', status: 'success', transcriptRef: 'ok.jsonl' }),
     sampleRun({ id: 'failed', worker: 'failed-worker', status: 'error', error: 'provider exploded', transcriptRef: 'failed.jsonl' }),
   ], dir);
-  const list = await (await app.request('/workloads')).text();
+  const list = await (await app.request('/workloads?range=any')).text();
   const listBadge = (id: string): string => statusIn(rowFor(list, id));
   const page = async (id: string) => {
     const body = await (await app.request(`/runs/${id}`)).text();
@@ -722,7 +722,7 @@ test('given a run whose recorded tokens and cost include its subagents, when it 
     dir,
   );
 
-  const list = await (await app.request('/workloads')).text();
+  const list = await (await app.request('/workloads?range=any')).text();
   const detail = await (await app.request('/runs/run-01')).text();
 
   assert.match(list, /<td[^>]*\sdata-cost(?=[\s>])[^>]*>\s*\$0\.750000/);

@@ -19,8 +19,13 @@ export const RANGE_PRESETS: readonly RangePreset[] = [
   { key: 'month', label: 'This month', resolve: (today) => ({ from: `${today.slice(0, 8)}01`, to: today }) },
 ];
 
+export const ANY_TIME = 'any';
+
+export const ANY_TIME_LABEL = 'Any time';
+
 export interface WorkloadFilter {
   range?: string;
+  byDefault?: true;
   status?: DispatchState;
   search?: string;
   worker?: string;
@@ -34,15 +39,17 @@ export interface WorkloadFilter {
 
 const COHORT_HASH = new RegExp(`^(?:${UNKNOWN_COHORT}|[0-9a-f]{64})$`);
 
+const DEFAULT_RANGE = 'today';
+
 export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilter => {
   const status = STATUSES.find((candidate) => candidate === query['status']);
-  const range = RANGE_PRESETS.find((candidate) => candidate.key === query['range'])?.key;
-  const from = range === undefined ? parseDay(query['from']) : undefined;
-  const to = range === undefined ? parseDay(query['to']) : undefined;
+  const range = query['range'] === ANY_TIME ? ANY_TIME : RANGE_PRESETS.find((candidate) => candidate.key === query['range'])?.key;
+  const from = parseDay(query['from']);
+  const to = parseDay(query['to']);
   const category = isDiagnosisCategory(query['category']) ? query['category'] : undefined;
   const cohort = (query['cohort'] ?? '').split(',').filter((hash) => COHORT_HASH.test(hash)).join(',') || undefined;
   const search = (query['search'] ?? '').trim().replace(/^#/, '');
-  return {
+  const filter: WorkloadFilter = {
     ...(status === undefined ? {} : { status }),
     ...(search === '' ? {} : { search }),
     ...(query['worker'] ? { worker: query['worker'] } : {}),
@@ -54,6 +61,7 @@ export const parseWorkloadFilter = (query: Record<string, string>): WorkloadFilt
     ...(from === undefined ? {} : { from }),
     ...(to === undefined ? {} : { to }),
   };
+  return Object.keys(filter).length === 0 ? { range: DEFAULT_RANGE, byDefault: true } : filter;
 };
 
 const matchesSearch = (run: RunRecord, search: string): boolean => {
@@ -72,7 +80,7 @@ export const filterWorkloads = (
   ignoreStatus = false,
 ): RunRecord[] => {
   const preset = RANGE_PRESETS.find(({ key }) => key === filter.range);
-  const days = preset === undefined ? filter : preset.resolve(dayOf(now, timeZone));
+  const days = preset === undefined || filter.from !== undefined || filter.to !== undefined ? filter : preset.resolve(dayOf(now, timeZone));
   const { startedFrom, startedBefore } = dayRange(days.from, days.to, timeZone);
   const inCohorts = filter.cohort === undefined ? undefined : new Set(filter.cohort.split(','));
   return runs.filter(
@@ -89,7 +97,7 @@ export const filterWorkloads = (
   );
 };
 
-export const isFiltered = (filter: WorkloadFilter): boolean => Object.keys(filter).length > 0;
+export const isFiltered = (filter: WorkloadFilter): boolean => filter.byDefault !== true && Object.keys(filter).length > 0;
 
 export const PAGE_SIZE = 50;
 
@@ -117,7 +125,8 @@ export const paginate = <T>(items: T[], requested: number): Page<T> => {
 };
 
 export const workloadsHref = (filter: WorkloadFilter, page = 1): string => {
-  const entries = Object.entries(filter) as [string, string][];
+  const { byDefault: _byDefault, ...shown } = filter;
+  const entries = Object.entries(shown) as [string, string][];
   const query = new URLSearchParams(page > 1 ? [...entries, ['page', String(page)]] : entries).toString();
   return query === '' ? '/workloads' : `/workloads?${query}`;
 };

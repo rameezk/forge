@@ -204,7 +204,7 @@ test.describe('clickable rows', () => {
 
   test('given the Workloads table, when a cell holding no link is clicked, then that workload opens', async ({ dashboard, page }) => {
     seedClickableRows(dashboard.store);
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     await clickInside(page, page.locator('[data-run="first"] [data-cost]'));
 
@@ -214,7 +214,7 @@ test.describe('clickable rows', () => {
   test('given a Workloads row with ticket and pull request links, when either is clicked, then it goes to its own destination', async ({ dashboard, page }) => {
     seedClickableRows(dashboard.store);
     await offGithub(page);
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
 
     const ticketLink = page.locator('[data-run="first"] [data-run-ticket] a').first();
     const ticketHref = await ticketLink.getAttribute('href');
@@ -225,12 +225,12 @@ test.describe('clickable rows', () => {
     const pullRequestHref = await pullRequestLink.getAttribute('href');
     const [pullRequestPage] = await Promise.all([page.context().waitForEvent('page'), clickInside(page, pullRequestLink)]);
     await expect(pullRequestPage).toHaveURL(pullRequestHref!);
-    await expect(page).toHaveURL(/\/workloads$/);
+    await expect(page).toHaveURL(/\/workloads\?range=any$/);
   });
 
   test('given the Workloads table, when a row link takes keyboard focus, then the outline spans the stretched link over the whole row and the pointer shows across it', async ({ dashboard, page }) => {
     seedClickableRows(dashboard.store);
-    await page.goto('/workloads');
+    await page.goto('/workloads?range=any');
     const row = page.locator('[data-run="first"]');
     const link = row.getByRole('link', { name: 'builder' });
     const afterStyle = (property: string) =>
