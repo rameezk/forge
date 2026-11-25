@@ -46,6 +46,7 @@ import {
   brokerEnv,
   FAKE_BROKER_CLIENT,
   withResourceNote,
+  withoutArrivals,
 } from './helpers.ts';
 import { main as bill } from '../src/billing-main.ts';
 import { NARRATION_INSTRUCTION } from '../src/harness.ts';
@@ -278,9 +279,8 @@ const runWorker = async (scenario: Scenario): Promise<Outcome> => {
     code,
     stateDir,
     run: storedRun(stateDir, runId),
-    transcript: readFileSync(
-      join(stateDir, 'transcripts', `${runId}.jsonl`),
-      'utf8',
+    transcript: withoutArrivals(
+      readFileSync(join(stateDir, 'transcripts', `${runId}.jsonl`), 'utf8'),
     ),
     get rawEvents() {
       return jsonLines(

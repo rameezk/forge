@@ -94,13 +94,14 @@ export interface SkillLoadEvent {
   coverage: SkillCoverage | null;
 }
 
-export type HarnessEvent =
+export type HarnessEvent = (
   | MessageEvent
   | ToolCallEvent
   | ToolResultEvent
   | RetryEvent
   | CompactionEvent
   | CacheWarmEvent
-  | ResultEvent;
+  | ResultEvent
+) & { at?: string };
 
 export type HarnessOutput = HarnessEvent | SkillLoadEvent;

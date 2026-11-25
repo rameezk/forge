@@ -39,6 +39,8 @@ export interface Step {
   usd: number;
   cacheMiss: boolean;
   retries: number;
+  start: number | null;
+  end: number | null;
   generation: GenerationRecord | null;
   children: Step[];
 }
@@ -51,6 +53,8 @@ export interface Trace {
   misses: number;
   usage: TokenUsage;
   timed: boolean;
+  start: number | null;
+  end: number | null;
 }
 
 const costOf = (
@@ -73,7 +77,16 @@ const STEP_KINDS: Record<GenerationKind, StepKind> = {
   cache_warm: 'cache_warm',
 };
 
-const hasArrival = (event: HarnessEvent): boolean => 'at' in event;
+const arrivalOf = ({ at }: HarnessEvent): number | null => {
+  if (at === undefined) return null;
+  const time = Date.parse(at);
+  return Number.isNaN(time) ? null : time;
+};
+
+const earliest = (times: (number | null)[]): number | null => {
+  const known = times.filter((time) => time !== null);
+  return known.length === 0 ? null : Math.min(...known);
+};
 
 const spent = (step: Step): number =>
   (step.kind === 'subagent' ? 0 : (step.cost?.usd ?? 0)) + step.children.reduce((sum, child) => sum + spent(child), 0);
@@ -96,6 +109,7 @@ export const traceOf = (
   const steps: Step[] = [];
   const branches = new Map<string, Step>();
   const lastGeneration = new Map<string | null, Step>();
+  const asked = new Map<string, Step>();
   const pendingRetries = new Map<string | null, number>();
 
   const containerOf = (scope: string | null): Step[] =>
@@ -110,7 +124,7 @@ export const traceOf = (
     return branch;
   };
 
-  const place = (record: GenerationRecord, scope: string | null): void => {
+  const place = (record: GenerationRecord, scope: string | null, start: number | null, end: number | null): void => {
     joined.add(record);
     const cost = costOf(record, subscription);
     const step: Step = {
@@ -119,6 +133,8 @@ export const traceOf = (
       usd: cost.usd,
       cacheMiss: misses.has(record),
       retries: pendingRetries.get(scope) ?? 0,
+      start: end === null ? null : start,
+      end,
       generation: record,
     };
     pendingRetries.delete(scope);
@@ -126,21 +142,40 @@ export const traceOf = (
     if (step.kind === 'generation') lastGeneration.set(scope, step);
   };
 
+  let previous: number | null = null;
+  let first: number | null = null;
+  let last: number | null = null;
+
   for (const event of events) {
+    const arrived = arrivalOf(event);
+    const before = previous;
+    if (arrived !== null) {
+      previous = arrived;
+      first ??= arrived;
+      last = arrived;
+    }
     if (event.type === 'result') continue;
     const scope = event.subagent ?? null;
     switch (event.type) {
       case 'message': {
         const record = event.role === 'assistant' && event.generationId !== null ? byId.get(event.generationId) : undefined;
-        if (record !== undefined && !joined.has(record)) place(record, scope);
+        if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived);
         break;
       }
       case 'tool_call': {
         const isBranch = scopes.has(event.id);
-        if (isBranch && branches.has(event.id)) break;
-        const step = newStep(isBranch ? 'subagent' : 'tool', event.name);
+        const asker = lastGeneration.get(scope);
+        const start = asker?.end ?? arrived;
+        const known = isBranch ? branches.get(event.id) : undefined;
+        if (known !== undefined) {
+          known.start = start ?? known.start;
+          asked.set(event.id, known);
+          break;
+        }
+        const step = { ...newStep(isBranch ? 'subagent' : 'tool', event.name), start };
         if (isBranch) branches.set(event.id, step);
-        (lastGeneration.get(scope)?.children ?? containerOf(scope)).push(step);
+        asked.set(event.id, step);
+        (asker?.children ?? containerOf(scope)).push(step);
         break;
       }
       case 'retry':
@@ -149,16 +184,19 @@ export const traceOf = (
       case 'compaction':
         for (const { generationId } of event.calls ?? []) {
           const record = generationId === null ? undefined : byId.get(generationId);
-          if (record !== undefined && !joined.has(record)) place(record, scope);
+          if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived);
         }
         break;
       case 'cache_warm': {
         const record = event.generationId === null ? undefined : byId.get(event.generationId);
-        if (record !== undefined && !joined.has(record)) place(record, scope);
+        if (record !== undefined && !joined.has(record)) place(record, scope, before, arrived);
         break;
       }
-      case 'tool_result':
+      case 'tool_result': {
+        const step = asked.get(event.id);
+        if (step !== undefined) step.end = arrived;
         break;
+      }
     }
   }
 
@@ -169,12 +207,15 @@ export const traceOf = (
   pendingRetries.clear();
 
   for (const record of calls) {
-    if (!joined.has(record)) place(record, record.subagent);
+    if (!joined.has(record)) place(record, record.subagent, null, null);
   }
 
   const settle = (step: Step): void => {
     step.children.forEach(settle);
-    if (step.kind === 'subagent') step.usd = sum(step.children.map(spent));
+    if (step.kind === 'subagent') {
+      step.usd = sum(step.children.map(spent));
+      step.start ??= earliest(step.children.map(({ start }) => start));
+    }
   };
   steps.forEach(settle);
 
@@ -191,7 +232,9 @@ export const traceOf = (
       cacheReadTokens: sum(measured.map(({ cacheReadTokens }) => cacheReadTokens)),
       cacheWriteTokens: sum(measured.map(({ cacheWriteTokens }) => cacheWriteTokens)),
     },
-    timed: events.some(hasArrival),
+    timed: first !== null,
+    start: first,
+    end: last,
   };
 };
 
@@ -202,6 +245,8 @@ const newStep = (kind: StepKind, name: string): Step => ({
   usd: 0,
   cacheMiss: false,
   retries: 0,
+  start: null,
+  end: null,
   generation: null,
   children: [],
 });

@@ -224,6 +224,7 @@ export const runWorkload = async (
         cacheWriteTokens: 0,
       },
       generationId: null,
+      at: startTime,
     });
     await transcript.append(promptEvent);
     const { invocation, recorder } = await boundedBySetupTimeout(
@@ -265,12 +266,13 @@ export const runWorkload = async (
       stopTimeout = () => clearTimeout(timer);
     }
     for await (const harnessEvent of harnessRun.run(invocation, sinks)) {
+      const arrived = now();
       if (harnessEvent.type === 'skill_load') {
         const { type: _type, ...load } = harnessEvent;
         runs.recordSkillLoad({ ...load, runId: id, loadedAt: now() });
         continue;
       }
-      const event = policy.record(harnessEvent);
+      const event = { ...policy.record(harnessEvent), at: arrived };
       await transcript.append(event);
       countEvent(counters, event);
       const calls = billedCalls(event);

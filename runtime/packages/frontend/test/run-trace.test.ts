@@ -74,10 +74,14 @@ interface Seeded {
   run?: Partial<RunRecord>;
   calls: Call[];
   recordRequests?: boolean;
+  transcript?: object[];
 }
 
-const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests = true }: Seeded): void => {
-  store.runs.insertRun(sampleRun({ id, ...run }));
+const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests = true, transcript }: Seeded): void => {
+  store.runs.insertRun(sampleRun({ id, ...(transcript === undefined ? {} : { transcriptRef: `${id}.jsonl` }), ...run }));
+  if (transcript !== undefined) {
+    writeFileSync(join(dir, `${id}.jsonl`), transcript.map((event) => `${JSON.stringify(event)}\n`).join(''));
+  }
   calls.forEach((call, index) => {
     const usage = call.usage ?? NO_TOKENS;
     store.runs.recordGeneration({
@@ -138,7 +142,7 @@ const dashboardOf = (runs: Seeded[], timeZone?: string) => {
 const callsPage = async (
   run: Partial<RunRecord>,
   calls: Call[],
-  options: { recordRequests?: boolean } = {},
+  options: { recordRequests?: boolean; transcript?: object[] } = {},
 ): Promise<string> => dashboardOf([{ id: 'run-01', run, calls, ...options }])('/runs/run-01');
 
 const cellOf = (row: string, name: string): string =>
@@ -165,6 +169,54 @@ test('given a workload whose transcript has no arrival times, when its page is r
   assert.match(body, /<button[^>]*\sdata-trace-view="time"[^>]*\sdisabled/);
   assert.match(body, /<button[^>]*\sdata-trace-view="cost"[^>]*\saria-pressed="true"/);
   assert.match(textOf(body.match(/<[^>]*\sdata-trace-note[^>]*>([\s\S]*?)<\/[a-z]+>/)?.[1] ?? 'missing'), /^Recorded before step timings$/);
+});
+
+const at = (seconds: number): string => new Date(Date.parse('2026-09-21T10:00:00.000Z') + seconds * 1000).toISOString();
+
+const timedTranscript = (finished: boolean): object[] => {
+  const turn = (generationId: string, seconds: number): object => ({
+    type: 'message',
+    role: 'assistant',
+    text: '',
+    usage: NO_TOKENS,
+    generationId,
+    at: at(seconds),
+  });
+  return [
+    { type: 'message', role: 'user', text: 'go', usage: NO_TOKENS, generationId: null, at: at(0) },
+    turn('run-01-gen-1', 3),
+    { type: 'tool_call', id: 't1', name: 'read', arguments: {}, at: at(3) },
+    { type: 'tool_call', id: 't2', name: 'bash', arguments: {}, at: at(3) },
+    { type: 'tool_result', id: 't1', isError: false, text: '', at: at(5) },
+    ...(finished ? [{ type: 'tool_result', id: 't2', isError: false, text: '', at: at(8) }, turn('run-01-gen-2', 10)] : []),
+  ];
+};
+
+const timeBars = (body: string): string[] =>
+  stepRows(body).map((row) => row.match(/data-step-time-bar[^>]*style="([^"]*)"/)?.[1] ?? 'missing');
+
+const durationOf = (row: string): string =>
+  textOf(row.match(/<span[^>]*\sdata-step-duration[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? 'missing');
+
+test('given a workload whose transcript carries arrival times, when its page is requested, then Time is selected, no note is shown, each step shows how long it took and its bar sits on a waterfall over the run', async () => {
+  const body = await callsPage({}, [{}, {}], { transcript: timedTranscript(true) });
+
+  assert.match(body, /<button[^>]*\sdata-trace-view="time"[^>]*\saria-pressed="true"/);
+  assert.doesNotMatch(body, /<button[^>]*\sdata-trace-view="time"[^>]*\sdisabled/);
+  assert.match(body, /<button[^>]*\sdata-trace-view="cost"[^>]*\saria-pressed="false"/);
+  assert.doesNotMatch(body, /data-trace-note/);
+  assert.match(body, /<div[^>]*\sdata-trace[^>]*\sdata-bars="time"/);
+  assert.deepEqual(stepRows(body).map(durationOf), ['3.0s', '2.0s', '5.0s', '2.0s']);
+  assert.deepEqual(timeBars(body), ['left: 0%; width: 30%', 'left: 30%; width: 20%', 'left: 30%; width: 50%', 'left: 80%; width: 20%']);
+});
+
+test('given a running workload whose tool run has no result yet, when its page is requested, then that step is an open-ended bar running to the latest event', async () => {
+  const body = await callsPage({ status: 'running', endTime: null }, [{}], { transcript: timedTranscript(false) });
+
+  const rows = stepRows(body);
+  assert.deepEqual(rows.map((row) => /\sdata-step-open/.test(row)), [false, false, true]);
+  assert.equal(durationOf(rows[2] as string), 'running');
+  assert.deepEqual(timeBars(body), ['left: 0%; width: 60%', 'left: 60%; width: 40%', 'left: 60%; width: 40%']);
 });
 
 test('given billed, estimated, unbilled and cache-missing generations, when its page is requested, then each step shows its kind, its cost and badge, and the cache miss is flagged', async () => {
