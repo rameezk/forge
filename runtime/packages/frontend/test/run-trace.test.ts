@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '@forge/shared';
-import type { GenerationKind, LookupResult, RunRecord } from '@forge/shared';
+import { Store, transcriptLine } from '@forge/shared';
+import type { GenerationKind, HarnessEvent, LookupResult, RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 import { textOf, tileValue } from './html.ts';
 
@@ -127,10 +127,11 @@ const seed = (store: Store, dir: string, { id, run = {}, calls, recordRequests =
   }
 };
 
-const dashboardOf = (runs: Seeded[], timeZone?: string) => {
+const dashboardOf = (runs: Seeded[], timeZone?: string, transcripts: Record<string, HarnessEvent[]> = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'forge-transcripts-'));
   const store = Store.open(':memory:');
   for (const run of runs) seed(store, dir, run);
+  for (const [ref, events] of Object.entries(transcripts)) writeFileSync(join(dir, ref), events.map(transcriptLine).join(''));
   const app = createApp({ store, transcripts: new FileTranscriptSource(dir), css: '', logo: '', idiomorph: '', client: '', ...(timeZone === undefined ? {} : { timeZone }) });
   return async (path: string): Promise<string> => (await app.request(path)).text();
 };
@@ -255,4 +256,59 @@ test('given a request record of a hundred thousand requests, when its detail pag
 
   assert.equal(page.status, 200);
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`);
+});
+
+const NO_TOKENS_USAGE = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
+const assistant = (generationId: string, text: string): HarnessEvent => ({ type: 'message', role: 'assistant', text, usage: NO_TOKENS_USAGE, generationId });
+
+const detailOf = (body: string, key: string): string =>
+  body.match(new RegExp(`<section[^>]*\\sdata-step-detail="${key}"[\\s\\S]*?</section>`))?.[0] ?? 'missing';
+
+const within = (detail: string, name: string): string =>
+  textOf(detail.match(new RegExp(`<[a-z]+[^>]*\\s${name}(?=[\\s>])[^>]*>([\\s\\S]*?)</(?:dd|div|span|a|p|pre)>`))?.[1] ?? 'missing');
+
+const traceEvents: HarnessEvent[] = [
+  { type: 'message', role: 'user', text: 'fix the bug', usage: NO_TOKENS_USAGE, generationId: null },
+  assistant('run-01-gen-1', 'looking at it'),
+  { type: 'tool_call', id: 't1', name: 'bash', arguments: { command: 'ls -la' } },
+  { type: 'tool_result', id: 't1', isError: false, text: 'total 0' },
+];
+
+test('given an open trace, when a tool run is selected, then its command, its output and a link to its tool call in the full transcript are in its details', async () => {
+  const get = dashboardOf([{ id: 'run-01', run: { transcriptRef: 'run-01.jsonl' }, calls: [{}] }], undefined, { 'run-01.jsonl': traceEvents });
+
+  const body = await get('/runs/run-01');
+  const tool = body.match(/data-step-key="([^"]+)"[^>]*\sdata-step-kind="tool"|data-step-kind="tool"[^>]*\sdata-step-key="([^"]+)"/);
+  const detail = detailOf(body, tool?.[1] ?? tool?.[2] ?? 'missing');
+
+  assert.equal(within(detail, 'data-detail-request'), 'ls -la');
+  assert.equal(within(detail, 'data-detail-response'), 'total 0');
+  assert.match(detail, /<a[^>]*\shref="\/runs\/run-01\/transcript#event-2"[^>]*\sdata-detail-transcript/);
+});
+
+test('given an open trace, when a generation is selected, then its metadata, cost and badge, token breakdown, excerpts and transcript link are in its details, with a note for a cache miss', async () => {
+  const usage = { input: 120, output: 450, cacheRead: 10, cacheWrite: 800 };
+  const get = dashboardOf(
+    [{ id: 'run-01', run: { transcriptRef: 'run-01.jsonl' }, calls: [{ usage: { input: 5, output: 5, cacheRead: 5000, cacheWrite: 0 } }, { usage, billed: { cost: 0.0125, provider: 'Google Vertex', model: 'anthropic/claude-opus-5.5' } }] }],
+    undefined,
+    { 'run-01.jsonl': [...traceEvents, assistant('run-01-gen-2', 'all done')] },
+  );
+
+  const body = await get('/runs/run-01');
+  const generations = stepRows(body).filter((row) => row.includes('data-step-kind="generation"'));
+  const detail = detailOf(body, generations[1]?.match(/data-step-key="([^"]+)"/)?.[1] ?? 'missing');
+
+  assert.equal(within(detail, 'data-detail-generation'), 'run-01-gen-2');
+  assert.equal(within(detail, 'data-detail-model'), 'anthropic/claude-opus-5.5');
+  assert.equal(within(detail, 'data-detail-provider'), 'Google Vertex');
+  assert.equal(within(detail, 'data-detail-cost'), '$0.012500 billed');
+  assert.deepEqual(
+    ['cache-read', 'cache-write', 'input', 'output'].map((name) => within(detail, `data-token="${name}"`)),
+    ['10', '800', '120', '450'],
+  );
+  assert.match(detail, /data-detail-cache-miss/);
+  assert.equal(within(detail, 'data-detail-request'), 'total 0');
+  assert.equal(within(detail, 'data-detail-response'), 'all done');
+  assert.match(detail, /<a[^>]*\shref="\/runs\/run-01\/transcript#event-4"[^>]*\sdata-detail-transcript/);
 });

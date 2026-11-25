@@ -94,9 +94,9 @@ test('given a workload whose calls are billed, estimated and flagged as cache mi
   await page.goto('/runs/run-01');
   await page.locator('[data-trace-summary]').click();
 
-  await expect(page.locator('[data-trace] [data-badge="billed"]')).toHaveCount(1);
-  await expect(page.locator('[data-trace] [data-badge="estimated"]')).toHaveCount(2);
-  await expect(page.locator('[data-trace] [data-badge="cache-miss"]')).toHaveCount(1);
+  await expect(page.locator('[data-trace] [data-step] [data-badge="billed"]')).toHaveCount(1);
+  await expect(page.locator('[data-trace] [data-step] [data-badge="estimated"]')).toHaveCount(2);
+  await expect(page.locator('[data-trace] [data-step] [data-badge="cache-miss"]')).toHaveCount(1);
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
 
@@ -465,7 +465,7 @@ test('given a workload whose generation started a subagent, when its trace is op
 
   await page.goto('/runs/run-01');
   await page.locator('[data-trace-summary]').click();
-  const branch = page.locator('summary[data-step-kind="subagent"]');
+  const branch = page.locator('summary[data-step-kind="subagent"] [data-step-toggle]');
   const inside = page.locator('[data-step-kind="tool"]');
 
   await expect(inside).toBeVisible();
@@ -546,4 +546,86 @@ test('given a workload with an unconfirmed estimate, when the list is opened at 
   const costRight = await card.locator('[data-cost]').evaluate((element) => element.getBoundingClientRect().right);
   expect(costRight).toBeLessThanOrEqual(cardRight);
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+});
+
+const traceUsage = { inputTokens: 120, outputTokens: 450, cacheReadTokens: 20000, cacheWriteTokens: 800 };
+
+const seedTraceWithTools = (dashboard: Parameters<Parameters<typeof test>[2]>[0]['dashboard']): void => {
+  dashboard.store.runs.insertRun(recordedRun);
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    { type: 'message', role: 'user', text: 'fix the bug', usage: traceUsage, generationId: null },
+    { type: 'message', role: 'assistant', text: 'looking at the files', usage: traceUsage, generationId: 'gen-01' },
+    { type: 'tool_call', id: 'call_a', name: 'bash', arguments: { command: 'ls -la' } },
+    { type: 'tool_result', id: 'call_a', isError: false, text: 'total 0' },
+    { type: 'message', role: 'assistant', text: 'all done', usage: traceUsage, generationId: 'gen-02' },
+  );
+  (['gen-01', 'gen-02'] as const).forEach((generationId, index) =>
+    dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId, subagent: null, kind: 'message', usage: traceUsage, estimatedCostUsd: 0.14, createdAt: `2026-09-21T10:0${index}:10.000Z` }),
+  );
+};
+
+test('given an open trace, when the operator selects a tool run and then a generation, then each one shows its details with a link to its anchor in the full transcript', async ({
+  dashboard,
+  page,
+}) => {
+  seedTraceWithTools(dashboard);
+
+  await page.goto('/runs/run-01');
+  await page.locator('[data-trace-summary]').click();
+  await expect(page.locator('[data-detail-empty]')).toBeVisible();
+
+  await page.locator('[data-step-kind="tool"]').click();
+  const tool = page.locator('[data-step-detail-kind="tool"]');
+  await expect(tool).toBeVisible();
+  await expect(tool.locator('[data-detail-request]')).toHaveText('ls -la');
+  await expect(tool.locator('[data-detail-response]')).toHaveText('total 0');
+  await expect(page.locator('[data-detail-empty]')).toBeHidden();
+  await tool.locator('[data-detail-transcript]').click();
+  await expect(page).toHaveURL(/\/runs\/run-01\/transcript#event-2$/);
+
+  await page.goBack();
+  await page.locator('[data-trace-summary]').click();
+  await page.locator('[data-step-kind="generation"]').first().click();
+  const generation = page.locator('[data-step-detail-kind="generation"]:visible');
+  await expect(generation).toHaveCount(1);
+  await expect(generation.locator('[data-detail-cost]')).toContainText('estimated');
+  await expect(generation.locator('[data-token="cache-read"]')).toHaveText('20,000');
+  await expect(generation.locator('[data-detail-request]')).toHaveText('fix the bug');
+  await expect(generation.locator('[data-detail-response]')).toHaveText('looking at the files');
+  await expect(generation.locator('[data-detail-transcript]')).toHaveAttribute('href', '/runs/run-01/transcript#event-1');
+  await expect(tool).toBeHidden();
+});
+
+test('given an open trace with focus on a step, when the operator presses the down arrow and then Enter, then the next visible step is selected and its details show, skipping the steps of a collapsed branch', async ({
+  dashboard,
+  page,
+}) => {
+  seedTraceWithTools(dashboard);
+
+  await page.goto('/runs/run-01');
+  await page.locator('[data-trace-summary]').click();
+  const steps = page.locator('[data-trace] [data-step]');
+  await steps.first().focus();
+
+  await page.keyboard.press('ArrowDown');
+  await expect(steps.nth(1)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(steps.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-step-detail-kind="tool"]')).toBeVisible();
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Space');
+  await expect(steps.nth(1)).toHaveAttribute('aria-selected', 'false');
+  await expect(steps.nth(2)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-step-detail-kind="generation"]:visible [data-detail-response]')).toHaveText('all done');
+
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowLeft');
+  await expect(steps.first()).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(steps.first()).toHaveAttribute('aria-expanded', 'false');
+  await expect(steps.nth(1)).toBeHidden();
+  await page.keyboard.press('ArrowDown');
+  await expect(steps.nth(2)).toBeFocused();
 });

@@ -602,3 +602,32 @@ test('given a select whose chosen option the operator changed but did not submit
   await expect(against.locator(`option[value="${fingerprintHash(thirdCohort)}"]`)).toBeAttached();
   await expect(against).toHaveValue('');
 });
+
+test('given a running workload\'s open trace with a step selected, when the trace gains a step without a reload, then the selection and its details stay', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.runs.insertRun(runningRun);
+  const record = (generationId: string) =>
+    dashboard.store.runs.recordGeneration({
+      runId: 'run-01',
+      generationId,
+      subagent: null,
+      kind: 'message',
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      estimatedCostUsd: 0.01,
+      createdAt: '2026-09-21T10:01:00.000Z',
+    });
+  record('gen-01');
+  await openLive(page, '/runs/run-01');
+  await page.locator('[data-trace-summary]').click();
+  const rows = page.locator('[data-trace] [data-step]');
+  await rows.first().click();
+  await expect(page.locator('[data-step-detail]:visible [data-detail-generation]')).toHaveText('gen-01');
+
+  record('gen-02');
+
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-step-detail]:visible [data-detail-generation]')).toHaveText('gen-01');
+});

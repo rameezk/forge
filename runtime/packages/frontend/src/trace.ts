@@ -1,4 +1,5 @@
 import type { GenerationKind, GenerationRecord, HarnessEvent, TokenUsage } from '@forge/shared';
+import { eventAnchors } from './views/transcript.ts';
 
 export const isCall = ({ generationId, usage }: GenerationRecord): boolean =>
   generationId !== null || usage !== null;
@@ -40,6 +41,11 @@ export interface Step {
   cacheMiss: boolean;
   retries: number;
   generation: GenerationRecord | null;
+  id: string | null;
+  anchor: number | null;
+  request: string | null;
+  response: string | null;
+  failed: boolean;
   children: Step[];
 }
 
@@ -73,6 +79,23 @@ const STEP_KINDS: Record<GenerationKind, StepKind> = {
   cache_warm: 'cache_warm',
 };
 
+const EXCERPT_CHARS = 600;
+
+const excerpt = (text: string | null | undefined): string | null => {
+  const trimmed = text?.trim() ?? '';
+  if (trimmed === '') return null;
+  return trimmed.length > EXCERPT_CHARS ? `${trimmed.slice(0, EXCERPT_CHARS)}…` : trimmed;
+};
+
+const commandOf = (args: unknown): string | null => {
+  if (typeof args === 'string') return excerpt(args);
+  if (typeof args !== 'object' || args === null) return null;
+  const fields = args as Record<string, unknown>;
+  const given = [fields['command'], fields['task'], fields['prompt']].find((value): value is string => typeof value === 'string');
+  if (given !== undefined) return excerpt(given);
+  return Object.keys(fields).length === 0 ? null : excerpt(JSON.stringify(fields, null, 2));
+};
+
 const hasArrival = (event: HarnessEvent): boolean => 'at' in event;
 
 const spent = (step: Step): number =>
@@ -91,6 +114,9 @@ export const traceOf = (
   const misses = cacheMisses(calls);
   const byId = new Map(calls.flatMap((call) => (call.generationId === null ? [] : [[call.generationId, call] as const])));
   const joined = new Set<GenerationRecord>();
+  const anchorOf = eventAnchors(events);
+  const lastInput = new Map<string | null, string>();
+  const unanswered = new Map<string, Step>();
   const scopes = new Set(events.flatMap((event) => (event.type !== 'result' && event.subagent !== undefined ? [event.subagent] : [])));
 
   const steps: Step[] = [];
@@ -104,13 +130,13 @@ export const traceOf = (
   const branchOf = (scope: string): Step => {
     const known = branches.get(scope);
     if (known !== undefined) return known;
-    const branch = newStep('subagent', scope);
+    const branch = { ...newStep('subagent', scope), id: scope };
     branches.set(scope, branch);
     steps.push(branch);
     return branch;
   };
 
-  const place = (record: GenerationRecord, scope: string | null): void => {
+  const place = (record: GenerationRecord, scope: string | null, source?: HarnessEvent, response?: string | null): void => {
     joined.add(record);
     const cost = costOf(record, subscription);
     const step: Step = {
@@ -120,6 +146,9 @@ export const traceOf = (
       cacheMiss: misses.has(record),
       retries: pendingRetries.get(scope) ?? 0,
       generation: record,
+      anchor: source === undefined ? null : anchorOf(source),
+      request: source === undefined ? null : excerpt(lastInput.get(scope)),
+      response: excerpt(response),
     };
     pendingRetries.delete(scope);
     containerOf(scope).push(step);
@@ -132,13 +161,18 @@ export const traceOf = (
     switch (event.type) {
       case 'message': {
         const record = event.role === 'assistant' && event.generationId !== null ? byId.get(event.generationId) : undefined;
-        if (record !== undefined && !joined.has(record)) place(record, scope);
+        if (record !== undefined && !joined.has(record)) place(record, scope, event, event.text || event.thinking || event.error);
+        else if (event.role !== 'assistant') lastInput.set(scope, event.text);
         break;
       }
       case 'tool_call': {
         const isBranch = scopes.has(event.id);
-        if (isBranch && branches.has(event.id)) break;
-        const step = newStep(isBranch ? 'subagent' : 'tool', event.name);
+        const known = isBranch ? branches.get(event.id) : undefined;
+        const step = known ?? { ...newStep(isBranch ? 'subagent' : 'tool', event.name), id: event.id };
+        step.anchor = anchorOf(event);
+        step.request = commandOf(event.arguments);
+        unanswered.set(JSON.stringify([scope, event.id]), step);
+        if (known !== undefined) break;
         if (isBranch) branches.set(event.id, step);
         (lastGeneration.get(scope)?.children ?? containerOf(scope)).push(step);
         break;
@@ -149,16 +183,25 @@ export const traceOf = (
       case 'compaction':
         for (const { generationId } of event.calls ?? []) {
           const record = generationId === null ? undefined : byId.get(generationId);
-          if (record !== undefined && !joined.has(record)) place(record, scope);
+          if (record !== undefined && !joined.has(record)) place(record, scope, event, event.summary);
         }
         break;
       case 'cache_warm': {
         const record = event.generationId === null ? undefined : byId.get(event.generationId);
-        if (record !== undefined && !joined.has(record)) place(record, scope);
+        if (record !== undefined && !joined.has(record)) place(record, scope, event);
         break;
       }
-      case 'tool_result':
+      case 'tool_result': {
+        const key = JSON.stringify([scope, event.id]);
+        const step = unanswered.get(key);
+        if (step !== undefined) {
+          step.response = excerpt(event.text);
+          step.failed = event.isError;
+          unanswered.delete(key);
+        }
+        lastInput.set(scope, event.text);
         break;
+      }
     }
   }
 
@@ -203,5 +246,10 @@ const newStep = (kind: StepKind, name: string): Step => ({
   cacheMiss: false,
   retries: 0,
   generation: null,
+  id: null,
+  anchor: null,
+  request: null,
+  response: null,
+  failed: false,
   children: [],
 });

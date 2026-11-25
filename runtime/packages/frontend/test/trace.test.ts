@@ -217,3 +217,104 @@ test('given a subagent whose own events precede the tool call that started it, w
 
   assert.deepEqual(shape(trace.steps), [['subagent', 'call_a', [['generation', '']]]]);
 });
+
+const userMessage = (text: string, subagent?: string): HarnessEvent => ({
+  type: 'message',
+  role: 'user',
+  text,
+  usage: NO_USAGE,
+  generationId: null,
+  ...(subagent === undefined ? {} : { subagent }),
+});
+
+const reply = (generationId: string, text: string): HarnessEvent => ({ ...(message(generationId) as object), text }) as HarnessEvent;
+
+test('given a tool run with arguments and a result, when the trace is built, then it carries its command, its output and the anchor of its tool call', () => {
+  const trace = traceOf(
+    [
+      userMessage('go'),
+      message('gen-1'),
+      { type: 'tool_call', id: 't1', name: 'bash', arguments: { command: 'ls -la' } },
+      { type: 'tool_result', id: 't1', isError: false, text: 'total 0' },
+    ],
+    [generation('gen-1')],
+    false,
+  );
+
+  const tool = trace.steps[0]!.children[0]!;
+  assert.equal(tool.request, 'ls -la');
+  assert.equal(tool.response, 'total 0');
+  assert.equal(tool.failed, false);
+  assert.equal(tool.anchor, 2);
+});
+
+test('given a tool run whose result is an error or has not arrived, when the trace is built, then the failure is flagged and a missing output is null', () => {
+  const trace = traceOf(
+    [
+      message('gen-1'),
+      { type: 'tool_call', id: 't1', name: 'read', arguments: { path: 'a.txt' } },
+      { type: 'tool_call', id: 't2', name: 'bash', arguments: {} },
+      { type: 'tool_result', id: 't1', isError: true, text: 'no such file' },
+    ],
+    [generation('gen-1')],
+    false,
+  );
+
+  const [failed, running] = trace.steps[0]!.children;
+  assert.equal(failed!.failed, true);
+  assert.equal(failed!.request, JSON.stringify({ path: 'a.txt' }, null, 2));
+  assert.equal(running!.response, null);
+  assert.equal(running!.request, null);
+});
+
+test('given a generation that follows a prompt and a tool result, when the trace is built, then its request is the input it answered and its response is its reply', () => {
+  const trace = traceOf(
+    [
+      userMessage('fix the bug'),
+      reply('gen-1', 'looking'),
+      { type: 'tool_call', id: 't1', name: 'bash', arguments: { command: 'ls' } },
+      { type: 'tool_result', id: 't1', isError: false, text: 'a.ts' },
+      reply('gen-2', 'done'),
+    ],
+    [generation('gen-1'), generation('gen-2')],
+    false,
+  );
+
+  const [first, second] = trace.steps;
+  assert.equal(first!.request, 'fix the bug');
+  assert.equal(first!.response, 'looking');
+  assert.equal(second!.request, 'a.ts');
+  assert.equal(second!.response, 'done');
+  assert.equal(first!.anchor, 1);
+});
+
+test('given a long output, when the trace is built, then the excerpt is cut short', () => {
+  const trace = traceOf(
+    [message('gen-1'), { type: 'tool_call', id: 't1', name: 'bash', arguments: {} }, { type: 'tool_result', id: 't1', isError: false, text: 'x'.repeat(5000) }],
+    [generation('gen-1')],
+    false,
+  );
+
+  const output = trace.steps[0]!.children[0]!.response!;
+  assert.ok(output.length < 700);
+  assert.ok(output.endsWith('…'));
+});
+
+test('given a subagent branch, when the trace is built, then its anchor is the transcript position of the call that started it', () => {
+  const trace = traceOf(
+    [
+      message('gen-1'),
+      { type: 'tool_call', id: 'call_a', name: 'subagent', arguments: { task: 'review it' } },
+      message('gen-2', 'call_a'),
+      { type: 'tool_result', id: 'call_a', isError: false, text: 'looks fine' },
+    ],
+    [generation('gen-1'), generation('gen-2', { subagent: 'call_a' })],
+    false,
+  );
+
+  const branch = trace.steps[0]!.children[0]!;
+  assert.equal(branch.id, 'call_a');
+  assert.equal(branch.request, 'review it');
+  assert.equal(branch.response, 'looks fine');
+  assert.equal(branch.anchor, 1);
+});
