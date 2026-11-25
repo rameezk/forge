@@ -4,7 +4,7 @@ import { expect, test } from './dashboard.ts';
 
 const ticket = { repository: 'forge', number: 42, url: 'https://github.com/rameezk/forge/issues/42' };
 
-const PAGES = ['/', '/workloads', '/insights', '/tickets/forge/42', '/runs/run-01'] as const;
+const PAGES = ['/', '/workloads?range=any', '/insights', '/tickets/forge/42', '/runs/run-01'] as const;
 
 const seedRun = (store: Store): void => {
   const run: RunRecord = {

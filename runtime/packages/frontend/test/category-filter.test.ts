@@ -83,7 +83,7 @@ test('given a category filter, when combined with the worker filter, then both a
 });
 
 test('given an unknown category, when Workloads loads, then the filter is ignored', async () => {
-  assert.equal((await listed('?category=bogus')).length, 10);
+  assert.equal((await listed('?category=bogus&range=any')).length, 10);
 });
 
 test('given Workloads filtered to Forge, when the page renders, then the category select shows Forge and clearing is offered', async () => {

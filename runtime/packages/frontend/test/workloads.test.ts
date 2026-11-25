@@ -45,7 +45,7 @@ const ticketIn = (repository: string, number: number) => ({
   url: `https://github.com/rameezk/${repository}/issues/${number}`,
 });
 
-const open = async (runs: RunRecord[], path = '/workloads'): Promise<string> => {
+const open = async (runs: RunRecord[], path = '/workloads?range=any'): Promise<string> => {
   const store = Store.open(':memory:');
   for (const run of runs) store.runs.insertRun(run);
   const app = createApp({
@@ -149,8 +149,8 @@ test('given a filtered view, when it lists nothing or "Clear filters" is followe
   assert.deepEqual(listed(empty), []);
   assert.match(empty, /No workloads match/);
   assert.match(empty, /<a href="\/workloads"[^>]*data-clear-filters/);
-  assert.doesNotMatch(await open(mixed), /data-clear-filters/);
-  assert.equal(listed(await open(mixed, '/workloads')).length, 4);
+  assert.doesNotMatch(await open(mixed, '/workloads'), /data-clear-filters/);
+  assert.equal(listed(await open(mixed, '/workloads?range=any')).length, 4);
 });
 
 const positions = (body: string, needles: string[]): number[] => needles.map((needle) => body.indexOf(needle));
@@ -175,7 +175,7 @@ test('given no filter, when opened, then Apply is the last control of the input 
   const controls = (body: string): string[] =>
     [...(body.match(/<form[\s\S]*?<\/form>/)?.[0] ?? '').matchAll(/<(?:input|select|button|a)\b[^>]*>/g)].map(([tag]) => tag).filter((tag) => !/type="hidden"/.test(tag));
 
-  const plain = controls(await open(mixed));
+  const plain = controls(await open(mixed, '/workloads'));
   assert.match(plain.at(-1)!, /<button[^>]*type="submit"/);
   assert.ok(!plain.some((tag) => /data-clear-filters/.test(tag)));
   const filtered = controls(await open(mixed, '/workloads?status=done'));
@@ -225,7 +225,7 @@ test('given 120 workloads, when Workloads is opened, then the newest 50 list, Ne
 
 test('given 120 workloads, when the third page is opened, then the oldest 20 list and Older is unavailable', async () => {
   const runs = numbered(120);
-  const body = await open(runs, '/workloads?page=3');
+  const body = await open(runs, '/workloads?range=any&page=3');
 
   assert.deepEqual(listed(body), runs.slice(0, 20).reverse().map((run) => run.id));
   assert.equal(pageLink(body, 'older').available, false);
@@ -249,10 +249,10 @@ test('given more than 50 errored workloads among others, when filtered to Error 
 
 test('given more than 50 matching workloads, when the second page is opened, then the counts and the header cover every matching workload', async () => {
   const runs = numbered(120, (index) => ({ costUsd: 1, status: index < 100 ? 'success' : 'error' }));
-  const body = await open(runs, '/workloads?page=2');
+  const body = await open(runs, '/workloads?range=any&page=2');
 
   assert.equal(listed(body).length, 50);
-  assert.equal(workloadsTile(body), 'Workloads 120');
+  assert.equal(workloadsTile(body), 'Workloads 120 of 120');
   assert.equal(costTile(body), 'Cost $120.00');
   assert.match(chip(body, 'all'), /120/);
   assert.match(chip(body, 'failed'), /20/);
@@ -260,8 +260,8 @@ test('given more than 50 matching workloads, when the second page is opened, the
 
 test('given a page beyond the last, when opened, then the last page lists', async () => {
   const runs = numbered(120);
-  assert.equal(listed(await open(runs, '/workloads?page=9')).length, 20);
-  assert.equal(listed(await open(runs, '/workloads?page=abc')).length, 50);
+  assert.equal(listed(await open(runs, '/workloads?range=any&page=9')).length, 20);
+  assert.equal(listed(await open(runs, '/workloads?range=any&page=abc')).length, 50);
 });
 
 test('given a filtered, paged runs list, when its links are read, then the filter form, status chips and paging links stay under /workloads', async () => {
@@ -292,6 +292,6 @@ test('given a subscription workload carrying an unconfirmed estimate, when the l
     sampleRun({ id: 'sub', costStatus: 'subscription', costUsd: 0, unconfirmedEstimateUsd: 0.5 }),
   ]);
 
-  assert.equal(workloadsTile(body), 'Workloads 2');
+  assert.equal(workloadsTile(body), 'Workloads 2 of 2');
   assert.equal(costTile(body), 'Cost $0.20');
 });

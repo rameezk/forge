@@ -86,7 +86,7 @@ test('given any dashboard page, when it is requested, then it links exactly one 
 test('given the hashed stylesheet path a page links to, when it is requested, then it returns the CSS with an immutable, long-lived cache header', async () => {
   const css = 'body { color: red; }';
   const app = appWith({ css });
-  const [path] = stylesheetLinks(await (await app.request('/workloads')).text());
+  const [path] = stylesheetLinks(await (await app.request('/workloads?range=any')).text());
 
   const res = await app.request(path!);
 
@@ -154,7 +154,7 @@ test('given any dashboard page, when it is requested, then its header shows the 
 
 test('given the logo path the pages reference, when it is requested, then it returns the SVG logo with an immutable, long-lived cache header', async () => {
   const app = appWith({ logo: LOGO });
-  const path = attribute(favicon(await (await app.request('/workloads')).text()), 'href');
+  const path = attribute(favicon(await (await app.request('/workloads?range=any')).text()), 'href');
 
   const res = await app.request(path!);
 
@@ -164,7 +164,7 @@ test('given the logo path the pages reference, when it is requested, then it ret
   assert.ok(cacheControl.includes('immutable'), 'the logo should be cached as immutable');
   assert.equal(await res.text(), LOGO);
 
-  const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/workloads')).text()), 'href');
+  const other = attribute(favicon(await (await appWith({ logo: `${LOGO} ` }).request('/workloads?range=any')).text()), 'href');
   assert.notEqual(other, path, 'a different logo should get a different path');
 });
 
@@ -206,7 +206,7 @@ test('given any dashboard page, when it is requested, then it loads the morph li
 test('given the script paths a page loads, when they are requested, then they return the scripts with an immutable, long-lived cache header', async () => {
   const scripts = { idiomorph: 'var Idiomorph = 1;', client: 'live();' };
   const app = appWith(scripts);
-  const [idiomorph, client] = scriptSources(await (await app.request('/workloads')).text());
+  const [idiomorph, client] = scriptSources(await (await app.request('/workloads?range=any')).text());
 
   for (const [path, body] of [[idiomorph!, scripts.idiomorph], [client!, scripts.client]] as const) {
     const res = await app.request(path);

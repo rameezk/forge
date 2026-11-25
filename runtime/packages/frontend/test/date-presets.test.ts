@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '@forge/shared';
+import { Store, UNKNOWN_COHORT } from '@forge/shared';
 import type { RunRecord } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
-import { textOf } from './html.ts';
+import { textOf, tile } from './html.ts';
 
 const NOW = '2026-10-17T00:05:00.000Z';
 
@@ -99,14 +99,70 @@ const hrefOf = (tag: string): string => (tag.match(/\shref="([^"]*)"/)?.[1] ?? '
 
 const spread = [run('today', '2026-10-17T00:01:00.000Z'), run('old', '2026-06-01T10:00:00.000Z')];
 
-test('given no date filter or an invalid range, when opened, then every workload lists, Any time is highlighted and no error shows', async () => {
-  for (const path of ['/workloads', '/workloads?range=fortnight', '/workloads?range=']) {
+test('given workloads that started today and yesterday, when /workloads is opened bare, then only today lists, Today is highlighted, and neither Clear filters nor "of N" shows', async () => {
+  const runs = [run('today', '2026-10-17T00:01:00.000Z'), run('yesterday', '2026-10-16T23:55:00.000Z')];
+  const body = await open(runs, '/workloads');
+
+  assert.deepEqual(listed(body), ['today']);
+  assert.deepEqual(highlighted(body), ['today']);
+  assert.doesNotMatch(body, /data-clear-filters/);
+  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 1');
+});
+
+test('given the bare page, when its links and form are read, then status chips and the form keep Today and Any time links to range=any', async () => {
+  const body = await open(spread, '/workloads');
+  const chips = [...body.matchAll(/<a[^>]*\sdata-status-chip="[^"]*"[^>]*>/g)].map(([tag]) => hrefOf(tag));
+
+  assert.ok(chips.every((href) => href.includes('range=today')), chips.join(' '));
+  assert.match(input(body, 'range'), /type="hidden"[^>]*value="today"/);
+  assert.equal(hrefOf(preset(body, 'any')), '/workloads?range=any');
+});
+
+test('given workloads that started today and last month, when opened with range=any, then every workload lists, Any time is highlighted and Clear filters leads to the bare page', async () => {
+  const body = await open(spread, '/workloads?range=any');
+
+  assert.deepEqual(listed(body), ['today', 'old']);
+  assert.deepEqual(highlighted(body), ['any']);
+  assert.equal(hrefOf(body.match(/<a[^>]*\sdata-clear-filters[^>]*>/)?.[0] ?? 'missing'), '/workloads');
+  assert.equal(textOf(tile(body, 'workloads')), 'Workloads 2 of 2');
+});
+
+test('given an invalid range, when opened, then it falls back to the bare page on Today', async () => {
+  for (const path of ['/workloads?range=fortnight', '/workloads?range=']) {
     const body = await open(spread, path);
 
-    assert.deepEqual(listed(body), ['today', 'old'], path);
-    assert.deepEqual(highlighted(body), ['any'], path);
-    assert.doesNotMatch(body, /data-clear-filters/, path);
+    assert.deepEqual(listed(body), ['today'], path);
+    assert.deepEqual(highlighted(body), ['today'], path);
   }
+});
+
+test('given failed workloads in one cohort that started today and last month, when opened with the cohort and status but no range, then both list and no Started chip is highlighted', async () => {
+  const failed = [run('today', '2026-10-17T00:01:00.000Z', { status: 'error' }), run('old', '2026-06-01T10:00:00.000Z', { status: 'error' })];
+  const body = await open([...failed, run('fine', '2026-10-17T00:02:00.000Z')], `/workloads?cohort=${UNKNOWN_COHORT}&status=failed`);
+
+  assert.deepEqual(listed(body), ['today', 'old']);
+  assert.deepEqual(highlighted(body), []);
+});
+
+test('given a status filter and no range, when opened, then the Any time chip links to the same status with range=any', async () => {
+  const body = await open(spread, '/workloads?status=done');
+
+  assert.equal(hrefOf(preset(body, 'any')), '/workloads?status=done&range=any');
+});
+
+test('given range=7d with a worker, when opened, then the filter form carries the range as a hidden field', async () => {
+  const body = await open(spread, '/workloads?range=7d&worker=refiner');
+
+  assert.match(input(body, 'range'), /type="hidden"[^>]*value="7d"/);
+});
+
+test('given range=7d and explicit from and to dates, when opened, then the dates win, no preset is highlighted and the form still carries the range', async () => {
+  const runs = [run('in', '2026-10-05T10:00:00.000Z'), run('recent', '2026-10-16T10:00:00.000Z'), run('old', '2026-06-01T10:00:00.000Z')];
+  const body = await open(runs, '/workloads?range=7d&from=2026-10-01&to=2026-10-10');
+
+  assert.deepEqual(listed(body), ['in']);
+  assert.deepEqual(highlighted(body), []);
+  assert.match(input(body, 'from'), /value="2026-10-01"/);
 });
 
 test('given explicit from and to dates, when opened, then no preset is highlighted and the inputs show the dates', async () => {
@@ -123,19 +179,13 @@ test('given explicit dates, a status and a worker, when opened, then every prese
   const hrefs = [...body.matchAll(/<a[^>]*\sdata-range-preset="([^"]+)"[^>]*>/g)].map(([tag, key]) => [key, hrefOf(tag)]);
 
   assert.deepEqual(hrefs, [
-    ['any', '/workloads?status=done&worker=refiner'],
+    ['any', '/workloads?status=done&worker=refiner&range=any'],
     ['today', '/workloads?status=done&worker=refiner&range=today'],
     ['yesterday', '/workloads?status=done&worker=refiner&range=yesterday'],
     ['7d', '/workloads?status=done&worker=refiner&range=7d'],
     ['30d', '/workloads?status=done&worker=refiner&range=30d'],
     ['month', '/workloads?status=done&worker=refiner&range=month'],
   ]);
-});
-
-test('given an active preset, when the filter form is read, then it submits no range', async () => {
-  const body = await open(spread, '/workloads?range=7d');
-
-  assert.doesNotMatch(body, /<input[^>]*\sname="range"/);
 });
 
 test('given an active preset and more workloads than fit a page, when opened, then the status chip and pager links carry the range', async () => {
@@ -152,7 +202,8 @@ test('given an active preset or explicit dates, when opened, then the Filters to
 
   assert.equal(toggle(await open(spread, '/workloads?range=7d')), 'Filters Last 7 days');
   assert.equal(toggle(await open(spread, '/workloads?from=2026-10-01')), 'Filters from 2026-10-01');
-  assert.equal(toggle(await open(spread, '/workloads')), 'Filters');
+  assert.equal(toggle(await open(spread, '/workloads')), 'Filters Today');
+  assert.equal(toggle(await open(spread, '/workloads?range=any')), 'Filters Any time');
 });
 
 test('given a workload started just before midnight, when Today is opened either side of midnight UTC, then it lists only before midnight and Yesterday takes over after', async () => {

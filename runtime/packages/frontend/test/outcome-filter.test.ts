@@ -66,7 +66,7 @@ const chips = (page: string): string[] => [...page.matchAll(/\sdata-status-chip=
 const listed = (page: string): string[] => [...page.matchAll(/<tr[^>]*\sdata-run="([^"]*)"/g)].map(([, id]) => id!).sort();
 
 test('given any runs, when the workloads list opens, then the chips are all, running, done and failed with their counts', async () => {
-  const page = await open('/workloads');
+  const page = await open('/workloads?range=any');
   assert.deepEqual(chips(page), ['all', 'running', 'done', 'failed']);
   assert.equal(chip(page, 'running'), 'Running 1');
   assert.equal(chip(page, 'done'), 'Done 2');

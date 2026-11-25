@@ -140,13 +140,13 @@ test('given Europe/London and a range crossing the clocks going forward, when th
 });
 
 test('given a well-formed but impossible date, when the workloads list is requested, then the date is ignored', async () => {
-  assert.deepEqual(await listed(JOHANNESBURG, '/workloads?from=2026-13-45&to=2026-02-30'), ['before', 'after']);
-  assert.deepEqual(await listed(JOHANNESBURG, '/workloads?to=9999-12-31'), ['before', 'after']);
+  assert.deepEqual(await listed(JOHANNESBURG, '/workloads?from=2026-13-45&to=2026-02-30&range=any'), ['before', 'after']);
+  assert.deepEqual(await listed(JOHANNESBURG, '/workloads?to=9999-12-31&range=any'), ['before', 'after']);
 });
 
 test('given a well-formed but impossible date, when the insights page is requested, then the date is ignored', async () => {
   const { app, costPage: page } = dashboard([seed('before', BEFORE_MIDNIGHT), seed('after', AFTER_MIDNIGHT)], JOHANNESBURG);
 
-  assert.equal((await app.request('/insights?from=2026-13-45&to=2026-02-30')).status, 200);
+  assert.equal((await app.request('/insights?from=2026-13-45&to=2026-02-30&range=any')).status, 200);
   assert.deepEqual(plotted(await page('?from=2026-13-45&to=9999-12-31')), ['after', 'before']);
 });

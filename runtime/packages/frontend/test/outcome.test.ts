@@ -73,7 +73,7 @@ const EXPECTED: [string, string][] = [
 ];
 
 test('given runs whose revisions ended with a reason, with no reason, and ok, when the list is requested, then each row leads with its revision outcome and no success pill', async () => {
-  const body = await (await dashboard().request('/workloads')).text();
+  const body = await (await dashboard().request('/workloads?range=any')).text();
 
   for (const [id, expected] of EXPECTED) {
     const row = body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
@@ -100,7 +100,7 @@ test('given the same runs, when each run page is requested, then the summary lea
 
 test('given a conflict resolution that failed and one still running, when the list and run pages are requested, then the failed one shows its outcome and the running one shows none', async () => {
   const app = dashboard();
-  const list = await (await app.request('/workloads')).text();
+  const list = await (await app.request('/workloads?range=any')).text();
   const row = (id: string): string => list.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '';
 
   assert.match(textOf(row('resolved')), /failed Not merged: abc1234 is missing/);
@@ -128,7 +128,7 @@ test('given a revision that failed as exceeded on its budget and one that failed
   stop('over', 1, { reason: 'exceeded', detail: 'budget' });
   stop('cut', 2, { reason: 'interrupted', detail: null });
   const body = await (
-    await createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' }).request('/workloads')
+    await createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '' }).request('/workloads?range=any')
   ).text();
   const row = (id: string): string => textOf(body.match(new RegExp(`<tr[^>]*\\sdata-run="${id}"[\\s\\S]*?</tr>`))?.[0] ?? '');
 

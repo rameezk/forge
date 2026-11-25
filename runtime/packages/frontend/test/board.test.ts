@@ -76,7 +76,7 @@ test('given the dashboard, when / and /work are requested, then / serves the Boa
   assert.equal(work.status, 302);
   assert.equal(work.headers.get('location'), '/');
 
-  const workloads = await (await app.request('/workloads')).text();
+  const workloads = await (await app.request('/workloads?range=any')).text();
   assert.match(workloads.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '', /<a href="\/workloads" aria-current="page"[^>]*>Workloads<\/a>/);
 
   const legacy = await app.request('/runs');

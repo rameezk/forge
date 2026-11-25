@@ -18,7 +18,7 @@ const grade = (store: Store, number: number, gradedAt: string): void =>
 const sideways = (page: Page): Promise<number> => page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth);
 
 test('given an open Workloads page with no band, when a bump error and a deploy error are recorded and later cleared, then the band shows each row and later goes without a reload', async ({ dashboard, page }) => {
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
   await expect(page.getByRole('status')).toHaveText('Live');
   await page.evaluate(() => {
     (globalThis as unknown as { unreloaded: boolean }).unreloaded = true;
@@ -42,7 +42,7 @@ test('given an open Workloads page with no band, when a bump error and a deploy 
 
 test('given an open Workloads page, when grading fails with a setup problem and the head is later graded, then the grading row appears and clears without a reload', async ({ dashboard, page }) => {
   watch(dashboard.store, 7);
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
   await expect(page.getByRole('status')).toHaveText('Live');
   await page.evaluate(() => {
     (globalThis as unknown as { unreloaded: boolean }).unreloaded = true;
@@ -76,11 +76,11 @@ test('given an open Board and a temporary failure seconds short of two hours wit
 
 test('given a deploy error, when the footer link is followed from the Workloads page, then it lands on the row in the band', async ({ dashboard, page }) => {
   dashboard.setDeployStatus({ error: 'building the system failed' });
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
 
   await page.locator('[data-deploy-failed]').click();
 
-  await expect(page).toHaveURL(/\/workloads#deploy-error$/);
+  await expect(page).toHaveURL(/\/workloads\?range=any#deploy-error$/);
   await expect(page.locator('#deploy-error')).toBeInViewport();
 });
 
@@ -93,7 +93,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme });
       await page.setViewportSize({ width, height: 700 });
 
-      for (const path of ['/workloads', '/']) {
+      for (const path of ['/workloads?range=any', '/']) {
         await page.goto(path);
         const band = page.locator('[data-attention-band]');
         const header = await page.locator('header').boundingBox();
@@ -145,7 +145,7 @@ const poll = (store: Store, repository: string): void =>
 
 test('given an open Workloads page, when a repository poll fails and its branch rules fail and both later recover, then the band shows each row and clears without a reload', async ({ dashboard, page }) => {
   poll(dashboard.store, 'forge');
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
   await expect(page.getByRole('status')).toHaveText('Live');
   await page.evaluate(() => {
     (globalThis as unknown as { unreloaded: boolean }).unreloaded = true;

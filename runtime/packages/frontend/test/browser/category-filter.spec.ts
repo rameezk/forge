@@ -54,7 +54,7 @@ test('given failed runs diagnosed as skill, skill and forge, when Workloads is f
   failed('skill-b', 2, ['skill']);
   failed('forge-a', 3, ['forge']);
 
-  await page.goto('/workloads');
+  await page.goto('/workloads?range=any');
   await page.getByLabel('Diagnosis').selectOption('forge');
   await page.getByRole('button', { name: 'Apply' }).click();
   await expect(page.locator('tr[data-run]')).toHaveCount(1);

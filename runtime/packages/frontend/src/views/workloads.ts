@@ -1,7 +1,7 @@
 import { html } from 'hono/html';
 import { DIAGNOSIS_CATEGORIES, DIAGNOSIS_CATEGORY_LABELS, isGithubUrl, type DiagnosisCategory, type ListPriceEquivalent, type RunRecord, type DispatchState, type PullRequestWorkloadRecord, type RunPullRequestWorkload, type DispatchRecord } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
+import { ANY_TIME, ANY_TIME_LABEL, filterWorkloads, isFiltered, paginate, RANGE_PRESETS, STATUSES, type Page, workloadsHref, type WorkloadFilter } from '../workload-filter.ts';
 import { formatCost, formatTotal, isSubscription, pendingCount, totalCost, totalUnconfirmedEstimate } from '../format.ts';
 import { type Rendered, type RunOutcome, externalLink, renderRunCost, SUBSCRIPTION_BADGE, PARTIAL_BADGE, TD, NUMERIC, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, CLICKABLE_ROW, STRETCHED_LINK, LINK, renderRunTicket, configuredEffort, renderTimestamp, renderDuration, renderRunLead, renderCacheHitRate, runOutcomeOf, runReasonOf, reasonLine, runStateOf, NUMERIC_WRAPPING, layout, renderTile, pendingBadge, UNCONFIRMED_ESTIMATE_TITLE } from './shared.ts';
 
@@ -128,25 +128,27 @@ const renderChips = (all: RunRecord[], filter: WorkloadFilter, timeZone: string,
 };
 
 const startedRange = ({ range, from, to }: WorkloadFilter): string =>
-  RANGE_PRESETS.find(({ key }) => key === range)?.label ?? (from !== undefined && to !== undefined ? `${from} to ${to}` : from !== undefined ? `from ${from}` : to !== undefined ? `to ${to}` : '');
+  from !== undefined && to !== undefined ? `${from} to ${to}` : from !== undefined ? `from ${from}` : to !== undefined ? `to ${to}` : range === ANY_TIME ? ANY_TIME_LABEL : RANGE_PRESETS.find(({ key }) => key === range)?.label ?? '';
 
 const renderFilters = (all: RunRecord[], filter: WorkloadFilter): Rendered => {
   const range = startedRange(filter);
-  const { range: _range, from: _from, to: _to, ...rest } = filter;
+  const { range: _range, from: _from, to: _to, byDefault: _byDefault, ...rest } = filter;
+  const custom = filter.from !== undefined || filter.to !== undefined;
   return html`<details class="mb-4 sm:[&:not([open])::details-content]:block sm:[&:not([open])::details-content]:[content-visibility:visible]" data-filters>
   <summary class="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-line bg-surface px-3 text-[0.9rem] font-semibold text-fg sm:hidden [&::-webkit-details-marker]:hidden">Filters${range === '' ? '' : html` <span class="font-normal text-muted" data-started-range>${range}</span>`}</summary>
   <div class="mt-3 sm:mt-0">
     <span class="${LABEL} mb-1 block" data-chip-label="started">Started</span>
     <nav class="flex flex-wrap gap-2" aria-label="Started" data-range-presets>
-      ${[{ key: 'any', label: 'Any time', range: undefined }, ...RANGE_PRESETS.map(({ key, label }) => ({ key, label, range: key }))].map(({ key, label, range }) => {
-        const current = range === undefined ? filter.range === undefined && filter.from === undefined && filter.to === undefined : filter.range === range;
-        return html`<a href="${workloadsHref(range === undefined ? rest : { ...rest, range })}" class="${CHIP} ${current ? CHIP_CURRENT : CHIP_IDLE}" data-range-preset="${key}"${current ? html` aria-current="true"` : ''}>${label}</a>`;
+      ${[{ key: ANY_TIME, label: ANY_TIME_LABEL }, ...RANGE_PRESETS].map(({ key, label }) => {
+        const current = !custom && filter.range === key;
+        return html`<a href="${workloadsHref({ ...rest, range: key })}" class="${CHIP} ${current ? CHIP_CURRENT : CHIP_IDLE}" data-range-preset="${key}"${current ? html` aria-current="true"` : ''}>${label}</a>`;
       })}
     </nav>
   </div>
   <form method="get" action="/workloads" class="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
     ${filter.status === undefined ? '' : html`<input type="hidden" name="status" value="${filter.status}" />`}
     ${filter.cohort === undefined ? '' : html`<input type="hidden" name="cohort" value="${filter.cohort}" />`}
+    ${filter.range === undefined ? '' : html`<input type="hidden" name="range" value="${filter.range}" />`}
     <label class="${FIELD}">Search
       <input type="search" name="search" value="${filter.search ?? ''}" placeholder="Worker or ticket number" class="${CONTROL} w-full sm:w-52" />
     </label>

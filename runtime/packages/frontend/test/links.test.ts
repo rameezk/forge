@@ -99,7 +99,7 @@ test('given a stored frontier ticket and a run tied to a ticket, both with GitHu
   const page = dashboard();
 
   assertOpensInNewTab(await page('/'), TICKET_URL, 'noopener noreferrer', '/');
-  assertOpensInNewTab(await page('/workloads'), TICKET_URL, 'noopener noreferrer', '/workloads', 2);
+  assertOpensInNewTab(await page('/workloads?range=any'), TICKET_URL, 'noopener noreferrer', '/workloads', 2);
 });
 
 test('given a stored repository whose github is owner/name, when the Board is requested, then the repository link opens in a new tab', async () => {
@@ -115,7 +115,7 @@ test('given the dashboard, when the Board, runs and run pages are requested, the
   const sameSiteAnchors = async (path: string): Promise<string[]> =>
     [...(await page(path)).matchAll(/<a(?=\s)[^>]*\shref="\/[^"]*"[^>]*>[\s\S]*?<\/a>/g)].map(([anchor]) => anchor);
 
-  const runs = await sameSiteAnchors('/workloads');
+  const runs = await sameSiteAnchors('/workloads?range=any');
   const work = await sameSiteAnchors('/');
   const run = await sameSiteAnchors('/runs/run-01');
 
