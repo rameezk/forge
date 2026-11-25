@@ -464,13 +464,13 @@ test.describe('with JS disabled', () => {
   });
 });
 
-test('given a running workload\'s detail page open in a browser, when its generations complete and are then billed, then the per-call table gains each row, flags a cache miss, and fills in provider, served model and billed cost without a reload', async ({
+test('given a running workload\'s detail page open in a browser, when its generations complete and are then billed, then the trace gains each step, flags a cache miss, and settles the billed cost without a reload', async ({
   dashboard,
   page,
 }) => {
   dashboard.store.runs.insertRun(runningRun);
   await openLive(page, '/runs/run-01');
-  await expect(page.locator('[data-calls]')).toHaveCount(0);
+  await expect(page.locator('[data-trace-section]')).toHaveCount(0);
   const record = (generationId: string, cacheReadTokens: number, cacheWriteTokens: number, estimatedCostUsd: number) =>
     dashboard.store.runs.recordGeneration({
       runId: 'run-01',
@@ -483,10 +483,10 @@ test('given a running workload\'s detail page open in a browser, when its genera
     });
 
   record('gen-01', 0, 1000, 0.01);
-  await page.locator('[data-calls-summary]').click();
-  const rows = page.locator('[data-calls] tr[data-call]');
+  await page.locator('[data-trace-summary]').click();
+  const rows = page.locator('[data-trace] [data-step]');
   await expect(rows).toHaveCount(1);
-  await expect(rows.first().locator('[data-cost]')).toContainText('estimated');
+  await expect(rows.first().locator('[data-step-cost]')).toContainText('estimated');
 
   record('gen-02', 0, 1010, 0.02);
   await expect(rows).toHaveCount(2);
@@ -498,10 +498,7 @@ test('given a running workload\'s detail page open in a browser, when its genera
     [{ id: first!.id, billing: { costUsd: 0.25, usage: null, reasoningTokens: 7, provider: 'Novita', model: 'z-ai/glm-5.1' } }],
     '2026-09-21T10:05:00.000Z',
   );
-  await expect(rows.first().locator('[data-provider]')).toHaveText('Novita');
-  await expect(rows.first().locator('[data-served-model]')).toHaveText('z-ai/glm-5.1');
-  await expect(rows.first().locator('[data-reasoning]')).toHaveText('7');
-  await expect(rows.first().locator('[data-cost]')).toContainText('billed');
+  await expect(rows.first().locator('[data-step-cost]')).toContainText('billed');
 
   await expectNotReloaded(page);
 });

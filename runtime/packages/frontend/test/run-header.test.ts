@@ -198,7 +198,7 @@ test('given a finished workload, when its run page is opened, then the Run detai
   assert.match(element(details(body), 'summary', 'class'), /\[\[open\]&gt;&amp;\]:before:rotate-90/);
 });
 
-test('given a workload with calls, one of them a cache miss, when its run page is opened, then Calls is collapsed and its summary shows the count, total cost, cache hit rate and a miss badge', async () => {
+test('given a workload with calls, one of them a cache miss, when its run page is opened, then Trace is collapsed and its summary shows the count, total cost, cache hit rate and a miss badge', async () => {
   const body = await page({}, (store) => {
     [
       { cacheRead: 0, cacheWrite: 1000 },
@@ -217,12 +217,12 @@ test('given a workload with calls, one of them a cache miss, when its run page i
     });
   });
 
-  const section = element(body, 'details', 'data-calls-section');
+  const section = element(body, 'details', 'data-trace-section');
   assert.doesNotMatch(openingTag(section), /\sopen[\s>]/);
-  const summary = element(section, 'summary', 'data-calls-summary');
-  assert.match(textOf(summary), /Calls 3 calls \$0\.030000 \d+(\.\d+)?% cache hit/);
+  const summary = element(section, 'summary', 'data-trace-summary');
+  assert.match(textOf(summary), /Trace 3 calls \$0\.030000 \d+(\.\d+)?% cache hit/);
   assert.match(summary, /data-badge="cache-miss"/);
-  assert.match(section, /data-calls/);
+  assert.match(section, /data-trace(?=[\s>])/);
 });
 
 test('given a workload with a call that missed the cache, when its run page is opened, then the cache hit tile counts the miss', async () => {
@@ -250,8 +250,8 @@ test('given an unconfirmed workload whose every generation billing gave up on, w
   assert.match(tile(body, 'cost'), /data-badge="unconfirmed"/);
 });
 
-test('given a workload with no calls, when its run page is opened, then there is no Calls section', async () => {
-  assert.doesNotMatch(await page({}), /data-calls-section/);
+test('given a workload with no calls, when its run page is opened, then there is no Trace section', async () => {
+  assert.doesNotMatch(await page({}), /data-trace-section/);
 });
 
 const seedGeneration = (store: Store, generationId: string, givenUpBecause?: string): void => {

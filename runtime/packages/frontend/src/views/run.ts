@@ -2,7 +2,8 @@ import { html, raw } from 'hono/html';
 import { hasUnbillableId, isGithubUrl, type RunFingerprint, type GenerationKind, type GenerationRecord, type HarnessEvent, type DispatchRecord, type DiagnosisRecord, DIAGNOSIS_CATEGORY_LABELS, type PullRequestRecord, type RunPullRequestWorkload, type RunCounters, type RunRecord, type RunSkillLoad, type SkillCoverage, type Ticket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { cacheHitRate, formatBudget, formatCost, formatSpan, formatSpend, formatTime, formatTokens } from '../format.ts';
-import { cacheMisses, isCall, promptTokens } from '../calls.ts';
+import { isCall, traceOf } from '../trace.ts';
+import { renderTrace } from './trace.ts';
 import { summarizeSkillLoads, type SkillSummary } from '../skills.ts';
 import type { CallEfforts, RequestRecordView, ToolDefinition, WorkloadContext } from '../request-record.ts';
 import { CALLOUT, type Rendered, NOT_RECORDED, PARTIAL_BADGE, PENDING, BADGE, SUBSCRIPTION_BADGE, ESTIMATED_BADGE, ROW, TD, NUMERIC, NUMERIC_WRAPPING, SECTION_TITLE, CARD, TABLE, TH, type Cost, configuredEffort, BLOCK, DISCLOSURE, LABEL, PROSE, STACK, INLINE_DISCLOSURE, CODE, externalLink, PILL, PULL_REQUEST_TONE, LINK, renderRunTicket, renderAttemptsLink, renderCohortLink, SHORT_SHA_LENGTH, type Display, PAGE_TITLE, renderRunLead, renderRevisionPill, renderWorkloadOutcome, settledOutcome, runOutcomeOf, type RunOutcome, runReasonOf, type RunReason, renderReasonBlock, renderTimestamp, renderDuration, renderRunCost, renderCacheHitRate, layout, renderTile, SUMMARY_FIGURE } from './shared.ts';
@@ -54,56 +55,6 @@ const renderProviders = (run: RunRecord, generations: GenerationRecord[]): Rende
   return settling ? html`<span class="${PENDING}">pending</span>` : NOT_RECORDED;
 };
 
-const BILLED_BADGE = html`<span class="${BADGE} ml-1.5 bg-line text-fg" data-badge="billed" title="The cost OpenRouter billed for this generation">billed</span>`;
-
-const callCost = (
-  { billedCostUsd, estimatedCostUsd, listPriceEquivalentUsd }: GenerationRecord,
-  subscription: boolean,
-): Rendered => {
-  if (subscription) {
-    return listPriceEquivalentUsd === null
-      ? SUBSCRIPTION_BADGE
-      : html`<span title="What this generation would have cost at the model's list price. Not billed.">${formatCost(listPriceEquivalentUsd)}</span>`;
-  }
-  if (billedCostUsd !== null) return html`${formatCost(billedCostUsd)}<wbr>${BILLED_BADGE}`;
-  if (estimatedCostUsd !== null) return html`${formatCost(estimatedCostUsd)}<wbr>${ESTIMATED_BADGE}`;
-  return html`<span class="${PENDING}">pending</span>`;
-};
-
-const optionalTokens = (count: number | null): string => (count === null ? '' : formatTokens(count));
-
-const CACHE_MISS_BADGE = html`<span class="${BADGE} mr-1.5 bg-warning-soft text-warning" data-badge="cache-miss" title="This call's cache read fell well below the previous call's prompt size, so most of its prompt was not served from the cache">miss</span>`;
-
-const KIND_BADGES: Record<Exclude<GenerationKind, 'message'>, Rendered> = {
-  compaction: html`<span class="${BADGE} bg-line text-fg" data-badge="compaction" title="The summary model call behind a context compaction">compaction</span>`,
-  cache_warm: html`<span class="${BADGE} bg-line text-fg" data-badge="cache-warm" title="A request that kept the prompt cache warm">cache warm</span>`,
-};
-
-const kindBadge = ({ kind }: GenerationRecord): Rendered =>
-  kind === 'message' ? '' : html`<wbr><div>${KIND_BADGES[kind]}</div>`;
-
-const renderCall = (
-  generation: GenerationRecord,
-  miss: boolean,
-  effort: string | undefined,
-  subscription: boolean,
-  timeZone: string,
-): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const { usage } = generation;
-  return html`<tr class="${miss ? 'bg-warning-soft' : ROW}" data-call${miss ? html` data-cache-miss` : ''}>
-    <td class="${TD} whitespace-nowrap" data-time>${renderClock(generation.createdAt, timeZone)}${kindBadge(generation)}</td>
-    <td class="${TD} whitespace-nowrap" data-provider>${generation.provider ?? ''}</td>
-    <td class="${TD} wrap-anywhere" data-served-model>${generation.servedModel ?? ''}</td>
-    <td class="${TD} whitespace-nowrap" data-effort>${effort ?? ''}</td>
-    <td class="${TD} ${NUMERIC}" data-prompt>${usage === null ? '' : formatTokens(promptTokens(usage))}</td>
-    <td class="${TD} ${NUMERIC}" data-cache-read>${miss ? CACHE_MISS_BADGE : ''}${usage === null ? '' : formatTokens(usage.cacheReadTokens)}</td>
-    <td class="${TD} ${NUMERIC}" data-cache-write>${usage === null ? '' : formatTokens(usage.cacheWriteTokens)}</td>
-    <td class="${TD} ${NUMERIC}" data-output>${usage === null ? '' : formatTokens(usage.outputTokens)}</td>
-    <td class="${TD} ${NUMERIC}" data-reasoning>${optionalTokens(generation.reasoningTokens)}</td>
-    <td class="${TD} ${NUMERIC_WRAPPING}" data-cost>${callCost(generation, subscription)}</td>
-  </tr>`;
-};
-
 const sentEfforts = (calls: GenerationRecord[], efforts: CallEfforts): (string | undefined)[] => {
   const seen = new Map<string | null, number>();
   return calls.map(({ subagent }) => {
@@ -111,60 +62,6 @@ const sentEfforts = (calls: GenerationRecord[], efforts: CallEfforts): (string |
     seen.set(subagent, index + 1);
     return efforts.get(subagent)?.[index];
   });
-};
-
-const callCostUsd = (
-  { billedCostUsd, estimatedCostUsd, listPriceEquivalentUsd }: GenerationRecord,
-  subscription: boolean,
-): number => (subscription ? listPriceEquivalentUsd : (billedCostUsd ?? estimatedCostUsd)) ?? 0;
-
-const renderCallsSummary = (calls: GenerationRecord[], misses: number, subscription: boolean): Rendered => {
-  const measured = calls.flatMap(({ usage }) => (usage === null ? [] : [usage]));
-  const rate = cacheHitRate({
-    inputTokens: measured.reduce((sum, { inputTokens }) => sum + inputTokens, 0),
-    cacheReadTokens: measured.reduce((sum, { cacheReadTokens }) => sum + cacheReadTokens, 0),
-    cacheWriteTokens: measured.reduce((sum, { cacheWriteTokens }) => sum + cacheWriteTokens, 0),
-  });
-  const total = calls.reduce((sum, call) => sum + callCostUsd(call, subscription), 0);
-  return html`<summary class="${DISCLOSURE} flex-wrap" data-calls-summary>
-      <span class="${SECTION_TITLE}">Calls</span>
-      <span class="${SUMMARY_FIGURE}">${calls.length} ${calls.length === 1 ? 'call' : 'calls'}</span>
-      <span class="${SUMMARY_FIGURE}">${formatCost(total)}${subscription ? ' list price' : ''}</span>
-      ${rate === null ? '' : html`<span class="${SUMMARY_FIGURE}">${rate} cache hit</span>`}
-      ${misses === 0 ? '' : html`<span class="${BADGE} bg-warning-soft text-warning" data-badge="cache-miss" title="Calls whose cache read fell well below the previous call's prompt size">${misses} ${misses === 1 ? 'miss' : 'misses'}</span>`}
-    </summary>`;
-};
-
-const renderCalls = (
-  calls: GenerationRecord[],
-  efforts: (string | undefined)[],
-  subscription: boolean,
-  timeZone: string,
-): Rendered => {
-  if (calls.length === 0) return '';
-  const misses = cacheMisses(calls);
-  return html`<details class="${BLOCK} mb-4 border-line" data-calls-section>
-    ${renderCallsSummary(calls, misses.size, subscription)}
-    <div class="${CARD} rounded-t-none border-x-0 border-b-0" data-calls>
-      <table class="${TABLE}">
-        <thead>
-          <tr>
-            <th class="${TH}">Time</th>
-            <th class="${TH}">Provider</th>
-            <th class="${TH}">Served model</th>
-            <th class="${TH}">Effort</th>
-            <th class="${TH} text-right">Prompt</th>
-            <th class="${TH} text-right">Cache read</th>
-            <th class="${TH} text-right">Cache write</th>
-            <th class="${TH} text-right">Output</th>
-            <th class="${TH} text-right">Reasoning</th>
-            <th class="${TH} text-right">${subscription ? 'List price' : 'Cost'}</th>
-          </tr>
-        </thead>
-        <tbody>${calls.map((call, index) => renderCall(call, misses.has(call), efforts[index], subscription, timeZone))}</tbody>
-      </table>
-    </div>
-  </details>`;
 };
 
 const summaryEffort = (run: Pick<RunRecord, 'reasoningEffort'>, sent: (string | undefined)[]): string =>
@@ -439,8 +336,9 @@ export const renderDetail = (
   const stopped = renderExceeded(run);
   const outcome = runOutcomeOf(workload?.workload, dispatch ?? undefined);
   const reason = withInFlightCall(run.id, runReasonOf(run, outcome), events);
-  const calls = generations.filter(isCall);
-  const efforts = sentEfforts(calls, recordedEfforts);
+  const subscription = run.costStatus === 'subscription';
+  const trace = traceOf(events, generations, subscription);
+  const efforts = sentEfforts(generations.filter(isCall), recordedEfforts);
   const body = html`<div class="flex flex-col gap-2 lg:grid lg:gap-x-6 lg:h-full lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[auto_minmax(0,1fr)]">
       <header class="min-w-0 lg:col-span-2" data-run-head>
         <p class="m-0 mb-4 text-[0.9rem]"><a href="/workloads" class="${LINK}">&larr; Workloads</a></p>
@@ -451,12 +349,12 @@ export const renderDetail = (
         ${renderDiagnosis(run, diagnoses, display.timeZone)}
       </header>
       <div class="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2" data-figures>
-        ${renderTiles(run, generations, cacheMisses(calls).size, calls.length > 0, pullRequest)}
+        ${renderTiles(run, generations, trace.misses, trace.calls > 0, pullRequest)}
         ${stopped}
         ${renderUnbillableIds(run, generations)}
         ${renderRunDetails(run, generations, workload, skillLoads, downloads, config)}
         ${renderContext(context)}
-        ${renderCalls(calls, efforts, run.costStatus === 'subscription', display.timeZone)}
+        ${renderTrace(trace, subscription)}
       </div>
       <div class="min-w-0 lg:min-h-0">${renderWidget(run, events, display.timeZone)}</div>
     </div>`;
