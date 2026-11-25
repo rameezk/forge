@@ -1,4 +1,4 @@
-import type { RunRecord } from '@forge/shared';
+import type { HarnessEvent, RunRecord } from '@forge/shared';
 import { expect, test } from './dashboard.ts';
 
 const recordedRun: RunRecord = {
@@ -92,15 +92,15 @@ test('given a workload whose calls are billed, estimated and flagged as cache mi
   );
 
   await page.goto('/runs/run-01');
-  await page.locator('[data-calls-summary]').click();
+  await page.locator('[data-trace-summary]').click();
 
-  await expect(page.locator('[data-calls] [data-badge="billed"]')).toHaveCount(1);
-  await expect(page.locator('[data-calls] [data-badge="estimated"]')).toHaveCount(2);
-  await expect(page.locator('[data-calls] [data-badge="cache-miss"]')).toHaveCount(1);
+  await expect(page.locator('[data-trace] [data-badge="billed"]')).toHaveCount(1);
+  await expect(page.locator('[data-trace] [data-badge="estimated"]')).toHaveCount(2);
+  await expect(page.locator('[data-trace] [data-badge="cache-miss"]')).toHaveCount(1);
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
 
-test('given a workload with message, compaction and cache-warm generations, when its detail page is opened, then compaction and cache-warm rows carry a kind badge, message rows carry none, and the page does not scroll sideways', async ({
+test('given a workload with message, compaction and cache-warm generations, when its detail page is opened, then each step carries its kind badge, and the page does not scroll sideways', async ({
   dashboard,
   page,
 }) => {
@@ -111,13 +111,13 @@ test('given a workload with message, compaction and cache-warm generations, when
   );
 
   await page.goto('/runs/run-01');
-  await page.locator('[data-calls-summary]').click();
+  await page.locator('[data-trace-summary]').click();
 
-  const rows = page.locator('[data-calls] [data-call]');
+  const rows = page.locator('[data-trace] [data-step]');
   await expect(rows).toHaveCount(4);
-  await expect(rows.nth(0).locator('[data-badge]')).toHaveCount(1);
+  await expect(rows.nth(0)).toHaveAttribute('data-step-kind', 'generation');
   await expect(rows.nth(1).locator('[data-badge="compaction"]')).toHaveText('compaction');
-  await expect(rows.nth(2).locator('[data-badge]')).toHaveCount(1);
+  await expect(rows.nth(2)).toHaveAttribute('data-step-kind', 'generation');
   await expect(rows.nth(3).locator('[data-badge="cache-warm"]')).toHaveText('cache warm');
   expect(await page.locator('html').evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
 });
@@ -428,7 +428,7 @@ test('given a failed workload with a long error, when its page is opened and the
   await expect(page.locator('[data-reason] [data-markdown]')).toHaveText(error);
 });
 
-test('given a finished workload, when its page is opened at laptop width, then Run details starts open and Calls starts collapsed and opens on click', async ({
+test('given a finished workload, when its page is opened at laptop width, then Run details starts open and Trace starts collapsed and opens on click', async ({
   dashboard,
   page,
 }) => {
@@ -438,9 +438,41 @@ test('given a finished workload, when its page is opened at laptop width, then R
   await page.goto('/runs/run-01');
 
   await expect(page.locator('[data-harness]')).toBeVisible();
-  await expect(page.locator('[data-calls]')).toBeHidden();
-  await page.locator('[data-calls-summary]').click();
-  await expect(page.locator('[data-calls]')).toBeVisible();
+  await expect(page.locator('[data-trace]')).toBeHidden();
+  await page.locator('[data-trace-summary]').click();
+  await expect(page.locator('[data-trace]')).toBeVisible();
+  await expect(page.locator('[data-trace-note]')).toHaveText('Recorded before step timings');
+  await expect(page.locator('[data-trace-view="time"]')).toBeDisabled();
+});
+
+test('given a workload whose generation started a subagent, when its trace is opened and the subagent branch is collapsed and expanded, then its steps are hidden and shown again', async ({
+  dashboard,
+  page,
+}) => {
+  dashboard.store.runs.insertRun(recordedRun);
+  const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const assistant = (generationId: string, subagent?: string): HarnessEvent => ({ type: 'message', role: 'assistant', text: '', usage, generationId, ...(subagent === undefined ? {} : { subagent }) });
+  dashboard.appendEvents(
+    'run-01.jsonl',
+    assistant('gen-01'),
+    { type: 'tool_call', id: 'call_a', name: 'subagent', arguments: {} },
+    assistant('gen-02', 'call_a'),
+    { type: 'tool_call', id: 'read-1', name: 'read', arguments: {}, subagent: 'call_a' },
+  );
+  (['gen-01', 'gen-02'] as const).forEach((generationId) =>
+    dashboard.store.runs.recordGeneration({ runId: 'run-01', generationId, subagent: generationId === 'gen-02' ? 'call_a' : null, kind: 'message', usage, estimatedCostUsd: 0.01, createdAt: '2026-09-21T10:01:00.000Z' }),
+  );
+
+  await page.goto('/runs/run-01');
+  await page.locator('[data-trace-summary]').click();
+  const branch = page.locator('summary[data-step-kind="subagent"]');
+  const inside = page.locator('[data-step-kind="tool"]');
+
+  await expect(inside).toBeVisible();
+  await branch.click();
+  await expect(inside).toBeHidden();
+  await branch.click();
+  await expect(inside).toBeVisible();
 });
 
 test('given billed workloads, when the list is opened on a desktop screen and at phone width, then the totals tiles fit their content, sit apart from the edge to edge card and never scroll the page sideways', async ({
