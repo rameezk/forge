@@ -92,8 +92,8 @@ export const frontierView = (repositories: readonly RepositoryFrontier[]): Front
   repositories: repositories.map(({ repository, github, tickets }) => ({
     repository,
     github,
-    frontier: tickets.filter((ticket) => ticket.assignees.length === 0 && !ticket.blocked && !ticket.forgeReady).map(frontierTicket),
-    queued: tickets.filter((ticket) => ticket.assignees.length === 0 && ticket.forgeReady).map(frontierTicket),
+    frontier: tickets.filter((ticket) => ticket.assignees.length === 0 && !ticket.blocked && !(ticket.forgeReady && !ticket.forHuman)).map(frontierTicket),
+    queued: tickets.filter((ticket) => ticket.assignees.length === 0 && ticket.forgeReady && !ticket.forHuman).map(frontierTicket),
     assigned: tickets.filter((ticket) => ticket.assignees.length > 0).map(frontierTicket),
   })),
 });

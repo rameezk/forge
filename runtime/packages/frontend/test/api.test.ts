@@ -199,6 +199,7 @@ test('given a stored frontier snapshot holding a frontier, a queued and an assig
       aTicket(4, { forgeReady: true, blocked: true, blockedBy: [1] }),
       aTicket(5, { blocked: true, blockedBy: [1] }),
       aTicket(6, { forHuman: true }),
+      aTicket(7, { forHuman: true, forgeReady: true }),
     ],
     closed: [],
     requests: [],
@@ -211,7 +212,7 @@ test('given a stored frontier snapshot holding a frontier, a queued and an assig
   assert.equal(repositories.length, 1);
   const [forge] = repositories;
   assert.equal(forge?.repository, 'forge');
-  assert.deepEqual(forge?.frontier.map(({ number, readyFor }) => [number, readyFor]), [[1, 'agent'], [6, 'human']]);
+  assert.deepEqual(forge?.frontier.map(({ number, readyFor }) => [number, readyFor]), [[1, 'agent'], [6, 'human'], [7, 'human']]);
   assert.deepEqual(forge?.queued.map(({ number, blockedBy }) => [number, blockedBy]), [[2, []], [4, [1]]]);
   assert.deepEqual(forge?.assigned.map(({ number, assignees }) => [number, assignees]), [[3, [OCTOCAT]]]);
   assert.equal(forge?.frontier[0]?.url, 'https://github.com/rameezk/forge/issues/1');
