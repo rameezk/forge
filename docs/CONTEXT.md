@@ -282,6 +282,10 @@ _Avoid_: pending, waiting
 A ticket with open blockers, whichever status it carries; a queued ticket is the blocked ticket forge will dispatch once its blockers close.
 _Avoid_: waiting, held
 
+**Assigned ticket**:
+A ticket whose issue has any assignee, which forge leaves to that person: it is neither dispatched nor auto-approved while assigned, and a live dispatch on it runs to its end (ADR-0125).
+_Avoid_: claimed ticket, held ticket, local claim
+
 **Board**:
 The dashboard's home page: a read-only kanban view of every managed repository's requests and tickets, one swimlane per repository and one column per stage from refinement to done. Its Running column holds a card for every live dispatch, revision and conflict resolution, exactly the workloads its running count counts, and a ticket with one shows in no other column. A person icon marks the columns where a human in the loop acts: refining, building a `ready-for-human` ticket, and reviewing.
 _Avoid_: Work page, frontier page, kanban
@@ -302,6 +306,10 @@ A per-operator repository, scaffolded from forge's flake template, that commits 
 
 **Operator standup toolchain**:
 The single set of tools an operator uses to stand a box up, deploy to it, and tear it down: provision (OpenTofu), install (nixos-anywhere), deploy (nixos-rebuild), the query tool (`jq`), and the command runner (`just`). Forge exports it as one library output (`lib.operatorToolchain`), consumed by both forge's own dev shell and every scaffolded operator repository, so no operator repository can drift to a different toolchain version than forge itself uses. This sharpens the library / operator-repository split (ADR-0003): the split made forge a library exposing the host builder and config loader; exporting the whole standup toolchain from one output widens that same library surface rather than making a new decision.
+
+**Operator shell**:
+The operator repository's devShell, exported by forge as `forge.lib.operatorShell`: the operator standup toolchain plus forge's operator skills, linked into the repository when the shell is entered (ADR-0127).
+_Avoid_: dev shell, operator devShell
 
 **Standup**:
 The one-time, destructive creation of a box: provisioning the server and installing forge NixOS onto a freshly formatted disk. Valid only against a box that is not yet installed (ADR-0007).
