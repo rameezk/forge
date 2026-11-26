@@ -12,16 +12,17 @@ export interface TicketInput {
   number: number;
 }
 
-export type DispatchResult = { dispatched: true; queued: boolean; message: string } | { dispatched: false; reason: string };
+export type DispatchResult = { dispatched: true; github: string; queued: boolean; message: string } | { dispatched: false; reason: string };
 
 export interface ClaimResult {
   claimed: true;
+  github: string;
   assignee: string;
   warning: string | null;
   prompt: { description: string; text: string } | null;
 }
 
-export type ReleaseResult = { released: true; assignee: string } | { released: false; reason: string };
+export type ReleaseResult = { released: true; github: string; assignee: string } | { released: false; reason: string };
 
 export interface Operations {
   ticket(input: TicketInput): Promise<TicketView>;
@@ -80,20 +81,27 @@ export const createOperations = ({ box, github }: OperationsDeps): Operations =>
     await github.applyForgeReady(repository.github, number);
     if (issue.blockedBy.length > 0) {
       const blockers = issue.blockedBy.map((blocker) => `#${blocker}`).join(', ');
-      return { dispatched: true, queued: true, message: `forge:ready applied to ${repository.github}#${number}; it is queued behind ${blockers} and starts once ${issue.blockedBy.length === 1 ? 'it is' : 'they are'} done` };
+      return { dispatched: true, github: repository.github, queued: true, message: `forge:ready applied to ${repository.github}#${number}; it is queued behind ${blockers} and starts once ${issue.blockedBy.length === 1 ? 'it is' : 'they are'} done` };
     }
-    return { dispatched: true, queued: false, message: `forge:ready applied to ${repository.github}#${number}; forge starts it on its next dispatch pass` };
+    return { dispatched: true, github: repository.github, queued: false, message: `forge:ready applied to ${repository.github}#${number}; forge starts it on its next dispatch pass` };
   },
 
   async claim({ repository: name, number }) {
     const repository = await repositoryNamed(box, name);
     const [operator, issue, running] = await Promise.all([github.operator(), github.issue(repository.github, number), box.running()]);
     await github.assign(repository.github, number, operator);
+    const others = issue.assignees.filter((login) => login !== operator);
     const live = running.dispatches.some(({ ticket }) => ticket.repository === name && ticket.number === number);
     return {
       claimed: true,
+      github: repository.github,
       assignee: operator,
-      warning: live ? `a forge workload is running on ${repository.github}#${number}; assigning it does not interrupt that run, so the two may both work the ticket` : null,
+      warning: [
+        live ? `a forge workload is running on ${repository.github}#${number}; assigning it does not interrupt that run, so the two may both work the ticket` : null,
+        others.length > 0 ? `${repository.github}#${number} was already assigned to ${others.join(', ')}` : null,
+      ]
+        .filter((warning) => warning !== null)
+        .join('. ') || null,
       prompt:
         repository.ticketPrompt === null
           ? null
@@ -106,6 +114,6 @@ export const createOperations = ({ box, github }: OperationsDeps): Operations =>
     const [operator, issue] = await Promise.all([github.operator(), github.issue(repository.github, number)]);
     if (!issue.assignees.includes(operator)) return { released: false, reason: `${repository.github}#${number} is not assigned to ${operator}` };
     await github.unassign(repository.github, number, operator);
-    return { released: true, assignee: operator };
+    return { released: true, github: repository.github, assignee: operator };
   },
 });

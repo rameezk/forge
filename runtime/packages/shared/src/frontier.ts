@@ -390,7 +390,7 @@ interface IssuePage<Node> {
 const GITHUB_REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 export const isGithubRepository = (github: string): boolean =>
-  GITHUB_REPOSITORY.test(github);
+  GITHUB_REPOSITORY.test(github) && !/\/\.{1,2}$/.test(github) && !github.startsWith('../');
 
 export const requireGithubRepository = (github: string): void => {
   if (!isGithubRepository(github)) {

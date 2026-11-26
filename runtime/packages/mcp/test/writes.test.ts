@@ -72,6 +72,26 @@ test('given a repository forge does not manage, when dispatch is called, then it
   assert.deepEqual(github.writes, []);
 });
 
+test('given a ticket already assigned to someone else, when claim is called, then the operator is assigned and the result warns who else holds it', async () => {
+  const { github, operations } = setup({ issues: [{ ...READY, assignees: ['alice'] }] });
+
+  const result = await operations.claim({ repository: 'forge', number: 7 });
+
+  assert.equal(github.writes.length, 1);
+  assert.match(result.warning ?? '', /already assigned to alice/);
+});
+
+test('given each write, when it succeeds, then the result names the GitHub repository it wrote to', async () => {
+  const { operations } = setup({ issues: [{ ...READY }, { ...READY, number: 8, assignees: ['operator'] }] });
+
+  const dispatched = await operations.dispatch({ repository: 'forge', number: 7 });
+  const claimed = await operations.claim({ repository: 'forge', number: 7 });
+  const released = await operations.release({ repository: 'forge', number: 8 });
+
+  assert.ok(dispatched.dispatched && released.released);
+  assert.deepEqual([dispatched.github, claimed.github, released.github], ['rameezk/forge', 'rameezk/forge', 'rameezk/forge']);
+});
+
 test('given a ticket in a repository whose on.ticket worker prompt is /work-on {url}, when claim is called, then the operator is assigned and the result carries /work-on followed by the ticket URL', async () => {
   const { github, operations } = setup();
 
