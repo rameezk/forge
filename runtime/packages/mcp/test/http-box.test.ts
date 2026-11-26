@@ -68,6 +68,22 @@ test('given a path that would leave the box, when a link is built from it, then 
   }
 });
 
+test('given a repository named like a dot segment, when the HTTP box reads its ticket, then it refuses before asking the box', async () => {
+  const requests: string[] = [];
+  const box = await serving((req, res) => {
+    requests.push(req.url ?? '');
+    res.end('{}');
+  });
+  try {
+    for (const repository of ['.', '..']) {
+      await assert.rejects(new HttpBox(box.address).ticket(repository, 7), /repository/);
+    }
+    assert.deepEqual(requests, []);
+  } finally {
+    box.close();
+  }
+});
+
 test('given a box address, when it is normalised, then a bare host gets http and a trailing slash is dropped', () => {
   assert.equal(boxAddressFrom('forge-box'), 'http://forge-box');
   assert.equal(boxAddressFrom('forge-box.tail1234.ts.net:8080/'), 'http://forge-box.tail1234.ts.net:8080');

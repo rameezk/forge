@@ -25,6 +25,7 @@ export class HttpBox implements Box {
   }
 
   ticket(repository: string, number: number): Promise<TicketView> {
+    if (repository === '.' || repository === '..') return Promise.reject(new Error(`${JSON.stringify(repository)} is not a repository name`));
     return this.#get<TicketView>(ticketRoute(repository, number));
   }
 
