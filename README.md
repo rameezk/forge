@@ -145,6 +145,10 @@ nix flake init -t github:rameezk/forge
 
 Then follow the scaffolded repository's [README](templates/operator/README.md) to generate secrets, stand up the box, deploy workers and open the dashboard.
 
+## Ask forge from your own agents
+
+`forge-mcp` is a local MCP server that reads what forge is running and why a ticket failed from the box's read-only JSON interface. Its `ticket` and `running` tools are read-only. Register it in an MCP client as a stdio server that runs `nix run github:rameezk/forge#forge-mcp`, with `FORGE_BOX_ADDRESS` set to the box's tailnet address, such as `forge-box.tailnet.ts.net`.
+
 ## Develop
 
 ### Run the checks

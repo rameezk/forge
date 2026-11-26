@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { aggregateRisk, autoMergeStatus, summarizeRisk, type DispatchOrder, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type AutoMergeStatus, type RunRecord, type Store } from '@forge/shared';
+import { mountApi } from './api.ts';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
@@ -142,6 +143,8 @@ export const createApp = ({
   const boardSettings: BoardSettings = { maxConcurrent, maxOpenPullRequests, gradingRepositories, autoMergeRepositories, dispatchOrder, repositoryPriorities };
 
   app.get('/', (c) => c.html(boardPage({ store, settings: boardSettings, now: clock(), group: c.req.query('group'), display: displayOf(c) })));
+
+  mountApi(app, store, clock);
 
   app.get('/work', (c) => c.redirect('/'));
 
