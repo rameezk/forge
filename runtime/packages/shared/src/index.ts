@@ -103,6 +103,7 @@ export {
   queryPullRequestConflict,
   queryPullRequestHead,
   queryTicket,
+  READY_FOR_AGENT,
   reworkOf,
   requestFrontierPage,
   requestLabelledPage,
@@ -312,6 +313,7 @@ export {
   attemptOutcome,
   BOX_API_PREFIX,
   diagnosisView,
+  REPOSITORIES_ROUTE,
   RUNNING_ROUTE,
   ticketPath,
   ticketRoute,
@@ -321,9 +323,20 @@ export type {
   AttemptView,
   DiagnosisView,
   PullRequestView,
+  RepositoriesView,
+  RepositoryView,
   RunningDispatch,
   RunningPullRequestWorkload,
   RunningView,
   RunningWorkload,
   TicketView,
 } from './box-api.ts';
+export {
+  applyForgeReady,
+  assign,
+  OPERATOR_TICKET_QUERY,
+  queryOperatorTicket,
+  queryViewerLogin,
+  unassign,
+} from './operator-ticket.ts';
+export type { OperatorTicket } from './operator-ticket.ts';

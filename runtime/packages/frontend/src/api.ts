@@ -3,9 +3,11 @@ import {
   attemptOutcome,
   BOX_API_PREFIX,
   diagnosisView,
+  REPOSITORIES_ROUTE,
   ticketPath,
   type AttemptView,
   type PullRequestWorkloadRecord,
+  type RepositoriesView,
   type RunningPullRequestWorkload,
   type RunningView,
   type RunningWorkload,
@@ -73,7 +75,7 @@ export const runningView = (store: Store, now: string): RunningView => {
   };
 };
 
-export const mountApi = (app: Hono, store: Store, clock: () => Date): void => {
+export const mountApi = (app: Hono, store: Store, clock: () => Date, repositories: RepositoriesView): void => {
   app.get(`${BOX_API_PREFIX}/tickets/:repository/:number`, (c) => {
     const raw = c.req.param('number');
     const number = Number(raw);
@@ -82,6 +84,8 @@ export const mountApi = (app: Hono, store: Store, clock: () => Date): void => {
   });
 
   app.get(`${BOX_API_PREFIX}/running`, (c) => c.json(runningView(store, clock().toISOString())));
+
+  app.get(REPOSITORIES_ROUTE, (c) => c.json(repositories));
 
   app.all(`${BOX_API_PREFIX}/*`, (c) =>
     c.req.method === 'GET' || c.req.method === 'HEAD'

@@ -273,6 +273,14 @@ let
 
   runtimeConfigFile = pkgs.writeText "forge-runtime.json" (builtins.toJSON runtimeConfig);
 
+  repositoriesView = lib.mapAttrsToList (name: r: {
+    inherit name;
+    inherit (r) github;
+    ticketPrompt = if r.on.ticket == null then null else cfg.workers.${r.on.ticket}.prompt;
+  }) cfg.repositories;
+
+  repositoriesFile = pkgs.writeText "forge-repositories.json" (builtins.toJSON repositoriesView);
+
   hasWorkers = cfg.workers != { };
   hasRepositories = cfg.repositories != { };
   hasDashboard = hasWorkers || hasRepositories;
@@ -1474,6 +1482,7 @@ in
             "FORGE_MAX_OPEN_PULL_REQUESTS=${if cfg.dispatch.maxOpenPullRequests == null then "null" else toString cfg.dispatch.maxOpenPullRequests}"
           ]
           ++ [ "FORGE_DISPATCH_ORDER=${cfg.dispatch.order}" ]
+          ++ lib.optional hasRepositories "FORGE_REPOSITORIES_FILE=${repositoriesFile}"
           ++ lib.optional (prioritisedRepositories != { }) "FORGE_REPOSITORY_PRIORITIES=${
             lib.concatStringsSep "," (lib.mapAttrsToList (name: r: "${name}=${toString r.priority}") prioritisedRepositories)
           }"

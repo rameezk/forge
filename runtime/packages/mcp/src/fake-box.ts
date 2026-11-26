@@ -1,19 +1,22 @@
-import { ticketPath, type RunningView, type TicketView } from '@forge/shared';
+import { ticketPath, type RepositoriesView, type RunningView, type TicketView } from '@forge/shared';
 import type { Box } from './box.ts';
 
 export interface FakeBoxState {
   tickets?: TicketView[];
   running?: RunningView;
+  repositories?: RepositoriesView;
 }
 
 export class FakeBox implements Box {
   readonly #tickets: TicketView[];
   readonly #running: RunningView;
+  readonly #repositories: RepositoriesView;
   #failure: string | null = null;
 
-  constructor({ tickets = [], running = { dispatches: [], revisions: [], conflictResolutions: [] } }: FakeBoxState = {}) {
+  constructor({ tickets = [], running = { dispatches: [], revisions: [], conflictResolutions: [] }, repositories = [] }: FakeBoxState = {}) {
     this.#tickets = tickets;
     this.#running = running;
+    this.#repositories = repositories;
   }
 
   fail(message: string): void {
@@ -41,6 +44,11 @@ export class FakeBox implements Box {
   async running(): Promise<RunningView> {
     this.#check();
     return this.#running;
+  }
+
+  async repositories(): Promise<RepositoriesView> {
+    this.#check();
+    return this.#repositories;
   }
 
   link(path: string): string {

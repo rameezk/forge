@@ -7,6 +7,8 @@ export const BOX_API_PREFIX = '/api';
 
 export const RUNNING_ROUTE = `${BOX_API_PREFIX}/running`;
 
+export const REPOSITORIES_ROUTE = `${BOX_API_PREFIX}/repositories`;
+
 export const ticketRoute = (repository: string, number: number): string =>
   `${BOX_API_PREFIX}/tickets/${encodeURIComponent(repository)}/${number}`;
 
@@ -85,3 +87,11 @@ export interface RunningView {
   revisions: RunningPullRequestWorkload[];
   conflictResolutions: RunningPullRequestWorkload[];
 }
+
+export interface RepositoryView {
+  name: string;
+  github: string;
+  ticketPrompt: string | null;
+}
+
+export type RepositoriesView = RepositoryView[];

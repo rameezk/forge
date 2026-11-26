@@ -1,11 +1,12 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { BOX_ADDRESS_VARIABLE, boxAddressFrom, HttpBox } from './box.ts';
+import { OperatorGitHub } from './github.ts';
 import { createOperations } from './operations.ts';
 import { createServer } from './server.ts';
 
 export const main = async (env: NodeJS.ProcessEnv): Promise<void> => {
   const box = new HttpBox(boxAddressFrom(env[BOX_ADDRESS_VARIABLE]));
-  await createServer(createOperations({ box })).connect(new StdioServerTransport());
+  await createServer(createOperations({ box, github: new OperatorGitHub() })).connect(new StdioServerTransport());
 };
 
 if (import.meta.filename === process.argv[1]) {

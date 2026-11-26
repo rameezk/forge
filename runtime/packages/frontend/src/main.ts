@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAdaptorServer } from '@hono/node-server';
-import { Store } from '@forge/shared';
+import { Store, type RepositoriesView } from '@forge/shared';
 import { createApp, type AppOptions } from './app.ts';
 import { resolveServeConfig } from './config.ts';
 import { readDeployStatus } from './deploy-status.ts';
@@ -12,7 +12,7 @@ import { FileTranscriptSource } from './transcript.ts';
 export const createDashboard = (
   stateDir: string,
   store: Store,
-  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs' | 'maxConcurrent' | 'maxOpenPullRequests' | 'gradingRepositories' | 'autoMergeRepositories' | 'dispatchOrder' | 'repositoryPriorities' | 'deployStatus'> = {},
+  options: Pick<AppOptions, 'timeZone' | 'checkIntervalMs' | 'maxConcurrent' | 'maxOpenPullRequests' | 'gradingRepositories' | 'autoMergeRepositories' | 'dispatchOrder' | 'repositoryPriorities' | 'deployStatus' | 'repositories'> = {},
 ): ReturnType<typeof createApp> =>
   createApp({
     store,
@@ -25,7 +25,7 @@ export const createDashboard = (
   });
 
 export const main = (env: NodeJS.ProcessEnv): void => {
-  const { stateDir, socketPath, maxConcurrent, maxOpenPullRequests, gradingRepositories, autoMergeRepositories, dispatchOrder, repositoryPriorities, timeZone, deployStatusFile } = resolveServeConfig(env);
+  const { stateDir, socketPath, maxConcurrent, maxOpenPullRequests, gradingRepositories, autoMergeRepositories, dispatchOrder, repositoryPriorities, timeZone, deployStatusFile, repositoriesFile } = resolveServeConfig(env);
 
   const app = createDashboard(stateDir, Store.openReadOnly(join(stateDir, 'forge.db')), {
     maxConcurrent,
@@ -35,6 +35,7 @@ export const main = (env: NodeJS.ProcessEnv): void => {
     dispatchOrder,
     repositoryPriorities,
     timeZone,
+    ...(repositoriesFile === null ? {} : { repositories: JSON.parse(readFileSync(repositoriesFile, 'utf8')) as RepositoriesView }),
     ...(deployStatusFile === null ? {} : { deployStatus: () => readDeployStatus(deployStatusFile) }),
   });
 

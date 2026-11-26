@@ -1,8 +1,9 @@
-import { RUNNING_ROUTE, ticketRoute, type RunningView, type TicketView } from '@forge/shared';
+import { REPOSITORIES_ROUTE, RUNNING_ROUTE, ticketRoute, type RepositoriesView, type RunningView, type TicketView } from '@forge/shared';
 
 export interface Box {
   ticket(repository: string, number: number): Promise<TicketView>;
   running(): Promise<RunningView>;
+  repositories(): Promise<RepositoriesView>;
   link(path: string): string;
 }
 
@@ -31,6 +32,10 @@ export class HttpBox implements Box {
 
   running(): Promise<RunningView> {
     return this.#get<RunningView>(RUNNING_ROUTE);
+  }
+
+  repositories(): Promise<RepositoriesView> {
+    return this.#get<RepositoriesView>(REPOSITORIES_ROUTE);
   }
 
   link(path: string): string {
