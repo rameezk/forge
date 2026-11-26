@@ -61,6 +61,13 @@ test('given a box that redirects, when the HTTP box reads from it, then it does 
   }
 });
 
+test('given a path that would leave the box, when a link is built from it, then it is refused', () => {
+  const http = new HttpBox('http://forge-box');
+  for (const path of ['@evil.example/x', '//evil.example/x', '/\\evil.example', 'runs/x']) {
+    assert.throws(() => http.link(path), /dashboard path/, path);
+  }
+});
+
 test('given a box address, when it is normalised, then a bare host gets http and a trailing slash is dropped', () => {
   assert.equal(boxAddressFrom('forge-box'), 'http://forge-box');
   assert.equal(boxAddressFrom('forge-box.tail1234.ts.net:8080/'), 'http://forge-box.tail1234.ts.net:8080');

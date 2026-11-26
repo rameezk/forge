@@ -17,8 +17,6 @@ const TICKET_NUMBER = /^[1-9]\d*$/;
 
 const READ_METHODS = 'GET, HEAD';
 
-const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
-
 const runPath = (runId: string): string => `/runs/${encodeURIComponent(runId)}`;
 
 export const ticketView = (store: Store, ticket: { repository: string; number: number }, now: string): TicketView => {
@@ -85,5 +83,9 @@ export const mountApi = (app: Hono, store: Store, clock: () => Date): void => {
 
   app.get(`${BOX_API_PREFIX}/running`, (c) => c.json(runningView(store, clock().toISOString())));
 
-  app.on(WRITE_METHODS, `${BOX_API_PREFIX}/*`, (c) => c.json({ error: 'the JSON interface is read-only' }, 405, { Allow: READ_METHODS }));
+  app.all(`${BOX_API_PREFIX}/*`, (c) =>
+    c.req.method === 'GET' || c.req.method === 'HEAD'
+      ? c.notFound()
+      : c.json({ error: 'the JSON interface is read-only' }, 405, { Allow: READ_METHODS }),
+  );
 };

@@ -160,7 +160,7 @@ test('given the frontend app, when any non-GET request is sent to a JSON route, 
   const app = appOver(store);
   const before = JSON.stringify([store.workloads.listDispatches(NOW), store.runs.listRuns(), store.diagnoses.listDiagnoses(NOW)]);
 
-  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'PROPFIND']) {
     for (const path of ['/api/tickets/forge/7', '/api/running', '/api/anything']) {
       const res = await app.request(path, { method, body: '{}' });
       assert.equal(res.status, 405, `${method} ${path}`);

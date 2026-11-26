@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { cohortHref, cohortLabel, isGithubUrl, PAUSE_BAR_PERCENT, type AutoMergeStatus, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type RepositoryProblems, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
+import { cohortHref, cohortLabel, isGithubUrl, PAUSE_BAR_PERCENT, ticketPath, type AutoMergeStatus, type ConfigFingerprint, type ConflictResolutionFailure, type DispatchFailure, type DispatchRecord, type DispatchState, type PullRequestState, type RepositoryProblems, type PullRequestWorkloadRecord, type RevisionFailure, type RevisionState, type RunRecord, type RunStatus, type RunTicket } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import type { DeployStatus } from '../deploy-status.ts';
 import { cacheHitRate, formatBudget, formatRate, formatCost, formatDate, formatDuration, formatElapsed, formatSpan, formatSpend, formatStarted, formatTokens } from '../format.ts';
@@ -492,11 +492,8 @@ export const PULL_REQUEST_TONE: Record<PullRequestState, string> = {
 
 export const SHORT_SHA_LENGTH = 7;
 
-const attemptsPath = (ticket: { repository: string; number: number }): string =>
-  `/tickets/${encodeURIComponent(ticket.repository)}/${ticket.number}`;
-
 export const renderAttemptsLink = (ticket: { repository: string; number: number }, label: string): Rendered =>
-  html`<a href="${attemptsPath(ticket)}" data-attempts class="${LINK}">${label}</a>`;
+  html`<a href="${ticketPath(ticket.repository, ticket.number)}" data-attempts class="${LINK}">${label}</a>`;
 
 export const renderCohortLink = (hash: string | null, fingerprint: ConfigFingerprint | null): Rendered =>
   html`<a href="${cohortHref(hash)}" class="${LINK}">${cohortLabel(fingerprint, hash)}</a>`;

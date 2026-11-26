@@ -15,6 +15,8 @@ export const boxAddressFrom = (value: string | undefined): string => {
   return withScheme.replace(/\/+$/, '');
 };
 
+const LOCAL_PATH = /^\/(?![/\\])/;
+
 export class HttpBox implements Box {
   readonly #address: string;
 
@@ -31,6 +33,7 @@ export class HttpBox implements Box {
   }
 
   link(path: string): string {
+    if (!LOCAL_PATH.test(path)) throw new Error(`the forge box sent a dashboard path that leaves the box: ${path}`);
     return `${this.#address}${path}`;
   }
 
