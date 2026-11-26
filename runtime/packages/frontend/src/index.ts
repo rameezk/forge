@@ -5,8 +5,5 @@ export { resolveServeConfig } from './config.ts';
 export type { TranscriptSource } from './transcript.ts';
 export { FileTranscriptSource } from './transcript.ts';
 export { formatCost, formatDuration } from './format.ts';
-export { renderBoard } from './views/board.ts';
-export { renderDetail } from './views/run.ts';
-export { renderList } from './views/workloads.ts';
 export type { DeployStatus } from './deploy-status.ts';
 export { readDeployStatus, parseDeployStatus } from './deploy-status.ts';
