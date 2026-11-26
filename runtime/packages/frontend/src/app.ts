@@ -166,7 +166,8 @@ export const createApp = ({
 
   app.get('/workloads', (c) => {
     const shown = displayOf(c);
-    const now = new Date().toISOString();
+    const at = clock();
+    const now = at.toISOString();
     const pullRequestWorkloads = new Map<string, RunPullRequestWorkload>([
       ...store.workloads.listRevisions(now).flatMap((workload): [string, RunPullRequestWorkload][] =>
         workload.runId === null ? [] : [[workload.runId, { kind: 'revision', workload }]],
@@ -177,7 +178,7 @@ export const createApp = ({
     ]);
     const diagnoses = store.diagnoses.listDiagnoses(now);
     const categories = store.diagnoses.latestDiagnosisCategories(now);
-    return c.html(renderList(store.runs.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.runs.listPriceEquivalents(), pullRequestWorkloads, store.workloads.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runs.runCohorts(), shown, clock().getTime()));
+    return c.html(renderList(store.runs.listRuns(), parseWorkloadFilter(c.req.query()), parsePage(c.req.query()), store.runs.listPriceEquivalents(), pullRequestWorkloads, store.workloads.mapRunDispatches(now), new Set(diagnoses.map(({ runId }) => runId)), categories, store.runs.runCohorts(), shown, at.getTime()));
   });
 
   const queryOf = (query: Record<string, string>): InsightsQuery => {
@@ -244,7 +245,7 @@ export const createApp = ({
     const number = Number(c.req.param('number'));
     if (!TICKET_NUMBER.test(c.req.param('number')) || !Number.isSafeInteger(number)) return c.notFound();
     const ticket = { repository: c.req.param('repository'), number };
-    return c.html(renderTicketAttempts(ticket, store.workloads.listAttempts(ticket, new Date().toISOString()), shown));
+    return c.html(renderTicketAttempts(ticket, store.workloads.listAttempts(ticket, clock().toISOString()), shown));
   });
 
   const downloadable = (ref: string | null): ref is string =>
@@ -263,7 +264,9 @@ export const createApp = ({
     const events =
       run.transcriptRef === null ? [] : transcripts.read(run.transcriptRef);
     const record = readRequestRecord((visit) => transcripts.scanRecords(requestRecordRef(run.id), visit));
-    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.workloads.pullRequestOfRun(run.id), store.workloads.pullRequestWorkloadOfRun(run.id, new Date().toISOString()), store.workloads.dispatchOfRun(run.id, new Date().toISOString()), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnoses.diagnosesOf(run.id, new Date().toISOString()), store.diagnoses.diagnosisOfRun(run.id, new Date().toISOString()), shown, clock().getTime()));
+    const at = clock();
+    const now = at.toISOString();
+    return c.html(renderDetail(run, events, record, store.runs.listGenerations(run.id), store.workloads.pullRequestOfRun(run.id), store.workloads.pullRequestWorkloadOfRun(run.id, now), store.workloads.dispatchOfRun(run.id, now), store.runs.listSkillLoads(run.id), downloadsOf(run), store.runs.getFingerprint(run.id), store.diagnoses.diagnosesOf(run.id, now), store.diagnoses.diagnosisOfRun(run.id, now), shown, at.getTime()));
   });
 
   app.get('/runs/:id/transcript', (c) => {
