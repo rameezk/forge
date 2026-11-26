@@ -1,7 +1,7 @@
 import type { Connection } from './connection.ts';
 import { migrateFrontier } from './migrations/frontier.ts';
 import type { Workloads } from './workloads.ts';
-import { newestClosedFirst, oldestFirst, type ClosedTicket, type PolledFrontier, type PollFailure, type RepositoryProblems, type RefinementRequest, type RepositoryFrontier, type Ticket } from '../frontier.ts';
+import { newestClosedFirst, oldestFirst, type Assignee, type ClosedTicket, type PolledFrontier, type PollFailure, type RepositoryProblems, type RefinementRequest, type RepositoryFrontier, type Ticket } from '../frontier.ts';
 
 type RepositoryRow = {
   repository: string;
@@ -46,6 +46,7 @@ type TicketRow = {
   blocked: number;
   blocked_by: string;
   awaiting_redispatch: number;
+  assignees: string;
 };
 
 const requestFromRow = (row: RequestRow): RefinementRequest => ({
@@ -68,6 +69,7 @@ const ticketFromRow = (row: TicketRow): Ticket => ({
   forHuman: row.for_human === 1,
   blocked: row.blocked === 1,
   blockedBy: JSON.parse(row.blocked_by) as number[],
+  assignees: JSON.parse(row.assignees) as Assignee[],
   ...(row.awaiting_redispatch === 1 ? { awaitingRedispatch: true } : {}),
 });
 
@@ -116,10 +118,10 @@ export class Frontier {
       const insert = this.#db.prepare(
         `INSERT INTO frontier_tickets (
           repository, number, title, url, parent_number, parent_title, parent_url, created_at,
-          forge_ready, for_human, blocked, blocked_by, version, awaiting_redispatch
+          forge_ready, for_human, blocked, blocked_by, version, awaiting_redispatch, assignees
         ) VALUES (
           $repository, $number, $title, $url, $parent_number, $parent_title, $parent_url, $created_at,
-          $forge_ready, $for_human, $blocked, $blocked_by, $version, $awaiting_redispatch
+          $forge_ready, $for_human, $blocked, $blocked_by, $version, $awaiting_redispatch, $assignees
         )`,
       );
       for (const ticket of tickets) {
@@ -138,6 +140,7 @@ export class Frontier {
           blocked_by: JSON.stringify(ticket.blockedBy),
           version: ticket.version ?? '',
           awaiting_redispatch: ticket.awaitingRedispatch === true ? 1 : 0,
+          assignees: JSON.stringify(ticket.assignees),
         });
       }
       this.#db

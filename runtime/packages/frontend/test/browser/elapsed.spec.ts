@@ -89,7 +89,7 @@ test('given a running dispatch and a finished one, when the Board renders and ti
   dashboard,
   page,
 }) => {
-  const ticket = (number: number) => ({ number, title: `Ticket ${number}`, url: `https://github.com/rameezk/forge/issues/${number}`, parent: null, createdAt: '2026-09-20T10:00:00Z', forgeReady: false, forHuman: false, blocked: false, blockedBy: [] });
+  const ticket = (number: number) => ({ number, title: `Ticket ${number}`, url: `https://github.com/rameezk/forge/issues/${number}`, parent: null, createdAt: '2026-09-20T10:00:00Z', forgeReady: false, forHuman: false, blocked: false, blockedBy: [], assignees: [] });
   dashboard.store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: START, closed: [], requests: [], tickets: [ticket(56), ticket(57), ticket(58)] });
   const began = new Date();
   const dispatch = (number: number) => {

@@ -238,6 +238,7 @@ const forge = async (
                     createdAt: '2026-01-01T00:00:00Z',
                     labels: { nodes: [...(labels.get(ticket.number) ?? [])].map((name) => ({ name })) },
                     issueDependenciesSummary: { blockedBy: 0 },
+                    assignees: { nodes: [] },
                     blockedBy: { nodes: [] },
                     parent:
                       ticket.spec === undefined

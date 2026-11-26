@@ -3147,7 +3147,7 @@ const polledTicket = (store: Store): void =>
     closed: [],
     requests: [],
     tickets: [
-      { number: 113, title: 'Ticket', url: TICKET_URL, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+      { number: 113, title: 'Ticket', url: TICKET_URL, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [], assignees: [] },
     ],
   });
 

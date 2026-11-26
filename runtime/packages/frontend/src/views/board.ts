@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html';
-import { autoMergeCandidates, autoMergeStatus, certainUrgencies, dispatchOrder, dispatchRefOf, GATE_LABELS, isGithubRepository, isGithubUrl, newestClosedFirst, notGradedTitle, oldestFirst, pullRequestSampled, RETRIED_GRADING_FAILURES, RISK_LEVELS, ticketKey, type ClosedTicket, type ConflictResolutionRecord, type DisplayedUrgencyGrade, type DispatchOrder, type DispatchOrdering, type DispatchRecord, type FailingGate, type GradingAttempt, type PullRequestWorkloadRecord, type RecordedRiskGrade, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type RiskLevel, type RunRecord, type SpecRef, type Store, type Ticket, type UrgencyAttempt, type UrgencyLevel } from '@forge/shared';
+import { autoMergeCandidates, autoMergeStatus, certainUrgencies, dispatchOrder, dispatchRefOf, GATE_LABELS, isGithubRepository, isGithubUrl, newestClosedFirst, notGradedTitle, oldestFirst, pullRequestSampled, RETRIED_GRADING_FAILURES, RISK_LEVELS, ticketKey, type Assignee, type ClosedTicket, type ConflictResolutionRecord, type DisplayedUrgencyGrade, type DispatchOrder, type DispatchOrdering, type DispatchRecord, type FailingGate, type GradingAttempt, type PullRequestWorkloadRecord, type RecordedRiskGrade, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type RiskLevel, type RunRecord, type SpecRef, type Store, type Ticket, type UrgencyAttempt, type UrgencyLevel } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, laneId, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
@@ -499,15 +499,26 @@ const renderCardLink = (destination: Destination | null): Rendered =>
     ? ''
     : html`<a href="${destination.href}" data-card-link aria-label="${destination.label}"${destination.external ? raw(' target="_blank" rel="noopener noreferrer"') : ''} class="${CARD_LINK}"></a>`;
 
+const renderAssignee = ({ login, avatarUrl }: Assignee): Rendered =>
+  avatarUrl.startsWith('https://')
+    ? html`<img data-assignee="${login}" src="${avatarUrl}" alt="${login}" title="Assigned to ${login}" width="20" height="20" loading="lazy" class="relative z-10 size-5 rounded-full border border-surface bg-raised" />`
+    : html`<span data-assignee="${login}" class="relative z-10 text-xs text-muted">${login}</span>`;
+
+const renderAssignees = (assignees: readonly Assignee[]): Rendered =>
+  assignees.length === 0 ? '' : html`<span data-assignees class="flex shrink-0 -space-x-1.5">${assignees.map(renderAssignee)}</span>`;
+
 const renderCard = (repository: string, github: string, card: BoardCard, grouped: boolean, full: boolean, context: PageContext): Rendered => {
   const { ticket } = card;
   const { attempted, runs } = context;
   const parent = grouped || card.column === 'to-refine' ? null : card.ticket.parent;
   return html`<article data-ticket="${ticket.number}" class="relative rounded-md border border-line bg-surface p-2 text-sm ${CARD_HOVER} ${INNER_LINKS}">
     ${renderCardLink(destinationOf(card, runs))}
-    <p class="m-0 tabular-nums">${isGithubUrl(ticket.url) ? externalLink(ticket.url, `#${ticket.number}`) : html`#${ticket.number}`}${attempted.has(ticketKey(repository, ticket.number))
-      ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
-      : ''}</p>
+    <div class="flex items-start justify-between gap-2">
+      <p class="m-0 tabular-nums">${isGithubUrl(ticket.url) ? externalLink(ticket.url, `#${ticket.number}`) : html`#${ticket.number}`}${attempted.has(ticketKey(repository, ticket.number))
+        ? html` <span class="ml-1 text-xs">${renderAttemptsLink({ repository, number: ticket.number }, 'attempts')}</span>`
+        : ''}</p>
+      ${'assignees' in ticket ? renderAssignees(ticket.assignees) : ''}
+    </div>
     ${ticket.title === null ? '' : html`<p class="m-0 mt-1 break-words">${ticket.title}</p>`}
     ${parent === null ? '' : renderSpecLine(parent)}
     ${renderUrgency(card.urgency)}

@@ -139,6 +139,32 @@ const storedFrontier = (stateDir: string) => {
   }
 };
 
+const assignedTo = (pages: RecordedPage[], assignments: Record<number, string[]>): void => {
+  for (const node of pages.flatMap((page) => page.data?.repository?.issues.nodes ?? [])) {
+    const logins = assignments[node.number as number] ?? [];
+    node.assignees = {
+      nodes: logins.map((login) => ({ login, avatarUrl: `https://avatars.githubusercontent.com/${login}` })),
+    };
+  }
+};
+
+test('given a declared repository whose recorded response holds a ready-for-agent ticket assigned to two people, when sync runs, then the store holds the ticket with both assignees', async () => {
+  const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
+  const pages = recorded('frontier');
+  assignedTo(pages, { 57: ['octocat', 'hubot'] });
+  const github = replaying({ 'rameezk/forge': pages });
+
+  const code = await run(app, ['sync'], env, github.fetch);
+
+  assert.equal(code, 0);
+  const tickets = storedFrontier(stateDir)[0]?.tickets ?? [];
+  assert.deepEqual(tickets.find(({ number }) => number === 57)?.assignees, [
+    { login: 'octocat', avatarUrl: 'https://avatars.githubusercontent.com/octocat' },
+    { login: 'hubot', avatarUrl: 'https://avatars.githubusercontent.com/hubot' },
+  ]);
+  assert.deepEqual(tickets.find(({ number }) => number === 58)?.assignees, []);
+});
+
 test('given a declared repository whose recorded response holds unblocked ready-for-agent issues and a blocked one labelled forge:ready, when sync runs, then the store holds the unblocked tickets, the blocked one as queued, which are labelled forge:ready, and when the repository was polled', async () => {
   const { stateDir, env, app } = declaring({ forge: { github: 'rameezk/forge' } });
   const github = replaying({ 'rameezk/forge': recorded('frontier') });
@@ -184,7 +210,7 @@ test('given a declared repository whose recorded response holds unblocked ready-
     forgeReady: false,
     blocked: false,
     forHuman: false,
-    blockedBy: [],
+    blockedBy: [], assignees: [],
   });
   const since = github.requests[2]?.body.variables.since;
   assert.equal(typeof since, 'string');
@@ -487,7 +513,7 @@ const staleTicket = (github: string, number: number): Ticket => ({
   forgeReady: false,
   blocked: false,
   forHuman: false,
-  blockedBy: [],
+  blockedBy: [], assignees: [],
 });
 
 test('given two declared repositories with stored snapshots where GitHub now fails for one, when sync runs, then the healthy snapshot is replaced and the failing one keeps its previous tickets and polled time with the error as its last error', async () => {
@@ -1368,6 +1394,24 @@ test('given an auto-approving repository and a ticket a maintainer labelled read
   assert.equal(writes[0]?.authorization, `bearer ${WRITE_TOKEN}`);
   assert.equal(storedTicket(stateDir, 57)?.forgeReady, true);
   assert.equal(storedTicket(stateDir, 58)?.forgeReady, false);
+});
+
+test('given an auto-approving repository with an unassigned and an assigned ready-for-agent ticket both with standing approvals, when sync runs, then only the unassigned ticket is labelled forge:ready', async () => {
+  const { stateDir, labelled } = await autoApproved(
+    {
+      timelines: {
+        57: [['ready-for-agent', 'teammate', RFA_AT]],
+        58: [['ready-for-agent', 'teammate', RFA_AT]],
+      },
+      maintainers: ['teammate'],
+    },
+    { edit: (pages) => assignedTo(pages, { 58: ['octocat'] }) },
+  );
+
+  assert.deepEqual(labelled, [forgeReadyOn(57)]);
+  assert.equal(storedTicket(stateDir, 57)?.forgeReady, true);
+  assert.equal(storedTicket(stateDir, 58)?.forgeReady, false);
+  assert.equal(storedTicket(stateDir, 58)?.assignees.length, 1);
 });
 
 test('given an auto-approving repository and a blocked ticket a maintainer labelled ready-for-agent, when sync runs, then it carries forge:ready and is stored as queued', async () => {

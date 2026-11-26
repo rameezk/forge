@@ -38,7 +38,7 @@ export const autoApproveTickets = async ({
   const labelled = new Set<number>();
   const awaiting = new Set<number>();
   let failed = false;
-  const candidates = tickets.filter((ticket) => !ticket.forgeLabelled && !ticket.forHuman);
+  const candidates = tickets.filter((ticket) => !ticket.forgeLabelled && !ticket.forHuman && ticket.assignees.length === 0);
   if (candidates.length === 0) return { labelled, awaiting, failed };
   let writeToken: string;
   try {

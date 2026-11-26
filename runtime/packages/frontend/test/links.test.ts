@@ -26,7 +26,7 @@ const dashboard = () => {
         forgeReady: true,
         blocked: false,
         forHuman: false,
-        blockedBy: [],
+        blockedBy: [], assignees: [],
       },
     ],
   });

@@ -12,7 +12,7 @@ const ticket = (number: number, version: string): Ticket => ({
   forgeReady: true,
   blocked: false,
   forHuman: false,
-  blockedBy: [],
+  blockedBy: [], assignees: [],
   version,
 });
 
