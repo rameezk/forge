@@ -147,7 +147,85 @@ Then follow the scaffolded repository's [README](templates/operator/README.md) t
 
 ## Ask forge from your own agents
 
-`forge-mcp` is a local MCP server that reads what forge is running and why a ticket failed from the box's read-only JSON interface. Its `ticket` and `running` tools are read-only. Register it in an MCP client as a stdio server that runs `nix run github:rameezk/forge#forge-mcp`, with `FORGE_BOX_ADDRESS` set to the box's tailnet address, such as `forge-box.tailnet.ts.net`.
+`forge-mcp` is a local MCP server that reads what forge is running and why a ticket failed from the box's read-only JSON interface. Install it once at a stable path and register that path once in each MCP client you use. A forge bump replaces what the path points to, so no client is registered again.
+
+### Install it with home-manager
+
+Add forge's home-manager module to your home configuration and set the box's tailnet address, such as `forge-box.tailnet.ts.net`:
+
+```nix
+{
+  inputs.forge.url = "github:rameezk/forge";
+
+  outputs = { forge, home-manager, nixpkgs, ... }: {
+    homeConfigurations.me = home-manager.lib.homeManagerConfiguration {
+      pkgs = nixpkgs.legacyPackages.x86_64-linux;
+      modules = [
+        forge.homeManagerModules.default
+        { programs.forge-mcp.boxAddress = "forge-box.tailnet.ts.net"; }
+      ];
+    };
+  };
+}
+```
+
+The module puts `forge-mcp` on your profile at `~/.nix-profile/bin/forge-mcp`, with the box address set and `gh` on its `PATH`. It does not write any client's MCP configuration. Sign in with `gh auth login` once, as the person whose identity should approve dispatches.
+
+Register that path once in each client:
+
+- **Claude Code**: `claude mcp add --scope user forge -- ~/.nix-profile/bin/forge-mcp`
+- **Codex**: `codex mcp add forge -- ~/.nix-profile/bin/forge-mcp`
+- **Codex Desktop**: it reads the same `~/.codex/config.toml` as Codex, so the Codex registration covers it. To write it by hand, add:
+
+  ```toml
+  [mcp_servers.forge]
+  command = "/home/me/.nix-profile/bin/forge-mcp"
+  ```
+
+- **Claude Desktop**: add the server to `claude_desktop_config.json` (Settings, Developer, Edit Config) and restart the app. Use the absolute path, since the app does not expand `~`:
+
+  ```json
+  {
+    "mcpServers": {
+      "forge": { "command": "/home/me/.nix-profile/bin/forge-mcp" }
+    }
+  }
+  ```
+
+### Install it without home-manager
+
+Install the package into your Nix profile:
+
+```bash
+nix profile install github:rameezk/forge#forge-mcp
+```
+
+This gives the same stable path, `~/.nix-profile/bin/forge-mcp`. It carries no box address, and it uses the `gh` already on your machine, so install `gh` and run `gh auth login` first. Set the box address in each client's MCP entry as `FORGE_BOX_ADDRESS`:
+
+- **Claude Code**: `claude mcp add --scope user -e FORGE_BOX_ADDRESS=forge-box.tailnet.ts.net forge -- ~/.nix-profile/bin/forge-mcp`
+- **Codex**: `codex mcp add --env FORGE_BOX_ADDRESS=forge-box.tailnet.ts.net forge -- ~/.nix-profile/bin/forge-mcp`
+- **Codex Desktop**: add to `~/.codex/config.toml`:
+
+  ```toml
+  [mcp_servers.forge]
+  command = "/home/me/.nix-profile/bin/forge-mcp"
+  env = { FORGE_BOX_ADDRESS = "forge-box.tailnet.ts.net" }
+  ```
+
+- **Claude Desktop**: add to `claude_desktop_config.json`:
+
+  ```json
+  {
+    "mcpServers": {
+      "forge": {
+        "command": "/home/me/.nix-profile/bin/forge-mcp",
+        "env": { "FORGE_BOX_ADDRESS": "forge-box.tailnet.ts.net" }
+      }
+    }
+  }
+  ```
+
+Upgrade with `nix profile upgrade forge-mcp`. The path stays the same, so the registrations stay valid.
 
 ## Develop
 
