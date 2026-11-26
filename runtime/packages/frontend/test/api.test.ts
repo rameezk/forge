@@ -99,6 +99,21 @@ test('given a ticket with an attempt that opened a pull request, when its JSON r
   assert.equal(ticket.diagnosis, null);
 });
 
+test('given a ticket whose earlier attempt failed and whose latest opened a pull request, when its JSON route is requested, then the ticket carries the latest attempt first', async () => {
+  const store = Store.open(':memory:');
+  seedFailure(store);
+  store.runs.insertRun(aRun('retry', 'builder', { startTime: '2026-11-01T10:30:00.000Z', endTime: '2026-11-01T10:40:00.000Z' }));
+  const dispatch = store.workloads.startDispatch(TICKET, 'retry', '2026-11-01T10:30:00.000Z', 10, null);
+  assert.ok('started' in dispatch);
+  store.workloads.endDispatch(dispatch.started, { state: 'done', pullRequest: { number: 12, url: PULL.url } }, '2026-11-01T10:40:00.000Z');
+
+  const ticket = (await (await appOver(store).request('/api/tickets/forge/7')).json()) as TicketView;
+  assert.deepEqual(ticket.attempts.map(({ runId }) => runId), ['retry', 'failed']);
+  assert.equal(ticket.outcome, 'open');
+  assert.equal(ticket.failureReason, null);
+  assert.equal(ticket.pullRequest?.number, 12);
+});
+
 test('given a ticket nothing ran against, when its JSON route is requested, then it has no attempts and no outcome', async () => {
   const ticket = (await (await appOver(Store.open(':memory:')).request('/api/tickets/forge/7')).json()) as TicketView;
   assert.deepEqual(ticket.attempts, []);

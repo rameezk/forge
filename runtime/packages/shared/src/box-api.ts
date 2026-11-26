@@ -10,6 +10,9 @@ export const RUNNING_ROUTE = `${BOX_API_PREFIX}/running`;
 export const ticketRoute = (repository: string, number: number): string =>
   `${BOX_API_PREFIX}/tickets/${encodeURIComponent(repository)}/${number}`;
 
+export const ticketPath = (repository: string, number: number): string =>
+  `/tickets/${encodeURIComponent(repository)}/${number}`;
+
 export type AttemptOutcome = PullRequestRecord['state'] | 'running' | 'interrupted' | 'exceeded' | 'failed';
 
 export const attemptOutcome = ({ run, pullRequest }: Pick<TicketAttempt, 'run' | 'pullRequest'>): AttemptOutcome => {

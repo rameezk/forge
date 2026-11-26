@@ -38,7 +38,7 @@ export class HttpBox implements Box {
     const url = this.link(path);
     let response: Response;
     try {
-      response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
+      response = await fetch(url, { headers: { Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
     } catch (error) {
       throw new Error(`could not reach the forge box at ${this.#address}: ${error instanceof Error ? error.message : String(error)}`);
     }

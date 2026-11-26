@@ -312,6 +312,7 @@ export {
   BOX_API_PREFIX,
   diagnosisView,
   RUNNING_ROUTE,
+  ticketPath,
   ticketRoute,
 } from './box-api.ts';
 export type {

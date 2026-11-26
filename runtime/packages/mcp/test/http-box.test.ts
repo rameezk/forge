@@ -41,6 +41,26 @@ test('given a box answering an error, when the HTTP box reads from it, then it f
   }
 });
 
+test('given a box that redirects, when the HTTP box reads from it, then it does not follow the redirect', async () => {
+  let followed = false;
+  const elsewhere = await serving((_req, res) => {
+    followed = true;
+    res.end('{}');
+  });
+  const box = await serving((_req, res) => {
+    res.statusCode = 302;
+    res.setHeader('location', elsewhere.address);
+    res.end();
+  });
+  try {
+    await assert.rejects(new HttpBox(box.address).running());
+    assert.equal(followed, false);
+  } finally {
+    box.close();
+    elsewhere.close();
+  }
+});
+
 test('given a box address, when it is normalised, then a bare host gets http and a trailing slash is dropped', () => {
   assert.equal(boxAddressFrom('forge-box'), 'http://forge-box');
   assert.equal(boxAddressFrom('forge-box.tail1234.ts.net:8080/'), 'http://forge-box.tail1234.ts.net:8080');

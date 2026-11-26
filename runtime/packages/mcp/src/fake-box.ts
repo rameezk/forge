@@ -1,4 +1,4 @@
-import type { RunningView, TicketView } from '@forge/shared';
+import { ticketPath, type RunningView, type TicketView } from '@forge/shared';
 import type { Box } from './box.ts';
 
 export interface FakeBoxState {
@@ -27,7 +27,7 @@ export class FakeBox implements Box {
         repository,
         number,
         url: null,
-        dashboard: `/tickets/${encodeURIComponent(repository)}/${number}`,
+        dashboard: ticketPath(repository, number),
         outcome: null,
         failureReason: null,
         failureDetail: null,
