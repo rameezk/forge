@@ -1,9 +1,256 @@
 import { html, raw } from 'hono/html';
-import { GATE_LABELS, isGithubRepository, isGithubUrl, ticketKey, type DispatchOrdering, type FailingGate, OLDEST_FIRST, RISK_LEVELS, type ConflictResolutionRecord, type GradingAttempt, type RecordedRiskGrade, type RiskLevel, type UrgencyLevel, RETRIED_GRADING_FAILURES, notGradedTitle, type DispatchRecord, type PullRequestWorkloadRecord, type RepositoryFrontier, type RevisionRecord, type RunRecord, type SpecRef, type Ticket } from '@forge/shared';
+import { autoMergeCandidates, autoMergeStatus, certainUrgencies, dispatchOrder, dispatchRefOf, GATE_LABELS, isGithubRepository, isGithubUrl, newestClosedFirst, notGradedTitle, oldestFirst, pullRequestSampled, RETRIED_GRADING_FAILURES, RISK_LEVELS, ticketKey, type ClosedTicket, type ConflictResolutionRecord, type DisplayedUrgencyGrade, type DispatchOrder, type DispatchOrdering, type DispatchRecord, type FailingGate, type GradingAttempt, type PullRequestWorkloadRecord, type RecordedRiskGrade, type RefinementRequest, type RepositoryFrontier, type RevisionRecord, type RiskLevel, type RunRecord, type SpecRef, type Store, type Ticket, type UrgencyAttempt, type UrgencyLevel } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatElapsed } from '../format.ts';
-import { buildLanes, isUntracked, COLUMNS, specBands, totals, type BoardCard, type BoardLane, type CardRisk, type CardUrgency, type RiskInputs, type UrgencyInputs, type ColumnKey, type Columns, type SpecBand } from '../board.ts';
 import { type Rendered, dispatchFailureText as failureText, repeatedStart, detailSuffix, externalLink, PILL, renderTimestamp, laneId, SECTION_TITLE, ERROR_CALLOUT, EMPTY, renderAttemptsLink, renderDate, type Display, PAGE_TITLE, layout } from './shared.ts';
+
+const HUMAN = 'Needs a human in the loop';
+
+const COLUMNS = [
+  { key: 'to-refine', title: 'To refine', subtitle: HUMAN, hint: null, person: true },
+  { key: 'blocked', title: 'Blocked', subtitle: 'Waiting on open blockers', hint: null, person: false },
+  { key: 'ready-for-human', title: 'Ready for human', subtitle: HUMAN, hint: null, person: true },
+  { key: 'ready-for-agent', title: 'Ready for agent', subtitle: 'Not handed off yet', hint: 'Add forge:ready to hand off', person: false },
+  { key: 'waiting-for-slot', title: 'Waiting for slot', subtitle: 'Handed off, waiting for a slot', hint: null, person: false },
+  { key: 'running', title: 'Running', subtitle: 'An agent is working on it', hint: null, person: false },
+  { key: 'in-review', title: 'In review', subtitle: HUMAN, hint: null, person: true },
+  { key: 'failed', title: 'Failed', subtitle: 'Agent run failed', hint: 'Set forge:ready to retry', person: false },
+  { key: 'done', title: 'Done', subtitle: 'Closed in the last 7 days', hint: null, person: false },
+] as const;
+
+type ColumnKey = (typeof COLUMNS)[number]['key'];
+
+interface LiveWorkload {
+  kind: 'dispatch' | 'revision' | 'conflict resolution';
+  runId: string | null;
+  startedAt: string;
+  pullRequest: { number: number; url: string } | null;
+}
+
+interface UntrackedItem {
+  subject: 'issue' | 'pull request';
+  number: number;
+  url: string;
+  title: null;
+  parent: null;
+}
+
+type RunningSubject = Ticket | ClosedTicket | UntrackedItem;
+
+const isUntracked = (subject: RunningSubject): subject is UntrackedItem => 'subject' in subject;
+
+type CardRisk = RecordedRiskGrade | GradingAttempt | 'grading' | null;
+
+interface RiskInputs {
+  repositories: ReadonlySet<string>;
+  grades: ReadonlyMap<string, RecordedRiskGrade>;
+  attempts: ReadonlyMap<string, GradingAttempt>;
+  holds: ReadonlySet<string>;
+  sampled?: ReadonlySet<string>;
+  paused?: ReadonlySet<string>;
+  gates?: ReadonlyMap<string, readonly FailingGate[]>;
+}
+
+type CardUrgency = DisplayedUrgencyGrade | UrgencyAttempt | null;
+
+interface UrgencyInputs {
+  grades: ReadonlyMap<string, DisplayedUrgencyGrade>;
+  attempts: ReadonlyMap<string, UrgencyAttempt>;
+}
+
+interface CardState {
+  risk: CardRisk;
+  held: boolean;
+  urgency: CardUrgency;
+  dispatch: DispatchRecord | undefined;
+  workload: LiveWorkload | undefined;
+  conflictFailedStart: ConflictResolutionRecord | undefined;
+  revisionFailedStart: RevisionRecord | undefined;
+  sampled?: boolean;
+  paused?: boolean;
+  gates?: readonly FailingGate[];
+}
+
+type BoardCard =
+  | (CardState & { column: 'to-refine'; ticket: RefinementRequest })
+  | (CardState & { column: 'done'; ticket: ClosedTicket })
+  | (CardState & { column: 'running'; ticket: RunningSubject })
+  | (CardState & { column: Exclude<ColumnKey, 'to-refine' | 'running' | 'done'>; ticket: Ticket });
+
+type Columns = Record<ColumnKey, BoardCard[]>;
+
+type BoardLane = RepositoryFrontier & { columns: Columns };
+
+interface SpecBand {
+  spec: SpecRef | null;
+  columns: Columns;
+  count: number;
+}
+
+const emptyColumns = (): Columns => Object.fromEntries(COLUMNS.map(({ key }) => [key, [] as BoardCard[]])) as Columns;
+
+const specOf = (card: BoardCard): SpecRef | null => (card.column === 'to-refine' ? null : card.ticket.parent);
+
+const specBands = (columns: Columns): SpecBand[] => {
+  const byNumber = new Map<number, SpecBand & { spec: SpecRef }>();
+  const loose: SpecBand = { spec: null, columns: emptyColumns(), count: 0 };
+  for (const { key } of COLUMNS) {
+    for (const card of columns[key]) {
+      const spec = specOf(card);
+      let band = loose;
+      if (spec !== null) {
+        const known = byNumber.get(spec.number) ?? { spec, columns: emptyColumns(), count: 0 };
+        byNumber.set(spec.number, known);
+        band = known;
+      }
+      band.columns[key].push(card);
+      band.count += 1;
+    }
+  }
+  const specs = [...byNumber.values()].sort((a, b) => a.spec.number - b.spec.number);
+  return loose.count === 0 ? specs : [...specs, loose];
+};
+
+const columnOf = (ticket: Ticket, dispatch: DispatchRecord | undefined): Exclude<ColumnKey, 'to-refine' | 'running' | 'done'> => {
+  if (ticket.blocked) return 'blocked';
+  if (ticket.forHuman) return 'ready-for-human';
+  if (dispatch?.state === 'failed') return 'failed';
+  if (dispatch?.state === 'done') {
+    const state = dispatch.pullRequest?.state;
+    if (state === 'open') return 'in-review';
+    if (state === 'closed') return 'failed';
+  }
+  return ticket.forgeReady ? 'waiting-for-slot' : 'ready-for-agent';
+};
+
+const latestSettledOf = <T extends PullRequestWorkloadRecord>(records: readonly T[]): Map<string, T> => {
+  const latest = new Map<string, T>();
+  for (const record of records) {
+    const key = ticketKey(record.repository, record.number);
+    const known = latest.get(key);
+    if (record.state !== 'running' && (known === undefined || known.id < record.id)) latest.set(key, record);
+  }
+  return latest;
+};
+
+const failedStartOf = <T extends PullRequestWorkloadRecord>(record: T | undefined): T | undefined =>
+  record?.reason === 'not-started' ? record : undefined;
+
+const runningCard = (ticket: RunningSubject, dispatch: DispatchRecord | undefined, workload: LiveWorkload): BoardCard => ({
+  column: 'running',
+  ticket,
+  dispatch,
+  workload,
+  conflictFailedStart: undefined,
+  revisionFailedStart: undefined,
+  risk: null,
+  held: false,
+  urgency: null,
+});
+
+const untracked = (subject: UntrackedItem['subject'], number: number, url: string): UntrackedItem => ({ subject, number, url, title: null, parent: null });
+
+interface LiveCard {
+  startedAt: string;
+  card: BoardCard;
+}
+
+const liveCards = (
+  repository: string,
+  onBoard: ReadonlyMap<number, Ticket | ClosedTicket>,
+  dispatches: ReadonlyMap<string, DispatchRecord>,
+  revisions: readonly RevisionRecord[],
+  conflictResolutions: readonly ConflictResolutionRecord[],
+  closes: ReadonlyMap<string, readonly number[]>,
+): LiveCard[] => {
+  const cards: LiveCard[] = [];
+  for (const dispatch of dispatches.values()) {
+    if (dispatch.repository !== repository || dispatch.state !== 'running') continue;
+    const workload: LiveWorkload = { kind: 'dispatch', runId: dispatch.runId, startedAt: dispatch.startedAt, pullRequest: null };
+    cards.push({ startedAt: dispatch.startedAt, card: runningCard(onBoard.get(dispatch.number) ?? untracked('issue', dispatch.number, dispatch.url), dispatch, workload) });
+  }
+  const pullRequestWorkloads: [LiveWorkload['kind'], readonly PullRequestWorkloadRecord[]][] = [
+    ['revision', revisions],
+    ['conflict resolution', conflictResolutions],
+  ];
+  for (const [kind, records] of pullRequestWorkloads) {
+    for (const record of records) {
+      if (record.repository !== repository || record.state !== 'running') continue;
+      const tickets = [...new Set(closes.get(ticketKey(repository, record.number)) ?? [])].filter((number) => onBoard.has(number));
+      const workload: LiveWorkload = { kind, runId: record.runId, startedAt: record.startedAt, pullRequest: { number: record.number, url: record.url } };
+      if (tickets.length === 0) {
+        cards.push({ startedAt: record.startedAt, card: runningCard(untracked('pull request', record.number, record.url), undefined, { ...workload, pullRequest: null }) });
+      }
+      for (const number of tickets) cards.push({ startedAt: record.startedAt, card: runningCard(onBoard.get(number)!, dispatches.get(ticketKey(repository, number)), workload) });
+    }
+  }
+  return cards.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+};
+
+const autoMergedGrade = (risks: RiskInputs, repository: string, dispatch: DispatchRecord | undefined): RecordedRiskGrade | null => {
+  const grade = dispatch?.pullRequest == null ? undefined : risks.grades.get(ticketKey(repository, dispatch.pullRequest.number));
+  return grade?.outcome === 'auto-merged' ? grade : null;
+};
+
+const buildLanes = (
+  frontier: RepositoryFrontier[],
+  dispatches: ReadonlyMap<string, DispatchRecord>,
+  revisions: readonly RevisionRecord[],
+  conflictResolutions: readonly ConflictResolutionRecord[],
+  closes: ReadonlyMap<string, readonly number[]>,
+  risks: RiskInputs,
+  urgencies: UrgencyInputs,
+  ordering: DispatchOrdering,
+): BoardLane[] => {
+  const byOrder = dispatchOrder(frontier, ordering);
+  const latestResolution = latestSettledOf(conflictResolutions);
+  const latestRevision = latestSettledOf(revisions);
+  const lanes = frontier.map((repository) => {
+    const urgencyOf = (number: number): CardUrgency => urgencies.attempts.get(ticketKey(repository.repository, number)) ?? urgencies.grades.get(ticketKey(repository.repository, number)) ?? null;
+    const columns = emptyColumns();
+    const onBoard = new Map<number, Ticket | ClosedTicket>([...repository.tickets, ...repository.closed].map((ticket) => [ticket.number, ticket]));
+    const live = liveCards(repository.repository, onBoard, dispatches, revisions, conflictResolutions, closes);
+    const held = new Set(live.flatMap(({ card }) => (card.column === 'running' && isUntracked(card.ticket) ? [] : [card.ticket.number])));
+    for (const request of [...repository.requests].sort(oldestFirst)) {
+      columns['to-refine'].push({ column: 'to-refine', ticket: request, dispatch: undefined, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: null, urgency: null, held: false });
+    }
+    for (const ticket of [...repository.tickets].sort((a, b) => byOrder(dispatchRefOf(repository.repository, a), dispatchRefOf(repository.repository, b)))) {
+      if (held.has(ticket.number)) continue;
+      const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
+      const column = columnOf(ticket, dispatch);
+      const pullRequest = dispatch?.pullRequest;
+      columns[column].push({
+        column,
+        ticket,
+        dispatch,
+        workload: undefined,
+        conflictFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestResolution.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        revisionFailedStart: column === 'in-review' && pullRequest != null ? failedStartOf(latestRevision.get(ticketKey(repository.repository, pullRequest.number))) : undefined,
+        sampled: column === 'in-review' && pullRequest != null && risks.sampled?.has(ticketKey(repository.repository, pullRequest.number)) === true,
+        paused: column === 'in-review' && pullRequest != null && risks.paused?.has(ticketKey(repository.repository, pullRequest.number)) === true,
+        gates: column === 'in-review' && pullRequest != null ? (risks.gates?.get(ticketKey(repository.repository, pullRequest.number)) ?? []) : [],
+        urgency: urgencyOf(ticket.number),
+        risk: column === 'in-review' && pullRequest != null && risks.repositories.has(repository.repository) ? (risks.grades.get(ticketKey(repository.repository, pullRequest.number)) ?? risks.attempts.get(ticketKey(repository.repository, pullRequest.number)) ?? 'grading') : null,
+        held: column === 'in-review' && pullRequest != null && risks.holds.has(ticketKey(repository.repository, pullRequest.number)),
+      });
+    }
+    for (const ticket of [...repository.closed].sort(newestClosedFirst)) {
+      if (held.has(ticket.number)) continue;
+      const dispatch = dispatches.get(ticketKey(repository.repository, ticket.number));
+      columns.done.push({ column: 'done', ticket, dispatch, workload: undefined, conflictFailedStart: undefined, revisionFailedStart: undefined, risk: autoMergedGrade(risks, repository.repository, dispatch), urgency: null, held: false });
+    }
+    columns.running.push(...live.map(({ card }) => (card.column === 'running' && isUntracked(card.ticket) ? card : { ...card, urgency: urgencyOf(card.ticket.number) })));
+    return { ...repository, columns };
+  });
+  return ordering.order === 'oldest' ? lanes : lanes.toSorted((a, b) => {
+    const [left, right] = [a.columns['waiting-for-slot'][0], b.columns['waiting-for-slot'][0]];
+    if (left?.column !== 'waiting-for-slot' || right?.column !== 'waiting-for-slot') return Number(left === undefined) - Number(right === undefined);
+    return byOrder(dispatchRefOf(a.repository, left.ticket), dispatchRefOf(b.repository, right.ticket));
+  });
+};
+
+const totals = (lanes: readonly BoardLane[]): Record<ColumnKey, number> =>
+  Object.fromEntries(COLUMNS.map(({ key }) => [key, lanes.reduce((sum, lane) => sum + lane.columns[key].length, 0)])) as Record<ColumnKey, number>;
 
 const ROW_GRID = 'sm:grid sm:grid-cols-[repeat(9,minmax(8.5rem,1fr))]';
 
@@ -61,11 +308,12 @@ const renderPullRequestFailedStart = (
   attribute: 'data-conflict-failed-start' | 'data-revision-failed-start',
   label: string,
   { failedStarts, endedAt, startedAt, detail }: PullRequestWorkloadRecord,
+  now: Date,
 ): Rendered => {
   const times = failedStarts ?? 1;
   const since = endedAt ?? startedAt;
   const text = detail === null || detail.trim() === '' ? '' : `: ${detail}`;
-  return html`<p ${raw(attribute)} class="${FAILURE_LINE}" title="${label} did not start${text}">${label} did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${text}</p>`;
+  return html`<p ${raw(attribute)} class="${FAILURE_LINE}" title="${label} did not start${text}">${label} did not start (${times} ${times === 1 ? 'time' : 'times'}, last <span data-elapsed-since="${since}">${formatElapsed(now.getTime() - Date.parse(since))}</span> ago)${text}</p>`;
 };
 
 const RISK_TONE: Record<RiskLevel, string> = {
@@ -130,24 +378,24 @@ const renderGates = (gates: readonly FailingGate[]): Rendered =>
     ? html``
     : html`<p class="${MUTED_LINE} flex flex-wrap items-center gap-x-1.5 gap-y-1">${gates.map(({ key, detail }) => html`<span data-gate="${key}" title="${detail}" class="${PILL} ${QUEUED_TONE} whitespace-nowrap">${GATE_LABELS[key]}</span>`)}</p>`;
 
-const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, held, paused, gates }: BoardCard): Rendered => {
+const renderInReview = ({ dispatch, conflictFailedStart, revisionFailedStart, risk, sampled, held, paused, gates }: BoardCard, now: Date): Rendered => {
   const pullRequest = dispatch?.pullRequest;
   if (dispatch === undefined || pullRequest == null) return '';
   const label = `PR #${pullRequest.number}`;
-  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${paused === true ? renderPaused() : ''}${renderGates(gates ?? [])}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart)}`;
+  return html`<p class="${MUTED_LINE}">${isGithubUrl(pullRequest.url) ? externalLink(pullRequest.url, label) : label}</p>${held ? renderHold() : ''}${renderRisk(risk)}${sampled === true ? renderSampled() : ''}${paused === true ? renderPaused() : ''}${renderGates(gates ?? [])}${revisionFailedStart === undefined ? '' : renderPullRequestFailedStart('data-revision-failed-start', 'Revision', revisionFailedStart, now)}${conflictFailedStart === undefined ? '' : renderPullRequestFailedStart('data-conflict-failed-start', 'Conflict resolution', conflictFailedStart, now)}`;
 };
 
-const renderFailedStart = (dispatch: DispatchRecord, text: string): Rendered => {
+const renderFailedStart = (dispatch: DispatchRecord, text: string, now: Date): Rendered => {
   const times = repeatedStart(dispatch);
   const since = dispatch.endedAt ?? dispatch.startedAt;
-  return html`<p class="${FAILURE_LINE}" title="${text}">Did not start (${times} times, last <span data-elapsed-since="${since}">${formatElapsed(Date.now() - Date.parse(since))}</span> ago)${detailSuffix(dispatch)}</p>`;
+  return html`<p class="${FAILURE_LINE}" title="${text}">Did not start (${times} times, last <span data-elapsed-since="${since}">${formatElapsed(now.getTime() - Date.parse(since))}</span> ago)${detailSuffix(dispatch)}</p>`;
 };
 
-const renderFailure = ({ dispatch }: BoardCard): Rendered => {
+const renderFailure = ({ dispatch }: BoardCard, now: Date): Rendered => {
   const text = dispatch?.state === 'failed' ? failureText(dispatch) : CLOSED_PULL_REQUEST;
   if (text === null) return '';
   return dispatch !== undefined && repeatedStart(dispatch) !== null
-    ? renderFailedStart(dispatch, text)
+    ? renderFailedStart(dispatch, text, now)
     : html`<p class="${FAILURE_LINE}" title="${text}">${text}</p>`;
 };
 
@@ -186,22 +434,29 @@ const isHeld = ({ column, ticket }: BoardCard, full: boolean): boolean =>
 const renderHeld = (): Rendered =>
   html`<p class="${MUTED_LINE}"><span data-held title="Held back until a pull request is merged or closed" class="${PILL} ${HELD_TONE}">held: review limit</span></p>`;
 
-const renderDetails = (card: BoardCard, github: string, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+const renderDetails = (card: BoardCard, github: string, { timeZone, runs, now }: PageContext): Rendered => {
   switch (card.column) {
     case 'blocked':
       return renderBlocked(card, github);
     case 'running':
       return renderRunning(card, runs);
     case 'in-review':
-      return renderInReview(card);
+      return renderInReview(card, now);
     case 'failed':
-      return renderFailure(card);
+      return renderFailure(card, now);
     case 'done':
       return renderDone(card, timeZone);
     default:
       return html`${card.column === 'to-refine' ? '' : renderAwaitingRedispatch(card.ticket)}<p class="${MUTED_LINE}">${renderDate(card.ticket.createdAt, timeZone)}</p>`;
   }
 };
+
+interface PageContext {
+  attempted: ReadonlySet<string>;
+  timeZone: string;
+  runs: ReadonlyMap<string, RunRecord>;
+  now: Date;
+}
 
 interface Destination {
   href: string;
@@ -244,8 +499,9 @@ const renderCardLink = (destination: Destination | null): Rendered =>
     ? ''
     : html`<a href="${destination.href}" data-card-link aria-label="${destination.label}"${destination.external ? raw(' target="_blank" rel="noopener noreferrer"') : ''} class="${CARD_LINK}"></a>`;
 
-const renderCard = (repository: string, github: string, card: BoardCard, grouped: boolean, full: boolean, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered => {
+const renderCard = (repository: string, github: string, card: BoardCard, grouped: boolean, full: boolean, context: PageContext): Rendered => {
   const { ticket } = card;
+  const { attempted, runs } = context;
   const parent = grouped || card.column === 'to-refine' ? null : card.ticket.parent;
   return html`<article data-ticket="${ticket.number}" class="relative rounded-md border border-line bg-surface p-2 text-sm ${CARD_HOVER} ${INNER_LINKS}">
     ${renderCardLink(destinationOf(card, runs))}
@@ -255,7 +511,7 @@ const renderCard = (repository: string, github: string, card: BoardCard, grouped
     ${ticket.title === null ? '' : html`<p class="m-0 mt-1 break-words">${ticket.title}</p>`}
     ${parent === null ? '' : renderSpecLine(parent)}
     ${renderUrgency(card.urgency)}
-    ${renderDetails(card, github, timeZone, runs)}
+    ${renderDetails(card, github, context)}
     ${isHeld(card, full) ? renderHeld() : ''}
   </article>`;
 };
@@ -322,20 +578,21 @@ const renderStageHeader = ({ key, title, subtitle, person }: (typeof COLUMNS)[nu
     ${compact ? '' : html`<span data-stage-subtitle class="mt-0.5 block truncate text-[0.6875rem] leading-4 text-muted">${subtitle}</span>`}
   </div>`;
 
-const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, review: ReviewSlots, scope: string, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+const renderRow = (repository: string, github: string, columns: Columns, grouped: boolean, review: ReviewSlots, scope: string, context: PageContext): Rendered =>
   html`<div class="${ROW_GRID}">${COLUMNS.map(
-    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-column-line sm:min-h-12 sm:border-l sm:p-2 sm:first:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped, review, scope)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, reviewFull(review), attempted, timeZone, runs))}</div></div>`,
+    (column) => html`<div data-column="${column.key}" class="flex flex-col gap-2 border-column-line sm:min-h-12 sm:border-l sm:p-2 sm:first:border-l-0${columns[column.key].length === 0 ? ' max-sm:hidden' : ''}">${renderStageHeader(column, columns[column.key].length, grouped, review, scope)}<div class="flex flex-col gap-2 p-2 sm:contents">${columns[column.key].map((card) => renderCard(repository, github, card, grouped, reviewFull(review), context))}</div></div>`,
   )}</div>`;
 
-const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, review: ReviewSlots, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): Rendered =>
+const renderBand = (lane: BoardLane, { spec, columns, count }: SpecBand, review: ReviewSlots, context: PageContext): Rendered =>
   html`<div data-spec-band="${spec === null ? 'none' : spec.number}">
     <header data-band-head class="flex items-baseline gap-2.5 border-t border-dashed border-line bg-bg px-3 py-1.5 text-[0.8125rem]">${spec === null
       ? html`<span class="font-semibold text-muted">No spec</span>`
       : html`<span class="tabular-nums">${isGithubUrl(spec.url) ? externalLink(spec.url, `#${spec.number}`) : html`#${spec.number}`}</span><span class="font-semibold">${spec.title}</span>`}<span class="tabular-nums text-muted">${count} ${count === 1 ? 'ticket' : 'tickets'}</span></header>
-    ${renderRow(lane.repository, lane.github, columns, true, review, `${laneId(lane.repository)}-${spec === null ? 'none' : spec.number}`, attempted, timeZone, runs)}
+    ${renderRow(lane.repository, lane.github, columns, true, review, `${laneId(lane.repository)}-${spec === null ? 'none' : spec.number}`, context)}
   </div>`;
 
-const renderLane = (lane: BoardLane, grouped: boolean, review: ReviewSlots, attempted: ReadonlySet<string>, timeZone: string, runs: ReadonlyMap<string, RunRecord>): HtmlEscapedString | Promise<HtmlEscapedString> => {
+const renderLane = (lane: BoardLane, grouped: boolean, review: ReviewSlots, context: PageContext): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const { timeZone } = context;
   const empty = COLUMNS.every(({ key }) => lane.columns[key].length === 0);
   return html`<section id="${laneId(lane.repository)}" class="group scroll-mt-4 border-t border-line" data-repository="${lane.repository}"${empty ? html` data-empty data-collapsed` : ''}${lane.lastError === null ? '' : html` data-stale`}>
     <div class="${LANE_HEAD}">
@@ -356,12 +613,12 @@ const renderLane = (lane: BoardLane, grouped: boolean, review: ReviewSlots, atte
       : html`<p class="${ERROR_CALLOUT} mx-3 mb-2" data-branch-rules>No new work starts here until a sync finds its default branch rules passing: ${lane.branchRules.join('; ')}</p>`}
     </div>
     <div class="group-data-[collapsed]:hidden">${grouped
-      ? specBands(lane.columns).map((band) => renderBand(lane, band, review, attempted, timeZone, runs))
-      : renderRow(lane.repository, lane.github, lane.columns, false, review, laneId(lane.repository), attempted, timeZone, runs)}</div>
+      ? specBands(lane.columns).map((band) => renderBand(lane, band, review, context))
+      : renderRow(lane.repository, lane.github, lane.columns, false, review, laneId(lane.repository), context)}</div>
   </section>`;
 };
 
-export interface RunningSlots {
+interface RunningSlots {
   running: number;
   limit: number;
 }
@@ -374,13 +631,13 @@ const renderRunningLimit = ({ running, limit }: RunningSlots): Rendered => {
   return html`<span data-running-limit${full ? html` data-full` : ''} title="Workloads running, out of the global limit" class="${PILL} mb-3 ${full ? FULL_TONE : OPEN_TONE} tabular-nums">Running ${running} / ${limit}</span>`;
 };
 
-export interface ReviewSlots {
+interface ReviewSlots {
   pullRequests: number;
   running: number;
   limit: number | null;
 }
 
-export type Grouping = 'none' | 'spec';
+type Grouping = 'none' | 'spec';
 
 const GROUPINGS: readonly { value: Grouping; label: string; href: string }[] = [
   { value: 'none', label: 'None', href: '/' },
@@ -392,34 +649,77 @@ const renderGroupControl = (grouping: Grouping): Rendered =>
     ({ value, label, href }) => html`<a href="${href}"${value === grouping ? html` aria-current="true"` : ''} class="px-3 py-1 no-underline ${value === grouping ? 'bg-raised font-semibold text-fg' : 'text-muted hover:text-fg'}${value === 'none' ? '' : ' border-l border-line'}">${label}</a>`,
   )}</div></div>`;
 
-export type GradingView = RiskInputs;
+const groupingOf = (group: string | undefined): Grouping => (group === 'spec' ? 'spec' : 'none');
 
-export type UrgencyView = UrgencyInputs;
+const keyed = <T extends { repository: string; number: number }>(records: readonly T[]): Map<string, T> =>
+  new Map(records.map((record) => [ticketKey(record.repository, record.number), record]));
 
-export const renderBoard = (
-  frontier: RepositoryFrontier[],
-  dispatches: DispatchRecord[],
-  revisions: RevisionRecord[],
-  conflictResolutions: ConflictResolutionRecord[],
-  closes: ReadonlyMap<string, readonly number[]>,
-  runs: ReadonlyMap<string, RunRecord>,
-  attempted: ReadonlySet<string>,
-  slots: RunningSlots,
-  review: ReviewSlots,
-  display: Display,
-  grouping: Grouping = 'none',
-  grading: GradingView = { repositories: new Set(), grades: new Map(), attempts: new Map(), holds: new Set() },
-  urgencies: UrgencyView = { grades: new Map(), attempts: new Map() },
-  ordering: DispatchOrdering = OLDEST_FIRST,
-): HtmlEscapedString | Promise<HtmlEscapedString> => {
-  const lanes = buildLanes(frontier, new Map(dispatches.map((dispatch) => [ticketKey(dispatch.repository, dispatch.number), dispatch])), revisions, conflictResolutions, closes, grading, urgencies, ordering);
-  const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit(slots)}</div></div>
+const keysOf = (records: readonly { repository: string; number: number }[]): Set<string> =>
+  new Set(records.map(({ repository, number }) => ticketKey(repository, number)));
+
+const pausedPullRequests = (store: Store, repositories: readonly string[], now: string): Set<string> => {
+  if (repositories.length === 0 || autoMergeStatus(store).state !== 'paused') return new Set();
+  return keysOf(autoMergeCandidates(store, repositories, now).filter(({ repository, number }) => pullRequestSampled(store, repository, number) !== true));
+};
+
+const runsOf = (store: Store, dispatches: readonly DispatchRecord[], pullRequestWorkloads: readonly PullRequestWorkloadRecord[]): Map<string, RunRecord> => {
+  const runs = new Map<string, RunRecord>();
+  for (const { runId } of [...dispatches, ...pullRequestWorkloads.filter(({ state }) => state === 'running')]) {
+    const run = runId === null ? undefined : store.runs.getRun(runId);
+    if (run !== undefined) runs.set(run.id, run);
+  }
+  return runs;
+};
+
+export interface BoardSettings {
+  maxConcurrent: number;
+  maxOpenPullRequests: number | null;
+  gradingRepositories: readonly string[];
+  autoMergeRepositories: readonly string[];
+  dispatchOrder: DispatchOrder;
+  repositoryPriorities: Readonly<Record<string, number>>;
+}
+
+export interface BoardInput {
+  store: Store;
+  settings: BoardSettings;
+  now: Date;
+  group: string | undefined;
+  display: Display;
+}
+
+export const boardPage = ({ store, settings, now, group, display }: BoardInput): HtmlEscapedString | Promise<HtmlEscapedString> => {
+  const at = now.toISOString();
+  const grouping = groupingOf(group);
+  const dispatches = store.workloads.listDispatches(at);
+  const revisions = store.workloads.listRevisions(at);
+  const conflictResolutions = store.workloads.listConflictResolutions(at);
+  const frontier = store.frontier.listFrontier();
+  const ordering: DispatchOrdering = {
+    order: settings.dispatchOrder,
+    priorities: new Map(Object.entries(settings.repositoryPriorities)),
+    urgencies: certainUrgencies(store.urgency, frontier, settings.dispatchOrder),
+  };
+  const risks: RiskInputs = {
+    repositories: new Set(settings.gradingRepositories),
+    grades: keyed(store.grades.currentRiskGrades()),
+    attempts: keyed(store.grades.currentGradingAttempts()),
+    holds: keysOf(store.autoMerge.heldPullRequests()),
+    sampled: keysOf(store.autoMerge.sampledPullRequests()),
+    paused: pausedPullRequests(store, settings.autoMergeRepositories, at),
+    gates: new Map(store.autoMerge.currentFailingGates().filter(({ repository }) => settings.autoMergeRepositories.includes(repository)).map(({ repository, number, gates }) => [ticketKey(repository, number), gates])),
+  };
+  const urgencies: UrgencyInputs = { grades: keyed(store.urgency.currentGrades()), attempts: keyed(store.urgency.currentAttempts()) };
+  const lanes = buildLanes(frontier, keyed(dispatches), revisions, conflictResolutions, store.workloads.closesByPullRequest(), risks, urgencies, ordering);
+  const review: ReviewSlots = { ...store.workloads.reviewSlotsTaken(at), limit: settings.maxOpenPullRequests };
+  const context: PageContext = { attempted: store.workloads.attemptedTickets(), timeZone: display.timeZone, runs: runsOf(store, dispatches, [...revisions, ...conflictResolutions]), now };
+  const body = html`<div class="flex flex-wrap items-center justify-between gap-x-4"><h1 class="${PAGE_TITLE}">Board</h1><div class="flex flex-wrap items-center gap-x-4">${renderGroupControl(grouping)}${renderRunningLimit({ running: store.workloads.liveWorkloads(at), limit: settings.maxConcurrent })}</div></div>
     ${lanes.length === 0
       ? html`<p class="${EMPTY}">No managed repositories have been polled yet.</p>`
       : html`<div data-board class="min-h-0 flex-1 overflow-auto rounded-lg border border-line bg-surface">
           <div class="sm:min-w-[76.5rem]">
             ${renderColumnHeaders(totals(lanes), review)}
-            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', review, attempted, display.timeZone, runs))}
+            ${lanes.map((lane) => renderLane(lane, grouping === 'spec', review, context))}
           </div>
         </div>`}`;
   return layout('Board', 'board', true, display, body, 'always');

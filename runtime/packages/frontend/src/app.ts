@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { aggregateRisk, autoMergeCandidates, autoMergeStatus, pullRequestSampled, certainUrgencies, summarizeRisk, type DispatchOrder, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, ticketKey, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type AutoMergeStatus, type RunRecord, type Store } from '@forge/shared';
+import { aggregateRisk, autoMergeStatus, summarizeRisk, type DispatchOrder, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type AutoMergeStatus, type RunRecord, type Store } from '@forge/shared';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
 import type { TranscriptSource } from './transcript.ts';
 import { renderTicketAttempts } from './views/attempts.ts';
-import { renderBoard } from './views/board.ts';
+import { boardPage, type BoardSettings } from './views/board.ts';
 import { parseTranscriptShow, renderFullTranscript } from './views/full-transcript.ts';
 import { DEFAULT_INSIGHTS_TAB, defaultKindOf, INSIGHTS_TABS, renderCohortPage, renderInsights, renderRisk, renderUnknownCohortPage, type InsightsQuery } from './views/insights.ts';
 import { isSettled, renderDetail, type Downloads } from './views/run.ts';
@@ -112,11 +112,6 @@ export const createApp = ({
     return status.state === 'paused' ? status : null;
   };
 
-  const pausedPullRequests = (now: string): { repository: string; number: number }[] =>
-    autoMergePause() === null
-      ? []
-      : autoMergeCandidates(store, autoMergeRepositories, now).filter(({ repository, number }) => pullRequestSampled(store, repository, number) !== true);
-
   const escalatedGrading = (): boolean => {
     const grading = gradingAttention();
     return grading !== null && needsOperator(grading) !== null;
@@ -144,21 +139,9 @@ export const createApp = ({
   serveImmutable(assets.idiomorph, idiomorph, 'text/javascript; charset=utf-8');
   serveImmutable(assets.client, client, 'text/javascript; charset=utf-8');
 
-  app.get('/', (c) => {
-    const shown = displayOf(c);
-    const now = new Date().toISOString();
-    const dispatches = store.workloads.listDispatches(now);
-    const revisions = store.workloads.listRevisions(now);
-    const conflictResolutions = store.workloads.listConflictResolutions(now);
-    const runs = new Map<string, RunRecord>();
-    for (const runId of [...dispatches, ...[...revisions, ...conflictResolutions].filter(({ state }) => state === 'running')].map(({ runId }) => runId)) {
-      const run = runId === null ? undefined : store.runs.getRun(runId);
-      if (run !== undefined) runs.set(run.id, run);
-    }
-    const frontier = store.frontier.listFrontier();
-    const ordering = { order: dispatchOrder, priorities: new Map(Object.entries(repositoryPriorities)), urgencies: certainUrgencies(store.urgency, frontier, dispatchOrder) };
-    return c.html(renderBoard(frontier, dispatches, revisions, conflictResolutions, store.workloads.closesByPullRequest(), runs, store.workloads.attemptedTickets(), { running: store.workloads.liveWorkloads(now), limit: maxConcurrent }, { ...store.workloads.reviewSlotsTaken(now), limit: maxOpenPullRequests }, shown, c.req.query('group') === 'spec' ? 'spec' : 'none', { repositories: new Set(gradingRepositories), grades: new Map(store.grades.currentRiskGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.grades.currentGradingAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])), holds: new Set(store.autoMerge.heldPullRequests().map(({ repository, number }) => ticketKey(repository, number))), sampled: new Set(store.autoMerge.sampledPullRequests().map(({ repository, number }) => ticketKey(repository, number))), paused: new Set(pausedPullRequests(now).map(({ repository, number }) => ticketKey(repository, number))), gates: new Map(store.autoMerge.currentFailingGates().filter(({ repository }) => autoMergeRepositories.includes(repository)).map(({ repository, number, gates }) => [ticketKey(repository, number), gates])) }, { grades: new Map(store.urgency.currentGrades().map((grade) => [ticketKey(grade.repository, grade.number), grade])), attempts: new Map(store.urgency.currentAttempts().map((attempt) => [ticketKey(attempt.repository, attempt.number), attempt])) }, ordering));
-  });
+  const boardSettings: BoardSettings = { maxConcurrent, maxOpenPullRequests, gradingRepositories, autoMergeRepositories, dispatchOrder, repositoryPriorities };
+
+  app.get('/', (c) => c.html(boardPage({ store, settings: boardSettings, now: clock(), group: c.req.query('group'), display: displayOf(c) })));
 
   app.get('/work', (c) => c.redirect('/'));
 
