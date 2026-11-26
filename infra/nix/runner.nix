@@ -33,7 +33,7 @@ buildNpmPackage {
   };
   sourceRoot = "source/runtime";
 
-  npmDepsHash = "sha256-aMps8/5eF/ZZw72Upo7PR6fRaunG+V+5pZHhRduE5Qc=";
+  npmDepsHash = import ./runtime-npm-deps-hash.nix;
 
   outputs = [
     "out"

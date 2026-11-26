@@ -1,12 +1,10 @@
 import { html, raw } from 'hono/html';
-import { isGithubUrl, type AttemptConflictResolution, type AttemptRevision, type PullRequestState, type PullRequestWorkloadRecord, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
+import { attemptOutcome as outcomeOf, isGithubUrl, type AttemptOutcome, type AttemptConflictResolution, type AttemptRevision, type PullRequestWorkloadRecord, type RunFingerprint, type RunRecord, type RunCounters, type TicketAttempt } from '@forge/shared';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { formatDuration } from '../format.ts';
 import { FAILED_TONE, renderWorkloadOutcome, renderStatusBeside, PULL_REQUEST_TONE, pullRequestFailureText, type Rendered, PILL, NOT_RECORDED, SHORT_SHA_LENGTH, ROW, CLICKABLE_ROW, STRETCHED_LINK, TD, LINK, renderDate, renderCohortLink, NUMERIC, renderRunCost, externalLink, type Display, PAGE_TITLE, EMPTY, CARD, TABLE, TH, type Cost, layout } from './shared.ts';
 
-type AttemptLabel = PullRequestState | 'running' | 'interrupted' | 'exceeded' | 'failed';
-
-const ATTEMPT_TITLE: Record<AttemptLabel, string> = {
+const ATTEMPT_TITLE: Record<AttemptOutcome, string> = {
   open: 'The attempt opened a pull request that is still open',
   merged: 'The attempt opened a pull request that was merged',
   closed: 'The attempt opened a pull request that was closed without merging',
@@ -16,15 +14,19 @@ const ATTEMPT_TITLE: Record<AttemptLabel, string> = {
   failed: 'The attempt did not open a pull request',
 };
 
-const attemptOutcome = ({ run, pullRequest }: TicketAttempt): [AttemptLabel, string] => {
-  if (pullRequest !== null) return [pullRequest.state, PULL_REQUEST_TONE[pullRequest.state]];
-  if (run.endTime === null) return ['running', 'bg-raised text-fg'];
-  if (run.status === 'interrupted' || run.status === 'exceeded') return [run.status, 'bg-warning-soft text-warning'];
-  return ['failed', FAILED_TONE];
+const OUTCOME_TONE: Record<AttemptOutcome, string> = {
+  open: PULL_REQUEST_TONE.open,
+  merged: PULL_REQUEST_TONE.merged,
+  closed: PULL_REQUEST_TONE.closed,
+  running: 'bg-raised text-fg',
+  interrupted: 'bg-warning-soft text-warning',
+  exceeded: 'bg-warning-soft text-warning',
+  failed: FAILED_TONE,
 };
 
 const renderOutcome = (attempt: TicketAttempt): Rendered => {
-  const [label, tone] = attemptOutcome(attempt);
+  const label = outcomeOf(attempt);
+  const tone = OUTCOME_TONE[label];
   return html`<span class="${PILL} ${tone}" data-outcome="${label}" title="${ATTEMPT_TITLE[label]}">${label}</span>`;
 };
 

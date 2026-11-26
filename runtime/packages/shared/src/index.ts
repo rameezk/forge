@@ -307,3 +307,21 @@ export type {
   DiagnosisState,
   DiagnosisVerdict,
 } from './diagnosis.ts';
+export {
+  attemptOutcome,
+  BOX_API_PREFIX,
+  diagnosisView,
+  RUNNING_ROUTE,
+  ticketRoute,
+} from './box-api.ts';
+export type {
+  AttemptOutcome,
+  AttemptView,
+  DiagnosisView,
+  PullRequestView,
+  RunningDispatch,
+  RunningPullRequestWorkload,
+  RunningView,
+  RunningWorkload,
+  TicketView,
+} from './box-api.ts';

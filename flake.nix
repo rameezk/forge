@@ -113,6 +113,7 @@
           forge-runner = pkgs.callPackage ./infra/nix/runner.nix {
             inherit (self.packages.${system}) pi-coding-agent claude-code;
           };
+          forge-mcp = pkgs.callPackage ./infra/nix/forge-mcp.nix { };
         }
       );
 
@@ -2314,6 +2315,7 @@
             '';
 
           forge-runner = self.packages.${system}.forge-runner;
+          forge-mcp = self.packages.${system}.forge-mcp;
           frontier-command = pkgs.callPackage ./infra/nix/frontier-command-check.nix { };
           runtime-secrets = pkgs.callPackage ./infra/nix/runtime-secrets-check.nix {
             inherit (sops-nix.packages.${system}) sops-install-secrets;
