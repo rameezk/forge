@@ -13,7 +13,7 @@ const READY_FOR_HUMAN = 'ready-for-human';
 
 export const BLOCKERS_PAGE_SIZE = 50;
 
-export const ASSIGNEES_PAGE_SIZE = 10;
+const ASSIGNEES_PAGE_SIZE = 10;
 
 const READY_FOR_REFINEMENT = 'ready-for-refinement';
 
