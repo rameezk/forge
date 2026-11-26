@@ -1,11 +1,17 @@
 import type { TicketAttempt } from './attempts.ts';
 import type { RevisedPullRequest } from './revision.ts';
 import type { DiagnosisCategory, DiagnosisEvidence, DiagnosisRecord, DiagnosisState } from './diagnosis.ts';
+import type { Assignee, PollFailure } from './frontier.ts';
 import type { DispatchFailure, DispatchTicket, PullRequestRecord } from './dispatch.ts';
 
 export const BOX_API_PREFIX = '/api';
 
 export const RUNNING_ROUTE = `${BOX_API_PREFIX}/running`;
+
+export const FRONTIER_ROUTE = `${BOX_API_PREFIX}/frontier`;
+
+export const repositoryRoute = (repository: string): string =>
+  `${BOX_API_PREFIX}/repositories/${encodeURIComponent(repository)}`;
 
 export const ticketRoute = (repository: string, number: number): string =>
   `${BOX_API_PREFIX}/tickets/${encodeURIComponent(repository)}/${number}`;
@@ -84,4 +90,35 @@ export interface RunningView {
   dispatches: RunningDispatch[];
   revisions: RunningPullRequestWorkload[];
   conflictResolutions: RunningPullRequestWorkload[];
+}
+
+export interface FrontierTicketView {
+  number: number;
+  title: string;
+  url: string;
+  readyFor: 'agent' | 'human';
+  blockedBy: number[];
+  assignees: Assignee[];
+}
+
+export interface RepositoryFrontierView {
+  repository: string;
+  github: string;
+  frontier: FrontierTicketView[];
+  queued: FrontierTicketView[];
+  assigned: FrontierTicketView[];
+}
+
+export interface FrontierView {
+  repositories: RepositoryFrontierView[];
+}
+
+export interface RepositoryView {
+  repository: string;
+  github: string;
+  polling: boolean;
+  polledAt: string | null;
+  lastError: PollFailure | null;
+  rulesPass: boolean | null;
+  ruleFailures: string[];
 }
