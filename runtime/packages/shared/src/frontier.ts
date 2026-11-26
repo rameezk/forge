@@ -13,6 +13,8 @@ const READY_FOR_HUMAN = 'ready-for-human';
 
 export const BLOCKERS_PAGE_SIZE = 50;
 
+const ASSIGNEES_PAGE_SIZE = 10;
+
 const READY_FOR_REFINEMENT = 'ready-for-refinement';
 
 export const FRONTIER_QUERY = `
@@ -38,6 +40,12 @@ export const FRONTIER_QUERY = `
           labels(first: 100) {
             nodes {
               name
+            }
+          }
+          assignees(first: ${ASSIGNEES_PAGE_SIZE}) {
+            nodes {
+              login
+              avatarUrl
             }
           }
           issueDependenciesSummary {
@@ -288,6 +296,11 @@ export interface SpecRef {
   url: string;
 }
 
+export interface Assignee {
+  login: string;
+  avatarUrl: string;
+}
+
 export interface Ticket {
   number: number;
   title: string;
@@ -298,6 +311,7 @@ export interface Ticket {
   forHuman: boolean;
   blocked: boolean;
   blockedBy: number[];
+  assignees: Assignee[];
   version?: string;
   awaitingRedispatch?: boolean;
 }
@@ -362,6 +376,7 @@ interface IssueNode {
   body: string;
   createdAt: string;
   labels: { nodes: { name: string }[] };
+  assignees: { nodes: Assignee[] };
   issueDependenciesSummary: { blockedBy: number };
   blockedBy: { nodes: { number: number; state: string }[] };
   parent: SpecRef | null;
@@ -421,6 +436,7 @@ const toTicket = (issue: IssueNode): PolledTicket => ({
   forHuman: issue.labels.nodes.some((label) => label.name === READY_FOR_HUMAN),
   blocked: issue.issueDependenciesSummary.blockedBy > 0,
   blockedBy: issue.blockedBy.nodes.filter((blocker) => blocker.state === 'OPEN').map((blocker) => blocker.number),
+  assignees: issue.assignees.nodes.map(({ login, avatarUrl }) => ({ login, avatarUrl })),
   version: ticketVersion(issue),
 });
 

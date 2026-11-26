@@ -20,6 +20,9 @@
                   }
                 ]
               },
+              "assignees": {
+                "nodes": []
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 1
               },
@@ -47,6 +50,9 @@
                     "name": "forge:ready"
                   }
                 ]
+              },
+              "assignees": {
+                "nodes": []
               },
               "issueDependenciesSummary": {
                 "blockedBy": 2

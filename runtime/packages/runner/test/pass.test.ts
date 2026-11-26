@@ -16,7 +16,7 @@ const ticket = (github: string, number: number, overrides: Partial<Ticket> = {})
   forgeReady: true,
   blocked: false,
   forHuman: false,
-  blockedBy: [],
+  blockedBy: [], assignees: [],
   version: `v${number}`,
   ...overrides,
 });
@@ -189,6 +189,33 @@ test('given an unblocked ready-for-human ticket labelled forge:ready beside a fr
   });
 
   assert.deepEqual(started, ['start --no-block --no-ask-password -- forge-dispatch@forge:114.service']);
+});
+
+const OCTOCAT = { login: 'octocat', avatarUrl: 'https://avatars.githubusercontent.com/octocat' };
+
+test('given two frontier tickets labelled forge:ready, one of them assigned, when the pass runs, then only the unassigned ticket is dispatched, and the log says the other was passed over because it is assigned', async () => {
+  const { code, started, journal } = await pass({
+    frontier: [
+      polled('forge', 'rameezk/forge', [
+        ticket('rameezk/forge', 113, { assignees: [OCTOCAT] }),
+        ticket('rameezk/forge', 114),
+      ]),
+    ],
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(started, ['start --no-block --no-ask-password -- forge-dispatch@forge:114.service']);
+  assert.match(journal, /forge#113: passed over, it is assigned to octocat/);
+});
+
+test('given a live dispatch whose ticket has since been assigned, when the pass runs, then the dispatch is left running and nothing new starts for that ticket', async () => {
+  const { code, started } = await pass({
+    frontier: [polled('forge', 'rameezk/forge', [ticket('rameezk/forge', 113, { assignees: [OCTOCAT] })])],
+    seed: (store) => startedDispatch(store, 'forge', 113, 'run-113', new Date().toISOString()),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(started, []);
 });
 
 test('given maxConcurrent = 1 and two dispatchable tickets, when the pass runs, then only the older is dispatched and the other waits; while the first runs a later pass dispatches nothing, even though the snapshot predates its claim; and once it finishes the next pass dispatches the other', async () => {

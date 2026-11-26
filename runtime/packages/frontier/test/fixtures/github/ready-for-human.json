@@ -20,6 +20,9 @@
                   }
                 ]
               },
+              "assignees": {
+                "nodes": []
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 1
               },
@@ -44,6 +47,9 @@
                     "name": "ready-for-human"
                   }
                 ]
+              },
+              "assignees": {
+                "nodes": []
               },
               "issueDependenciesSummary": {
                 "blockedBy": 0

@@ -63,6 +63,7 @@ export type {
   ToolResultEvent,
 } from './events.ts';
 export type {
+  Assignee,
   ClosedTicket,
   Fetch,
   LabelledIssue,

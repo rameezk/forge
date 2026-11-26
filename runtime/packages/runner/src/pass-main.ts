@@ -33,6 +33,14 @@ const declaresConflictWorker = ({ repositories = {} }: RuntimeConfig, name: stri
 
 const NOT_CHECKED = 'its default branch rules have not been checked yet';
 
+const passedOverAsAssigned = (repository: string, { number, assignees }: Ticket): boolean => {
+  if (assignees.length === 0) return false;
+  console.error(
+    `${repository}#${number}: passed over, it is assigned to ${assignees.map(({ login }) => login).join(', ')}`,
+  );
+  return true;
+};
+
 const dispatchable = (
   config: RuntimeConfig,
   store: Store,
@@ -54,7 +62,8 @@ const dispatchable = (
             ticket.forgeReady &&
             !ticket.blocked &&
             !ticket.forHuman &&
-            !running.has(ticketKey(repository, ticket.number)),
+            !running.has(ticketKey(repository, ticket.number)) &&
+            !passedOverAsAssigned(repository, ticket),
         )
         .map((ticket) => ({ ...ticket, repository })),
     )

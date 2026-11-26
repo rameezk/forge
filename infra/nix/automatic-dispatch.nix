@@ -15,6 +15,7 @@ let
     inherit number forgeReady blocked;
     forHuman = false;
     blockedBy = [ ];
+    assignees = [ ];
     title = "Ticket ${toString number}";
     url = "https://github.com/rameezk/forge/issues/${toString number}";
     parent = null;

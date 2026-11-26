@@ -20,6 +20,9 @@
                   }
                 ]
               },
+              "assignees": {
+                "nodes": []
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },
@@ -44,6 +47,9 @@
                   }
                 ]
               },
+              "assignees": {
+                "nodes": []
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },
@@ -67,6 +73,9 @@
                     "name": "ready-for-agent"
                   }
                 ]
+              },
+              "assignees": {
+                "nodes": []
               },
               "issueDependenciesSummary": {
                 "blockedBy": 0
@@ -106,6 +115,9 @@
                   }
                 ]
               },
+              "assignees": {
+                "nodes": []
+              },
               "issueDependenciesSummary": {
                 "blockedBy": 0
               },
@@ -129,6 +141,9 @@
                     "name": "ready-for-agent"
                   }
                 ]
+              },
+              "assignees": {
+                "nodes": []
               },
               "issueDependenciesSummary": {
                 "blockedBy": 1
@@ -158,6 +173,9 @@
                     "name": "ready-for-agent"
                   }
                 ]
+              },
+              "assignees": {
+                "nodes": []
               },
               "issueDependenciesSummary": {
                 "blockedBy": 0
@@ -196,6 +214,9 @@
                     "name": "ready-for-agent"
                   }
                 ]
+              },
+              "assignees": {
+                "nodes": []
               },
               "issueDependenciesSummary": {
                 "blockedBy": 0

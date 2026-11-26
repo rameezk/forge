@@ -12,7 +12,7 @@ const ticket = (number: number): Ticket => ({
   forgeReady: false,
   blocked: false,
   forHuman: false,
-  blockedBy: [],
+  blockedBy: [], assignees: [],
 });
 
 const seed = (store: Store, tickets: Ticket[]) =>

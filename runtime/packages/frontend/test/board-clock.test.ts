@@ -28,7 +28,7 @@ const seedTicket = (store: Store, overrides: { forgeReady?: boolean } = {}): voi
     polledAt: '2026-09-29T08:15:00.000Z',
     closed: [],
     requests: [],
-    tickets: [{ number: 42, title: 'Ticket', url: ISSUE.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: overrides.forgeReady ?? true, forHuman: false, blocked: false, blockedBy: [] }],
+    tickets: [{ number: 42, title: 'Ticket', url: ISSUE.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: overrides.forgeReady ?? true, forHuman: false, blocked: false, blockedBy: [], assignees: [] }],
   });
 };
 

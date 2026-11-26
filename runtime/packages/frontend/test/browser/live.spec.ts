@@ -42,7 +42,7 @@ const ticket: Ticket = {
   forgeReady: false,
   blocked: false,
   forHuman: false,
-  blockedBy: [],
+  blockedBy: [], assignees: [],
 };
 
 const polledFrontier: PolledFrontier = {

@@ -27,6 +27,7 @@ const CREATE_FRONTIER = `
     blocked_by    TEXT NOT NULL,
     version       TEXT NOT NULL DEFAULT '',
     awaiting_redispatch INTEGER NOT NULL DEFAULT 0,
+    assignees     TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (repository, number)
   ) STRICT;
 
@@ -78,6 +79,11 @@ const HAS_OUTDATED_FRONTIER = `
     type = 'table' AND name = 'frontier_tickets'
     AND NOT EXISTS (
       SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'awaiting_redispatch'
+    )
+  ) OR (
+    type = 'table' AND name = 'frontier_tickets'
+    AND NOT EXISTS (
+      SELECT 1 FROM pragma_table_info('frontier_tickets') WHERE name = 'assignees'
     )
   )
 `;

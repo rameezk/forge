@@ -198,7 +198,7 @@ test('given a dispatched workload, when its run detail page and the Board are re
     polledAt: '2026-09-29T08:15:00.000Z',
     closed: [], requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [], assignees: [] },
     ],
   });
 
@@ -244,7 +244,7 @@ test('given a ticket whose only dispatch never started a workload, when the Boar
     polledAt: '2026-09-29T08:15:00.000Z',
     closed: [], requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [], assignees: [] },
     ],
   });
 
@@ -264,7 +264,7 @@ test('given a ticket with an earlier attempt that was dispatched again with no w
     polledAt: '2026-09-30T08:15:00.000Z',
     closed: [], requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [], assignees: [] },
     ],
   });
 
@@ -482,7 +482,7 @@ test('given a dispatch whose pull request has a conflict resolution that failed 
     polledAt: '2026-09-29T08:15:00.000Z',
     closed: [], requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [], assignees: [] },
     ],
   });
   failToStart(store, '2026-09-25T10:00:00.000Z', 'first');
@@ -503,7 +503,7 @@ test('given a conflict resolution that failed to start and is now running again,
     polledAt: '2026-09-29T08:15:00.000Z',
     closed: [], requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [], assignees: [] },
     ],
   });
   failToStart(store, '2026-09-25T10:00:00.000Z', 'fatal: unable to access the repository');
@@ -543,7 +543,7 @@ const frontierWithTicket = (store: Store): void =>
     polledAt: '2026-09-29T08:15:00.000Z',
     closed: [], requests: [],
     tickets: [
-      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [] },
+      { number: 42, title: 'Ticket', url: TICKET.url, parent: null, createdAt: '2026-09-28T10:07:58Z', forgeReady: true, forHuman: false, blocked: false, blockedBy: [], assignees: [] },
     ],
   });
 

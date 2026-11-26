@@ -17,7 +17,7 @@ const ticket = (overrides: Partial<Ticket> = {}): Ticket => ({
   forgeReady: false,
   blocked: false,
   forHuman: false,
-  blockedBy: [],
+  blockedBy: [], assignees: [],
   ...overrides,
 });
 
@@ -219,6 +219,31 @@ test('given a blocked ready-for-agent ticket, a blocked forge:ready ticket and a
   assert.doesNotMatch(cardOf(body, 2), /data-ready-for-human/);
   assert.match(cardOf(body, 3), /<span[^>]*data-ready-for-human[^>]*>ready-for-human<\/span>/);
   assert.doesNotMatch(cardOf(body, 3), /data-queued/);
+});
+
+test('given a frontier ticket assigned to one person and an unassigned one, when the Board is requested, then the assigned ticket stays in its usual column and shows that person\'s avatar, and the unassigned one shows none', async () => {
+  const app = appWith([
+    frontierOf([
+      ticket({ number: 1, assignees: [{ login: 'octocat', avatarUrl: 'https://avatars.githubusercontent.com/u/583231?v=4' }] }),
+      ticket({ number: 2 }),
+    ]),
+  ]);
+
+  const body = await (await app.request('/')).text();
+
+  assert.deepEqual(populated(cardsByColumn(laneOf(body, 'forge'))), { 'ready-for-agent': ['1', '2'] });
+  assert.match(cardOf(body, 1), /<img[^>]*data-assignee="octocat"[^>]*src="https:\/\/avatars\.githubusercontent\.com\/u\/583231\?v=4"/);
+  assert.match(cardOf(body, 1), /<img[^>]*alt="octocat"/);
+  assert.doesNotMatch(cardOf(body, 2), /data-assignee/);
+});
+
+test('given a ticket assigned to someone whose avatar is not an https URL, when the Board is requested, then the card names the assignee without an image', async () => {
+  const app = appWith([frontierOf([ticket({ number: 1, assignees: [{ login: 'octocat', avatarUrl: 'javascript:alert(1)' }] })])]);
+
+  const body = await (await app.request('/')).text();
+
+  assert.doesNotMatch(cardOf(body, 1), /<img|javascript:/);
+  assert.match(textOf(cardOf(body, 1)), /octocat/);
 });
 
 test('given an unlabelled ready-for-agent ticket whose approval does not stand, a blocked one, and one whose approval stands, when the Board is requested, then only the first two show awaiting re-dispatch, in Ready for agent and Blocked', async () => {
