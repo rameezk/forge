@@ -256,6 +256,7 @@ const OWNER_OF_TABLE: Record<string, string> = {
   pull_request_holds: 'autoMerge',
   auto_merge_samples: 'autoMerge',
   auto_merge_verdicts: 'autoMerge',
+  auto_merge_owed_closes: 'autoMerge',
   diagnoses: 'diagnoses',
   diagnosis_start: 'diagnoses',
 };

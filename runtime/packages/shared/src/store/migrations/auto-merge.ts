@@ -31,8 +31,18 @@ const CREATE_AUTO_MERGE_VERDICTS = `
   ) STRICT;
 `;
 
+const CREATE_AUTO_MERGE_OWED_CLOSES = `
+  CREATE TABLE IF NOT EXISTS auto_merge_owed_closes (
+    repository TEXT NOT NULL,
+    number     INTEGER NOT NULL,
+    issue      INTEGER NOT NULL,
+    PRIMARY KEY (repository, number, issue)
+  ) STRICT;
+`;
+
 export const migrateAutoMerge = (connection: Connection): void => {
   connection.exec(CREATE_PULL_REQUEST_HOLDS);
   connection.exec(CREATE_AUTO_MERGE_SAMPLES);
   connection.exec(CREATE_AUTO_MERGE_VERDICTS);
+  connection.exec(CREATE_AUTO_MERGE_OWED_CLOSES);
 };

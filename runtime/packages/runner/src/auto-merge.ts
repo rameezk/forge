@@ -19,6 +19,7 @@ import {
   autoMergeStatus,
   drawSample,
   FORGE_SAMPLED,
+  queryPullRequestClosingIssues,
   queryPullRequestReadiness,
   queryUnresolvedThreads,
   relabel,
@@ -332,6 +333,50 @@ const maintainerHolds = async (
   return hold === 'maintainer';
 };
 
+const closeOwedIssues = async (
+  { store, fetch, log }: AutoMergeOptions,
+  token: string,
+  repository: string,
+  grade: Pick<RecordedRiskGrade, 'repository' | 'number'>,
+  issues: readonly number[],
+): Promise<void> => {
+  const failures: string[] = [];
+  for (const issue of issues) {
+    try {
+      const path = `/repos/${repository}/issues/${issue}`;
+      const current = (await github(fetch, token, path)) as { state: string };
+      if (current.state === 'open') {
+        await github(fetch, token, path, { method: 'PATCH', body: { state: 'closed', state_reason: 'completed' } });
+        log(`${grade.repository}#${grade.number}: closed #${issue}`);
+      }
+      store.autoMerge.settleOwedClose(grade.repository, grade.number, issue);
+    } catch (error) {
+      failures.push(`#${issue}: ${errorMessage(error)}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`the pull request merged, but its issues could not be closed: ${failures.join('; ')}`);
+  }
+};
+
+const settleOwedCloses = async (
+  options: AutoMergeOptions,
+  config: RepositoryConfig,
+  { repository: name, number, issues }: { repository: string; number: number; issues: number[] },
+): Promise<void> => {
+  const repository = config.github;
+  const token = await options.tokens(repository, 'review');
+  const pull = (await github(options.fetch, token, `/repos/${repository}/pulls/${number}`)) as {
+    state: string;
+    merged?: boolean;
+  };
+  if (pull.state === 'open' || pull.merged !== true) {
+    options.store.autoMerge.dropOwedCloses(name, number);
+    return;
+  }
+  await closeOwedIssues(options, token, repository, { repository: name, number }, issues);
+};
+
 const autoMergeOne = async (
   options: AutoMergeOptions,
   grade: RecordedRiskGrade,
@@ -381,6 +426,11 @@ const autoMergeOne = async (
       body: { commit_id: grade.headSha, event: 'APPROVE' },
     });
   }
+  store.autoMerge.recordOwedCloses(
+    grade.repository,
+    grade.number,
+    await queryPullRequestClosingIssues(fetch, token, repository, grade.number),
+  );
   store.autoMerge.markAutoMergeStarted(grade, now());
   try {
     await github(fetch, token, `${path}/merge`, {
@@ -393,6 +443,16 @@ const autoMergeOne = async (
   }
   store.grades.settleRiskGrade(grade, 'merged', now());
   log(`${grade.repository}#${grade.number}: auto-merged at ${grade.headSha}`);
+  const closeFailure = await closeOwedIssues(
+    options,
+    token,
+    repository,
+    grade,
+    store.autoMerge.owedCloses([grade.repository]).find(({ number }) => number === grade.number)?.issues ?? [],
+  ).then(
+    () => null,
+    (error: unknown) => error,
+  );
   const checkRunFailure = await publishVerdict(options, token, grade, repository, { kind: 'auto-merged' }, facts).then(
     () => null,
     (error: unknown) => error,
@@ -404,6 +464,7 @@ const autoMergeOne = async (
   if (checkRunFailure !== null) {
     throw new Error(`the pull request merged, but its check run could not be written: ${errorMessage(checkRunFailure)}`);
   }
+  if (closeFailure !== null) throw closeFailure;
 };
 
 const checkReviewerAppRules = async (
@@ -450,6 +511,14 @@ export const autoMergePullRequests = async (options: AutoMergeOptions): Promise<
       );
     } catch (error) {
       log(`${grade.repository}#${grade.number}: could not write the check run: ${errorMessage(error)}`);
+      succeeded = false;
+    }
+  }
+  for (const owed of store.autoMerge.owedCloses(names)) {
+    try {
+      await settleOwedCloses(options, repositories[owed.repository] as RepositoryConfig, owed);
+    } catch (error) {
+      log(`${owed.repository}#${owed.number}: could not settle its owed closes: ${errorMessage(error)}`);
       succeeded = false;
     }
   }

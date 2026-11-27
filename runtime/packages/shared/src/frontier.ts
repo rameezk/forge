@@ -168,6 +168,26 @@ export const CLOSING_PULL_REQUESTS_QUERY = `
   }
 `;
 
+export const PULL_REQUEST_CLOSING_ISSUES_QUERY = `
+  query PullRequestClosingIssues($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        closingIssuesReferences(first: 50) {
+          pageInfo {
+            hasNextPage
+          }
+          nodes {
+            number
+            repository {
+              nameWithOwner
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const PULL_REQUEST_READINESS_QUERY = `
   query PullRequestReadiness($owner: String!, $name: String!, $number: Int!) {
     repository(owner: $owner, name: $name) {
@@ -839,6 +859,41 @@ export const queryPullRequestReadiness = async (
       .filter((node) => checkOutcome(node) === outcome)
       .map((node) => (node.__typename === 'CheckRun' ? node.name : node.context) ?? 'unnamed');
   return { draft: pullRequest.isDraft, failing: named('failing'), pending: named('pending') };
+};
+
+interface PullRequestClosingIssuesResponse {
+  repository: {
+    pullRequest: {
+      closingIssuesReferences: {
+        pageInfo: { hasNextPage: boolean };
+        nodes: { number: number; repository: { nameWithOwner: string } }[];
+      };
+    } | null;
+  } | null;
+}
+
+export const queryPullRequestClosingIssues = async (
+  fetch: Fetch,
+  token: string,
+  github: string,
+  number: number,
+): Promise<number[]> => {
+  const subject = `${github}#${number}`;
+  const data = await readGraphql<PullRequestClosingIssuesResponse>(
+    await requestGraphql(fetch, token, PULL_REQUEST_CLOSING_ISSUES_QUERY, github, { number }),
+    PULL_REQUEST_CLOSING_ISSUES_QUERY,
+    subject,
+  );
+  const references = data?.repository?.pullRequest?.closingIssuesReferences;
+  if (references === undefined) {
+    throw new Error(`GitHub found no pull request ${subject}`);
+  }
+  if (references.pageInfo.hasNextPage) {
+    throw new Error(`${subject} closes more issues than forge reads`);
+  }
+  return references.nodes
+    .filter((issue) => issue.repository.nameWithOwner.toLowerCase() === github.toLowerCase())
+    .map((issue) => issue.number);
 };
 
 interface ReviewThreadsResponse {
