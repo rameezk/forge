@@ -244,6 +244,16 @@ else
 	fail=1
 fi
 
+echo "==> case: entering the operator shell from a subdirectory links the skills at the repository root"
+scaffold
+(cd "$work/tests" && nix develop "${override[@]}" -c true) >"$scratch/shell.log" 2>&1 || true
+if [ -L "$work/.agents/skills/onboard-repository" ] && [ ! -e "$work/tests/.agents" ] && [ -z "$(git -C "$work" ls-files --others --exclude-standard)" ]; then
+	echo "ok: the skills are linked at the repository root and the working tree stays clean"
+else
+	echo "FAIL: entering the shell from a subdirectory did not link the skills at the root cleanly"
+	fail=1
+fi
+
 echo "==> case: a missing config.json fails loudly, with no example fallback"
 scaffold
 git -C "$work" add -A
