@@ -30,7 +30,7 @@ in
     boxAddress = lib.mkOption {
       type = lib.types.str;
       example = "forge-box.tailnet.ts.net";
-      description = "The box's tailnet address, where forge-mcp reads forge's read-only JSON interface.";
+      description = "The box's full tailnet name, `<hostname>.<tailnet>.ts.net`, the same host as the dashboard, where forge-mcp reads forge's read-only JSON interface. forge-mcp reaches it over HTTPS, and a short name such as `forge-box` is refused because the box's certificate covers only the full name. An address with an `http://` or `https://` scheme is used as given.";
     };
   };
 

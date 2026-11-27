@@ -11,11 +11,24 @@ export interface Box {
 
 export const BOX_ADDRESS_VARIABLE = 'FORGE_BOX_ADDRESS';
 
+const FULL_NAME_FORM = '<hostname>.<tailnet>.ts.net';
+
 export const boxAddressFrom = (value: string | undefined): string => {
   const address = value?.trim() ?? '';
-  if (address === '') throw new Error(`${BOX_ADDRESS_VARIABLE} must name the box's tailnet address, such as forge-box or forge-box.tailnet.ts.net`);
-  const withScheme = /^https?:\/\//.test(address) ? address : `http://${address}`;
-  return withScheme.replace(/\/+$/, '');
+  if (address === '') throw new Error(`${BOX_ADDRESS_VARIABLE} must name the box's full tailnet name, ${FULL_NAME_FORM}, such as forge-box.tailnet.ts.net`);
+  if (/^https?:\/\//.test(address)) return address.replace(/\/+$/, '');
+  const host = address.split(/[/:]/, 1)[0] ?? '';
+  if (!host.includes('.')) throw new Error(`${BOX_ADDRESS_VARIABLE} is ${JSON.stringify(address)}, which is not the box's full tailnet name: use ${FULL_NAME_FORM}, because the box's certificate covers only that name`);
+  return `https://${address}`.replace(/\/+$/, '');
+};
+
+const reasonFor = (error: unknown): string => {
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause ?? error;
+  if (!(cause instanceof Error)) return String(cause);
+  const code = (cause as { code?: unknown }).code;
+  const parts = [cause.message, typeof code === 'string' && !cause.message.includes(code) ? code : ''].filter((part) => part !== '');
+  return parts.length === 0 ? error.message : parts.join(' ');
 };
 
 const LOCAL_PATH = /^\/(?![/\\])/;
@@ -64,7 +77,7 @@ export class HttpBox implements Box {
     try {
       response = await fetch(url, { headers: { Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
     } catch (error) {
-      throw new Error(`could not reach the forge box at ${this.#address}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`could not reach the forge box at ${this.#address}: ${reasonFor(error)}`);
     }
     if (!response.ok) throw new Error(`the forge box answered ${response.status} for ${path}`);
     return (await response.json()) as Body;
