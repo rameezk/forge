@@ -97,12 +97,37 @@ test('given a repository named like a dot segment, when the HTTP box reads its t
   }
 });
 
-test('given a box address, when it is normalised, then a bare host gets http and a trailing slash is dropped', () => {
-  assert.equal(boxAddressFrom('forge-box'), 'http://forge-box');
-  assert.equal(boxAddressFrom('forge-box.tail1234.ts.net:8080/'), 'http://forge-box.tail1234.ts.net:8080');
+test('given a bare full tailnet name, when it is normalised, then it is reached over https, keeping a port and dropping a trailing slash', () => {
+  assert.equal(boxAddressFrom('forge-box.tail1234.ts.net'), 'https://forge-box.tail1234.ts.net');
+  assert.equal(boxAddressFrom('forge-box.tail1234.ts.net/'), 'https://forge-box.tail1234.ts.net');
+  assert.equal(boxAddressFrom('forge-box.tail1234.ts.net:8080/'), 'https://forge-box.tail1234.ts.net:8080');
+});
+
+test('given an address with a scheme, when it is normalised, then it is used as given apart from a trailing slash', () => {
   assert.equal(boxAddressFrom('https://forge.example/'), 'https://forge.example');
+  assert.equal(boxAddressFrom('http://127.0.0.1:8080'), 'http://127.0.0.1:8080');
+  assert.equal(boxAddressFrom('http://forge-box/'), 'http://forge-box');
+});
+
+test('given a short name, when it is normalised, then it is refused asking for the full tailnet name', () => {
+  assert.throws(() => boxAddressFrom('forge-box'), /FORGE_BOX_ADDRESS.*<hostname>\.<tailnet>\.ts\.net/);
+  assert.throws(() => boxAddressFrom('forge-box:8080'), /FORGE_BOX_ADDRESS.*<hostname>\.<tailnet>\.ts\.net/);
+});
+
+test('given a missing address, when it is normalised, then it is refused naming the variable', () => {
   assert.throws(() => boxAddressFrom(undefined), /FORGE_BOX_ADDRESS/);
   assert.throws(() => boxAddressFrom('  '), /FORGE_BOX_ADDRESS/);
+});
+
+test('given nothing listening at the box address, when the HTTP box reads from it, then the error says why it could not reach the box', async () => {
+  const closed = await serving((_req, res) => res.end());
+  closed.close();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await assert.rejects(new HttpBox(closed.address).running(), (error: Error) => {
+    assert.match(error.message, new RegExp(`could not reach the forge box at ${closed.address}`));
+    assert.match(error.message, /ECONNREFUSED/);
+    return true;
+  });
 });
 
 test('given a box serving the JSON interface, when the HTTP box reads the frontier and a repository, then it asks their routes', async () => {

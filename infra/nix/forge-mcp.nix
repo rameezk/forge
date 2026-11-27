@@ -41,7 +41,7 @@ buildNpmPackage {
   '';
 
   meta = {
-    description = "Forge's local MCP server: over stdio on the operator's machine, reads what forge is running and why a ticket failed from the box's read-only JSON interface at the address in FORGE_BOX_ADDRESS.";
+    description = "Forge's local MCP server: over stdio on the operator's machine, reads what forge is running and why a ticket failed from the box's read-only JSON interface at the box's full tailnet name in FORGE_BOX_ADDRESS, the same host as the dashboard, over HTTPS; an address with a scheme is used as given.";
     mainProgram = "forge-mcp";
     platforms = nodejs.meta.platforms;
   };
