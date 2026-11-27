@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { RepositoryView, RunRecord, RunningView, TicketView } from '@forge/shared';
+import type { FrontierView, ManagedRepositoryView, RepositoryView, RunRecord, RunningView, Ticket, TicketView } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 
 const ISSUE = 'https://github.com/rameezk/forge/issues/7';
@@ -55,7 +55,7 @@ const seedFailure = (store: Store): void => {
   });
 };
 
-const appOver = (store: Store, clock = () => new Date(NOW), repositories: RepositoryView[] = []) =>
+const appOver = (store: Store, clock = () => new Date(NOW), repositories: ManagedRepositoryView[] = []) =>
   createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '', clock, repositories });
 
 test('given a ticket with a failed attempt and its diagnosis, when its JSON route is requested, then the response holds its attempts, the outcome with its failure reason, the diagnosis and dashboard links, and no transcript', async () => {
@@ -155,7 +155,7 @@ test('given a finished dispatch, when the running JSON route is requested, then 
 });
 
 test('given one repository with an on.ticket worker and one without, when the repositories JSON route is requested, then the first carries its worker prompt template and the second carries none', async () => {
-  const repositories: RepositoryView[] = [
+  const repositories: ManagedRepositoryView[] = [
     { name: 'forge', github: 'rameezk/forge', ticketPrompt: '/work-on {url}' },
     { name: 'notes', github: 'rameezk/notes', ticketPrompt: null },
   ];
@@ -180,4 +180,90 @@ test('given the frontend app, when any non-GET request is sent to a JSON route, 
     }
   }
   assert.equal(JSON.stringify([store.workloads.listDispatches(NOW), store.runs.listRuns(), store.diagnoses.listDiagnoses(NOW)]), before);
+});
+
+const aTicket = (number: number, overrides: Partial<Ticket> = {}): Ticket => ({
+  number,
+  title: `Ticket ${number}`,
+  url: `https://github.com/rameezk/forge/issues/${number}`,
+  parent: null,
+  createdAt: '2026-10-01T00:00:00.000Z',
+  forgeReady: false,
+  forHuman: false,
+  blocked: false,
+  blockedBy: [],
+  assignees: [],
+  ...overrides,
+});
+
+const OCTOCAT = { login: 'octocat', avatarUrl: 'https://avatars.githubusercontent.com/u/583231?v=4' };
+
+test('given a stored frontier snapshot holding a frontier, a queued and an assigned ticket, when the frontier JSON route is requested, then each is listed under its kind and the assigned one carries its assignees', async () => {
+  const store = Store.open(':memory:');
+  store.frontier.replaceFrontier({
+    repository: 'forge',
+    github: 'rameezk/forge',
+    polledAt: NOW,
+    tickets: [
+      aTicket(1),
+      aTicket(2, { forgeReady: true }),
+      aTicket(3, { assignees: [OCTOCAT] }),
+      aTicket(4, { forgeReady: true, blocked: true, blockedBy: [1] }),
+      aTicket(5, { blocked: true, blockedBy: [1] }),
+      aTicket(6, { forHuman: true }),
+      aTicket(7, { forHuman: true, forgeReady: true }),
+    ],
+    closed: [],
+    requests: [],
+  });
+
+  const res = await appOver(store).request('/api/frontier');
+  assert.equal(res.status, 200);
+  const { repositories } = (await res.json()) as FrontierView;
+
+  assert.equal(repositories.length, 1);
+  const [forge] = repositories;
+  assert.equal(forge?.repository, 'forge');
+  assert.deepEqual(forge?.frontier.map(({ number, readyFor }) => [number, readyFor]), [[1, 'agent'], [6, 'human'], [7, 'human']]);
+  assert.deepEqual(forge?.queued.map(({ number, blockedBy }) => [number, blockedBy]), [[2, []], [4, [1]]]);
+  assert.deepEqual(forge?.assigned.map(({ number, assignees }) => [number, assignees]), [[3, [OCTOCAT]]]);
+  assert.equal(forge?.frontier[0]?.url, 'https://github.com/rameezk/forge/issues/1');
+});
+
+test('given a repository whose last poll failed and one whose default branch rules pass, when each repository JSON route is requested, then the first reports the failure and the second reports it polls with passing rules', async () => {
+  const store = Store.open(':memory:');
+  store.frontier.recordFrontierError({ repository: 'broken', github: 'rameezk/broken', message: 'GitHub answered 502', failedAt: NOW });
+  store.frontier.replaceFrontier({ repository: 'forge', github: 'rameezk/forge', polledAt: NOW, tickets: [], closed: [], requests: [] });
+  store.frontier.recordBranchRules({ repository: 'forge', github: 'rameezk/forge', failures: [] });
+  store.frontier.replaceFrontier({ repository: 'strict', github: 'rameezk/strict', polledAt: NOW, tickets: [], closed: [], requests: [] });
+  store.frontier.recordBranchRules({ repository: 'strict', github: 'rameezk/strict', failures: ['its default branch does not require an approving review'] });
+  const app = appOver(store);
+
+  const broken = (await (await app.request('/api/repositories/broken')).json()) as RepositoryView;
+  assert.equal(broken.polling, false);
+  assert.deepEqual(broken.lastError, { message: 'GitHub answered 502', failedAt: NOW });
+  assert.equal(broken.rulesPass, null);
+
+  const forge = (await (await app.request('/api/repositories/forge')).json()) as RepositoryView;
+  assert.equal(forge.github, 'rameezk/forge');
+  assert.equal(forge.polling, true);
+  assert.equal(forge.polledAt, NOW);
+  assert.equal(forge.lastError, null);
+  assert.equal(forge.rulesPass, true);
+  assert.deepEqual(forge.ruleFailures, []);
+
+  const strict = (await (await app.request('/api/repositories/strict')).json()) as RepositoryView;
+  assert.equal(strict.rulesPass, false);
+  assert.deepEqual(strict.ruleFailures, ['its default branch does not require an approving review']);
+});
+
+test('given a repository forge does not manage, when its JSON route is requested, then it is not found', async () => {
+  assert.equal((await appOver(Store.open(':memory:')).request('/api/repositories/ghost')).status, 404);
+});
+
+test('given the frontier and repository JSON routes, when a non-GET request is sent to them, then it is refused', async () => {
+  const app = appOver(Store.open(':memory:'));
+  for (const path of ['/api/frontier', '/api/repositories/forge']) {
+    assert.equal((await app.request(path, { method: 'POST' })).status, 405, path);
+  }
 });

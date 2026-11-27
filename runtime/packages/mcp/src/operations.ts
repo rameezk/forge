@@ -1,4 +1,4 @@
-import { READY_FOR_AGENT, type RepositoryView, type RunningPullRequestWorkload, type RunningView, type RunningWorkload, type TicketView } from '@forge/shared';
+import { READY_FOR_AGENT, type FrontierView, type ManagedRepositoryView, type RepositoryView, type RunningPullRequestWorkload, type RunningView, type RunningWorkload, type TicketView } from '@forge/shared';
 import type { Box } from './box.ts';
 import type { GitHub } from './github.ts';
 
@@ -27,6 +27,8 @@ export type ReleaseResult = { released: true; github: string; assignee: string }
 export interface Operations {
   ticket(input: TicketInput): Promise<TicketView>;
   running(): Promise<RunningView>;
+  frontier(input: { repository?: string }): Promise<FrontierView>;
+  repository(input: { repository: string }): Promise<RepositoryView>;
   dispatch(input: TicketInput): Promise<DispatchResult>;
   claim(input: TicketInput): Promise<ClaimResult>;
   release(input: TicketInput): Promise<ReleaseResult>;
@@ -35,8 +37,8 @@ export interface Operations {
 const fillPrompt = (template: string, github: string, number: number, url: string): string =>
   template.replaceAll('{repo}', github).replaceAll('{issue}', String(number)).replaceAll('{url}', url);
 
-const repositoryNamed = async (box: Box, name: string): Promise<RepositoryView> => {
-  const repositories = await box.repositories();
+const managedRepositoryNamed = async (box: Box, name: string): Promise<ManagedRepositoryView> => {
+  const repositories = await box.managedRepositories();
   const repository = repositories.find((candidate) => candidate.name === name);
   if (repository === undefined) {
     throw new Error(`forge manages no repository named ${JSON.stringify(name)}; it manages ${repositories.map((candidate) => candidate.name).join(', ') || 'none'}`);
@@ -70,7 +72,7 @@ export const createOperations = ({ box, github }: OperationsDeps): Operations =>
   },
 
   async dispatch({ repository: name, number }) {
-    const repository = await repositoryNamed(box, name);
+    const repository = await managedRepositoryNamed(box, name);
     const issue = await github.issue(repository.github, number);
     const refuse = (reason: string): DispatchResult => ({ dispatched: false, reason });
     if (!issue.open) return refuse(`${repository.github}#${number} is closed`);
@@ -87,7 +89,7 @@ export const createOperations = ({ box, github }: OperationsDeps): Operations =>
   },
 
   async claim({ repository: name, number }) {
-    const repository = await repositoryNamed(box, name);
+    const repository = await managedRepositoryNamed(box, name);
     const [operator, issue, running] = await Promise.all([github.operator(), github.issue(repository.github, number), box.running()]);
     await github.assign(repository.github, number, operator);
     const others = issue.assignees.filter((login) => login !== operator);
@@ -110,10 +112,20 @@ export const createOperations = ({ box, github }: OperationsDeps): Operations =>
   },
 
   async release({ repository: name, number }) {
-    const repository = await repositoryNamed(box, name);
+    const repository = await managedRepositoryNamed(box, name);
     const [operator, issue] = await Promise.all([github.operator(), github.issue(repository.github, number)]);
     if (!issue.assignees.includes(operator)) return { released: false, reason: `${repository.github}#${number} is not assigned to ${operator}` };
     await github.unassign(repository.github, number, operator);
     return { released: true, github: repository.github, assignee: operator };
   },
+
+  async frontier({ repository }) {
+    const { repositories } = await box.frontier();
+    if (repository === undefined) return { repositories };
+    const named = repositories.filter((known) => known.repository === repository);
+    if (named.length === 0) throw new Error(`forge manages no repository named ${repository}`);
+    return { repositories: named };
+  },
+
+  repository: ({ repository }) => box.repository(repository),
 });

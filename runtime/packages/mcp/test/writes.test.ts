@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { RepositoryView, RunningView } from '@forge/shared';
+import type { ManagedRepositoryView, RunningView } from '@forge/shared';
 import { createOperations, FakeBox, FakeGitHub, type FakeIssue } from '../src/index.ts';
 
-const FORGE: RepositoryView = { name: 'forge', github: 'rameezk/forge', ticketPrompt: '/work-on {url}' };
-const NOTES: RepositoryView = { name: 'notes', github: 'rameezk/notes', ticketPrompt: null };
+const FORGE: ManagedRepositoryView = { name: 'forge', github: 'rameezk/forge', ticketPrompt: '/work-on {url}' };
+const NOTES: ManagedRepositoryView = { name: 'notes', github: 'rameezk/notes', ticketPrompt: null };
 
 const READY: FakeIssue = { github: 'rameezk/forge', number: 7, open: true, labels: ['ready-for-agent'], assignees: [], blockedBy: [] };
 
 const setup = ({ issues = [READY], running }: { issues?: FakeIssue[]; running?: RunningView } = {}) => {
   const github = new FakeGitHub({ operator: 'operator', issues });
-  const box = new FakeBox({ repositories: [FORGE, NOTES], ...(running === undefined ? {} : { running }) });
+  const box = new FakeBox({ managed: [FORGE, NOTES], ...(running === undefined ? {} : { running }) });
   return { github, operations: createOperations({ box, github }) };
 };
 
@@ -108,7 +108,7 @@ test('given a ticket in a repository whose on.ticket worker prompt is /work-on {
 test('given a prompt using {repo}, {issue} and {url}, when claim is called, then each is filled in', async () => {
   const forge = { ...FORGE, ticketPrompt: 'Work {repo}#{issue} ({url}) in {repo}' };
   const github = new FakeGitHub({ operator: 'operator', issues: [READY] });
-  const operations = createOperations({ box: new FakeBox({ repositories: [forge] }), github });
+  const operations = createOperations({ box: new FakeBox({ managed: [forge] }), github });
 
   const result = await operations.claim({ repository: 'forge', number: 7 });
 

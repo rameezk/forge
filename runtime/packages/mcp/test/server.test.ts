@@ -29,15 +29,15 @@ const connected = async (box: FakeBox, github = new FakeGitHub()) => {
 test('given the MCP server, when a client lists its tools, then the reads carry readOnlyHint and dispatch, claim and release do not', async () => {
   const { tools } = await (await connected(new FakeBox())).listTools();
 
-  assert.deepEqual(tools.map(({ name }) => name).sort(), ['claim', 'dispatch', 'release', 'running', 'ticket']);
+  assert.deepEqual(tools.map(({ name }) => name).sort(), ['claim', 'dispatch', 'frontier', 'release', 'repository', 'running', 'ticket']);
   for (const tool of tools) {
-    const reads = tool.name === 'ticket' || tool.name === 'running';
-    assert.equal(tool.annotations?.readOnlyHint === true, reads, tool.name);
+    const writes = tool.name === 'dispatch' || tool.name === 'claim' || tool.name === 'release';
+    assert.equal(tool.annotations?.readOnlyHint === true, !writes, tool.name);
   }
 });
 
 test('given a fake box and GitHub, when a client calls claim, then the operator is assigned and the result carries the prompt', async () => {
-  const box = new FakeBox({ repositories: [{ name: 'forge', github: 'rameezk/forge', ticketPrompt: '/work-on {url}' }] });
+  const box = new FakeBox({ managed: [{ name: 'forge', github: 'rameezk/forge', ticketPrompt: '/work-on {url}' }] });
   const github = new FakeGitHub({ issues: [{ github: 'rameezk/forge', number: 7 }] });
   const client = await connected(box, github);
 

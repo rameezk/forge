@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAdaptorServer } from '@hono/node-server';
-import { Store, type RepositoriesView } from '@forge/shared';
+import { Store, type ManagedRepositoriesView } from '@forge/shared';
 import { createApp, type AppOptions } from './app.ts';
 import { resolveServeConfig } from './config.ts';
 import { readDeployStatus } from './deploy-status.ts';
@@ -35,7 +35,7 @@ export const main = (env: NodeJS.ProcessEnv): void => {
     dispatchOrder,
     repositoryPriorities,
     timeZone,
-    ...(repositoriesFile === null ? {} : { repositories: JSON.parse(readFileSync(repositoriesFile, 'utf8')) as RepositoriesView }),
+    ...(repositoriesFile === null ? {} : { repositories: JSON.parse(readFileSync(repositoriesFile, 'utf8')) as ManagedRepositoriesView }),
     ...(deployStatusFile === null ? {} : { deployStatus: () => readDeployStatus(deployStatusFile) }),
   });
 

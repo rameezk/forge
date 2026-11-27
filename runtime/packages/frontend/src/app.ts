@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { aggregateRisk, autoMergeStatus, summarizeRisk, type DispatchOrder, type RepositoriesView, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type AutoMergeStatus, type RunRecord, type Store } from '@forge/shared';
+import { aggregateRisk, autoMergeStatus, summarizeRisk, type DispatchOrder, type ManagedRepositoriesView, INSIGHT_KIND_FILTERS, noFailures, rawEventsRef, requestRecordRef, UNKNOWN_COHORT, type InsightsFilter, type RunPullRequestWorkload, type AutoMergeStatus, type RunRecord, type Store } from '@forge/shared';
 import { mountApi } from './api.ts';
 import { assetPath } from './assets.ts';
 import { readRequestRecord } from './request-record.ts';
@@ -60,7 +60,7 @@ export interface AppOptions {
   dispatchOrder?: DispatchOrder;
   repositoryPriorities?: Readonly<Record<string, number>>;
   deployStatus?: () => DeployStatus | null;
-  repositories?: RepositoriesView;
+  repositories?: ManagedRepositoriesView;
 }
 
 export const createApp = ({
