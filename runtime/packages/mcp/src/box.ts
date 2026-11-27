@@ -1,8 +1,10 @@
-import { RUNNING_ROUTE, ticketRoute, type RunningView, type TicketView } from '@forge/shared';
+import { FRONTIER_ROUTE, repositoryRoute, RUNNING_ROUTE, ticketRoute, type FrontierView, type RepositoryView, type RunningView, type TicketView } from '@forge/shared';
 
 export interface Box {
   ticket(repository: string, number: number): Promise<TicketView>;
   running(): Promise<RunningView>;
+  frontier(): Promise<FrontierView>;
+  repository(name: string): Promise<RepositoryView>;
   link(path: string): string;
 }
 
@@ -17,6 +19,10 @@ export const boxAddressFrom = (value: string | undefined): string => {
 
 const LOCAL_PATH = /^\/(?![/\\])/;
 
+const isDotSegment = (name: string): boolean => name === '.' || name === '..';
+
+const notARepository = (name: string): Error => new Error(`${JSON.stringify(name)} is not a repository name`);
+
 export class HttpBox implements Box {
   readonly #address: string;
 
@@ -25,12 +31,21 @@ export class HttpBox implements Box {
   }
 
   ticket(repository: string, number: number): Promise<TicketView> {
-    if (repository === '.' || repository === '..') return Promise.reject(new Error(`${JSON.stringify(repository)} is not a repository name`));
+    if (isDotSegment(repository)) return Promise.reject(notARepository(repository));
     return this.#get<TicketView>(ticketRoute(repository, number));
   }
 
   running(): Promise<RunningView> {
     return this.#get<RunningView>(RUNNING_ROUTE);
+  }
+
+  frontier(): Promise<FrontierView> {
+    return this.#get<FrontierView>(FRONTIER_ROUTE);
+  }
+
+  repository(name: string): Promise<RepositoryView> {
+    if (isDotSegment(name)) return Promise.reject(notARepository(name));
+    return this.#get<RepositoryView>(repositoryRoute(name));
   }
 
   link(path: string): string {

@@ -26,10 +26,10 @@ const connected = async (box: FakeBox) => {
   return client;
 };
 
-test('given the MCP server, when a client lists its tools, then ticket and running are listed and carry readOnlyHint', async () => {
+test('given the MCP server, when a client lists its tools, then frontier, repository, running and ticket are listed and carry readOnlyHint', async () => {
   const { tools } = await (await connected(new FakeBox())).listTools();
 
-  assert.deepEqual(tools.map(({ name }) => name).sort(), ['running', 'ticket']);
+  assert.deepEqual(tools.map(({ name }) => name).sort(), ['frontier', 'repository', 'running', 'ticket']);
   for (const tool of tools) assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
 });
 

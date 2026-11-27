@@ -91,3 +91,25 @@ test('given a box address, when it is normalised, then a bare host gets http and
   assert.throws(() => boxAddressFrom(undefined), /FORGE_BOX_ADDRESS/);
   assert.throws(() => boxAddressFrom('  '), /FORGE_BOX_ADDRESS/);
 });
+
+test('given a box serving the JSON interface, when the HTTP box reads the frontier and a repository, then it asks their routes', async () => {
+  const requests: string[] = [];
+  const box = await serving((req, res) => {
+    requests.push(`${req.method} ${req.url}`);
+    res.setHeader('content-type', 'application/json');
+    res.end(req.url === '/api/frontier' ? '{"repositories":[]}' : '{"repository":"a b","polling":true}');
+  });
+  try {
+    const http = new HttpBox(box.address);
+    assert.deepEqual(await http.frontier(), { repositories: [] });
+    assert.equal((await http.repository('a b')).polling, true);
+    assert.deepEqual(requests, ['GET /api/frontier', 'GET /api/repositories/a%20b']);
+  } finally {
+    box.close();
+  }
+});
+
+test('given a repository named like a dot segment, when the HTTP box reads its health, then it refuses before asking the box', async () => {
+  const http = new HttpBox('http://127.0.0.1:1');
+  for (const repository of ['.', '..']) await assert.rejects(http.repository(repository), /repository/);
+});

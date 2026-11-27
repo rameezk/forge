@@ -1,4 +1,4 @@
-import type { RunningPullRequestWorkload, RunningView, RunningWorkload, TicketView } from '@forge/shared';
+import type { FrontierView, RepositoryView, RunningPullRequestWorkload, RunningView, RunningWorkload, TicketView } from '@forge/shared';
 import type { Box } from './box.ts';
 
 export interface OperationsDeps {
@@ -8,6 +8,8 @@ export interface OperationsDeps {
 export interface Operations {
   ticket(input: { repository: string; number: number }): Promise<TicketView>;
   running(): Promise<RunningView>;
+  frontier(input: { repository?: string }): Promise<FrontierView>;
+  repository(input: { repository: string }): Promise<RepositoryView>;
 }
 
 const linked = <Workload extends RunningWorkload>(box: Box, workload: Workload): Workload => ({
@@ -34,4 +36,14 @@ export const createOperations = ({ box }: OperationsDeps): Operations => ({
       conflictResolutions: pullRequests(running.conflictResolutions),
     };
   },
+
+  async frontier({ repository }) {
+    const { repositories } = await box.frontier();
+    if (repository === undefined) return { repositories };
+    const named = repositories.filter((known) => known.repository === repository);
+    if (named.length === 0) throw new Error(`forge manages no repository named ${repository}`);
+    return { repositories: named };
+  },
+
+  repository: ({ repository }) => box.repository(repository),
 });

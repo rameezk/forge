@@ -3,8 +3,14 @@ import {
   attemptOutcome,
   BOX_API_PREFIX,
   diagnosisView,
+  FRONTIER_ROUTE,
   ticketPath,
   type AttemptView,
+  type FrontierTicketView,
+  type FrontierView,
+  type RepositoryFrontier,
+  type RepositoryView,
+  type Ticket,
   type PullRequestWorkloadRecord,
   type RunningPullRequestWorkload,
   type RunningView,
@@ -73,12 +79,48 @@ export const runningView = (store: Store, now: string): RunningView => {
   };
 };
 
+const frontierTicket = ({ number, title, url, forHuman, blockedBy, assignees }: Ticket): FrontierTicketView => ({
+  number,
+  title,
+  url,
+  readyFor: forHuman ? 'human' : 'agent',
+  blockedBy,
+  assignees,
+});
+
+export const frontierView = (repositories: readonly RepositoryFrontier[]): FrontierView => ({
+  repositories: repositories.map(({ repository, github, tickets }) => ({
+    repository,
+    github,
+    frontier: tickets.filter((ticket) => ticket.assignees.length === 0 && !ticket.blocked && !(ticket.forgeReady && !ticket.forHuman)).map(frontierTicket),
+    queued: tickets.filter((ticket) => ticket.assignees.length === 0 && ticket.forgeReady && !ticket.forHuman).map(frontierTicket),
+    assigned: tickets.filter((ticket) => ticket.assignees.length > 0).map(frontierTicket),
+  })),
+});
+
+export const repositoryView = ({ repository, github, polledAt, lastError, branchRules }: RepositoryFrontier): RepositoryView => ({
+  repository,
+  github,
+  polling: lastError === null && polledAt !== null,
+  polledAt,
+  lastError,
+  rulesPass: branchRules === null ? null : branchRules.length === 0,
+  ruleFailures: branchRules ?? [],
+});
+
 export const mountApi = (app: Hono, store: Store, clock: () => Date): void => {
   app.get(`${BOX_API_PREFIX}/tickets/:repository/:number`, (c) => {
     const raw = c.req.param('number');
     const number = Number(raw);
     if (!TICKET_NUMBER.test(raw) || !Number.isSafeInteger(number)) return c.notFound();
     return c.json(ticketView(store, { repository: c.req.param('repository'), number }, clock().toISOString()));
+  });
+
+  app.get(FRONTIER_ROUTE, (c) => c.json(frontierView(store.frontier.listFrontier())));
+
+  app.get(`${BOX_API_PREFIX}/repositories/:repository`, (c) => {
+    const repository = store.frontier.listFrontier().find((known) => known.repository === c.req.param('repository'));
+    return repository === undefined ? c.notFound() : c.json(repositoryView(repository));
   });
 
   app.get(`${BOX_API_PREFIX}/running`, (c) => c.json(runningView(store, clock().toISOString())));
