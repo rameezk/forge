@@ -107,7 +107,7 @@
               forge_name="$(basename "$forge_skill")"
               for forge_dir in .agents/skills .claude/skills; do
                 forge_base="''${forge_root:-$PWD}"
-                if [ -L "$forge_base/$forge_dir" ]; then
+                if [ -L "$forge_base/''${forge_dir%%/*}" ] || [ -L "$forge_base/$forge_dir" ]; then
                   continue
                 fi
                 forge_link="$forge_base/$forge_dir/$forge_name"
