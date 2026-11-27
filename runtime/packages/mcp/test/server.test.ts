@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { TicketView } from '@forge/shared';
-import { createOperations, createServer, FakeBox } from '../src/index.ts';
+import { createOperations, createServer, FakeBox, FakeGitHub } from '../src/index.ts';
 
 const TICKET: TicketView = {
   repository: 'forge',
@@ -18,19 +18,33 @@ const TICKET: TicketView = {
   attempts: [],
 };
 
-const connected = async (box: FakeBox) => {
+const connected = async (box: FakeBox, github = new FakeGitHub()) => {
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  await createServer(createOperations({ box })).connect(serverSide);
+  await createServer(createOperations({ box, github })).connect(serverSide);
   const client = new Client({ name: 'test', version: '0.0.0' });
   await client.connect(clientSide);
   return client;
 };
 
-test('given the MCP server, when a client lists its tools, then frontier, repository, running and ticket are listed and carry readOnlyHint', async () => {
+test('given the MCP server, when a client lists its tools, then the reads carry readOnlyHint and dispatch, claim and release do not', async () => {
   const { tools } = await (await connected(new FakeBox())).listTools();
 
-  assert.deepEqual(tools.map(({ name }) => name).sort(), ['frontier', 'repository', 'running', 'ticket']);
-  for (const tool of tools) assert.equal(tool.annotations?.readOnlyHint, true, tool.name);
+  assert.deepEqual(tools.map(({ name }) => name).sort(), ['claim', 'dispatch', 'frontier', 'release', 'repository', 'running', 'ticket']);
+  for (const tool of tools) {
+    const writes = tool.name === 'dispatch' || tool.name === 'claim' || tool.name === 'release';
+    assert.equal(tool.annotations?.readOnlyHint === true, !writes, tool.name);
+  }
+});
+
+test('given a fake box and GitHub, when a client calls claim, then the operator is assigned and the result carries the prompt', async () => {
+  const box = new FakeBox({ managed: [{ name: 'forge', github: 'rameezk/forge', ticketPrompt: '/work-on {url}' }] });
+  const github = new FakeGitHub({ issues: [{ github: 'rameezk/forge', number: 7 }] });
+  const client = await connected(box, github);
+
+  const result = await client.callTool({ name: 'claim', arguments: { repository: 'forge', number: 7 } });
+
+  assert.deepEqual(github.writes, [{ kind: 'assign', github: 'rameezk/forge', number: 7, login: 'operator' }]);
+  assert.match((result.content as { text: string }[])[0]!.text, /\/work-on https:\/\/github.com\/rameezk\/forge\/issues\/7/);
 });
 
 test('given a fake box holding a ticket, when a client calls the ticket tool, then the result is the ticket as JSON', async () => {

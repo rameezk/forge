@@ -29,6 +29,19 @@ test('given a box serving the JSON interface, when the HTTP box reads a ticket a
   }
 });
 
+test('given a box serving the repositories route, when the HTTP box reads the repositories, then it returns them with their ticket prompts', async () => {
+  const body = [{ name: 'forge', github: 'rameezk/forge', ticketPrompt: '/work-on {url}' }];
+  const box = await serving((_req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(body));
+  });
+  try {
+    assert.deepEqual(await new HttpBox(box.address).managedRepositories(), body);
+  } finally {
+    box.close();
+  }
+});
+
 test('given a box answering an error, when the HTTP box reads from it, then it fails naming the status', async () => {
   const box = await serving((_req, res) => {
     res.statusCode = 502;

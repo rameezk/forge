@@ -13,6 +13,11 @@ const answer = async (produce: () => Promise<unknown>): Promise<CallToolResult> 
   }
 };
 
+const TICKET_INPUT = {
+  repository: z.string().describe("The managed repository's name, as forge knows it, such as forge"),
+  number: z.number().int().positive().describe("The ticket's issue number"),
+};
+
 export const createServer = (operations: Operations): McpServer => {
   const server = new McpServer({ name: 'forge-mcp', version: '0.0.0' });
 
@@ -64,6 +69,36 @@ export const createServer = (operations: Operations): McpServer => {
       annotations: READ_ONLY,
     },
     () => answer(() => operations.running()),
+  );
+
+  server.registerTool(
+    'dispatch',
+    {
+      title: 'Dispatch',
+      description: "Hands a ticket to forge by applying the forge:ready label to its issue as you, which is a maintainer's approval. Refuses a ticket that is not ready-for-agent, and an assigned ticket, naming its assignees: release it first. A ticket still blocked is queued until its blockers are done. This writes nothing else.",
+      inputSchema: TICKET_INPUT,
+    },
+    ({ repository, number }) => answer(() => operations.dispatch({ repository, number })),
+  );
+
+  server.registerTool(
+    'claim',
+    {
+      title: 'Claim',
+      description: "Assigns a ticket's issue to you, so forge leaves it alone, and returns the prompt forge would have run for it in that repository, filled in for the ticket, so your agent takes the same skill path. Warns when a forge workload is running on the ticket. This writes nothing else.",
+      inputSchema: TICKET_INPUT,
+    },
+    ({ repository, number }) => answer(() => operations.claim({ repository, number })),
+  );
+
+  server.registerTool(
+    'release',
+    {
+      title: 'Release',
+      description: "Unassigns you from a ticket's issue. To hand the ticket back to forge, release it and then dispatch it. This writes nothing else.",
+      inputSchema: TICKET_INPUT,
+    },
+    ({ repository, number }) => answer(() => operations.release({ repository, number })),
   );
 
   return server;

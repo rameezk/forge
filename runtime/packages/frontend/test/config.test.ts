@@ -9,7 +9,7 @@ test('given state dir and socket, when resolved, then they are used', () => {
       FORGE_FRONTEND_SOCKET: '/run/forge-frontend/dashboard.sock',
       FORGE_MAX_CONCURRENT: '3',
     }),
-    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, dispatchOrder: 'oldest', repositoryPriorities: {}, gradingRepositories: [], autoMergeRepositories: [], timeZone: 'UTC', deployStatusFile: null },
+    { stateDir: '/var/lib/forge', socketPath: '/run/forge-frontend/dashboard.sock', maxConcurrent: 3, maxOpenPullRequests: 5, dispatchOrder: 'oldest', repositoryPriorities: {}, gradingRepositories: [], autoMergeRepositories: [], timeZone: 'UTC', deployStatusFile: null, repositoriesFile: null },
   );
 });
 
@@ -100,6 +100,12 @@ test('given a deploy status file that is not an absolute path, when resolved, th
     () => resolveServeConfig({ FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/run/d.sock', FORGE_PULL_DEPLOY_STATUS_FILE: 'status.json' }),
     /FORGE_PULL_DEPLOY_STATUS_FILE/,
   );
+});
+
+test('given a repositories file, when resolved, then it is used, and one that is not an absolute path throws naming FORGE_REPOSITORIES_FILE', () => {
+  const base = { FORGE_STATE_DIR: '/s', FORGE_FRONTEND_SOCKET: '/run/d.sock' };
+  assert.equal(resolveServeConfig({ ...base, FORGE_REPOSITORIES_FILE: '/nix/store/x-repositories.json' }).repositoriesFile, '/nix/store/x-repositories.json');
+  assert.throws(() => resolveServeConfig({ ...base, FORGE_REPOSITORIES_FILE: 'repositories.json' }), /FORGE_REPOSITORIES_FILE/);
 });
 
 test('given the dispatch order and repository priorities, when resolved, then they are used, and a bad order or priority throws', () => {

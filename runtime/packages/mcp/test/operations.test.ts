@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { FrontierTicketView, RepositoryFrontierView, RepositoryView, RunningView, TicketView } from '@forge/shared';
-import { createOperations, FakeBox } from '../src/index.ts';
+import { createOperations, FakeBox, FakeGitHub } from '../src/index.ts';
 
 const FAILED: TicketView = {
   repository: 'forge',
@@ -34,7 +34,7 @@ const FAILED: TicketView = {
   ],
 };
 
-const operationsOver = (box: FakeBox) => createOperations({ box });
+const operationsOver = (box: FakeBox) => createOperations({ box, github: new FakeGitHub() });
 
 test('given a fake box holding a ticket whose latest attempt failed with a diagnosis, when ticket is called for it, then the result carries the outcome, the failure reason, the diagnosis and the dashboard links', async () => {
   const operations = operationsOver(new FakeBox({ tickets: [FAILED] }));

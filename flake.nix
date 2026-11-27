@@ -987,6 +987,9 @@
             && lib.elem "FORGE_REPOSITORY_PRIORITIES=forge=10" urgencyOrderHost.config.systemd.services.forge-frontend.serviceConfig.Environment
             && !(lib.any (lib.hasPrefix "FORGE_REPOSITORY_PRIORITIES=") dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment)
           ) "dispatch.order must default to oldest and, with a repository priority, reach the runtime config and the dashboard, the priority only when it is not 0";
+          dashboardCarriesRepositoriesFile = lib.asserts.assertMsg (
+            lib.any (lib.hasPrefix "FORGE_REPOSITORIES_FILE=") dispatchHost.config.systemd.services.forge-frontend.serviceConfig.Environment
+          ) "a host that declares repositories must hand the dashboard the file listing them with their ticket prompts, for its JSON repositories route";
           urgencyOrderNeedsGrading = lib.asserts.assertMsg (
             !(evaluates (dispatchHostWith { dispatch = { order = "urgency"; }; }))
             && lib.any (lib.hasInfix "grading.model") (failedAssertions (dispatchHostWith { dispatch = { order = "urgency"; }; }))
@@ -2128,6 +2131,7 @@
             assert dispatchConfigReflectsMaxConcurrent;
             assert dispatchConfigReflectsReviewLimit;
             assert dispatchOrderOptions;
+            assert dashboardCarriesRepositoriesFile;
             assert urgencyOrderNeedsGrading;
             assert dashboardCarriesMaxConcurrent;
             assert dashboardCarriesReviewLimit;

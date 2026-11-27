@@ -16,6 +16,7 @@ export interface ServeConfig {
   autoMergeRepositories: string[];
   timeZone: string;
   deployStatusFile: string | null;
+  repositoriesFile: string | null;
 }
 
 const resolveMaxConcurrent = (value: string | undefined): number => {
@@ -94,6 +95,12 @@ export const resolveServeConfig = (env: NodeJS.ProcessEnv): ServeConfig => {
       `FORGE_PULL_DEPLOY_STATUS_FILE must be an absolute path, got '${deployStatusFile}'`,
     );
   }
+  const repositoriesFile = env.FORGE_REPOSITORIES_FILE ?? null;
+  if (repositoriesFile !== null && !isAbsolute(repositoriesFile)) {
+    throw new Error(
+      `FORGE_REPOSITORIES_FILE must be an absolute path, got '${repositoriesFile}'`,
+    );
+  }
   return {
     stateDir,
     socketPath,
@@ -105,5 +112,6 @@ export const resolveServeConfig = (env: NodeJS.ProcessEnv): ServeConfig => {
     autoMergeRepositories: (env.FORGE_AUTO_MERGE_REPOSITORIES ?? '').split(',').filter((name) => name !== ''),
     timeZone: resolveTimeZone(env.FORGE_DASHBOARD_TIME_ZONE),
     deployStatusFile,
+    repositoriesFile,
   };
 };

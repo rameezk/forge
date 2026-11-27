@@ -1,8 +1,9 @@
-import { FRONTIER_ROUTE, repositoryRoute, RUNNING_ROUTE, ticketRoute, type FrontierView, type RepositoryView, type RunningView, type TicketView } from '@forge/shared';
+import { FRONTIER_ROUTE, REPOSITORIES_ROUTE, repositoryRoute, RUNNING_ROUTE, ticketRoute, type FrontierView, type ManagedRepositoriesView, type RepositoryView, type RunningView, type TicketView } from '@forge/shared';
 
 export interface Box {
   ticket(repository: string, number: number): Promise<TicketView>;
   running(): Promise<RunningView>;
+  managedRepositories(): Promise<ManagedRepositoriesView>;
   frontier(): Promise<FrontierView>;
   repository(name: string): Promise<RepositoryView>;
   link(path: string): string;
@@ -37,6 +38,10 @@ export class HttpBox implements Box {
 
   running(): Promise<RunningView> {
     return this.#get<RunningView>(RUNNING_ROUTE);
+  }
+
+  managedRepositories(): Promise<ManagedRepositoriesView> {
+    return this.#get<ManagedRepositoriesView>(REPOSITORIES_ROUTE);
   }
 
   frontier(): Promise<FrontierView> {

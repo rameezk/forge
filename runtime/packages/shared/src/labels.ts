@@ -64,7 +64,7 @@ export const STATUS_LABELS: readonly LabelDefinition[] = [
   },
 ];
 
-const requestRest = async (
+export const requestRest = async (
   fetch: Fetch,
   token: string,
   method: string,

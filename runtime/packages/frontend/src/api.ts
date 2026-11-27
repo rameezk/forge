@@ -4,6 +4,7 @@ import {
   BOX_API_PREFIX,
   diagnosisView,
   FRONTIER_ROUTE,
+  REPOSITORIES_ROUTE,
   ticketPath,
   type AttemptView,
   type FrontierTicketView,
@@ -12,6 +13,7 @@ import {
   type RepositoryView,
   type Ticket,
   type PullRequestWorkloadRecord,
+  type ManagedRepositoriesView,
   type RunningPullRequestWorkload,
   type RunningView,
   type RunningWorkload,
@@ -108,7 +110,7 @@ export const repositoryView = ({ repository, github, polledAt, lastError, branch
   ruleFailures: branchRules ?? [],
 });
 
-export const mountApi = (app: Hono, store: Store, clock: () => Date): void => {
+export const mountApi = (app: Hono, store: Store, clock: () => Date, managed: ManagedRepositoriesView): void => {
   app.get(`${BOX_API_PREFIX}/tickets/:repository/:number`, (c) => {
     const raw = c.req.param('number');
     const number = Number(raw);
@@ -124,6 +126,8 @@ export const mountApi = (app: Hono, store: Store, clock: () => Date): void => {
   });
 
   app.get(`${BOX_API_PREFIX}/running`, (c) => c.json(runningView(store, clock().toISOString())));
+
+  app.get(REPOSITORIES_ROUTE, (c) => c.json(managed));
 
   app.all(`${BOX_API_PREFIX}/*`, (c) =>
     c.req.method === 'GET' || c.req.method === 'HEAD'

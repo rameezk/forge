@@ -10,6 +10,8 @@ export const RUNNING_ROUTE = `${BOX_API_PREFIX}/running`;
 
 export const FRONTIER_ROUTE = `${BOX_API_PREFIX}/frontier`;
 
+export const REPOSITORIES_ROUTE = `${BOX_API_PREFIX}/repositories`;
+
 export const repositoryRoute = (repository: string): string =>
   `${BOX_API_PREFIX}/repositories/${encodeURIComponent(repository)}`;
 
@@ -91,6 +93,14 @@ export interface RunningView {
   revisions: RunningPullRequestWorkload[];
   conflictResolutions: RunningPullRequestWorkload[];
 }
+
+export interface ManagedRepositoryView {
+  name: string;
+  github: string;
+  ticketPrompt: string | null;
+}
+
+export type ManagedRepositoriesView = ManagedRepositoryView[];
 
 export interface FrontierTicketView {
   number: number;

@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '@forge/shared';
-import type { FrontierView, RepositoryView, RunRecord, RunningView, Ticket, TicketView } from '@forge/shared';
+import type { FrontierView, ManagedRepositoryView, RepositoryView, RunRecord, RunningView, Ticket, TicketView } from '@forge/shared';
 import { createApp, FileTranscriptSource } from '../src/index.ts';
 
 const ISSUE = 'https://github.com/rameezk/forge/issues/7';
@@ -55,8 +55,8 @@ const seedFailure = (store: Store): void => {
   });
 };
 
-const appOver = (store: Store, clock = () => new Date(NOW)) =>
-  createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '', clock });
+const appOver = (store: Store, clock = () => new Date(NOW), repositories: ManagedRepositoryView[] = []) =>
+  createApp({ store, transcripts: new FileTranscriptSource(mkdtempSync(join(tmpdir(), 'forge-transcripts-'))), css: '', logo: '', idiomorph: '', client: '', clock, repositories });
 
 test('given a ticket with a failed attempt and its diagnosis, when its JSON route is requested, then the response holds its attempts, the outcome with its failure reason, the diagnosis and dashboard links, and no transcript', async () => {
   const store = Store.open(':memory:');
@@ -154,6 +154,18 @@ test('given a finished dispatch, when the running JSON route is requested, then 
   assert.deepEqual(running, { dispatches: [], revisions: [], conflictResolutions: [] });
 });
 
+test('given one repository with an on.ticket worker and one without, when the repositories JSON route is requested, then the first carries its worker prompt template and the second carries none', async () => {
+  const repositories: ManagedRepositoryView[] = [
+    { name: 'forge', github: 'rameezk/forge', ticketPrompt: '/work-on {url}' },
+    { name: 'notes', github: 'rameezk/notes', ticketPrompt: null },
+  ];
+
+  const res = await appOver(Store.open(':memory:'), undefined, repositories).request('/api/repositories');
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), repositories);
+});
+
 test('given the frontend app, when any non-GET request is sent to a JSON route, then it is refused and the store is unchanged', async () => {
   const store = Store.open(':memory:');
   seedFailure(store);
@@ -161,7 +173,7 @@ test('given the frontend app, when any non-GET request is sent to a JSON route, 
   const before = JSON.stringify([store.workloads.listDispatches(NOW), store.runs.listRuns(), store.diagnoses.listDiagnoses(NOW)]);
 
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'PROPFIND']) {
-    for (const path of ['/api/tickets/forge/7', '/api/running', '/api/anything']) {
+    for (const path of ['/api/tickets/forge/7', '/api/running', '/api/repositories', '/api/anything']) {
       const res = await app.request(path, { method, body: '{}' });
       assert.equal(res.status, 405, `${method} ${path}`);
       assert.equal(res.headers.get('allow'), 'GET, HEAD');

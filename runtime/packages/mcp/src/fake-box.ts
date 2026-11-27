@@ -1,9 +1,10 @@
-import { ticketPath, type FrontierView, type RepositoryFrontierView, type RepositoryView, type RunningView, type TicketView } from '@forge/shared';
+import { ticketPath, type FrontierView, type ManagedRepositoriesView, type RepositoryFrontierView, type RepositoryView, type RunningView, type TicketView } from '@forge/shared';
 import type { Box } from './box.ts';
 
 export interface FakeBoxState {
   tickets?: TicketView[];
   running?: RunningView;
+  managed?: ManagedRepositoriesView;
   frontier?: RepositoryFrontierView[];
   repositories?: RepositoryView[];
 }
@@ -11,13 +12,15 @@ export interface FakeBoxState {
 export class FakeBox implements Box {
   readonly #tickets: TicketView[];
   readonly #running: RunningView;
+  readonly #managed: ManagedRepositoriesView;
   readonly #frontier: RepositoryFrontierView[];
   readonly #repositories: RepositoryView[];
   #failure: string | null = null;
 
-  constructor({ tickets = [], running = { dispatches: [], revisions: [], conflictResolutions: [] }, frontier = [], repositories = [] }: FakeBoxState = {}) {
+  constructor({ tickets = [], running = { dispatches: [], revisions: [], conflictResolutions: [] }, managed = [], frontier = [], repositories = [] }: FakeBoxState = {}) {
     this.#tickets = tickets;
     this.#running = running;
+    this.#managed = managed;
     this.#frontier = frontier;
     this.#repositories = repositories;
   }
@@ -47,6 +50,11 @@ export class FakeBox implements Box {
   async running(): Promise<RunningView> {
     this.#check();
     return this.#running;
+  }
+
+  async managedRepositories(): Promise<ManagedRepositoriesView> {
+    this.#check();
+    return this.#managed;
   }
 
   async frontier(): Promise<FrontierView> {
