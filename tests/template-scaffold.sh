@@ -200,11 +200,11 @@ else
 	fail=1
 fi
 
-echo "==> case: the template consumes forge's toolchain rather than pinning any tool itself"
-if grep -q "forge.lib.operatorToolchain" "$work/flake.nix"; then
-	echo "ok: the operator dev shell consumes forge.lib.operatorToolchain"
+echo "==> case: the template consumes forge's operator shell rather than pinning any tool itself"
+if grep -q "forge.lib.operatorShell" "$work/flake.nix"; then
+	echo "ok: the operator dev shell is forge.lib.operatorShell"
 else
-	echo "FAIL: the operator dev shell does not consume forge.lib.operatorToolchain"
+	echo "FAIL: the operator dev shell is not forge.lib.operatorShell"
 	fail=1
 fi
 if grep -qE "pkgs\.(opentofu|jq|just|nixos-rebuild)" "$work/flake.nix"; then
@@ -212,6 +212,36 @@ if grep -qE "pkgs\.(opentofu|jq|just|nixos-rebuild)" "$work/flake.nix"; then
 	fail=1
 else
 	echo "ok: the operator flake pins no standup tool independently"
+fi
+
+echo "==> case: the operator shell carries the standup toolchain"
+for tool in tofu jq curl just nixos-anywhere nixos-rebuild sops age ssh-to-age; do
+	if (cd "$work" && nix develop "${override[@]}" -c bash -c "command -v $tool" >/dev/null 2>&1); then
+		echo "ok: $tool is on the operator shell path"
+	else
+		echo "FAIL: $tool is missing from the operator shell path"
+		fail=1
+	fi
+done
+
+echo "==> case: entering the operator shell links forge's skills and leaves the working tree clean"
+scaffold
+(cd "$work" && nix develop "${override[@]}" -c true) >"$scratch/shell.log" 2>&1 || true
+for dir in .agents/skills .claude/skills; do
+	if [ -L "$work/$dir/onboard-repository" ] && grep -q "^name: onboard-repository$" "$work/$dir/onboard-repository/SKILL.md" 2>/dev/null; then
+		echo "ok: the onboarding skill is linked into $dir"
+	else
+		echo "FAIL: the onboarding skill is not linked into $dir"
+		tail -10 "$scratch/shell.log"
+		fail=1
+	fi
+done
+untracked="$(git -C "$work" ls-files --others --exclude-standard)"
+if [ -z "$untracked" ]; then
+	echo "ok: the linked skills leave the working tree clean"
+else
+	echo "FAIL: entering the shell left untracked files: $untracked"
+	fail=1
 fi
 
 echo "==> case: a missing config.json fails loudly, with no example fallback"
