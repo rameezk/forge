@@ -173,6 +173,15 @@ Run `gh auth login` once, then register the server in your client:
 
 - **Claude Code**: `claude mcp add --scope user forge -- ~/.nix-profile/bin/forge-mcp`
 - **Codex**: `codex mcp add forge -- ~/.nix-profile/bin/forge-mcp`
+- **Claude Desktop**: add the server to `claude_desktop_config.json` (Settings, Developer, Edit Config) and restart the app. Use the absolute path, since the app does not expand `~`:
+
+  ```json
+  {
+    "mcpServers": {
+      "forge": { "command": "/home/me/.nix-profile/bin/forge-mcp" }
+    }
+  }
+  ```
 
 ### Install it without home-manager
 
@@ -184,6 +193,18 @@ Run `gh auth login` once, then register the server with the box address:
 
 - **Claude Code**: `claude mcp add --scope user -e FORGE_BOX_ADDRESS=forge-box.tailnet.ts.net forge -- ~/.nix-profile/bin/forge-mcp`
 - **Codex**: `codex mcp add --env FORGE_BOX_ADDRESS=forge-box.tailnet.ts.net forge -- ~/.nix-profile/bin/forge-mcp`
+- **Claude Desktop**: add to `claude_desktop_config.json` (Settings, Developer, Edit Config) and restart the app:
+
+  ```json
+  {
+    "mcpServers": {
+      "forge": {
+        "command": "/home/me/.nix-profile/bin/forge-mcp",
+        "env": { "FORGE_BOX_ADDRESS": "forge-box.tailnet.ts.net" }
+      }
+    }
+  }
+  ```
 
 Upgrade with `nix profile upgrade forge-mcp`.
 
