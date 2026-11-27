@@ -98,6 +98,7 @@ export {
   queryLabelled,
   queryRequests,
   queryPullRequest,
+  queryPullRequestClosingIssues,
   queryPullRequestReadiness,
   queryUnresolvedThreads,
   queryPullRequestConflict,

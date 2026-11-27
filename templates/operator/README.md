@@ -1145,6 +1145,7 @@ approve its own. Never give the Reviewer App a bypass of the ruleset.
    your organisation's settings). Give it any name, set the homepage URL to
    this repository, untick **Webhook**, and choose **Only on this account**.
    Set these repository permissions and no others:
+   - Issues: read and write
    - Pull requests: read and write
    - Contents: read and write
    - Checks: read and write
@@ -1164,8 +1165,10 @@ github_reviewer_app_private_key: |
   -----END RSA PRIVATE KEY-----
 ```
 
-Upgrading an existing Reviewer App: change **Checks** to read and write in its
-repository permissions, then accept the new permission on each installation.
+Upgrading an existing Reviewer App: change **Checks** to read and write and
+add **Issues** at read and write in its repository permissions, then accept the
+new permissions on each installation. Issues lets it close the tickets an
+auto-merged pull request closes.
 Until you do, the repository shows a Reviewer App rule failure naming the
 permission and `forge-auto-merge` merges nothing there.
 

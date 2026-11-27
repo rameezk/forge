@@ -27,6 +27,13 @@ interface Pull {
   repository?: string;
   files?: ChangedFileSpec[];
   fingerprint?: string;
+  closes?: ClosingIssue[];
+}
+
+interface ClosingIssue {
+  number: number;
+  repository?: 'forge' | 'other';
+  state?: 'open' | 'closed';
 }
 
 interface ChangedFileSpec {
@@ -187,7 +194,16 @@ const forge = (
   const removedLabels: { number: number; label: string }[] = [];
   const checkRuns: CheckRunWrite[] = [];
   const labels: { number: number; labels: string[] }[] = [];
-  const hooks = { failComments: false, failCheckRuns: false, beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
+  const issues = new Map<string, { state: 'open' | 'closed'; labels: string[] }>();
+  for (const pull of pulls) {
+    for (const { number, repository = 'forge', state = 'open' } of pull.closes ?? []) {
+      issues.set(`${repository}#${number}`, { state, labels: ['ready-for-agent', 'forge:done'] });
+    }
+  }
+  const issueWrites: { repository: string; number: number; body: Record<string, unknown> }[] = [];
+  const mergedPulls = new Set<number>();
+  const closedPulls = new Set<number>();
+  const hooks = { failIssueCloses: new Set<number>(), failComments: false, failCheckRuns: false, beforeMerge: (_number: number): void => {}, refuseMerges: false, failLabels: false, foreignApprovals: new Set<number>() };
   const answering: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     const json = (data: unknown, status = 200): Response =>
@@ -225,9 +241,30 @@ const forge = (
         const body = JSON.parse(String(init?.body)) as { sha?: string };
         if (body.sha !== heads.get(number)) return json({ message: 'Head branch was modified' }, 409);
         merges.push({ number, body });
+        mergedPulls.add(number);
         return json({ merged: true });
       }
-      return json({ number, state: 'open', draft: pull.draft ?? false, head: { sha: heads.get(number) } });
+      return json({
+        number,
+        state: mergedPulls.has(number) || closedPulls.has(number) ? 'closed' : 'open',
+        merged: mergedPulls.has(number),
+        draft: pull.draft ?? false,
+        head: { sha: heads.get(number) },
+      });
+    }
+    const issueOf = /^\/repos\/rameezk\/(forge|other)\/issues\/(\d+)$/.exec(url.pathname);
+    if (issueOf !== null) {
+      const key = `${issueOf[1]}#${issueOf[2]}`;
+      const issue = issues.get(key);
+      if (issue === undefined) return json({}, 404);
+      if (init?.method === 'PATCH') {
+        if (hooks.failIssueCloses.has(Number(issueOf[2]))) return json({ message: 'nope' }, 500);
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        issueWrites.push({ repository: issueOf[1] ?? '', number: Number(issueOf[2]), body });
+        if (body.state === 'closed') issue.state = 'closed';
+        return json({ number: Number(issueOf[2]), state: issue.state });
+      }
+      return json({ number: Number(issueOf[2]), state: issue.state, labels: issue.labels.map((name) => ({ name })) });
     }
     const checkRunsOf = /^\/repos\/rameezk\/(forge|other)\/check-runs(?:\/(\d+))?$/.exec(url.pathname);
     if (checkRunsOf !== null) {
@@ -287,6 +324,23 @@ const forge = (
                           actor: { __typename: 'User', login: applier === 'maintainer' ? 'maintainer' : 'stranger' },
                         },
                       ],
+              },
+            },
+          },
+        },
+      });
+    }
+    if (operation === 'PullRequestClosingIssues') {
+      return json({
+        data: {
+          repository: {
+            pullRequest: {
+              closingIssuesReferences: {
+                pageInfo: { hasNextPage: false },
+                nodes: (pull?.closes ?? []).map(({ number, repository = 'forge' }) => ({
+                  number,
+                  repository: { nameWithOwner: `rameezk/${repository}` },
+                })),
               },
             },
           },
@@ -370,6 +424,13 @@ const forge = (
         opened.close();
       }
     },
+    closePullRequest: (number: number): void => {
+      closedPulls.add(number);
+    },
+    reopenIssue: (repository: string, number: number): void => {
+      const issue = issues.get(`${repository}#${number}`);
+      if (issue !== undefined) issue.state = 'open';
+    },
     release: (number: number): void => {
       held.delete(number);
     },
@@ -377,6 +438,9 @@ const forge = (
       heads.set(number, `moved-${number}`);
     },
     pulls,
+    issues,
+    issueWrites,
+    mergedPulls,
     reviews,
     merges,
     comments,
@@ -1211,4 +1275,137 @@ test('given a failing repository whose candidate head moved on or that is not a 
   f.changeHead(1);
   await f.run();
   assert.deepEqual(f.checkRuns, []);
+});
+
+const closes = (...numbers: number[]): ClosingIssue[] => numbers.map((number) => ({ number }));
+
+const stateOf = (f: ReturnType<typeof forge>, number: number, repository = 'forge'): string | undefined =>
+  f.issues.get(`${repository}#${number}`)?.state;
+
+const owedOf = (f: ReturnType<typeof forge>) => f.withStore((store) => store.autoMerge.owedCloses(['forge', 'other']));
+
+test('given a candidate that passes every gate and closes two open issues in its repository, when the pass auto-merges it, then both issues are closed as completed with no comment and their labels unchanged', async () => {
+  const f = forge([{ number: 7, closes: closes(10, 11) }]);
+  assert.equal(await f.run(), 0);
+
+  assert.deepEqual(f.issueWrites, [
+    { repository: 'forge', number: 10, body: { state: 'closed', state_reason: 'completed' } },
+    { repository: 'forge', number: 11, body: { state: 'closed', state_reason: 'completed' } },
+  ]);
+  assert.equal(stateOf(f, 10), 'closed');
+  assert.equal(stateOf(f, 11), 'closed');
+  assert.deepEqual(f.issues.get('forge#10')?.labels, ['ready-for-agent', 'forge:done']);
+  assert.deepEqual(f.comments.map(({ number }) => number), [7]);
+  assert.deepEqual(f.labels, []);
+  assert.deepEqual(owedOf(f), []);
+});
+
+test('given closing references that include an already closed issue and an issue in another repository, when the pass auto-merges the pull request, then neither is touched and the open same-repository references are closed', async () => {
+  const f = forge([
+    { number: 7, closes: [{ number: 10 }, { number: 11, state: 'closed' }, { number: 12, repository: 'other' }] },
+  ]);
+  assert.equal(await f.run(), 0);
+
+  assert.deepEqual(f.issueWrites.map(({ repository, number }) => `${repository}#${number}`), ['forge#10']);
+  assert.equal(stateOf(f, 12, 'other'), 'open');
+  assert.deepEqual(owedOf(f), []);
+});
+
+test('given a pass that merges a pull request but whose close of one issue fails, when it finishes, then the check run and the comment are written, the pass fails, and the next pass closes the issue', async () => {
+  const f = forge([{ number: 7, closes: closes(10, 11) }]);
+  f.hooks.failIssueCloses.add(11);
+  assert.equal(await f.run(), 1);
+
+  assert.equal(stateOf(f, 10), 'closed');
+  assert.equal(stateOf(f, 11), 'open');
+  assert.equal(f.checkRuns.length, 1);
+  assert.equal(f.comments.length, 1);
+  assert.match(f.journals.join(''), /forge#7: could not auto-merge: .*11/);
+
+  f.hooks.failIssueCloses.clear();
+  assert.equal(await f.run(), 0);
+  assert.equal(stateOf(f, 11), 'closed');
+  assert.deepEqual(f.issueWrites.map(({ number }) => number), [10, 11]);
+  assert.deepEqual(owedOf(f), []);
+});
+
+test('given a pull request that merged but whose pass stopped at the merge call, when the next pass runs on the same store, then its closing issues are closed', async () => {
+  const f = forge([{ number: 7, closes: closes(10) }]);
+  f.hooks.beforeMerge = (number) => {
+    f.mergedPulls.add(number);
+    throw new Error('connection reset');
+  };
+  assert.equal(await f.run(), 1);
+  assert.equal(stateOf(f, 10), 'open');
+  assert.deepEqual(owedOf(f), [{ repository: 'forge', number: 7, issues: [10] }]);
+
+  f.hooks.beforeMerge = () => {};
+  assert.equal(await f.run(), 0);
+  assert.equal(stateOf(f, 10), 'closed');
+  assert.deepEqual(owedOf(f), []);
+});
+
+test('given owed closes for a pull request whose merge call failed and which is still open, when the next pass runs, then none of its issues are closed and the owed closes are dropped', async () => {
+  const f = forge([{ number: 7, closes: closes(10) }]);
+  f.hooks.refuseMerges = true;
+  assert.equal(await f.run(), 1);
+  assert.deepEqual(owedOf(f), [{ repository: 'forge', number: 7, issues: [10] }]);
+
+  f.changeHead(7);
+  await f.run();
+  assert.deepEqual(f.issueWrites, []);
+  assert.deepEqual(owedOf(f), []);
+});
+
+test('given owed closes for a pull request closed without merging, when the next pass runs, then none of its issues are closed and the owed closes are dropped', async () => {
+  const f = forge([{ number: 7, closes: closes(10) }]);
+  f.hooks.refuseMerges = true;
+  await f.run();
+  f.closePullRequest(7);
+
+  await f.run();
+  assert.deepEqual(f.issueWrites, []);
+  assert.equal(stateOf(f, 10), 'open');
+  assert.deepEqual(owedOf(f), []);
+});
+
+test('given a ticket forge closed after an auto-merge that a maintainer reopened, when later passes run, then the ticket stays open', async () => {
+  const f = forge([{ number: 7, closes: closes(10) }]);
+  await f.run();
+  f.reopenIssue('forge', 10);
+
+  await f.run();
+  await f.run();
+  assert.equal(stateOf(f, 10), 'open');
+  assert.equal(f.issueWrites.length, 1);
+});
+
+test('given owed closes for a repository whose Reviewer App rules now fail, when a pass runs and later one runs after the rules pass again, then the first closes nothing and the later closes the issues', async () => {
+  const unaccepted: Record<string, string> = {};
+  const f = forge([{ number: 7, closes: closes(10) }], ['forge'], {}, { unaccepted });
+  f.hooks.beforeMerge = (number) => {
+    f.mergedPulls.add(number);
+    throw new Error('connection reset');
+  };
+  await f.run();
+  f.hooks.beforeMerge = () => {};
+
+  unaccepted.issues = 'write';
+  await f.run();
+  assert.deepEqual(f.issueWrites, []);
+  assert.equal(owedOf(f).length, 1);
+
+  delete unaccepted.issues;
+  assert.equal(await f.run(), 0);
+  assert.equal(stateOf(f, 10), 'closed');
+});
+
+test('given a Reviewer App installation without Issues write, when the pass runs, then nothing merges and the failure names the missing permission', async () => {
+  const f = forge([{ number: 7, closes: closes(10) }], ['forge'], {}, { rules: { 'rameezk/forge': PROTECTED }, unaccepted: { issues: 'write' } });
+  await f.run();
+
+  assert.deepEqual(f.merges, []);
+  assert.deepEqual(f.issueWrites, []);
+  const [failure] = reviewerFailures(f);
+  assert.match(failure ?? '', /issues: write/);
 });

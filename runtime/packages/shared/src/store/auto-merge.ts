@@ -78,6 +78,44 @@ export class AutoMerge {
       .run({ repository: grade.repository, number: grade.number, head_sha: grade.headSha });
   }
 
+  recordOwedCloses(repository: string, number: number, issues: readonly number[]): void {
+    const insert = this.#db.prepare(
+      `INSERT OR IGNORE INTO auto_merge_owed_closes (repository, number, issue) VALUES ($repository, $number, $issue)`,
+    );
+    for (const issue of issues) insert.run({ repository, number, issue });
+  }
+
+  owedCloses(repositories: readonly string[]): { repository: string; number: number; issues: number[] }[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT repository, number, issue FROM auto_merge_owed_closes
+        WHERE repository IN (SELECT value FROM json_each($repositories))
+        ORDER BY repository, number, issue`,
+      )
+      .all({ repositories: JSON.stringify(repositories) }) as { repository: string; number: number; issue: number }[];
+    const owed: { repository: string; number: number; issues: number[] }[] = [];
+    for (const { repository, number, issue } of rows) {
+      const last = owed.at(-1);
+      if (last !== undefined && last.repository === repository && last.number === number) last.issues.push(issue);
+      else owed.push({ repository, number, issues: [issue] });
+    }
+    return owed;
+  }
+
+  settleOwedClose(repository: string, number: number, issue: number): void {
+    this.#db
+      .prepare(
+        `DELETE FROM auto_merge_owed_closes WHERE repository = $repository AND number = $number AND issue = $issue`,
+      )
+      .run({ repository, number, issue });
+  }
+
+  dropOwedCloses(repository: string, number: number): void {
+    this.#db
+      .prepare(`DELETE FROM auto_merge_owed_closes WHERE repository = $repository AND number = $number`)
+      .run({ repository, number });
+  }
+
   openGradedPullRequests(repositories: readonly string[]): RecordedRiskGrade[] {
     const rows = this.#db
       .prepare(
