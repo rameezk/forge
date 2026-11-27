@@ -301,6 +301,10 @@ _Avoid_: alert bar, error banner, status line
 **Operator**:
 A person who stands up and runs their own forge deployment - the reuser of forge, distinct from its author.
 
+**Box address**:
+The box's full tailnet name, `<hostname>.<tailnet>.ts.net`: the one host its dashboard and JSON interface are served on, over HTTPS only (ADR-0020). A short MagicDNS name such as `<hostname>` is not a box address, since the box's certificate does not cover it.
+_Avoid_: box URL, box host, short name
+
 **Operator repository**:
 A per-operator repository, scaffolded from forge's flake template, that commits the operator's own `config.json` and consumes forge as a flake input to stand up their box. Keeps forge itself generic and secret-free.
 
