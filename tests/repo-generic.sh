@@ -61,6 +61,13 @@ else
 	fail=1
 fi
 
+if nix eval --json .#lib --apply "l: builtins.attrNames l" 2>/dev/null | grep -q '"operatorShell"'; then
+	echo "ok: forge exposes the operator shell as a library output"
+else
+	echo "FAIL: forge does not expose lib.operatorShell"
+	fail=1
+fi
+
 system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
 toolchain_names="$(nix eval --json ".#lib.operatorToolchain" --apply "f: map (p: p.pname or p.name) (f \"$system\")" 2>/dev/null || true)"
 for tool in opentofu jq just nixos-anywhere nixos-rebuild sops age ssh-to-age; do

@@ -487,6 +487,31 @@ A timer then polls each repository's frontier - its open issues labelled
 `ready-for-agent` with no open blockers - every `pollInterval`, and the
 dashboard's Work page shows it.
 
+### Onboarding a repository
+
+Ask an agent in this repository to onboard one: "onboard owner/name onto forge".
+Entering the dev shell (`direnv allow`, or `nix develop`) links forge's operator
+skills into `.agents/skills` and `.claude/skills`, so any agent that reads
+either directory finds the `onboard-repository` skill. The links point into the
+Nix store, are kept out of git, and follow the `forge` input, so a forge bump
+updates the skills without a diff here. The skill walks the five steps: it
+checks the GitHub App is installed on the repository, reports whether the
+repository is ready without changing it, declares it in `flake.nix` and shows
+the diff, checks the flake builds and, once you say yes, commits to `main` and
+pushes for the pull deploy, then confirms through `forge-mcp`'s `repository`
+tool that the repository polls and its rules pass. Register `forge-mcp` first,
+as forge's README describes.
+
+An operator repository scaffolded before the operator shell has the dev shell
+spelled out by hand. Adopt the shell with one edit in `flake.nix`, replacing the
+`devShells` output with:
+
+```nix
+devShells = forAllSystems (system: {
+  default = forge.lib.operatorShell system;
+});
+```
+
 ### The GitHub App
 
 Forge acts on GitHub as a GitHub App that you own, not as you. Its pull

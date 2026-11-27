@@ -84,10 +84,55 @@
           pkgs.age
           pkgs.ssh-to-age
         ];
+      operatorSkills =
+        system:
+        nixpkgs.legacyPackages.${system}.runCommand "forge-operator-skills" { } ''
+          mkdir -p $out
+          cp -R ${./skills/operator}/. $out/
+        '';
+      operatorShell =
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        pkgs.mkShell {
+          packages = operatorToolchain system;
+          shellHook = ''
+            forge_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+            forge_exclude="$(git rev-parse --git-path info/exclude 2>/dev/null || true)"
+            if [ -n "$forge_exclude" ]; then
+              mkdir -p "$(dirname "$forge_exclude")"
+            fi
+            for forge_skill in ${operatorSkills system}/*/; do
+              forge_name="$(basename "$forge_skill")"
+              for forge_dir in .agents/skills .claude/skills; do
+                forge_base="''${forge_root:-$PWD}"
+                if [ -L "$forge_base/''${forge_dir%%/*}" ] || [ -L "$forge_base/$forge_dir" ]; then
+                  continue
+                fi
+                forge_link="$forge_base/$forge_dir/$forge_name"
+                if [ -e "$forge_link" ] && [ ! -L "$forge_link" ]; then
+                  continue
+                fi
+                mkdir -p "$forge_base/$forge_dir"
+                ln -sfn "''${forge_skill%/}" "$forge_link"
+                if [ -n "$forge_root" ] && ! grep -qxF "/$forge_dir/$forge_name" "$forge_exclude" 2>/dev/null; then
+                  echo "/$forge_dir/$forge_name" >>"$forge_exclude"
+                fi
+              done
+            done
+            unset forge_root forge_exclude forge_skill forge_name forge_dir forge_base forge_link
+          '';
+        };
     in
     {
       lib = {
-        inherit mkHost loadConfig operatorToolchain;
+        inherit
+          mkHost
+          loadConfig
+          operatorToolchain
+          operatorShell
+          ;
       };
 
       templates = {

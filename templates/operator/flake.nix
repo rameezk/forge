@@ -121,16 +121,8 @@
         }
       );
 
-      devShells = forAllSystems (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-        {
-          default = pkgs.mkShell {
-            packages = forge.lib.operatorToolchain system;
-          };
-        }
-      );
+      devShells = forAllSystems (system: {
+        default = forge.lib.operatorShell system;
+      });
     };
 }
