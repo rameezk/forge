@@ -10,6 +10,9 @@
 
     sops-nix.url = "github:Mic92/sops-nix";
     sops-nix.inputs.nixpkgs.follows = "nixpkgs";
+
+    home-manager.url = "github:nix-community/home-manager/release-26.05";
+    home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -19,6 +22,7 @@
       disko,
       nixos-anywhere,
       sops-nix,
+      home-manager,
     }:
     let
       lib = nixpkgs.lib;
@@ -133,6 +137,10 @@
           operatorToolchain
           operatorShell
           ;
+      };
+
+      homeManagerModules.default = import ./infra/nix/home-manager-module.nix {
+        forgePackages = self.packages;
       };
 
       templates = {
@@ -2365,6 +2373,10 @@
 
           forge-runner = self.packages.${system}.forge-runner;
           forge-mcp = self.packages.${system}.forge-mcp;
+          home-manager-forge-mcp = pkgs.callPackage ./infra/nix/home-manager-forge-mcp-check.nix {
+            inherit home-manager;
+            homeModule = self.homeManagerModules.default;
+          };
           frontier-command = pkgs.callPackage ./infra/nix/frontier-command-check.nix { };
           runtime-secrets = pkgs.callPackage ./infra/nix/runtime-secrets-check.nix {
             inherit (sops-nix.packages.${system}) sops-install-secrets;

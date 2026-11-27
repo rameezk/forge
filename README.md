@@ -147,7 +147,66 @@ Then follow the scaffolded repository's [README](templates/operator/README.md) t
 
 ## Ask forge from your own agents
 
-`forge-mcp` is a local MCP server that reads what forge is running and why a ticket failed from the box's read-only JSON interface. Its `ticket` and `running` tools are read-only. Register it in an MCP client as a stdio server that runs `nix run github:rameezk/forge#forge-mcp`, with `FORGE_BOX_ADDRESS` set to the box's tailnet address, such as `forge-box.tailnet.ts.net`.
+`forge-mcp` lets your own agents ask forge what is running and why a ticket failed.
+
+### Install it with home-manager
+
+Add forge's home-manager module and set the box's tailnet address:
+
+```nix
+{
+  inputs.forge.url = "github:rameezk/forge";
+
+  outputs = { forge, home-manager, nixpkgs, ... }: {
+    homeConfigurations.me = home-manager.lib.homeManagerConfiguration {
+      pkgs = nixpkgs.legacyPackages.x86_64-linux;
+      modules = [
+        forge.homeManagerModules.default
+        { programs.forge-mcp.boxAddress = "forge-box.tailnet.ts.net"; }
+      ];
+    };
+  };
+}
+```
+
+Run `gh auth login` once, then register the server in your client:
+
+- **Claude Code**: `claude mcp add --scope user forge -- ~/.nix-profile/bin/forge-mcp`
+- **Codex**: `codex mcp add forge -- ~/.nix-profile/bin/forge-mcp`
+- **Claude Desktop**: add the server to `claude_desktop_config.json` (Settings, Developer, Edit Config) and restart the app. Use the absolute path, since the app does not expand `~`:
+
+  ```json
+  {
+    "mcpServers": {
+      "forge": { "command": "/home/me/.nix-profile/bin/forge-mcp" }
+    }
+  }
+  ```
+
+### Install it without home-manager
+
+```bash
+nix profile install github:rameezk/forge#forge-mcp
+```
+
+Run `gh auth login` once, then register the server with the box address:
+
+- **Claude Code**: `claude mcp add --scope user -e FORGE_BOX_ADDRESS=forge-box.tailnet.ts.net forge -- ~/.nix-profile/bin/forge-mcp`
+- **Codex**: `codex mcp add --env FORGE_BOX_ADDRESS=forge-box.tailnet.ts.net forge -- ~/.nix-profile/bin/forge-mcp`
+- **Claude Desktop**: add to `claude_desktop_config.json` (Settings, Developer, Edit Config) and restart the app:
+
+  ```json
+  {
+    "mcpServers": {
+      "forge": {
+        "command": "/home/me/.nix-profile/bin/forge-mcp",
+        "env": { "FORGE_BOX_ADDRESS": "forge-box.tailnet.ts.net" }
+      }
+    }
+  }
+  ```
+
+Upgrade with `nix profile upgrade forge-mcp`.
 
 ## Develop
 
